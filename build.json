@@ -1,0 +1,265 @@
+{
+ "version": "auto-py-to-exe-configuration_v1",
+ "pyinstallerOptions": [
+  {
+   "optionDest": "noconfirm",
+   "value": true
+  },
+  {
+   "optionDest": "filenames",
+   "value": "F:/Apps/zapret/zapretgui/main.py"
+  },
+  {
+   "optionDest": "onefile",
+   "value": true
+  },
+  {
+   "optionDest": "console",
+   "value": false
+  },
+  {
+   "optionDest": "icon_file",
+   "value": "F:/Apps/zapret/zapretgui/zapret.ico"
+  },
+  {
+   "optionDest": "clean_build",
+   "value": false
+  },
+  {
+   "optionDest": "strip",
+   "value": false
+  },
+  {
+   "optionDest": "noupx",
+   "value": false
+  },
+  {
+   "optionDest": "disable_windowed_traceback",
+   "value": false
+  },
+  {
+   "optionDest": "uac_admin",
+   "value": false
+  },
+  {
+   "optionDest": "uac_uiaccess",
+   "value": false
+  },
+  {
+   "optionDest": "argv_emulation",
+   "value": false
+  },
+  {
+   "optionDest": "bootloader_ignore_signals",
+   "value": false
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/cygwin1.dll;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/dht_find_node.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/dht_get_peers.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/discord.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/dtls_clienthello_w3_org.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/faceinsta.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/http_iana_org.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/info.html;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/ipset-discord.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/list-general.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/netrogat.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/other.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_1.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_2.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_3.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_facebook_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_facebook_com_quiche.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_google_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_rutracker_org.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_rutracker_org_kyber_1.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_rutracker_org_kyber_2.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_vk_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_initial_www_google_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_short_header.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/quic_test_00.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/russia-youtube-rtmps.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/service_install.bat;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/service_remove.bat;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_1.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_2.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_3.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_4.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_gosuslugi_ru.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_iana_org.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_rutracker_org_kyber.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_sberbank_ru.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_vk_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_vk_com_kyber.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/tls_clienthello_www_google_com.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/WinDivert.dll;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/WinDivert64.sys;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/winws.exe;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/wireguard_initiation.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/wireguard_response.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/youtube.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/youtube_v2.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/youtubeGV.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/youtubeQ.txt;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/zero_256.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/zero_512.bin;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "F:/Apps/zapret/zapretgui/zero_1024.bin;."
+  }
+ ],
+ "nonPyinstallerOptions": {
+  "increaseRecursionLimit": true,
+  "manualArguments": ""
+ }
+}

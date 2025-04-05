@@ -1,0 +1,6 @@
+echo Gen file version...
+python build_version_info.py
+echo Building....
+pyinstaller --onefile --noconsole  --windowed --icon "%cd%\zapret.ico" --version-file=version_info.txt "%cd%\main.py"
+echo Done!
+pause
