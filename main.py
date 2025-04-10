@@ -11,6 +11,7 @@ from service import ServiceManager
 from start import DPIStarter
 from discord import DiscordManager
 from theme import ThemeManager, THEMES, get_windows_theme, get_selected_theme, set_selected_theme
+from tray import SystemTrayManager
 from urls import *
 
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
@@ -342,6 +343,7 @@ class LupiDPIApp(QWidget):
     def __init__(self):
         # Инициализируем переменную для секретного ввода
         self._secret_input = ""
+        self._allow_close = False  # Флаг для контроля закрытия окна
 
         """Initializes the application window."""
         super().__init__()
@@ -405,7 +407,13 @@ class LupiDPIApp(QWidget):
             lists_folder=LISTS_FOLDER,
             status_callback=self.set_status
         )
-
+        # Инициализируем системный трей после создания всех элементов интерфейса
+        self.tray_manager = SystemTrayManager(
+            parent=self,
+            icon_path=os.path.abspath(ICON_PATH),
+            app_version=APP_VERSION
+        )
+        
         # Проверяем наличие службы и обновляем видимость кнопок автозапуска
         service_running = self.service_manager.check_service_exists()
         self.update_autostart_ui(service_running)
@@ -584,18 +592,16 @@ class LupiDPIApp(QWidget):
         spacer = QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding)
         layout.addItem(spacer)
 
-        # Добавляем ссылку на авторство
         self.author_label = QLabel('Автор: <a href="https://t.me/bypassblock">t.me/bypassblock</a>')
+        self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>\n или на почту <a href="mail:fuckyourkn@yandex.ru">fuckyourkn@yandex.ru</a>')
 
-        # Добавляем ссылку на поддержку
-        self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>')
-        self.support_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
-        self.support_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.support_label)
-                
         self.author_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
         self.author_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.author_label)
+
+        self.support_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
+        self.support_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.support_label)
         
         self.setLayout(layout)
         self.setFixedSize(400, 600)
@@ -1116,6 +1122,34 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             print(f"Ошибка при применении фона РКН Тян: {str(e)}")
             self.set_status(f"Ошибка фона: {str(e)}")
+
+    def closeEvent(self, event):
+        """Перехватывает событие закрытия окна"""
+        # Передаем обработку менеджеру трея
+        if hasattr(self, 'tray_manager'):
+            self.tray_manager.handle_window_close(event)
+        else:
+            event.accept()  # Если менеджер трея не инициализирован, закрываем окно
+
+    def changeEvent(self, event):
+        """Перехватывает события изменения состояния окна"""
+        # Передаем обработку менеджеру трея для сворачивания
+        if hasattr(self, 'tray_manager'):
+            if self.tray_manager.handle_window_minimize(event):
+                return
+        super().changeEvent(event)
+            
+    def exit_app(self):
+        """Полностью закрывает приложение"""
+        # Останавливаем DPI перед выходом
+        if hasattr(self, 'dpi_starter'):
+            self.dpi_starter.stop_dpi()
+        
+        # Выходим через менеджер трея, который корректно закроет приложение
+        if hasattr(self, 'tray_manager'):
+            self.tray_manager.exit_app()
+        else:
+            QApplication.quit()
 
 def check_if_in_archive():
     """

@@ -1,7 +1,7 @@
-# добавить все из архива гитхаба flow
 # https://github.com/MagilaWEB/unblock-youtube-discord
- 
-BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.1.0"
+# https://github.com/ankddev/zapret-discord-youtube
+
+BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.2.0"
 
 WF_TCP, WF_UDP = "--wf-tcp=80,443", "--wf-udp=443,50000-50100"
 
@@ -106,13 +106,27 @@ DPI_COMMANDS = {
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig
     --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --new 
-    --filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    {faceinsta}
     --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
     --filter-udp=50000-50099 --ipset={LISTS_FOLDER}/ipset-discord.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-any-protocol --dpi-desync-cutoff=n4
 """,
 
-"Все сайты (06.01.2025)": f"{WF_TCP} --wf-udp=443,50000-50100 {YRTMP1} {YQ8} {YT10} {YGV3} {other1} {DISIP5} {DISTCP11} {DISUDP9} {UDP7} {YRTMP2} {faceinsta}",
+"Все сайты (06.01.2025)": f"""
+    {WF_TCP} --wf-udp=443,50000-50100
+    {YRTMP1}
+    {YQ8}
+    {YT10}
+    {YGV3}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --dpi-desync-ttl=2 --new
+    {DISIP5}
+    {DISTCP11}
+    {DISUDP9}
+    {UDP7}
+    {YRTMP2}
+    {faceinsta}
+""",
 
 "Уфанет (Дискорд 31.03.25)": f"""
     --wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443,50000-65535
@@ -124,7 +138,8 @@ DPI_COMMANDS = {
     --filter-udp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-udplen-increment=10 --dpi-desync-repeats=6 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=50000-65535 --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin
 """,
-################################### https://github.com/ankddev/zapret-discord-youtube ####################################
+
+################################### https://github.com/Flowseal/zapret-discord-youtube ####################################
 "Alt v1": f"""
     --wf-tcp=80,443 --wf-udp=443,50000-50100
     --filter-udp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
@@ -202,6 +217,19 @@ DPI_COMMANDS = {
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake --dpi-desync-ttl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 """,
 
+"Fake Tls Mod v2": f"""
+    --wf-tcp=80,443 --wf-udp=443,50000-50100
+    --filter-udp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
+    --filter-udp=50000-50100 --ipset={LISTS_FOLDER}/ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --new
+    --filter-tcp=80 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-udp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
+    --filter-tcp=80 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
+
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
+""",
+
 "md5sig padencap (20.03.2025, Билайн)": f"""
     --wf-tcp=443 --wf-udp=443,50000-65535
     {other3}
@@ -250,6 +278,30 @@ DPI_COMMANDS = {
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
+"datanoack padencap midsld wssize (20.03.2025)": f"""
+    --wf-tcp=443 --wf-udp=443,50000-65535
+    {other3}
+    {DISUDP7}
+    {UDP3}
+    {YGV1}
+    {YT12}
+    {YQ4}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
+""",
+
+"md5sig padencap (20.03.2025)": f"""
+    --wf-tcp=443 --wf-udp=443,50000-65535
+    {other3}
+    {DISUDP7}
+    {UDP3}
+    {YGV1}
+    {YT12}
+    {YQ4}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+""",
+
 "md5sig padencap wssize (20.03.2025)": f"""
     --wf-tcp=443 --wf-udp=443,50000-65535
     {other3}
@@ -260,6 +312,30 @@ DPI_COMMANDS = {
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+""",
+
+"multisplit 1,md5sig padencap (discord)": f"""
+    --wf-tcp=443 --wf-udp=443,50000-65535
+    {other3}
+    {DISUDP7}
+    {UDP3}
+    {YGV1}
+    {YT12}
+    {YQ4}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+""",
+
+"multisplit 1,md5sig padencap wssize (discord)": f"""
+    --wf-tcp=443 --wf-udp=443,50000-65535
+    {other3}
+    {DISUDP7}
+    {UDP3}
+    {YGV1}
+    {YT12}
+    {YQ4}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
 """,
 
 "Дискорд TCP 80":  f"{WF_TCP} --wf-udp=443,50000-59000 {YQ1} {YGV1} {YT1} {DISTCP80} {DISUDP2} {UDP2} {DISTCP2} {other1} {faceinsta}",

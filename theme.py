@@ -128,7 +128,7 @@ class ThemeManager:
                 font-size: 9pt;
             """)
             self.author_label.setText(f'Автор: <a href="{self.author_url}" style="color:{status_color}">t.me/bypassblock</a>')
-            self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a>')
+            self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a><br>или на почту <a href="mail:fuckyourkn@yandex.ru"  style="color:{status_color}">fuckyourkn@yandex.ru</a>')
 
             # Если выбрана тема РКН Тян, применяем фоновое изображение
             if theme_name == "РКН Тян":
