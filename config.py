@@ -1,7 +1,7 @@
 # https://github.com/MagilaWEB/unblock-youtube-discord
 # https://github.com/ankddev/zapret-discord-youtube
 
-BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.2.0"
+BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.4.0"
 
 WF_TCP, WF_UDP = "--wf-tcp=80,443", "--wf-udp=443,50000-50100"
 
@@ -101,12 +101,22 @@ faceinsta = f"--filter-tcp=443 --hostlist={LISTS_FOLDER}/faceinsta.txt --dpi-des
 
 DPI_COMMANDS = {
 # для орига работает только tls_clienthello_www_google_com
+"Оригинальная bol-van v2 (07.04.2025)": f"""
+    --wf-tcp=80,443 --wf-udp=443,50000-50099
+    --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    {faceinsta}
+    --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
+    --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
+    --filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake
+""",
+
 "Оригинальная bol-van (лёгкая) v1": f"""
     --wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50099
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig
-    --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --new 
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --new 
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
     {faceinsta}
     --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new

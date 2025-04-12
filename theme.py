@@ -70,7 +70,7 @@ def get_windows_theme():
 class ThemeManager:
     """Класс для управления темами приложения"""
     
-    def __init__(self, app, widget, status_label, author_label, bin_folder, author_url, support_label):
+    def __init__(self, app, widget, status_label, author_label, bin_folder, author_url, bol_van_url, support_label):
         """
         Инициализирует менеджер тем
         
@@ -88,6 +88,7 @@ class ThemeManager:
         self.author_label = author_label
         self.bin_folder = bin_folder
         self.author_url = author_url
+        self.bol_van_url = bol_van_url
         self.support_label = support_label
         
         # Загружаем сохраненную тему или используем системную
@@ -117,6 +118,11 @@ class ThemeManager:
             
             # Обновляем цвет ссылки автора
             status_color = theme_info['status_color']
+            self.bol_van_url.setStyleSheet(f"""
+                color: {status_color}; 
+                opacity: 0.6; 
+                font-size: 9pt;
+            """)
             self.author_label.setStyleSheet(f"""
                 color: {status_color}; 
                 opacity: 0.6; 
@@ -127,7 +133,10 @@ class ThemeManager:
                 opacity: 0.6; 
                 font-size: 9pt;
             """)
-            self.author_label.setText(f'Автор: <a href="{self.author_url}" style="color:{status_color}">t.me/bypassblock</a>')
+
+            self.bol_van_url.setText(f'Автор Zapret: <a href="https://github.com/bol-van" style="color:{status_color}">github.com/bol-van</a>')
+            self.author_label.setText(f'Автор GUI: <a href="https://t.me/bypassblock" style="color:{status_color}">t.me/bypassblock</a>')
+
             self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a><br>или на почту <a href="mail:fuckyourkn@yandex.ru"  style="color:{status_color}">fuckyourkn@yandex.ru</a>')
 
             # Если выбрана тема РКН Тян, применяем фоновое изображение

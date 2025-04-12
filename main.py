@@ -12,6 +12,7 @@ from start import DPIStarter
 from discord import DiscordManager
 from theme import ThemeManager, THEMES, get_windows_theme, get_selected_theme, set_selected_theme
 from tray import SystemTrayManager
+from dns import DNSSettingsDialog
 from urls import *
 
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
@@ -129,9 +130,61 @@ def is_admin():
     except:
         return False
 
+def get_version(self):
+    """Возвращает текущую версию программы"""
+    return APP_VERSION
+
+def check_if_in_archive():
+    """
+    Проверяет, находится ли EXE-файл в временной директории,
+    что обычно характерно для распаковки из архива.
+    """
+    try:
+        exe_path = os.path.abspath(sys.executable)
+        print(f"DEBUG: Executable path: {exe_path}")
+
+        # Получаем пути к системным временным директориям
+        temp_env = os.environ.get("TEMP", "")
+        tmp_env = os.environ.get("TMP", "")
+        temp_dirs = [temp_env, tmp_env]
+        
+        for temp_dir in temp_dirs:
+            if temp_dir and exe_path.lower().startswith(os.path.abspath(temp_dir).lower()):
+                print("DEBUG: EXE запущен из временной директории:", temp_dir)
+                return True
+        return False
+    except Exception as e:
+        print(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
+        return False
+
+def contains_special_chars(path):
+    """Проверяет, содержит ли путь специальные символы"""
+    special_chars = '()[]{}^=;!\'"+<>|&'
+    return any(c in path for c in special_chars)
+
+def check_path_for_special_chars():
+    """Проверяет пути программы на наличие специальных символов"""
+    current_path = os.path.abspath(os.getcwd())
+    exe_path = os.path.abspath(sys.executable)
+    
+    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
+    
+    for path in paths_to_check:
+        if contains_special_chars(path):
+            error_message = (
+                f"Путь содержит специальные символы: {path}\n\n"
+                "Программа не может корректно работать в папке со специальными символами (цифры, точки, скобки, запятые и т.д.).\n"
+                "Пожалуйста, переместите программу в папку без специальных символов в пути (например, C:\\zapretgui) и запустите её снова."
+            )
+            QMessageBox.critical(None, "Критическая ошибка", error_message)
+            print(f"ERROR: Путь содержит специальные символы: {path}")
+            return True
+    return False
+
 class RippleButton(QPushButton):
     def __init__(self, text, parent=None, color=""):
         self.manually_stopped = False  # Флаг для отслеживания намеренной остановки
+        self.process_restarting = False  # Флаг для отслеживания перезапуска
         super().__init__(text, parent)
         self._ripple_pos = QPoint()
         self._ripple_radius = 0
@@ -188,10 +241,6 @@ class RippleButton(QPushButton):
             painter.setBrush(QColor(255, 255, 255, 60))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(self._ripple_pos, self._ripple_radius, self._ripple_radius)
-    
-def get_version(self):
-    """Возвращает текущую версию программы"""
-    return APP_VERSION
 
 class LupiDPIApp(QWidget):
     def check_for_updates(self):
@@ -292,7 +341,7 @@ class LupiDPIApp(QWidget):
                                     timeout /t 3 /nobreak > nul
                                     del /f /q "{exe_path}" >nul 2>&1
                                     echo  Download new version...
-                                    powershell -Command "(New-Object System.Net.WebClient).DownloadFile('{EXE_UPDATE_URL}', '%TEMP%\\zapret_new.exe')"
+                                    powershell -Command "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('{EXE_UPDATE_URL}', '%TEMP%\\zapret_new.exe')"
 
                                     if %ERRORLEVEL% NEQ 0 (
                                         echo Error download update!
@@ -388,7 +437,8 @@ class LupiDPIApp(QWidget):
             author_label=self.author_label,
             support_label=self.support_label,
             bin_folder=BIN_FOLDER,
-            author_url=AUTHOR_URL
+            author_url=AUTHOR_URL,
+            bol_van_url=self.bol_van_url
         )
 
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
@@ -407,6 +457,15 @@ class LupiDPIApp(QWidget):
             lists_folder=LISTS_FOLDER,
             status_callback=self.set_status
         )
+
+        # Оптимизация 1: Ускорение очистки процессов при запуске
+        try:
+            self.set_status("Подготовка...")
+            # Вместо цикла из 3 попыток - одна быстрая попытка остановки
+            self.dpi_starter.force_stop_all_instances()
+        except Exception as e:
+            print(f"Ошибка при начальной очистке процессов: {str(e)}")
+
         # Инициализируем системный трей после создания всех элементов интерфейса
         self.tray_manager = SystemTrayManager(
             parent=self,
@@ -535,9 +594,11 @@ class LupiDPIApp(QWidget):
             ('Тест соединения', self.open_connection_test, "0, 119, 255", 2, 1),
             ('Обновить список сайтов', self.update_other_list, "0, 119, 255", 3, 0),
             ('Добавить свои сайты', self.open_general, "0, 119, 255", 3, 1),
-            ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 4, 0, 2),  # col_span=2
-            ('Что это такое?', self.open_info, "38, 38, 38", 5, 0, 2),
-            ('Проверить обновления', self.check_for_updates, "38, 38, 38", 6, 0, 2)  # col_span=2
+            ('Обновить winws.exe', self.update_winws_exe, "0, 119, 255", 4, 0),
+            ('Настройка DNS-серверов', self.open_dns_settings, "0, 119, 255", 4, 1),
+            ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
+            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0, 2),
+            ('Проверить обновления', self.check_for_updates, "38, 38, 38", 7, 0, 2)  # col_span=2
         ]
 
         # Создаем и размещаем кнопки в сетке
@@ -545,7 +606,7 @@ class LupiDPIApp(QWidget):
             text, callback, color, row, col = button_info[:5]
             
             # Определяем col_span
-            col_span = button_info[5] if len(button_info) > 5 else (2 if (row == 4 or row == 5 or row == 6) else 1)
+            col_span = button_info[5] if len(button_info) > 5 else (2 if (row == 6) else 1)
             
             btn = RippleButton(text, self, color)
             btn.setStyleSheet(BUTTON_STYLE.format(color))
@@ -594,6 +655,11 @@ class LupiDPIApp(QWidget):
 
         self.author_label = QLabel('Автор: <a href="https://t.me/bypassblock">t.me/bypassblock</a>')
         self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>\n или на почту <a href="mail:fuckyourkn@yandex.ru">fuckyourkn@yandex.ru</a>')
+        self.bol_van_url = QLabel('<a href="https://github.com/bol-van">github.com/bol-van</a>')
+
+        self.bol_van_url.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
+        self.bol_van_url.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.bol_van_url)
 
         self.author_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
         self.author_label.setAlignment(Qt.AlignCenter)
@@ -604,7 +670,7 @@ class LupiDPIApp(QWidget):
         layout.addWidget(self.support_label)
         
         self.setLayout(layout)
-        self.setFixedSize(400, 600)
+        self.setFixedSize(450, 650) # ширина, высота окна
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.check_process_status)
@@ -674,29 +740,73 @@ class LupiDPIApp(QWidget):
             # При необходимости здесь можно показать предупреждение
             return
             
-        # Если службы нет, запускаем DPI
-        selected_mode = self.start_mode_combo.currentText()
+        # Устанавливаем флаг для предотвращения ложного сообщения об ошибке
+        self.process_restarting = True
         
         # Сохраняем выбранную стратегию в реестр
+        selected_mode = self.start_mode_combo.currentText()
         set_last_strategy(selected_mode)
         
+        # Запускаем процесс
         success = self.dpi_starter.start_dpi(selected_mode, DPI_COMMANDS, DOWNLOAD_URLS)
         if success:
+            # Немедленно обновляем UI для лучшего отклика
             self.update_ui(running=True)
-            # Проверяем, не завершился ли процесс сразу после запуска
-            QTimer.singleShot(3000, self.check_if_process_started_correctly)
+            self.process_status_value.setText("ВКЛЮЧЕН")
+            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+            # Запускаем серию проверок с разными интервалами для надежности
+            QTimer.singleShot(500, self.delayed_process_check)
+            QTimer.singleShot(2000, self.check_if_process_started_correctly)
+            QTimer.singleShot(5000, self.final_process_check)
         else:
             self.check_process_status()  # Обновляем статус в интерфейсе
 
+    def delayed_process_check(self):
+        """Первая быстрая проверка состояния процесса"""
+        if self.dpi_starter.check_process_running():
+            self.update_ui(running=True)
+            self.process_status_value.setText("ВКЛЮЧЕН")
+            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            # Не обновляем UI на случай, если процесс еще запускается
+            pass
+
+    def final_process_check(self):
+        """Финальная проверка состояния процесса"""
+        # Сбрасываем флаг перезапуска, так как прошло достаточно времени
+        self.process_restarting = False
+        
+        # Принудительно вызываем проверку статуса
+        running = self.dpi_starter.check_process_running()
+        
+        # Обновляем UI в соответствии с текущим состоянием
+        if running:
+            self.update_ui(running=True)
+            self.process_status_value.setText("ВКЛЮЧЕН")
+            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.update_ui(running=False)
+            self.process_status_value.setText("ВЫКЛЮЧЕН")
+            self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+        
+        # Обновляем статус
+        self.check_process_status()
+
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
-        # Предотвращаем показ ошибки, если процесс был остановлен намеренно
+        # Если процесс находится в процессе перезапуска или был остановлен намеренно, пропускаем проверку
+        if hasattr(self, 'process_restarting') and self.process_restarting:
+            self.process_restarting = False  # Сбрасываем флаг
+            self.check_process_status()  # Просто обновляем статус
+            return
+            
         if hasattr(self, 'manually_stopped') and self.manually_stopped:
             self.manually_stopped = False  # Сбрасываем флаг
+            self.check_process_status()
             return
             
         if not self.dpi_starter.check_process_running():
-            # Если процесс не запущен через 3 секунды после старта, показываем ошибку
+            # Если процесс не запущен, показываем ошибку
             exe_path = os.path.abspath(WINWS_EXE)
             QMessageBox.critical(self, "Ошибка запуска", 
                             f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
@@ -1151,52 +1261,135 @@ class LupiDPIApp(QWidget):
         else:
             QApplication.quit()
 
-def check_if_in_archive():
-    """
-    Проверяет, находится ли EXE-файл в временной директории,
-    что обычно характерно для распаковки из архива.
-    """
-    try:
-        exe_path = os.path.abspath(sys.executable)
-        print(f"DEBUG: Executable path: {exe_path}")
-
-        # Получаем пути к системным временным директориям
-        temp_env = os.environ.get("TEMP", "")
-        tmp_env = os.environ.get("TMP", "")
-        temp_dirs = [temp_env, tmp_env]
+    ################################## DNS #################################
+    def open_dns_settings(self):
+        """Открывает диалог настройки DNS-серверов"""
+        try:
+            # Показываем индикатор в статусной строке
+            self.set_status("Открываем настройки DNS (загрузка данных)...")
         
-        for temp_dir in temp_dirs:
-            if temp_dir and exe_path.lower().startswith(os.path.abspath(temp_dir).lower()):
-                print("DEBUG: EXE запущен из временной директории:", temp_dir)
-                return True
-        return False
-    except Exception as e:
-        print(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
-        return False
+            # Передаем текущий стиль в диалог
+            dns_dialog = DNSSettingsDialog(self, common_style=COMMON_STYLE)
+            dns_dialog.exec_()
+            
+            # Сбрасываем статус после закрытия диалога
+            self.set_status("Настройки DNS закрыты")
+        except Exception as e:
+            error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
+            print(error_msg)
+            self.set_status(error_msg)
 
-def contains_special_chars(path):
-    """Проверяет, содержит ли путь специальные символы"""
-    special_chars = '()[]{}^=;!\'"+<>|&'
-    return any(c in path for c in special_chars)
-
-def check_path_for_special_chars():
-    """Проверяет пути программы на наличие специальных символов"""
-    current_path = os.path.abspath(os.getcwd())
-    exe_path = os.path.abspath(sys.executable)
-    
-    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
-    
-    for path in paths_to_check:
-        if contains_special_chars(path):
-            error_message = (
-                f"Путь содержит специальные символы: {path}\n\n"
-                "Программа не может корректно работать в папке со специальными символами (цифры, точки, скобки, запятые и т.д.).\n"
-                "Пожалуйста, переместите программу в папку без специальных символов в пути (например, C:\\zapretgui) и запустите её снова."
-            )
-            QMessageBox.critical(None, "Критическая ошибка", error_message)
-            print(f"ERROR: Путь содержит специальные символы: {path}")
-            return True
-    return False
+    ################################### Обновление winws.exe #################################
+    def update_winws_exe(self):
+        """Обновляет файл winws.exe до последней версии с GitHub"""
+        try:
+            # Проверяем наличие модуля requests
+            try:
+                import requests
+            except ImportError:
+                self.set_status("Установка зависимостей...")
+                subprocess.run([sys.executable, "-m", "pip", "install", "requests"], 
+                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                import requests
+            
+            # URL для загрузки файла
+            download_url = "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe"
+            
+            # Проверяем запущен ли Zapret и останавливаем его
+            process_running = self.dpi_starter.check_process_running()
+            service_running = self.service_manager.check_service_exists()
+            
+            # Если запущена служба, показываем предупреждение и выходим
+            if service_running:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Служба активна")
+                msg.setText("Невозможно обновить winws.exe, пока запущена служба Zapret.")
+                msg.setInformativeText("Пожалуйста, сначала отключите автозапуск, затем повторите попытку обновления.")
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec_()
+                return
+                
+            # Устанавливаем флаги для предотвращения ложных ошибок
+            self.manually_stopped = True
+            self.process_restarting = True
+            
+            # Если процесс запущен, останавливаем его
+            if process_running and not service_running:
+                self.set_status("Останавливаем Zapret для обновления...")
+                self.dpi_starter.stop_dpi()
+                
+            # Загружаем файл с отображением прогресса
+            self.set_status("Загрузка новой версии winws.exe...")
+            
+            # Создаем временный файл для загрузки
+            temp_file = os.path.join(BIN_FOLDER, "winws_new.exe")
+            target_file = os.path.join(BIN_FOLDER, "winws.exe")
+            
+            # Загружаем файл
+            response = requests.get(download_url, stream=True)
+            total_size = int(response.headers.get('content-length', 0))
+            
+            if response.status_code == 200:
+                with open(temp_file, 'wb') as f:
+                    downloaded = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            # Обновляем статус каждые 10%
+                            percent = int(downloaded / total_size * 100)
+                            if percent % 10 == 0:
+                                self.set_status(f"Загрузка: {percent}%")
+                
+                # Проверяем, что временный файл успешно создан
+                if not os.path.exists(temp_file):
+                    self.set_status("Ошибка: загруженный файл не создан")
+                    return
+                
+                # Заменяем старый файл новым
+                self.set_status("Заменяем файл winws.exe...")
+                try:
+                    # Создаем резервную копию
+                    if os.path.exists(target_file):
+                        backup_file = os.path.join(BIN_FOLDER, "winws_backup.exe")
+                        shutil.copy2(target_file, backup_file)
+                    
+                    # Заменяем файл
+                    shutil.move(temp_file, target_file)
+                    
+                    self.set_status("Файл winws.exe успешно обновлен")
+                    
+                    # Перезапускаем Zapret, если он был запущен ранее
+                    if process_running and not service_running:
+                        self.set_status("Перезапуск Zapret с обновленной версией...")
+                        selected_mode = self.start_mode_combo.currentText()
+                        success = self.dpi_starter.start_dpi(selected_mode, DPI_COMMANDS, DOWNLOAD_URLS)
+                        if success:
+                            self.update_ui(running=True)
+                            QMessageBox.information(self, "Обновление завершено", 
+                                                "Файл winws.exe успешно обновлен и Zapret перезапущен.")
+                        else:
+                            self.check_process_status()
+                            QMessageBox.warning(self, "Внимание", 
+                                            "Файл winws.exe обновлен, но перезапуск Zapret не удался. "
+                                            "Попробуйте запустить его вручную.")
+                    else:
+                        QMessageBox.information(self, "Обновление завершено", 
+                                            "Файл winws.exe успешно обновлен.")
+                except Exception as e:
+                    self.set_status(f"Ошибка при замене файла: {str(e)}")
+                    QMessageBox.critical(self, "Ошибка обновления", 
+                                    f"Не удалось заменить файл winws.exe:\n{str(e)}")
+            else:
+                self.set_status(f"Ошибка загрузки файла: {response.status_code}")
+                QMessageBox.critical(self, "Ошибка загрузки", 
+                                f"Не удалось загрузить файл winws.exe. Код ответа: {response.status_code}")
+        except Exception as e:
+            error_msg = f"Ошибка при обновлении winws.exe: {str(e)}"
+            print(error_msg)
+            self.set_status(error_msg)
+            QMessageBox.critical(self, "Ошибка", error_msg)
 
 def main():
     if len(sys.argv) > 1:
