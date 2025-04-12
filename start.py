@@ -239,7 +239,9 @@ class DPIStarter:
                 shell=False
             )
             
+            # Сохраняем PID процесса для более надежного отслеживания
             if process.poll() is None:
+                self.process_pid = process.pid
                 self.set_status(f"Запущен {mode}")
                 return True
             else:
@@ -252,61 +254,108 @@ class DPIStarter:
             return False
 
     def check_process_running(self):
-        """Проверяет запущен ли процесс winws.exe - улучшенная версия"""
+        """Проверяет запущен ли процесс winws.exe - с дополнительной проверкой по PID"""
         try:
-            # Метод 1: Проверка через tasklist (стандартный)
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = win32con.SW_HIDE
+            # Если у нас есть известный PID, проверяем его напрямую
+            if hasattr(self, 'process_pid') and self.process_pid:
+                try:
+                    # Проверяем существование процесса по PID
+                    import psutil
+                    if psutil.pid_exists(self.process_pid):
+                        try:
+                            # Проверяем что это тот же процесс
+                            process = psutil.Process(self.process_pid)
+                            # Если процесс winws.exe с нашим PID существует, значит он запущен
+                            if process.name().lower() == 'winws.exe':
+                                return True
+                        except:
+                            # PID существует, но это другой процесс или нет доступа
+                            pass
+                except ImportError:
+                    # Если psutil не доступен, используем стандартные методы
+                    pass
             
-            result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
-                shell=True, 
-                startupinfo=startupinfo,
-                capture_output=True, 
-                text=True
-            )
+            # Применяем все методы проверки по очереди
+            methods_to_try = [
+                self._check_via_tasklist,
+                self._check_via_wmi,
+                self._check_via_powershell,
+                self._check_via_file_access
+            ]
             
-            if "winws.exe" in result.stdout:
-                return True
-                
-            # Метод 2: Проверка через WMI - более надежный на некоторых системах
-            try:
-                wmi_result = subprocess.run(
-                    'wmic process where "name=\'winws.exe\'" get processid',
-                    shell=True,
-                    startupinfo=startupinfo,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if "ProcessId" in wmi_result.stdout and len(wmi_result.stdout.strip().splitlines()) > 1:
-                    return True
-            except:
-                pass
-                
-            # Метод 3: Проверка через PowerShell
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name \'winws\' -ErrorAction SilentlyContinue"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    startupinfo=startupinfo,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if "HandleCount" in ps_result.stdout:  # Признак найденного процесса
-                    return True
-            except:
-                pass
-                
+            for method in methods_to_try:
+                try:
+                    if method():
+                        return True
+                except:
+                    continue
+                    
             return False
-            
         except Exception as e:
             print(f"Ошибка при проверке процесса: {str(e)}")
-            # В случае ошибки проверки предполагаем, что процесс не запущен
             return False
+            
+    def _check_via_tasklist(self):
+        """Проверка через tasklist"""
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        
+        result = subprocess.run(
+            'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
+            shell=True, 
+            startupinfo=startupinfo,
+            capture_output=True, 
+            text=True
+        )
+        
+        return "winws.exe" in result.stdout
+        
+    def _check_via_wmi(self):
+        """Проверка через WMI"""
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        
+        wmi_result = subprocess.run(
+            'wmic process where "name=\'winws.exe\'" get processid',
+            shell=True,
+            startupinfo=startupinfo,
+            capture_output=True,
+            text=True
+        )
+        
+        return "ProcessId" in wmi_result.stdout and len(wmi_result.stdout.strip().splitlines()) > 1
+        
+    def _check_via_powershell(self):
+        """Проверка через PowerShell"""
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        
+        ps_cmd = 'powershell -Command "Get-Process -Name \'winws\' -ErrorAction SilentlyContinue | Select-Object -Property Name"'
+        ps_result = subprocess.run(
+            ps_cmd,
+            shell=True,
+            startupinfo=startupinfo,
+            capture_output=True,
+            text=True
+        )
+        
+        return "winws" in ps_result.stdout.lower()
+        
+    def _check_via_file_access(self):
+        """Проверка через доступность файла на запись"""
+        try:
+            # Если файл заблокирован процессом, это вызовет PermissionError
+            with open(self.winws_exe, "a+b") as f:
+                pass  # Если смогли открыть файл, значит процесс не использует его
+            return False  # Файл доступен для записи, процесс не запущен
+        except PermissionError:
+            return True  # Файл заблокирован, процесс запущен
+        except:
+            return False  # Другие ошибки, считаем что процесс не запущен
+
     
     def force_stop_all_instances(self):
         """

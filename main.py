@@ -1,3 +1,4 @@
+import threading
 import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
 
 from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtProperty
@@ -393,6 +394,12 @@ class LupiDPIApp(QWidget):
         # Инициализируем переменную для секретного ввода
         self._secret_input = ""
         self._allow_close = False  # Флаг для контроля закрытия окна
+
+        # Добавляем защиту от гонок данных при проверке статуса
+        self.status_check_lock = threading.Lock()
+        self.last_status = None
+        self.last_status_time = 0
+        self.status_check_interval = 0.5  # минимальный интервал между проверками в секундах
 
         """Initializes the application window."""
         super().__init__()
@@ -902,30 +909,57 @@ class LupiDPIApp(QWidget):
 
     ################################# ПРОВЕРЯТЬ ЗАПУЩЕН ЛИ ПРОЦЕСС #################################
     def check_process_status(self):
-        """Проверяет статус процесса и обновляет UI"""
-        # Запоминаем текущее состояние
-        previous_running = self.process_status_value.text() == "ВКЛЮЧЕН"
-        previous_service = self.autostart_disable_btn.isVisible()
+        """Проверяет статус процесса и обновляет интерфейс"""
+        # Используем блокировку чтобы предотвратить одновременные проверки
+        if not hasattr(self, 'status_check_lock') or not self.status_check_lock.acquire(blocking=False):
+            return
         
-        # Проверяем статус службы
-        service_running = self.service_manager.check_service_exists()
-        
-        # Проверяем статус процесса
-        process_running = self.dpi_starter.check_process_running()
-        
-        # Обновляем UI только если состояние изменилось
-        if previous_service != service_running:
-            self.update_autostart_ui(service_running)
-        
-        if previous_running != process_running:
-            if process_running:
-                self.process_status_value.setText("ВКЛЮЧЕН")
-                self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-                self.update_ui(running=True)
+        try:
+            # Проверяем, не слишком ли часто выполняем проверки
+            current_time = time.time()
+            if hasattr(self, 'last_status_time') and current_time - self.last_status_time < self.status_check_interval:
+                # Слишком малый интервал, пропускаем проверку
+                return
+                
+            self.last_status_time = current_time
+            
+            # Проверяем статус службы
+            service_running = self.service_manager.check_service_exists()
+            
+            # Проверяем статус процесса
+            process_running = self.dpi_starter.check_process_running()
+            
+            # Сохраняем текущий статус для сравнения
+            current_status = (process_running, service_running)
+            
+            # Проверяем, изменился ли статус с последней проверки
+            if hasattr(self, 'last_status') and self.last_status == current_status:
+                # Статус не изменился, не обновляем UI
+                return
+                
+            # Сохраняем новый статус
+            self.last_status = current_status
+            
+            # Обновляем состояние элементов интерфейса
+            if process_running or service_running:
+                self.start_btn.setVisible(False)
+                self.stop_btn.setVisible(True)
+                
+                # Если служба активна, отображаем это
+                if service_running:
+                    self.process_status_value.setText("СЛУЖБА АКТИВНА")
+                    self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+                else:
+                    # Иначе показываем обычный статус
+                    self.process_status_value.setText("ВКЛЮЧЕН")
+                    self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
             else:
+                self.start_btn.setVisible(True)
+                self.stop_btn.setVisible(False)
                 self.process_status_value.setText("ВЫКЛЮЧЕН")
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-                self.update_ui(running=False)
+        finally:
+            self.status_check_lock.release()
 
     ################################# hosts #################################
     def update_proxy_button_state(self):
