@@ -1,7 +1,11 @@
 # https://github.com/MagilaWEB/unblock-youtube-discord
 # https://github.com/ankddev/zapret-discord-youtube
+import os
 
-BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.4.0"
+BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.5.0"
+
+WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
+ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
 
 WF_TCP, WF_UDP = "--wf-tcp=80,443", "--wf-udp=443,50000-50100"
 

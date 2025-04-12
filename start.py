@@ -2,6 +2,7 @@ import os
 import time
 import subprocess
 import win32con
+from log import *
 
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
@@ -186,7 +187,9 @@ class DPIStarter:
             # Формируем окончательную команду
             command = [exe_path] + command_args
             
-            print("Запускаем команду:", command)  # Для отладки
+            log(exe_path)  # Логируем путь к исполняемому файлу
+            log(command_args)  # Логируем аргументы
+            log(command)  # Логируем команду для отладки
             
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW

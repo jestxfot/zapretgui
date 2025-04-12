@@ -20,21 +20,37 @@ class Logger:
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
         
         # Create or truncate the log file with a header
-        with open(self.log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== Zapret GUI Log - Started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
+        try:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                f.write(f"=== Zapret GUI Log - Started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
+        except Exception as e:
+            print(f"Error creating log file: {str(e)}")
         
-        # Store original stdout and stderr
-        self.orig_stdout = sys.stdout
-        self.orig_stderr = sys.stderr
+        # Store original stdout and stderr - with safety checks
+        try:
+            self.orig_stdout = sys.stdout if hasattr(sys.stdout, 'write') else None
+            self.orig_stderr = sys.stderr if hasattr(sys.stderr, 'write') else None
+        except Exception:
+            # In case of any error, set them to None
+            self.orig_stdout = None
+            self.orig_stderr = None
         
         # Replace stdout and stderr with our custom writers
-        sys.stdout = self
-        sys.stderr = self
+        try:
+            sys.stdout = self
+            sys.stderr = self
+        except Exception as e:
+            print(f"Error redirecting stdout/stderr: {str(e)}")
     
     def write(self, message):
         """Write to the log file and the original stdout"""
-        # Write to the original stdout
-        self.orig_stdout.write(message)
+        # Write to the original stdout if it exists
+        if self.orig_stdout is not None:
+            try:
+                self.orig_stdout.write(message)
+            except Exception:
+                # If writing to stdout fails, just ignore it
+                pass
         
         # Write to the log file
         try:
@@ -42,22 +58,55 @@ class Logger:
                 timestamp = datetime.now().strftime('%H:%M:%S')
                 f.write(f"[{timestamp}] {message}")
         except Exception as e:
-            # If we can't write to the log file, write to the original stderr
-            self.orig_stderr.write(f"Error writing to log: {str(e)}\n")
+            # If we can't write to the log file and have stderr, try to write there
+            if self.orig_stderr is not None:
+                try:
+                    self.orig_stderr.write(f"Error writing to log: {str(e)}\n")
+                except Exception:
+                    pass
     
     def flush(self):
         """Flush the output streams"""
-        self.orig_stdout.flush()
-        self.orig_stderr.flush()
+        if self.orig_stdout is not None:
+            try:
+                self.orig_stdout.flush()
+            except Exception:
+                pass
+        
+        if self.orig_stderr is not None:
+            try:
+                self.orig_stderr.flush()
+            except Exception:
+                pass
     
     def log(self, message, level="INFO"):
         """Log a message with a level prefix"""
-        self.write(f"[{level}] {message}\n")
+        try:
+            self.write(f"[{level}] {message}\n")
+        except Exception as e:
+            # Last resort - attempt direct write to the log file
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    timestamp = datetime.now().strftime('%H:%M:%S')
+                    f.write(f"[{timestamp}] [ERROR] Logger error: {str(e)}\n")
+                    f.write(f"[{timestamp}] [{level}] {message}\n")
+            except Exception:
+                pass
     
     def log_exception(self, e, context=""):
         """Log an exception with its traceback"""
-        tb = traceback.format_exc()
-        self.write(f"[ERROR] Exception in {context}: {str(e)}\n{tb}\n")
+        try:
+            tb = traceback.format_exc()
+            self.write(f"[ERROR] Exception in {context}: {str(e)}\n{tb}\n")
+        except Exception:
+            # Last resort - direct write
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    timestamp = datetime.now().strftime('%H:%M:%S')
+                    f.write(f"[{timestamp}] [ERROR] Exception in {context}: {str(e)}\n")
+                    f.write(f"[{timestamp}] {traceback.format_exc()}\n")
+            except Exception:
+                pass
     
     def get_log_content(self):
         """Return the content of the log file"""
@@ -67,15 +116,38 @@ class Logger:
         except Exception as e:
             return f"Error reading log: {str(e)}"
 
-# Create a global logger instance
-global_logger = Logger()
+# Create a global logger instance - with error handling
+try:
+    global_logger = Logger()
+except Exception as setup_error:
+    # If logger creation fails, create a minimalist fallback
+    class FallbackLogger:
+        def log(self, message, level="INFO"):
+            pass
+        def log_exception(self, e, context=""):
+            pass
+        def get_log_content(self):
+            return "Logging system initialization failed."
+    
+    global_logger = FallbackLogger()
 
-# Helper functions that can be imported anywhere
+# Helper functions that can be imported anywhere - with error handling
 def log(message, level="INFO"):
-    global_logger.log(message, level)
+    try:
+        global_logger.log(message, level)
+    except Exception:
+        # If all else fails, do nothing
+        pass
 
 def log_exception(e, context=""):
-    global_logger.log_exception(e, context)
+    try:
+        global_logger.log_exception(e, context)
+    except Exception:
+        # If all else fails, do nothing
+        pass
 
 def get_log_content():
-    return global_logger.get_log_content()
+    try:
+        return global_logger.get_log_content()
+    except Exception as e:
+        return f"Error retrieving log content: {str(e)}"
