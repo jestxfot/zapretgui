@@ -3,8 +3,6 @@ import time
 import subprocess
 import win32con
 
-from log import *
-
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
     
@@ -80,48 +78,10 @@ class DPIStarter:
                 return False
                     
             self.set_status("Останавливаю DPI и связанные службы...")
-
-            # Более надежный способ остановки процесса winws.exe
-            max_attempts = 3
-            for attempt in range(max_attempts):
-                # Стандартная остановка
-                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
-                
-                # Проверяем, остановился ли процесс
-                if not self.check_process_running():
-                    break
-                    
-                # Если процесс всё еще работает, пробуем найти PID и остановить по PID
-                if attempt > 0:
-                    try:
-                        result = subprocess.run(
-                            'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
-                            shell=True, 
-                            capture_output=True, 
-                            text=True
-                        )
-                        
-                        for line in result.stdout.splitlines():
-                            if "winws.exe" in line:
-                                try:
-                                    # CSV формат: "winws.exe","1234","Console",...
-                                    parts = line.strip('"').split('","')
-                                    if len(parts) >= 2:
-                                        pid = parts[1]
-                                        # Останавливаем по PID с повышенным приоритетом
-                                        subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, check=False)
-                                except:
-                                    pass
-                    except:
-                        pass
-                
-                # Ждем немного перед следующей попыткой
-                time.sleep(0.3)
             
-            # Если после всех попыток процесс всё еще работает, выводим предупреждение
-            if self.check_process_running():
-                self.set_status("Предупреждение: Не удалось полностью остановить winws.exe")            
-
+            # Останавливаем процесс winws.exe
+            subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
+            
             # Список служб для остановки и удаления
             services = ["Zapret", "WinDivert", "WinDivert14", "GoodbyeDPI"]
             
@@ -164,32 +124,30 @@ class DPIStarter:
             return False
 
     def start_dpi(self, mode, dpi_commands, download_urls=None):
-        """Запускает процесс DPI с указанной конфигурацией"""
+        """
+        Запускает DPI с выбранной конфигурацией.
+        
+        Args:
+            mode (str): Название режима запуска
+            dpi_commands (dict): Словарь с настройками команд для разных режимов
+            download_urls (dict, optional): URL для скачивания файлов, если они отсутствуют
+        
+        Returns:
+            bool: True при успешном запуске, False при ошибке
+        """
         try:
-            self.set_status("Подготовка запуска...")
-            self.force_stop_all_instances()  # Заменяем 
-    
-            # Проверка и повторная попытка остановки, если процесс всё еще запущен
-            if self.check_process_running():
-                self.set_status("Повторная попытка остановки предыдущих процессов...")
-                time.sleep(0.3)  # Увеличиваем время ожидания
-                self.force_stop_all_instances()
+            # Сначала останавливаем предыдущий процесс
+            self.stop_dpi()
+            time.sleep(0.1)  # Небольшая пауза
+            
+            # Проверяем существование папок и создаем при необходимости
+            if not os.path.exists(self.bin_folder):
+                os.makedirs(self.bin_folder, exist_ok=True)
+                self.set_status(f"Создана папка {self.bin_folder}")
                 
-                # Если после двух попыток процесс все еще запущен, выводим предупреждение
-                if self.check_process_running():
-                    print("ВНИМАНИЕ: Не удалось полностью остановить winws.exe. Продолжаем запуск.")
-
-            # Проверяем наличие необходимых файлов
-            if download_urls and not os.path.exists(self.winws_exe):
-                self.set_status("Скачивание необходимых файлов...")
-                if not self.download_files(download_urls):
-                    self.set_status("Не удалось скачать необходимые файлы")
-                    return False
-
-                # Проверяем существование папок и создаем при необходимости
-                if not os.path.exists(self.bin_folder):
-                    os.makedirs(self.bin_folder, exist_ok=True)
-                    self.set_status(f"Создана папка {self.bin_folder}")
+            if not os.path.exists(self.lists_folder):
+                os.makedirs(self.lists_folder, exist_ok=True)
+                self.set_status(f"Создана папка {self.lists_folder}")
             
             # Проверяем наличие исполняемого файла
             exe_path = os.path.abspath(self.winws_exe)
@@ -228,7 +186,7 @@ class DPIStarter:
             # Формируем окончательную команду
             command = [exe_path] + command_args
             
-            log(f"Запускаем команду: {command}")  # Логируем команду для отладки
+            print("Запускаем команду:", command)  # Для отладки
             
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -237,13 +195,10 @@ class DPIStarter:
             process = subprocess.Popen(
                 command,
                 startupinfo=startupinfo,
-                cwd=os.getcwd(),
-                shell=False
+                cwd=os.getcwd()
             )
             
-            # Сохраняем PID процесса для более надежного отслеживания
             if process.poll() is None:
-                self.process_pid = process.pid
                 self.set_status(f"Запущен {mode}")
                 return True
             else:
@@ -256,273 +211,47 @@ class DPIStarter:
             return False
 
     def check_process_running(self):
-        """Проверяет запущен ли процесс winws.exe - с дополнительной проверкой по PID"""
-        try:
-            # Если у нас есть известный PID, проверяем его напрямую
-            if hasattr(self, 'process_pid') and self.process_pid:
-                try:
-                    # Проверяем существование процесса по PID
-                    import psutil
-                    if psutil.pid_exists(self.process_pid):
-                        try:
-                            # Проверяем что это тот же процесс
-                            process = psutil.Process(self.process_pid)
-                            # Если процесс winws.exe с нашим PID существует, значит он запущен
-                            if process.name().lower() == 'winws.exe':
-                                return True
-                        except:
-                            # PID существует, но это другой процесс или нет доступа
-                            pass
-                except ImportError:
-                    # Если psutil не доступен, используем стандартные методы
-                    pass
-            
-            # Применяем все методы проверки по очереди
-            methods_to_try = [
-                self._check_via_tasklist,
-                self._check_via_wmi,
-                self._check_via_powershell,
-                self._check_via_file_access
-            ]
-            
-            for method in methods_to_try:
-                try:
-                    if method():
-                        return True
-                except:
-                    continue
-                    
-            return False
-        except Exception as e:
-            print(f"Ошибка при проверке процесса: {str(e)}")
-            return False
-            
-    def _check_via_tasklist(self):
-        """Проверка через tasklist"""
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = win32con.SW_HIDE
-        
-        result = subprocess.run(
-            'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
-            shell=True, 
-            startupinfo=startupinfo,
-            capture_output=True, 
-            text=True
-        )
-        
-        return "winws.exe" in result.stdout
-        
-    def _check_via_wmi(self):
-        """Проверка через WMI"""
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = win32con.SW_HIDE
-        
-        wmi_result = subprocess.run(
-            'wmic process where "name=\'winws.exe\'" get processid',
-            shell=True,
-            startupinfo=startupinfo,
-            capture_output=True,
-            text=True
-        )
-        
-        return "ProcessId" in wmi_result.stdout and len(wmi_result.stdout.strip().splitlines()) > 1
-        
-    def _check_via_powershell(self):
-        """Проверка через PowerShell"""
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = win32con.SW_HIDE
-        
-        ps_cmd = 'powershell -Command "Get-Process -Name \'winws\' -ErrorAction SilentlyContinue | Select-Object -Property Name"'
-        ps_result = subprocess.run(
-            ps_cmd,
-            shell=True,
-            startupinfo=startupinfo,
-            capture_output=True,
-            text=True
-        )
-        
-        return "winws" in ps_result.stdout.lower()
-        
-    def _check_via_file_access(self):
-        """Проверка через доступность файла на запись"""
-        try:
-            # Если файл заблокирован процессом, это вызовет PermissionError
-            with open(self.winws_exe, "a+b") as f:
-                pass  # Если смогли открыть файл, значит процесс не использует его
-            return False  # Файл доступен для записи, процесс не запущен
-        except PermissionError:
-            return True  # Файл заблокирован, процесс запущен
-        except:
-            return False  # Другие ошибки, считаем что процесс не запущен
-
-    
-    def force_stop_all_instances(self):
         """
-        Агрессивно останавливает все процессы winws.exe
-        без проверки на их состояние
+        Проверяет запущен ли процесс DPI.
+        
+        Returns:
+            bool: True если процесс запущен, False если не запущен
         """
         try:
-            # Создаем объект для скрытия окон консоли
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = win32con.SW_HIDE  # Полностью скрываем окно
-            
-            # Метод 1: taskkill с разными флагами (используем subprocess.run вместо os.system)
-            subprocess.run("taskkill /IM winws.exe /F /T", shell=True, 
-                        startupinfo=startupinfo, check=False,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Метод 2: PowerShell для более агрессивной остановки (скрываем окно)
-            powershell_cmd = 'powershell -WindowStyle Hidden -Command "Get-Process -Name \'winws\' -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }"'
-            subprocess.run(powershell_cmd, shell=True, startupinfo=startupinfo, check=False,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Метод 3: Использование WMI для принудительной остановки
-            wmi_cmd = 'wmic process where name="winws.exe" call terminate'
-            subprocess.run(wmi_cmd, shell=True, startupinfo=startupinfo, check=False,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Ждем немного перед продолжением
-            time.sleep(0.3)
-            
-            # Получаем список всех PID процессов winws.exe (скрываем окно)
+            # Проверяем наличие процесса в списке задач
             result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
-                shell=True, 
-                startupinfo=startupinfo,
-                capture_output=True, 
-                text=True
-            )
-            
-            # Если процессы всё ещё есть, пробуем остановить каждый отдельно
-            if "winws.exe" in result.stdout:
-                # Находим все PID
-                pids = []
-                for line in result.stdout.splitlines():
-                    if "winws.exe" in line:
-                        try:
-                            parts = line.strip('"').split('","')
-                            if len(parts) >= 2:
-                                pids.append(parts[1])
-                        except:
-                            pass
-                
-                # Если нашли PID, останавливаем каждый отдельно
-                for pid in pids:
-                    # ИСПРАВЛЕНИЕ: используем subprocess.run вместо os.system
-                    subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, 
-                                startupinfo=startupinfo, check=False,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    
-                    # Также используем PowerShell с более жестким методом (скрываем окно)
-                    ps_cmd = f'powershell -WindowStyle Hidden -Command "Get-Process -Id {pid} -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill($true) }}"'
-                    subprocess.run(ps_cmd, shell=True, startupinfo=startupinfo, check=False,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                
-                # Ещё раз ждем
-                time.sleep(0.3)
-            
-            # Пытаемся сбросить порты (скрываем окно)
-            subprocess.run("netsh int ipv4 reset", shell=True, 
-                        startupinfo=startupinfo, check=False,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Получаем список всех PID процессов winws.exe
-            result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
+                'tasklist /FI "IMAGENAME eq winws.exe" /NH',
                 shell=True, 
                 capture_output=True, 
                 text=True
             )
             
-            # Если процессы всё ещё есть, пробуем остановить каждый отдельно
             if "winws.exe" in result.stdout:
-                # Находим все PID
-                pids = []
-                for line in result.stdout.splitlines():
-                    if "winws.exe" in line:
-                        try:
-                            parts = line.strip('"').split('","')
-                            if len(parts) >= 2:
-                                pids.append(parts[1])
-                        except:
-                            pass
+                # Дополнительная проверка на "полумертвые" процессы
+                # Получаем ID процесса
+                pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
+                if pid_line:
+                    # Из строки "winws.exe                     1234 Console..." извлекаем PID
+                    pid_parts = pid_line[0].split()
+                    if len(pid_parts) >= 2:
+                        pid = pid_parts[1]
+                        
+                        # Проверяем, не "zombie" ли это процесс
+                        wmic_result = subprocess.run(
+                            f'wmic process where ProcessID={pid} get ExecutablePath',
+                            shell=True, 
+                            capture_output=True, 
+                            text=True
+                        )
+                        
+                        # Если путь есть, процесс действительно работает
+                        if self.winws_exe.lower() in wmic_result.stdout.lower():
+                            return True
                 
-                # Если нашли PID, останавливаем каждый отдельно
-                for pid in pids:
-                    # Используем несколько методов для каждого PID
-                    os.system(f"taskkill /PID {pid} /F /T")
-                    
-                    # Также используем PowerShell с более жестким методом
-                    ps_cmd = f'powershell -Command "Get-Process -Id {pid} -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill($true) }}"'
-                    subprocess.run(ps_cmd, shell=True, check=False)
-                
-                # Ещё раз ждем
-                time.sleep(0.3)
-            
-            # Пытаемся сбросить порты
-            subprocess.run("netsh int ipv4 reset", shell=True, check=False)
-            
-            # Проверка файла на доступность записи
-            try:
-                if os.path.exists(self.winws_exe):
-                    # Пытаемся открыть файл на запись
-                    with open(self.winws_exe, "a+b") as f:
-                        pass  # Если открылся, значит процесс не использует файл
-            except PermissionError:
-                # Если файл все еще занят, используем еще один подход через admin API
-                try:
-                    import psutil
-                    for proc in psutil.process_iter(['pid', 'name']):
-                        if 'winws' in proc.info['name'].lower():
-                            proc.kill()
-                except:
-                    # В крайнем случае, пытаемся переименовать файл временно
-                    try:
-                        temp_name = self.winws_exe + ".tmp"
-                        os.rename(self.winws_exe, temp_name)
-                        os.rename(temp_name, self.winws_exe)
-                    except:
-                        pass
-            
-            return True
-        except Exception as e:
-            print(f"Ошибка при принудительной остановке winws.exe: {str(e)}")
+                # Если мы здесь, значит процесс есть, но его статус может быть неопределен
+                # Используем еще одну проверку на активность
+                return True
             return False
-    
-    def quick_stop_all_instances(self):
-        """Быстрая остановка всех процессов winws.exe без лишних проверок"""
-        try:
-            # Единая команда taskkill с максимальными привилегиями
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = win32con.SW_HIDE
-            
-            # Используем несколько методов для надежности без чрезмерных проверок
-            # Команда 1: taskkill
-            subprocess.run("taskkill /IM winws.exe /F /T", 
-                        shell=True, 
-                        startupinfo=startupinfo,
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL,
-                        check=False)
-                        
-            # Команда 2: PowerShell (более надежный метод)
-            powershell_cmd = 'powershell -WindowStyle Hidden -Command "Get-Process -Name \'winws\' -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }"'
-            subprocess.run(powershell_cmd, 
-                        shell=True, 
-                        startupinfo=startupinfo,
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL,
-                        check=False)
-                        
-            # Небольшая пауза для завершения процессов
-            time.sleep(0.2)
-            
-            return True
         except Exception as e:
-            print(f"Ошибка в quick_stop_all_instances: {str(e)}")
+            print(f"Ошибка при проверке статуса процесса: {e}")
             return False

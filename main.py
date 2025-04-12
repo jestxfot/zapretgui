@@ -2,8 +2,8 @@ import threading
 import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
 
 from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtProperty
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QComboBox, QLabel, QSpacerItem, QSizePolicy, QHBoxLayout, QMessageBox, QFrame
-from PyQt5.QtGui import QPainter, QColor
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
 
 from downloader import DOWNLOAD_URLS
 from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER
@@ -15,6 +15,7 @@ from theme import ThemeManager, THEMES, get_windows_theme, get_selected_theme, s
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import *
+from log import *
 
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
@@ -181,6 +182,66 @@ def check_path_for_special_chars():
             print(f"ERROR: Путь содержит специальные символы: {path}")
             return True
     return False
+class LogViewerDialog(QDialog):
+    """Dialog for viewing application logs"""
+    
+    def __init__(self, parent=None, log_content="No logs available"):
+        super().__init__(parent)
+        self.setWindowTitle("Zapret Logs")
+        self.setMinimumSize(800, 600)
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # Create log text area
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        
+        # Use monospace font for better log readability
+        font = QFont("Courier New", 9)
+        self.log_text.setFont(font)
+        
+        # Set log content
+        self.log_text.setText(log_content)
+        
+        # Add to layout
+        layout.addWidget(self.log_text)
+        
+        # Create button row
+        button_layout = QHBoxLayout()
+        
+        # Refresh button
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self.refresh_logs)
+        button_layout.addWidget(refresh_button)
+        
+        # Copy button
+        copy_button = QPushButton("Copy to Clipboard")
+        copy_button.clicked.connect(self.copy_to_clipboard)
+        button_layout.addWidget(copy_button)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.close)
+        button_layout.addWidget(close_button)
+        
+        # Add button row to layout
+        layout.addLayout(button_layout)
+        
+        # Store reference to parent for log refresh
+        self.parent = parent
+        
+    def refresh_logs(self):
+        """Refresh the log content"""
+        self.log_text.setText(get_log_content())
+        
+    def copy_to_clipboard(self):
+        """Copy log content to clipboard"""
+        self.log_text.selectAll()
+        self.log_text.copy()
+        self.log_text.moveCursor(self.log_text.textCursor().Start)
+        self.log_text.ensureCursorVisible()
 
 class RippleButton(QPushButton):
     def __init__(self, text, parent=None, color=""):
@@ -605,7 +666,8 @@ class LupiDPIApp(QWidget):
             ('Настройка DNS-серверов', self.open_dns_settings, "0, 119, 255", 4, 1),
             ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
             ('Что это такое?', self.open_info, "38, 38, 38", 6, 0, 2),
-            ('Проверить обновления', self.check_for_updates, "38, 38, 38", 7, 0, 2)  # col_span=2
+            ('Проверить обновления', self.check_for_updates, "38, 38, 38", 7, 0, 2),  # col_span=2
+            ('Логи', self.show_logs, "38, 38, 38", 8, 0, 2),  # col_span=2
         ]
 
         # Создаем и размещаем кнопки в сетке
@@ -747,24 +809,13 @@ class LupiDPIApp(QWidget):
             # При необходимости здесь можно показать предупреждение
             return
             
-        # Устанавливаем флаг для предотвращения ложного сообщения об ошибке
-        self.process_restarting = True
-        
-        # Сохраняем выбранную стратегию в реестр
+        # Если службы нет, запускаем DPI
         selected_mode = self.start_mode_combo.currentText()
-        set_last_strategy(selected_mode)
-        
-        # Запускаем процесс
         success = self.dpi_starter.start_dpi(selected_mode, DPI_COMMANDS, DOWNLOAD_URLS)
         if success:
-            # Немедленно обновляем UI для лучшего отклика
             self.update_ui(running=True)
-            self.process_status_value.setText("ВКЛЮЧЕН")
-            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-            # Запускаем серию проверок с разными интервалами для надежности
-            QTimer.singleShot(500, self.delayed_process_check)
-            QTimer.singleShot(2000, self.check_if_process_started_correctly)
-            QTimer.singleShot(5000, self.final_process_check)
+            # Проверяем, не завершился ли процесс сразу после запуска
+            QTimer.singleShot(3000, self.check_if_process_started_correctly)
         else:
             self.check_process_status()  # Обновляем статус в интерфейсе
 
@@ -1425,7 +1476,22 @@ class LupiDPIApp(QWidget):
             self.set_status(error_msg)
             QMessageBox.critical(self, "Ошибка", error_msg)
 
+    def show_logs(self):
+        """Shows the application logs in a dialog"""
+        try: 
+            log_content = get_log_content()
+            log_dialog = LogViewerDialog(self, log_content)
+            log_dialog.exec_()
+        except Exception as e:
+            self.set_status(f"Ошибка при открытии журнала: {str(e)}")
+
 def main():
+    # Initialize logger first thing
+    try:
+        log("Application starting")
+    except Exception as e:
+        print(f"Failed to initialize logger: {e}")
+    
     if len(sys.argv) > 1:
         if sys.argv[1] == "--version":
             print(APP_VERSION)
