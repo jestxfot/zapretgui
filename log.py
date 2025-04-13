@@ -3,6 +3,8 @@ import sys
 import time
 import traceback
 from datetime import datetime
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+from PyQt5.QtGui import QFont
 
 class Logger:
     """Simple logging system that captures console output and errors to a file"""
@@ -120,6 +122,130 @@ class Logger:
                 return f.read()
         except Exception as e:
             return f"Error reading log: {str(e)}"
+
+
+class LogViewerDialog(QDialog):
+    """Dialog for viewing application logs"""
+    
+    def __init__(self, parent=None, log_content="No logs available"):
+        super().__init__(parent)
+        self.setWindowTitle("Zapret Logs")
+        self.setMinimumSize(800, 600)
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # Create log text area
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        
+        # Use monospace font for better log readability
+        font = QFont("Courier New", 9)
+        self.log_text.setFont(font)
+        
+        # Set log content
+        self.log_text.setText(log_content)
+        
+        # Add to layout
+        layout.addWidget(self.log_text)
+        
+        # Create button row
+        button_layout = QHBoxLayout()
+        
+        # Refresh button
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self.refresh_logs)
+        button_layout.addWidget(refresh_button)
+        
+        # Copy button
+        copy_button = QPushButton("Copy to Clipboard")
+        copy_button.clicked.connect(self.copy_to_clipboard)
+        button_layout.addWidget(copy_button)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.close)
+        button_layout.addWidget(close_button)
+        
+        # Add button row to layout
+        layout.addLayout(button_layout)
+        
+        # Store reference to parent for log refresh
+        self.parent = parent
+        
+    def refresh_logs(self):
+        """Refresh the log content"""
+        from log import get_log_content
+        self.log_text.setText(get_log_content())
+        
+    def copy_to_clipboard(self):
+        """Copy log content to clipboard"""
+        self.log_text.selectAll()
+        self.log_text.copy()
+        self.log_text.moveCursor(self.log_text.textCursor().Start)
+        self.log_text.ensureCursorVisible()
+
+class LogViewerDialog(QDialog):
+    """Dialog for viewing application logs"""
+    
+    def __init__(self, parent=None, log_content="No logs available"):
+        super().__init__(parent)
+        self.setWindowTitle("Zapret Logs")
+        self.setMinimumSize(800, 600)
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # Create log text area
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        
+        # Use monospace font for better log readability
+        font = QFont("Courier New", 9)
+        self.log_text.setFont(font)
+        
+        # Set log content
+        self.log_text.setText(log_content)
+        
+        # Add to layout
+        layout.addWidget(self.log_text)
+        
+        # Create button row
+        button_layout = QHBoxLayout()
+        
+        # Refresh button
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self.refresh_logs)
+        button_layout.addWidget(refresh_button)
+        
+        # Copy button
+        copy_button = QPushButton("Copy to Clipboard")
+        copy_button.clicked.connect(self.copy_to_clipboard)
+        button_layout.addWidget(copy_button)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.close)
+        button_layout.addWidget(close_button)
+        
+        # Add button row to layout
+        layout.addLayout(button_layout)
+        
+        # Store reference to parent for log refresh
+        self.parent = parent
+        
+    def refresh_logs(self):
+        """Refresh the log content"""
+        self.log_text.setText(get_log_content())
+        
+    def copy_to_clipboard(self):
+        """Copy log content to clipboard"""
+        self.log_text.selectAll()
+        self.log_text.copy()
+        self.log_text.moveCursor(self.log_text.textCursor().Start)
+        self.log_text.ensureCursorVisible()
 
 # Create a global logger instance - with error handling
 try:

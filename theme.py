@@ -1,8 +1,8 @@
 import os
 import winreg
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer,  QPropertyAnimation, QEasingCurve, QPoint
 from PyQt5.QtGui import QPixmap, QPalette, QBrush
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QPushButton
 
 # Константы
 THEMES = {
@@ -249,3 +249,65 @@ class ThemeManager:
         """Устанавливает текст статуса, если метка доступна"""
         if self.status_label:
             self.status_label.setText(text)
+
+class RippleButton(QPushButton):
+    def __init__(self, text, parent=None, color=""):
+        self.manually_stopped = False  # Флаг для отслеживания намеренной остановки
+        super().__init__(text, parent)
+        self._ripple_pos = QPoint()
+        self._ripple_radius = 0
+        self._ripple_opacity = 0
+        self._bgcolor = color
+        
+        # Настройка анимаций
+        self._ripple_animation = QPropertyAnimation(self, b"rippleRadius", self)
+        self._ripple_animation.setDuration(300)
+        self._ripple_animation.setStartValue(0)
+        self._ripple_animation.setEndValue(100)
+        self._ripple_animation.setEasingCurve(QEasingCurve.OutQuad)
+
+        self._fade_animation = QPropertyAnimation(self, b"rippleOpacity", self)
+        self._fade_animation.setDuration(300)
+        self._fade_animation.setStartValue(0.5)
+        self._fade_animation.setEndValue(0)
+
+    from PyQt5.QtCore import pyqtProperty
+    @pyqtProperty(float)
+    def rippleRadius(self):
+        return self._ripple_radius
+
+    @rippleRadius.setter
+    def rippleRadius(self, value):
+        self._ripple_radius = value
+        self.update()
+
+    @pyqtProperty(float)
+    def rippleOpacity(self):
+        return self._ripple_opacity
+
+    @rippleOpacity.setter
+    def rippleOpacity(self, value):
+        self._ripple_opacity = value
+        self.update()
+
+    def mousePressEvent(self, event):
+        self._ripple_pos = event.pos()
+        self._ripple_opacity = 0.5
+        self._ripple_animation.start()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._fade_animation.start()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._ripple_radius > 0:
+            from PyQt5.QtGui import QPainter, QColor
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setOpacity(self._ripple_opacity)
+            
+            painter.setBrush(QColor(255, 255, 255, 60))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(self._ripple_pos, self._ripple_radius, self._ripple_radius)

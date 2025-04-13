@@ -1,9 +1,8 @@
 import threading
 import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtProperty
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QComboBox, QMessageBox, QDialog, QTextEdit, QApplication, QFrame, QSpacerItem, QSizePolicy
-from PyQt5.QtGui import QFont, QColor, QPainter
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QComboBox, QMessageBox, QApplication, QFrame, QSpacerItem, QSizePolicy
 
 from downloader import DOWNLOAD_URLS
 from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
@@ -11,7 +10,7 @@ from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
 from discord import DiscordManager
-from theme import ThemeManager, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
+from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import VERSION_URL, UPDATER_BAT_URL, EXE_UPDATE_URL, AUTHOR_URL, INFO_URL, OTHER_LIST_URL
@@ -103,129 +102,6 @@ def is_admin():
 def get_version(self):
     """Возвращает текущую версию программы"""
     return APP_VERSION
-
-class LogViewerDialog(QDialog):
-    """Dialog for viewing application logs"""
-    
-    def __init__(self, parent=None, log_content="No logs available"):
-        super().__init__(parent)
-        self.setWindowTitle("Zapret Logs")
-        self.setMinimumSize(800, 600)
-        
-        # Create layout
-        layout = QVBoxLayout(self)
-        
-        # Create log text area
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
-        
-        # Use monospace font for better log readability
-        font = QFont("Courier New", 9)
-        self.log_text.setFont(font)
-        
-        # Set log content
-        self.log_text.setText(log_content)
-        
-        # Add to layout
-        layout.addWidget(self.log_text)
-        
-        # Create button row
-        button_layout = QHBoxLayout()
-        
-        # Refresh button
-        refresh_button = QPushButton("Refresh")
-        refresh_button.clicked.connect(self.refresh_logs)
-        button_layout.addWidget(refresh_button)
-        
-        # Copy button
-        copy_button = QPushButton("Copy to Clipboard")
-        copy_button.clicked.connect(self.copy_to_clipboard)
-        button_layout.addWidget(copy_button)
-        
-        # Close button
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(self.close)
-        button_layout.addWidget(close_button)
-        
-        # Add button row to layout
-        layout.addLayout(button_layout)
-        
-        # Store reference to parent for log refresh
-        self.parent = parent
-        
-    def refresh_logs(self):
-        """Refresh the log content"""
-        from log import get_log_content
-        self.log_text.setText(get_log_content())
-        
-    def copy_to_clipboard(self):
-        """Copy log content to clipboard"""
-        self.log_text.selectAll()
-        self.log_text.copy()
-        self.log_text.moveCursor(self.log_text.textCursor().Start)
-        self.log_text.ensureCursorVisible()
-
-class RippleButton(QPushButton):
-    def __init__(self, text, parent=None, color=""):
-        self.manually_stopped = False  # Флаг для отслеживания намеренной остановки
-        self.process_restarting = False  # Флаг для отслеживания перезапуска
-        super().__init__(text, parent)
-        self._ripple_pos = QPoint()
-        self._ripple_radius = 0
-        self._ripple_opacity = 0
-        self._bgcolor = color
-        
-        # Настройка анимаций
-        self._ripple_animation = QPropertyAnimation(self, b"rippleRadius", self)
-        self._ripple_animation.setDuration(300)
-        self._ripple_animation.setStartValue(0)
-        self._ripple_animation.setEndValue(100)
-        self._ripple_animation.setEasingCurve(QEasingCurve.OutQuad)
-
-        self._fade_animation = QPropertyAnimation(self, b"rippleOpacity", self)
-        self._fade_animation.setDuration(300)
-        self._fade_animation.setStartValue(0.5)
-        self._fade_animation.setEndValue(0)
-
-    @pyqtProperty(float)
-    def rippleRadius(self):
-        return self._ripple_radius
-
-    @rippleRadius.setter
-    def rippleRadius(self, value):
-        self._ripple_radius = value
-        self.update()
-
-    @pyqtProperty(float)
-    def rippleOpacity(self):
-        return self._ripple_opacity
-
-    @rippleOpacity.setter
-    def rippleOpacity(self, value):
-        self._ripple_opacity = value
-        self.update()
-
-    def mousePressEvent(self, event):
-        self._ripple_pos = event.pos()
-        self._ripple_opacity = 0.5
-        self._ripple_animation.start()
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._fade_animation.start()
-        super().mouseReleaseEvent(event)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if self._ripple_radius > 0:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setOpacity(self._ripple_opacity)
-            
-            painter.setBrush(QColor(255, 255, 255, 60))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(self._ripple_pos, self._ripple_radius, self._ripple_radius)
 
 class LupiDPIApp(QWidget):
     def check_for_updates(self):
@@ -818,41 +694,12 @@ class LupiDPIApp(QWidget):
 
         if success:
             self.update_ui(running=True)
+            # Добавляем таймер для проверки корректного запуска через короткое время
+            QTimer.singleShot(2000, self.check_if_process_started_correctly)
         else:
             self.check_process_status()  # Обновляем статус в интерфейсе
 
         return success
-
-    def delayed_process_check(self):
-        """Первая быстрая проверка состояния процесса"""
-        if self.dpi_starter.check_process_running():
-            self.update_ui(running=True)
-            self.process_status_value.setText("ВКЛЮЧЕН")
-            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            # Не обновляем UI на случай, если процесс еще запускается
-            pass
-
-    def final_process_check(self):
-        """Финальная проверка состояния процесса"""
-        # Сбрасываем флаг перезапуска, так как прошло достаточно времени
-        self.process_restarting = False
-        
-        # Принудительно вызываем проверку статуса
-        running = self.dpi_starter.check_process_running()
-        
-        # Обновляем UI в соответствии с текущим состоянием
-        if running:
-            self.update_ui(running=True)
-            self.process_status_value.setText("ВКЛЮЧЕН")
-            self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            self.update_ui(running=False)
-            self.process_status_value.setText("ВЫКЛЮЧЕН")
-            self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-        
-        # Обновляем статус
-        self.check_process_status()
 
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
@@ -1016,7 +863,6 @@ class LupiDPIApp(QWidget):
         finally:
             self.status_check_lock.release()
 
-    ################################# hosts #################################
     def update_proxy_button_state(self):
         """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
         if hasattr(self, 'proxy_button'):
@@ -1081,7 +927,6 @@ class LupiDPIApp(QWidget):
             else:
                 self.set_status("Операция отменена.")
 
-    ################################# test #################################
     def open_connection_test(self):
         """Открывает окно тестирования соединения."""
         try:
@@ -1104,7 +949,6 @@ class LupiDPIApp(QWidget):
             print(error_msg)
             self.set_status(error_msg)
             
-    ################################# other update #################################
     def update_other_list(self):
         """Обновляет файл списка other.txt с удаленного сервера"""
         try:
@@ -1269,59 +1113,6 @@ class LupiDPIApp(QWidget):
         # Запускаем DPI с новым режимом
         self.start_dpi()
 
-    def apply_rkn_background(self):
-        """Применяет фоновое изображение для темы РКН Тян"""
-        try:
-            import requests
-            from PyQt5.QtGui import QPixmap, QPalette, QBrush
-            
-            # Путь к папке для временных файлов
-            temp_dir = os.path.join(BIN_FOLDER, "temp")
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            # Путь к сохраняемому изображению
-            img_path = os.path.join(temp_dir, "rkn_background.jpg")
-            
-            # Скачиваем изображение, если его нет
-            if not os.path.exists(img_path):
-                self.set_status("Загрузка фонового изображения...")
-                img_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=download.jpg"
-                
-                try:
-                    response = requests.get(img_url, stream=True)
-                    if response.status_code == 200:
-                        with open(img_path, 'wb') as f:
-                            for chunk in response.iter_content(1024):
-                                f.write(chunk)
-                        self.set_status("Фоновое изображение загружено")
-                except Exception as e:
-                    print(f"Ошибка при загрузке фона: {str(e)}")
-                    self.set_status(f"Ошибка при загрузке фона: {str(e)}")
-            
-            # Применяем фоновое изображение
-            if os.path.exists(img_path):
-                pixmap = QPixmap(img_path)
-                if not pixmap.isNull():
-                    # Создаем палитру и устанавливаем фон
-                    palette = self.palette()
-                    brush = QBrush(pixmap.scaled(self.width(), self.height(), 
-                                                Qt.KeepAspectRatioByExpanding, 
-                                                Qt.SmoothTransformation))
-                    palette.setBrush(QPalette.Window, brush)
-                    self.setPalette(palette)
-                    self.setAutoFillBackground(True)
-                    print("Фон РКН Тян успешно применен")
-                    self.set_status("Фон РКН Тян применен")
-                else:
-                    print("Ошибка: фоновое изображение не загрузилось")
-                    self.set_status("Ошибка: фоновое изображение не загрузилось")
-            else:
-                print(f"Ошибка: файл фона не найден: {img_path}")
-                self.set_status(f"Ошибка: файл фона не найден")
-        except Exception as e:
-            print(f"Ошибка при применении фона РКН Тян: {str(e)}")
-            self.set_status(f"Ошибка фона: {str(e)}")
-
     def closeEvent(self, event):
         """Перехватывает событие закрытия окна"""
         # Передаем обработку менеджеру трея
@@ -1350,7 +1141,6 @@ class LupiDPIApp(QWidget):
         else:
             QApplication.quit()
 
-    ################################## DNS #################################
     def open_dns_settings(self):
         """Открывает диалог настройки DNS-серверов"""
         try:
@@ -1377,7 +1167,7 @@ class LupiDPIApp(QWidget):
     def show_logs(self):
         """Shows the application logs in a dialog"""
         try: 
-            from log import get_log_content
+            from log import get_log_content, LogViewerDialog
             log_content = get_log_content()
             log_dialog = LogViewerDialog(self, log_content)
             log_dialog.exec_()
