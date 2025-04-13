@@ -77,11 +77,7 @@ class LupiDPIApp(QWidget):
 
         super().__init__()
         self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
-        
-        # Инициализируем Discord Manager
-        from discord import DiscordManager
-        self.discord_manager = DiscordManager(status_callback=self.set_status)
-        
+
         self.first_start = True  # Флаг для отслеживания первого запуска
 
         # Устанавливаем иконку приложения
@@ -107,7 +103,10 @@ class LupiDPIApp(QWidget):
         )
     
     def initialize_managers_and_services(self):
-        """Инициализирует менеджеры и службы (может выполняться с задержкой)"""
+        # Инициализируем Discord Manager
+        from discord import DiscordManager
+        self.discord_manager = DiscordManager(status_callback=self.set_status)
+
         # Инициализируем hosts_manager
         self.hosts_manager = HostsManager(status_callback=self.set_status)
         
@@ -151,8 +150,7 @@ class LupiDPIApp(QWidget):
         
         # Проверяем наличие необходимых файлов
         self.set_status("Проверка файлов...")
-        if not os.path.exists(WINWS_EXE):
-            self.dpi_starter.download_files(DOWNLOAD_URLS)
+        self.dpi_starter.download_files(DOWNLOAD_URLS)
         
         # Загружаем последнюю сохраненную стратегию
         last_strategy = get_last_strategy()

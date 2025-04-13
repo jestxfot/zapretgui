@@ -1,7 +1,6 @@
 import os
 import requests
 import shutil
-from log import log
 
 DOWNLOAD_URLS = {
     "winws.exe": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe",
@@ -28,6 +27,7 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
         os.makedirs(bin_folder, exist_ok=True)
         os.makedirs(lists_folder, exist_ok=True)
         
+        from log import log
         # Функция для вывода статуса, если передана
         def set_status(message):
             if status_callback:
@@ -45,7 +45,7 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
                 
         # Если все файлы уже существуют, сообщаем об этом
         if all_files_exist:
-            log(f"➖ Все файлы уже загружены и готовы к использованию", level="DOWNLOAD")
+            log(f"Все файлы уже загружены и готовы к использованию", level="DOWNLOAD")
             set_status("Все файлы готовы к использованию")
             return True
         
