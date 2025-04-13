@@ -307,18 +307,12 @@ class LupiDPIApp(QWidget):
         if not os.path.exists(WINWS_EXE):
             self.download_files_wrapper()
         
-        # Загружаем последнюю стратегию или используем предпочтительную при первом запуске
-        default_strategy = "Оригинальная bol-van v2 (07.04.2025)"  # Задаем предпочтительную стратегию
-        
         # Загружаем последнюю сохраненную стратегию
         last_strategy = get_last_strategy()
-        
-        # Запускаем с нужной стратегией
-        if last_strategy and last_strategy in DPI_COMMANDS:
-            self.start_dpi(predefined_mode=last_strategy)
-        else:
-            # Если нет сохраненной стратегии, используем предпочтительную
-            self.start_dpi(predefined_mode=default_strategy)
+        from log import log
+        log("Загруженная стратегия: " + last_strategy)
+
+        self.start_dpi(selected_mode=last_strategy)
 
         # Обновляем состояние кнопки прокси
         QTimer.singleShot(500, self.update_proxy_button_state)
@@ -618,7 +612,7 @@ class LupiDPIApp(QWidget):
                             "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
         self.check_process_status()  # Обновляем статус в интерфейсе
 
-    def start_dpi(self, predefined_mode=None):
+    def start_dpi(self, selected_mode=None):
         """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
         # Используем существующий метод проверки службы из ServiceManager
         service_found = self.service_manager.check_service_exists()
@@ -626,15 +620,12 @@ class LupiDPIApp(QWidget):
         if service_found:
             # При необходимости здесь можно показать предупреждение
             return
-            
-        # Если службы нет, запускаем DPI
-        selected_mode = self.start_mode_combo.currentText()
 
         success = self.dpi_starter.start_with_progress(
             selected_mode, 
             DPI_COMMANDS, 
             DOWNLOAD_URLS,
-            parent_widget=self
+            parent_widget=self,
         )
 
         if success:
