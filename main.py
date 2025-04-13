@@ -295,13 +295,6 @@ class LupiDPIApp(QWidget):
             status_callback=self.set_status
         )
         
-        # Оптимизация: быстрая попытка остановки без множества повторов
-        try:
-            self.set_status("Подготовка...")
-            self.dpi_starter.stop_dpi()
-        except Exception as e:
-            print(f"Ошибка при начальной очистке процессов: {str(e)}")
-        
         # Проверяем и обновляем UI службы
         service_running = self.service_manager.check_service_exists()
         self.update_autostart_ui(service_running)
@@ -403,12 +396,8 @@ class LupiDPIApp(QWidget):
 
         self.start_mode_combo = QComboBox(self)
         self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-        
-        self.start_mode_combo.blockSignals(True)
         self.start_mode_combo.addItems(DPI_COMMANDS.keys())
         self.start_mode_combo.currentTextChanged.connect(self.on_mode_changed)
-
-        QApplication.processEvents()
         layout.addWidget(self.start_mode_combo)
 
         # --- Создаем сетку для размещения кнопок в два столбца ---
@@ -501,15 +490,11 @@ class LupiDPIApp(QWidget):
         theme_label.setStyleSheet(COMMON_STYLE)
         theme_layout.addWidget(theme_label, alignment=Qt.AlignCenter)
     
-
         self.theme_combo = QComboBox(self)
         self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
         self.theme_combo.addItems(THEMES.keys())
         self.theme_combo.currentTextChanged.connect(self.change_theme)
 
-        # Принудительно включаем и обрабатываем события
-        self.theme_combo.setEnabled(True)
-        QApplication.processEvents()
         theme_layout.addWidget(self.theme_combo)
         layout.addLayout(theme_layout)
 
@@ -639,23 +624,11 @@ class LupiDPIApp(QWidget):
         service_found = self.service_manager.check_service_exists()
         
         if service_found:
-            # здесь не нужны предупреждения при старте иначе они будут всегда появляться в программе
+            # При необходимости здесь можно показать предупреждение
             return
             
-        # Определяем, какую стратегию использовать
-        if predefined_mode and predefined_mode in DPI_COMMANDS:
-            from log import log
-            log(f"Используем переданную стратегию, если она указана явно: {predefined_mode}")
-            selected_mode = predefined_mode
-            
-            if self.start_mode_combo.currentText() != selected_mode:
-                log(f"Обновляем комбо-бокс без вызова событий: {selected_mode}")
-                self.start_mode_combo.blockSignals(True)
-                self.start_mode_combo.setCurrentText(selected_mode)
-                self.start_mode_combo.blockSignals(False)
-        else:
-            log(f"Иначе используем выбранную в комбо-боксе: {self.start_mode_combo.currentText()}")
-            selected_mode = self.start_mode_combo.currentText()
+        # Если службы нет, запускаем DPI
+        selected_mode = self.start_mode_combo.currentText()
 
         success = self.dpi_starter.start_with_progress(
             selected_mode, 
@@ -666,8 +639,8 @@ class LupiDPIApp(QWidget):
 
         if success:
             self.update_ui(running=True)
-            # Добавляем таймер для проверки корректного запуска через короткое время
-            QTimer.singleShot(2000, self.check_if_process_started_correctly)
+            # Проверяем, не завершился ли процесс сразу после запуска
+            QTimer.singleShot(3000, self.check_if_process_started_correctly)
         else:
             self.check_process_status()  # Обновляем статус в интерфейсе
 
@@ -956,19 +929,6 @@ class LupiDPIApp(QWidget):
         
         # Стандартная обработка события
         super().keyPressEvent(event)
-    
-    def on_mode_changed(self, selected_mode):
-        """Обработчик смены режима в combobox"""
-        # Перезапускаем Discord только если:
-        # 1. Это не первый запуск
-        # 2. Автоперезапуск включен в настройках
-        if not self.first_start and self.discord_auto_restart:
-            self.discord_manager.restart_discord_if_running()
-        else:
-            self.first_start = False  # Сбрасываем флаг первого запуска
-        
-        # Запускаем DPI с новым режимом
-        self.start_dpi()
 
     def closeEvent(self, event):
         """Перехватывает событие закрытия окна"""
