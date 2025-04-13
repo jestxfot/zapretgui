@@ -528,7 +528,7 @@ class LupiDPIApp(QWidget):
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.check_process_status)
-        self.status_timer.start(2000)  # Проверка каждые 1 секунды
+        self.status_timer.start(3000)
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""

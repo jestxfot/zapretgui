@@ -58,6 +58,14 @@ class SystemTrayManager:
         # Добавляем разделитель
         tray_menu.addSeparator()
         
+        # Добавляем опцию консоли
+        console_action = QAction("Консоль", self.parent)
+        console_action.triggered.connect(self.show_console)
+        tray_menu.addAction(console_action)
+        
+        # Добавляем разделитель
+        tray_menu.addSeparator()
+        
         # Добавляем опцию выхода
         exit_action = QAction("Выход", self.parent)
         exit_action.triggered.connect(self.exit_app)
@@ -75,6 +83,27 @@ class SystemTrayManager:
             else:
                 self.show_window()
     
+    def show_console(self):
+        """Показывает консольный ввод команд"""
+        from PyQt5.QtWidgets import QInputDialog, QLineEdit
+        from discord_restart import toggle_discord_restart
+        text, ok = QInputDialog.getText(
+            self.parent, 
+            "Консоль", 
+            "Введите команду:",
+            
+            QLineEdit.Normal,
+            ""
+        )
+        
+        if ok and text:
+            # Обрабатываем команду
+            if text.lower() == "ркн":
+                toggle_discord_restart(
+                    self.parent, 
+                    status_callback=lambda msg: self.show_message("Консоль", msg)
+                )
+
     def show_window(self):
         """Показывает окно приложения"""
         self.parent.showNormal()

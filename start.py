@@ -438,9 +438,7 @@ class DPIStarter:
             bool: True если процесс запущен, False если не запущен
         """
         try:
-            log("Начинаю проверку наличия процесса winws.exe...")
             
-            # Метод 1: Проверка через tasklist
             log("Метод 1: Проверка через tasklist")
             result = subprocess.run(
                 'tasklist /FI "IMAGENAME eq winws.exe" /NH',
@@ -450,14 +448,13 @@ class DPIStarter:
                 encoding='cp866'  # Используем кодировку cp866 для корректного отображения русских символов
             )
             
-            log(f"Результат команды tasklist: {result.stdout.strip()}")
+            #log(f"Результат команды tasklist: {result.stdout.strip()}")
             
             if "winws.exe" in result.stdout:
-                log("Процесс winws.exe найден через tasklist")
                 pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
                 
                 if pid_line:
-                    log(f"Строка с информацией о процессе: {pid_line[0]}")
+                    #log(f"Строка с информацией о процессе: {pid_line[0]}")
                     pid_parts = pid_line[0].split()
                     
                     if len(pid_parts) >= 2:
