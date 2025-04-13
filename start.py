@@ -59,6 +59,8 @@ class DPIStarter:
         Returns:
             bool: True при успешной остановке, False при ошибке
         """
+        log(f"======================== Stop DPI ========================", level="START")
+
         try:
             # Проверяем наличие службы ZapretCensorliber
             service_name = "ZapretCensorliber"
@@ -193,7 +195,7 @@ class DPIStarter:
             return True
         except Exception as e:
             error_msg = f"Ошибка при остановке DPI: {str(e)}"
-            log(error_msg)  # Логируем ошибку
+            log(error_msg, level="ERROR")  # Логируем ошибку
             self.set_status(error_msg)
             return False
     
@@ -312,7 +314,7 @@ class DPIStarter:
             bool: True при успешном запуске, False при ошибке
         """
         try:
-            log(f"=== Начинаю запуск режима {mode} ===")
+            log(f"======================== Start DPI {mode} ========================", level="START")
             self.set_status("Подготовка запуска...")
 
             # Проверяем наличие "зависших" процессов
@@ -437,6 +439,8 @@ class DPIStarter:
         Returns:
             bool: True если процесс запущен, False если не запущен
         """
+        log(f"Start check_process_running...", level="START")
+
         try:
             
             log("Метод 1: Проверка через tasklist")
@@ -550,7 +554,7 @@ class DPIStarter:
         с использованием нескольких техник.
         """
         try:
-            log("Запускаю принудительное завершение всех экземпляров winws.exe...")
+            log("Start force_stop_all_instances...")
             
             # Шаг 1: Обнаружение PID процесса
             active_pids = []
@@ -576,7 +580,7 @@ class DPIStarter:
             
             # Если PID не найдены, попробуем другие методы
             if not active_pids:
-                log("PID не найдены через PowerShell, пробуем tasklist...")
+                log("PID не найдены через PowerShell, пробуем tasklist...", level="START")
                 try:
                     result = subprocess.run(
                         'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
@@ -594,7 +598,7 @@ class DPIStarter:
                                     active_pids.append(pid)
                                     log(f"Обнаружен процесс через tasklist с PID: {pid}")
                 except Exception as task_error:
-                    log(f"Ошибка при получении PID через tasklist: {str(task_error)}")
+                    log(f"Ошибка при получении PID через tasklist: {str(task_error)}", level="ERROR")
             
             # Шаг 2: Принудительное завершение по каждому PID с повышенными привилегиями
             success = False
@@ -611,7 +615,7 @@ class DPIStarter:
                         subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, check=False)
                         time.sleep(0.5)
                     except Exception as e:
-                        log(f"Ошибка при taskkill по PID: {str(e)}")
+                        log(f"Ошибка при taskkill по PID: {str(e)}", level="ERROR")
                     
                     # Метод 2: Использование PowerShell для завершения (может работать при проблемах с taskkill)
                     try:
@@ -620,7 +624,7 @@ class DPIStarter:
                         subprocess.run(ps_kill, shell=True, check=False)
                         time.sleep(0.5)
                     except Exception as e:
-                        log(f"Ошибка при PowerShell Stop-Process: {str(e)}")
+                        log(f"Ошибка при PowerShell Stop-Process: {str(e)}", level="ERROR")
                     
                     # Метод 3: Использование команды wmic (работает лучше на старых системах)
                     try:
@@ -629,7 +633,7 @@ class DPIStarter:
                         subprocess.run(wmic_cmd, shell=True, check=False)
                         time.sleep(0.5)
                     except Exception as e:
-                        log(f"Ошибка при wmic terminate: {str(e)}")
+                        log(f"Ошибка при wmic terminate: {str(e)}", level="ERROR")
                     
                     # Метод 4: Использование pskill из PsTools (если доступен)
                     try:
@@ -637,7 +641,7 @@ class DPIStarter:
                         subprocess.run(f"pskill {pid}", shell=True, check=False)
                         time.sleep(0.5)
                     except Exception as e:
-                        log(f"Не удалось использовать pskill: {str(e)}")
+                        log(f"Не удалось использовать pskill: {str(e)}", level="ERROR")
                     
                     # Проверяем, завершился ли процесс
                     try:
@@ -658,7 +662,7 @@ class DPIStarter:
                     except Exception as e:
                         log(f"Ошибка при проверке завершения: {str(e)}")
             else:
-                log("Не найдено процессов winws.exe для завершения")
+                log("Не найдено процессов winws.exe для завершения", level="START")
                 success = True
             
             # Шаг 3: Принудительное завершение любых оставшихся процессов

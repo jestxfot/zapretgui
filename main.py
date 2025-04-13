@@ -13,7 +13,7 @@ from start import DPIStarter
 from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
-from urls import VERSION_URL, UPDATER_BAT_URL, EXE_UPDATE_URL, AUTHOR_URL, INFO_URL, OTHER_LIST_URL
+from urls import AUTHOR_URL, INFO_URL
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -66,150 +66,12 @@ def get_version(self):
 
 class LupiDPIApp(QWidget):
     def check_for_updates(self):
-        """Проверяет наличие обновлений и запускает процесс обновления через BAT-файл"""
+        """Проверяет наличие обновлений и запускает процесс обновления через отдельный модуль"""
         try:
-            # Проверяем наличие модуля requests
-            try:
-                import requests
-                from packaging import version
-            except ImportError:
-                self.set_status("Установка зависимостей для проверки обновлений...")
-                subprocess.run([sys.executable, "-m", "pip", "install", "requests packaging"], 
-                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                import requests
-                from packaging import version
-                
-            # URL для проверки обновлений
-            version_url = VERSION_URL
-            
-            self.set_status("Проверка наличия обновлений...")
-            response = requests.get(version_url, timeout=5)
-            if response.status_code == 200:
-                info = response.json()
-                latest_version = info.get("version")
-                release_notes = info.get("release_notes", "Нет информации об изменениях")
-                
-                # URL для скачивания BAT-файла обновления
-                bat_url = info.get("updater_bat_url", UPDATER_BAT_URL)
-                
-                # Сравниваем версии
-                if version.parse(latest_version) > version.parse(APP_VERSION):
-                    # Нашли обновление
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Information)
-                    msg.setWindowTitle("Доступно обновление")
-                    msg.setText(f"Доступна новая версия: {latest_version}\nТекущая версия: {APP_VERSION}")
-                    
-                    # Добавляем информацию о выпуске
-                    msg.setInformativeText(f"Список изменений:\n{release_notes}\n\nХотите обновиться сейчас?")
-                    
-                    msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-                    if msg.exec_() == QMessageBox.Yes:
-                        # Запускаем процесс обновления
-                        self.set_status("Запуск обновления...")
-                        
-                        # Получаем путь к текущему исполняемому файлу
-                        exe_path = os.path.abspath(sys.executable)
-                        
-                        # Если это не скомпилированное приложение, updater не сможет заменить .py файл
-                        if not getattr(sys, 'frozen', False):
-                            QMessageBox.warning(self, "Обновление невозможно", 
-                                            "Автоматическое обновление возможно только для скомпилированных (.exe) версий программы.")
-                            return
-                        
-                        # Скачиваем BAT-файл обновления
-                        try:
-                            # Создаем временный файл для скрипта обновления
-                            updater_bat = os.path.join(os.path.dirname(exe_path), "update_zapret.bat")
-                            
-                            # Скачиваем BAT-файл
-                            self.set_status("Скачивание скрипта обновления...")
-                            bat_response = requests.get(bat_url)
-                            bat_content = bat_response.text
-
-                            # Заменяем переменные в BAT-файле
-                            bat_content = bat_content.replace("{EXE_PATH}", exe_path)
-                            bat_content = bat_content.replace("{EXE_DIR}", os.path.dirname(exe_path))
-                            bat_content = bat_content.replace("{EXE_NAME}", os.path.basename(exe_path))
-                            bat_content = bat_content.replace("{CURRENT_VERSION}", APP_VERSION)
-                            bat_content = bat_content.replace("{NEW_VERSION}", latest_version)
-
-                            # Сохраняем BAT-файл
-                            with open(updater_bat, 'w', encoding='utf-8') as f:
-                                f.write(bat_content)
-                            
-                            # Запускаем BAT-файл
-                            self.set_status("Запуск скрипта обновления...")
-                            # Изменим способ запуска BAT-файла, чтобы показать консоль
-                            subprocess.Popen(f'cmd /c start cmd /k "{updater_bat}"', shell=True)
-                            
-                            # Завершаем текущий процесс после небольшой задержки
-                            self.set_status("Запущен процесс обновления. Приложение будет перезапущено.")
-                            QTimer.singleShot(2000, lambda: sys.exit(0))
-                            
-                        except Exception as e:
-                            self.set_status(f"Ошибка при подготовке обновления: {str(e)}")
-                            # Если произошла ошибка при скачивании BAT-файла, создаем его локально
-                            try:
-                                # Создаем BAT-файл вручную
-                                updater_bat = os.path.join(os.path.dirname(exe_path), "update_zapret.bat")
-                                with open(updater_bat, 'w', encoding='utf-8') as f:
-                                    f.write(f"""@echo off
-                                    chcp 65001 > nul
-                                    echo UPDATE ZAPRET!
-                                    title Old v{APP_VERSION} to new v{latest_version}
-
-                                    echo Wait...
-                                    timeout /t 3 /nobreak > nul
-                                    del /f /q "{exe_path}" >nul 2>&1
-                                    echo  Download new version...
-                                    powershell -Command "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('{EXE_UPDATE_URL}', '%TEMP%\\zapret_new.exe')"
-
-                                    if %ERRORLEVEL% NEQ 0 (
-                                        echo Error download update!
-                                        pause
-                                        exit /b 1
-                                    )
-
-                                    echo Replace old to new version
-                                    copy /Y "%TEMP%\\zapret_new.exe" "{exe_path}"
-
-                                    if %ERRORLEVEL% NEQ 0 (
-                                        echo "Не удалось заменить файл. Проверьте права доступа."
-                                        pause
-                                        exit /b 1
-                                    )
-
-                                    set CURRENT_DIR=%CD%
-                                    cd /d "{os.path.dirname(exe_path)}"
-                                    cd /d %CURRENT_DIR%
-                                    echo Del temp file...
-                                    del "%TEMP%\\zapret_new.exe" >nul 2>&1
-                                    echo Update done success!
-                                    echo Please run Zapret (main.exe) again!
-                                    del "%~f0" >nul 2>&1
-                                    """)
-                                                                
-                                # Запускаем BAT-файл
-                                subprocess.Popen(f'cmd /c start cmd /k "{updater_bat}"', shell=True)
-                                
-                                # Завершаем текущий процесс после небольшой задержки
-                                self.set_status("Запущен процесс обновления. Приложение будет перезапущено.")
-                                QTimer.singleShot(2000, lambda: sys.exit(0))
-                            except Exception as inner_e:
-                                self.set_status(f"Критическая ошибка обновления: {str(inner_e)}")
-                    else:
-                        self.set_status(f"У вас установлена последняя версия ({latest_version}).")
-                else:
-                    self.set_status(f"У вас установлена последняя версия ({latest_version}).")
-            else:
-                self.set_status(f"Не удалось проверить обновления.\nКод: {response.status_code}")
+            from updater import check_for_update
+            check_for_update(self)
         except Exception as e:
-            self.set_status(f"Ошибка при проверке обновлений:\n{str(e)}")
-    
-    def download_files_wrapper(self):
-        """Обертка для скачивания файлов, использующая внешнюю функцию"""
-        return self.dpi_starter.download_files(DOWNLOAD_URLS)
+            self.set_status(f"Ошибка при проверке обновлений: {str(e)}")
 
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
@@ -258,7 +120,7 @@ class LupiDPIApp(QWidget):
             icon_path=os.path.abspath(ICON_PATH),
             app_version=APP_VERSION
         )
-
+    
     def initialize_managers_and_services(self):
         """Инициализирует менеджеры и службы (может выполняться с задержкой)"""
         # Инициализируем hosts_manager
@@ -305,7 +167,7 @@ class LupiDPIApp(QWidget):
         # Проверяем наличие необходимых файлов
         self.set_status("Проверка файлов...")
         if not os.path.exists(WINWS_EXE):
-            self.download_files_wrapper()
+            self.dpi_starter.download_files(DOWNLOAD_URLS)
         
         # Загружаем последнюю сохраненную стратегию
         last_strategy = get_last_strategy()
@@ -439,7 +301,7 @@ class LupiDPIApp(QWidget):
         self.stop_btn.setVisible(False)
         self.autostart_enable_btn.setVisible(True)
         self.autostart_disable_btn.setVisible(False)
-        
+
         # Определяем кнопки
         button_configs = [            
             ('Открыть папку Zapret', self.open_folder, "0, 119, 255", 2, 0),

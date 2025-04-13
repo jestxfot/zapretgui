@@ -1,6 +1,7 @@
 import os
 import requests
 import shutil
+from log import log
 
 DOWNLOAD_URLS = {
     "winws.exe": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe",
@@ -32,7 +33,7 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
             if status_callback:
                 status_callback(message)
             else:
-                print(message)
+                log(message, level="DOWNLOAD")
         
         # Проверяем, существуют ли все файлы
         all_files_exist = True
@@ -44,7 +45,7 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
                 
         # Если все файлы уже существуют, сообщаем об этом
         if all_files_exist:
-            print("Все файлы уже загружены и готовы к использованию")
+            log(f"➖ Все файлы уже загружены и готовы к использованию", level="DOWNLOAD")
             set_status("Все файлы готовы к использованию")
             return True
         
@@ -54,18 +55,19 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
             
             # Проверяем, существует ли файл уже
             if os.path.exists(filepath):
-                set_status(f"Файл {filename} уже существует")
+                log(f"Файл {filename} уже существует", level="DOWNLOAD")
                 continue
-                
-            set_status(f"Скачиваем {filename}...")
+
+            log(f"Файл {filename} не найден, скачиваем...", level="DOWNLOAD")
             response = requests.get(url, stream=True)
             
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
                     response.raw.decode_content = True
                     shutil.copyfileobj(response.raw, f)
-                set_status(f"Файл {filename} скачан успешно")
+                log(f"Файл {filename} скачан успешно", level="DOWNLOAD")
             else:
+                log(f"Ошибка при скачивании {filename}, код: {response.status_code}", level="ERROR")
                 raise Exception(f"Не удалось скачать {filename}, код: {response.status_code}")
                 
         # Создаем пустые txt файлы в lists, если их нет
@@ -79,7 +81,8 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
             "discord.txt",
             "faceinsta.txt",
             "russia-youtube-rtmps.txt",
-            "ipset-discord.txt"
+            "ipset-discord.txt",
+            "ipset-cloudflare.txt"
         ]
         
         for listfile in default_lists:
@@ -87,14 +90,14 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
             if not os.path.exists(filepath):
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("# Добавьте адреса сайтов по одному на строку\n")
-                    
-        print("Все файлы успешно загружены и готовы к использованию")
-        set_status("Все файлы готовы")
+
+        log("Все файлы успешно загружены и готовы к использованию", level="DOWNLOAD")
+        log(f"======================== ВСЕ ФАЙЛЫ ГОТОВЫ ========================", level="DOWNLOAD")
         return True
                 
     except Exception as e:
         error_msg = f"Ошибка при скачивании файлов: {str(e)}"
-        print(error_msg)
+        log(f"Ошибка при скачивании файлов: {error_msg}", level="ERROR")
         if status_callback:
             status_callback(error_msg)
         return False

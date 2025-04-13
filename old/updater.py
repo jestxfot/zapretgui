@@ -5,11 +5,10 @@ import shutil
 import tempfile
 import subprocess
 from urllib.request import urlopen
-import json
 import threading
 import tkinter as tk
 from tkinter import ttk
-from urls import *
+from urls import EXE_UPDATE_URL
 
 class UpdaterUI:
     def __init__(self, title="Обновление Zapret"):
