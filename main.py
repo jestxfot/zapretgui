@@ -471,11 +471,11 @@ class LupiDPIApp(QWidget):
         log("Загруженная стратегия: " + last_strategy)
 
         if last_strategy is None:
-            # Если не удалось получить стратегию, используем первую из списка
+            # Если не пустое значение, используем его
             selected_mode = last_strategy
         else:
-            # Если стратегия была выбрана, используем её
-            selected_mode = get_last_strategy()
+            # Если пустое значение, используем текущее значение из combobox
+            selected_mode = self.start_mode_combo.currentText()
 
         success = self.dpi_starter.start_with_progress(
             selected_mode, 
