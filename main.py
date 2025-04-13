@@ -151,13 +151,8 @@ class LupiDPIApp(QWidget):
         # Проверяем наличие необходимых файлов
         self.set_status("Проверка файлов...")
         self.dpi_starter.download_files(DOWNLOAD_URLS)
-        
-        # Загружаем последнюю сохраненную стратегию
-        last_strategy = get_last_strategy()
-        from log import log
-        log("Загруженная стратегия: " + last_strategy)
 
-        self.start_dpi(selected_mode=last_strategy)
+        self.start_dpi()
 
         # Обновляем состояние кнопки прокси
         QTimer.singleShot(500, self.update_proxy_button_state)
@@ -469,6 +464,18 @@ class LupiDPIApp(QWidget):
         if service_found:
             # При необходимости здесь можно показать предупреждение
             return
+        
+        
+        last_strategy = get_last_strategy()
+        from log import log
+        log("Загруженная стратегия: " + last_strategy)
+
+        if last_strategy is None:
+            # Если не удалось получить стратегию, используем первую из списка
+            selected_mode = last_strategy
+        else:
+            # Если стратегия была выбрана, используем её
+            selected_mode = get_last_strategy()
 
         success = self.dpi_starter.start_with_progress(
             selected_mode, 
