@@ -66,42 +66,177 @@ def get_version(self):
     return APP_VERSION
 
 class LupiDPIApp(QWidget):
-    def __init__(self, fast_load=False):
-        self.fast_load = fast_load
+    def set_status(self, text):
+        """Sets the status text."""
+        self.status_label.setText(text)
 
-        # Добавляем защиту от гонок данных при проверке статуса
-        self.status_check_lock = threading.Lock()
-        self.last_status = None
-        self.last_status_time = 0
-        self.status_check_interval = 0.5  # минимальный интервал между проверками в секундах
+    def update_ui(self, running):
+        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса запуска"""
+        # Обновляем только кнопки запуска/остановки
+        self.start_btn.setVisible(not running)
+        self.stop_btn.setVisible(running)
 
-        super().__init__()
-        self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
-
-        self.first_start = True  # Флаг для отслеживания первого запуска
-
-        # Устанавливаем иконку приложения
-        icon_path = os.path.abspath(ICON_PATH)
-        if os.path.exists(icon_path):
-            from PyQt5.QtGui import QIcon
-            app_icon = QIcon(icon_path)
-            self.setWindowIcon(app_icon)
-            QApplication.instance().setWindowIcon(app_icon)
+    def check_process_status(self):
+        """Проверяет статус процесса и обновляет интерфейс"""
+        # Используем блокировку чтобы предотвратить одновременные проверки
+        if not hasattr(self, 'status_check_lock') or not self.status_check_lock.acquire(blocking=False):
+            return
         
-        # Инициализируем интерфейс
-        self.init_ui()
+        try:
+            # Проверяем, не слишком ли часто выполняем проверки
+            current_time = time.time()
+            if hasattr(self, 'last_status_time') and current_time - self.last_status_time < self.status_check_interval:
+                # Слишком малый интервал, пропускаем проверку
+                return
+                
+            self.last_status_time = current_time
+            
+            # Проверяем статус службы
+            service_running = self.service_manager.check_service_exists()
+            
+            # Проверяем статус процесса
+            process_running = self.dpi_starter.check_process_running()
+            
+            # Сохраняем текущий статус для сравнения
+            current_status = (process_running, service_running)
+            
+            # Проверяем, изменился ли статус с последней проверки
+            if hasattr(self, 'last_status') and self.last_status == current_status:
+                # Статус не изменился, не обновляем UI
+                return
+                
+            # Сохраняем новый статус
+            self.last_status = current_status
+            
+            # Обновляем состояние элементов интерфейса
+            if process_running or service_running:
+                self.start_btn.setVisible(False)
+                self.stop_btn.setVisible(True)
+                
+                # Если служба активна, отображаем это
+                if service_running:
+                    self.process_status_value.setText("СЛУЖБА АКТИВНА")
+                    self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+                else:
+                    # Иначе показываем обычный статус
+                    self.process_status_value.setText("ВКЛЮЧЕН")
+                    self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.start_btn.setVisible(True)
+                self.stop_btn.setVisible(False)
+                self.process_status_value.setText("ВЫКЛЮЧЕН")
+                self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+        finally:
+            self.status_check_lock.release()
+
+    def check_if_process_started_correctly(self):
+        """Проверяет, что процесс успешно запустился и продолжает работать"""
+        # Если процесс находится в процессе перезапуска или был остановлен намеренно, пропускаем проверку
+        if hasattr(self, 'process_restarting') and self.process_restarting:
+            self.process_restarting = False  # Сбрасываем флаг
+            self.check_process_status()  # Просто обновляем статус
+            return
+            
+        if hasattr(self, 'manually_stopped') and self.manually_stopped:
+            self.manually_stopped = False  # Сбрасываем флаг
+            self.check_process_status()
+            return
         
-        # При быстрой загрузке откладываем тяжелые операции
-        if not self.fast_load:
-            self.initialize_managers_and_services()
+        # Проверяем, был ли недавно изменен режим (стратегия)
+        current_time = time.time()
+        if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
+            # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
+            self.check_process_status()
+            return
+            
+        if not self.dpi_starter.check_process_running():
+            # Если процесс не запущен, и это не связано с переключением стратегии, показываем ошибку
+            exe_path = os.path.abspath(WINWS_EXE)
+            QMessageBox.critical(self, "Ошибка запуска", 
+                            f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
+                            f"Путь к программе: {exe_path}\n\n"
+                            "Это может быть вызвано:\n"
+                            "1. Антивирус удалил часть критически важных файлов программы - переустановите программу заново\n"
+                            "2. Какие-то файлы удалены из программы - скачате ZIP архив заново\n\n"
+                            "Перед переустановкой программы создайте исключение в антивирусе.")
+            self.update_ui(running=False)
         
-        # Инициализируем системный трей после создания всех элементов интерфейса
-        self.tray_manager = SystemTrayManager(
-            parent=self,
-            icon_path=os.path.abspath(ICON_PATH),
-            app_version=APP_VERSION
+        # В любом случае обновляем статус
+        self.check_process_status()
+
+    def start_dpi(self, selected_mode=None):
+        """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
+        # Используем существующий метод проверки службы из ServiceManager
+        service_found = self.service_manager.check_service_exists()
+        
+        if service_found:
+            # При необходимости здесь можно показать предупреждение
+            return
+        
+        
+        last_strategy = get_last_strategy()
+        from log import log
+        log("Загруженная стратегия: " + last_strategy)
+
+        if last_strategy is None:
+            # Если не пустое значение, используем его
+            selected_mode = last_strategy
+        else:
+            # Если пустое значение, используем текущее значение из combobox
+            selected_mode = self.start_mode_combo.currentText()
+
+        success = self.dpi_starter.start_with_progress(
+            selected_mode, 
+            DPI_COMMANDS, 
+            DOWNLOAD_URLS,
+            parent_widget=self,
         )
-    
+
+        # Проверяем, был ли процесс успешно запущен
+        if success:
+            self.update_ui(running=True)
+            # Проверяем, не завершился ли процесс сразу после запуска
+            QTimer.singleShot(3000, self.check_if_process_started_correctly)
+        else:
+            self.check_process_status()  # Обновляем статус в интерфейсе
+
+        return success
+
+    def update_autostart_ui(self, service_running):
+        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса службы"""
+        # Обновляем видимость кнопок включения/отключения автозапуска
+        self.autostart_enable_btn.setVisible(not service_running)
+        self.autostart_disable_btn.setVisible(service_running)
+        
+        # Обновляем доступность выбора стратегии
+        if service_running:
+            # Если служба запущена, скрываем выбор стратегии и показываем сообщение
+            self.start_mode_combo.setVisible(False)
+            
+            # Если метки еще нет, создаем её
+            if not hasattr(self, 'service_info_label'):
+                from PyQt5.QtWidgets import QLabel
+                self.service_info_label = QLabel("Служба запущена с фиксированной стратегией!\nСменить стратегию НЕЛЬЗЯ!", self)
+                self.service_info_label.setAlignment(Qt.AlignCenter)
+                self.service_info_label.setStyleSheet("color: red; font-weight: bold;")
+                
+                # Находим индекс start_mode_combo в layout
+                layout = self.layout()
+                for i in range(layout.count()):
+                    if layout.itemAt(i).widget() == self.start_mode_combo:
+                        layout.insertWidget(i, self.service_info_label)
+                        break
+            
+            # Показываем информационную метку
+            self.service_info_label.setVisible(True)
+        else:
+            # Если служба остановлена, показываем выбор стратегии и скрываем сообщение
+            self.start_mode_combo.setVisible(True)
+            
+            # Скрываем информационную метку, если она существует
+            if hasattr(self, 'service_info_label'):
+                self.service_info_label.setVisible(False)
+
     def initialize_managers_and_services(self):
         # Инициализируем Discord Manager
         from discord import DiscordManager
@@ -166,6 +301,80 @@ class LupiDPIApp(QWidget):
         # Принудительно обновляем UI
         QApplication.processEvents()
 
+    def __init__(self, fast_load=False):
+        self.fast_load = fast_load
+
+        # Добавляем защиту от гонок данных при проверке статуса
+        self.status_check_lock = threading.Lock()
+        self.last_status = None
+        self.last_status_time = 0
+        self.status_check_interval = 0.5  # минимальный интервал между проверками в секундах
+
+        super().__init__()
+        self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
+
+        self.first_start = True  # Флаг для отслеживания первого запуска
+
+        # Устанавливаем иконку приложения
+        icon_path = os.path.abspath(ICON_PATH)
+        if os.path.exists(icon_path):
+            from PyQt5.QtGui import QIcon
+            app_icon = QIcon(icon_path)
+            self.setWindowIcon(app_icon)
+            QApplication.instance().setWindowIcon(app_icon)
+        
+        # Инициализируем интерфейс
+        self.init_ui()
+        
+        # При быстрой загрузке откладываем тяжелые операции
+        if not self.fast_load:
+            self.initialize_managers_and_services()
+        
+        # Инициализируем системный трей после создания всех элементов интерфейса
+        self.tray_manager = SystemTrayManager(
+            parent=self,
+            icon_path=os.path.abspath(ICON_PATH),
+            app_version=APP_VERSION
+        )
+
+    def force_enable_combos(self):
+        """Принудительно включает комбо-боксы даже если они были отключены"""
+        try:
+                
+            if hasattr(self, 'theme_combo'):
+                # Полное восстановление состояния комбо-бокса тем
+                self.theme_combo.setEnabled(True)
+                self.theme_combo.show()
+                self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
+
+            if hasattr(self, 'start_mode_combo'):
+                # Полное восстановление состояния комбо-бокса
+                self.start_mode_combo.setEnabled(True)
+                self.start_mode_combo.show()
+                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
+
+            # Принудительное обновление UI
+            QApplication.processEvents()
+            
+            # Возвращаем True если оба комбо-бокса существуют и активны
+            return (hasattr(self, 'start_mode_combo') and self.start_mode_combo.isEnabled() and
+                    hasattr(self, 'theme_combo') and self.theme_combo.isEnabled())
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при активации комбо-боксов: {str(e)}")
+            return False
+    
+    def delayed_combo_enabler(self):
+        from log import log
+        """Повторно проверяет и активирует комбо-боксы через таймер"""
+        if self.force_enable_combos():
+            # Если успешно активировали, останавливаемся
+            log("Комбо-боксы успешно активированы")
+        else:
+            # Если нет, повторяем через полсекунды
+            log("Повторная попытка активации комбо-боксов")
+            QTimer.singleShot(500, self.delayed_combo_enabler)
+
     def perform_delayed_checks(self):
         """Выполняет отложенные проверки после отображения UI"""
         if self.fast_load:
@@ -182,16 +391,208 @@ class LupiDPIApp(QWidget):
             # Это гарантирует, что комбо-боксы точно станут активными
             QTimer.singleShot(500, self.delayed_combo_enabler)
 
-    def delayed_combo_enabler(self):
-        from log import log
-        """Повторно проверяет и активирует комбо-боксы через таймер"""
-        if self.force_enable_combos():
-            # Если успешно активировали, останавливаемся
-            log("Комбо-боксы успешно активированы")
+    def on_mode_changed(self, selected_mode):
+        """Обработчик смены режима в combobox"""
+        # Записываем время изменения стратегии
+        self.last_strategy_change_time = time.time()
+        
+        # Перезапускаем Discord только если:
+        # 1. Это не первый запуск
+        # 2. Автоперезапуск включен в настройках
+        from discord_restart import get_discord_restart_setting
+        if not self.first_start and get_discord_restart_setting():
+            self.discord_manager.restart_discord_if_running()
         else:
-            # Если нет, повторяем через полсекунды
-            log("Повторная попытка активации комбо-боксов")
-            QTimer.singleShot(500, self.delayed_combo_enabler)
+            self.first_start = False  # Сбрасываем флаг первого запуска
+        
+        # Сохраняем выбранную стратегию в реестр
+        set_last_strategy(selected_mode)
+        
+        # Запускаем DPI с новым режимом
+        self.start_dpi(selected_mode=selected_mode)
+
+    def change_theme(self, theme_name):
+        """Изменяет тему приложения"""
+        success, message = self.theme_manager.apply_theme(theme_name)
+        if success:
+            self.set_status(f"Тема изменена на: {theme_name}")
+        else:
+            self.set_status(message)
+
+    def open_info(self):
+        """Opens the info website."""
+        try:
+            webbrowser.open(INFO_URL)
+            self.set_status("Открываю руководство...")
+        except Exception as e:
+            error_msg = f"Ошибка при открытии руководства: {str(e)}"
+            print(error_msg)
+            self.set_status(error_msg)
+
+    def open_folder(self):
+        """Opens the DPI folder."""
+        try:
+            subprocess.Popen('explorer.exe .', shell=True)
+        except Exception as e:
+            self.set_status(f"Ошибка при открытии папки: {str(e)}")
+
+    def open_general(self):
+        """Opens the list-general.txt file."""
+        try:
+            general_path = os.path.join(LISTS_FOLDER, 'other.txt')
+            # Проверяем существование файла и создаем его при необходимости
+            if not os.path.exists(general_path):
+                os.makedirs(os.path.dirname(general_path), exist_ok=True)
+                with open(general_path, 'w', encoding='utf-8') as f:
+                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
+            
+            subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
+        except Exception as e:
+            self.set_status(f"Ошибка при открытии файла: {str(e)}")
+
+    def stop_dpi(self):
+        """Останавливает процесс DPI."""
+        # Устанавливаем флаг намеренной остановки
+        self.manually_stopped = True
+        
+        if self.dpi_starter.stop_dpi():
+            self.update_ui(running=False)
+        else:
+            # Показываем сообщение об ошибке, если метод вернул False
+            QMessageBox.warning(self, "Невозможно остановить", 
+                            "Невозможно остановить Zapret, пока установлена служба.\n\n"
+                            "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
+        self.check_process_status()  # Обновляем статус в интерфейсе
+
+    def install_service(self):
+        """Устанавливает службу DPI с текущей конфигурацией"""
+        selected_config = self.start_mode_combo.currentText()
+        if selected_config not in DPI_COMMANDS:
+            self.set_status(f"Недопустимая конфигурация: {selected_config}")
+            return
+            
+        # Получаем аргументы командной строки для выбранной конфигурации
+        command_args = DPI_COMMANDS.get(selected_config, [])
+        
+        # Устанавливаем службу через ServiceManager и обновляем UI, если успешно
+        if self.service_manager.install_service(command_args, config_name=selected_config):
+            self.update_autostart_ui(True)
+            self.check_process_status()
+
+    def remove_service(self):
+        """Удаляет службу DPI"""
+        if self.service_manager.remove_service():
+            self.update_autostart_ui(False)
+            self.check_process_status()
+
+    def update_proxy_button_state(self):
+        """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
+        if hasattr(self, 'proxy_button'):
+            is_active = self.hosts_manager.is_proxy_domains_active()
+            if is_active:
+                self.proxy_button.setText('Отключить разблокировку ChatGPT, Spotify, Notion')
+                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))  # Красноватый цвет
+            else:
+                self.proxy_button.setText('Разблокировать ChatGPT, Spotify, Notion и др.')
+                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))  # Золотистый цвет
+
+    def toggle_proxy_domains(self):
+        """Переключает состояние разблокировки: добавляет или удаляет записи из hosts"""
+        is_active = self.hosts_manager.is_proxy_domains_active()
+        
+        if is_active:
+            # Показываем информационное сообщение о отключении
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Отключение разблокировки")
+            msg.setText("Отключить разблокировку сервисов через hosts-файл?")
+            
+            msg.setInformativeText(
+                "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
+                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
+            )
+            
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            result = msg.exec_()
+            
+            if result == QMessageBox.Yes:
+                if self.hosts_manager.remove_proxy_domains():
+                    self.set_status("Разблокировка отключена. Перезапустите браузер.")
+                    self.update_proxy_button_state()
+                else:
+                    self.set_status("Не удалось отключить разблокировку.")
+            else:
+                self.set_status("Операция отменена.")
+        else:
+            # Показываем информационное сообщение о включении
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Разблокировка через hosts-файл")
+            msg.setText("Установка соединения к proxy-серверу через файл hosts")
+            
+            msg.setInformativeText(
+                "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
+                "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
+                "(без участия Роскомнадзора).\n\n"
+                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
+            )
+            
+            msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+            result = msg.exec_()
+            
+            if result == QMessageBox.Ok:
+                if self.hosts_manager.add_proxy_domains():
+                    self.set_status("Разблокировка включена. Перезапустите браузер.")
+                    self.update_proxy_button_state()
+                else:
+                    self.set_status("Не удалось включить разблокировку.")
+            else:
+                self.set_status("Операция отменена.")
+
+    def open_connection_test(self):
+        """Открывает окно тестирования соединения."""
+        # Импортируем модуль тестирования
+        from connection_test import ConnectionTestDialog
+        dialog = ConnectionTestDialog(self)
+        dialog.exec_()
+
+    def update_other_list(self):
+        """Обновляет файл списка other.txt с удаленного сервера"""
+        from update_other import update_other_list as _update_other_list
+        _update_other_list(parent=self, status_callback=self.set_status)
+
+    def open_dns_settings(self):
+        """Открывает диалог настройки DNS-серверов"""
+        try:
+            # Показываем индикатор в статусной строке
+            self.set_status("Открываем настройки DNS (загрузка данных)...")
+        
+            # Передаем текущий стиль в диалог
+            dns_dialog = DNSSettingsDialog(self, common_style=COMMON_STYLE)
+            dns_dialog.exec_()
+            
+            # Сбрасываем статус после закрытия диалога
+            self.set_status("Настройки DNS закрыты")
+        except Exception as e:
+            error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
+            from log import log
+            log(f"Ошибка при открытии настроек DNS: {str(e)}", level="ERROR")
+            self.set_status(error_msg)
+
+    def update_winws_exe(self):
+        """Обновляет файл winws.exe до последней версии с GitHub"""
+        from update_winws import update_winws_exe as _update_winws_exe
+        _update_winws_exe(self)
+
+    def show_logs(self):
+        """Shows the application logs in a dialog"""
+        try: 
+            from log import get_log_content, LogViewerDialog
+            log_content = get_log_content()
+            log_dialog = LogViewerDialog(self, log_content)
+            log_dialog.exec_()
+        except Exception as e:
+            self.set_status(f"Ошибка при открытии журнала: {str(e)}")
 
     def init_ui(self):
         """Creates the user interface elements."""
@@ -370,374 +771,6 @@ class LupiDPIApp(QWidget):
         self.status_timer.timeout.connect(self.check_process_status)
         self.status_timer.start(3000)
 
-    def on_mode_changed(self, selected_mode):
-        """Обработчик смены режима в combobox"""
-        # Записываем время изменения стратегии
-        self.last_strategy_change_time = time.time()
-        
-        # Перезапускаем Discord только если:
-        # 1. Это не первый запуск
-        # 2. Автоперезапуск включен в настройках
-        from discord_restart import get_discord_restart_setting
-        if not self.first_start and get_discord_restart_setting():
-            self.discord_manager.restart_discord_if_running()
-        else:
-            self.first_start = False  # Сбрасываем флаг первого запуска
-        
-        # Сохраняем выбранную стратегию в реестр
-        set_last_strategy(selected_mode)
-        
-        # Запускаем DPI с новым режимом
-        self.start_dpi(selected_mode=selected_mode)
-
-    def force_enable_combos(self):
-        """Принудительно включает комбо-боксы даже если они были отключены"""
-        try:
-                
-            if hasattr(self, 'theme_combo'):
-                # Полное восстановление состояния комбо-бокса тем
-                self.theme_combo.setEnabled(True)
-                self.theme_combo.show()
-                self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
-            if hasattr(self, 'start_mode_combo'):
-                # Полное восстановление состояния комбо-бокса
-                self.start_mode_combo.setEnabled(True)
-                self.start_mode_combo.show()
-                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
-            # Принудительное обновление UI
-            QApplication.processEvents()
-            
-            # Возвращаем True если оба комбо-бокса существуют и активны
-            return (hasattr(self, 'start_mode_combo') and self.start_mode_combo.isEnabled() and
-                    hasattr(self, 'theme_combo') and self.theme_combo.isEnabled())
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при активации комбо-боксов: {str(e)}")
-            return False
-    
-    def change_theme(self, theme_name):
-        """Изменяет тему приложения"""
-        success, message = self.theme_manager.apply_theme(theme_name)
-        if success:
-            self.set_status(f"Тема изменена на: {theme_name}")
-        else:
-            self.set_status(message)
-
-    def open_info(self):
-        """Opens the info website."""
-        try:
-            webbrowser.open(INFO_URL)
-            self.set_status("Открываю руководство...")
-        except Exception as e:
-            error_msg = f"Ошибка при открытии руководства: {str(e)}"
-            print(error_msg)
-            self.set_status(error_msg)
-
-    def open_folder(self):
-        """Opens the DPI folder."""
-        try:
-            subprocess.Popen('explorer.exe .', shell=True)
-        except Exception as e:
-            self.set_status(f"Ошибка при открытии папки: {str(e)}")
-    
-    def stop_dpi(self):
-        """Останавливает процесс DPI."""
-        # Устанавливаем флаг намеренной остановки
-        self.manually_stopped = True
-        
-        if self.dpi_starter.stop_dpi():
-            self.update_ui(running=False)
-        else:
-            # Показываем сообщение об ошибке, если метод вернул False
-            QMessageBox.warning(self, "Невозможно остановить", 
-                            "Невозможно остановить Zapret, пока установлена служба.\n\n"
-                            "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
-        self.check_process_status()  # Обновляем статус в интерфейсе
-
-    def start_dpi(self, selected_mode=None):
-        """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
-        # Используем существующий метод проверки службы из ServiceManager
-        service_found = self.service_manager.check_service_exists()
-        
-        if service_found:
-            # При необходимости здесь можно показать предупреждение
-            return
-        
-        
-        last_strategy = get_last_strategy()
-        from log import log
-        log("Загруженная стратегия: " + last_strategy)
-
-        if last_strategy is None:
-            # Если не пустое значение, используем его
-            selected_mode = last_strategy
-        else:
-            # Если пустое значение, используем текущее значение из combobox
-            selected_mode = self.start_mode_combo.currentText()
-
-        success = self.dpi_starter.start_with_progress(
-            selected_mode, 
-            DPI_COMMANDS, 
-            DOWNLOAD_URLS,
-            parent_widget=self,
-        )
-
-        if success:
-            self.update_ui(running=True)
-            # Проверяем, не завершился ли процесс сразу после запуска
-            QTimer.singleShot(3000, self.check_if_process_started_correctly)
-        else:
-            self.check_process_status()  # Обновляем статус в интерфейсе
-
-        return success
-
-    def check_if_process_started_correctly(self):
-        """Проверяет, что процесс успешно запустился и продолжает работать"""
-        # Если процесс находится в процессе перезапуска или был остановлен намеренно, пропускаем проверку
-        if hasattr(self, 'process_restarting') and self.process_restarting:
-            self.process_restarting = False  # Сбрасываем флаг
-            self.check_process_status()  # Просто обновляем статус
-            return
-            
-        if hasattr(self, 'manually_stopped') and self.manually_stopped:
-            self.manually_stopped = False  # Сбрасываем флаг
-            self.check_process_status()
-            return
-        
-        # Проверяем, был ли недавно изменен режим (стратегия)
-        current_time = time.time()
-        if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
-            # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
-            self.check_process_status()
-            return
-            
-        if not self.dpi_starter.check_process_running():
-            # Если процесс не запущен, и это не связано с переключением стратегии, показываем ошибку
-            exe_path = os.path.abspath(WINWS_EXE)
-            QMessageBox.critical(self, "Ошибка запуска", 
-                            f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
-                            f"Путь к программе: {exe_path}\n\n"
-                            "Это может быть вызвано:\n"
-                            "1. Антивирус удалил часть критически важных файлов программы - переустановите программу заново\n"
-                            "2. Какие-то файлы удалены из программы - скачате ZIP архив заново\n\n"
-                            "Перед переустановкой программы создайте исключение в антивирусе.")
-            self.update_ui(running=False)
-        
-        # В любом случае обновляем статус
-        self.check_process_status()
-        
-    def open_general(self):
-        """Opens the list-general.txt file."""
-        try:
-            general_path = os.path.join(LISTS_FOLDER, 'other.txt')
-            # Проверяем существование файла и создаем его при необходимости
-            if not os.path.exists(general_path):
-                os.makedirs(os.path.dirname(general_path), exist_ok=True)
-                with open(general_path, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
-            
-            subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
-        except Exception as e:
-            self.set_status(f"Ошибка при открытии файла: {str(e)}")
-
-    def install_service(self):
-        """Устанавливает службу DPI с текущей конфигурацией"""
-        selected_config = self.start_mode_combo.currentText()
-        if selected_config not in DPI_COMMANDS:
-            self.set_status(f"Недопустимая конфигурация: {selected_config}")
-            return
-            
-        # Получаем аргументы командной строки для выбранной конфигурации
-        command_args = DPI_COMMANDS.get(selected_config, [])
-        
-        # Устанавливаем службу через ServiceManager и обновляем UI, если успешно
-        if self.service_manager.install_service(command_args, config_name=selected_config):
-            self.update_autostart_ui(True)
-            self.check_process_status()
-
-    def remove_service(self):
-        """Удаляет службу DPI"""
-        if self.service_manager.remove_service():
-            self.update_autostart_ui(False)
-            self.check_process_status()
-
-    def update_ui(self, running):
-        """Updates the UI based on the running state."""
-        # Обновляем только кнопки запуска/остановки
-        self.start_btn.setVisible(not running)
-        self.stop_btn.setVisible(running)
-
-    def update_autostart_ui(self, service_running):
-        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса службы"""
-        # Обновляем видимость кнопок включения/отключения автозапуска
-        self.autostart_enable_btn.setVisible(not service_running)
-        self.autostart_disable_btn.setVisible(service_running)
-        
-        # Обновляем доступность выбора стратегии
-        if service_running:
-            # Если служба запущена, скрываем выбор стратегии и показываем сообщение
-            self.start_mode_combo.setVisible(False)
-            
-            # Если метки еще нет, создаем её
-            if not hasattr(self, 'service_info_label'):
-                from PyQt5.QtWidgets import QLabel
-                self.service_info_label = QLabel("Служба запущена с фиксированной стратегией!\nСменить стратегию НЕЛЬЗЯ!", self)
-                self.service_info_label.setAlignment(Qt.AlignCenter)
-                self.service_info_label.setStyleSheet("color: red; font-weight: bold;")
-                
-                # Находим индекс start_mode_combo в layout
-                layout = self.layout()
-                for i in range(layout.count()):
-                    if layout.itemAt(i).widget() == self.start_mode_combo:
-                        layout.insertWidget(i, self.service_info_label)
-                        break
-            
-            # Показываем информационную метку
-            self.service_info_label.setVisible(True)
-        else:
-            # Если служба остановлена, показываем выбор стратегии и скрываем сообщение
-            self.start_mode_combo.setVisible(True)
-            
-            # Скрываем информационную метку, если она существует
-            if hasattr(self, 'service_info_label'):
-                self.service_info_label.setVisible(False)
-
-    def set_status(self, text):
-        """Sets the status text."""
-        self.status_label.setText(text)
-
-    ################################# ПРОВЕРЯТЬ ЗАПУЩЕН ЛИ ПРОЦЕСС #################################
-    def check_process_status(self):
-        """Проверяет статус процесса и обновляет интерфейс"""
-        # Используем блокировку чтобы предотвратить одновременные проверки
-        if not hasattr(self, 'status_check_lock') or not self.status_check_lock.acquire(blocking=False):
-            return
-        
-        try:
-            # Проверяем, не слишком ли часто выполняем проверки
-            current_time = time.time()
-            if hasattr(self, 'last_status_time') and current_time - self.last_status_time < self.status_check_interval:
-                # Слишком малый интервал, пропускаем проверку
-                return
-                
-            self.last_status_time = current_time
-            
-            # Проверяем статус службы
-            service_running = self.service_manager.check_service_exists()
-            
-            # Проверяем статус процесса
-            process_running = self.dpi_starter.check_process_running()
-            
-            # Сохраняем текущий статус для сравнения
-            current_status = (process_running, service_running)
-            
-            # Проверяем, изменился ли статус с последней проверки
-            if hasattr(self, 'last_status') and self.last_status == current_status:
-                # Статус не изменился, не обновляем UI
-                return
-                
-            # Сохраняем новый статус
-            self.last_status = current_status
-            
-            # Обновляем состояние элементов интерфейса
-            if process_running or service_running:
-                self.start_btn.setVisible(False)
-                self.stop_btn.setVisible(True)
-                
-                # Если служба активна, отображаем это
-                if service_running:
-                    self.process_status_value.setText("СЛУЖБА АКТИВНА")
-                    self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
-                else:
-                    # Иначе показываем обычный статус
-                    self.process_status_value.setText("ВКЛЮЧЕН")
-                    self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-            else:
-                self.start_btn.setVisible(True)
-                self.stop_btn.setVisible(False)
-                self.process_status_value.setText("ВЫКЛЮЧЕН")
-                self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-        finally:
-            self.status_check_lock.release()
-
-    def update_proxy_button_state(self):
-        """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
-        if hasattr(self, 'proxy_button'):
-            is_active = self.hosts_manager.is_proxy_domains_active()
-            if is_active:
-                self.proxy_button.setText('Отключить разблокировку ChatGPT, Spotify, Notion')
-                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))  # Красноватый цвет
-            else:
-                self.proxy_button.setText('Разблокировать ChatGPT, Spotify, Notion и др.')
-                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))  # Золотистый цвет
-
-    def toggle_proxy_domains(self):
-        """Переключает состояние разблокировки: добавляет или удаляет записи из hosts"""
-        is_active = self.hosts_manager.is_proxy_domains_active()
-        
-        if is_active:
-            # Показываем информационное сообщение о отключении
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Question)
-            msg.setWindowTitle("Отключение разблокировки")
-            msg.setText("Отключить разблокировку сервисов через hosts-файл?")
-            
-            msg.setInformativeText(
-                "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
-                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
-            )
-            
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            result = msg.exec_()
-            
-            if result == QMessageBox.Yes:
-                if self.hosts_manager.remove_proxy_domains():
-                    self.set_status("Разблокировка отключена. Перезапустите браузер.")
-                    self.update_proxy_button_state()
-                else:
-                    self.set_status("Не удалось отключить разблокировку.")
-            else:
-                self.set_status("Операция отменена.")
-        else:
-            # Показываем информационное сообщение о включении
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Разблокировка через hosts-файл")
-            msg.setText("Установка соединения к proxy-серверу через файл hosts")
-            
-            msg.setInformativeText(
-                "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
-                "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
-                "(без участия Роскомнадзора).\n\n"
-                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
-            )
-            
-            msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-            result = msg.exec_()
-            
-            if result == QMessageBox.Ok:
-                if self.hosts_manager.add_proxy_domains():
-                    self.set_status("Разблокировка включена. Перезапустите браузер.")
-                    self.update_proxy_button_state()
-                else:
-                    self.set_status("Не удалось включить разблокировку.")
-            else:
-                self.set_status("Операция отменена.")
-
-    def open_connection_test(self):
-        """Открывает окно тестирования соединения."""
-        # Импортируем модуль тестирования
-        from connection_test import ConnectionTestDialog
-        dialog = ConnectionTestDialog(self)
-        dialog.exec_()
-            
-    def update_other_list(self):
-        """Обновляет файл списка other.txt с удаленного сервера"""
-        from update_other import update_other_list as _update_other_list
-        _update_other_list(parent=self, status_callback=self.set_status)
-
     def moveEvent(self, event):
         """Вызывается при перемещении окна"""
         # Временно останавливаем таймер
@@ -751,39 +784,6 @@ class LupiDPIApp(QWidget):
         # Перезапускаем таймер после небольшой задержки
         if was_active:
             QTimer.singleShot(200, lambda: self.status_timer.start())
-
-    def open_dns_settings(self):
-        """Открывает диалог настройки DNS-серверов"""
-        try:
-            # Показываем индикатор в статусной строке
-            self.set_status("Открываем настройки DNS (загрузка данных)...")
-        
-            # Передаем текущий стиль в диалог
-            dns_dialog = DNSSettingsDialog(self, common_style=COMMON_STYLE)
-            dns_dialog.exec_()
-            
-            # Сбрасываем статус после закрытия диалога
-            self.set_status("Настройки DNS закрыты")
-        except Exception as e:
-            error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
-            from log import log
-            log(f"Ошибка при открытии настроек DNS: {str(e)}", level="ERROR")
-            self.set_status(error_msg)
-
-    def update_winws_exe(self):
-        """Обновляет файл winws.exe до последней версии с GitHub"""
-        from update_winws import update_winws_exe as _update_winws_exe
-        _update_winws_exe(self)
-
-    def show_logs(self):
-        """Shows the application logs in a dialog"""
-        try: 
-            from log import get_log_content, LogViewerDialog
-            log_content = get_log_content()
-            log_dialog = LogViewerDialog(self, log_content)
-            log_dialog.exec_()
-        except Exception as e:
-            self.set_status(f"Ошибка при открытии журнала: {str(e)}")
 
 def main():
     try:
