@@ -32,6 +32,9 @@ class SystemTrayManager:
         # Показываем иконку
         self.tray_icon.show()
         
+        # Переопределяем обработчики событий окна
+        self.install_event_handlers()
+        
     def set_icon(self, icon_path):
         """Устанавливает иконку для трея"""
         if os.path.exists(icon_path):
@@ -80,8 +83,15 @@ class SystemTrayManager:
     
     def exit_app(self):
         """Полностью закрывает приложение"""
-        # Отключаем обработчик закрытия окна для предотвращения сворачивания в трей
-        self.parent._allow_close = True
+        # Останавливаем DPI перед выходом
+        if hasattr(self.parent, 'dpi_starter'):
+            self.parent.dpi_starter.stop_dpi()
+        
+        # Устанавливаем флаг разрешения закрытия
+        if not hasattr(self.parent, '_allow_close'):
+            self.parent._allow_close = True
+        else:
+            self.parent._allow_close = True
         
         # Скрываем иконку трея
         self.tray_icon.hide()
@@ -93,8 +103,18 @@ class SystemTrayManager:
         """Показывает всплывающее сообщение от иконки в трее"""
         self.tray_icon.showMessage(title, message, icon, duration)
     
-    def handle_window_close(self, event):
-        """Обрабатывает закрытие окна"""
+    def install_event_handlers(self):
+        """Устанавливает обработчики событий окна в родительский виджет"""
+        # Сохраняем оригинальные методы
+        self.parent_original_close_event = self.parent.closeEvent
+        self.parent_original_change_event = self.parent.changeEvent
+        
+        # Переопределяем методы родительского виджета
+        self.parent.closeEvent = self.parent_close_event
+        self.parent.changeEvent = self.parent_change_event
+    
+    def parent_close_event(self, event):
+        """Обработчик события закрытия для родительского окна"""
         if not hasattr(self.parent, '_allow_close') or not self.parent._allow_close:
             # Показываем уведомление при первом сворачивании
             if not self._shown_tray_message:
@@ -109,11 +129,11 @@ class SystemTrayManager:
             self.parent.hide()
             event.ignore()
         else:
-            # Если разрешено закрытие, передаем событие дальше
-            event.accept()
+            # Если разрешено закрытие, вызываем оригинальный обработчик
+            self.parent_original_close_event(event)
     
-    def handle_window_minimize(self, event):
-        """Обрабатывает сворачивание окна"""
+    def parent_change_event(self, event):
+        """Обработчик события изменения состояния для родительского окна"""
         if event.type() == QEvent.WindowStateChange and self.parent.isMinimized():
             # При сворачивании скрываем окно
             event.ignore()
@@ -128,5 +148,7 @@ class SystemTrayManager:
                 )
                 self._shown_tray_message = True
             
-            return True
-        return False
+            return
+        
+        # В остальных случаях вызываем оригинальный обработчик
+        self.parent_original_change_event(event)

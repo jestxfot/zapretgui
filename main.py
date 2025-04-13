@@ -544,7 +544,7 @@ class LupiDPIApp(QWidget):
         set_last_strategy(selected_mode)
         
         # Запускаем DPI с новым режимом
-        self.start_dpi()
+        self.start_dpi(selected_mode=selected_mode)
 
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы даже если они были отключены"""
@@ -888,34 +888,6 @@ class LupiDPIApp(QWidget):
         # Перезапускаем таймер после небольшой задержки
         if was_active:
             QTimer.singleShot(200, lambda: self.status_timer.start())
-
-    def closeEvent(self, event):
-        """Перехватывает событие закрытия окна"""
-        # Передаем обработку менеджеру трея
-        if hasattr(self, 'tray_manager'):
-            self.tray_manager.handle_window_close(event)
-        else:
-            event.accept()  # Если менеджер трея не инициализирован, закрываем окно
-
-    def changeEvent(self, event):
-        """Перехватывает события изменения состояния окна"""
-        # Передаем обработку менеджеру трея для сворачивания
-        if hasattr(self, 'tray_manager'):
-            if self.tray_manager.handle_window_minimize(event):
-                return
-        super().changeEvent(event)
-            
-    def exit_app(self):
-        """Полностью закрывает приложение"""
-        # Останавливаем DPI перед выходом
-        if hasattr(self, 'dpi_starter'):
-            self.dpi_starter.stop_dpi()
-        
-        # Выходим через менеджер трея, который корректно закроет приложение
-        if hasattr(self, 'tray_manager'):
-            self.tray_manager.exit_app()
-        else:
-            QApplication.quit()
 
     def open_dns_settings(self):
         """Открывает диалог настройки DNS-серверов"""
