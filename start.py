@@ -52,6 +52,122 @@ class DPIStarter:
             status_callback=self.set_status
         )
     
+    def check_process_running(self):
+        """
+        Улучшенная проверка запущен ли процесс DPI с подробной диагностикой.
+        
+        Returns:
+            bool: True если процесс запущен, False если не запущен
+        """
+        log(f"Start check_process_running...", level="START")
+
+        try:
+            
+            log("Метод 1: Проверка через tasklist")
+            result = subprocess.run(
+                'tasklist /FI "IMAGENAME eq winws.exe" /NH',
+                shell=True, 
+                capture_output=True, 
+                text=True,
+                encoding='cp866'  # Используем кодировку cp866 для корректного отображения русских символов
+            )
+            
+            #log(f"Результат команды tasklist: {result.stdout.strip()}")
+            
+            if "winws.exe" in result.stdout:
+                pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
+                
+                if pid_line:
+                    #log(f"Строка с информацией о процессе: {pid_line[0]}")
+                    pid_parts = pid_line[0].split()
+                    
+                    if len(pid_parts) >= 2:
+                        pid = pid_parts[1]
+                        log(f"Найден PID процесса: {pid}")
+                        return True
+                
+                log("Процесс найден, но не удалось определить PID")
+                return True  # Процесс найден, даже если мы не смогли извлечь PID
+            
+            # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
+            log("Метод 2: Проверка через PowerShell")
+            try:
+                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id"'
+                ps_result = subprocess.run(
+                    ps_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                log(f"Результат PowerShell: {ps_result.stdout.strip()}")
+                
+                # Если есть любая строка, содержащая число после Id
+                if any(line.strip().isdigit() for line in ps_result.stdout.split('\n') if line.strip()):
+                    log("Процесс winws.exe найден через PowerShell")
+                    return True
+            except Exception as ps_error:
+                log(f"Ошибка при проверке через PowerShell: {str(ps_error)}")
+            
+            # Метод 3: Проверка через wmic (работает даже на старых системах)
+            log("Метод 3: Проверка через wmic")
+            try:
+                wmic_result = subprocess.run(
+                    'wmic process where "name=\'winws.exe\'" get processid',
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                log(f"Результат wmic: {wmic_result.stdout.strip()}")
+                
+                lines = [line.strip() for line in wmic_result.stdout.split('\n') if line.strip()]
+                # Проверяем есть ли более одной строки (заголовок + данные)
+                if len(lines) > 1:
+                    log("Процесс winws.exe найден через wmic")
+                    return True
+            except Exception as wmic_error:
+                log(f"Ошибка при проверке через wmic: {str(wmic_error)}")
+                
+            # Метод 4: Проверка через простую команду findstr
+            log("Метод 4: Проверка через tasklist и findstr")
+            try:
+                findstr_result = subprocess.run(
+                    'tasklist | findstr "winws"',
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                log(f"Результат findstr: {findstr_result.stdout.strip()}")
+                
+                if findstr_result.stdout.strip():
+                    log("Процесс winws.exe найден через findstr")
+                    return True
+            except Exception as findstr_error:
+                log(f"Ошибка при проверке через findstr: {str(findstr_error)}")
+            
+            # Проверка существования файла блокировки
+            # Некоторые процессы создают файлы блокировки, которые можно проверить
+            try:
+                lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws.lock")
+                if os.path.exists(lock_file):
+                    log(f"Найден файл блокировки {lock_file}, процесс запущен")
+                    return True
+            except Exception as lock_error:
+                log(f"Ошибка при проверке файла блокировки: {str(lock_error)}")
+            
+            # Если все методы не нашли процесс
+            log("Процесс winws.exe НЕ найден ни одним из методов")
+            return False
+            
+        except Exception as e:
+            log(f"Общая ошибка при проверке статуса процесса: {str(e)}")
+            return False
+        
     def stop_dpi(self):
         """
         Останавливает процесс DPI и связанные службы.
@@ -198,7 +314,196 @@ class DPIStarter:
             log(error_msg, level="ERROR")  # Логируем ошибку
             self.set_status(error_msg)
             return False
-    
+
+    def force_stop_all_instances(self):
+        """
+        Усиленный метод для принудительного завершения процесса winws.exe
+        с использованием нескольких техник.
+        """
+        try:
+            log("Start force_stop_all_instances...")
+            
+            # Шаг 1: Обнаружение PID процесса
+            active_pids = []
+            
+            # Получаем все PID через PowerShell (самый надежный метод)
+            try:
+                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id | Format-Table -HideTableHeaders"'
+                ps_result = subprocess.run(
+                    ps_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                for line in ps_result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line and line.isdigit():
+                        active_pids.append(line)
+                        log(f"Обнаружен активный процесс winws.exe с PID: {line}")
+            except Exception as ps_error:
+                log(f"Ошибка при получении PID через PowerShell: {str(ps_error)}")
+            
+            # Если PID не найдены, попробуем другие методы
+            if not active_pids:
+                log("PID не найдены через PowerShell, пробуем tasklist...", level="START")
+                try:
+                    result = subprocess.run(
+                        'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
+                        shell=True, 
+                        capture_output=True, 
+                        text=True
+                    )
+                    
+                    for line in result.stdout.split('\n'):
+                        if "winws.exe" in line:
+                            parts = line.split(',')
+                            if len(parts) >= 2:
+                                pid = parts[1].strip('"')
+                                if pid.isdigit():
+                                    active_pids.append(pid)
+                                    log(f"Обнаружен процесс через tasklist с PID: {pid}")
+                except Exception as task_error:
+                    log(f"Ошибка при получении PID через tasklist: {str(task_error)}", level="ERROR")
+            
+            # Шаг 2: Принудительное завершение по каждому PID с повышенными привилегиями
+            success = False
+            
+            if active_pids:
+                log(f"Найдено процессов для завершения: {len(active_pids)}")
+                
+                for pid in active_pids:
+                    log(f"Попытка принудительного завершения процесса с PID {pid}...")
+                    
+                    # Метод 1: taskkill с приоритетом по PID, не по имени
+                    try:
+                        log(f"Метод 1: Использую taskkill /PID {pid} /F /T")
+                        subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, check=False)
+                        time.sleep(0.5)
+                    except Exception as e:
+                        log(f"Ошибка при taskkill по PID: {str(e)}", level="ERROR")
+                    
+                    # Метод 2: Использование PowerShell для завершения (может работать при проблемах с taskkill)
+                    try:
+                        log(f"Метод 2: Использую PowerShell Stop-Process для PID {pid}")
+                        ps_kill = f'powershell -Command "Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"'
+                        subprocess.run(ps_kill, shell=True, check=False)
+                        time.sleep(0.5)
+                    except Exception as e:
+                        log(f"Ошибка при PowerShell Stop-Process: {str(e)}", level="ERROR")
+                    
+                    # Метод 3: Использование команды wmic (работает лучше на старых системах)
+                    try:
+                        log(f"Метод 3: Использую wmic для завершения PID {pid}")
+                        wmic_cmd = f'wmic process where ProcessId="{pid}" call terminate'
+                        subprocess.run(wmic_cmd, shell=True, check=False)
+                        time.sleep(0.5)
+                    except Exception as e:
+                        log(f"Ошибка при wmic terminate: {str(e)}", level="ERROR")
+                    
+                    # Метод 4: Использование pskill из PsTools (если доступен)
+                    try:
+                        log(f"Метод 4: Пробую использовать pskill для PID {pid}")
+                        subprocess.run(f"pskill {pid}", shell=True, check=False)
+                        time.sleep(0.5)
+                    except Exception as e:
+                        log(f"Не удалось использовать pskill: {str(e)}", level="ERROR")
+                    
+                    # Проверяем, завершился ли процесс
+                    try:
+                        log(f"Проверка завершения процесса с PID {pid}...")
+                        check_cmd = f'powershell -Command "Get-Process -Id {pid} -ErrorAction SilentlyContinue"'
+                        check_result = subprocess.run(
+                            check_cmd,
+                            shell=True,
+                            capture_output=True,
+                            text=True
+                        )
+                        
+                        if check_result.stdout.strip():
+                            log(f"ВНИМАНИЕ: Процесс с PID {pid} всё еще активен!")
+                        else:
+                            log(f"Процесс с PID {pid} успешно завершен")
+                            success = True
+                    except Exception as e:
+                        log(f"Ошибка при проверке завершения: {str(e)}")
+            else:
+                log("Не найдено процессов winws.exe для завершения", level="START")
+                success = True
+            
+            # Шаг 3: Принудительное завершение любых оставшихся процессов
+            try:
+                log("Дополнительная попытка завершения всех процессов с именем winws.exe...")
+                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
+            except Exception as e:
+                log(f"Ошибка при финальном taskkill: {str(e)}")
+            
+            # Шаг 4: Проверяем, успешно ли завершены все процессы
+            time.sleep(0.5)
+            final_check = self.check_process_running()
+            if final_check:
+                log("КРИТИЧЕСКАЯ ОШИБКА: Процесс winws.exe всё еще работает после всех попыток завершения!")
+                log("Создаем специальный файл-маркер для signaling...")
+                
+                # Создаем файл-маркер, говорящий основной программе использовать обходной метод
+                try:
+                    marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
+                    with open(marker_file, 'w') as f:
+                        f.write(f"Процесс не может быть остановлен, PID: {','.join(active_pids)}")
+                except Exception as e:
+                    log(f"Ошибка при создании маркера: {str(e)}")
+                
+                return False
+            else:
+                log("Все экземпляры winws.exe успешно завершены")
+                return True
+                
+        except Exception as e:
+            log(f"Общая ошибка в force_stop_all_instances: {str(e)}")
+            return False
+
+    def check_process_corrupted(self):
+        """
+        Проверяет, находится ли процесс winws.exe в состоянии, когда его нельзя завершить
+        (зависший/заблокированный процесс).
+        
+        Returns:
+            bool: True если процесс найден и он "зависший", False в противном случае
+        """
+        try:
+            marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
+            if os.path.exists(marker_file):
+                log("Обнаружен маркер зависшего процесса!")
+                return True
+                
+            # Проверка на "бесхозные" процессы
+            orphaned_pids = []
+            
+            # Получаем все PID через PowerShell
+            try:
+                ps_cmd = 'powershell -Command "Get-Process -Name winws | Where-Object {$_.Responding -eq $false} | Select-Object Id | Format-Table -HideTableHeaders"'
+                ps_result = subprocess.run(
+                    ps_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                for line in ps_result.stdout.strip().split('\n'):
+                    if line.strip() and line.strip().isdigit():
+                        orphaned_pids.append(line.strip())
+                        log(f"Обнаружен не отвечающий процесс winws.exe с PID: {line.strip()}")
+            except Exception as ps_error:
+                log(f"Ошибка при проверке зависших процессов: {str(ps_error)}")
+            
+            return len(orphaned_pids) > 0
+            
+        except Exception as e:
+            log(f"Ошибка в check_process_corrupted: {str(e)}")
+            return False
+        
     def start_with_progress(self, mode, dpi_commands, download_urls=None, parent_widget=None):
         """
         Запускает DPI с отображением диалога прогресса
@@ -430,309 +735,4 @@ class DPIStarter:
             error_msg = f"Ошибка при запуске {mode}: {str(e)}"
             log(error_msg)  # Логируем ошибку
             self.set_status(error_msg)
-            return False
-        
-    def check_process_running(self):
-        """
-        Улучшенная проверка запущен ли процесс DPI с подробной диагностикой.
-        
-        Returns:
-            bool: True если процесс запущен, False если не запущен
-        """
-        log(f"Start check_process_running...", level="START")
-
-        try:
-            
-            log("Метод 1: Проверка через tasklist")
-            result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /NH',
-                shell=True, 
-                capture_output=True, 
-                text=True,
-                encoding='cp866'  # Используем кодировку cp866 для корректного отображения русских символов
-            )
-            
-            #log(f"Результат команды tasklist: {result.stdout.strip()}")
-            
-            if "winws.exe" in result.stdout:
-                pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
-                
-                if pid_line:
-                    #log(f"Строка с информацией о процессе: {pid_line[0]}")
-                    pid_parts = pid_line[0].split()
-                    
-                    if len(pid_parts) >= 2:
-                        pid = pid_parts[1]
-                        log(f"Найден PID процесса: {pid}")
-                        return True
-                
-                log("Процесс найден, но не удалось определить PID")
-                return True  # Процесс найден, даже если мы не смогли извлечь PID
-            
-            # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
-            log("Метод 2: Проверка через PowerShell")
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                log(f"Результат PowerShell: {ps_result.stdout.strip()}")
-                
-                # Если есть любая строка, содержащая число после Id
-                if any(line.strip().isdigit() for line in ps_result.stdout.split('\n') if line.strip()):
-                    log("Процесс winws.exe найден через PowerShell")
-                    return True
-            except Exception as ps_error:
-                log(f"Ошибка при проверке через PowerShell: {str(ps_error)}")
-            
-            # Метод 3: Проверка через wmic (работает даже на старых системах)
-            log("Метод 3: Проверка через wmic")
-            try:
-                wmic_result = subprocess.run(
-                    'wmic process where "name=\'winws.exe\'" get processid',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                log(f"Результат wmic: {wmic_result.stdout.strip()}")
-                
-                lines = [line.strip() for line in wmic_result.stdout.split('\n') if line.strip()]
-                # Проверяем есть ли более одной строки (заголовок + данные)
-                if len(lines) > 1:
-                    log("Процесс winws.exe найден через wmic")
-                    return True
-            except Exception as wmic_error:
-                log(f"Ошибка при проверке через wmic: {str(wmic_error)}")
-                
-            # Метод 4: Проверка через простую команду findstr
-            log("Метод 4: Проверка через tasklist и findstr")
-            try:
-                findstr_result = subprocess.run(
-                    'tasklist | findstr "winws"',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                log(f"Результат findstr: {findstr_result.stdout.strip()}")
-                
-                if findstr_result.stdout.strip():
-                    log("Процесс winws.exe найден через findstr")
-                    return True
-            except Exception as findstr_error:
-                log(f"Ошибка при проверке через findstr: {str(findstr_error)}")
-            
-            # Проверка существования файла блокировки
-            # Некоторые процессы создают файлы блокировки, которые можно проверить
-            try:
-                lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws.lock")
-                if os.path.exists(lock_file):
-                    log(f"Найден файл блокировки {lock_file}, процесс запущен")
-                    return True
-            except Exception as lock_error:
-                log(f"Ошибка при проверке файла блокировки: {str(lock_error)}")
-            
-            # Если все методы не нашли процесс
-            log("Процесс winws.exe НЕ найден ни одним из методов")
-            return False
-            
-        except Exception as e:
-            log(f"Общая ошибка при проверке статуса процесса: {str(e)}")
-            return False
-        
-    def force_stop_all_instances(self):
-        """
-        Усиленный метод для принудительного завершения процесса winws.exe
-        с использованием нескольких техник.
-        """
-        try:
-            log("Start force_stop_all_instances...")
-            
-            # Шаг 1: Обнаружение PID процесса
-            active_pids = []
-            
-            # Получаем все PID через PowerShell (самый надежный метод)
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id | Format-Table -HideTableHeaders"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                for line in ps_result.stdout.strip().split('\n'):
-                    line = line.strip()
-                    if line and line.isdigit():
-                        active_pids.append(line)
-                        log(f"Обнаружен активный процесс winws.exe с PID: {line}")
-            except Exception as ps_error:
-                log(f"Ошибка при получении PID через PowerShell: {str(ps_error)}")
-            
-            # Если PID не найдены, попробуем другие методы
-            if not active_pids:
-                log("PID не найдены через PowerShell, пробуем tasklist...", level="START")
-                try:
-                    result = subprocess.run(
-                        'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
-                        shell=True, 
-                        capture_output=True, 
-                        text=True
-                    )
-                    
-                    for line in result.stdout.split('\n'):
-                        if "winws.exe" in line:
-                            parts = line.split(',')
-                            if len(parts) >= 2:
-                                pid = parts[1].strip('"')
-                                if pid.isdigit():
-                                    active_pids.append(pid)
-                                    log(f"Обнаружен процесс через tasklist с PID: {pid}")
-                except Exception as task_error:
-                    log(f"Ошибка при получении PID через tasklist: {str(task_error)}", level="ERROR")
-            
-            # Шаг 2: Принудительное завершение по каждому PID с повышенными привилегиями
-            success = False
-            
-            if active_pids:
-                log(f"Найдено процессов для завершения: {len(active_pids)}")
-                
-                for pid in active_pids:
-                    log(f"Попытка принудительного завершения процесса с PID {pid}...")
-                    
-                    # Метод 1: taskkill с приоритетом по PID, не по имени
-                    try:
-                        log(f"Метод 1: Использую taskkill /PID {pid} /F /T")
-                        subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при taskkill по PID: {str(e)}", level="ERROR")
-                    
-                    # Метод 2: Использование PowerShell для завершения (может работать при проблемах с taskkill)
-                    try:
-                        log(f"Метод 2: Использую PowerShell Stop-Process для PID {pid}")
-                        ps_kill = f'powershell -Command "Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"'
-                        subprocess.run(ps_kill, shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при PowerShell Stop-Process: {str(e)}", level="ERROR")
-                    
-                    # Метод 3: Использование команды wmic (работает лучше на старых системах)
-                    try:
-                        log(f"Метод 3: Использую wmic для завершения PID {pid}")
-                        wmic_cmd = f'wmic process where ProcessId="{pid}" call terminate'
-                        subprocess.run(wmic_cmd, shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при wmic terminate: {str(e)}", level="ERROR")
-                    
-                    # Метод 4: Использование pskill из PsTools (если доступен)
-                    try:
-                        log(f"Метод 4: Пробую использовать pskill для PID {pid}")
-                        subprocess.run(f"pskill {pid}", shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Не удалось использовать pskill: {str(e)}", level="ERROR")
-                    
-                    # Проверяем, завершился ли процесс
-                    try:
-                        log(f"Проверка завершения процесса с PID {pid}...")
-                        check_cmd = f'powershell -Command "Get-Process -Id {pid} -ErrorAction SilentlyContinue"'
-                        check_result = subprocess.run(
-                            check_cmd,
-                            shell=True,
-                            capture_output=True,
-                            text=True
-                        )
-                        
-                        if check_result.stdout.strip():
-                            log(f"ВНИМАНИЕ: Процесс с PID {pid} всё еще активен!")
-                        else:
-                            log(f"Процесс с PID {pid} успешно завершен")
-                            success = True
-                    except Exception as e:
-                        log(f"Ошибка при проверке завершения: {str(e)}")
-            else:
-                log("Не найдено процессов winws.exe для завершения", level="START")
-                success = True
-            
-            # Шаг 3: Принудительное завершение любых оставшихся процессов
-            try:
-                log("Дополнительная попытка завершения всех процессов с именем winws.exe...")
-                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
-            except Exception as e:
-                log(f"Ошибка при финальном taskkill: {str(e)}")
-            
-            # Шаг 4: Проверяем, успешно ли завершены все процессы
-            time.sleep(0.5)
-            final_check = self.check_process_running()
-            if final_check:
-                log("КРИТИЧЕСКАЯ ОШИБКА: Процесс winws.exe всё еще работает после всех попыток завершения!")
-                log("Создаем специальный файл-маркер для signaling...")
-                
-                # Создаем файл-маркер, говорящий основной программе использовать обходной метод
-                try:
-                    marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
-                    with open(marker_file, 'w') as f:
-                        f.write(f"Процесс не может быть остановлен, PID: {','.join(active_pids)}")
-                except Exception as e:
-                    log(f"Ошибка при создании маркера: {str(e)}")
-                
-                return False
-            else:
-                log("Все экземпляры winws.exe успешно завершены")
-                return True
-                
-        except Exception as e:
-            log(f"Общая ошибка в force_stop_all_instances: {str(e)}")
-            return False
-        
-    def check_process_corrupted(self):
-        """
-        Проверяет, находится ли процесс winws.exe в состоянии, когда его нельзя завершить
-        (зависший/заблокированный процесс).
-        
-        Returns:
-            bool: True если процесс найден и он "зависший", False в противном случае
-        """
-        try:
-            marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
-            if os.path.exists(marker_file):
-                log("Обнаружен маркер зависшего процесса!")
-                return True
-                
-            # Проверка на "бесхозные" процессы
-            orphaned_pids = []
-            
-            # Получаем все PID через PowerShell
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name winws | Where-Object {$_.Responding -eq $false} | Select-Object Id | Format-Table -HideTableHeaders"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                for line in ps_result.stdout.strip().split('\n'):
-                    if line.strip() and line.strip().isdigit():
-                        orphaned_pids.append(line.strip())
-                        log(f"Обнаружен не отвечающий процесс winws.exe с PID: {line.strip()}")
-            except Exception as ps_error:
-                log(f"Ошибка при проверке зависших процессов: {str(ps_error)}")
-            
-            return len(orphaned_pids) > 0
-            
-        except Exception as e:
-            log(f"Ошибка в check_process_corrupted: {str(e)}")
             return False
