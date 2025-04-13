@@ -75,13 +75,13 @@ class LupiDPIApp(QWidget):
         self.last_status_time = 0
         self.status_check_interval = 0.5  # минимальный интервал между проверками в секундах
 
-        """Initializes the application window."""
         super().__init__()
         self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
         
         # Инициализируем Discord Manager
         from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
+        
         self.first_start = True  # Флаг для отслеживания первого запуска
 
         # Устанавливаем иконку приложения
