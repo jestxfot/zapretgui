@@ -109,7 +109,8 @@ DPI_COMMANDS = {
     --wf-tcp=80,443 --wf-udp=443,50000-50099
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+
     {faceinsta}
     --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
@@ -120,7 +121,7 @@ DPI_COMMANDS = {
     --wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50099
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --new 
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
     {faceinsta}
     --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
@@ -133,7 +134,7 @@ DPI_COMMANDS = {
     {YQ8}
     {YT10}
     {YGV3}
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --dpi-desync-ttl=2 --new
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --dpi-desync-ttl=2 --new
     {DISIP5}
     {DISTCP11}
     {DISUDP9}
@@ -212,8 +213,7 @@ DPI_COMMANDS = {
     --filter-udp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=50000-50100 --ipset={LISTS_FOLDER}/ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --new
     --filter-tcp=80 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-    --filter-l3=ipv4 --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=syndata --new
-    --filter-l3=ipv4 --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=syndata --new
+    --filter-l3=ipv4 --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --hostlist={LISTS_FOLDER}/other.txt --dpi-desync=syndata --new
     --filter-udp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-tcp=80 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 """,
@@ -265,7 +265,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "datanoack padencap (20.03.2025)": f"""
@@ -277,7 +277,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=datanoack --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=datanoack --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=datanoack --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "datanoack padencap midsld (20.03.2025)": f"""
@@ -289,7 +289,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "datanoack padencap midsld wssize (20.03.2025)": f"""
@@ -301,7 +301,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
 """,
 
 "md5sig padencap (20.03.2025)": f"""
@@ -313,7 +313,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "md5sig padencap wssize (20.03.2025)": f"""
@@ -325,7 +325,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "multisplit 1,md5sig padencap (discord)": f"""
@@ -337,7 +337,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 """,
 
 "multisplit 1,md5sig padencap wssize (discord)": f"""
@@ -349,7 +349,7 @@ DPI_COMMANDS = {
     {YT12}
     {YQ4}
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/discord.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
+    --filter-tcp=443 --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize 1:6 --new
 """,
 
 "Дискорд TCP 80":  f"{WF_TCP} --wf-udp=443,50000-59000 {YQ1} {YGV1} {YT1} {DISTCP80} {DISUDP2} {UDP2} {DISTCP2} {other1} {faceinsta}",
