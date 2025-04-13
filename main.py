@@ -9,7 +9,7 @@ from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EX
 from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
-
+from discord import DiscordManager
 from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
@@ -27,7 +27,7 @@ def get_last_strategy():
         return value
     except:
         # По умолчанию возвращаем None, чтобы использовать первую стратегию из списка
-        return "Оригинальная bol-van v2 (07.04.2025)"
+        return None
     
 def set_last_strategy(strategy_name):
     """Сохраняет последнюю выбранную стратегию обхода в реестр"""
@@ -52,6 +52,45 @@ def set_last_strategy(strategy_name):
         return True
     except Exception as e:
         print(f"Ошибка при сохранении стратегии: {str(e)}")
+        return False
+
+def get_discord_restart_setting():
+    """Получает настройку автоматического перезапуска Discord из реестра"""
+    try:
+        registry = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Zapret"
+        )
+        value, _ = winreg.QueryValueEx(registry, "AutoRestartDiscord")
+        winreg.CloseKey(registry)
+        return bool(value)
+    except:
+        # По умолчанию включено
+        return True
+    
+def set_discord_restart_setting(enabled):
+    """Сохраняет настройку автоматического перезапуска Discord в реестр"""
+    try:
+        # Пытаемся открыть ключ, если его нет - создаем
+        try:
+            registry = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Zapret",
+                0, 
+                winreg.KEY_WRITE
+            )
+        except:
+            registry = winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Zapret"
+            )
+        
+        # Записываем значение
+        winreg.SetValueEx(registry, "AutoRestartDiscord", 0, winreg.REG_DWORD, int(enabled))
+        winreg.CloseKey(registry)
+        return True
+    except Exception as e:
+        print(f"Ошибка при сохранении настройки: {str(e)}")
         return False
 
 def is_admin():
@@ -229,11 +268,9 @@ class LupiDPIApp(QWidget):
         self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
 
         # Проверяем настройку автоперезапуска Discord
-        from discord_restart import get_discord_restart_setting
         self.discord_auto_restart = get_discord_restart_setting()
         
         # Инициализируем Discord Manager
-        from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
         self.first_start = True  # Флаг для отслеживания первого запуска
 
@@ -314,19 +351,9 @@ class LupiDPIApp(QWidget):
         if not os.path.exists(WINWS_EXE):
             self.download_files_wrapper()
         
-        # Загружаем последнюю стратегию или используем предпочтительную при первом запуске
-        default_strategy = "Оригинальная bol-van v2 (07.04.2025)"  # Задаем предпочтительную стратегию
+        # Загружаем последнюю стратегию
+        self.load_and_start_strategy()
         
-        # Загружаем последнюю сохраненную стратегию
-        last_strategy = get_last_strategy()
-        
-        # Запускаем с нужной стратегией
-        if last_strategy and last_strategy in DPI_COMMANDS:
-            self.start_dpi(predefined_mode=last_strategy)
-        else:
-            # Если нет сохраненной стратегии, используем предпочтительную
-            self.start_dpi(predefined_mode=default_strategy)
-
         # Обновляем состояние кнопки прокси
         QTimer.singleShot(500, self.update_proxy_button_state)
 
@@ -366,6 +393,20 @@ class LupiDPIApp(QWidget):
             log("Повторная попытка активации комбо-боксов")
             QTimer.singleShot(500, self.delayed_combo_enabler)
 
+    def load_and_start_strategy(self):
+        """Загружает последнюю стратегию и запускает её"""
+        # Загружаем последнюю сохраненную стратегию или используем первую по умолчанию
+        last_strategy = get_last_strategy()
+        if last_strategy and last_strategy in DPI_COMMANDS:
+            self.start_mode_combo.setCurrentText(last_strategy)
+        else:
+            # Запускаем первую стратегию если нет сохраненной
+            first_strategy = list(DPI_COMMANDS.keys())[0]
+            self.start_mode_combo.setCurrentText(first_strategy)
+        
+        # Запускаем выбранную стратегию
+        self.start_dpi()
+
     def init_ui(self):
         """Creates the user interface elements."""
         self.setStyleSheet(STYLE_SHEET)
@@ -403,11 +444,11 @@ class LupiDPIApp(QWidget):
 
         self.start_mode_combo = QComboBox(self)
         self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-        
-        self.start_mode_combo.blockSignals(True)
         self.start_mode_combo.addItems(DPI_COMMANDS.keys())
         self.start_mode_combo.currentTextChanged.connect(self.on_mode_changed)
 
+        # Принудительно включаем и обрабатываем события
+        self.start_mode_combo.setEnabled(True)
         QApplication.processEvents()
         layout.addWidget(self.start_mode_combo)
 
@@ -570,19 +611,18 @@ class LupiDPIApp(QWidget):
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы даже если они были отключены"""
         try:
+            if hasattr(self, 'start_mode_combo'):
+                # Полное восстановление состояния комбо-бокса
+                self.start_mode_combo.setEnabled(True)
+                self.start_mode_combo.show()
+                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
                 
             if hasattr(self, 'theme_combo'):
                 # Полное восстановление состояния комбо-бокса тем
                 self.theme_combo.setEnabled(True)
                 self.theme_combo.show()
                 self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
-            if hasattr(self, 'start_mode_combo'):
-                # Полное восстановление состояния комбо-бокса
-                self.start_mode_combo.setEnabled(True)
-                self.start_mode_combo.show()
-                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
+                
             # Принудительное обновление UI
             QApplication.processEvents()
             
@@ -633,29 +673,17 @@ class LupiDPIApp(QWidget):
                             "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
         self.check_process_status()  # Обновляем статус в интерфейсе
 
-    def start_dpi(self, predefined_mode=None):
+    def start_dpi(self):
         """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
         # Используем существующий метод проверки службы из ServiceManager
         service_found = self.service_manager.check_service_exists()
         
         if service_found:
-            # здесь не нужны предупреждения при старте иначе они будут всегда появляться в программе
+            # При необходимости здесь можно показать предупреждение
             return
             
-        # Определяем, какую стратегию использовать
-        if predefined_mode and predefined_mode in DPI_COMMANDS:
-            from log import log
-            log(f"Используем переданную стратегию, если она указана явно: {predefined_mode}")
-            selected_mode = predefined_mode
-            
-            if self.start_mode_combo.currentText() != selected_mode:
-                log(f"Обновляем комбо-бокс без вызова событий: {selected_mode}")
-                self.start_mode_combo.blockSignals(True)
-                self.start_mode_combo.setCurrentText(selected_mode)
-                self.start_mode_combo.blockSignals(False)
-        else:
-            log(f"Иначе используем выбранную в комбо-боксе: {self.start_mode_combo.currentText()}")
-            selected_mode = self.start_mode_combo.currentText()
+        # Если службы нет, запускаем DPI
+        selected_mode = self.start_mode_combo.currentText()
 
         success = self.dpi_starter.start_with_progress(
             selected_mode, 
@@ -901,15 +929,98 @@ class LupiDPIApp(QWidget):
 
     def open_connection_test(self):
         """Открывает окно тестирования соединения."""
-        # Импортируем модуль тестирования
-        from connection_test import ConnectionTestDialog
-        dialog = ConnectionTestDialog(self)
-        dialog.exec_()
+        try:
+            # Проверяем наличие требуемого модуля requests
+            try:
+                import requests
+            except ImportError:
+                self.set_status("Установка необходимых зависимостей...")
+                subprocess.run([sys.executable, "-m", "pip", "install", "requests"], 
+                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.set_status("Зависимости установлены")
+            
+            # Импортируем модуль тестирования
+            from connection_test import ConnectionTestDialog
+            dialog = ConnectionTestDialog(self)
+            dialog.exec_()
+            
+        except Exception as e:
+            error_msg = f"Ошибка при запуске тестирования: {str(e)}"
+            print(error_msg)
+            self.set_status(error_msg)
             
     def update_other_list(self):
         """Обновляет файл списка other.txt с удаленного сервера"""
-        from update_other import update_other_list as _update_other_list
-        _update_other_list(parent=self, status_callback=self.set_status)
+        try:
+            self.set_status("Обновление списка доменов...")
+            
+            # Проверка наличия модуля requests
+            try:
+                import requests
+            except ImportError:
+                self.set_status("Установка зависимостей...")
+                subprocess.run([sys.executable, "-m", "pip", "install", "requests"], 
+                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                import requests
+            
+            # Путь к локальному файлу
+            other_path = os.path.join(LISTS_FOLDER, 'other.txt')
+            
+            # Создаем директорию, если она не существует
+            os.makedirs(os.path.dirname(other_path), exist_ok=True)
+            
+            # Скачиваем файл с сервера
+            self.set_status("Загрузка списка доменов...")
+            response = requests.get(OTHER_LIST_URL, timeout=10)
+            
+            if response.status_code == 200:
+                # Обрабатываем полученное содержимое
+                domains = []
+                for line in response.text.splitlines():
+                    line = line.strip()  # Удаляем пробелы в начале и конце строки
+                    if line:  # Пропускаем пустые строки
+                        domains.append(line)
+                
+                # Собираем все домены в один текст, каждый на новой строке БЕЗ пустых строк
+                downloaded_content = "\n".join(domains)
+                
+                # Читаем текущий файл, если он существует
+                current_content = ""
+                if os.path.exists(other_path):
+                    with open(other_path, 'r', encoding='utf-8') as f:
+                        # Также обрабатываем существующее содержимое
+                        current_domains = []
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                current_domains.append(line)
+                        current_content = "\n".join(current_domains)
+                
+                # Если файла нет или содержимое отличается
+                if not os.path.exists(other_path) or current_content != downloaded_content:
+                    # Делаем резервную копию текущего файла
+                    if os.path.exists(other_path):
+                        backup_path = other_path + '.bak'
+                        shutil.copy2(other_path, backup_path)
+                    
+                    # Сохраняем новый файл (без пустых строк)
+                    with open(other_path, 'w', encoding='utf-8') as f:
+                        f.write(downloaded_content)
+                        
+                    self.set_status("Список успешно обновлен")
+                    QMessageBox.information(self, "Успешно", "Список доменов успешно обновлен")
+                else:
+                    self.set_status("Список уже актуален")
+                    QMessageBox.information(self, "Информация", "Список доменов уже актуален")
+            else:
+                self.set_status(f"Ошибка при загрузке списка доменов: {response.status_code}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось получить список доменов с сервера. Код ответа: {response.status_code}")
+                
+        except Exception as e:
+            error_msg = f"Ошибка при обновлении списка доменов: {str(e)}"
+            print(error_msg)
+            self.set_status(error_msg)
+            QMessageBox.critical(self, "Ошибка", error_msg)
 
     def moveEvent(self, event):
         """Вызывается при перемещении окна"""
@@ -932,22 +1043,14 @@ class LupiDPIApp(QWidget):
         self._secret_input += key_text
         
         # Добавим отладочную информацию
-        from log import log
-        log(f"Введено: {key_text}, Буфер: {self._secret_input}", level="DEBUG")
+        print(f"Введено: {key_text}, Буфер: {self._secret_input}")
         
         # Проверяем наличие секретного слова "ркн" (русские буквы)
         if "ркн" in self._secret_input:
-            log("Секретный код обнаружен! Переключаем настройку Discord", level="DEBUG")
+            print("Секретный код обнаружен! Переключаем настройку Discord")
             self._secret_input = ""  # Сбрасываем буфер
-            
-            try:
-                from discord_restart import toggle_discord_restart
-                # Передаем необходимые параметры
-                toggle_discord_restart(parent=self, status_callback=self.set_status)
-            except Exception as e:
-                log(f"Ошибка при переключении настройки Discord: {str(e)}", level="ERROR")
-                self.set_status(f"Ошибка: {str(e)}")
-            
+            self.toggle_discord_restart()
+            # Предотвращаем дальнейшую обработку события
             return
         
         # Ограничиваем длину строки
@@ -956,6 +1059,46 @@ class LupiDPIApp(QWidget):
         
         # Стандартная обработка события
         super().keyPressEvent(event)
+
+    def toggle_discord_restart(self):
+        """Переключает настройку автоматического перезапуска Discord"""
+        current_setting = get_discord_restart_setting()
+        
+        # Показываем диалог подтверждения
+        if current_setting:
+            # Если сейчас включено, предлагаем выключить
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("Отключение автоперезапуска Discord")
+            msg.setText("Вы действительно хотите отключить автоматический перезапуск Discord?")
+            
+            msg.setInformativeText(
+                "Если вы отключите эту функцию, вам придется самостоятельно перезапускать "
+                "Discord после смены стратегии обхода блокировок.\n\n"
+                "Это может привести к проблемам с подключением к голосовым каналам и "
+                "нестабильной работе Discord.\n\n"
+                "Вы понимаете последствия своих действий?"
+            )
+            
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            choice = msg.exec_()
+            
+            if choice == QMessageBox.Yes:
+                # Отключаем автоперезапуск
+                set_discord_restart_setting(False)
+                self.discord_auto_restart = False
+                self.set_status("Автоматический перезапуск Discord отключен")
+                QMessageBox.information(self, "Настройка изменена", 
+                                    "Автоматический перезапуск Discord отключен.\n\n"
+                                    "Теперь вам нужно будет самостоятельно перезапускать Discord "
+                                    "после смены стратегии обхода блокировок.")
+        else:
+            # Включаем автоперезапуск (без дополнительного подтверждения)
+            set_discord_restart_setting(True)
+            self.discord_auto_restart = True
+            self.set_status("Автоматический перезапуск Discord включен")
+            QMessageBox.information(self, "Настройка изменена", 
+                                "Автоматический перезапуск Discord снова включен.")
     
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -1032,14 +1175,16 @@ class LupiDPIApp(QWidget):
             self.set_status(f"Ошибка при открытии журнала: {str(e)}")
 
 def main():
+    # Initialize logger first thing
     try:
         from log import log
-        log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
+        log("Application starting")
     except Exception as e:
         log(f"Failed to initialize logger: {e}", level="ERROR")
 
     app = QApplication(sys.argv)
 
+    # Проверка условий запуска программы
     try:
         from check_start import display_startup_warnings
         can_continue = display_startup_warnings()
@@ -1051,6 +1196,7 @@ def main():
         QMessageBox.critical(None, "Ошибка при проверке запуска", 
                          f"Не удалось выполнить проверки запуска: {str(e)}")
         sys.exit(1)
+    
     
     if len(sys.argv) > 1:
         if sys.argv[1] == "--version":
@@ -1105,7 +1251,6 @@ def main():
         sys.exit(app.exec_())
     except Exception as e:
         QMessageBox.critical(None, "Ошибка", f"Произошла ошибка: {str(e)}")
-        log(f"Ошибка при запуске приложения: {str(e)}", level="ERROR")
         sys.exit(1)
 
 if __name__ == "__main__":

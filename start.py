@@ -429,7 +429,6 @@ class DPIStarter:
             log(error_msg)  # Логируем ошибку
             self.set_status(error_msg)
             return False
-        
     def check_process_running(self):
         """
         Улучшенная проверка запущен ли процесс DPI с подробной диагностикой.
