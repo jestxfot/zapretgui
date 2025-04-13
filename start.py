@@ -152,7 +152,7 @@ class DPIStarter:
             
             # Проверяем, действительно ли процесс остановлен
             if is_running:
-                time.sleep(0.5)  # Даем время на завершение процесса
+                time.sleep(0.3)  # Даем время на завершение процесса
                 if self.check_process_running():
                     # Если процесс все еще запущен, пробуем еще раз с другими параметрами
                     log("Процесс winws.exe все еще запущен, пробуем альтернативный метод остановки")
@@ -207,6 +207,40 @@ class DPIStarter:
             bool: True при успешном запуске, False при ошибке
         """
         try:
+            log(f"=== Начинаю запуск режима {mode} ===")
+            self.set_status("Подготовка запуска...")
+
+            # Проверяем наличие "зависших" процессов
+            if self.check_process_corrupted():
+                log("ВНИМАНИЕ: Обнаружены зависшие процессы, которые не могут быть остановлены!")
+                self.set_status("Требуется перезагрузка компьютера!")
+                
+                # Спрашиваем пользователя, запускать ли новый процесс без остановки старого
+                from PyQt5.QtWidgets import QMessageBox
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Обнаружен зависший процесс")
+                msg.setText("Обнаружен процесс winws.exe, который не может быть остановлен.")
+                msg.setInformativeText(
+                    "Это может привести к конфликтам и неправильной работе.\n\n"
+                    "Рекомендуется перезагрузить компьютер.\n\n"
+                    "Хотите продолжить запуск без остановки старого процесса?"
+                )
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                msg.setDefaultButton(QMessageBox.No)
+                
+                if msg.exec_() != QMessageBox.Yes:
+                    log("Пользователь отменил запуск")
+                    self.set_status("Запуск отменен. Рекомендуется перезагрузка.")
+                    return False
+                
+                log("Пользователь согласился продолжить запуск несмотря на зависший процесс")
+            
+            # Сначала останавливаем предыдущий процесс
+            stopped = self.force_stop_all_instances()
+            if not stopped:
+                log("ПРЕДУПРЕЖДЕНИЕ: Не удалось остановить предыдущий процесс!")
+                
             # Сначала останавливаем предыдущий процесс
             self.stop_dpi()
             time.sleep(0.1)  # Небольшая пауза
@@ -406,6 +440,7 @@ class DPIStarter:
         except Exception as e:
             log(f"Общая ошибка при проверке статуса процесса: {str(e)}")
             return False
+        
     def force_stop_all_instances(self):
         """
         Усиленный метод для принудительного завершения процесса winws.exe
@@ -531,7 +566,7 @@ class DPIStarter:
                 log(f"Ошибка при финальном taskkill: {str(e)}")
             
             # Шаг 4: Проверяем, успешно ли завершены все процессы
-            time.sleep(1.0)
+            time.sleep(0.5)
             final_check = self.check_process_running()
             if final_check:
                 log("КРИТИЧЕСКАЯ ОШИБКА: Процесс winws.exe всё еще работает после всех попыток завершения!")
@@ -552,4 +587,45 @@ class DPIStarter:
                 
         except Exception as e:
             log(f"Общая ошибка в force_stop_all_instances: {str(e)}")
+            return False
+        
+    def check_process_corrupted(self):
+        """
+        Проверяет, находится ли процесс winws.exe в состоянии, когда его нельзя завершить
+        (зависший/заблокированный процесс).
+        
+        Returns:
+            bool: True если процесс найден и он "зависший", False в противном случае
+        """
+        try:
+            marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
+            if os.path.exists(marker_file):
+                log("Обнаружен маркер зависшего процесса!")
+                return True
+                
+            # Проверка на "бесхозные" процессы
+            orphaned_pids = []
+            
+            # Получаем все PID через PowerShell
+            try:
+                ps_cmd = 'powershell -Command "Get-Process -Name winws | Where-Object {$_.Responding -eq $false} | Select-Object Id | Format-Table -HideTableHeaders"'
+                ps_result = subprocess.run(
+                    ps_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                for line in ps_result.stdout.strip().split('\n'):
+                    if line.strip() and line.strip().isdigit():
+                        orphaned_pids.append(line.strip())
+                        log(f"Обнаружен не отвечающий процесс winws.exe с PID: {line.strip()}")
+            except Exception as ps_error:
+                log(f"Ошибка при проверке зависших процессов: {str(ps_error)}")
+            
+            return len(orphaned_pids) > 0
+            
+        except Exception as e:
+            log(f"Ошибка в check_process_corrupted: {str(e)}")
             return False
