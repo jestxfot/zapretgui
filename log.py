@@ -79,17 +79,22 @@ class Logger:
             except Exception:
                 pass
     
-    def log(self, message, level="INFO"):
-        """Log a message with a level prefix"""
+    def log(self, message, level="INFO", component=None):
+        """Log a message with component and level prefixes"""
+        if component:
+            prefix = f"[{component}][{level}]"
+        else:
+            prefix = f"[{level}]"
+            
         try:
-            self.write(f"[{level}] {message}\n")
+            self.write(f"{prefix} {message}\n")
         except Exception as e:
             # Last resort - attempt direct write to the log file
             try:
                 with open(self.log_file, 'a', encoding='utf-8') as f:
                     timestamp = datetime.now().strftime('%H:%M:%S')
                     f.write(f"[{timestamp}] [ERROR] Logger error: {str(e)}\n")
-                    f.write(f"[{timestamp}] [{level}] {message}\n")
+                    f.write(f"[{timestamp}] {prefix} {message}\n")
             except Exception:
                 pass
     
@@ -122,7 +127,7 @@ try:
 except Exception as setup_error:
     # If logger creation fails, create a minimalist fallback
     class FallbackLogger:
-        def log(self, message, level="INFO"):
+        def log(self, message, level="INFO", component=None):
             pass
         def log_exception(self, e, context=""):
             pass
@@ -132,9 +137,9 @@ except Exception as setup_error:
     global_logger = FallbackLogger()
 
 # Helper functions that can be imported anywhere - with error handling
-def log(message, level="INFO"):
+def log(message, level="INFO", component=None):
     try:
-        global_logger.log(message, level)
+        global_logger.log(message, level, component)
     except Exception:
         # If all else fails, do nothing
         pass

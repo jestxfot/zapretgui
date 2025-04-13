@@ -44,30 +44,36 @@ class DNSManager:
         """Получает список активных сетевых адаптеров"""
         try:
             # Используем PowerShell для получения списка активных сетевых адаптеров
-            command = 'powershell -Command "Get-NetAdapter | Where-Object {$_.Status -eq \'Up\'} | Select-Object -Property Name, InterfaceDescription | Format-Table -HideTableHeaders"'
+            # Важно: теперь запрашиваем имя точно как его ожидает Get-DnsClientServerAddress
+            command = 'powershell -Command "Get-NetAdapter | Where-Object {$_.Status -eq \'Up\'} | ForEach-Object { [PSCustomObject]@{Name=$_.Name; Description=$_.InterfaceDescription} } | ConvertTo-Json"'
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             
             if result.returncode != 0:
-                log(f"Ошибка получения сетевых адаптеров: {result.stderr}")
+                log(f"Ошибка получения сетевых адаптеров: {result.stderr}", level="ERROR", component="DNS")
                 return []
             
             adapters = []
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if line:
-                    # Первое слово - имя адаптера, остальное - описание
-                    parts = line.split(' ', 1)
-                    if len(parts) >= 2:
-                        name = parts[0]
-                        description = parts[1].strip()
-
-                        # Фильтруем игнорируемые адаптеры, если нужно
-                        if include_ignored or not DNSManager.should_ignore_adapter(name, description):
-                            adapters.append((name, description))
-            
+            try:
+                import json
+                adapter_list = json.loads(result.stdout)
+                # Если только один адаптер, результат будет объектом, а не массивом
+                if not isinstance(adapter_list, list):
+                    adapter_list = [adapter_list]
+                    
+                for adapter in adapter_list:
+                    name = adapter.get('Name', '')
+                    description = adapter.get('Description', '')
+                    
+                    # Фильтруем игнорируемые адаптеры, если нужно
+                    if include_ignored or not DNSManager.should_ignore_adapter(name, description):
+                        adapters.append((name, description))
+            except json.JSONDecodeError as e:
+                log(f"Ошибка при разборе JSON с сетевыми адаптерами: {str(e)}", level="ERROR", component="DNS")
+                return []
+                
             return adapters
         except Exception as e:
-            log(f"Ошибка при получении списка сетевых адаптеров: {str(e)}")
+            log(f"Ошибка при получении списка сетевых адаптеров: {str(e)}", level="ERROR", component="DNS")
             return []
     
     @staticmethod
@@ -79,13 +85,13 @@ class DNSManager:
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             
             if result.returncode != 0:
-                log(f"Ошибка получения DNS-серверов: {result.stderr}")
+                log(f"Ошибка получения DNS-серверов: {result.stderr}", level="DNS")
                 return []
             
             dns_servers = [ip.strip() for ip in result.stdout.splitlines() if ip.strip()]
             return dns_servers
         except Exception as e:
-            log(f"Ошибка при получении DNS-серверов: {str(e)}")
+            log(f"Ошибка при получении DNS-серверов: {str(e)}", level="DNS")
             return []
     
     @staticmethod
@@ -108,13 +114,13 @@ class DNSManager:
             # Проверяем результат выполнения
             if result.returncode != 0 or result.stderr or (result.stdout and "Exception" in result.stdout):
                 error_msg = result.stderr if result.stderr else result.stdout
-                log(f"Ошибка установки DNS-серверов: {error_msg}")
+                log(f"Ошибка установки DNS-серверов: {error_msg}", level="DNS")
                 return False, f"Ошибка установки DNS-серверов: {error_msg}"
             
             return True, f"DNS-серверы успешно установлены для {adapter_name}"
         except Exception as e:
             error_msg = str(e)
-            log(f"Исключение при установке DNS-серверов: {error_msg}")
+            log(f"Исключение при установке DNS-серверов: {error_msg}", level="DNS")
             return False, f"Ошибка при установке DNS-серверов: {error_msg}"
     
     @staticmethod
@@ -133,13 +139,13 @@ class DNSManager:
             # Проверяем результат выполнения
             if result.returncode != 0 or result.stderr or (result.stdout and "Exception" in result.stdout):
                 error_msg = result.stderr if result.stderr else result.stdout
-                log(f"Ошибка сброса DNS-серверов: {error_msg}")
+                log(f"Ошибка сброса DNS-серверов: {error_msg}", level="DNS")
                 return False, f"Ошибка сброса DNS-серверов: {error_msg}"
             
             return True, f"DNS-серверы сброшены на автоматические для {adapter_name}"
         except Exception as e:
             error_msg = str(e)
-            log(f"Исключение при сбросе DNS-серверов: {error_msg}")
+            log(f"Исключение при сбросе DNS-серверов: {error_msg}", level="DNS")
             return False, f"Ошибка при сбросе DNS-серверов: {error_msg}"
         
     @staticmethod
@@ -151,12 +157,12 @@ class DNSManager:
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             
             if result.returncode != 0:
-                log(f"Ошибка при очистке кэша DNS: {result.stderr}")
+                log(f"Ошибка при очистке кэша DNS: {result.stderr}", level="DNS")
                 return False, f"Ошибка при очистке кэша DNS: {result.stderr}"
             
             return True, "Кэш DNS успешно очищен"
         except Exception as e:
-            log(f"Ошибка при очистке кэша DNS: {str(e)}")
+            log(f"Ошибка при очистке кэша DNS: {str(e)}", level="DNS")
             return False, f"Ошибка при очистке кэша DNS: {str(e)}"
     
 class DNSSettingsDialog(QDialog):
@@ -225,7 +231,7 @@ class DNSSettingsDialog(QDialog):
             
             self.dns_info_loaded.emit(dns_info)
         except Exception as e:
-            log(f"Ошибка при загрузке данных: {str(e)}")
+            log(f"Ошибка при загрузке данных: {str(e)}", level="DNS")
     
     def on_adapters_loaded(self, adapters):
         """Обработчик загрузки списка адаптеров"""
@@ -534,7 +540,7 @@ class DNSSettingsDialog(QDialog):
         if success_count > 0:
             dns_flush_success, dns_flush_message = self.dns_manager.flush_dns_cache()
             if not dns_flush_success:
-                log(f"Предупреждение: {dns_flush_message}")
+                log(f"Предупреждение: {dns_flush_message}", level="DNS")
         
         # Выводим результат
         if success_count == len(adapters):

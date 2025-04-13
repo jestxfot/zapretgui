@@ -6,19 +6,16 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
 from downloader import DOWNLOAD_URLS
-from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER
+from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
 from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
 from discord import DiscordManager
-from theme import ThemeManager, THEMES, get_windows_theme, get_selected_theme, set_selected_theme
+from theme import ThemeManager, THEMES
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
-from urls import *
+from urls import VERSION_URL, UPDATER_BAT_URL, EXE_UPDATE_URL, AUTHOR_URL, INFO_URL, OTHER_LIST_URL
 from log import *
-
-WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
-ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
 
 BUTTON_STYLE = """
 QPushButton {{
@@ -1623,7 +1620,7 @@ def main():
         # Дополнительная гарантия, что комбо-боксы будут активны
         QTimer.singleShot(1000, lambda: window.force_enable_combos())
         QTimer.singleShot(2000, lambda: window.force_enable_combos())
-        
+
         sys.exit(app.exec_())
     except Exception as e:
         QMessageBox.critical(None, "Ошибка", f"Произошла ошибка: {str(e)}")
