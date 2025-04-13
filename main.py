@@ -889,38 +889,6 @@ class LupiDPIApp(QWidget):
         if was_active:
             QTimer.singleShot(200, lambda: self.status_timer.start())
 
-    def keyPressEvent(self, event):
-        """Обрабатывает нажатия клавиш для секретных команд"""
-        # Добавляем символ к секретной последовательности
-        key_text = event.text().lower()
-        self._secret_input += key_text
-        
-        # Добавим отладочную информацию
-        from log import log
-        log(f"Введено: {key_text}, Буфер: {self._secret_input}", level="DEBUG")
-        
-        # Проверяем наличие секретного слова "ркн" (русские буквы)
-        if "ркн" in self._secret_input:
-            log("Секретный код обнаружен! Переключаем настройку Discord", level="DEBUG")
-            self._secret_input = ""  # Сбрасываем буфер
-            
-            try:
-                from discord_restart import toggle_discord_restart
-                # Передаем необходимые параметры
-                toggle_discord_restart(parent=self, status_callback=self.set_status)
-            except Exception as e:
-                log(f"Ошибка при переключении настройки Discord: {str(e)}", level="ERROR")
-                self.set_status(f"Ошибка: {str(e)}")
-            
-            return
-        
-        # Ограничиваем длину строки
-        if len(self._secret_input) > 20:
-            self._secret_input = self._secret_input[-10:]
-        
-        # Стандартная обработка события
-        super().keyPressEvent(event)
-
     def closeEvent(self, event):
         """Перехватывает событие закрытия окна"""
         # Передаем обработку менеджеру трея
