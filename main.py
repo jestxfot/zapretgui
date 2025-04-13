@@ -104,55 +104,6 @@ def get_version(self):
     """Возвращает текущую версию программы"""
     return APP_VERSION
 
-def check_if_in_archive():
-    """
-    Проверяет, находится ли EXE-файл в временной директории,
-    что обычно характерно для распаковки из архива.
-    """
-    try:
-        exe_path = os.path.abspath(sys.executable)
-        from log import log
-        log(f"Executable path: {exe_path}", level="DEBUG")
-
-        # Получаем пути к системным временным директориям
-        system32_path = os.path.abspath(os.path.join(os.environ.get("WINDIR", ""), "System32"))
-        temp_env = os.environ.get("TEMP", "")
-        tmp_env = os.environ.get("TMP", "")
-        temp_dirs = [temp_env, tmp_env, system32_path]
-        
-        for temp_dir in temp_dirs:
-            if temp_dir and exe_path.lower().startswith(os.path.abspath(temp_dir).lower()):
-                log(f"EXE запущен из временной директории: {temp_dir}", level="DEBUG")
-                return True
-        return False
-    except Exception as e:
-        print(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
-        return False
-
-def contains_special_chars(path):
-    """Проверяет, содержит ли путь специальные символы"""
-    special_chars = '()[]{}^=;!\'"+<>|&'
-    return any(c in path for c in special_chars)
-
-def check_path_for_special_chars():
-    """Проверяет пути программы на наличие специальных символов"""
-    current_path = os.path.abspath(os.getcwd())
-    exe_path = os.path.abspath(sys.executable)
-    
-    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
-    
-    for path in paths_to_check:
-        if contains_special_chars(path):
-            error_message = (
-                f"Путь содержит специальные символы: {path}\n\n"
-                "Программа не может корректно работать в папке со специальными символами (цифры, точки, скобки, запятые и т.д.).\n"
-                "Пожалуйста, переместите программу в папку без специальных символов в пути (например, C:\\zapretgui) и запустите её снова."
-            )
-            QMessageBox.critical(None, "Критическая ошибка", error_message)
-            print(f"ERROR: Путь содержит специальные символы: {path}")
-            return True
-    return False
-
 class LogViewerDialog(QDialog):
     """Dialog for viewing application logs"""
     
@@ -1439,11 +1390,27 @@ def main():
         from log import log
         log("Application starting")
     except Exception as e:
-        print(f"Failed to initialize logger: {e}")
+        log(f"Failed to initialize logger: {e}", level="ERROR")
+
+    app = QApplication(sys.argv)
+
+    # Проверка условий запуска программы
+    try:
+        from check_start import display_startup_warnings
+        can_continue = display_startup_warnings()
+        if not can_continue:
+            sys.exit(1)
+    except Exception as e:
+        log(f"Failed to perform startup checks: {e}", level="ERROR")
+        # Показываем ошибку пользователю
+        QMessageBox.critical(None, "Ошибка при проверке запуска", 
+                         f"Не удалось выполнить проверки запуска: {str(e)}")
+        sys.exit(1)
+    
     
     if len(sys.argv) > 1:
         if sys.argv[1] == "--version":
-            print(APP_VERSION)
+            log(APP_VERSION)
             sys.exit(0)
         elif sys.argv[1] == "--update" and len(sys.argv) > 3:
             # Режим обновления: updater.py запускает main.py --update old_exe new_exe
@@ -1465,7 +1432,7 @@ def main():
                 # Запускаем обновленное приложение
                 subprocess.Popen([old_exe])
             except Exception as e:
-                print(f"Ошибка при обновлении: {str(e)}")
+                log(f"Ошибка при обновлении: {str(e)}", level="ERROR")
             finally:
                 # Удаляем временный файл
                 try:
@@ -1473,9 +1440,6 @@ def main():
                 except:
                     pass
                 sys.exit(0)
-    
-    # Стандартный запуск
-    app = QApplication(sys.argv)
 
     # ВАЖНЫЙ МОМЕНТ - проверяем админские права до создания окна
     if not is_admin():
