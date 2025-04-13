@@ -391,26 +391,26 @@ class LupiDPIApp(QWidget):
         self.start_mode_combo = QComboBox(self)
         self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
         self.start_mode_combo.addItems(DPI_COMMANDS.keys())
+
+        last_strategy = get_last_strategy()
+        if last_strategy in DPI_COMMANDS.keys():
+            self.start_mode_combo.setCurrentText(last_strategy)
         self.start_mode_combo.currentTextChanged.connect(self.on_mode_changed)
         layout.addWidget(self.start_mode_combo)
 
-        # --- Создаем сетку для размещения кнопок в два столбца ---
         from PyQt5.QtWidgets import QGridLayout
         button_grid = QGridLayout()
 
-        # Создаем кнопку Запустить
         self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
         self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.start_btn.clicked.connect(self.start_dpi)
 
-        # Создаем кнопку Остановить
         self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
         self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.stop_btn.clicked.connect(self.stop_dpi)
 
-        # Создаем кнопки автозапуска
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
