@@ -154,17 +154,17 @@ class LogViewerDialog(QDialog):
         button_layout = QHBoxLayout()
         
         # Refresh button
-        refresh_button = QPushButton("Refresh")
+        refresh_button = QPushButton("Обновить")
         refresh_button.clicked.connect(self.refresh_logs)
         button_layout.addWidget(refresh_button)
         
         # Copy button
-        copy_button = QPushButton("Copy to Clipboard")
+        copy_button = QPushButton("Скопировать в буфер")
         copy_button.clicked.connect(self.copy_to_clipboard)
         button_layout.addWidget(copy_button)
         
         # Close button
-        close_button = QPushButton("Close")
+        close_button = QPushButton("Закрыть")
         close_button.clicked.connect(self.close)
         button_layout.addWidget(close_button)
         

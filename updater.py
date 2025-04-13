@@ -6,15 +6,22 @@ from urls import VERSION_URL, UPDATER_BAT_URL, EXE_UPDATE_URL
 from config import APP_VERSION
 from log import log
 
-def check_for_update(self):
+def check_for_update(parent, status_callback=None):
     """Проверяет наличие обновлений и запускает процесс обновления через BAT-файл"""
     try:
+        # Удобная функция для обновления статуса
+        def set_status(message):
+            if status_callback:
+                status_callback(message)
+            else:
+                log(message, level="UPDATE")
+
         # Проверяем наличие модуля requests
         try:
             import requests
             from packaging import version
         except ImportError:
-            self.set_status("Установка зависимостей для проверки обновлений...")
+            set_status("Установка зависимостей для проверки обновлений...")
             subprocess.run([sys.executable, "-m", "pip", "install", "requests packaging"], 
                         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             import requests
@@ -46,15 +53,14 @@ def check_for_update(self):
                 
                 msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
                 if msg.exec_() == QMessageBox.Yes:
-                    # Запускаем процесс обновления
-                    self.set_status("Запуск обновления...")
+                    log(f"Пользователь согласился на обновление до версии {latest_version}", level="UPDATE")
                     
                     # Получаем путь к текущему исполняемому файлу
                     exe_path = os.path.abspath(sys.executable)
                     
                     # Если это не скомпилированное приложение, updater не сможет заменить .py файл
                     if not getattr(sys, 'frozen', False):
-                        QMessageBox.warning(self, "Обновление невозможно", 
+                        QMessageBox.warning(parent, "Обновление невозможно", 
                                         "Автоматическое обновление возможно только для скомпилированных (.exe) версий программы.")
                         return
                     
@@ -62,9 +68,8 @@ def check_for_update(self):
                     try:
                         # Создаем временный файл для скрипта обновления
                         updater_bat = os.path.join(os.path.dirname(exe_path), "update_zapret.bat")
-                        
-                        # Скачиваем BAT-файл
-                        self.set_status("Скачивание скрипта обновления...")
+
+                        log(f"Скачивание BAT-файла обновления с {bat_url}", level="UPDATE")
                         bat_response = requests.get(bat_url)
                         bat_content = bat_response.text
 
@@ -79,19 +84,19 @@ def check_for_update(self):
                         with open(updater_bat, 'w', encoding='utf-8') as f:
                             f.write(bat_content)
                         
-                        # Запускаем BAT-файл
-                        self.set_status("Запуск скрипта обновления...")
+                        log(f"Запуск BAT-файла обновления: {updater_bat}", level="UPDATE")
                         # Изменим способ запуска BAT-файла, чтобы показать консоль
                         subprocess.Popen(f'cmd /c start cmd /k "{updater_bat}"', shell=True)
                         
                         # Завершаем текущий процесс после небольшой задержки
-                        self.set_status("Запущен процесс обновления. Приложение будет перезапущено.")
+                        set_status("Запущен процесс обновления. Приложение будет перезапущено.")
 
                         from PyQt5.QtCore import QTimer
                         QTimer.singleShot(2000, lambda: sys.exit(0))
                         
                     except Exception as e:
-                        self.set_status(f"Ошибка при подготовке обновления: {str(e)}")
+                        set_status(f"Ошибка при подготовке обновления: {str(e)}")
+                        log(f"Ошибка при подготовке обновления: {str(e)}", level="ERROR")
                         # Если произошла ошибка при скачивании BAT-файла, создаем его локально
                         try:
                             # Создаем BAT-файл вручную
@@ -137,21 +142,22 @@ def check_for_update(self):
                             subprocess.Popen(f'cmd /c start cmd /k "{updater_bat}"', shell=True)
                             
                             # Завершаем текущий процесс после небольшой задержки
-                            self.set_status("Запущен процесс обновления. Приложение будет перезапущено.")
+                            set_status("Запущен процесс обновления. Приложение будет перезапущено.")
                             QTimer.singleShot(2000, lambda: sys.exit(0))
                         except Exception as inner_e:
                             log(f"Ошибка при создании BAT-файла: {str(inner_e)}", level="ERROR")
-                            self.set_status(f"Критическая ошибка обновления: {str(inner_e)}")
+                            set_status(f"Критическая ошибка обновления: {str(inner_e)}")
                 else:
                     log(f"Пользователь отказался от обновления {latest_version}", level="UPDATE")
-                    self.set_status(f"У вас установлена последняя версия ({latest_version}).")
+                    set_status(f"У вас установлена последняя версия ({latest_version}).")
             else:
                 log(f"У вас установлена последняя версия ({latest_version})", level="UPDATE")
-                self.set_status(f"У вас установлена последняя версия ({latest_version}).")
+                set_status(f"У вас установлена последняя версия ({latest_version}).")
         else:
             log(f"Ошибка при получении версии: {response.status_code}", level="ERROR")
-            self.set_status(f"Не удалось проверить обновления.\nКод: {response.status_code}")
+            set_status(f"Не удалось проверить обновления.\nКод: {response.status_code}")
+
     except Exception as e:
         log(f"Ошибка при проверке обновлений: {str(e)}", level="ERROR")
-        self.set_status(f"Ошибка при проверке обновлений:\n{str(e)}")
-
+        if status_callback:
+            status_callback(f"Ошибка при проверке обновлений: {str(e)}")

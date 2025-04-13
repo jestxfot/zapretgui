@@ -14,6 +14,7 @@ from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
+from updater import check_for_update
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -65,20 +66,8 @@ def get_version(self):
     return APP_VERSION
 
 class LupiDPIApp(QWidget):
-    def check_for_updates(self):
-        """Проверяет наличие обновлений и запускает процесс обновления через отдельный модуль"""
-        try:
-            from updater import check_for_update
-            check_for_update(self)
-        except Exception as e:
-            self.set_status(f"Ошибка при проверке обновлений: {str(e)}")
-
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
-
-        # Инициализируем переменную для секретного ввода
-        self._secret_input = ""
-        self._allow_close = False  # Флаг для контроля закрытия окна
 
         # Добавляем защиту от гонок данных при проверке статуса
         self.status_check_lock = threading.Lock()
@@ -89,10 +78,6 @@ class LupiDPIApp(QWidget):
         """Initializes the application window."""
         super().__init__()
         self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
-
-        # Проверяем настройку автоперезапуска Discord
-        from discord_restart import get_discord_restart_setting
-        self.discord_auto_restart = get_discord_restart_setting()
         
         # Инициализируем Discord Manager
         from discord import DiscordManager
@@ -313,7 +298,7 @@ class LupiDPIApp(QWidget):
             ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
             ('Что это такое?', self.open_info, "38, 38, 38", 6, 0),
             ('Логи', self.show_logs, "38, 38, 38", 6, 1),  # col_span=2
-            ('Проверить обновления', self.check_for_updates, "38, 38, 38", 7, 0, 2),  # col_span=2
+            ('Проверить обновления', lambda: check_for_update(parent=self, status_callback=self.set_status), "38, 38, 38", 7, 0, 2),  # col_span=2
         ]
 
         # Создаем и размещаем кнопки в сетке
@@ -397,7 +382,8 @@ class LupiDPIApp(QWidget):
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
         # 2. Автоперезапуск включен в настройках
-        if not self.first_start and self.discord_auto_restart:
+        from discord_restart import get_discord_restart_setting
+        if not self.first_start and get_discord_restart_setting():
             self.discord_manager.restart_discord_if_running()
         else:
             self.first_start = False  # Сбрасываем флаг первого запуска
