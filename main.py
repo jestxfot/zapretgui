@@ -530,7 +530,7 @@ class LupiDPIApp(QWidget):
         try:
             self.set_status("Подготовка...")
             # Вместо цикла из 3 попыток - одна быстрая попытка остановки
-            self.dpi_starter.force_stop_all_instances()
+            self.dpi_starter.stop_dpi()
         except Exception as e:
             print(f"Ошибка при начальной очистке процессов: {str(e)}")
 
