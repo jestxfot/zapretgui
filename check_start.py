@@ -15,7 +15,7 @@ def check_if_in_archive():
         exe_path = os.path.abspath(sys.executable)
         try:
             from log import log
-            log(f"Executable path: {exe_path}", level="DEBUG")
+            log(f"Executable path: {exe_path}", level="CHECK_START")
         except ImportError:
             log(f"DEBUG: Executable path: {exe_path}")
 
