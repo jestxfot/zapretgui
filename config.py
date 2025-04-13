@@ -2,7 +2,7 @@
 # https://github.com/ankddev/zapret-discord-youtube
 import os
 
-BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "13.5.0"
+BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "14.1.0"
 
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")

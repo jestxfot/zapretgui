@@ -451,7 +451,9 @@ class LupiDPIApp(QWidget):
         """Обертка для скачивания файлов, использующая внешнюю функцию"""
         return self.dpi_starter.download_files(DOWNLOAD_URLS)
 
-    def __init__(self):
+    def __init__(self, fast_load=False):
+        self.fast_load = fast_load
+
         # Инициализируем переменную для секретного ввода
         self._secret_input = ""
         self._allow_close = False  # Флаг для контроля закрытия окна
@@ -474,30 +476,33 @@ class LupiDPIApp(QWidget):
         self.first_start = True  # Флаг для отслеживания первого запуска
 
         # Устанавливаем иконку приложения
-        icon_path = os.path.abspath(ICON_PATH)  # Используем абсолютный путь
-        print(f"Путь к иконке: {icon_path}, существует: {os.path.exists(icon_path)}")  # Отладка
-            
+        icon_path = os.path.abspath(ICON_PATH)
         if os.path.exists(icon_path):
             from PyQt5.QtGui import QIcon
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
-            
-            # Для панели задач в Windows
-            try:
-                from PyQt5.QtWinExtras import QtWin
-                myappid = f'zapret.gui.app.{APP_VERSION}'  # Уникальный ID для Windows
-                QtWin.setCurrentProcessExplicitAppUserModelID(myappid)
-            except ImportError:
-                pass  # QtWinExtras может быть недоступен
-        else:
-            print(f"ОШИБКА: Файл иконки {icon_path} не найден")
-
+        
+        # Инициализируем интерфейс
         self.init_ui()
-    
+        
+        # При быстрой загрузке откладываем тяжелые операции
+        if not self.fast_load:
+            self.initialize_managers_and_services()
+        
+        # Инициализируем системный трей после создания всех элементов интерфейса
+        self.tray_manager = SystemTrayManager(
+            parent=self,
+            icon_path=os.path.abspath(ICON_PATH),
+            app_version=APP_VERSION
+        )
+
+    def initialize_managers_and_services(self):
+        """Инициализирует менеджеры и службы (может выполняться с задержкой)"""
+        # Инициализируем hosts_manager
         self.hosts_manager = HostsManager(status_callback=self.set_status)
-        QTimer.singleShot(500, self.update_proxy_button_state)
-    
+        
+        # Инициализируем менеджер тем
         self.theme_manager = ThemeManager(
             app=QApplication.instance(),
             widget=self,
@@ -508,55 +513,88 @@ class LupiDPIApp(QWidget):
             author_url=AUTHOR_URL,
             bol_van_url=self.bol_van_url
         )
-
+        
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
-
+        
+        # Инициализируем менеджер служб
         self.service_manager = ServiceManager(
             winws_exe=WINWS_EXE,
             bin_folder=BIN_FOLDER,
             lists_folder=LISTS_FOLDER,
             status_callback=self.set_status
         )
-
+        
+        # Инициализируем стартер DPI
         self.dpi_starter = DPIStarter(
             winws_exe=WINWS_EXE,
             bin_folder=BIN_FOLDER,
             lists_folder=LISTS_FOLDER,
             status_callback=self.set_status
         )
-
-        # Оптимизация 1: Ускорение очистки процессов при запуске
+        
+        # Оптимизация: быстрая попытка остановки без множества повторов
         try:
             self.set_status("Подготовка...")
-            # Вместо цикла из 3 попыток - одна быстрая попытка остановки
             self.dpi_starter.stop_dpi()
         except Exception as e:
             print(f"Ошибка при начальной очистке процессов: {str(e)}")
-
-        # Инициализируем системный трей после создания всех элементов интерфейса
-        self.tray_manager = SystemTrayManager(
-            parent=self,
-            icon_path=os.path.abspath(ICON_PATH),
-            app_version=APP_VERSION
-        )
         
-        # Проверяем наличие службы и обновляем видимость кнопок автозапуска
+        # Проверяем и обновляем UI службы
         service_running = self.service_manager.check_service_exists()
         self.update_autostart_ui(service_running)
         
-        # После обновления видимости кнопок автозапуска обновляем состояние запуска
+        # Обновляем UI состояния запуска
         self.update_ui(running=True)
-    
+        
         # Проверяем наличие необходимых файлов
         self.set_status("Проверка файлов...")
         if not os.path.exists(WINWS_EXE):
             self.download_files_wrapper()
-
-        # Обновляем состояние кнопок автозапуска
-        service_running = self.service_manager.check_service_exists()
-        self.update_ui(service_running)
         
+        # Загружаем последнюю стратегию
+        self.load_and_start_strategy()
+        
+        # Обновляем состояние кнопки прокси
+        QTimer.singleShot(500, self.update_proxy_button_state)
+
+        if hasattr(self, 'start_mode_combo'):
+            self.start_mode_combo.setEnabled(True)
+
+        if hasattr(self, 'theme_combo'):
+            self.theme_combo.setEnabled(True)
+
+        # Принудительно обновляем UI
+        QApplication.processEvents()
+
+    def perform_delayed_checks(self):
+        """Выполняет отложенные проверки после отображения UI"""
+        if self.fast_load:
+            # Первая попытка активации комбо-боксов
+            self.force_enable_combos()
+            
+            # Инициализируем менеджеры и службы
+            self.initialize_managers_and_services()
+            
+            # Вторая попытка активации комбо-боксов после инициализации
+            self.force_enable_combos()
+            
+            # Запускаем таймер для повторных проверок активации
+            # Это гарантирует, что комбо-боксы точно станут активными
+            QTimer.singleShot(500, self.delayed_combo_enabler)
+
+    def delayed_combo_enabler(self):
+        """Повторно проверяет и активирует комбо-боксы через таймер"""
+        if self.force_enable_combos():
+            # Если успешно активировали, останавливаемся
+            log("Комбо-боксы успешно активированы")
+        else:
+            # Если нет, повторяем через полсекунды
+            log("Повторная попытка активации комбо-боксов")
+            QTimer.singleShot(500, self.delayed_combo_enabler)
+
+    def load_and_start_strategy(self):
+        """Загружает последнюю стратегию и запускает её"""
         # Загружаем последнюю сохраненную стратегию или используем первую по умолчанию
         last_strategy = get_last_strategy()
         if last_strategy and last_strategy in DPI_COMMANDS:
@@ -568,7 +606,7 @@ class LupiDPIApp(QWidget):
         
         # Запускаем выбранную стратегию
         self.start_dpi()
-    
+
     def init_ui(self):
         """Creates the user interface elements."""
         self.setStyleSheet(STYLE_SHEET)
@@ -608,6 +646,10 @@ class LupiDPIApp(QWidget):
         self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
         self.start_mode_combo.addItems(DPI_COMMANDS.keys())
         self.start_mode_combo.currentTextChanged.connect(self.on_mode_changed)
+
+        # Принудительно включаем и обрабатываем события
+        self.start_mode_combo.setEnabled(True)
+        QApplication.processEvents()
         layout.addWidget(self.start_mode_combo)
 
         # --- Создаем сетку для размещения кнопок в два столбца ---
@@ -665,9 +707,9 @@ class LupiDPIApp(QWidget):
             ('Обновить winws.exe', self.update_winws_exe, "0, 119, 255", 4, 0),
             ('Настройка DNS-серверов', self.open_dns_settings, "0, 119, 255", 4, 1),
             ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
-            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0, 2),
+            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0),
+            ('Логи', self.show_logs, "38, 38, 38", 6, 1),  # col_span=2
             ('Проверить обновления', self.check_for_updates, "38, 38, 38", 7, 0, 2),  # col_span=2
-            ('Логи', self.show_logs, "38, 38, 38", 8, 0, 2),  # col_span=2
         ]
 
         # Создаем и размещаем кнопки в сетке
@@ -675,7 +717,7 @@ class LupiDPIApp(QWidget):
             text, callback, color, row, col = button_info[:5]
             
             # Определяем col_span
-            col_span = button_info[5] if len(button_info) > 5 else (2 if (row == 6) else 1)
+            col_span = button_info[5] if len(button_info) > 5 else (2 if (row == 10) else 1)
             
             btn = RippleButton(text, self, color)
             btn.setStyleSheet(BUTTON_STYLE.format(color))
@@ -700,10 +742,15 @@ class LupiDPIApp(QWidget):
         theme_label.setStyleSheet(COMMON_STYLE)
         theme_layout.addWidget(theme_label, alignment=Qt.AlignCenter)
     
+
         self.theme_combo = QComboBox(self)
         self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
         self.theme_combo.addItems(THEMES.keys())
         self.theme_combo.currentTextChanged.connect(self.change_theme)
+
+        # Принудительно включаем и обрабатываем события
+        self.theme_combo.setEnabled(True)
+        QApplication.processEvents()
         theme_layout.addWidget(self.theme_combo)
         layout.addLayout(theme_layout)
 
@@ -761,6 +808,31 @@ class LupiDPIApp(QWidget):
         # Запускаем DPI с новым режимом
         self.start_dpi()
 
+    def force_enable_combos(self):
+        """Принудительно включает комбо-боксы даже если они были отключены"""
+        try:
+            if hasattr(self, 'start_mode_combo'):
+                # Полное восстановление состояния комбо-бокса
+                self.start_mode_combo.setEnabled(True)
+                self.start_mode_combo.show()
+                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
+                
+            if hasattr(self, 'theme_combo'):
+                # Полное восстановление состояния комбо-бокса тем
+                self.theme_combo.setEnabled(True)
+                self.theme_combo.show()
+                self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
+                
+            # Принудительное обновление UI
+            QApplication.processEvents()
+            
+            # Возвращаем True если оба комбо-бокса существуют и активны
+            return (hasattr(self, 'start_mode_combo') and self.start_mode_combo.isEnabled() and
+                    hasattr(self, 'theme_combo') and self.theme_combo.isEnabled())
+        except Exception as e:
+            log(f"Ошибка при активации комбо-боксов: {str(e)}")
+            return False
+    
     def change_theme(self, theme_name):
         """Изменяет тему приложения"""
         success, message = self.theme_manager.apply_theme(theme_name)
@@ -811,13 +883,20 @@ class LupiDPIApp(QWidget):
             
         # Если службы нет, запускаем DPI
         selected_mode = self.start_mode_combo.currentText()
-        success = self.dpi_starter.start_dpi(selected_mode, DPI_COMMANDS, DOWNLOAD_URLS)
+
+        success = self.dpi_starter.start_with_progress(
+            selected_mode, 
+            DPI_COMMANDS, 
+            DOWNLOAD_URLS,
+            parent_widget=self
+        )
+
         if success:
             self.update_ui(running=True)
-            # Проверяем, не завершился ли процесс сразу после запуска
-            QTimer.singleShot(3000, self.check_if_process_started_correctly)
         else:
             self.check_process_status()  # Обновляем статус в интерфейсе
+
+        return success
 
     def delayed_process_check(self):
         """Первая быстрая проверка состояния процесса"""
@@ -1528,30 +1607,24 @@ def main():
     # Стандартный запуск
     app = QApplication(sys.argv)
 
-    # Проверка на запуск из временной директории
-    if check_if_in_archive():
-        error_message = (
-            "Приложение не может быть запущено из временной директории!\n\n"
-            "Пожалуйста, распакуйте архив полностью в отдельную папку и запустите программу."
-        )
-        QMessageBox.critical(None, "Ошибка запуска", error_message)
-        print("ERROR: Ошибка check_if_in_archive")
-        sys.exit(1)
+    # ВАЖНЫЙ МОМЕНТ - проверяем админские права до создания окна
+    if not is_admin():
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        sys.exit(0)
     
-    # Проверка на специальные символы в пути
-    if check_path_for_special_chars():
-        # Функция уже показывает сообщение об ошибке, просто выходим
-        sys.exit(1)
-    
-    # Далее создаем и запускаем основное окно
     try:
-        if is_admin():
-            window = LupiDPIApp()
-            window.show()
-            sys.exit(app.exec_())
-        else:
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-            sys.exit(0)
+        # Создаем окно с параметром fast_load=True
+        window = LupiDPIApp(fast_load=True)
+        window.show()
+        
+        # Выполняем дополнительные проверки ПОСЛЕ отображения UI
+        QTimer.singleShot(100, lambda: window.perform_delayed_checks())
+        
+        # Дополнительная гарантия, что комбо-боксы будут активны
+        QTimer.singleShot(1000, lambda: window.force_enable_combos())
+        QTimer.singleShot(2000, lambda: window.force_enable_combos())
+        
+        sys.exit(app.exec_())
     except Exception as e:
         QMessageBox.critical(None, "Ошибка", f"Произошла ошибка: {str(e)}")
         sys.exit(1)

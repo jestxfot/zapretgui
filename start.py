@@ -1,8 +1,11 @@
 import os
 import time
 import subprocess
-import win32con
-from log import *
+import win32con, sys
+
+from PyQt5.QtWidgets import QApplication
+
+from log import log
 
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
@@ -193,6 +196,108 @@ class DPIStarter:
             log(error_msg)  # Логируем ошибку
             self.set_status(error_msg)
             return False
+    
+    def start_with_progress(self, mode, dpi_commands, download_urls=None, parent_widget=None):
+        """
+        Запускает DPI с отображением диалога прогресса
+        
+        Args:
+            mode (str): Название режима запуска
+            dpi_commands (dict): Словарь с настройками команд для разных режимов
+            download_urls (dict, optional): URL для скачивания файлов, если они отсутствуют
+            parent_widget (QWidget): Родительский виджет для диалога прогресса
+            
+        Returns:
+            bool: True при успешном запуске, False при ошибке
+        """
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QTimer
+        from progress_dialog import StrategyChangeDialog
+        
+        # Создаем диалог прогресса
+        progress_dialog = StrategyChangeDialog(parent_widget)
+        
+        # Сохраняем оригинальную функцию set_status
+        original_set_status = self.set_status
+        
+        # Переопределяем функцию для обновления и диалога, и оригинального статуса
+        def status_wrapper(text):
+            original_set_status(text)
+            progress_dialog.set_status(text)
+        
+        # Используем обертку во время запуска
+        self.set_status = status_wrapper
+        
+        try:
+            # Показываем диалог прогресса
+            progress_dialog.set_progress(0)
+            QApplication.processEvents()
+            progress_dialog.set_status("Подготовка к запуску...")
+            progress_dialog.start_progress()
+
+            progress_dialog.show()
+            QApplication.processEvents()
+            
+            # Проверка на зависший процесс
+            progress_dialog.set_progress(10)
+            QApplication.processEvents()
+            progress_dialog.set_status("Проверка наличия зависших процессов...")
+            if self.check_process_corrupted():
+                progress_dialog.set_status("Обнаружен зависший процесс!")
+                progress_dialog.set_details("Требуется подтверждение пользователя")
+                # Диалог подтверждения будет показан стандартным методом
+                
+            # Остановка предыдущего процесса
+            progress_dialog.set_progress(20)
+            QApplication.processEvents()
+            progress_dialog.set_status("Остановка предыдущего процесса...")
+            self.force_stop_all_instances()
+            
+            # Создание папок
+            progress_dialog.set_progress(40)
+            QApplication.processEvents()
+            progress_dialog.set_status("Проверка необходимых файлов...")
+            # Код проверки папок и файлов
+            
+            # Подготовка команды запуска
+            progress_dialog.set_progress(60)
+            QApplication.processEvents()
+            progress_dialog.set_status("Подготовка команды запуска...")
+            
+            # Запуск процесса
+            progress_dialog.set_progress(80)
+            progress_dialog.set_status("Запуск процесса...")
+            result = self.start_dpi(mode, dpi_commands, download_urls)
+            
+            # Проверка статуса запуска
+            progress_dialog.set_progress(90)
+            QApplication.processEvents()
+            progress_dialog.set_status("Проверка статуса запуска...")
+            
+            # Завершение
+            progress_dialog.set_progress(100)
+            QApplication.processEvents()
+
+            if result:
+                progress_dialog.set_progress(100)
+                progress_dialog.set_status(f"Успешно запущен режим: {mode}")
+                progress_dialog.set_details("Режим обхода успешно запущен")
+                progress_dialog.complete()  # Отмечаем операцию как завершенную
+                # Показываем результат 1.5 секунды, затем закрываем диалог
+                QTimer.singleShot(1500, progress_dialog.accept)
+            else:
+                progress_dialog.set_progress(100)
+                progress_dialog.set_status("Ошибка запуска")
+                progress_dialog.set_details("Не удалось запустить режим обхода")
+                progress_dialog.complete()  # Отмечаем операцию как завершенную
+                # Показываем результат 1.5 секунды, затем закрываем диалог
+                QTimer.singleShot(1500, progress_dialog.accept)
+            
+            progress_dialog.exec_()
+            return result
+        finally:
+            # Возвращаем оригинальную функцию set_status
+            self.set_status = original_set_status
 
     def start_dpi(self, mode, dpi_commands, download_urls=None):
         """
