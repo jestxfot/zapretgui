@@ -585,6 +585,7 @@ class DPIStarter:
             progress_dialog.set_progress(100)
             QApplication.processEvents()
 
+            # Проверяем результат запуска
             if result:
                 progress_dialog.set_progress(100)
                 progress_dialog.set_status(f"Успешно запущен режим: {mode}")
@@ -605,6 +606,46 @@ class DPIStarter:
         finally:
             # Возвращаем оригинальную функцию set_status
             self.set_status = original_set_status
+
+    def ensure_directories_exist(self):
+        """Проверяет и создает необходимые директории.
+        
+        Returns:
+            bool: True при успешном создании директорий
+        """
+        try:
+            for folder in [self.bin_folder, self.lists_folder]:
+                if not os.path.exists(folder):
+                    os.makedirs(folder, exist_ok=True)
+                    self.set_status(f"Создана папка {folder}")
+                    log(f"Создана папка {folder}")
+            return True
+        except Exception as e:
+            log(f"Ошибка при создании директорий: {str(e)}", level="ERROR")
+            return False
+
+    def ensure_executable_exists(self, download_urls=None):
+        """Проверяет наличие исполняемого файла и скачивает при необходимости.
+        
+        Args:
+            download_urls (dict, optional): URL для скачивания файлов, если они отсутствуют
+            
+        Returns:
+            bool: True если файл существует или успешно скачан, False в противном случае
+            
+        Raises:
+            FileNotFoundError: Если файл не найден и не может быть скачан
+        """
+        exe_path = os.path.abspath(self.winws_exe)
+        if not os.path.exists(exe_path):
+            if download_urls and self.download_files(download_urls):
+                self.set_status("Необходимые файлы скачаны")
+                log(f"Необходимые файлы скачаны")
+                return True
+            else:
+                log(f"Файл {exe_path} не найден и не может быть скачан")
+                raise FileNotFoundError(f"Файл {exe_path} не найден и не может быть скачан")
+        return True
 
     def start_dpi(self, mode, dpi_commands, download_urls=None):
         """
@@ -657,26 +698,13 @@ class DPIStarter:
             self.stop_dpi()
             time.sleep(0.1)  # Небольшая пауза
             
-            # Проверяем существование папок и создаем при необходимости
-            if not os.path.exists(self.bin_folder):
-                os.makedirs(self.bin_folder, exist_ok=True)
-                self.set_status(f"Создана папка {self.bin_folder}")
-                log(f"Создана папка {self.bin_folder}")
-                
-            if not os.path.exists(self.lists_folder):
-                os.makedirs(self.lists_folder, exist_ok=True)
-                self.set_status(f"Создана папка {self.lists_folder}")
-                log(f"Создана папка {self.lists_folder}")
+            # Проверяем и создаем необходимые директории
+            if not self.ensure_directories_exist():
+                raise Exception("Не удалось создать необходимые директории")
             
             # Проверяем наличие исполняемого файла
+            self.ensure_executable_exists(download_urls)
             exe_path = os.path.abspath(self.winws_exe)
-            if not os.path.exists(exe_path):
-                if download_urls and self.download_files(download_urls):
-                    self.set_status("Необходимые файлы скачаны")
-                    log(f"Необходимые файлы скачаны")
-                else:
-                    log(f"Файл {exe_path} не найден и не может быть скачан")
-                    raise FileNotFoundError(f"Файл {exe_path} не найден и не может быть скачан")
             
             # Получаем командную строку из настроек
             command_string = dpi_commands.get(mode, "")

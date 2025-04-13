@@ -1,7 +1,6 @@
 import os
 import subprocess
 import time, winreg
-from config import DPI_COMMANDS
 
 # Константы для работы с реестром
 REGISTRY_KEY = r"SOFTWARE\Zapret"
