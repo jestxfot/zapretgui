@@ -2,8 +2,8 @@ import threading
 import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
 
 from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtProperty
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QComboBox, QMessageBox, QDialog, QTextEdit, QApplication, QFrame, QSpacerItem, QSizePolicy
+from PyQt5.QtGui import QFont, QColor, QPainter
 
 from downloader import DOWNLOAD_URLS
 from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
@@ -11,38 +11,10 @@ from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
 from discord import DiscordManager
-from theme import ThemeManager, THEMES
+from theme import ThemeManager, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import VERSION_URL, UPDATER_BAT_URL, EXE_UPDATE_URL, AUTHOR_URL, INFO_URL, OTHER_LIST_URL
-from log import *
-
-BUTTON_STYLE = """
-QPushButton {{
-    border: none;
-    background-color: rgb({0});
-    color: #fff;
-    border-radius: 4px;
-    padding: 8px;
-}}
-QPushButton:hover {{
-    background-color: rgb({0});
-}}
-"""
-COMMON_STYLE = "color:rgb(0, 119, 255); font-weight: bold;"
-BUTTON_HEIGHT = 10
-STYLE_SHEET = """
-    @keyframes ripple {
-        0% {
-            transform: scale(0, 0);
-            opacity: 0.5;
-        }
-        100% {
-            transform: scale(40, 40);
-            opacity: 0;
-        }
-    }
-"""
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -83,7 +55,6 @@ def set_last_strategy(strategy_name):
         print(f"Ошибка при сохранении стратегии: {str(e)}")
         return False
 
-# Добавляем функции для работы с реестром
 def get_discord_restart_setting():
     """Получает настройку автоматического перезапуска Discord из реестра"""
     try:
@@ -231,6 +202,7 @@ class LogViewerDialog(QDialog):
         
     def refresh_logs(self):
         """Refresh the log content"""
+        from log import get_log_content
         self.log_text.setText(get_log_content())
         
     def copy_to_clipboard(self):
@@ -581,6 +553,7 @@ class LupiDPIApp(QWidget):
             QTimer.singleShot(500, self.delayed_combo_enabler)
 
     def delayed_combo_enabler(self):
+        from log import log
         """Повторно проверяет и активирует комбо-боксы через таймер"""
         if self.force_enable_combos():
             # Если успешно активировали, останавливаемся
@@ -827,6 +800,7 @@ class LupiDPIApp(QWidget):
             return (hasattr(self, 'start_mode_combo') and self.start_mode_combo.isEnabled() and
                     hasattr(self, 'theme_combo') and self.theme_combo.isEnabled())
         except Exception as e:
+            from log import log
             log(f"Ошибка при активации комбо-боксов: {str(e)}")
             return False
     
@@ -1555,6 +1529,7 @@ class LupiDPIApp(QWidget):
     def show_logs(self):
         """Shows the application logs in a dialog"""
         try: 
+            from log import get_log_content
             log_content = get_log_content()
             log_dialog = LogViewerDialog(self, log_content)
             log_dialog.exec_()
@@ -1564,6 +1539,7 @@ class LupiDPIApp(QWidget):
 def main():
     # Initialize logger first thing
     try:
+        from log import log
         log("Application starting")
     except Exception as e:
         print(f"Failed to initialize logger: {e}")

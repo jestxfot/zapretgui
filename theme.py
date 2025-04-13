@@ -15,6 +15,36 @@ THEMES = {
     "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff"},  # Используем dark_blue как основу
 }
 
+BUTTON_STYLE = """
+QPushButton {{
+    border: none;
+    background-color: rgb({0});
+    color: #fff;
+    border-radius: 4px;
+    padding: 8px;
+}}
+QPushButton:hover {{
+    background-color: rgb({0});
+}}
+"""
+
+COMMON_STYLE = "color:rgb(0, 119, 255); font-weight: bold;"
+BUTTON_HEIGHT = 10
+
+STYLE_SHEET = """
+    @keyframes ripple {
+        0% {
+            transform: scale(0, 0);
+            opacity: 0.5;
+        }
+        100% {
+            transform: scale(40, 40);
+            opacity: 0;
+        }
+    }
+"""
+
+
 def get_selected_theme():
     """Получает сохраненную тему из реестра"""
     try:
