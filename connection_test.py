@@ -1,16 +1,11 @@
 # connection_test.py
 import os
-import sys
-import time
 import subprocess
-import socket
 import logging
-import requests
-import webbrowser
-import platform
+import requests, webbrowser
 from datetime import datetime
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
+from PyQt5.QtCore import QThread, pyqtSignal
 
 class ConnectionTestWorker(QThread):
     """Рабочий поток для выполнения тестов соединения."""
