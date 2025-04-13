@@ -379,6 +379,9 @@ class LupiDPIApp(QWidget):
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
+        # Записываем время изменения стратегии
+        self.last_strategy_change_time = time.time()
+        
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
         # 2. Автоперезапуск включен в настройках
@@ -497,9 +500,16 @@ class LupiDPIApp(QWidget):
             self.manually_stopped = False  # Сбрасываем флаг
             self.check_process_status()
             return
+        
+        # Проверяем, был ли недавно изменен режим (стратегия)
+        current_time = time.time()
+        if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
+            # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
+            self.check_process_status()
+            return
             
         if not self.dpi_starter.check_process_running():
-            # Если процесс не запущен, показываем ошибку
+            # Если процесс не запущен, и это не связано с переключением стратегии, показываем ошибку
             exe_path = os.path.abspath(WINWS_EXE)
             QMessageBox.critical(self, "Ошибка запуска", 
                             f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
