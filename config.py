@@ -7,6 +7,11 @@ BIN_FOLDER, LISTS_FOLDER, APP_VERSION = "bin", "lists", "14.5.0"
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
 
+# Настройки для GitHub стратегий
+GITHUB_STRATEGIES_BASE_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file="
+GITHUB_STRATEGIES_JSON_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=index.json"
+STRATEGIES_FOLDER = BIN_FOLDER
+
 WF_TCP, WF_UDP = "--wf-tcp=80,443", "--wf-udp=443,50000-50100"
 
 YT, YT_2 = f"--filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt", f"--filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube_v2.txt"
@@ -109,9 +114,7 @@ DPI_COMMANDS = {
     --wf-tcp=80,443 --wf-udp=443,50000-50099
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
-    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt --hostlist={LISTS_FOLDER}/discord.txt --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
-
-    {faceinsta}
+    --filter-tcp=443 --hostlist={LISTS_FOLDER}/other.txt  --hostlist={LISTS_FOLDER}/faceinsta.txt --hostlist={LISTS_FOLDER}/discord.txt --ipset={LISTS_FOLDER}/ipset-cloudflare.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
     --filter-udp=443 --hostlist={LISTS_FOLDER}/youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic={BIN_FOLDER}/quic_initial_www_google_com.bin --new
     --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
     --filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake

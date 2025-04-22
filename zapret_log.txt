@@ -1,4 +1,6 @@
-=== Zapret GUI Log - Started 2025-04-13 22:47:33 ===
+=== Zapret GUI Log - Started 2025-04-22 20:43:05 ===
 
-[22:47:33] [START] ========================= ZAPRET ЗАПУСКАЕТСЯ ========================
-[22:47:33] [CHECK_START] Executable path: C:\Program Files\Python311\python.exe
+[20:43:05] [START] ========================= ZAPRET ЗАПУСКАЕТСЯ ========================
+[20:43:05] [CHECK_START] Executable path: C:\Program Files\Python311\python.exe
+[20:43:05] [DEBUG] Запрос JSON по URL: https://gitflic.ru/project/main1234/main1234/blob/raw?file=index.json
+[20:43:06] [INFO] Загружено 2 стратегий с сервера

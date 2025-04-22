@@ -166,42 +166,76 @@ class LupiDPIApp(QWidget):
 
     def start_dpi(self, selected_mode=None):
         """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
-        # Используем существующий метод проверки службы из ServiceManager
-        service_found = self.service_manager.check_service_exists()
-        
-        if service_found:
-            # При необходимости здесь можно показать предупреждение
-            return
-        
-        
-        last_strategy = get_last_strategy()
-        from log import log
-        log("Загруженная стратегия: " + last_strategy)
+        try:
+            # Проверяем инициализирован ли service_manager
+            if not hasattr(self, 'service_manager'):
+                self.set_status("Инициализация менеджеров...")
+                # Отложим запуск до полной инициализации
+                QTimer.singleShot(1000, lambda: self.start_dpi(selected_mode))
+                return False
+            
+            # Используем существующий метод проверки службы из ServiceManager
+            service_found = self.service_manager.check_service_exists()
+            
+            if service_found:
+                # При необходимости здесь можно показать предупреждение
+                return False
+            
+            last_strategy = get_last_strategy()
+            from log import log
+            log("Загруженная стратегия: " + str(last_strategy))
 
-        if last_strategy is None:
-            # Если не пустое значение, используем его
-            selected_mode = last_strategy
-        else:
-            # Если пустое значение, используем текущее значение из combobox
-            selected_mode = self.start_mode_combo.currentText()
+            if selected_mode is None:
+                # Если не указан конкретный режим, используем комбобокс
+                selected_mode = self.start_mode_combo.currentText()
 
-        success = self.dpi_starter.start_with_progress(
-            selected_mode, 
-            DPI_COMMANDS, 
-            DOWNLOAD_URLS,
-            parent_widget=self,
-        )
+            # Проверяем, есть ли менеджер стратегий и работает ли он
+            if hasattr(self, 'strategy_manager') and self.strategy_manager:
+                try:
+                    # Пытаемся использовать стратегию из менеджера
+                    strategy_id = None
+                    for i in range(self.start_mode_combo.count()):
+                        if self.start_mode_combo.itemText(i) == selected_mode:
+                            strategy_id = self.start_mode_combo.itemData(i)
+                            break
+                    
+                    if strategy_id:
+                        success = self.strategy_manager.execute_strategy(strategy_id)
+                        if success:
+                            self.update_ui(running=True)
+                            # Сохраняем выбранную стратегию
+                            set_last_strategy(selected_mode)
+                            # Проверяем, не завершился ли процесс сразу после запуска
+                            QTimer.singleShot(3000, self.check_if_process_started_correctly)
+                            return success
+                except Exception as e:
+                    log(f"Ошибка при запуске стратегии: {str(e)}", level="ERROR")
+                    # Если произошла ошибка, продолжаем с обычным методом запуска
+            
+            # Если менеджер стратегий не работает или вызвал ошибку, используем стандартный метод
+            success = self.dpi_starter.start_with_progress(
+                selected_mode, 
+                DPI_COMMANDS, 
+                DOWNLOAD_URLS,
+                parent_widget=self,
+            )
 
-        # Проверяем, был ли процесс успешно запущен
-        if success:
-            self.update_ui(running=True)
-            # Проверяем, не завершился ли процесс сразу после запуска
-            QTimer.singleShot(3000, self.check_if_process_started_correctly)
-        else:
-            self.check_process_status()  # Обновляем статус в интерфейсе
+            # Проверяем, был ли процесс успешно запущен
+            if success:
+                self.update_ui(running=True)
+                # Проверяем, не завершился ли процесс сразу после запуска
+                QTimer.singleShot(3000, self.check_if_process_started_correctly)
+            else:
+                self.check_process_status()  # Обновляем статус в интерфейсе
 
-        return success
-
+            return success
+        except Exception as e:
+            from log import log
+            log(f"Неожиданная ошибка при запуске DPI: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка при запуске: {str(e)}")
+            self.check_process_status()
+            return False
+    
     def update_autostart_ui(self, service_running):
         """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса службы"""
         # Обновляем видимость кнопок включения/отключения автозапуска
@@ -237,6 +271,97 @@ class LupiDPIApp(QWidget):
             if hasattr(self, 'service_info_label'):
                 self.service_info_label.setVisible(False)
 
+    def update_strategies_list(self, force_update=False):
+        """Обновляет список доступных стратегий"""
+        try:
+            # Получаем список стратегий
+            strategies = self.strategy_manager.get_strategies_list(force_update=force_update)
+            
+            if not strategies:
+                from log import log  # Перемещено внутрь функции
+                log("Не удалось получить список стратегий", level="ERROR")
+                return
+            
+            # Сохраняем текущий выбор
+            current_selection = self.start_mode_combo.currentText()
+            
+            # Очищаем комбобокс со стратегиями
+            self.start_mode_combo.clear()
+            
+            # Добавляем стратегии в комбобокс
+            for strategy_id, strategy_info in strategies.items():
+                # Используем name или id, если name отсутствует
+                display_name = strategy_info.get('name', strategy_id)
+                self.start_mode_combo.addItem(display_name, strategy_id)
+            
+            # Восстанавливаем выбор, если возможно
+            index = self.start_mode_combo.findText(current_selection)
+            if index >= 0:
+                self.start_mode_combo.setCurrentIndex(index)
+            else:
+                # Если предыдущего выбора нет, берем последнюю сохраненную стратегию
+                last_strategy = get_last_strategy()
+                if last_strategy:
+                    index = self.start_mode_combo.findText(last_strategy)
+                    if index >= 0:
+                        self.start_mode_combo.setCurrentIndex(index)
+            
+            from log import log  # Перемещено внутрь функции
+            log(f"Загружено {len(strategies)} стратегий", level="INFO")
+            
+        except Exception as e:
+            error_msg = f"Ошибка при обновлении списка стратегий: {str(e)}"
+            from log import log  # Перемещено внутрь функции
+            log(error_msg, level="ERROR")
+            self.set_status(error_msg)
+        
+    def init_strategy_manager(self):
+        """Инициализирует менеджер стратегий"""
+        try:
+            from strategy_manager import StrategyManager
+            
+            # Импортируем настройки из config
+            from config import GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER, GITHUB_STRATEGIES_JSON_URL
+            
+            # Создаем директорию для стратегий, если она не существует
+            if not os.path.exists(STRATEGIES_FOLDER):
+                os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
+            
+            # Инициализируем менеджер стратегий
+            self.strategy_manager = StrategyManager(
+                base_url=GITHUB_STRATEGIES_BASE_URL,
+                local_dir=STRATEGIES_FOLDER,
+                status_callback=self.set_status,
+                json_url=GITHUB_STRATEGIES_JSON_URL  # Прямая ссылка на JSON
+            )
+            
+            # Обновляем список стратегий с обработкой ошибок
+            try:
+                self.update_strategies_list()
+            except Exception as e:
+                from log import log
+                log(f"Ошибка при обновлении списка стратегий: {str(e)}", level="ERROR")
+                self.set_status(f"Не удалось загрузить стратегии: {str(e)}")
+                
+                # Заполняем комбо-бокс стратегиями из config.py
+                if hasattr(self, 'start_mode_combo') and self.start_mode_combo:
+                    self.start_mode_combo.clear()
+                    from config import DPI_COMMANDS
+                    self.start_mode_combo.addItems(DPI_COMMANDS.keys())
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при инициализации менеджера стратегий: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка стратегий: {str(e)}")
+            
+            # Создаем заглушку для strategy_manager
+            self.strategy_manager = None
+            
+            # Заполняем комбо-бокс стратегиями из config.py если он существует
+            if hasattr(self, 'start_mode_combo') and self.start_mode_combo:
+                from config import DPI_COMMANDS
+                self.start_mode_combo.clear()
+                self.start_mode_combo.addItems(DPI_COMMANDS.keys())
+
     def initialize_managers_and_services(self):
         # Инициализируем Discord Manager
         from discord import DiscordManager
@@ -244,6 +369,9 @@ class LupiDPIApp(QWidget):
 
         # Инициализируем hosts_manager
         self.hosts_manager = HostsManager(status_callback=self.set_status)
+        
+        # Инициализируем менеджер стратегий
+        self.init_strategy_manager()
         
         # Инициализируем менеджер тем
         self.theme_manager = ThemeManager(
@@ -286,21 +414,13 @@ class LupiDPIApp(QWidget):
         # Проверяем наличие необходимых файлов
         self.set_status("Проверка файлов...")
         self.dpi_starter.download_files(DOWNLOAD_URLS)
-
-        self.start_dpi()
+        
+        # Безопасно запускаем DPI после инициализации всех менеджеров
+        QTimer.singleShot(500, self.start_dpi)
 
         # Обновляем состояние кнопки прокси
         QTimer.singleShot(500, self.update_proxy_button_state)
-
-        if hasattr(self, 'start_mode_combo'):
-            self.start_mode_combo.setEnabled(True)
-
-        if hasattr(self, 'theme_combo'):
-            self.theme_combo.setEnabled(True)
-
-        # Принудительно обновляем UI
-        QApplication.processEvents()
-
+    
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
 
