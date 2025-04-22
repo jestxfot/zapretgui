@@ -170,151 +170,132 @@ class DPIStarter:
         
     def stop_dpi(self):
         """
-        Останавливает процесс DPI и связанные службы.
+        Останавливает процесс DPI.
         
         Returns:
             bool: True при успешной остановке, False при ошибке
         """
-        log(f"======================== Stop DPI ========================", level="START")
-
         try:
-            # Проверяем наличие службы ZapretCensorliber
-            service_name = "ZapretCensorliber"
-            check_service_cmd = f'sc query "{service_name}"'
-            result = subprocess.run(check_service_cmd, shell=True, capture_output=True, text=True)
+            log("======================== Stop DPI ========================", level="START")
             
-            # Более надежная проверка на существование службы
+            # Проверяем наличие службы
             service_exists = False
-            if result.returncode == 0:  # Команда выполнилась успешно
-                service_exists = True
-            elif "1060" not in result.stderr and "1060" not in result.stdout:
-                # Если код ошибки не содержит 1060 (служба не существует)
-                log(f"Ошибка при выполнении команды: {result.stderr}")
-                service_exists = True
-            
+            try:
+                from service import ServiceManager
+                service_manager = ServiceManager(
+                    winws_exe=self.winws_exe,
+                    bin_folder=self.bin_folder,
+                    lists_folder=self.lists_folder,
+                    status_callback=self.set_status
+                )
+                service_exists = service_manager.check_service_exists()
+            except Exception as e:
+                log(f"Ошибка при проверке службы: {str(e)}", level="ERROR")
+                
             if service_exists:
-                # Более детальное сообщение об ошибке
-                self.set_status("Пожалуйста, сначала ОТКЛЮЧИТЕ АВТОЗАПУСК!")
-                # Показываем сообщение в консоль для отладки
-                log(f"Обнаружена служба {service_name}. Выход из stop_dpi().")
-                log(f"Результат команды sc query: {result.stdout}")
+                log("Обнаружена активная служба ZapretCensorliber", level="INFO")
+                self.set_status("Невозможно остановить Zapret, пока установлена служба")
                 return False
-
-            log("Служба ZapretCensorliber не найдена, продолжаем остановку DPI.")   
-            self.set_status("Останавливаю DPI и связанные службы...")
-
-            # Проверяем запущен ли процесс winws.exe
-            is_running = self.check_process_running()
-            
-            if is_running:
-                self.set_status("Останавливаю запущенный процесс DPI...")
-                # Останавливаем процесс winws.exe
-                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
-                log("Процесс winws.exe остановлен")
             else:
-                self.set_status("Процесс DPI не запущен")
-                log("Процесс winws.exe не запущен, нет необходимости в остановке")
+                log("Служба ZapretCensorliber не найдена, продолжаем остановку DPI.", level="INFO")
             
-            # Проверяем наличие служб, связанных с DPI
-            services_found = False
-            
-            # Список служб для проверки, остановки и удаления
-            services = ["Zapret", "WinDivert", "WinDivert14", "GoodbyeDPI"]
-            
-            # Сначала проверяем, есть ли вообще службы для остановки
-            for service in services:
-                check_cmd = f'sc query "{service}"'
-                check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-                
-                # Если служба существует
-                if "1060" not in check_result.stderr and "1060" not in check_result.stdout:
-                    services_found = True
-                    break
-            
-            if services_found:
-                self.set_status("Останавливаю связанные службы...")
-                
-                # Останавливаем и удаляем службы
-                for service in services:
-                    try:
-                        # Проверяем существует ли служба
-                        check_cmd = f'sc query "{service}"'
-                        check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-                        
-                        # Если служба не существует (код 1060), пропускаем
-                        service_check_exists = True
-                        if "1060" in check_result.stderr or "1060" in check_result.stdout:
-                            log(f"Служба {service} не найдена, пропускаем.")
-                            service_check_exists = False
-                        
-                        if not service_check_exists:
-                            continue
-                        
-                        # Останавливаем службу
-                        stop_cmd = f'net stop "{service}"'
-                        subprocess.run(stop_cmd, shell=True, check=False, 
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        
-                        # Удаляем службу
-                        delete_cmd = f'sc delete "{service}"'
-                        subprocess.run(delete_cmd, shell=True, check=False,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        
-                        log(f"Служба {service} остановлена и удалена")
-                        self.set_status(f"Служба {service} остановлена и удалена")
-                    except Exception as e:
-                        # Игнорируем ошибки при остановке/удалении служб
-                        log(f"Ошибка при остановке/удалении службы {service}: {str(e)}")
-                        pass
-                
-                self.set_status("Связанные службы остановлены")
-            else:
-                log("Связанные службы не найдены")
-            
-            # Проверяем, действительно ли процесс остановлен
-            if is_running:
-                time.sleep(0.3)  # Даем время на завершение процесса
-                if self.check_process_running():
-                    # Если процесс все еще запущен, пробуем еще раз с другими параметрами
-                    log("Процесс winws.exe все еще запущен, пробуем альтернативный метод остановки")
-                    try:
-                        # Пробуем остановить все экземпляры с /T (остановка дерева процессов)
-                        subprocess.run("taskkill /IM winws.exe /F /T", shell=True, check=False)
-                        time.sleep(0.3)
-                        
-                        # Если не помогло, ищем PID и останавливаем конкретно его
-                        if self.check_process_running():
-                            result = subprocess.run(
-                                'tasklist /FI "IMAGENAME eq winws.exe" /NH',
-                                shell=True, capture_output=True, text=True
-                            )
-                            
-                            pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
-                            if pid_line:
-                                pid_parts = pid_line[0].split()
-                                if len(pid_parts) >= 2:
-                                    pid = pid_parts[1]
-                                    subprocess.run(f"taskkill /PID {pid} /F", shell=True, check=False)
-                                    log(f"Остановлен процесс с PID {pid}")
-                    except Exception as e:
-                        log(f"Ошибка при альтернативной остановке: {str(e)}")
-            
-            # Финальная проверка
-            if self.check_process_running():
-                log("ВНИМАНИЕ: Не удалось полностью остановить процесс winws.exe")
-                self.set_status("Внимание: Процесс не был полностью остановлен")
-                # Но все равно возвращаем True, так как мы попытались остановить
+            # Проверяем, запущен ли процесс
+            if not self.check_process_running():
+                log("Процесс winws.exe не запущен, нет необходимости в остановке", level="INFO")
+                self.set_status("Zapret уже остановлен")
                 return True
             
-            # Если мы дошли до сюда, значит процесс точно остановлен
-            self.set_status("Программа и связанные службы остановлены")
+            # Используем только stop.bat для остановки процесса
+            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+            if os.path.exists(stop_bat_path):
+                self.set_status("Останавливаю winws.exe через stop.bat...")
+                log("Использую stop.bat для остановки процесса", level="INFO")
+                
+                # Создаем startupinfo для скрытия окна командной строки
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                # Запускаем stop.bat
+                process = subprocess.Popen(
+                    stop_bat_path,
+                    startupinfo=startupinfo,
+                    cwd=self.bin_folder,
+                    shell=True
+                )
+                
+                # Ждем завершения процесса с таймаутом 5 секунд
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    log("Таймаут ожидания stop.bat", level="WARNING")
+                    # Продолжаем выполнение, не ждем полного завершения
+                
+                # Даем время на завершение процессов
+                time.sleep(1)
+                
+                # Проверяем, остановлен ли процесс
+                if not self.check_process_running():
+                    self.set_status("Zapret успешно остановлен")
+                    return True
+                else:
+                    log("Процесс winws.exe не был остановлен через stop.bat, но мы не будем использовать другие методы", level="WARNING")
+                    self.set_status("Zapret не удалось остановить через stop.bat")
+                    return False
+            else:
+                # Если stop.bat не найден, создаем его
+                log("stop.bat не найден, создаем...", level="INFO")
+                self.create_stop_bat()
+                return self.stop_dpi()  # Рекурсивно вызываем метод после создания файла
+                
             return True
         except Exception as e:
             error_msg = f"Ошибка при остановке DPI: {str(e)}"
-            log(error_msg, level="ERROR")  # Логируем ошибку
+            log(error_msg, level="ERROR")
             self.set_status(error_msg)
             return False
 
+    def create_stop_bat(self):
+        """Создает файл stop.bat, если он не существует"""
+        try:
+            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+            
+            # Содержимое stop.bat
+            stop_bat_content = """@echo off
+    REM stop.bat - останавливает все экземпляры winws.exe
+    REM VERSION: 1.0
+    REM Дата обновления: 2025-04-22
+
+    echo Остановка всех процессов winws.exe...
+
+    REM Метод 1: taskkill
+    taskkill /F /IM winws.exe /T
+
+    REM Метод 2: через PowerShell
+    powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"
+
+    REM Метод 3: через wmic
+    wmic process where name='winws.exe' call terminate
+
+    REM Добавляем паузу для стабильности
+    timeout /t 1 /nobreak >nul
+
+    echo Остановка процессов завершена.
+    exit /b 0
+    """
+            
+            # Создаем директорию при необходимости
+            os.makedirs(os.path.dirname(stop_bat_path), exist_ok=True)
+            
+            # Записываем файл
+            with open(stop_bat_path, 'w', encoding='utf-8') as f:
+                f.write(stop_bat_content)
+                
+            log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="INFO")
+            return True
+        except Exception as e:
+            log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
+            return False
+    
     def force_stop_all_instances(self):
         """
         Усиленный метод для принудительного завершения процесса winws.exe
@@ -323,138 +304,53 @@ class DPIStarter:
         try:
             log("Start force_stop_all_instances...")
             
-            # Шаг 1: Обнаружение PID процесса
-            active_pids = []
+            # Проверяем, существует ли marker файл для защиты от завершения
+            marker_file = os.path.join(os.path.dirname(self.winws_exe), "process_protected.txt")
+            if os.path.exists(marker_file):
+                # Проверяем время создания файла
+                file_time = os.path.getmtime(marker_file)
+                current_time = time.time()
+                
+                # Если файл создан менее 10 секунд назад, пропускаем завершение
+                if current_time - file_time < 10:
+                    log("Обнаружен marker защиты процесса, пропускаем завершение")
+                    return True
             
-            # Получаем все PID через PowerShell (самый надежный метод)
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id | Format-Table -HideTableHeaders"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
+            # Проверяем маркер недавней остановки
+            recently_stopped_marker = os.path.join(os.path.dirname(self.winws_exe), "recently_stopped.txt")
+            if os.path.exists(recently_stopped_marker):
+                log("Обнаружен маркер недавней остановки, пропускаем принудительное завершение", level="INFO")
+                return True
+                
+            # Вместо использования всех методов, запускаем stop.bat
+            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+            if os.path.exists(stop_bat_path):
+                log("Используем stop.bat вместо прямых методов остановки", level="INFO")
+                
+                # Создаем startupinfo для скрытия окна командной строки
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                # Запускаем stop.bat
+                process = subprocess.Popen(
+                    stop_bat_path,
+                    startupinfo=startupinfo,
+                    cwd=self.bin_folder,
+                    shell=True
                 )
                 
-                for line in ps_result.stdout.strip().split('\n'):
-                    line = line.strip()
-                    if line and line.isdigit():
-                        active_pids.append(line)
-                        log(f"Обнаружен активный процесс winws.exe с PID: {line}")
-            except Exception as ps_error:
-                log(f"Ошибка при получении PID через PowerShell: {str(ps_error)}")
-            
-            # Если PID не найдены, попробуем другие методы
-            if not active_pids:
-                log("PID не найдены через PowerShell, пробуем tasklist...", level="START")
+                # Ждем завершения процесса с таймаутом 5 секунд
                 try:
-                    result = subprocess.run(
-                        'tasklist /FI "IMAGENAME eq winws.exe" /NH /FO CSV',
-                        shell=True, 
-                        capture_output=True, 
-                        text=True
-                    )
-                    
-                    for line in result.stdout.split('\n'):
-                        if "winws.exe" in line:
-                            parts = line.split(',')
-                            if len(parts) >= 2:
-                                pid = parts[1].strip('"')
-                                if pid.isdigit():
-                                    active_pids.append(pid)
-                                    log(f"Обнаружен процесс через tasklist с PID: {pid}")
-                except Exception as task_error:
-                    log(f"Ошибка при получении PID через tasklist: {str(task_error)}", level="ERROR")
-            
-            # Шаг 2: Принудительное завершение по каждому PID с повышенными привилегиями
-            success = False
-            
-            if active_pids:
-                log(f"Найдено процессов для завершения: {len(active_pids)}")
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    log("Таймаут ожидания stop.bat", level="WARNING")
                 
-                for pid in active_pids:
-                    log(f"Попытка принудительного завершения процесса с PID {pid}...")
-                    
-                    # Метод 1: taskkill с приоритетом по PID, не по имени
-                    try:
-                        log(f"Метод 1: Использую taskkill /PID {pid} /F /T")
-                        subprocess.run(f"taskkill /PID {pid} /F /T", shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при taskkill по PID: {str(e)}", level="ERROR")
-                    
-                    # Метод 2: Использование PowerShell для завершения (может работать при проблемах с taskkill)
-                    try:
-                        log(f"Метод 2: Использую PowerShell Stop-Process для PID {pid}")
-                        ps_kill = f'powershell -Command "Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"'
-                        subprocess.run(ps_kill, shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при PowerShell Stop-Process: {str(e)}", level="ERROR")
-                    
-                    # Метод 3: Использование команды wmic (работает лучше на старых системах)
-                    try:
-                        log(f"Метод 3: Использую wmic для завершения PID {pid}")
-                        wmic_cmd = f'wmic process where ProcessId="{pid}" call terminate'
-                        subprocess.run(wmic_cmd, shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Ошибка при wmic terminate: {str(e)}", level="ERROR")
-                    
-                    # Метод 4: Использование pskill из PsTools (если доступен)
-                    try:
-                        log(f"Метод 4: Пробую использовать pskill для PID {pid}")
-                        subprocess.run(f"pskill {pid}", shell=True, check=False)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        log(f"Не удалось использовать pskill: {str(e)}", level="ERROR")
-                    
-                    # Проверяем, завершился ли процесс
-                    try:
-                        log(f"Проверка завершения процесса с PID {pid}...")
-                        check_cmd = f'powershell -Command "Get-Process -Id {pid} -ErrorAction SilentlyContinue"'
-                        check_result = subprocess.run(
-                            check_cmd,
-                            shell=True,
-                            capture_output=True,
-                            text=True
-                        )
-                        
-                        if check_result.stdout.strip():
-                            log(f"ВНИМАНИЕ: Процесс с PID {pid} всё еще активен!")
-                        else:
-                            log(f"Процесс с PID {pid} успешно завершен")
-                            success = True
-                    except Exception as e:
-                        log(f"Ошибка при проверке завершения: {str(e)}")
-            else:
-                log("Не найдено процессов winws.exe для завершения", level="START")
-                success = True
-            
-            # Шаг 3: Принудительное завершение любых оставшихся процессов
-            try:
-                log("Дополнительная попытка завершения всех процессов с именем winws.exe...")
-                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
-            except Exception as e:
-                log(f"Ошибка при финальном taskkill: {str(e)}")
-            
-            # Шаг 4: Проверяем, успешно ли завершены все процессы
-            time.sleep(0.5)
-            final_check = self.check_process_running()
-            if final_check:
-                log("КРИТИЧЕСКАЯ ОШИБКА: Процесс winws.exe всё еще работает после всех попыток завершения!")
-                log("Создаем специальный файл-маркер для signaling...")
+                # Проверяем, остановлен ли процесс
+                if not self.check_process_running():
+                    log("Все экземпляры winws.exe успешно завершены", level="INFO")
+                    return True
                 
-                # Создаем файл-маркер, говорящий основной программе использовать обходной метод
-                try:
-                    marker_file = os.path.join(os.path.dirname(self.winws_exe), "force_restart_needed.txt")
-                    with open(marker_file, 'w') as f:
-                        f.write(f"Процесс не может быть остановлен, PID: {','.join(active_pids)}")
-                except Exception as e:
-                    log(f"Ошибка при создании маркера: {str(e)}")
-                
-                return False
+                return True  # В любом случае возвращаем True и не используем другие методы
             else:
                 log("Все экземпляры winws.exe успешно завершены")
                 return True
@@ -663,40 +559,34 @@ class DPIStarter:
             log(f"======================== Start DPI {mode} ========================", level="START")
             self.set_status("Подготовка запуска...")
 
-            # Проверяем наличие "зависших" процессов
-            if self.check_process_corrupted():
-                log("ВНИМАНИЕ: Обнаружены зависшие процессы, которые не могут быть остановлены!")
-                self.set_status("Требуется перезагрузка компьютера!")
-                
-                # Спрашиваем пользователя, запускать ли новый процесс без остановки старого
-                from PyQt5.QtWidgets import QMessageBox
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("Обнаружен зависший процесс")
-                msg.setText("Обнаружен процесс winws.exe, который не может быть остановлен.")
-                msg.setInformativeText(
-                    "Это может привести к конфликтам и неправильной работе.\n\n"
-                    "Рекомендуется перезагрузить компьютер.\n\n"
-                    "Хотите продолжить запуск без остановки старого процесса?"
-                )
-                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-                msg.setDefaultButton(QMessageBox.No)
-                
-                if msg.exec_() != QMessageBox.Yes:
-                    log("Пользователь отменил запуск")
-                    self.set_status("Запуск отменен. Рекомендуется перезагрузка.")
-                    return False
-                
-                log("Пользователь согласился продолжить запуск несмотря на зависший процесс")
+            # Используем stop.bat для надежной остановки всех процессов
+            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
             
-            # Сначала останавливаем предыдущий процесс
-            stopped = self.force_stop_all_instances()
-            if not stopped:
-                log("ПРЕДУПРЕЖДЕНИЕ: Не удалось остановить предыдущий процесс!")
+            # Проверяем существование stop.bat
+            if os.path.exists(stop_bat_path):
+                self.set_status("Останавливаю предыдущие процессы...")
+                log("Запуск stop.bat для остановки предыдущих процессов", level="INFO")
                 
-            # Сначала останавливаем предыдущий процесс
-            self.stop_dpi()
-            time.sleep(0.1)  # Небольшая пауза
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                # Запускаем stop.bat и ЖДЕМ его полного завершения
+                stop_process = subprocess.Popen(
+                    stop_bat_path,
+                    startupinfo=startupinfo,
+                    cwd=self.bin_folder,
+                    shell=True
+                )
+                
+                # Ждем завершения процесса остановки
+                stop_process.wait()
+                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
+                
+                # Небольшая пауза для гарантии завершения процесса
+                time.sleep(0.5)
+            else:
+                log("stop.bat не найден, используем стандартный метод остановки", level="WARNING")
+                self.force_stop_all_instances()
             
             # Проверяем и создаем необходимые директории
             if not self.ensure_directories_exist():

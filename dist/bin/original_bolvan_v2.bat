@@ -1,7 +1,29 @@
 @echo off
 REM Стратегия Оригинальная bol-van v2 (07.04.2025)
-REM VERSION: 2.2
+REM VERSION: 2.3
 REM Дата обновления: 2025-04-10
+
+chcp 1251
+:init
+ set "batchPath=%~dpnx0"
+ set BIN=%~dp0\
+ set "vbsGetPrivileges=%BIN%\elevator.vbs"
+ setlocal EnableDelayedExpansion
+ if '%1'=='ELEV' (echo ELEV & shift /1 & goto fileRemove)
+ ECHO Set UAC = CreateObject^("Shell.Application"^) > "%vbsGetPrivileges%"
+ ECHO args = "ELEV " >> "%vbsGetPrivileges%"
+ ECHO For Each strArg in WScript.Arguments >> "%vbsGetPrivileges%"
+ ECHO args = args ^& strArg ^& " " >> "%vbsGetPrivileges%"
+ ECHO Next >> "%vbsGetPrivileges%"
+ ECHO args = "/c """ + "!batchPath!" + """ " + args >> "%vbsGetPrivileges%"
+ ECHO UAC.ShellExecute "%SystemRoot%\System32\cmd.exe", args, "", "runas", 1 >> "%vbsGetPrivileges%"
+ "%SystemRoot%\System32\WScript.exe" "%vbsGetPrivileges%" %*
+ exit /B
+:fileRemove
+ del "%vbsGetPrivileges%" 1>nul 2>nul & shift /1
+taskkill /f /im winws.exe
+sc delete windivert
+sc stop windivert 
 
 start "presetOrig_v2" /min "winws.exe" ^
 --wf-tcp=80,443 --wf-udp=443,50000-50099 ^

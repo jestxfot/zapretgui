@@ -105,6 +105,28 @@ class StrategyManager:
                         log(f"Ошибка при загрузке локального индекса: {str(local_error)}", level="ERROR")
         
         return self.strategies_cache
+    
+    def preload_strategies(self):
+        """
+        Загружает все доступные стратегии при инициализации.
+        """
+        log("Запуск предварительной загрузки стратегий...", level="INFO")
+        strategies = self.get_strategies_list()
+        
+        if not strategies:
+            log("Не удалось получить список стратегий для предзагрузки", level="ERROR")
+            return
+            
+        for strategy_id, strategy_info in strategies.items():
+            try:
+                log(f"Предзагрузка стратегии: {strategy_id}", level="INFO")
+                file_path = self.download_strategy(strategy_id)
+                if file_path:
+                    log(f"Стратегия {strategy_id} предзагружена: {file_path}", level="INFO")
+                else:
+                    log(f"Не удалось предзагрузить стратегию: {strategy_id}", level="WARNING")
+            except Exception as e:
+                log(f"Ошибка при предзагрузке стратегии {strategy_id}: {str(e)}", level="ERROR")
 
     def download_strategy(self, strategy_id):
         """
@@ -117,26 +139,38 @@ class StrategyManager:
             str: Путь к локальному файлу стратегии или None при ошибке
         """
         try:
+            log(f"Запрос на скачивание стратегии: {strategy_id}", level="DEBUG")
             strategies = self.get_strategies_list()
             
-            if not strategies or strategy_id not in strategies:
-                error_msg = f"Стратегия {strategy_id} не найдена"
+            if not strategies:
+                error_msg = "Список стратегий пуст или не получен"
+                log(error_msg, level="ERROR")
+                self.set_status(error_msg)
+                return None
+                
+            log(f"Доступные стратегии: {list(strategies.keys())}", level="DEBUG")
+            
+            if strategy_id not in strategies:
+                error_msg = f"Стратегия {strategy_id} не найдена в списке"
                 log(error_msg, level="ERROR")
                 self.set_status(error_msg)
                 return None
             
             strategy_info = strategies[strategy_id]
+            log(f"Информация о стратегии {strategy_id}: {strategy_info}", level="DEBUG")
             
             # Используем file_path из JSON, если указан
             if 'file_path' in strategy_info:
                 strategy_url_path = strategy_info['file_path']
                 # Извлекаем только имя файла для локального сохранения
                 strategy_filename = os.path.basename(strategy_url_path)
+                log(f"Используется file_path из JSON: {strategy_url_path}", level="DEBUG")
             else:
                 strategy_url_path = f"{strategy_id}.bat"
                 strategy_filename = f"{strategy_id}.bat"
+                log(f"file_path не указан, используется ID: {strategy_url_path}", level="DEBUG")
             
-            # Важно! Сохраняем непосредственно в папку bin
+            # Сохраняем в папку bin
             local_path = os.path.join(self.local_dir, strategy_filename)
             
             try:
@@ -144,21 +178,18 @@ class StrategyManager:
                 should_download = True
                 
                 if os.path.exists(local_path):
-                    # Если в JSON есть информация о версии, используем её для проверки
+                    # Проверка версий если есть
                     if 'version' in strategy_info:
                         current_version = strategy_info['version']
-                        # Получаем локальную версию стратегии
                         local_version = self.get_local_strategy_version(local_path, strategy_id)
                         
-                        # Если версии совпадают, не скачиваем файл снова
                         if local_version and local_version == current_version:
                             log(f"Локальная версия стратегии {strategy_id} ({local_version}) совпадает с версией на сервере", level="INFO")
                             should_download = False
                         else:
                             log(f"Требуется обновление стратегии {strategy_id}: локальная версия {local_version}, серверная версия {current_version}", level="INFO")
-                            should_download = True
                     else:
-                        # Если версии нет, используем проверку по времени файла
+                        # Если нет информации о версии, проверка по времени
                         file_age = time.time() - os.path.getmtime(local_path)
                         if file_age < 3600:  # 1 час
                             should_download = False
@@ -166,23 +197,9 @@ class StrategyManager:
                 if should_download:
                     self.set_status(f"Скачивание стратегии {strategy_id}...")
                     
-                    # Специальная обработка для Gitflic
-                    if "gitflic.ru" in self.base_url:
-                        # Формируем URL для Gitflic в формате blob/raw?file=имя_файла.bat
-                        base_part = self.base_url
-                        
-                        # Если в базовом URL уже есть параметр ?file=, используем его напрямую
-                        if "?file=" in base_part:
-                            strategy_url = f"{base_part}{strategy_url_path}"
-                        else:
-                            # Удаляем возможный параметр ?file= из пути к файлу
-                            clean_path = strategy_url_path.split("?file=")[-1]
-                            # Конструируем полный URL
-                            strategy_url = f"https://gitflic.ru/project/main1234/main1234/blob/raw?file={clean_path}"
-                    else:
-                        # Для других хостингов используем стандартный urljoin
-                        strategy_url = urljoin(self.base_url, strategy_url_path)
-                    
+                    # Формируем прямой URL для Gitflic
+                    # Правильный формат: https://gitflic.ru/project/main1234/main1234/blob/raw?file=имя_файла.bat
+                    strategy_url = f"https://gitflic.ru/project/main1234/main1234/blob/raw?file={strategy_url_path}"
                     log(f"Скачивание стратегии с URL: {strategy_url}", level="DEBUG")
                     
                     # Скачиваем файл
@@ -202,10 +219,10 @@ class StrategyManager:
                         self.save_strategy_version(local_path, strategy_info)
                     
                     self.set_status(f"Стратегия {strategy_id} успешно скачана")
-                    log(f"Стратегия {strategy_id} успешно скачана из {strategy_url}")
+                    log(f"Стратегия {strategy_id} успешно скачана из {strategy_url}", level="INFO")
                 else:
                     self.set_status(f"Используется локальная копия стратегии {strategy_id}")
-                    log(f"Используется локальная копия стратегии {strategy_id}")
+                    log(f"Используется локальная копия стратегии {strategy_id}", level="INFO")
                 
                 return local_path
                 
@@ -225,7 +242,7 @@ class StrategyManager:
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
             return None
-
+    
     def get_local_strategy_version(self, file_path, strategy_id):
         """
         Получает версию локально сохраненной стратегии из файла.
@@ -355,17 +372,62 @@ class StrategyManager:
             return False
         
         try:
-            self.set_status(f"Выполнение стратегии {strategy_id}...")
+            self.set_status(f"Подготовка к выполнению стратегии {strategy_id}...")
             
             # Создаем startupinfo для скрытия окна командной строки
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
             # ВАЖНО: Рабочая директория должна быть bin папкой, где находится winws.exe
-            # Используем self.local_dir как рабочую директорию, так как это и есть bin папка
             bin_dir = self.local_dir
             
-            # Проверяем содержимое BAT-файла
+            # Путь к stop.bat в той же директории
+            stop_bat_path = os.path.join(bin_dir, "stop.bat")
+            
+            # Проверяем существование stop.bat
+            if not os.path.exists(stop_bat_path):
+                log(f"ВНИМАНИЕ: stop.bat не найден по пути: {stop_bat_path}", level="WARNING")
+                self.set_status("Скачиваю скрипт остановки...")
+                
+                # Пытаемся скачать stop.bat
+                try:
+                    stop_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat"
+                    response = requests.get(stop_url, timeout=10)
+                    response.raise_for_status()
+                    
+                    with open(stop_bat_path, 'wb') as f:
+                        f.write(response.content)
+                    
+                    log(f"stop.bat успешно скачан", level="INFO")
+                except Exception as e:
+                    log(f"Не удалось скачать stop.bat: {str(e)}", level="ERROR")
+            
+            # Сначала запускаем stop.bat и ждем его завершения
+            if os.path.exists(stop_bat_path):
+                self.set_status("Останавливаю предыдущие запущенные процессы...")
+                log(f"Запуск stop.bat для остановки предыдущих процессов", level="INFO")
+                
+                # Запускаем stop.bat и ЖДЕМ его полного завершения
+                stop_process = subprocess.Popen(
+                    stop_bat_path,
+                    startupinfo=startupinfo,
+                    cwd=bin_dir,
+                    shell=True
+                )
+                
+                # Ждем завершения процесса остановки
+                stop_process.wait()
+                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
+                
+                # Небольшая пауза для гарантии завершения процесса
+                time.sleep(0.5)
+            else:
+                log("stop.bat не найден, продолжаем без остановки предыдущих процессов", level="WARNING")
+            
+            # Теперь запускаем саму стратегию
+            self.set_status(f"Выполнение стратегии {strategy_id}...")
+            
+            # Проверяем содержимое BAT-файла для отладки
             try:
                 with open(strategy_path, 'r', encoding='utf-8', errors='ignore') as f:
                     bat_content = f.read()
@@ -373,13 +435,6 @@ class StrategyManager:
             except Exception as e:
                 log(f"Не удалось прочитать содержимое BAT-файла: {str(e)}", level="WARNING")
             
-            # Проверяем наличие winws.exe в рабочей директории
-            winws_path = os.path.join(bin_dir, "winws.exe")
-            if os.path.exists(winws_path):
-                log(f"winws.exe найден по пути: {winws_path}", level="INFO")
-            else:
-                log(f"ВНИМАНИЕ: winws.exe НЕ найден по пути: {winws_path}", level="WARNING")
-
             # Получаем абсолютный путь к BAT-файлу
             abs_strategy_path = os.path.abspath(strategy_path)
             log(f"Запуск BAT-файла: {abs_strategy_path}", level="INFO")
@@ -393,7 +448,7 @@ class StrategyManager:
                 shell=True
             )
             
-            # Ждем завершения процесса (с таймаутом)
+            # Ждем завершения процесса с таймаутом
             try:
                 process.wait(timeout=5)  # Ждем максимум 5 секунд
             except subprocess.TimeoutExpired:

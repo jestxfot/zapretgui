@@ -83,6 +83,14 @@ class LupiDPIApp(QWidget):
             return
         
         try:
+            # Пропускаем проверку, если выполняется инициализация
+            if hasattr(self, 'initializing') and self.initializing:
+                return
+                
+            # Проверяем, не находимся ли мы в процессе запуска
+            if getattr(self, 'intentional_start', False):
+                return
+                
             # Проверяем, не слишком ли часто выполняем проверки
             current_time = time.time()
             if hasattr(self, 'last_status_time') and current_time - self.last_status_time < self.status_check_interval:
@@ -128,16 +136,26 @@ class LupiDPIApp(QWidget):
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
         finally:
             self.status_check_lock.release()
-
+        
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
+        from log import log
+        
+        # Проверяем флаг намеренного запуска и сбрасываем его
+        intentional_start = getattr(self, 'intentional_start', False)
+        
+        # Не сбрасываем флаг intentional_start здесь, чтобы предотвратить конфликты
+        # self.intentional_start = False
+        
         # Если процесс находится в процессе перезапуска или был остановлен намеренно, пропускаем проверку
         if hasattr(self, 'process_restarting') and self.process_restarting:
+            log("Пропускаем проверку: процесс перезапускается", level="INFO") 
             self.process_restarting = False  # Сбрасываем флаг
             self.check_process_status()  # Просто обновляем статус
             return
             
         if hasattr(self, 'manually_stopped') and self.manually_stopped:
+            log("Пропускаем проверку: процесс остановлен вручную", level="INFO")
             self.manually_stopped = False  # Сбрасываем флаг
             self.check_process_status()
             return
@@ -146,19 +164,36 @@ class LupiDPIApp(QWidget):
         current_time = time.time()
         if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
             # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
+            log("Пропускаем проверку: недавно изменена стратегия", level="INFO")
             self.check_process_status()
             return
+        
+        # Проверяем, запущен ли процесс на данный момент
+        process_running = self.dpi_starter.check_process_running()
+        
+        # Если процесс запущен, всё в порядке
+        if process_running:
+            log("Процесс запущен и работает нормально", level="INFO")
+            self.update_ui(running=True)
+            return
             
-        if not self.dpi_starter.check_process_running():
+        # Если флаг намеренного запуска установлен, но процесс не запущен
+        if intentional_start and not process_running:
+            # Вместо показа ошибки просто логируем информацию
+            log("Процесс не запустился после намеренного запуска", level="WARNING")
+            self.update_ui(running=False)
+        elif not intentional_start and not process_running:
             # Если процесс не запущен, и это не связано с переключением стратегии, показываем ошибку
             exe_path = os.path.abspath(WINWS_EXE)
-            QMessageBox.critical(self, "Ошибка запуска", 
-                            f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
-                            f"Путь к программе: {exe_path}\n\n"
-                            "Это может быть вызвано:\n"
-                            "1. Антивирус удалил часть критически важных файлов программы - переустановите программу заново\n"
-                            "2. Какие-то файлы удалены из программы - скачате ZIP архив заново\n\n"
-                            "Перед переустановкой программы создайте исключение в антивирусе.")
+            # Добавляем проверку, чтобы не показывать сообщение, если процесс был недавно остановлен вручную
+            if not hasattr(self, 'recently_stopped') or not self.recently_stopped:
+                QMessageBox.critical(self, "Ошибка запуска", 
+                                f"Процесс winws.exe запустился, но затем неожиданно завершился.\n\n"
+                                f"Путь к программе: {exe_path}\n\n"
+                                "Это может быть вызвано:\n"
+                                "1. Антивирус удалил часть критически важных файлов программы - переустановите программу заново\n"
+                                "2. Какие-то файлы удалены из программы - скачате ZIP архив заново\n\n"
+                                "Перед переустановкой программы создайте исключение в антивирусе.")
             self.update_ui(running=False)
         
         # В любом случае обновляем статус
@@ -167,6 +202,24 @@ class LupiDPIApp(QWidget):
     def start_dpi(self, selected_mode=None):
         """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
         try:
+            from log import log
+            
+            # Проверяем флаг инициализации
+            if hasattr(self, 'initializing') and self.initializing and selected_mode is None:
+                log("Пропускаем автоматический запуск во время инициализации", level="INFO")
+                return True
+            
+            # Устанавливаем флаг, что стратегия запускается нами намеренно
+            self.intentional_start = True
+            
+            # Создаем маркерный файл для защиты процесса от автоматического завершения
+            marker_file = os.path.join(os.path.dirname(WINWS_EXE), "process_protected.txt")
+            try:
+                with open(marker_file, 'w', encoding='utf-8') as f:
+                    f.write(f"Protected process, timestamp: {time.time()}")
+            except Exception as e:
+                log(f"Не удалось создать маркер защиты процесса: {str(e)}", level="WARNING")
+            
             # Проверяем инициализирован ли service_manager
             if not hasattr(self, 'service_manager'):
                 self.set_status("Инициализация менеджеров...")
@@ -181,8 +234,25 @@ class LupiDPIApp(QWidget):
                 # При необходимости здесь можно показать предупреждение
                 return False
             
+            # Проверяем, передан ли конкретный режим (выбор пользователя)
+            is_strategy_change = selected_mode is not None
+            
+            # Если процесс уже запущен, но это НЕ смена стратегии - пропускаем запуск
+            if self.dpi_starter.check_process_running() and not is_strategy_change:
+                # Только если это НЕ смена стратегии, пропускаем запуск
+                self.last_status_time = time.time()
+                self.last_status = (True, False)
+                
+                # Только обновляем UI, но не перезапускаем процесс
+                self.update_ui(running=True)
+                self.set_status("Zapret уже запущен")
+                log("Процесс winws.exe уже запущен, пропускаем повторный запуск", level="INFO")
+                return True
+            
+            # Если процесс запущен и это смена стратегии, 
+            # stop.bat остановит его автоматически при выборе новой стратегии
+            
             last_strategy = get_last_strategy()
-            from log import log
             log("Загруженная стратегия: " + str(last_strategy))
 
             if selected_mode is None:
@@ -194,17 +264,35 @@ class LupiDPIApp(QWidget):
                 try:
                     # Пытаемся использовать стратегию из менеджера
                     strategy_id = None
+                    
+                    # Выводим для отладки список элементов в комбо-боксе
+                    log(f"Выбрана стратегия: {selected_mode}", level="DEBUG")
                     for i in range(self.start_mode_combo.count()):
+                        text = self.start_mode_combo.itemText(i)
+                        data = self.start_mode_combo.itemData(i)
+                        log(f"Комбо-бокс[{i}]: текст={text}, data={data}", level="DEBUG")
+                        
                         if self.start_mode_combo.itemText(i) == selected_mode:
                             strategy_id = self.start_mode_combo.itemData(i)
+                            log(f"Найдено соответствие, ID стратегии: {strategy_id}", level="DEBUG")
                             break
                     
                     if strategy_id:
+                        log(f"Запуск стратегии с ID: {strategy_id}", level="INFO")
+                        
+                        # Если это смена стратегии и процесс запущен, логируем это
+                        if is_strategy_change and self.dpi_starter.check_process_running():
+                            log(f"Смена стратегии: запущенный процесс будет остановлен и запущен новый", level="INFO")
+                        
                         success = self.strategy_manager.execute_strategy(strategy_id)
                         if success:
                             self.update_ui(running=True)
                             # Сохраняем выбранную стратегию
                             set_last_strategy(selected_mode)
+                            # Запоминаем, что процесс запущен нами
+                            self.last_status = (True, False)
+                            self.last_status_time = time.time()
+                            
                             # Проверяем, не завершился ли процесс сразу после запуска
                             QTimer.singleShot(3000, self.check_if_process_started_correctly)
                             return success
@@ -274,13 +362,19 @@ class LupiDPIApp(QWidget):
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
         try:
+            from log import log
+            
             # Получаем список стратегий
             strategies = self.strategy_manager.get_strategies_list(force_update=force_update)
             
             if not strategies:
-                from log import log  # Перемещено внутрь функции
                 log("Не удалось получить список стратегий", level="ERROR")
                 return
+            
+            # Выводим список стратегий в лог для отладки
+            log(f"Получены стратегии: {list(strategies.keys())}", level="DEBUG")
+            for strategy_id, info in strategies.items():
+                log(f"Стратегия ID: {strategy_id}, Name: {info.get('name')}, Path: {info.get('file_path')}", level="DEBUG")
             
             # Сохраняем текущий выбор
             current_selection = self.start_mode_combo.currentText()
@@ -293,6 +387,7 @@ class LupiDPIApp(QWidget):
                 # Используем name или id, если name отсутствует
                 display_name = strategy_info.get('name', strategy_id)
                 self.start_mode_combo.addItem(display_name, strategy_id)
+                log(f"Добавлена в комбобокс: {display_name} (ID: {strategy_id})", level="DEBUG")
             
             # Восстанавливаем выбор, если возможно
             index = self.start_mode_combo.findText(current_selection)
@@ -319,6 +414,7 @@ class LupiDPIApp(QWidget):
         """Инициализирует менеджер стратегий"""
         try:
             from strategy_manager import StrategyManager
+            from log import log
             
             # Импортируем настройки из config
             from config import GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER, GITHUB_STRATEGIES_JSON_URL
@@ -335,11 +431,13 @@ class LupiDPIApp(QWidget):
                 json_url=GITHUB_STRATEGIES_JSON_URL  # Прямая ссылка на JSON
             )
             
+            # Предзагружаем все стратегии
+            self.strategy_manager.preload_strategies()
+            
             # Обновляем список стратегий с обработкой ошибок
             try:
                 self.update_strategies_list()
             except Exception as e:
-                from log import log
                 log(f"Ошибка при обновлении списка стратегий: {str(e)}", level="ERROR")
                 self.set_status(f"Не удалось загрузить стратегии: {str(e)}")
                 
@@ -363,6 +461,15 @@ class LupiDPIApp(QWidget):
                 self.start_mode_combo.addItems(DPI_COMMANDS.keys())
 
     def initialize_managers_and_services(self):
+        # Добавляем флаг инициализации
+        self.initializing = True
+        
+        # Добавляем флаг защиты процесса от автоматического завершения
+        self.protected_process = True
+        
+        # Инициализируем последнее время смены стратегии
+        self.last_strategy_change_time = time.time()
+
         # Инициализируем Discord Manager
         from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
@@ -416,11 +523,73 @@ class LupiDPIApp(QWidget):
         self.dpi_starter.download_files(DOWNLOAD_URLS)
         
         # Безопасно запускаем DPI после инициализации всех менеджеров
-        QTimer.singleShot(500, self.start_dpi)
+        # Увеличиваем задержку до 4 секунд, чтобы уменьшить риск конфликтов
+        QTimer.singleShot(4000, self.delayed_dpi_start)
+        
+        # Обновляем состояние кнопки прокси через 4.5 секунды
+        QTimer.singleShot(4500, self.update_proxy_button_state)
+        
+        # Снимаем флаг инициализации и защиты через 8 секунд
+        QTimer.singleShot(8000, self.finish_initialization)
 
-        # Обновляем состояние кнопки прокси
-        QTimer.singleShot(500, self.update_proxy_button_state)
-    
+    def delayed_dpi_start(self):
+        """Выполняет отложенный запуск DPI для предотвращения конфликтов"""
+        from log import log
+        
+        # ВАЖНО: Проверяем, не запущен ли уже процесс
+        if self.dpi_starter.check_process_running():
+            log("Процесс winws.exe уже запущен, пропускаем отложенный запуск", level="INFO")
+            # Только обновляем UI, не запуская процесс
+            self.update_ui(running=True)
+            self.last_status = (True, False)
+            self.last_status_time = time.time()
+            return
+            
+        # Проверяем, что это первый запуск
+        if not hasattr(self, 'dpi_started') or not self.dpi_started:
+            self.dpi_started = True
+            # Если существует метка времени запуска стратегии и прошло 
+            # менее 3 секунд, не запускаем снова
+            current_time = time.time()
+            if (hasattr(self, 'last_strategy_change_time') and 
+                (current_time - self.last_strategy_change_time < 3)):
+                log("Пропускаем запуск, так как стратегия была недавно запущена", level="INFO")
+                return
+            else:
+                # Устанавливаем флаг намеренного запуска, чтобы предотвратить 
+                # автоматические проверки и остановку
+                self.intentional_start = True
+                log("Выполняем отложенный запуск DPI", level="INFO")
+                self.start_dpi()
+                # Сбрасываем флаг
+                QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
+                log("Выполнен отложенный запуск DPI", level="INFO")
+
+    def finish_initialization(self):
+        """Завершает процесс инициализации"""
+        from log import log
+        
+        self.initializing = False
+        self.protected_process = False
+        
+        # Удаляем маркерный файл защиты после завершения инициализации
+        marker_file = os.path.join(os.path.dirname(WINWS_EXE), "process_protected.txt")
+        try:
+            if os.path.exists(marker_file):
+                os.remove(marker_file)
+        except Exception as e:
+            log(f"Не удалось удалить маркер защиты процесса: {str(e)}", level="WARNING")
+        
+        # Проверяем состояние процесса для обновления UI
+        if self.dpi_starter.check_process_running():
+            self.update_ui(running=True)
+        else:
+            # Если процесс не найден, повторяем запуск
+            log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
+            QTimer.singleShot(500, lambda: self.start_dpi())
+        
+        log("Процесс инициализации завершен", level="INFO")
+
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
 
@@ -516,6 +685,13 @@ class LupiDPIApp(QWidget):
         # Записываем время изменения стратегии
         self.last_strategy_change_time = time.time()
         
+        # Сохраняем выбранную стратегию в реестр
+        set_last_strategy(selected_mode)
+        
+        # Запускаем DPI с новым режимом - теперь это безопасно,
+        # так как stop.bat гарантированно остановит предыдущий процесс
+        self.start_dpi(selected_mode=selected_mode)
+        
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
         # 2. Автоперезапуск включен в настройках
@@ -524,12 +700,6 @@ class LupiDPIApp(QWidget):
             self.discord_manager.restart_discord_if_running()
         else:
             self.first_start = False  # Сбрасываем флаг первого запуска
-        
-        # Сохраняем выбранную стратегию в реестр
-        set_last_strategy(selected_mode)
-        
-        # Запускаем DPI с новым режимом
-        self.start_dpi(selected_mode=selected_mode)
 
     def change_theme(self, theme_name):
         """Изменяет тему приложения"""
@@ -572,17 +742,42 @@ class LupiDPIApp(QWidget):
 
     def stop_dpi(self):
         """Останавливает процесс DPI."""
-        # Устанавливаем флаг намеренной остановки
-        self.manually_stopped = True
-        
-        if self.dpi_starter.stop_dpi():
-            self.update_ui(running=False)
-        else:
-            # Показываем сообщение об ошибке, если метод вернул False
-            QMessageBox.warning(self, "Невозможно остановить", 
-                            "Невозможно остановить Zapret, пока установлена служба.\n\n"
-                            "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
-        self.check_process_status()  # Обновляем статус в интерфейсе
+        try:
+            from log import log
+            
+            # Устанавливаем флаг намеренной остановки
+            self.manually_stopped = True
+            
+            # Запрещаем автоматическую проверку статуса в течение 5 секунд
+            self.recently_stopped = True
+            QTimer.singleShot(5000, lambda: setattr(self, 'recently_stopped', False))
+            
+            # Создаем маркер для защиты от неожиданного перезапуска
+            marker_file = os.path.join(os.path.dirname(WINWS_EXE), "recently_stopped.txt")
+            try:
+                with open(marker_file, 'w', encoding='utf-8') as f:
+                    f.write(f"Recently stopped, timestamp: {time.time()}")
+                    
+                # Удаляем маркер через 5 секунд
+                QTimer.singleShot(5000, lambda: os.remove(marker_file) if os.path.exists(marker_file) else None)
+            except Exception as e:
+                log(f"Не удалось создать маркер недавней остановки: {str(e)}", level="WARNING")
+            
+            # Используем только stop.bat для остановки
+            if self.dpi_starter.stop_dpi():
+                self.update_ui(running=False)
+                log("Zapret успешно остановлен", level="INFO")
+            else:
+                # Показываем сообщение об ошибке, если метод вернул False
+                log("Невозможно остановить Zapret, пока установлена служба", level="WARNING")
+                QMessageBox.warning(self, "Невозможно остановить", 
+                                "Невозможно остановить Zapret, пока установлена служба.\n\n"
+                                "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
+            
+            self.check_process_status()  # Обновляем статус в интерфейсе
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
 
     def install_service(self):
         """Устанавливает службу DPI с текущей конфигурацией"""

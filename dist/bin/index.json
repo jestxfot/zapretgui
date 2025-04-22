@@ -1,17 +1,17 @@
 {
-  "original_bolvan": {
+  "original_bolvan_2": {
     "name": "Оригинальная bol-van v2 (07.04.2025)",
     "description": "Оригинальная стратегия для большинства провайдеров",
-    "version": "2.2",
+    "version": "2.3",
     "provider": "universal",
     "author": "bol-van",
     "updated": "2025-04-10",
     "file_path": "original_bolvan_v2.bat"
   },
-  "beeline_strategy": {
+  "original_bolvan": {
     "name": "Оригинальная bol-van v1 (07.04.2025)",
     "description": "Оптимизировано для Билайн",
-    "version": "1.0",
+    "version": "1.2",
     "provider": "universal",
     "author": "bol-van",
     "updated": "2025-04-10",
