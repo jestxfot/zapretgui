@@ -120,7 +120,7 @@ DPI_COMMANDS = {
     --filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake
 """,
 
-"Оригинальная bol-van (лёгкая) v1": f"""
+"Оригинальная bol-van v1 (07.04.2025)": f"""
     --wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50099
     --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
     --filter-tcp=443 --hostlist={LISTS_FOLDER}/youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls={BIN_FOLDER}/tls_clienthello_www_google_com.bin --new 

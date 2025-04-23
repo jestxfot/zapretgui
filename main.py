@@ -78,48 +78,23 @@ class LupiDPIApp(QWidget):
 
     def check_process_status(self):
         """Проверяет статус процесса и обновляет интерфейс"""
-        # Используем блокировку чтобы предотвратить одновременные проверки
-        if not hasattr(self, 'status_check_lock') or not self.status_check_lock.acquire(blocking=False):
-            return
-        
         try:
-            # Пропускаем проверку, если выполняется инициализация
-            if hasattr(self, 'initializing') and self.initializing:
-                return
-                
-            # Проверяем, не находимся ли мы в процессе запуска
-            if getattr(self, 'intentional_start', False):
-                return
-                
-            # Проверяем, не слишком ли часто выполняем проверки
-            current_time = time.time()
-            if hasattr(self, 'last_status_time') and current_time - self.last_status_time < self.status_check_interval:
-                # Слишком малый интервал, пропускаем проверку
-                return
-                
-            self.last_status_time = current_time
-            
             # Проверяем статус службы
-            service_running = self.service_manager.check_service_exists()
+            service_running = False
+            if hasattr(self, 'service_manager'):
+                service_running = self.service_manager.check_service_exists()
             
             # Проверяем статус процесса
-            process_running = self.dpi_starter.check_process_running()
-            
-            # Сохраняем текущий статус для сравнения
-            current_status = (process_running, service_running)
-            
-            # Проверяем, изменился ли статус с последней проверки
-            if hasattr(self, 'last_status') and self.last_status == current_status:
-                # Статус не изменился, не обновляем UI
-                return
-                
-            # Сохраняем новый статус
-            self.last_status = current_status
+            process_running = False
+            if hasattr(self, 'dpi_starter'):
+                process_running = self.dpi_starter.check_process_running()
             
             # Обновляем состояние элементов интерфейса
             if process_running or service_running:
-                self.start_btn.setVisible(False)
-                self.stop_btn.setVisible(True)
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.setVisible(False)
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.setVisible(True)
                 
                 # Если служба активна, отображаем это
                 if service_running:
@@ -130,12 +105,16 @@ class LupiDPIApp(QWidget):
                     self.process_status_value.setText("ВКЛЮЧЕН")
                     self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
             else:
-                self.start_btn.setVisible(True)
-                self.stop_btn.setVisible(False)
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.setVisible(True)
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.setVisible(False)
                 self.process_status_value.setText("ВЫКЛЮЧЕН")
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-        finally:
-            self.status_check_lock.release()
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при проверке статуса процесса: {str(e)}", level="ERROR")
         
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
@@ -200,128 +179,84 @@ class LupiDPIApp(QWidget):
         self.check_process_status()
 
     def start_dpi(self, selected_mode=None):
-        """Запускает DPI с текущей конфигурацией, если служба ZapretCensorliber не установлена"""
+        """Запускает DPI с выбранной конфигурацией"""
         try:
             from log import log
             
-            # Проверяем флаг инициализации
-            if hasattr(self, 'initializing') and self.initializing and selected_mode is None:
-                log("Пропускаем автоматический запуск во время инициализации", level="INFO")
-                return True
-            
-            # Устанавливаем флаг, что стратегия запускается нами намеренно
-            self.intentional_start = True
-            
-            # Создаем маркерный файл для защиты процесса от автоматического завершения
-            marker_file = os.path.join(os.path.dirname(WINWS_EXE), "process_protected.txt")
-            try:
-                with open(marker_file, 'w', encoding='utf-8') as f:
-                    f.write(f"Protected process, timestamp: {time.time()}")
-            except Exception as e:
-                log(f"Не удалось создать маркер защиты процесса: {str(e)}", level="WARNING")
-            
-            # Проверяем инициализирован ли service_manager
-            if not hasattr(self, 'service_manager'):
-                self.set_status("Инициализация менеджеров...")
-                # Отложим запуск до полной инициализации
-                QTimer.singleShot(1000, lambda: self.start_dpi(selected_mode))
+            # Если служба активна, не запускаем
+            if hasattr(self, 'service_manager') and self.service_manager.check_service_exists():
+                log("Служба активна, не запускаем DPI", level="INFO")
                 return False
             
-            # Используем существующий метод проверки службы из ServiceManager
-            service_found = self.service_manager.check_service_exists()
+            # Если не указан режим, используем комбобокс
+            if selected_mode is None or selected_mode is False:
+                # Проверяем наличие и доступность комбо-бокса
+                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
+                    selected_mode = self.start_mode_combo.currentText()
+                    # Проверяем, не пустой ли текст
+                    if not selected_mode:
+                        log("Ошибка: пустое название стратегии", level="ERROR")
+                        self.set_status("Ошибка: не выбрана стратегия")
+                        return False
+                else:
+                    # Если комбо-бокс недоступен, используем значение по умолчанию
+                    log("Комбо-бокс недоступен, используем стратегию по умолчанию", level="WARNING")
+                    selected_mode = "Оригинальная bol-van v2 (07.04.2025)"  # Безопасное значение по умолчанию
             
-            if service_found:
-                # При необходимости здесь можно показать предупреждение
+            # Проверяем, что режим не является логическим False, а действительно строкой
+            if selected_mode is False or not isinstance(selected_mode, str):
+                log(f"Некорректный режим запуска: {selected_mode}, тип: {type(selected_mode)}", level="ERROR")
+                self.set_status("Ошибка: некорректный режим запуска")
                 return False
             
-            # Проверяем, передан ли конкретный режим (выбор пользователя)
-            is_strategy_change = selected_mode is not None
+            log(f"Запуск стратегии: {selected_mode}", level="INFO")
             
-            # Если процесс уже запущен, но это НЕ смена стратегии - пропускаем запуск
-            if self.dpi_starter.check_process_running() and not is_strategy_change:
-                # Только если это НЕ смена стратегии, пропускаем запуск
-                self.last_status_time = time.time()
-                self.last_status = (True, False)
-                
-                # Только обновляем UI, но не перезапускаем процесс
-                self.update_ui(running=True)
-                self.set_status("Zapret уже запущен")
-                log("Процесс winws.exe уже запущен, пропускаем повторный запуск", level="INFO")
-                return True
-            
-            # Если процесс запущен и это смена стратегии, 
-            # stop.bat остановит его автоматически при выборе новой стратегии
-            
-            last_strategy = get_last_strategy()
-            log("Загруженная стратегия: " + str(last_strategy))
-
-            if selected_mode is None:
-                # Если не указан конкретный режим, используем комбобокс
-                selected_mode = self.start_mode_combo.currentText()
-
-            # Проверяем, есть ли менеджер стратегий и работает ли он
+            # Остальной код без изменений
             if hasattr(self, 'strategy_manager') and self.strategy_manager:
-                try:
-                    # Пытаемся использовать стратегию из менеджера
-                    strategy_id = None
-                    
-                    # Выводим для отладки список элементов в комбо-боксе
-                    log(f"Выбрана стратегия: {selected_mode}", level="DEBUG")
-                    for i in range(self.start_mode_combo.count()):
-                        text = self.start_mode_combo.itemText(i)
-                        data = self.start_mode_combo.itemData(i)
-                        log(f"Комбо-бокс[{i}]: текст={text}, data={data}", level="DEBUG")
-                        
-                        if self.start_mode_combo.itemText(i) == selected_mode:
-                            strategy_id = self.start_mode_combo.itemData(i)
-                            log(f"Найдено соответствие, ID стратегии: {strategy_id}", level="DEBUG")
-                            break
-                    
-                    if strategy_id:
-                        log(f"Запуск стратегии с ID: {strategy_id}", level="INFO")
-                        
-                        # Если это смена стратегии и процесс запущен, логируем это
-                        if is_strategy_change and self.dpi_starter.check_process_running():
-                            log(f"Смена стратегии: запущенный процесс будет остановлен и запущен новый", level="INFO")
-                        
-                        success = self.strategy_manager.execute_strategy(strategy_id)
-                        if success:
-                            self.update_ui(running=True)
-                            # Сохраняем выбранную стратегию
-                            set_last_strategy(selected_mode)
-                            # Запоминаем, что процесс запущен нами
-                            self.last_status = (True, False)
-                            self.last_status_time = time.time()
-                            
-                            # Проверяем, не завершился ли процесс сразу после запуска
-                            QTimer.singleShot(3000, self.check_if_process_started_correctly)
-                            return success
-                except Exception as e:
-                    log(f"Ошибка при запуске стратегии: {str(e)}", level="ERROR")
-                    # Если произошла ошибка, продолжаем с обычным методом запуска
+                # Находим ID стратегии по отображаемому имени
+                strategy_id = None
+                for i in range(self.start_mode_combo.count()):
+                    if self.start_mode_combo.itemText(i) == selected_mode:
+                        strategy_id = self.start_mode_combo.itemData(i)
+                        break
+                
+                if strategy_id:
+                    # Запускаем стратегию через менеджер стратегий
+                    success = self.strategy_manager.execute_strategy(strategy_id)
+                    if success:
+                        # Сохраняем выбранную стратегию
+                        set_last_strategy(selected_mode)
+                        # Обновляем UI
+                        self.update_ui(running=True)
+                        self.set_status(f"Zapret запущен с режимом: {selected_mode}")
+                        self.check_process_status()
+                    return success
             
-            # Если менеджер стратегий не работает или вызвал ошибку, используем стандартный метод
+            # Проверяем, есть ли режим в DPI_COMMANDS
+            if selected_mode not in DPI_COMMANDS:
+                log(f"Ошибка: режим '{selected_mode}' не найден в списке доступных команд", level="ERROR")
+                self.set_status(f"Ошибка: неизвестный режим запуска '{selected_mode}'")
+                return False
+                
+            # Если не удалось запустить через менеджер стратегий, используем стандартный метод
+            log("Запуск через стандартный метод", level="INFO")
             success = self.dpi_starter.start_with_progress(
                 selected_mode, 
                 DPI_COMMANDS, 
                 DOWNLOAD_URLS,
-                parent_widget=self,
+                parent_widget=self
             )
-
-            # Проверяем, был ли процесс успешно запущен
+            
             if success:
                 self.update_ui(running=True)
-                # Проверяем, не завершился ли процесс сразу после запуска
-                QTimer.singleShot(3000, self.check_if_process_started_correctly)
-            else:
-                self.check_process_status()  # Обновляем статус в интерфейсе
-
+                self.set_status(f"Zapret запущен с режимом: {selected_mode}")
+            
             return success
+            
         except Exception as e:
             from log import log
-            log(f"Неожиданная ошибка при запуске DPI: {str(e)}", level="ERROR")
+            log(f"Ошибка при запуске DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при запуске: {str(e)}")
-            self.check_process_status()
             return False
     
     def update_autostart_ui(self, service_running):
@@ -544,7 +479,7 @@ class LupiDPIApp(QWidget):
             self.last_status = (True, False)
             self.last_status_time = time.time()
             return
-            
+                
         # Проверяем, что это первый запуск
         if not hasattr(self, 'dpi_started') or not self.dpi_started:
             self.dpi_started = True
@@ -560,7 +495,18 @@ class LupiDPIApp(QWidget):
                 # автоматические проверки и остановку
                 self.intentional_start = True
                 log("Выполняем отложенный запуск DPI", level="INFO")
-                self.start_dpi()
+                
+                # Получаем текст из комбо-бокса до вызова start_dpi
+                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
+                    strategy_name = self.start_mode_combo.currentText()
+                    log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
+                    # Передаем явно имя стратегии, а не результат выполнения метода
+                    self.start_dpi(selected_mode=strategy_name)
+                else:
+                    log("Комбо-бокс стратегий недоступен", level="WARNING")
+                    # Используем стандартную стратегию
+                    self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)")
+                    
                 # Сбрасываем флаг
                 QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
                 log("Выполнен отложенный запуск DPI", level="INFO")
@@ -586,7 +532,17 @@ class LupiDPIApp(QWidget):
         else:
             # Если процесс не найден, повторяем запуск
             log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
-            QTimer.singleShot(500, lambda: self.start_dpi())
+            
+            # Получаем текст из комбо-бокса до вызова start_dpi
+            if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
+                strategy_name = self.start_mode_combo.currentText()
+                log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
+                # Запускаем с задержкой 500 мс
+                QTimer.singleShot(500, lambda mode=strategy_name: self.start_dpi(selected_mode=mode))
+            else:
+                log("Комбо-бокс стратегий недоступен", level="WARNING")
+                # Используем стандартную стратегию с задержкой 500 мс
+                QTimer.singleShot(500, lambda: self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)"))
         
         log("Процесс инициализации завершен", level="INFO")
 
@@ -676,6 +632,9 @@ class LupiDPIApp(QWidget):
             # Вторая попытка активации комбо-боксов после инициализации
             self.force_enable_combos()
             
+            # Принудительно обновляем статус процесса
+            QTimer.singleShot(1500, self.check_process_status)
+            
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
             QTimer.singleShot(500, self.delayed_combo_enabler)
@@ -741,44 +700,96 @@ class LupiDPIApp(QWidget):
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
 
     def stop_dpi(self):
-        """Останавливает процесс DPI."""
+        """Останавливает процесс DPI, используя прямые команды остановки"""
         try:
             from log import log
+            log("Остановка Zapret", level="INFO")
             
-            # Устанавливаем флаг намеренной остановки
-            self.manually_stopped = True
+            # Используем прямые команды остановки вместо ненадежного stop.bat
+            process_stopped = False
             
-            # Запрещаем автоматическую проверку статуса в течение 5 секунд
-            self.recently_stopped = True
-            QTimer.singleShot(5000, lambda: setattr(self, 'recently_stopped', False))
-            
-            # Создаем маркер для защиты от неожиданного перезапуска
-            marker_file = os.path.join(os.path.dirname(WINWS_EXE), "recently_stopped.txt")
+            # Метод 1: taskkill (наиболее надежный)
+            log("Метод 1: Остановка через taskkill /F /IM winws.exe /T", level="INFO")
             try:
-                with open(marker_file, 'w', encoding='utf-8') as f:
-                    f.write(f"Recently stopped, timestamp: {time.time()}")
-                    
-                # Удаляем маркер через 5 секунд
-                QTimer.singleShot(5000, lambda: os.remove(marker_file) if os.path.exists(marker_file) else None)
+                subprocess.run(
+                    "taskkill /F /IM winws.exe /T", 
+                    shell=True, 
+                    check=False, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE
+                )
+                # Даем время системе на обработку команды
+                time.sleep(1)
+                if not self.dpi_starter.check_process_running():
+                    process_stopped = True
+                    log("Процесс успешно остановлен через taskkill", level="INFO")
             except Exception as e:
-                log(f"Не удалось создать маркер недавней остановки: {str(e)}", level="WARNING")
+                log(f"Ошибка при использовании taskkill: {str(e)}", level="ERROR")
             
-            # Используем только stop.bat для остановки
-            if self.dpi_starter.stop_dpi():
-                self.update_ui(running=False)
-                log("Zapret успешно остановлен", level="INFO")
+            # Если taskkill не помог, пробуем метод 2: PowerShell
+            if not process_stopped:
+                log("Метод 2: Остановка через PowerShell", level="INFO")
+                try:
+                    subprocess.run(
+                        'powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"',
+                        shell=True,
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    # Даем время системе на обработку команды
+                    time.sleep(1)
+                    if not self.dpi_starter.check_process_running():
+                        process_stopped = True
+                        log("Процесс успешно остановлен через PowerShell", level="INFO")
+                except Exception as e:
+                    log(f"Ошибка при использовании PowerShell: {str(e)}", level="ERROR")
+            
+            # Метод 3: wmic
+            if not process_stopped:
+                log("Метод 3: Остановка через wmic", level="INFO")
+                try:
+                    subprocess.run(
+                        "wmic process where name='winws.exe' call terminate",
+                        shell=True,
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    # Даем время системе на обработку команды
+                    time.sleep(1)
+                    if not self.dpi_starter.check_process_running():
+                        process_stopped = True
+                        log("Процесс успешно остановлен через wmic", level="INFO")
+                except Exception as e:
+                    log(f"Ошибка при использовании wmic: {str(e)}", level="ERROR")
+            
+            # Дополнительно останавливаем службы
+            try:
+                log("Остановка служб WinDivert", level="INFO")
+                subprocess.run("sc stop windivert", shell=True, check=False)
+                subprocess.run("sc delete windivert", shell=True, check=False)
+            except Exception as e:
+                log(f"Ошибка при остановке служб: {str(e)}", level="ERROR")
+            
+            # Финальная проверка
+            if self.dpi_starter.check_process_running():
+                log("ВНИМАНИЕ: Не удалось остановить все процессы winws.exe", level="WARNING")
+                self.set_status("Не удалось полностью остановить Zapret")
             else:
-                # Показываем сообщение об ошибке, если метод вернул False
-                log("Невозможно остановить Zapret, пока установлена служба", level="WARNING")
-                QMessageBox.warning(self, "Невозможно остановить", 
-                                "Невозможно остановить Zapret, пока установлена служба.\n\n"
-                                "Пожалуйста, сначала отключите автозапуск (нажмите на кнопку 'Отключить автозапуск').")
+                # Обновляем UI
+                self.update_ui(running=False)
+                self.set_status("Zapret успешно остановлен")
+                log("Запрет успешно остановлен", level="INFO")
             
-            self.check_process_status()  # Обновляем статус в интерфейсе
+            # Обновляем статус
+            self.check_process_status()
+                
         except Exception as e:
             from log import log
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
-
+            self.set_status(f"Ошибка при остановке: {str(e)}")
+    
     def install_service(self):
         """Устанавливает службу DPI с текущей конфигурацией"""
         selected_config = self.start_mode_combo.currentText()

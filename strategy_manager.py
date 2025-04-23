@@ -365,128 +365,111 @@ class StrategyManager:
         Returns:
             bool: True при успешном выполнении, False при ошибке
         """
-        # Скачиваем стратегию, если еще не скачана
-        strategy_path = self.download_strategy(strategy_id)
-        
-        if not strategy_path:
-            return False
-        
         try:
-            self.set_status(f"Подготовка к выполнению стратегии {strategy_id}...")
+            from log import log
+            
+            # Получаем путь к BAT-файлу стратегии
+            strategy_path = self.download_strategy(strategy_id)
+            if not strategy_path:
+                log(f"Не удалось получить файл стратегии: {strategy_id}", level="ERROR")
+                return False
+            
+            # Всегда сначала запускаем stop.bat для остановки предыдущих процессов
+            self.set_status("Останавливаем предыдущие запущенные процессы...")
+            stop_bat_path = os.path.join(self.local_dir, "stop.bat")
             
             # Создаем startupinfo для скрытия окна командной строки
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
-            # ВАЖНО: Рабочая директория должна быть bin папкой, где находится winws.exe
-            bin_dir = self.local_dir
-            
-            # Путь к stop.bat в той же директории
-            stop_bat_path = os.path.join(bin_dir, "stop.bat")
-            
-            # Проверяем существование stop.bat
-            if not os.path.exists(stop_bat_path):
-                log(f"ВНИМАНИЕ: stop.bat не найден по пути: {stop_bat_path}", level="WARNING")
-                self.set_status("Скачиваю скрипт остановки...")
-                
-                # Пытаемся скачать stop.bat
-                try:
-                    stop_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat"
-                    response = requests.get(stop_url, timeout=10)
-                    response.raise_for_status()
-                    
-                    with open(stop_bat_path, 'wb') as f:
-                        f.write(response.content)
-                    
-                    log(f"stop.bat успешно скачан", level="INFO")
-                except Exception as e:
-                    log(f"Не удалось скачать stop.bat: {str(e)}", level="ERROR")
-            
-            # Сначала запускаем stop.bat и ждем его завершения
+            # Запускаем stop.bat для очистки
             if os.path.exists(stop_bat_path):
-                self.set_status("Останавливаю предыдущие запущенные процессы...")
                 log(f"Запуск stop.bat для остановки предыдущих процессов", level="INFO")
-                
-                # Запускаем stop.bat и ЖДЕМ его полного завершения
                 stop_process = subprocess.Popen(
                     stop_bat_path,
                     startupinfo=startupinfo,
-                    cwd=bin_dir,
+                    cwd=self.local_dir,
                     shell=True
                 )
                 
                 # Ждем завершения процесса остановки
-                stop_process.wait()
-                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
+                try:
+                    stop_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    log("Таймаут ожидания stop.bat", level="WARNING")
                 
                 # Небольшая пауза для гарантии завершения процесса
                 time.sleep(0.5)
             else:
-                log("stop.bat не найден, продолжаем без остановки предыдущих процессов", level="WARNING")
+                log("stop.bat не найден, создаем файл...", level="WARNING")
+                self.create_stop_bat(stop_bat_path)
             
-            # Теперь запускаем саму стратегию
-            self.set_status(f"Выполнение стратегии {strategy_id}...")
-            
-            # Проверяем содержимое BAT-файла для отладки
-            try:
-                with open(strategy_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    bat_content = f.read()
-                    log(f"Содержимое BAT-файла: {bat_content[:500]}...", level="DEBUG")
-            except Exception as e:
-                log(f"Не удалось прочитать содержимое BAT-файла: {str(e)}", level="WARNING")
+            # Запускаем стратегию
+            self.set_status(f"Запуск стратегии {strategy_id}...")
+            log(f"Запуск BAT-файла: {strategy_path}", level="INFO")
+            log(f"Рабочая директория (bin): {self.local_dir}", level="INFO")
             
             # Получаем абсолютный путь к BAT-файлу
             abs_strategy_path = os.path.abspath(strategy_path)
-            log(f"Запуск BAT-файла: {abs_strategy_path}", level="INFO")
-            log(f"Рабочая директория (bin): {bin_dir}", level="INFO")
-                
+            
             # Запускаем BAT-файл
             process = subprocess.Popen(
                 abs_strategy_path,
                 startupinfo=startupinfo,
-                cwd=bin_dir,  # Запускаем из bin директории!
+                cwd=self.local_dir,  # Запускаем из bin директории!
                 shell=True
             )
             
-            # Ждем завершения процесса с таймаутом
-            try:
-                process.wait(timeout=5)  # Ждем максимум 5 секунд
-            except subprocess.TimeoutExpired:
-                # Это нормально, т.к. процесс winws.exe продолжает работать
-                log("BAT-файл запущен, ожидание завершения истекло (это нормально)", level="INFO")
-                return True
-            
-            # Проверяем результат выполнения
-            if process.returncode is not None and process.returncode != 0:
-                error_msg = f"Ошибка при выполнении стратегии {strategy_id}: код {process.returncode}"
-                log(error_msg, level="ERROR")
-                
-                # Запускаем отладочную команду для получения деталей ошибки
-                debug_file = os.path.join(self.local_dir, "debug_output.txt")
-                cmd = f'cmd /c "{abs_strategy_path}" > "{debug_file}" 2>&1'
-                
-                log(f"Запуск отладочной команды: {cmd}", level="DEBUG")
-                subprocess.call(cmd, shell=True, cwd=bin_dir)
-                
-                # Читаем результат отладки
-                try:
-                    with open(debug_file, 'r', encoding='utf-8', errors='ignore') as f:
-                        debug_output = f.read()
-                        log(f"Отладочный вывод: {debug_output}", level="DEBUG")
-                except Exception as e:
-                    log(f"Не удалось прочитать отладочный вывод: {str(e)}", level="ERROR")
-                
-                self.set_status(error_msg)
-                return False
-            
+            # Не ждем завершения процесса, т.к. он продолжит работу
             self.set_status(f"Стратегия {strategy_id} успешно запущена")
-            log(f"Стратегия {strategy_id} успешно запущена")
+            log(f"Стратегия {strategy_id} успешно запущена", level="INFO")
             return True
             
         except Exception as e:
             error_msg = f"Ошибка при выполнении стратегии {strategy_id}: {str(e)}"
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
+            return False
+    
+    def create_stop_bat(self, stop_bat_path):
+        """Создает файл stop.bat, если он не существует"""
+        try:
+            from log import log
+            
+            # Содержимое stop.bat
+            stop_bat_content = """@echo off
+    REM stop.bat - останавливает все экземпляры winws.exe
+    REM VERSION: 1.0
+
+    echo Остановка всех процессов winws.exe...
+
+    REM Метод 1: taskkill
+    taskkill /F /IM winws.exe /T
+
+    REM Метод 2: через PowerShell
+    powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"
+
+    REM Метод 3: через wmic
+    wmic process where name='winws.exe' call terminate
+
+    REM Добавляем паузу для стабильности
+    timeout /t 1 /nobreak >nul
+
+    echo Остановка процессов завершена.
+    exit /b 0
+    """
+            
+            # Создаем директорию при необходимости
+            os.makedirs(os.path.dirname(stop_bat_path), exist_ok=True)
+            
+            # Записываем файл
+            with open(stop_bat_path, 'w', encoding='utf-8') as f:
+                f.write(stop_bat_content)
+                
+            log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="INFO")
+            return True
+        except Exception as e:
+            log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
             return False
     
     def get_strategy_details(self, strategy_id):

@@ -295,70 +295,7 @@ class DPIStarter:
         except Exception as e:
             log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
             return False
-    
-    def force_stop_all_instances(self):
-        """
-        Усиленный метод для принудительного завершения процесса winws.exe
-        с использованием нескольких техник.
-        """
-        try:
-            log("Start force_stop_all_instances...")
-            
-            # Проверяем, существует ли marker файл для защиты от завершения
-            marker_file = os.path.join(os.path.dirname(self.winws_exe), "process_protected.txt")
-            if os.path.exists(marker_file):
-                # Проверяем время создания файла
-                file_time = os.path.getmtime(marker_file)
-                current_time = time.time()
-                
-                # Если файл создан менее 10 секунд назад, пропускаем завершение
-                if current_time - file_time < 10:
-                    log("Обнаружен marker защиты процесса, пропускаем завершение")
-                    return True
-            
-            # Проверяем маркер недавней остановки
-            recently_stopped_marker = os.path.join(os.path.dirname(self.winws_exe), "recently_stopped.txt")
-            if os.path.exists(recently_stopped_marker):
-                log("Обнаружен маркер недавней остановки, пропускаем принудительное завершение", level="INFO")
-                return True
-                
-            # Вместо использования всех методов, запускаем stop.bat
-            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
-            if os.path.exists(stop_bat_path):
-                log("Используем stop.bat вместо прямых методов остановки", level="INFO")
-                
-                # Создаем startupinfo для скрытия окна командной строки
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                
-                # Запускаем stop.bat
-                process = subprocess.Popen(
-                    stop_bat_path,
-                    startupinfo=startupinfo,
-                    cwd=self.bin_folder,
-                    shell=True
-                )
-                
-                # Ждем завершения процесса с таймаутом 5 секунд
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    log("Таймаут ожидания stop.bat", level="WARNING")
-                
-                # Проверяем, остановлен ли процесс
-                if not self.check_process_running():
-                    log("Все экземпляры winws.exe успешно завершены", level="INFO")
-                    return True
-                
-                return True  # В любом случае возвращаем True и не используем другие методы
-            else:
-                log("Все экземпляры winws.exe успешно завершены")
-                return True
-                
-        except Exception as e:
-            log(f"Общая ошибка в force_stop_all_instances: {str(e)}")
-            return False
-
+  
     def check_process_corrupted(self):
         """
         Проверяет, находится ли процесс winws.exe в состоянии, когда его нельзя завершить
@@ -402,107 +339,118 @@ class DPIStarter:
         
     def start_with_progress(self, mode, dpi_commands, download_urls=None, parent_widget=None):
         """
-        Запускает DPI с отображением диалога прогресса
+        Запускает DPI с выбранной конфигурацией и показывает прогресс.
         
         Args:
             mode (str): Название режима запуска
             dpi_commands (dict): Словарь с настройками команд для разных режимов
             download_urls (dict, optional): URL для скачивания файлов, если они отсутствуют
-            parent_widget (QWidget): Родительский виджет для диалога прогресса
-            
+            parent_widget (QWidget, optional): Родительский виджет для диалога прогресса
+        
         Returns:
             bool: True при успешном запуске, False при ошибке
         """
-        from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtCore import QTimer
-        from progress_dialog import StrategyChangeDialog
-        
-        # Создаем диалог прогресса
-        progress_dialog = StrategyChangeDialog(parent_widget)
-        
-        # Сохраняем оригинальную функцию set_status
-        original_set_status = self.set_status
-        
-        # Переопределяем функцию для обновления и диалога, и оригинального статуса
-        def status_wrapper(text):
-            original_set_status(text)
-            progress_dialog.set_status(text)
-        
-        # Используем обертку во время запуска
-        self.set_status = status_wrapper
-        
         try:
-            # Показываем диалог прогресса
-            progress_dialog.set_progress(0)
-            QApplication.processEvents()
-            progress_dialog.set_status("Подготовка к запуску...")
-            progress_dialog.start_progress()
-
-            progress_dialog.show()
-            QApplication.processEvents()
+            log(f"======================== Start DPI {mode} ========================", level="START")
+            self.set_status("Подготовка запуска...")
             
-            # Проверка на зависший процесс
-            progress_dialog.set_progress(10)
-            QApplication.processEvents()
-            progress_dialog.set_status("Проверка наличия зависших процессов...")
-            if self.check_process_corrupted():
-                progress_dialog.set_status("Обнаружен зависший процесс!")
-                progress_dialog.set_details("Требуется подтверждение пользователя")
-                # Диалог подтверждения будет показан стандартным методом
+            # Сначала останавливаем все процессы через stop.bat
+            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+            
+            # Если stop.bat существует, запускаем его
+            if os.path.exists(stop_bat_path):
+                log("Запуск stop.bat для остановки предыдущих процессов", level="INFO")
                 
-            # Остановка предыдущего процесса
-            progress_dialog.set_progress(20)
-            QApplication.processEvents()
-            progress_dialog.set_status("Остановка предыдущего процесса...")
-            self.force_stop_all_instances()
-            
-            # Создание папок
-            progress_dialog.set_progress(40)
-            QApplication.processEvents()
-            progress_dialog.set_status("Проверка необходимых файлов...")
-            # Код проверки папок и файлов
-            
-            # Подготовка команды запуска
-            progress_dialog.set_progress(60)
-            QApplication.processEvents()
-            progress_dialog.set_status("Подготовка команды запуска...")
-            
-            # Запуск процесса
-            progress_dialog.set_progress(80)
-            progress_dialog.set_status("Запуск процесса...")
-            result = self.start_dpi(mode, dpi_commands, download_urls)
-            
-            # Проверка статуса запуска
-            progress_dialog.set_progress(90)
-            QApplication.processEvents()
-            progress_dialog.set_status("Проверка статуса запуска...")
-            
-            # Завершение
-            progress_dialog.set_progress(100)
-            QApplication.processEvents()
-
-            # Проверяем результат запуска
-            if result:
-                progress_dialog.set_progress(100)
-                progress_dialog.set_status(f"Успешно запущен режим: {mode}")
-                progress_dialog.set_details("Режим обхода успешно запущен")
-                progress_dialog.complete()  # Отмечаем операцию как завершенную
-                # Показываем результат 1.5 секунды, затем закрываем диалог
-                QTimer.singleShot(1500, progress_dialog.accept)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                stop_process = subprocess.Popen(
+                    stop_bat_path,
+                    startupinfo=startupinfo,
+                    cwd=self.bin_folder,
+                    shell=True
+                )
+                
+                # Ждем завершения процесса остановки
+                try:
+                    stop_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    log("Таймаут ожидания stop.bat", level="WARNING")
+                
+                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
             else:
-                progress_dialog.set_progress(100)
-                progress_dialog.set_status("Ошибка запуска")
-                progress_dialog.set_details("Не удалось запустить режим обхода")
-                progress_dialog.complete()  # Отмечаем операцию как завершенную
-                # Показываем результат 1.5 секунды, затем закрываем диалог
-                QTimer.singleShot(1500, progress_dialog.accept)
+                # Создаем stop.bat, если он не существует
+                self.create_stop_bat()
             
-            progress_dialog.exec_()
-            return result
-        finally:
-            # Возвращаем оригинальную функцию set_status
-            self.set_status = original_set_status
-
+            # Проверяем и скачиваем необходимые файлы
+            if not self.download_files(download_urls):
+                self.set_status("Не удалось скачать необходимые файлы")
+                return False
+            
+            # Проверяем наличие команды для выбранного режима
+            if mode not in dpi_commands:
+                error_msg = f"Неизвестный режим запуска: {mode}"
+                log(error_msg, level="ERROR")
+                self.set_status(error_msg)
+                return False
+            
+            # Получаем аргументы командной строки для выбранного режима
+            cmd_args = dpi_commands[mode]
+            
+            # Проверяем наличие исполняемого файла
+            exe_path = os.path.abspath(self.winws_exe)
+            if not os.path.exists(exe_path):
+                error_msg = f"Исполняемый файл не найден: {exe_path}"
+                log(error_msg, level="ERROR")
+                self.set_status(error_msg)
+                return False
+            
+            # Логируем команду
+            log(exe_path, level="INFO")
+            log(str(cmd_args), level="INFO")
+            
+            # Создаем список аргументов
+            cmd = [exe_path] + cmd_args
+            log(str(cmd), level="INFO")
+            
+            # Создаем startupinfo для скрытия окна консоли
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            # Запускаем процесс
+            process = subprocess.Popen(
+                cmd, 
+                startupinfo=startupinfo,
+                cwd=self.bin_folder,  # Указываем рабочую директорию
+                shell=False
+            )
+            
+            log(f"Запущен процесс: {process.pid}", level="INFO")
+            
+            # Проверяем, запустился ли процесс
+            if process.poll() is not None:
+                error_msg = f"Процесс завершился сразу после запуска с кодом {process.returncode}"
+                log(error_msg, level="ERROR")
+                self.set_status(error_msg)
+                return False
+            
+            # Проверяем, запущен ли процесс winws.exe
+            if self.check_process_running():
+                log("ZAPRET УСПЕШНО ЗАПУЩЕН ", level="INFO")
+                self.set_status("Zapret успешно запущен")
+                return True
+            else:
+                error_msg = "Не удалось запустить процесс winws.exe"
+                log(error_msg, level="ERROR")
+                self.set_status(error_msg)
+                return False
+                
+        except Exception as e:
+            error_msg = f"Ошибка при запуске DPI: {str(e)}"
+            log(error_msg, level="ERROR")
+            self.set_status(error_msg)
+            return False
+    
     def ensure_directories_exist(self):
         """Проверяет и создает необходимые директории.
         
@@ -585,12 +533,9 @@ class DPIStarter:
                 # Небольшая пауза для гарантии завершения процесса
                 time.sleep(0.5)
             else:
-                log("stop.bat не найден, используем стандартный метод остановки", level="WARNING")
-                self.force_stop_all_instances()
-            
-            # Проверяем и создаем необходимые директории
-            if not self.ensure_directories_exist():
-                raise Exception("Не удалось создать необходимые директории")
+                log("stop.bat не найден", level="WARNING")
+                # Создаем stop.bat, если он не существует
+                self.create_stop_bat()
             
             # Проверяем наличие исполняемого файла
             self.ensure_executable_exists(download_urls)
