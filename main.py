@@ -15,6 +15,7 @@ from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
 from updater import check_for_update
+from strategy_selector import StrategySelector
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -98,31 +99,31 @@ class LupiDPIApp(QWidget):
                     self.start_btn.setVisible(False)
                 if hasattr(self, 'stop_btn'):
                     self.stop_btn.setVisible(True)
-                
-                # Если автозапуск активен, отображаем это в статусе
+
+            # Обновляем доступность кнопки выбора стратегии при автозапуске
+            if hasattr(self, 'select_strategy_btn'):
+                self.select_strategy_btn.setEnabled(not autostart_active)
                 if autostart_active:
-                    self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
-                    self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
-                    # Блокируем возможность ручного переключения стратегий при автозапуске
-                    if hasattr(self, 'start_mode_combo'):
-                        self.start_mode_combo.setEnabled(False)
+                    self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("150, 150, 150"))  # Серый для неактивного
                 else:
-                    # Иначе показываем обычный статус
+                    self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))  # Синий для активного
+                            
+            # Если автозапуск активен, отображаем это в статусе
+            if autostart_active:
+                self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
+                self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+            else:
+                # Иначе показываем обычный статус
+                if process_running:
                     self.process_status_value.setText("ВКЛЮЧЕН")
                     self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-                    # Разблокируем комбобокс при обычном запуске
-                    if hasattr(self, 'start_mode_combo'):
-                        self.start_mode_combo.setEnabled(True)
-            else:
-                if hasattr(self, 'start_btn'):
-                    self.start_btn.setVisible(True)
-                if hasattr(self, 'stop_btn'):
-                    self.stop_btn.setVisible(False)
-                self.process_status_value.setText("ВЫКЛЮЧЕН")
-                self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-                # Разблокируем комбобокс когда всё выключено
-                if hasattr(self, 'start_mode_combo'):
-                    self.start_mode_combo.setEnabled(True)
+                else:
+                    if hasattr(self, 'start_btn'):
+                        self.start_btn.setVisible(True)
+                    if hasattr(self, 'stop_btn'):
+                        self.stop_btn.setVisible(False)
+                    self.process_status_value.setText("ВЫКЛЮЧЕН")
+                    self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
             
         except Exception as e:
             from log import log
@@ -190,6 +191,71 @@ class LupiDPIApp(QWidget):
         # В любом случае обновляем статус
         self.check_process_status()
 
+    def select_strategy(self):
+        """Открывает диалог выбора стратегии."""
+        try:
+            if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
+                from log import log
+                log("Ошибка: менеджер стратегий не инициализирован", level="ERROR")
+                self.set_status("Ошибка: менеджер стратегий не инициализирован")
+                return
+            
+            # Получаем текущую выбранную стратегию из метки
+            current_strategy = self.current_strategy_label.text()
+            if current_strategy == "Не выбрана":
+                current_strategy = get_last_strategy()
+            
+            # Создаем и показываем диалог выбора стратегии
+            selector = StrategySelector(
+                parent=self,
+                strategy_manager=self.strategy_manager,
+                current_strategy_name=current_strategy
+            )
+            
+            # Подключаем сигнал выбора стратегии
+            selector.strategySelected.connect(self.on_strategy_selected_from_dialog)
+            
+            # Показываем диалог
+            selector.exec_()
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при открытии диалога выбора стратегии: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка при выборе стратегии: {str(e)}")
+
+    def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
+        """Обрабатывает выбор стратегии из диалога."""
+        try:
+            from log import log
+            log(f"Выбрана стратегия: {strategy_name} (ID: {strategy_id})", level="INFO")
+            
+            # Сохраняем ID и имя выбранной стратегии в атрибутах класса
+            self.current_strategy_id = strategy_id
+            self.current_strategy_name = strategy_name
+            
+            # Обновляем метку с текущей стратегией
+            self.current_strategy_label.setText(strategy_name)
+            
+            # Сохраняем выбранную стратегию в реестр
+            set_last_strategy(strategy_name)
+            
+            # Записываем время изменения стратегии
+            self.last_strategy_change_time = time.time()
+            
+            # Запускаем стратегию
+            self.start_dpi(selected_mode=strategy_name)
+            
+            # Перезапускаем Discord только если:
+            # 1. Это не первый запуск
+            # 2. Автоперезапуск включен в настройках
+            from discord_restart import get_discord_restart_setting
+            if not self.first_start and get_discord_restart_setting():
+                self.discord_manager.restart_discord_if_running()
+            else:
+                self.first_start = False  # Сбрасываем флаг первого запуска
+        except Exception as e:
+            log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка при установке стратегии: {str(e)}")
+             
     def start_dpi(self, selected_mode=None, delayed=False):
         """Запускает DPI с выбранной конфигурацией"""
         try:
@@ -236,35 +302,43 @@ class LupiDPIApp(QWidget):
                 self.last_status = (True, False)
                 self.last_status_time = time.time()
                 return True
-                
-            # Получаем режим запуска
+
+            # Определяем стратегию для запуска
             if selected_mode is None or selected_mode is False:
-                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
-                    selected_mode = self.start_mode_combo.currentText()
+                # Если режим не задан явно, используем текущую выбранную стратегию
+                if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
+                    selected_mode = self.current_strategy_name
+                else:
+                    # Если ещё не выбрана стратегия, используем последнюю сохраненную
+                    selected_mode = get_last_strategy()
                     if not selected_mode:
-                        log("Ошибка: пустое название стратегии", level="ERROR")
+                        log("Ошибка: стратегия не выбрана и не сохранена", level="ERROR")
                         self.set_status("Ошибка: не выбрана стратегия")
                         return False
-                else:
-                    log("Комбо-бокс недоступен, используем стратегию по умолчанию", level="WARNING")
-                    selected_mode = "Оригинальная bol-van v2 (07.04.2025)"
             
             # Устанавливаем флаг намеренного запуска при отложенном запуске
             if delayed:
                 self.intentional_start = True
                 # Сбрасываем флаг через 5 секунд
                 QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
-                
+                    
             log(f"Запуск стратегии: {selected_mode}", level="INFO")
 
             if hasattr(self, 'strategy_manager') and self.strategy_manager:
-                # Находим ID стратегии по отображаемому имени
+                # Определяем ID стратегии
                 strategy_id = None
-                for i in range(self.start_mode_combo.count()):
-                    if self.start_mode_combo.itemText(i) == selected_mode:
-                        strategy_id = self.start_mode_combo.itemData(i)
-                        break
-                        
+                
+                # Если мы знаем текущий ID стратегии и он соответствует имени
+                if hasattr(self, 'current_strategy_id') and hasattr(self, 'current_strategy_name') and self.current_strategy_name == selected_mode:
+                    strategy_id = self.current_strategy_id
+                else:
+                    # Ищем ID по имени в списке стратегий
+                    strategies = self.strategy_manager.get_strategies_list()
+                    for sid, info in strategies.items():
+                        if info.get('name') == selected_mode:
+                            strategy_id = sid
+                            break
+                
                 if strategy_id:
                     # Получаем путь к BAT-файлу стратегии
                     bat_path = self.strategy_manager.download_strategy(strategy_id)
@@ -280,11 +354,11 @@ class LupiDPIApp(QWidget):
                             self.check_process_status()
                             return True
             
-            # Если не удалось запустить через менеджер стратегий, используем стандартную стратегию
+            # Если не удалось запустить через менеджер стратегий
             log("Запуск не удался. Проверьте наличие BAT-файлов стратегий.", level="ERROR")
             self.set_status("Ошибка: стратегия не найдена")
             return False
-                
+                    
         except Exception as e:
             from log import log
             log(f"Ошибка при запуске DPI: {str(e)}", level="ERROR")
@@ -301,11 +375,16 @@ class LupiDPIApp(QWidget):
         self.autostart_enable_btn.setVisible(not service_running)
         self.autostart_disable_btn.setVisible(service_running)
         
-        # Обновляем видимость выбора стратегии
+        # Обновляем доступность кнопки выбора стратегии
+        if hasattr(self, 'select_strategy_btn'):
+            self.select_strategy_btn.setEnabled(not service_running)
+            if service_running:
+                self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("150, 150, 150"))  # Серый для неактивного
+            else:
+                self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))  # Синий для активного
+        
+        # Если автозапуск активен, показываем информационное сообщение
         if service_running:
-            # Если автозапуск активен, скрываем выбор стратегии и показываем сообщение
-            self.start_mode_combo.setVisible(False)
-            
             # Если метки еще нет, создаем её
             if not hasattr(self, 'service_info_label'):
                 from PyQt5.QtWidgets import QLabel
@@ -314,21 +393,12 @@ class LupiDPIApp(QWidget):
                 self.service_info_label.setAlignment(Qt.AlignCenter)
                 self.service_info_label.setStyleSheet("color: red; font-weight: bold;")
                 
-                # Находим индекс start_mode_combo в layout
-                layout = self.layout()
-                for i in range(layout.count()):
-                    if layout.itemAt(i).widget() == self.start_mode_combo:
-                        layout.insertWidget(i, self.service_info_label)
-                        break
+                # Добавляем метку в layout
+                self.layout().insertWidget(self.layout().count() - 5, self.service_info_label)
             
             # Показываем информационную метку
             self.service_info_label.setVisible(True)
         else:
-            # Если автозапуск отключен, показываем выбор стратегии
-            self.start_mode_combo.setVisible(True)
-            self.start_mode_combo.setEnabled(True)
-            self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-            
             # Скрываем информационную метку, если она существует
             if hasattr(self, 'service_info_label'):
                 self.service_info_label.setVisible(False)
@@ -351,36 +421,23 @@ class LupiDPIApp(QWidget):
                 log(f"Стратегия ID: {strategy_id}, Name: {info.get('name')}, Path: {info.get('file_path')}", level="DEBUG")
             
             # Сохраняем текущий выбор
-            current_selection = self.start_mode_combo.currentText()
-            
-            # Очищаем комбобокс со стратегиями
-            self.start_mode_combo.clear()
-            
-            # Добавляем стратегии в комбобокс
-            for strategy_id, strategy_info in strategies.items():
-                # Используем name или id, если name отсутствует
-                display_name = strategy_info.get('name', strategy_id)
-                self.start_mode_combo.addItem(display_name, strategy_id)
-                log(f"Добавлена в комбобокс: {display_name} (ID: {strategy_id})", level="DEBUG")
-            
-            # Восстанавливаем выбор, если возможно
-            index = self.start_mode_combo.findText(current_selection)
-            if index >= 0:
-                self.start_mode_combo.setCurrentIndex(index)
+            current_strategy = None
+            if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
+                current_strategy = self.current_strategy_name
             else:
-                # Если предыдущего выбора нет, берем последнюю сохраненную стратегию
-                last_strategy = get_last_strategy()
-                if last_strategy:
-                    index = self.start_mode_combo.findText(last_strategy)
-                    if index >= 0:
-                        self.start_mode_combo.setCurrentIndex(index)
+                current_strategy = self.current_strategy_label.text()
+                if current_strategy == "Не выбрана":
+                    current_strategy = get_last_strategy()
             
-            from log import log  # Перемещено внутрь функции
+            # Обновляем текущую метку, если стратегия выбрана
+            if current_strategy and current_strategy != "Не выбрана":
+                self.current_strategy_label.setText(current_strategy)
+            
             log(f"Загружено {len(strategies)} стратегий", level="INFO")
             
         except Exception as e:
             error_msg = f"Ошибка при обновлении списка стратегий: {str(e)}"
-            from log import log  # Перемещено внутрь функции
+            from log import log
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
         
@@ -410,16 +467,17 @@ class LupiDPIApp(QWidget):
             
             # Обновляем список стратегий с обработкой ошибок
             try:
+                # Обновляем список доступных стратегий
                 self.update_strategies_list()
+                
+                # Устанавливаем последнюю сохраненную стратегию в текстовую метку
+                last_strategy = get_last_strategy()
+                if last_strategy:
+                    self.current_strategy_label.setText(last_strategy)
+                    self.current_strategy_name = last_strategy
             except Exception as e:
                 log(f"Ошибка при обновлении списка стратегий: {str(e)}", level="ERROR")
                 self.set_status(f"Не удалось загрузить стратегии: {str(e)}")
-                
-                # Заполняем комбо-бокс стратегиями из config.py
-                if hasattr(self, 'start_mode_combo') and self.start_mode_combo:
-                    self.start_mode_combo.clear()
-                    from config import DPI_COMMANDS
-                    self.start_mode_combo.addItems(DPI_COMMANDS.keys())
         except Exception as e:
             from log import log
             log(f"Ошибка при инициализации менеджера стратегий: {str(e)}", level="ERROR")
@@ -427,12 +485,6 @@ class LupiDPIApp(QWidget):
             
             # Создаем заглушку для strategy_manager
             self.strategy_manager = None
-            
-            # Заполняем комбо-бокс стратегиями из config.py если он существует
-            if hasattr(self, 'start_mode_combo') and self.start_mode_combo:
-                from config import DPI_COMMANDS
-                self.start_mode_combo.clear()
-                self.start_mode_combo.addItems(DPI_COMMANDS.keys())
 
     def initialize_managers_and_services(self):
         # Добавляем флаг инициализации
@@ -577,16 +629,18 @@ class LupiDPIApp(QWidget):
                 # Если процесс не найден, повторяем запуск
                 log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
                 
-                # Получаем текст из комбо-бокса до вызова start_dpi
-                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
-                    strategy_name = self.start_mode_combo.currentText()
-                    log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
-                    # Запускаем с задержкой 500 мс
-                    QTimer.singleShot(500, lambda mode=strategy_name: self.start_dpi(selected_mode=mode))
+                # Получаем стратегию из метки или используем последнюю сохраненную
+                strategy_name = None
+                if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
+                    strategy_name = self.current_strategy_name
                 else:
-                    log("Комбо-бокс стратегий недоступен", level="WARNING")
-                    # Используем стандартную стратегию с задержкой 500 мс
-                    QTimer.singleShot(500, lambda: self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)"))
+                    strategy_name = self.current_strategy_label.text()
+                    if strategy_name == "Не выбрана":
+                        strategy_name = get_last_strategy()
+                
+                log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
+                # Запускаем с задержкой 500 мс
+                QTimer.singleShot(500, lambda: self.start_dpi(selected_mode=strategy_name))
         else:
             log("DPI Starter не инициализирован, пропускаем проверку процесса", level="WARNING")
         
@@ -617,6 +671,10 @@ class LupiDPIApp(QWidget):
         # Инициализируем интерфейс
         self.init_ui()
         
+        # Инициализируем атрибуты для работы со стратегиями
+        self.current_strategy_id = None
+        self.current_strategy_name = None
+        
         # При быстрой загрузке откладываем тяжелые операции
         if not self.fast_load:
             self.initialize_managers_and_services()
@@ -629,30 +687,22 @@ class LupiDPIApp(QWidget):
         )
 
     def force_enable_combos(self):
-        """Принудительно включает комбо-боксы даже если они были отключены"""
+        """Принудительно включает комбо-боксы тем"""
         try:
-                
             if hasattr(self, 'theme_combo'):
                 # Полное восстановление состояния комбо-бокса тем
                 self.theme_combo.setEnabled(True)
                 self.theme_combo.show()
                 self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
 
-            if hasattr(self, 'start_mode_combo'):
-                # Полное восстановление состояния комбо-бокса
-                self.start_mode_combo.setEnabled(True)
-                self.start_mode_combo.show()
-                self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
             # Принудительное обновление UI
             QApplication.processEvents()
             
-            # Возвращаем True если оба комбо-бокса существуют и активны
-            return (hasattr(self, 'start_mode_combo') and self.start_mode_combo.isEnabled() and
-                    hasattr(self, 'theme_combo') and self.theme_combo.isEnabled())
+            # Возвращаем True если комбо-бокс существует и активен
+            return hasattr(self, 'theme_combo') and self.theme_combo.isEnabled()
         except Exception as e:
             from log import log
-            log(f"Ошибка при активации комбо-боксов: {str(e)}")
+            log(f"Ошибка при активации комбо-бокса тем: {str(e)}")
             return False
     
     def delayed_combo_enabler(self):
@@ -660,10 +710,10 @@ class LupiDPIApp(QWidget):
         """Повторно проверяет и активирует комбо-боксы через таймер"""
         if self.force_enable_combos():
             # Если успешно активировали, останавливаемся
-            log("Комбо-боксы успешно активированы")
+            log("Комбо-бокс тем успешно активирован")
         else:
             # Если нет, повторяем через полсекунды
-            log("Повторная попытка активации комбо-боксов")
+            log("Повторная попытка активации комбо-бокса тем")
             QTimer.singleShot(500, self.delayed_combo_enabler)
 
     def perform_delayed_checks(self):
@@ -694,6 +744,9 @@ class LupiDPIApp(QWidget):
             log("Смена стратегии недоступна при активном автозапуске", level="WARNING")
             return
         
+        # Обновляем отображение текущей стратегии
+        self.current_strategy_label.setText(selected_mode)
+
         # Записываем время изменения стратегии
         self.last_strategy_change_time = time.time()
         
@@ -848,15 +901,34 @@ class LupiDPIApp(QWidget):
         try:
             from log import log
             
-            selected_strategy_name = self.start_mode_combo.currentText()
+            # Получаем текущую выбранную стратегию
+            selected_strategy_name = None
+            if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
+                selected_strategy_name = self.current_strategy_name
+            else:
+                selected_strategy_name = self.current_strategy_label.text()
+                if selected_strategy_name == "Не выбрана":
+                    selected_strategy_name = get_last_strategy()
+            
+            if not selected_strategy_name:
+                log("Не выбрана стратегия для автозапуска", level="ERROR")
+                QMessageBox.critical(self, "Ошибка", "Не выбрана стратегия для автозапуска")
+                self.set_status("Ошибка: стратегия не выбрана")
+                return False
+                
             log(f"Установка автозапуска с выбранной стратегией: {selected_strategy_name}", level="INFO")
             
-            # Находим ID стратегии по имени
+            # Определяем ID стратегии
             strategy_id = None
-            for i in range(self.start_mode_combo.count()):
-                if self.start_mode_combo.itemText(i) == selected_strategy_name:
-                    strategy_id = self.start_mode_combo.itemData(i)
-                    break
+            if hasattr(self, 'current_strategy_id') and hasattr(self, 'current_strategy_name') and self.current_strategy_name == selected_strategy_name:
+                strategy_id = self.current_strategy_id
+            else:
+                # Ищем ID по имени в списке стратегий
+                strategies = self.strategy_manager.get_strategies_list()
+                for sid, info in strategies.items():
+                    if info.get('name') == selected_strategy_name:
+                        strategy_id = sid
+                        break
             
             if not strategy_id:
                 log(f"Не удалось найти ID стратегии для: {selected_strategy_name}", level="ERROR")
@@ -1043,7 +1115,7 @@ class LupiDPIApp(QWidget):
         line.setFrameShadow(QFrame.Sunken)
         layout.addWidget(line)
 
-        # Статусная строка
+        ################# Статус программы #################
         status_layout = QVBoxLayout()
         
         # Статус запуска программы
@@ -1060,16 +1132,36 @@ class LupiDPIApp(QWidget):
 
         layout.addLayout(status_layout)
 
-        self.start_mode_combo = QComboBox(self)
-        self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-        self.start_mode_combo.addItems(DPI_COMMANDS.keys())
+        ############# Стратегия обхода блокировок #############
+        strategy_layout = QVBoxLayout()
 
-        last_strategy = get_last_strategy()
-        if last_strategy in DPI_COMMANDS.keys():
-            self.start_mode_combo.setCurrentText(last_strategy)
-        self.start_mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        layout.addWidget(self.start_mode_combo)
+        # Сначала добавляем метку с текущей стратегией на всю ширину
+        strategy_header = QLabel("Текущая стратегия:")
+        strategy_header.setStyleSheet(f"{COMMON_STYLE} font-weight: bold;")
+        strategy_header.setAlignment(Qt.AlignCenter)
+        strategy_layout.addWidget(strategy_header)
 
+        # Метка с текущей стратегией (увеличиваем шрифт и делаем его заметным)
+        self.current_strategy_label = QLabel("Не выбрана")
+        self.current_strategy_label.setStyleSheet(f"{COMMON_STYLE} font-weight: bold; font-size: 12pt; color: #0077ff;")
+        self.current_strategy_label.setAlignment(Qt.AlignCenter)
+        self.current_strategy_label.setWordWrap(True)  # Разрешаем перенос длинных названий
+        self.current_strategy_label.setMinimumHeight(40)  # Достаточная высота для двух строк текста
+        strategy_layout.addWidget(self.current_strategy_label)
+
+        # Добавляем небольшой интервал между меткой и кнопкой
+        strategy_layout.addSpacing(5)
+
+        # Затем добавляем кнопку выбора стратегии
+        self.select_strategy_btn = RippleButton('Сменить стратегию обхода блокировок...', self, "0, 119, 255")
+        self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.select_strategy_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.select_strategy_btn.clicked.connect(self.select_strategy)
+        strategy_layout.addWidget(self.select_strategy_btn)
+
+        layout.addLayout(strategy_layout)
+
+        ################## Кнопки управления #################
         from PyQt5.QtWidgets import QGridLayout
         button_grid = QGridLayout()
 
