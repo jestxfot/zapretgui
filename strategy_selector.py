@@ -99,15 +99,15 @@ class StrategySelector(QDialog):
         self.selected_strategy_name = None
         
         self.setWindowTitle("Выбор стратегии обхода блокировок")
-        self.resize(1000, 800)  # Начальный размер окна
+        self.resize(1100, 900)  # Начальный размер окна
         
         self.init_ui()
         self.load_strategies()
         
-        # Автоматически обновляем список через 1 секунду после открытия
+        # Автоматически обновляем список после открытия
         # (это решает проблему отображения меток)
         from PyQt5.QtCore import QTimer
-        QTimer.singleShot(1000, self.auto_refresh_strategies)
+        QTimer.singleShot(200, self.auto_refresh_strategies)
         
         # Выбираем текущую стратегию, если она задана
         if current_strategy_name:
@@ -129,6 +129,19 @@ class StrategySelector(QDialog):
         """Инициализация интерфейса."""
         layout = QVBoxLayout(self)
         
+        # Добавляем информационный текст о стратегиях в верхней части
+        info_text = QLabel(
+            "Выберите стратегию обхода блокировок, если вам требуется сменить метод обхода. Подробнее о Zapret читайте в интернете.\n"
+            "Стратегии с пометкой \"РЕКОМЕНДУЕМ\" были протестированы и показали наилучшие результаты.\n"
+            "Для экспериментальных стратегий есть пометка \"С ОСТОРОЖНОСТЬЮ\"."
+        )
+        info_text.setWordWrap(True)
+        info_text.setStyleSheet("padding: 10px; background-color: #3a3a3a; color: #ffffff; border-radius: 5px;")
+        layout.addWidget(info_text)
+        
+        # Добавляем небольшой интервал
+        layout.addSpacing(10)
+        
         # Создаем разделитель (сплиттер)
         splitter = QSplitter(Qt.Horizontal)
         
@@ -137,7 +150,7 @@ class StrategySelector(QDialog):
         strategies_layout = QVBoxLayout(strategies_group)
         
         self.strategies_list = QListWidget()
-        self.strategies_list.setMinimumWidth(MINIMUM_WIDTH)
+        self.strategies_list.setMinimumWidth(500)  # Увеличиваем ширину с 400 до 500
         self.strategies_list.currentRowChanged.connect(self.on_strategy_selected)
         strategies_layout.addWidget(self.strategies_list)
         
@@ -162,12 +175,14 @@ class StrategySelector(QDialog):
         # Детальная информация о стратегии
         self.strategy_info = QTextBrowser()
         self.strategy_info.setOpenExternalLinks(True)
+        # Устанавливаем явные цвета текста и фона для совместимости с тёмной темой
+        self.strategy_info.setStyleSheet("background-color: #333333; color: #ffffff;")
         info_layout.addWidget(self.strategy_info)
         
         # Добавляем панели в сплиттер
         splitter.addWidget(strategies_group)
         splitter.addWidget(info_group)
-        splitter.setSizes([250, 550])  # Начальное соотношение размеров
+        splitter.setSizes([450, 550])  # Увеличиваем размер панели стратегий
         
         layout.addWidget(splitter, 1)  # 1 - stretch factor
         
@@ -355,8 +370,8 @@ class StrategySelector(QDialog):
                 
                 self.strategy_title.setText(title_text)
                 
-                # Формируем HTML для отображения информации
-                html = "<style>body {font-family: Arial; margin: 10px;}</style>"
+                # Формируем HTML для отображения информации с явными цветами
+                html = "<style>body {font-family: Arial; margin: 10px; color: #ffffff; background-color: #333333;}</style>"
                 
                 # Метка (если есть) - добавляем с соответствующим цветом и стилем
                 if label and label in LABEL_TEXTS:
@@ -389,9 +404,133 @@ class StrategySelector(QDialog):
                 # Статус скачивания
                 local_path = os.path.join(self.strategy_manager.local_dir, file_path)
                 if os.path.exists(local_path):
-                    html += "<p><b>Статус:</b> <span style='color:green'>Файл скачан и готов к использованию</span></p>"
+                    html += "<p><b>Статус:</b> <span style='color:#00ff00'>Файл скачан и готов к использованию</span></p>"
                 else:
-                    html += "<p><b>Статус:</b> <span style='color:orange'>Файл будет скачан при выборе стратегии</span></p>"
+                    html += "<p><b>Статус:</b> <span style='color:#ffcc00'>Файл будет скачан при выборе стратегии</span></p>"
+
+                # Порты и списки хостов
+                html += "<hr>"
+                html += "<h3>Технические детали:</h3>"
+                
+                # Порты
+                ports = strategy_info.get('ports', [])
+                if ports:
+                    if isinstance(ports, list):
+                        ports_str = ", ".join(map(str, ports))
+                    else:
+                        ports_str = str(ports)
+                    html += f"<p><b>Используемые порты:</b> {ports_str}</p>"
+                else:
+                    html += "<p><b>Используемые порты:</b> НЕИЗВЕСТНО</p>"
+                
+                # Списки хостов
+                host_lists = strategy_info.get('host_lists', [])
+                if host_lists:
+                    html += "<p><b>Используемые списки хостов:</b></p><ul>"
+                    if isinstance(host_lists, list):
+                        for host_list in host_lists:
+                            html += f"<li>{host_list}</li>"
+                    else:
+                        html += f"<li>{host_lists}</li>"
+                    html += "</ul>"
+                else:
+                    html += "<p><b>Используемые списки хостов:</b> НЕИЩВЕСТНО</p>"
+                
+                # Дополнительные технические детали
+                use_https = strategy_info.get('use_https', True)
+                html += f"<p><b>Использование HTTPS:</b> {'Да' if use_https else 'Нет'}</p>"
+                
+                fragments = strategy_info.get('fragments', False)
+                if fragments:
+                    html += f"<p><b>Фрагментирование пакетов:</b> Да</p>"
+                
+                ttl = strategy_info.get('ttl', None)
+                if ttl:
+                    html += f"<p><b>TTL:</b> {ttl}</p>"
+                
+                # После вывода технических деталей и перед заключительным примечанием
+                ttl = strategy_info.get('ttl', None)
+                if ttl:
+                    html += f"<p><b>TTL:</b> {ttl}</p>"
+                
+                # Добавляем полную командную строку запуска
+                html += "<hr>"
+                html += "<h3>Аргументы командной строки:</h3>"
+
+                command_args = strategy_info.get('command_args', None)
+
+                def format_command_args(cmd_line):
+                    """Форматирует командную строку для удобного отображения."""
+                    # Добавляем переносы строк для улучшения читаемости
+                    cmd_line = cmd_line.replace(" --", "<br>--")
+                    # Выделяем разными цветами названия хостлистов и другие важные параметры
+                    cmd_line = cmd_line.replace("--hostlist=", "--hostlist=<span style='color:#8cff66'>")
+                    cmd_line = cmd_line.replace(".txt", ".txt</span>")
+                    cmd_line = cmd_line.replace("--filter-tcp=", "--filter-tcp=<span style='color:#66ccff'>")
+                    cmd_line = cmd_line.replace("--filter-udp=", "--filter-udp=<span style='color:#ff9966'>")
+                    cmd_line = cmd_line.replace("--wf-tcp=", "--wf-tcp=<span style='color:#66ccff'>")
+                    cmd_line = cmd_line.replace("--wf-udp=", "--wf-udp=<span style='color:#ff9966'>")
+                    cmd_line = cmd_line.replace(" --new", " <span style='color:#ffcc00'>--new</span>")
+                    return cmd_line
+
+                if command_args:
+                    # Используем предопределенные аргументы из JSON
+                    formatted_args = format_command_args(command_args)
+                    html += f"<div style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00; max-width: 100%; word-wrap: break-word;'>{formatted_args}</div>"
+                else:
+                    # Пытаемся прочитать аргументы из BAT-файла
+                    try:
+                        file_path = strategy_info.get('file_path', None)
+                        if file_path:
+                            local_path = os.path.join(self.strategy_manager.local_dir, file_path)
+                            if os.path.exists(local_path):
+                                with open(local_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    bat_content = f.read()
+                                    
+                                    # Ищем VBScript блок, как в примере
+                                    if '"%vbsSilent%" (' in bat_content:
+                                        # Ищем все строки с "echo cmd = cmd ^& ""
+                                        import re
+                                        cmd_lines = re.findall(r'echo cmd = cmd \^& "(.*?)"', bat_content)
+                                        
+                                        if cmd_lines:
+                                            # Собираем полную команду
+                                            full_cmd = 'winws.exe'
+                                            for line in cmd_lines:
+                                                full_cmd += ' ' + line.replace('^&', '&').replace('""', '"')
+                                            formatted_cmd = format_command_args(full_cmd)
+                                            html += f"<div style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00; max-width: 100%; word-wrap: break-word;'>{formatted_cmd}</div>"
+                                            # Ищем строку с winws.exe
+                                            match = re.search(r'cmd = .+ \^& "(.+?)winws\.exe(.+?)("|\r?\n|$)', bat_content)
+                                            if match:
+                                                cmd_line = "winws.exe" + match.group(2).strip()
+                                                html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
+                                            else:
+                                                # Простой поиск любой строки с winws.exe и аргументами
+                                                match = re.search(r'winws\.exe\s+(.+?)(\r?\n|$)', bat_content)
+                                                if match:
+                                                    cmd_line = "winws.exe " + match.group(1).strip()
+                                                    html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
+                                                else:
+                                                    html += "<p><i>Команда запуска не найдена в формате VBScript или CMD.</i></p>"
+                                    else:
+                                        # Простой поиск любой строки с winws.exe и аргументами
+                                        match = re.search(r'winws\.exe\s+(.+?)(\r?\n|$)', bat_content)
+                                        if match:
+                                            cmd_line = "winws.exe " + match.group(1).strip()
+                                            html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
+                                        else:
+                                            html += "<p><i>Команда запуска не найдена в BAT-файле стратегии.</i></p>"
+                            else:
+                                html += "<p><i>BAT-файл стратегии будет скачан при выборе. Аргументы будут доступны после загрузки.</i></p>"
+                        else:
+                            html += "<p><i>Информация о файле стратегии отсутствует.</i></p>"
+                    except Exception as e:
+                        html += f"<p><i>Не удалось прочитать аргументы командной строки: {str(e)}</i></p>"
+                
+                # Продолжаем с заключительным примечанием
+                html += "<hr>"
+                html += "<p><i>Примечание: Вышеуказанные технические детали могут меняться при обновлении стратегии.</i></p>"
                 
                 # Устанавливаем HTML
                 self.strategy_info.setHtml(html)

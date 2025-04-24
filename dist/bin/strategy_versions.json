@@ -1,5 +1,24 @@
 {
-  "original_bolvan": "1.5",
+  "original_bolvan": "1.6",
   "original_bolvan_2": "2.6",
-  "2025_01_06": "1.0"
+  "2025_01_06": "1.0",
+  "ufanet": "1.3",
+  "alt1": "1.0",
+  "alt2": "2.0",
+  "alt3": "3.0",
+  "alt4": "1.0",
+  "faketlsmod": "1.3",
+  "faketlsmod2": "1.1",
+  "md5sig padencap (20.03.2025)": "1.0",
+  "ttl padencap (20.03.2025)": "1.0",
+  "datanoack padencap (20.03.2025)": "1.0",
+  "datanoack padencap midsld (20.03.2025)": "1.0",
+  "datanoack padencap midsld wssize (20.03.2025)": "1.1",
+  "md5sigpadencapwssize": "1.0",
+  "datanoackpadencapmidsldwssize": "1.0",
+  "multisplitmd5sigpadencap": "1.0",
+  "multisplitmd5sigpadencapwssize": "1.0",
+  "discordtcp80": "1.0",
+  "discordfake": "1.0",
+  "discordfakesplit": "1.0"
 }
