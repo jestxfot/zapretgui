@@ -3,6 +3,7 @@
 import ctypes
 from PyQt5.QtWidgets import QMessageBox
 from proxy_domains import PROXY_DOMAINS  # Импортируем внешний словарь
+from log import log
 
 class HostsManager:
     def __init__(self, status_callback=None):
@@ -43,7 +44,7 @@ class HostsManager:
                     return True
             return False
         except Exception as e:
-            print(f"Ошибка при проверке файла hosts: {str(e)}")
+            log(f"Ошибка при проверке файла hosts: {str(e)}")
             return False
 
     def remove_proxy_domains(self):
@@ -77,14 +78,15 @@ class HostsManager:
                 file.writelines(filtered_lines)
             
             self.set_status(f"Файл hosts обновлен: записи прокси-доменов удалены")
+            log("Прокси-домены удалены из файла hosts")
             return True
         except PermissionError:
             self.set_status("Ошибка доступа: требуются права администратора")
+            log("Ошибка доступа: требуются права администратора")
             return False
         except Exception as e:
-            error_msg = f"Ошибка при обновлении hosts: {str(e)}"
-            print(error_msg)
-            self.set_status(error_msg)
+            self.set_status(f"Ошибка при обновлении hosts: {str(e)}")
+            log(f"Ошибка при обновлении hosts: {str(e)}")
             return False
         
     def modify_hosts_file(self, domain_ip_dict):
@@ -118,15 +120,15 @@ class HostsManager:
                 file.writelines(new_content)
             
             self.set_status(f"Файл hosts обновлен: добавлено/обновлено {len(domain_ip_dict)} записей")
-
+            log(f"Прокси-домены добавлены/обновлены в файле hosts: {domain_ip_dict}")
             return True
         except PermissionError:
             self.set_status("Ошибка доступа: требуются права администратора")
+            log("Ошибка доступа: требуются права администратора")
             return False
         except Exception as e:
-            error_msg = f"Ошибка при обновлении hosts: {str(e)}"
-            print(error_msg)
-            self.set_status(error_msg)
+            self.set_status(f"Ошибка при обновлении hosts {str(e)}")
+            log(f"Ошибка при обновлении hosts: {str(e)}")
             return False
 
     def add_proxy_domains(self):

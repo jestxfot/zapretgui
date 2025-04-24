@@ -79,10 +79,13 @@ class LupiDPIApp(QWidget):
     def check_process_status(self):
         """Проверяет статус процесса и обновляет интерфейс"""
         try:
-            # Проверяем статус службы
-            service_running = False
+            # Проверяем статус автозапуска (служба или задача планировщика)
+            autostart_active = False
             if hasattr(self, 'service_manager'):
-                service_running = self.service_manager.check_service_exists()
+                autostart_active = self.service_manager.check_autostart_exists()
+                
+                # Обновляем UI автозапуска при необходимости
+                self.update_autostart_ui(autostart_active)
             
             # Проверяем статус процесса
             process_running = False
@@ -90,20 +93,26 @@ class LupiDPIApp(QWidget):
                 process_running = self.dpi_starter.check_process_running()
             
             # Обновляем состояние элементов интерфейса
-            if process_running or service_running:
+            if process_running or autostart_active:
                 if hasattr(self, 'start_btn'):
                     self.start_btn.setVisible(False)
                 if hasattr(self, 'stop_btn'):
                     self.stop_btn.setVisible(True)
                 
-                # Если служба активна, отображаем это
-                if service_running:
-                    self.process_status_value.setText("СЛУЖБА АКТИВНА")
+                # Если автозапуск активен, отображаем это в статусе
+                if autostart_active:
+                    self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
                     self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+                    # Блокируем возможность ручного переключения стратегий при автозапуске
+                    if hasattr(self, 'start_mode_combo'):
+                        self.start_mode_combo.setEnabled(False)
                 else:
                     # Иначе показываем обычный статус
                     self.process_status_value.setText("ВКЛЮЧЕН")
                     self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+                    # Разблокируем комбобокс при обычном запуске
+                    if hasattr(self, 'start_mode_combo'):
+                        self.start_mode_combo.setEnabled(True)
             else:
                 if hasattr(self, 'start_btn'):
                     self.start_btn.setVisible(True)
@@ -111,6 +120,9 @@ class LupiDPIApp(QWidget):
                     self.stop_btn.setVisible(False)
                 self.process_status_value.setText("ВЫКЛЮЧЕН")
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+                # Разблокируем комбобокс когда всё выключено
+                if hasattr(self, 'start_mode_combo'):
+                    self.start_mode_combo.setEnabled(True)
             
         except Exception as e:
             from log import log
@@ -178,40 +190,64 @@ class LupiDPIApp(QWidget):
         # В любом случае обновляем статус
         self.check_process_status()
 
-    def start_dpi(self, selected_mode=None):
+    def start_dpi(self, selected_mode=None, delayed=False):
         """Запускает DPI с выбранной конфигурацией"""
         try:
             from log import log
             
-            # Если служба активна, не запускаем
-            if hasattr(self, 'service_manager') and self.service_manager.check_service_exists():
-                log("Служба активна, не запускаем DPI", level="INFO")
+            # Проверка 1: Проверяем через менеджер служб
+            autostart_active = False
+            if hasattr(self, 'service_manager'):
+                autostart_active = self.service_manager.check_autostart_exists()
+                
+            # Проверка 2: Прямая проверка наличия задачи планировщика (дублирующая для надежности)
+            if not autostart_active:
+                try:
+                    task_name = "ZapretCensorliber"
+                    check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+                    result = subprocess.run(check_cmd, shell=True, capture_output=True)
+                    if result.returncode == 0:
+                        autostart_active = True
+                        log("Прямая проверка: обнаружена задача в планировщике", level="DEBUG")
+                except Exception as e:
+                    log(f"Ошибка при прямой проверке планировщика: {str(e)}", level="DEBUG")
+            
+            # Если автозапуск активен, не запускаем DPI
+            if autostart_active:
+                log("Автозапуск активен через планировщик задач, не запускаем DPI вручную", level="INFO")
+                self.set_status("Автозапуск уже активен, ручной запуск не требуется")
+                self.update_ui(running=True)
+                self.check_process_status()  # Обновляем интерфейс
                 return False
             
-            # Если не указан режим, используем комбобокс
+            # Если отложенный запуск и процесс уже запущен, пропускаем
+            if delayed and self.dpi_starter.check_process_running():
+                log("Процесс winws.exe уже запущен, пропускаем отложенный запуск", level="INFO")
+                self.update_ui(running=True)
+                self.last_status = (True, False)
+                self.last_status_time = time.time()
+                return True
+                
+            # Получаем режим запуска
             if selected_mode is None or selected_mode is False:
-                # Проверяем наличие и доступность комбо-бокса
                 if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
                     selected_mode = self.start_mode_combo.currentText()
-                    # Проверяем, не пустой ли текст
                     if not selected_mode:
                         log("Ошибка: пустое название стратегии", level="ERROR")
                         self.set_status("Ошибка: не выбрана стратегия")
                         return False
                 else:
-                    # Если комбо-бокс недоступен, используем значение по умолчанию
                     log("Комбо-бокс недоступен, используем стратегию по умолчанию", level="WARNING")
-                    selected_mode = "Оригинальная bol-van v2 (07.04.2025)"  # Безопасное значение по умолчанию
+                    selected_mode = "Оригинальная bol-van v2 (07.04.2025)"
             
-            # Проверяем, что режим не является логическим False, а действительно строкой
-            if selected_mode is False or not isinstance(selected_mode, str):
-                log(f"Некорректный режим запуска: {selected_mode}, тип: {type(selected_mode)}", level="ERROR")
-                self.set_status("Ошибка: некорректный режим запуска")
-                return False
+            # Устанавливаем флаг намеренного запуска при отложенном запуске
+            if delayed:
+                self.intentional_start = True
+                # Сбрасываем флаг через 5 секунд
+                QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
             
             log(f"Запуск стратегии: {selected_mode}", level="INFO")
-            
-            # Остальной код без изменений
+
             if hasattr(self, 'strategy_manager') and self.strategy_manager:
                 # Находим ID стратегии по отображаемому имени
                 strategy_id = None
@@ -258,22 +294,26 @@ class LupiDPIApp(QWidget):
             log(f"Ошибка при запуске DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при запуске: {str(e)}")
             return False
-    
     def update_autostart_ui(self, service_running):
-        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса службы"""
+        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса автозапуска"""
+        # Проверяем актуальный статус, если не указан явно
+        if service_running is None and hasattr(self, 'service_manager'):
+            service_running = self.service_manager.check_autostart_exists()
+        
         # Обновляем видимость кнопок включения/отключения автозапуска
         self.autostart_enable_btn.setVisible(not service_running)
         self.autostart_disable_btn.setVisible(service_running)
         
-        # Обновляем доступность выбора стратегии
+        # Обновляем видимость выбора стратегии
         if service_running:
-            # Если служба запущена, скрываем выбор стратегии и показываем сообщение
+            # Если автозапуск активен, скрываем выбор стратегии и показываем сообщение
             self.start_mode_combo.setVisible(False)
             
             # Если метки еще нет, создаем её
             if not hasattr(self, 'service_info_label'):
                 from PyQt5.QtWidgets import QLabel
-                self.service_info_label = QLabel("Служба запущена с фиксированной стратегией!\nСменить стратегию НЕЛЬЗЯ!", self)
+                from PyQt5.QtCore import Qt
+                self.service_info_label = QLabel("Для смены стратегии сначала отключите автозапуск.", self)
                 self.service_info_label.setAlignment(Qt.AlignCenter)
                 self.service_info_label.setStyleSheet("color: red; font-weight: bold;")
                 
@@ -287,8 +327,10 @@ class LupiDPIApp(QWidget):
             # Показываем информационную метку
             self.service_info_label.setVisible(True)
         else:
-            # Если служба остановлена, показываем выбор стратегии и скрываем сообщение
+            # Если автозапуск отключен, показываем выбор стратегии
             self.start_mode_combo.setVisible(True)
+            self.start_mode_combo.setEnabled(True)
+            self.start_mode_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
             
             # Скрываем информационную метку, если она существует
             if hasattr(self, 'service_info_label'):
@@ -438,15 +480,27 @@ class LupiDPIApp(QWidget):
             status_callback=self.set_status
         )
         
+        debug_mode = "--debug" in sys.argv
+        
         # Инициализируем стартер DPI
         self.dpi_starter = DPIStarter(
             winws_exe=WINWS_EXE,
             bin_folder=BIN_FOLDER,
             lists_folder=LISTS_FOLDER,
-            status_callback=self.set_status
+            status_callback=self.set_status,
+            debug_mode=debug_mode
         )
         
-        # Проверяем и обновляем UI службы
+        # Если мы в режиме отладки, показываем сообщение в UI
+        if debug_mode:
+            self.set_status("Запуск в режиме отладки")
+            from log import log
+            log("РЕЖИМ ОТЛАДКИ АКТИВЕН - ВСЕ КОНСОЛИ ПРОЦЕССОВ БУДУТ ВИДНЫ", level="DEBUG")
+        
+        # Проверяем и обновляем UI службы/задачи
+        autostart_running = self.service_manager.check_autostart_exists()
+        self.update_autostart_ui(autostart_running)
+
         service_running = self.service_manager.check_service_exists()
         self.update_autostart_ui(service_running)
         
@@ -468,48 +522,33 @@ class LupiDPIApp(QWidget):
         QTimer.singleShot(8000, self.finish_initialization)
 
     def delayed_dpi_start(self):
-        """Выполняет отложенный запуск DPI для предотвращения конфликтов"""
+        """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         from log import log
         
-        # ВАЖНО: Проверяем, не запущен ли уже процесс
-        if self.dpi_starter.check_process_running():
-            log("Процесс winws.exe уже запущен, пропускаем отложенный запуск", level="INFO")
-            # Только обновляем UI, не запуская процесс
-            self.update_ui(running=True)
-            self.last_status = (True, False)
-            self.last_status_time = time.time()
-            return
-                
-        # Проверяем, что это первый запуск
-        if not hasattr(self, 'dpi_started') or not self.dpi_started:
-            self.dpi_started = True
-            # Если существует метка времени запуска стратегии и прошло 
-            # менее 3 секунд, не запускаем снова
-            current_time = time.time()
-            if (hasattr(self, 'last_strategy_change_time') and 
-                (current_time - self.last_strategy_change_time < 3)):
-                log("Пропускаем запуск, так как стратегия была недавно запущена", level="INFO")
+        # Сначала проверяем, активен ли автозапуск через планировщик задач
+        # ВАЖНО: делаем прямой запрос к планировщику задач Windows для гарантии актуальности данных
+        try:
+            task_name = "ZapretCensorliber"
+            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+            result = subprocess.run(check_cmd, shell=True, capture_output=True)
+            
+            if result.returncode == 0:
+                log("Обнаружена активная задача планировщика ZapretCensorliber, пропускаем ручной запуск", level="INFO")
+                self.update_ui(running=True)
+                self.check_process_status()
                 return
-            else:
-                # Устанавливаем флаг намеренного запуска, чтобы предотвратить 
-                # автоматические проверки и остановку
-                self.intentional_start = True
-                log("Выполняем отложенный запуск DPI", level="INFO")
-                
-                # Получаем текст из комбо-бокса до вызова start_dpi
-                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
-                    strategy_name = self.start_mode_combo.currentText()
-                    log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
-                    # Передаем явно имя стратегии, а не результат выполнения метода
-                    self.start_dpi(selected_mode=strategy_name)
-                else:
-                    log("Комбо-бокс стратегий недоступен", level="WARNING")
-                    # Используем стандартную стратегию
-                    self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)")
-                    
-                # Сбрасываем флаг
-                QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
-                log("Выполнен отложенный запуск DPI", level="INFO")
+        except Exception as e:
+            log(f"Ошибка при проверке задачи планировщика: {str(e)}", level="WARNING")
+        
+        # Затем проверяем, запущен ли уже процесс winws.exe
+        if self.dpi_starter.check_process_running():
+            log("Процесс winws.exe уже запущен, пропускаем ручной запуск", level="INFO")
+            self.update_ui(running=True)
+            return
+        
+        # Если автозапуск не активен и процесс не запущен, выполняем обычный запуск
+        log("Выполняем отложенный запуск DPI", level="INFO")
+        self.start_dpi(delayed=True)
 
     def finish_initialization(self):
         """Завершает процесс инициализации"""
@@ -641,6 +680,13 @@ class LupiDPIApp(QWidget):
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
+        # Проверяем, активен ли автозапуск
+        if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
+            # Если автозапуск активен, игнорируем смену режима и восстанавливаем предыдущий выбор
+            from log import log
+            log("Смена стратегии недоступна при активном автозапуске", level="WARNING")
+            return
+        
         # Записываем время изменения стратегии
         self.last_strategy_change_time = time.time()
         
@@ -659,7 +705,7 @@ class LupiDPIApp(QWidget):
             self.discord_manager.restart_discord_if_running()
         else:
             self.first_start = False  # Сбрасываем флаг первого запуска
-
+            
     def change_theme(self, theme_name):
         """Изменяет тему приложения"""
         success, message = self.theme_manager.apply_theme(theme_name)
@@ -789,22 +835,74 @@ class LupiDPIApp(QWidget):
             from log import log
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при остановке: {str(e)}")
-    
-    def install_service(self):
-        """Устанавливает службу DPI с текущей конфигурацией"""
-        selected_config = self.start_mode_combo.currentText()
-        if selected_config not in DPI_COMMANDS:
-            self.set_status(f"Недопустимая конфигурация: {selected_config}")
-            return
-            
-        # Получаем аргументы командной строки для выбранной конфигурации
-        command_args = DPI_COMMANDS.get(selected_config, [])
-        
-        # Устанавливаем службу через ServiceManager и обновляем UI, если успешно
-        if self.service_manager.install_service(command_args, config_name=selected_config):
-            self.update_autostart_ui(True)
-            self.check_process_status()
 
+    def install_service(self):
+        """Устанавливает автозапуск DPI с текущей выбранной стратегией"""
+        try:
+            from log import log
+            
+            selected_strategy_name = self.start_mode_combo.currentText()
+            log(f"Установка автозапуска с выбранной стратегией: {selected_strategy_name}", level="INFO")
+            
+            # Находим ID стратегии по имени
+            strategy_id = None
+            for i in range(self.start_mode_combo.count()):
+                if self.start_mode_combo.itemText(i) == selected_strategy_name:
+                    strategy_id = self.start_mode_combo.itemData(i)
+                    break
+            
+            if not strategy_id:
+                log(f"Не удалось найти ID стратегии для: {selected_strategy_name}", level="ERROR")
+                QMessageBox.critical(self, "Ошибка", f"Не удалось найти ID стратегии для: {selected_strategy_name}")
+                self.set_status(f"Ошибка: стратегия не найдена")
+                return False
+            
+            log(f"Найден ID стратегии: {strategy_id}", level="INFO")
+            
+            # Получаем путь к BAT-файлу стратегии
+            if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
+                log("Менеджер стратегий не инициализирован", level="ERROR")
+                QMessageBox.critical(self, "Ошибка", "Менеджер стратегий не инициализирован")
+                self.set_status("Ошибка: менеджер стратегий не инициализирован")
+                return False
+            
+            # Скачиваем стратегию, если она еще не скачана
+            strategy_bat_path = self.strategy_manager.download_strategy(strategy_id)
+            if not strategy_bat_path:
+                log(f"Не удалось получить BAT-файл для стратегии: {strategy_id}", level="ERROR")
+                QMessageBox.critical(self, "Ошибка", f"Не удалось получить BAT-файл для стратегии: {selected_strategy_name}")
+                self.set_status(f"Ошибка: не удалось получить файл стратегии")
+                return False
+            
+            # Полный путь к BAT-файлу
+            full_bat_path = os.path.abspath(strategy_bat_path)
+            log(f"Путь к BAT-файлу стратегии: {full_bat_path}", level="INFO")
+            
+            # Показываем информацию о процессе
+            self.set_status("Настройка автозапуска...")
+            
+            # Устанавливаем задачу в планировщике для запуска BAT-файла
+            if self.service_manager.install_task_scheduler(
+                bat_file_path=full_bat_path, 
+                config_name=selected_strategy_name,
+                strategy_id=strategy_id
+            ):
+                self.update_autostart_ui(True)
+                self.check_process_status()
+                QMessageBox.information(self, "Успех", f"Автозапуск успешно настроен с режимом: {selected_strategy_name}")
+                return True
+            else:
+                log("Ошибка при настройке автозапуска", level="ERROR")
+                QMessageBox.critical(self, "Ошибка", "Не удалось настроить автозапуск. Проверьте журнал для подробностей.")
+                return False
+                
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при настройке автозапуска: {str(e)}")
+            self.set_status(f"Ошибка при настройке автозапуска: {str(e)}")
+            return False
+    
     def remove_service(self):
         """Удаляет службу DPI"""
         if self.service_manager.remove_service():
@@ -1114,7 +1212,12 @@ class LupiDPIApp(QWidget):
 def main():
     try:
         from log import log
-        log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
+        # Проверяем наличие флага отладки
+        debug_mode = "--debug" in sys.argv
+        if debug_mode:
+            log("========================= ZAPRET ЗАПУСКАЕТСЯ В РЕЖИМЕ ОТЛАДКИ ========================", level="START")
+        else:
+            log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
     except Exception as e:
         log(f"Failed to initialize logger: {e}", level="ERROR")
 

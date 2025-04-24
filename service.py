@@ -64,10 +64,9 @@ class ServiceManager:
             print(text)
     
     def check_service_exists(self):
-        """Проверяет существует ли служба"""
-        check_cmd = f'sc query "{self.service_name}"'
-        check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-        return check_result.returncode == 0
+        """Проверяет наличие автозапуска (обратная совместимость)"""
+        # Просто делегируем вызов новому методу для обеспечения обратной совместимости
+        return self.check_autostart_exists()
 
     def install_service(self, command_args, config_name=""):
         """
@@ -172,73 +171,202 @@ class ServiceManager:
         except Exception as e:
             self.set_status(f"Ошибка при установке службы: {str(e)}")
             return False
-        
-    def remove_service(self):
+
+    def install_task_scheduler(self, bat_file_path, config_name, strategy_id=None):
         """
-        Удаляет службу ZapretCensorliber и другие связанные службы.
-        
-        Returns:
-            bool: True если служба успешно удалена, False в случае ошибки
+        Создает задачу в планировщике заданий Windows для автозапуска BAT-файла
         """
         try:
-            success = True  # Флаг успешности операции
-
-            # Проверяем существует ли основная служба
-            if self.check_service_exists():
-                # Останавливаем основную службу
-                stop_cmd = f'sc stop "{self.service_name}"'
-                subprocess.run(stop_cmd, shell=True, capture_output=True)
-                time.sleep(0.5)  # Даем время на остановку
-                
-                # Удаляем основную службу
-                delete_cmd = f'sc delete "{self.service_name}"'
-                delete_result = subprocess.run(delete_cmd, shell=True, capture_output=True, text=True)
-                if delete_result.returncode == 0:
-                    self.set_status(f"Служба {self.service_name} удалена")
-                else:
-                    error_output = delete_result.stderr.strip() if delete_result.stderr else delete_result.stdout.strip()
-                    self.set_status(f"Ошибка при удалении службы {self.service_name}: {error_output}")
-                    success = False
+            from log import log
+            
+            # Проверяем наличие файла
+            if not os.path.exists(bat_file_path):
+                log(f"BAT-файл не найден: {bat_file_path}", level="ERROR")
+                self.set_status(f"Ошибка: BAT-файл не найден")
+                return False
+            
+            # Имя задачи
+            task_name = "ZapretCensorliber"
+            
+            # Проверяем, существует ли уже задача и удаляем ее
+            self.set_status("Проверка существующих задач...")
+            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+            result = subprocess.run(check_cmd, shell=True, capture_output=True)
+            
+            if result.returncode == 0:
+                log("Задача ZapretCensorliber уже существует, удаляем...", level="INFO")
+                self.set_status("Удаление существующей задачи...")
+                delete_cmd = f'schtasks /Delete /TN "{task_name}" /F'
+                subprocess.run(delete_cmd, shell=True, check=False)
+                time.sleep(1)  # Даем время на удаление задачи
+            
+            # Создаем конфигурационный файл для хранения информации о стратегии
+            config_file_path = os.path.join(self.bin_folder, "autostart_config.txt")
+            with open(config_file_path, 'w', encoding='utf-8') as f:
+                f.write(f"strategy_name={config_name}\n")
+                f.write(f"strategy_id={strategy_id or 'unknown'}\n")
+                f.write(f"bat_file={bat_file_path}\n")
+                f.write(f"installed={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"type=task_scheduler\n")
+            
+            # Создаем CMD-файл для запуска стратегии
+            launcher_cmd_path = os.path.join(self.bin_folder, "autostart_launcher.cmd")
+            with open(launcher_cmd_path, 'w', encoding='utf-8') as f:
+                f.write(f"""@echo off
+    rem Zapret DPI Autostart Launcher
+    cd /d "{os.path.dirname(bat_file_path)}"
+    start /b "" "{os.path.basename(bat_file_path)}"
+    exit
+    """)
+            
+            # Полный путь к батнику запуска
+            abs_cmd_path = os.path.abspath(launcher_cmd_path)
+            
+            # Создаем задачу в планировщике с запуском при старте системы
+            # /RL HIGHEST = запуск с повышенными правами
+            # /SC ONSTART = запуск при старте системы
+            # /RU SYSTEM = запуск от имени системы
+            # /NP = без запроса пароля
+            
+            log(f"Создание задачи в планировщике для: {abs_cmd_path}", level="INFO")
+            
+            # Формируем команду
+            create_cmd = (
+                f'schtasks /Create /SC ONSTART /TN "{task_name}" '
+                f'/TR "cmd.exe /c \\"\\"\\"{abs_cmd_path}\\"\\"\\"" '
+                f'/RL HIGHEST /RU SYSTEM /F /NP /V1'
+            )
+            
+            log(f"Команда создания задачи: {create_cmd}", level="INFO")
+            
+            # Создаем задачу
+            self.set_status("Создание задачи в планировщике...")
+            result = subprocess.run(create_cmd, shell=True, check=False, capture_output=True, text=True, encoding='cp866')
+            
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout
+                log(f"Ошибка при создании задачи: {error_msg}", level="ERROR")
+                self.set_status(f"Ошибка: не удалось создать задачу")
+                return False
+            
+            log(f"Результат создания задачи: {result.stdout}", level="INFO")
+            
+            # Запускаем задачу сразу
+            self.set_status("Запуск задачи...")
+            run_cmd = f'schtasks /Run /TN "{task_name}"'
+            subprocess.run(run_cmd, shell=True, check=False)
+            
+            # Сохраняем информацию о конфигурации в реестр
+            save_config_to_registry(config_name)
+            
+            # Проверяем, запустился ли процесс
+            time.sleep(2)  # Даем время на запуск
+            
+            from start import DPIStarter
+            dpi_starter = DPIStarter(self.winws_exe, self.bin_folder, self.lists_folder)
+            if dpi_starter.check_process_running():
+                log("Процесс winws.exe успешно запущен через планировщик", level="INFO")
+                self.set_status(f"Автозапуск успешно настроен с режимом: {config_name}")
+                return True
             else:
-                self.set_status("Основная служба не найдена")
+                log("Задача создана, но процесс не запустился автоматически", level="WARNING")
+                self.set_status(f"Автозапуск настроен, но требуется перезагрузка")
+                return True
             
-            # Останавливаем и удаляем дополнительные службы
-            additional_services = ["WinDivert", "WinDivert14", "zapret", "GoodbyeDPI"]
-            for service in additional_services:
-                try:
-                    # Проверяем существует ли служба более надежным способом
-                    check_cmd = f'sc query "{service}"'
-                    check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-                    
-                    # Проверяем и stdout и stderr на наличие ошибки 1060 или сообщения о том, что служба не существует
-                    service_exists = True
-                    if check_result.returncode != 0:
-                        error_text = check_result.stderr + check_result.stdout
-                        if "1060" in error_text or "не существует" in error_text.lower() or "does not exist" in error_text.lower():
-                            service_exists = False
-                    
-                    if not service_exists:
-                        # Служба не существует, пропускаем без сообщения об ошибке
-                        continue
-                    
-                    # Останавливаем службу
-                    stop_cmd = f'sc stop "{service}"'
-                    subprocess.run(stop_cmd, shell=True, capture_output=True, text=True)
-                    time.sleep(0.5)  # Даем время на остановку
-                    
-                    # Удаляем службу
-                    delete_cmd = f'sc delete "{service}"'
-                    delete_result = subprocess.run(delete_cmd, shell=True, capture_output=True, text=True)
-                    
-                    if delete_result.returncode == 0:
-                        self.set_status(f"Дополнительная служба {service} удалена")
-                except Exception as e:
-                    # Игнорируем ошибки, но выводим их в консоль для отладки
-                    print(f"DEBUG: Ошибка при обработке службы {service}: {str(e)}")
-            
-            return success
         except Exception as e:
-            self.set_status(f"Критическая ошибка при удалении служб: {str(e)}")
+            from log import log
+            log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка: {str(e)}")
+            return False
+
+    def remove_service(self):
+        """Удаляет автозапуск DPI"""
+        try:
+            from log import log
+            
+            # Имя задачи
+            task_name = "ZapretCensorliber"
+            
+            # Проверяем существование задачи
+            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+            result = subprocess.run(check_cmd, shell=True, capture_output=True)
+            
+            if result.returncode != 0:
+                log("Задача автозапуска не установлена, нечего удалять", level="INFO")
+                self.set_status("Автозапуск не настроен")
+                return True
+            
+            # Удаляем задачу
+            self.set_status("Удаление автозапуска...")
+            log("Удаляем задачу автозапуска ZapretCensorliber", level="INFO")
+            
+            delete_cmd = f'schtasks /Delete /TN "{task_name}" /F'
+            result = subprocess.run(delete_cmd, shell=True, check=False, capture_output=True, text=True, encoding='cp866')
+            
+            if result.returncode != 0:
+                log(f"Ошибка при удалении задачи: {result.stderr or result.stdout}", level="ERROR")
+                self.set_status(f"Ошибка при удалении автозапуска")
+                return False
+            
+            # Удаляем конфигурационный файл автозапуска, если он существует
+            config_file_path = os.path.join(self.bin_folder, "autostart_config.txt")
+            if os.path.exists(config_file_path):
+                try:
+                    os.remove(config_file_path)
+                except Exception as e:
+                    log(f"Ошибка при удалении конфигурационного файла: {str(e)}", level="WARNING")
+            
+            # Удаляем файл запуска
+            launcher_cmd_path = os.path.join(self.bin_folder, "autostart_launcher.cmd")
+            if os.path.exists(launcher_cmd_path):
+                try:
+                    os.remove(launcher_cmd_path)
+                except Exception as e:
+                    log(f"Ошибка при удалении файла запуска: {str(e)}", level="WARNING")
+            
+            log("Автозапуск успешно удален", level="INFO")
+            self.set_status("Автозапуск успешно удален")
+            return True
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при удалении автозапуска: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка при удалении автозапуска: {str(e)}")
+            return False
+    
+    def check_autostart_exists(self):
+        """Проверяет, настроен ли автозапуск Zapret через любой механизм (служба или планировщик)"""
+        try:
+            # Сначала проверяем наличие задачи в планировщике - прямой запрос
+            task_name = "ZapretCensorliber"
+            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+            result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True, encoding='cp866')
+            
+            if result.returncode == 0:
+                # Выводим детали задачи для отладки
+                from log import log
+                log(f"Обнаружена задача планировщика: {task_name}", level="DEBUG")
+                return True
+                
+            # Затем проверяем наличие службы Windows
+            service_result = subprocess.run(
+                'sc query ZapretCensorliber',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+            
+            if service_result.returncode == 0 and "STATE" in service_result.stdout:
+                # Выводим детали службы для отладки
+                from log import log
+                log(f"Обнаружена служба Windows: ZapretCensorliber", level="DEBUG")
+                return True
+                
+            return False
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при проверке автозапуска: {str(e)}", level="ERROR")
             return False
     
     def get_current_service_config(self):

@@ -10,7 +10,7 @@ from log import log
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
     
-    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None):
+    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, debug_mode=False):
         """
         Инициализирует DPIStarter.
         
@@ -19,11 +19,13 @@ class DPIStarter:
             bin_folder (str): Путь к папке с бинарными файлами
             lists_folder (str): Путь к папке со списками
             status_callback (callable): Функция обратного вызова для отображения статуса
+            debug_mode (bool): Флаг режима отладки, определяет видимость консоли
         """
         self.winws_exe = winws_exe
         self.bin_folder = bin_folder
         self.lists_folder = lists_folder
         self.status_callback = status_callback
+        self.debug_mode = debug_mode
     
     def set_status(self, text):
         """Отображает статусное сообщение."""
@@ -59,11 +61,11 @@ class DPIStarter:
         Returns:
             bool: True если процесс запущен, False если не запущен
         """
-        log(f"Start check_process_running...", level="START")
+        log(f"=================== check_process_running ==========================", level="START")
 
         try:
             
-            log("Метод 1: Проверка через tasklist")
+            log("Метод 1: Проверка через tasklist", level="START")
             result = subprocess.run(
                 'tasklist /FI "IMAGENAME eq winws.exe" /NH',
                 shell=True, 
@@ -83,14 +85,14 @@ class DPIStarter:
                     
                     if len(pid_parts) >= 2:
                         pid = pid_parts[1]
-                        log(f"Найден PID процесса: {pid}")
+                        log(f"Найден PID процесса: {pid}", level="START")
                         return True
                 
-                log("Процесс найден, но не удалось определить PID")
+                log("Процесс найден, но не удалось определить PID", level="START")
                 return True  # Процесс найден, даже если мы не смогли извлечь PID
             
             # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
-            log("Метод 2: Проверка через PowerShell")
+            log("Метод 2: Проверка через PowerShell", level="START")
             try:
                 ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id"'
                 ps_result = subprocess.run(
@@ -101,17 +103,17 @@ class DPIStarter:
                     encoding='cp866'
                 )
                 
-                log(f"Результат PowerShell: {ps_result.stdout.strip()}")
+                log(f"Результат PowerShell: {ps_result.stdout.strip()}", level="START")
                 
                 # Если есть любая строка, содержащая число после Id
                 if any(line.strip().isdigit() for line in ps_result.stdout.split('\n') if line.strip()):
-                    log("Процесс winws.exe найден через PowerShell")
+                    log("Процесс winws.exe найден через PowerShell", level="START")
                     return True
             except Exception as ps_error:
-                log(f"Ошибка при проверке через PowerShell: {str(ps_error)}")
+                log(f"Ошибка при проверке через PowerShell: {str(ps_error)}", level="START")
             
             # Метод 3: Проверка через wmic (работает даже на старых системах)
-            log("Метод 3: Проверка через wmic")
+            log("Метод 3: Проверка через wmic", level="START")
             try:
                 wmic_result = subprocess.run(
                     'wmic process where "name=\'winws.exe\'" get processid',
@@ -121,18 +123,18 @@ class DPIStarter:
                     encoding='cp866'
                 )
                 
-                log(f"Результат wmic: {wmic_result.stdout.strip()}")
+                log(f"Результат wmic: {wmic_result.stdout.strip()}", level="START")
                 
                 lines = [line.strip() for line in wmic_result.stdout.split('\n') if line.strip()]
                 # Проверяем есть ли более одной строки (заголовок + данные)
                 if len(lines) > 1:
-                    log("Процесс winws.exe найден через wmic")
+                    log("Процесс winws.exe найден через wmic", level="START")
                     return True
             except Exception as wmic_error:
-                log(f"Ошибка при проверке через wmic: {str(wmic_error)}")
+                log(f"Ошибка при проверке через wmic: {str(wmic_error)}", level="START")
                 
             # Метод 4: Проверка через простую команду findstr
-            log("Метод 4: Проверка через tasklist и findstr")
+            log("Метод 4: Проверка через tasklist и findstr", level="START")
             try:
                 findstr_result = subprocess.run(
                     'tasklist | findstr "winws"',
@@ -142,30 +144,30 @@ class DPIStarter:
                     encoding='cp866'
                 )
                 
-                log(f"Результат findstr: {findstr_result.stdout.strip()}")
+                log(f"Результат findstr: {findstr_result.stdout.strip()}", level="START")
                 
                 if findstr_result.stdout.strip():
-                    log("Процесс winws.exe найден через findstr")
+                    log("Процесс winws.exe найден через findstr", level="START")
                     return True
             except Exception as findstr_error:
-                log(f"Ошибка при проверке через findstr: {str(findstr_error)}")
+                log(f"Ошибка при проверке через findstr: {str(findstr_error)}", level="START")
             
             # Проверка существования файла блокировки
             # Некоторые процессы создают файлы блокировки, которые можно проверить
             try:
                 lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws.lock")
                 if os.path.exists(lock_file):
-                    log(f"Найден файл блокировки {lock_file}, процесс запущен")
+                    log(f"Найден файл блокировки {lock_file}, процесс запущен", level="START")
                     return True
             except Exception as lock_error:
-                log(f"Ошибка при проверке файла блокировки: {str(lock_error)}")
+                log(f"Ошибка при проверке файла блокировки: {str(lock_error)}", level="START")
             
             # Если все методы не нашли процесс
-            log("Процесс winws.exe НЕ найден ни одним из методов")
+            log("Процесс winws.exe НЕ найден ни одним из методов", level="START")
             return False
             
         except Exception as e:
-            log(f"Общая ошибка при проверке статуса процесса: {str(e)}")
+            log(f"Общая ошибка при проверке статуса процесса: {str(e)}", level="START")
             return False
         
     def stop_dpi(self):
@@ -193,15 +195,15 @@ class DPIStarter:
                 log(f"Ошибка при проверке службы: {str(e)}", level="ERROR")
                 
             if service_exists:
-                log("Обнаружена активная служба ZapretCensorliber", level="INFO")
+                log("Обнаружена активная служба ZapretCensorliber", level="START")
                 self.set_status("Невозможно остановить Zapret, пока установлена служба")
                 return False
             else:
-                log("Служба ZapretCensorliber не найдена, продолжаем остановку DPI.", level="INFO")
+                log("Служба ZapretCensorliber не найдена, продолжаем остановку DPI.", level="START")
             
             # Проверяем, запущен ли процесс
             if not self.check_process_running():
-                log("Процесс winws.exe не запущен, нет необходимости в остановке", level="INFO")
+                log("Процесс winws.exe не запущен, нет необходимости в остановке", level="START")
                 self.set_status("Zapret уже остановлен")
                 return True
             
@@ -209,7 +211,7 @@ class DPIStarter:
             stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
             if os.path.exists(stop_bat_path):
                 self.set_status("Останавливаю winws.exe через stop.bat...")
-                log("Использую stop.bat для остановки процесса", level="INFO")
+                log("Использую stop.bat для остановки процесса", level="START")
                 
                 # Создаем startupinfo для скрытия окна командной строки
                 startupinfo = subprocess.STARTUPINFO()
@@ -243,7 +245,7 @@ class DPIStarter:
                     return False
             else:
                 # Если stop.bat не найден, создаем его
-                log("stop.bat не найден, создаем...", level="INFO")
+                log("stop.bat не найден, создаем...", level="START")
                 self.create_stop_bat()
                 return self.stop_dpi()  # Рекурсивно вызываем метод после создания файла
                 
@@ -290,7 +292,7 @@ class DPIStarter:
             with open(stop_bat_path, 'w', encoding='utf-8') as f:
                 f.write(stop_bat_content)
                 
-            log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="INFO")
+            log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="START")
             return True
         except Exception as e:
             log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
@@ -327,16 +329,16 @@ class DPIStarter:
                 for line in ps_result.stdout.strip().split('\n'):
                     if line.strip() and line.strip().isdigit():
                         orphaned_pids.append(line.strip())
-                        log(f"Обнаружен не отвечающий процесс winws.exe с PID: {line.strip()}")
+                        log(f"Обнаружен не отвечающий процесс winws.exe с PID: {line.strip()}", level="START")
             except Exception as ps_error:
-                log(f"Ошибка при проверке зависших процессов: {str(ps_error)}")
+                log(f"Ошибка при проверке зависших процессов: {str(ps_error)}", level="START")
             
             return len(orphaned_pids) > 0
             
         except Exception as e:
             log(f"Ошибка в check_process_corrupted: {str(e)}")
             return False
-        
+
     def start_with_progress(self, mode, dpi_commands, download_urls=None, parent_widget=None):
         """
         Запускает DPI с выбранной конфигурацией и показывает прогресс.
@@ -359,7 +361,7 @@ class DPIStarter:
             
             # Если stop.bat существует, запускаем его
             if os.path.exists(stop_bat_path):
-                log("Запуск stop.bat для остановки предыдущих процессов", level="INFO")
+                log("Запуск stop.bat для остановки предыдущих процессов", level="START")
                 
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -377,7 +379,7 @@ class DPIStarter:
                 except subprocess.TimeoutExpired:
                     log("Таймаут ожидания stop.bat", level="WARNING")
                 
-                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
+                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="START")
             else:
                 # Создаем stop.bat, если он не существует
                 self.create_stop_bat()
@@ -417,15 +419,28 @@ class DPIStarter:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
+            # Настройка отображения консоли в зависимости от режима отладки
+            startupinfo = None
+            if not self.debug_mode:
+                # Только в обычном режиме скрываем консоль
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = win32con.SW_HIDE
+                log("Запуск в обычном режиме (консоль скрыта)", level="START")
+            else:
+                # В режиме отладки показываем консоль
+                log("ЗАПУСК В РЕЖИМЕ ОТЛАДКИ - КОНСОЛЬ БУДЕТ ОТОБРАЖАТЬСЯ", level="DEBUG")
+                self.set_status("Запуск в режиме отладки (консоль будет видна)")
+            
             # Запускаем процесс
             process = subprocess.Popen(
                 cmd, 
-                startupinfo=startupinfo,
-                cwd=self.bin_folder,  # Указываем рабочую директорию
+                startupinfo=startupinfo,  # Будет None в режиме отладки
+                cwd=self.bin_folder,
                 shell=False
             )
-            
-            log(f"Запущен процесс: {process.pid}", level="INFO")
+
+            log(f"Запущен процесс: {process.pid}", level="START")
             
             # Проверяем, запустился ли процесс
             if process.poll() is not None:
@@ -436,7 +451,7 @@ class DPIStarter:
             
             # Проверяем, запущен ли процесс winws.exe
             if self.check_process_running():
-                log("ZAPRET УСПЕШНО ЗАПУЩЕН ", level="INFO")
+                log("ZAPRET УСПЕШНО ЗАПУЩЕН ", level="START")
                 self.set_status("Zapret успешно запущен")
                 return True
             else:
@@ -484,13 +499,13 @@ class DPIStarter:
         if not os.path.exists(exe_path):
             if download_urls and self.download_files(download_urls):
                 self.set_status("Необходимые файлы скачаны")
-                log(f"Необходимые файлы скачаны")
+                log(f"Необходимые файлы скачаны", level="START")
                 return True
             else:
-                log(f"Файл {exe_path} не найден и не может быть скачан")
+                log(f"Файл {exe_path} не найден и не может быть скачан", level="START")
                 raise FileNotFoundError(f"Файл {exe_path} не найден и не может быть скачан")
         return True
-
+    
     def start_dpi(self, mode, dpi_commands, download_urls=None):
         """
         Запускает DPI с выбранной конфигурацией.
@@ -513,22 +528,24 @@ class DPIStarter:
             # Проверяем существование stop.bat
             if os.path.exists(stop_bat_path):
                 self.set_status("Останавливаю предыдущие процессы...")
-                log("Запуск stop.bat для остановки предыдущих процессов", level="INFO")
+                log("Запуск stop.bat для остановки предыдущих процессов", level="START")
                 
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                # Создаем startupinfo для скрытия окна командной строки
+                stop_startupinfo = subprocess.STARTUPINFO()
+                stop_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                stop_startupinfo.wShowWindow = win32con.SW_HIDE
                 
                 # Запускаем stop.bat и ЖДЕМ его полного завершения
                 stop_process = subprocess.Popen(
                     stop_bat_path,
-                    startupinfo=startupinfo,
+                    startupinfo=stop_startupinfo,
                     cwd=self.bin_folder,
                     shell=True
                 )
                 
                 # Ждем завершения процесса остановки
                 stop_process.wait()
-                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="INFO")
+                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="START")
                 
                 # Небольшая пауза для гарантии завершения процесса
                 time.sleep(0.5)
@@ -570,32 +587,41 @@ class DPIStarter:
             # Формируем окончательную команду
             command = [exe_path] + command_args
             
-            log(exe_path)  # Логируем путь к исполняемому файлу
-            log(command_args)  # Логируем аргументы
-            log(command)  # Логируем команду для отладки
+            log(f"Исполняемый файл: {exe_path}")  # Логируем путь к исполняемому файлу
+            log(f"Аргументы команды: {command_args}")  # Логируем аргументы
+            log(f"Полная команда: {command}")  # Логируем команду для отладки
             
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = win32con.SW_HIDE  # Полностью скрываем окно
+            # Настройка отображения консоли в зависимости от режима отладки
+            startupinfo = None
+            if not self.debug_mode:
+                # Только в обычном режиме скрываем консоль
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = win32con.SW_HIDE
+                log("Запуск в обычном режиме (консоль скрыта)", level="START")
+            else:
+                # В режиме отладки показываем консоль
+                log("ЗАПУСК В РЕЖИМЕ ОТЛАДКИ - КОНСОЛЬ БУДЕТ ОТОБРАЖАТЬСЯ", level="DEBUG")
+                self.set_status("Запуск в режиме отладки (консоль будет видна)")
             
+            # Запускаем процесс
             process = subprocess.Popen(
                 command,
-                startupinfo=startupinfo,
+                startupinfo=startupinfo,  # Будет None в режиме отладки
                 cwd=os.getcwd()
             )
 
-            log(f"Запущен процесс: {process.pid}")
+            log(f"Запущен процесс с PID: {process.pid}")
             
             if process.poll() is None:
                 self.set_status(f"Запущен {mode}")
-                log(f"ZAPRET УСПЕШНО ЗАПУЩЕН {mode}")
+                log(f"ZAPRET УСПЕШНО ЗАПУЩЕН {mode}", level="START")
                 return True
             else:
-                log(f"Ошибка при запуске {mode}: {process.returncode}")
+                log(f"Ошибка при запуске {mode}: {process.returncode}", level="START")
                 raise Exception("Не удалось запустить процесс")
                     
         except Exception as e:
-            error_msg = f"Ошибка при запуске {mode}: {str(e)}"
-            log(error_msg)  # Логируем ошибку
-            self.set_status(error_msg)
+            log(f"Ошибка при запуске {mode}: {str(e)}", level="ERROR")
+            self.set_status(f"Ошибка при запуске {mode}: {str(e)}")
             return False
