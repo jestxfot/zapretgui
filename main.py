@@ -264,11 +264,12 @@ class LupiDPIApp(QWidget):
                     if self.start_mode_combo.itemText(i) == selected_mode:
                         strategy_id = self.start_mode_combo.itemData(i)
                         break
+                        
                 if strategy_id:
                     # Получаем путь к BAT-файлу стратегии
                     bat_path = self.strategy_manager.download_strategy(strategy_id)
                     if bat_path:
-                        # Используем универсальную функцию запуска
+                        # Используем функцию запуска
                         success = self.dpi_starter.start_strategy(bat_path)
                         if success:
                             # Сохраняем выбранную стратегию
@@ -279,31 +280,17 @@ class LupiDPIApp(QWidget):
                             self.check_process_status()
                             return True
             
-            # Проверяем, есть ли режим в DPI_COMMANDS
-            if selected_mode not in DPI_COMMANDS:
-                log(f"Ошибка: режим '{selected_mode}' не найден в списке доступных команд", level="ERROR")
-                self.set_status(f"Ошибка: неизвестный режим запуска '{selected_mode}'")
-                return False
+            # Если не удалось запустить через менеджер стратегий, используем стандартную стратегию
+            log("Запуск не удался. Проверьте наличие BAT-файлов стратегий.", level="ERROR")
+            self.set_status("Ошибка: стратегия не найдена")
+            return False
                 
-            # Если не удалось запустить через менеджер стратегий, используем стандартный метод
-            log("Запуск через стандартный метод", level="INFO")
-            success = self.dpi_starter.start_dpi(
-                selected_mode, 
-                DPI_COMMANDS, 
-                DOWNLOAD_URLS
-            )
-            
-            if success:
-                self.update_ui(running=True)
-                self.set_status(f"Zapret запущен с режимом: {selected_mode}")
-            
-            return success
-            
         except Exception as e:
             from log import log
             log(f"Ошибка при запуске DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при запуске: {str(e)}")
             return False
+        
     def update_autostart_ui(self, service_running):
         """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса автозапуска"""
         # Проверяем актуальный статус, если не указан явно

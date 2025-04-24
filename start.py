@@ -296,15 +296,12 @@ class DPIStarter:
             log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
             return False
 
-    def start_strategy(self, strategy, dpi_commands=None, download_urls=None):
+    def start_strategy(self, strategy_path):
         """
-        Универсальный метод запуска стратегии - поддерживает как запуск BAT-файлов, 
-        так и прямой запуск winws.exe с параметрами.
+        Запускает стратегию через BAT-файл.
         
         Args:
-            strategy (str): Путь к BAT-файлу или название стратегии из dpi_commands
-            dpi_commands (dict, optional): Словарь с настройками команд (нужен для прямого запуска)
-            download_urls (dict, optional): URL для скачивания файлов
+            strategy_path (str): Путь к BAT-файлу стратегии
             
         Returns:
             bool: True при успешном запуске, False при ошибке
@@ -313,106 +310,27 @@ class DPIStarter:
             log(f"======================== Запуск стратегии ========================", level="INFO")
             self.set_status("Подготовка запуска...")
 
-            # 1. Остановка предыдущих процессов через stop.bat - общий код для обоих режимов
-            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
-            if os.path.exists(stop_bat_path):
-                self.set_status("Останавливаю предыдущие процессы...")
-                log("Запуск stop.bat для остановки предыдущих процессов", level="INFO")
-                
-                # Создаем startupinfo для скрытия окна командной строки
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = win32con.SW_HIDE
-                
-                # Запускаем stop.bat
-                subprocess.run(
-                    stop_bat_path,
-                    startupinfo=startupinfo,
-                    cwd=self.bin_folder,
-                    shell=True
-                )
-                
-                # Пауза для завершения процессов
-                time.sleep(0.3)
-            else:
-                log("stop.bat не найден", level="WARNING")
-                self.create_stop_bat()
+            # Проверяем, существует ли BAT-файл
+            if not os.path.exists(strategy_path) or not strategy_path.lower().endswith('.bat'):
+                log(f"Ошибка: BAT-файл не найден или неверный формат: {strategy_path}", level="ERROR")
+                self.set_status(f"Ошибка: BAT-файл не найден")
+                return False
             
-            # 2. Определяем режим запуска - BAT-файл или прямой запуск
-            is_bat_file = os.path.exists(strategy) and strategy.lower().endswith('.bat')
+            abs_path = os.path.abspath(strategy_path)
+            working_dir = os.path.dirname(abs_path)
+            log(f"Запуск BAT-файла: {abs_path}", level="INFO")
             
-            if is_bat_file:
-                # РЕЖИМ ЗАПУСКА BAT-ФАЙЛА
-                abs_path = os.path.abspath(strategy)
-                working_dir = os.path.dirname(abs_path)
-                log(f"Запуск BAT-файла: {abs_path}", level="INFO")
-                
-                # Создаем startupinfo для скрытия окна командной строки
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = win32con.SW_HIDE
-                
-                # Запускаем BAT файл (он сам обеспечит скрытый запуск winws.exe)
-                subprocess.Popen(
-                    abs_path,
-                    startupinfo=startupinfo,
-                    cwd=working_dir,
-                    shell=True
-                )
-            else:
-                # РЕЖИМ ПРЯМОГО ЗАПУСКА WINWS.EXE
-                if not dpi_commands or strategy not in dpi_commands:
-                    error_msg = f"Режим '{strategy}' не найден в настройках"
-                    log(error_msg, level="ERROR")
-                    self.set_status(error_msg)
-                    return False
-                
-                # Проверяем наличие исполняемого файла
-                self.ensure_executable_exists(download_urls)
-                exe_path = os.path.abspath(self.winws_exe)
-                
-                # Получаем командную строку из настроек
-                command_string = dpi_commands.get(strategy, "")
-                
-                # Обрабатываем аргументы командной строки
-                if isinstance(command_string, str):
-                    command_args = command_string.split()
-                else:
-                    command_args = command_string.copy()
-                
-                # Обрабатываем пути к файлам
-                for i, arg in enumerate(command_args):
-                    if ".txt" in arg or ".bin" in arg:
-                        if "=" in arg:
-                            prefix, filename = arg.split("=", 1)
-                            if ".txt" in filename:
-                                full_path = os.path.join(os.path.abspath(self.lists_folder), os.path.basename(filename))
-                                # Создаем файл если нужно
-                                if not os.path.exists(full_path):
-                                    with open(full_path, 'w', encoding='utf-8') as f:
-                                        f.write("# Автоматически созданный файл\n")
-                                command_args[i] = f"{prefix}={full_path}"
-                            elif ".bin" in filename:
-                                full_path = os.path.join(os.path.abspath(self.bin_folder), os.path.basename(filename))
-                                command_args[i] = f"{prefix}={full_path}"
-                
-                # Формируем команду и запускаем
-                command = [exe_path] + command_args
-                log(f"Запуск winws.exe с аргументами: {command_args}", level="INFO")
-                
-                # Создаем startupinfo для скрытия консоли
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = win32con.SW_HIDE
-                
-                # Запускаем процесс
-                subprocess.Popen(
-                    command,
-                    startupinfo=startupinfo,
-                    cwd=self.bin_folder
-                )
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = win32con.SW_HIDE
             
-            # 3. Проверка запуска процесса - общий код для обоих режимов
+            subprocess.Popen(
+                abs_path,
+                startupinfo=startupinfo,
+                cwd=working_dir,
+                shell=True
+            )
+            
             time.sleep(0.3)
             
             if self.check_process_running():
@@ -421,7 +339,7 @@ class DPIStarter:
                 return True
             else:
                 # Даем еще время (особенно для BAT через VBS)
-                time.sleep(1.0)
+                time.sleep(1.5)
                 if self.check_process_running():
                     self.set_status(f"Стратегия успешно запущена")
                     log(f"winws.exe успешно запущен после дополнительного ожидания", level="INFO")
@@ -434,8 +352,8 @@ class DPIStarter:
         except Exception as e:
             log(f"Ошибка при запуске стратегии: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при запуске стратегии: {str(e)}")
-            return False        
-    
+            return False
+
     def ensure_directories_exist(self):
         """Проверяет и создает необходимые директории.
         
@@ -475,116 +393,3 @@ class DPIStarter:
                 log(f"Файл {exe_path} не найден и не может быть скачан", level="START")
                 raise FileNotFoundError(f"Файл {exe_path} не найден и не может быть скачан")
         return True
-    
-    def start_dpi(self, mode, dpi_commands, download_urls=None):
-        """
-        Запускает DPI с выбранной конфигурацией.
-        
-        Args:
-            mode (str): Название режима запуска
-            dpi_commands (dict): Словарь с настройками команд для разных режимов
-            download_urls (dict, optional): URL для скачивания файлов, если они отсутствуют
-        
-        Returns:
-            bool: True при успешном запуске, False при ошибке
-        """
-        try:
-            log(f"======================== Start DPI {mode} ========================", level="START")
-            self.set_status("Подготовка запуска...")
-
-            # Используем stop.bat для надежной остановки всех процессов
-            stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
-            
-            # Проверяем существование stop.bat
-            if os.path.exists(stop_bat_path):
-                self.set_status("Останавливаю предыдущие процессы...")
-                log("Запуск stop.bat для остановки предыдущих процессов", level="START")
-                
-                # Создаем startupinfo для скрытия окна командной строки
-                stop_startupinfo = subprocess.STARTUPINFO()
-                stop_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                stop_startupinfo.wShowWindow = win32con.SW_HIDE
-                
-                # Запускаем stop.bat и ЖДЕМ его полного завершения
-                stop_process = subprocess.Popen(
-                    stop_bat_path,
-                    startupinfo=stop_startupinfo,
-                    cwd=self.bin_folder,
-                    shell=True
-                )
-                
-                # Ждем завершения процесса остановки
-                stop_process.wait()
-                log(f"stop.bat завершен с кодом: {stop_process.returncode}", level="START")
-                
-                # Небольшая пауза для гарантии завершения процесса
-                time.sleep(0.5)
-            else:
-                log("stop.bat не найден", level="WARNING")
-                # Создаем stop.bat, если он не существует
-                self.create_stop_bat()
-            
-            # Проверяем наличие исполняемого файла
-            self.ensure_executable_exists(download_urls)
-            exe_path = os.path.abspath(self.winws_exe)
-            
-            # Получаем командную строку из настроек
-            command_string = dpi_commands.get(mode, "")
-            
-            # Если передана строка, разбиваем на аргументы
-            if isinstance(command_string, str):
-                command_args = command_string.split()
-            else:
-                command_args = command_string.copy()  # Создаем копию списка
-            
-            # Обрабатываем аргументы с путями к файлам
-            for i, arg in enumerate(command_args):
-                if ".txt" in arg or ".bin" in arg:
-                    if "=" in arg:
-                        prefix, filename = arg.split("=", 1)
-                        if ".txt" in filename:
-                            full_path = os.path.join(os.path.abspath(self.lists_folder), os.path.basename(filename))
-                            # Проверяем существование файла и создаем если нужно
-                            if not os.path.exists(full_path):
-                                with open(full_path, 'w', encoding='utf-8') as f:
-                                    f.write("# Автоматически созданный файл\n")
-                            # Заменяем путь к файлу
-                            command_args[i] = f"{prefix}={full_path}"
-                        elif ".bin" in filename:
-                            full_path = os.path.join(os.path.abspath(self.bin_folder), os.path.basename(filename))
-                            command_args[i] = f"{prefix}={full_path}"
-            
-            # Формируем окончательную команду
-            command = [exe_path] + command_args
-            
-            log(f"Исполняемый файл: {exe_path}")  # Логируем путь к исполняемому файлу
-            log(f"Аргументы команды: {command_args}")  # Логируем аргументы
-            log(f"Полная команда: {command}")  # Логируем команду для отладки
-            
-            # Настройка отображения консоли - всегда скрываем
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = win32con.SW_HIDE
-            log("Запуск winws.exe (консоль скрыта)", level="INFO")
-            
-            # Запускаем процесс
-            process = subprocess.Popen(
-                command,
-                startupinfo=startupinfo,
-                cwd=os.getcwd()
-            )
-
-            log(f"Запущен процесс с PID: {process.pid}")
-            
-            if process.poll() is None:
-                self.set_status(f"Запущен {mode}")
-                log(f"ZAPRET УСПЕШНО ЗАПУЩЕН {mode}", level="START")
-                return True
-            else:
-                log(f"Ошибка при запуске {mode}: {process.returncode}", level="START")
-                raise Exception("Не удалось запустить процесс")
-                    
-        except Exception as e:
-            log(f"Ошибка при запуске {mode}: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка при запуске {mode}: {str(e)}")
-            return False

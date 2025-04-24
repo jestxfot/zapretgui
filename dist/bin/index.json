@@ -2,7 +2,7 @@
   "original_bolvan_2": {
     "name": "Оригинальная bol-van v2 (07.04.2025)",
     "description": "Оригинальная стратегия для большинства провайдеров",
-    "version": "2.5",
+    "version": "2.6",
     "provider": "universal",
     "author": "bol-van",
     "updated": "2025-04-10",
@@ -11,10 +11,19 @@
   "original_bolvan": {
     "name": "Оригинальная bol-van v1 (07.04.2025)",
     "description": "Оптимизировано для Билайн",
-    "version": "1.4",
+    "version": "1.5",
     "provider": "universal",
     "author": "bol-van",
     "updated": "2025-04-10",
     "file_path": "original_bolvan.bat"
+  },
+  "2025_01_06": {
+    "name": "Все сайты (06.01.2025)",
+    "description": "Оптимизировано для всех сайтов",
+    "version": "1.0",
+    "provider": "universal",
+    "author": "bol-van",
+    "updated": "2025-01-06",
+    "file_path": "2025_01_06.bat"
   }
 }

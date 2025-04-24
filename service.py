@@ -209,31 +209,17 @@ class ServiceManager:
                 f.write(f"installed={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"type=task_scheduler\n")
             
-            # Создаем CMD-файл для запуска стратегии
-            launcher_cmd_path = os.path.join(self.bin_folder, "autostart_launcher.cmd")
-            with open(launcher_cmd_path, 'w', encoding='utf-8') as f:
-                f.write(f"""@echo off
-    rem Zapret DPI Autostart Launcher
-    cd /d "{os.path.dirname(bat_file_path)}"
-    start /b "" "{os.path.basename(bat_file_path)}"
-    exit
-    """)
+            # Получаем абсолютный путь к BAT-файлу и его директорию
+            abs_bat_path = os.path.abspath(bat_file_path)
+            working_dir = os.path.dirname(abs_bat_path)
             
-            # Полный путь к батнику запуска
-            abs_cmd_path = os.path.abspath(launcher_cmd_path)
+            log(f"Создание задачи в планировщике для BAT-файла: {abs_bat_path}", level="INFO")
             
-            # Создаем задачу в планировщике с запуском при старте системы
-            # /RL HIGHEST = запуск с повышенными правами
-            # /SC ONSTART = запуск при старте системы
-            # /RU SYSTEM = запуск от имени системы
-            # /NP = без запроса пароля
-            
-            log(f"Создание задачи в планировщике для: {abs_cmd_path}", level="INFO")
-            
-            # Формируем команду
+            # Формируем команду (запускаем BAT-файл напрямую)
+            # Для корректной работы нужно установить рабочую директорию
             create_cmd = (
                 f'schtasks /Create /SC ONSTART /TN "{task_name}" '
-                f'/TR "cmd.exe /c \\"\\"\\"{abs_cmd_path}\\"\\"\\"" '
+                f'/TR "\"{abs_bat_path}\"" '
                 f'/RL HIGHEST /RU SYSTEM /F /NP /V1'
             )
             
@@ -278,7 +264,7 @@ class ServiceManager:
             log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка: {str(e)}")
             return False
-
+    
     def remove_service(self):
         """Удаляет автозапуск DPI"""
         try:
