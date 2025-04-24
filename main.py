@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QComboBox, QMessageBox, QApplication, QFrame, QSpacerItem, QSizePolicy
 
 from downloader import DOWNLOAD_URLS
-from config import DPI_COMMANDS, APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
+from config import APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
 from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
@@ -16,6 +16,9 @@ from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
 from updater import check_for_update
 from strategy_selector import StrategySelector
+
+WIDTH = 450
+HEIGHT = 700
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -1288,7 +1291,7 @@ class LupiDPIApp(QWidget):
         layout.addWidget(self.support_label)
         
         self.setLayout(layout)
-        self.setFixedSize(450, 650) # ширина, высота окна
+        self.setFixedSize(WIDTH, HEIGHT) # ширина, высота окна
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.check_process_status)
