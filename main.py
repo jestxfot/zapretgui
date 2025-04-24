@@ -195,6 +195,15 @@ class LupiDPIApp(QWidget):
         try:
             from log import log
             
+            # Проверяем, инициализирован ли dpi_starter
+            if not hasattr(self, 'dpi_starter') or self.dpi_starter is None:
+                log("DPI Starter еще не инициализирован, невозможно запустить DPI", level="ERROR")
+                self.set_status("Ошибка: компоненты программы еще не инициализированы")
+                # Повторная попытка через секунду, если это отложенный запуск
+                if delayed:
+                    QTimer.singleShot(1000, lambda: self.start_dpi(selected_mode, delayed))
+                return False
+                
             # Проверка 1: Проверяем через менеджер служб
             autostart_active = False
             if hasattr(self, 'service_manager'):
@@ -245,7 +254,7 @@ class LupiDPIApp(QWidget):
                 self.intentional_start = True
                 # Сбрасываем флаг через 5 секунд
                 QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
-            
+                
             log(f"Запуск стратегии: {selected_mode}", level="INFO")
 
             if hasattr(self, 'strategy_manager') and self.strategy_manager:
@@ -255,18 +264,20 @@ class LupiDPIApp(QWidget):
                     if self.start_mode_combo.itemText(i) == selected_mode:
                         strategy_id = self.start_mode_combo.itemData(i)
                         break
-                
                 if strategy_id:
-                    # Запускаем стратегию через менеджер стратегий
-                    success = self.strategy_manager.execute_strategy(strategy_id)
-                    if success:
-                        # Сохраняем выбранную стратегию
-                        set_last_strategy(selected_mode)
-                        # Обновляем UI
-                        self.update_ui(running=True)
-                        self.set_status(f"Zapret запущен с режимом: {selected_mode}")
-                        self.check_process_status()
-                    return success
+                    # Получаем путь к BAT-файлу стратегии
+                    bat_path = self.strategy_manager.download_strategy(strategy_id)
+                    if bat_path:
+                        # Используем универсальную функцию запуска
+                        success = self.dpi_starter.start_strategy(bat_path)
+                        if success:
+                            # Сохраняем выбранную стратегию
+                            set_last_strategy(selected_mode)
+                            # Обновляем UI
+                            self.update_ui(running=True)
+                            self.set_status(f"Zapret запущен с режимом: {selected_mode}")
+                            self.check_process_status()
+                            return True
             
             # Проверяем, есть ли режим в DPI_COMMANDS
             if selected_mode not in DPI_COMMANDS:
@@ -276,11 +287,10 @@ class LupiDPIApp(QWidget):
                 
             # Если не удалось запустить через менеджер стратегий, используем стандартный метод
             log("Запуск через стандартный метод", level="INFO")
-            success = self.dpi_starter.start_with_progress(
+            success = self.dpi_starter.start_dpi(
                 selected_mode, 
                 DPI_COMMANDS, 
-                DOWNLOAD_URLS,
-                parent_widget=self
+                DOWNLOAD_URLS
             )
             
             if success:
@@ -487,8 +497,7 @@ class LupiDPIApp(QWidget):
             winws_exe=WINWS_EXE,
             bin_folder=BIN_FOLDER,
             lists_folder=LISTS_FOLDER,
-            status_callback=self.set_status,
-            debug_mode=debug_mode
+            status_callback=self.set_status
         )
         
         # Если мы в режиме отладки, показываем сообщение в UI
@@ -525,6 +534,13 @@ class LupiDPIApp(QWidget):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         from log import log
         
+        # ВАЖНО: Проверяем, инициализирован ли dpi_starter
+        if not hasattr(self, 'dpi_starter') or self.dpi_starter is None:
+            log("DPI Starter еще не инициализирован, откладываем запуск", level="WARNING")
+            # Повторяем попытку через секунду
+            QTimer.singleShot(1000, self.delayed_dpi_start)
+            return
+        
         # Сначала проверяем, активен ли автозапуск через планировщик задач
         # ВАЖНО: делаем прямой запрос к планировщику задач Windows для гарантии актуальности данных
         try:
@@ -549,7 +565,7 @@ class LupiDPIApp(QWidget):
         # Если автозапуск не активен и процесс не запущен, выполняем обычный запуск
         log("Выполняем отложенный запуск DPI", level="INFO")
         self.start_dpi(delayed=True)
-
+    
     def finish_initialization(self):
         """Завершает процесс инициализации"""
         from log import log
@@ -565,23 +581,27 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             log(f"Не удалось удалить маркер защиты процесса: {str(e)}", level="WARNING")
         
-        # Проверяем состояние процесса для обновления UI
-        if self.dpi_starter.check_process_running():
-            self.update_ui(running=True)
-        else:
-            # Если процесс не найден, повторяем запуск
-            log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
-            
-            # Получаем текст из комбо-бокса до вызова start_dpi
-            if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
-                strategy_name = self.start_mode_combo.currentText()
-                log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
-                # Запускаем с задержкой 500 мс
-                QTimer.singleShot(500, lambda mode=strategy_name: self.start_dpi(selected_mode=mode))
+        # Проверяем существование dpi_starter перед использованием
+        if hasattr(self, 'dpi_starter') and self.dpi_starter:
+            # Проверяем состояние процесса для обновления UI
+            if self.dpi_starter.check_process_running():
+                self.update_ui(running=True)
             else:
-                log("Комбо-бокс стратегий недоступен", level="WARNING")
-                # Используем стандартную стратегию с задержкой 500 мс
-                QTimer.singleShot(500, lambda: self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)"))
+                # Если процесс не найден, повторяем запуск
+                log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
+                
+                # Получаем текст из комбо-бокса до вызова start_dpi
+                if hasattr(self, 'start_mode_combo') and self.start_mode_combo is not None:
+                    strategy_name = self.start_mode_combo.currentText()
+                    log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
+                    # Запускаем с задержкой 500 мс
+                    QTimer.singleShot(500, lambda mode=strategy_name: self.start_dpi(selected_mode=mode))
+                else:
+                    log("Комбо-бокс стратегий недоступен", level="WARNING")
+                    # Используем стандартную стратегию с задержкой 500 мс
+                    QTimer.singleShot(500, lambda: self.start_dpi(selected_mode="Оригинальная bol-van v2 (07.04.2025)"))
+        else:
+            log("DPI Starter не инициализирован, пропускаем проверку процесса", level="WARNING")
         
         log("Процесс инициализации завершен", level="INFO")
 

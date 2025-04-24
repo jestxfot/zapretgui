@@ -6,23 +6,28 @@ import time
 from urllib.parse import urljoin
 from log import log
 
+# Исправление проблемы с импортом win32con
+# Вместо импорта из внешнего модуля определяем константы напрямую
+SW_HIDE = 0
+CREATE_NO_WINDOW = 0x08000000
+
 class StrategyManager:
     """Класс для управления стратегиями GitHub."""
     
     def __init__(self, base_url, local_dir, status_callback=None, json_url=None):
         """
-        Инициализирует StrategyManager.
+        Инициализирует менеджер стратегий.
         
         Args:
             base_url (str): Базовый URL для скачивания стратегий
             local_dir (str): Локальная директория для хранения стратегий
-            status_callback (callable): Функция обратного вызова для отображения статуса
-            json_url (str, optional): Прямая ссылка на JSON файл со стратегиями
+            status_callback (callable, optional): Функция обратного вызова для отображения статуса
+            json_url (str, optional): Прямой URL к JSON-файлу со списком стратегий
         """
         self.base_url = base_url
         self.local_dir = local_dir
         self.status_callback = status_callback
-        self.json_url = json_url  # Прямая ссылка на JSON
+        self.json_url = json_url
         self.strategies_cache = {}
         self.last_update_time = 0
         self.update_interval = 3600  # 1 час
@@ -355,12 +360,13 @@ class StrategyManager:
             log(f"Ошибка при сохранении версии стратегии: {str(e)}", level="ERROR")
             return False
 
-    def execute_strategy(self, strategy_id):
+    def execute_strategy(self, strategy_id, dpi_starter=None):
         """
-        Выполняет стратегию.
+        Выполняет стратегию через DPIStarter.
         
         Args:
             strategy_id (str): Идентификатор стратегии
+            dpi_starter (DPIStarter): Объект DPIStarter для запуска
             
         Returns:
             bool: True при успешном выполнении, False при ошибке
@@ -368,69 +374,37 @@ class StrategyManager:
         try:
             from log import log
             
+            # Проверка наличия DPIStarter
+            if not dpi_starter:
+                log("Ошибка: dpi_starter не передан в execute_strategy", level="ERROR")
+                self.set_status("Ошибка: компонент запуска недоступен")
+                return False
+            
             # Получаем путь к BAT-файлу стратегии
             strategy_path = self.download_strategy(strategy_id)
             if not strategy_path:
                 log(f"Не удалось получить файл стратегии: {strategy_id}", level="ERROR")
+                self.set_status(f"Ошибка: стратегия {strategy_id} не найдена")
                 return False
             
-            # Всегда сначала запускаем stop.bat для остановки предыдущих процессов
-            self.set_status("Останавливаем предыдущие запущенные процессы...")
-            stop_bat_path = os.path.join(self.local_dir, "stop.bat")
+            # Запускаем BAT-файл через универсальную функцию DPIStarter
+            log(f"Запуск стратегии {strategy_id}", level="INFO")
+            success = dpi_starter.start_strategy(strategy_path)
             
-            # Создаем startupinfo для скрытия окна командной строки
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            # Запускаем stop.bat для очистки
-            if os.path.exists(stop_bat_path):
-                log(f"Запуск stop.bat для остановки предыдущих процессов", level="INFO")
-                stop_process = subprocess.Popen(
-                    stop_bat_path,
-                    startupinfo=startupinfo,
-                    cwd=self.local_dir,
-                    shell=True
-                )
-                
-                # Ждем завершения процесса остановки
-                try:
-                    stop_process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    log("Таймаут ожидания stop.bat", level="WARNING")
-                
-                # Небольшая пауза для гарантии завершения процесса
-                time.sleep(0.5)
+            if success:
+                self.set_status(f"Стратегия {strategy_id} успешно запущена")
+                log(f"Стратегия {strategy_id} успешно запущена", level="INFO")
+                return True
             else:
-                log("stop.bat не найден, создаем файл...", level="WARNING")
-                self.create_stop_bat(stop_bat_path)
-            
-            # Запускаем стратегию
-            self.set_status(f"Запуск стратегии {strategy_id}...")
-            log(f"Запуск BAT-файла: {strategy_path}", level="INFO")
-            log(f"Рабочая директория (bin): {self.local_dir}", level="INFO")
-            
-            # Получаем абсолютный путь к BAT-файлу
-            abs_strategy_path = os.path.abspath(strategy_path)
-            
-            # Запускаем BAT-файл
-            process = subprocess.Popen(
-                abs_strategy_path,
-                startupinfo=startupinfo,
-                cwd=self.local_dir,  # Запускаем из bin директории!
-                shell=True
-            )
-            
-            # Не ждем завершения процесса, т.к. он продолжит работу
-            self.set_status(f"Стратегия {strategy_id} успешно запущена")
-            log(f"Стратегия {strategy_id} успешно запущена", level="INFO")
-            return True
-            
+                log(f"Ошибка при запуске стратегии {strategy_id}", level="ERROR")
+                return False
+                
         except Exception as e:
             error_msg = f"Ошибка при выполнении стратегии {strategy_id}: {str(e)}"
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
             return False
-    
+     
     def create_stop_bat(self, stop_bat_path):
         """Создает файл stop.bat, если он не существует"""
         try:
