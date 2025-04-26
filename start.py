@@ -242,7 +242,6 @@ class DPIStarter:
         # -------- 3. Внутренняя функция реального запуска -----------------
         def _do_start() -> bool:
             try:
-                CREATE_NO_WINDOW = 0x08000000
                 abs_bat = os.path.abspath(bat_path)          # гарантируем абсолютный
                 cmd = ["cmd", "/c", abs_bat]                 # ← подставляем его
                 log(f"[DPIStarter] RUN: {' '.join(cmd)} (hidden)", level="INFO")
@@ -252,6 +251,30 @@ class DPIStarter:
                         cwd=os.path.dirname(abs_bat),        # можно BIN_DIR; главное – верный bat
                         creationflags=0x08000000)
                 self._set_status(f"Запущена стратегия: {selected_mode}")
+                
+                # Даем процессу время запуститься
+                time.sleep(1)
+                
+                # Теперь проверяем PID запущенного процесса
+                try:
+                    result = subprocess.run(
+                        'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
+                        shell=True, 
+                        capture_output=True, 
+                        text=True
+                    )
+                    
+                    pid = "неизвестен"
+                    import re
+                    pid_match = re.search(r'"winws\.exe","(\d+)"', result.stdout)
+                    if pid_match:
+                        pid = pid_match.group(1)
+                        log(f"[DPIStarter] Определен PID процесса winws.exe: {pid}", level="INFO")
+                except Exception as pid_err:
+                    log(f"[DPIStarter] Не удалось определить PID: {pid_err}", level="WARNING")
+                    pid = "неизвестен"
+
+                log(f"[DPIStarter] Запущена стратегия: {selected_mode}, PID: {pid}", level="INFO")
                 self._update_ui(True)
                 return True
             except Exception as e:

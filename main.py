@@ -126,64 +126,6 @@ class LupiDPIApp(QWidget):
         # Обновляем только кнопки запуска/остановки
         self.start_btn.setVisible(not running)
         self.stop_btn.setVisible(running)
-
-    def check_process_status(self):
-        """Проверяет статус процесса и обновляет интерфейс (лог только при смене)."""
-        try:
-            autostart_active = self.service_manager.check_autostart_exists() \
-                            if hasattr(self, 'service_manager') else False
-            process_running  = self.dpi_starter.check_process_running() \
-                            if hasattr(self, 'dpi_starter') else False
-
-            # 1. Если ничего не изменилось – просто выходим
-            if (autostart_active  == self._prev_autostart and
-                process_running   == self._prev_running):
-                return   # ни логов, ни перерисовки
-
-            # 2. Сохраняем новое состояние
-            self._prev_autostart = autostart_active
-            self._prev_running   = process_running
-
-            # 3. Пишем ОДНУ строку в лог (можно убрать совсем)
-            from log import log
-            log(f"[STATUS] winws.exe: {'ON' if process_running else 'OFF'} | "
-                f"Autostart: {'ON' if autostart_active else 'OFF'}", level="DEBUG")
-            
-            # Обновляем состояние элементов интерфейса
-            if process_running or autostart_active:
-                if hasattr(self, 'start_btn'):
-                    self.start_btn.setVisible(False)
-                if hasattr(self, 'stop_btn'):
-                    self.stop_btn.setVisible(True)
-
-            # Обновляем доступность кнопки выбора стратегии при автозапуске
-            if hasattr(self, 'select_strategy_btn'):
-                self.select_strategy_btn.setEnabled(not autostart_active)
-                if autostart_active:
-                    self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("150, 150, 150"))  # Серый для неактивного
-                else:
-                    self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))  # Синий для активного
-                            
-            # Если автозапуск активен, отображаем это в статусе
-            if autostart_active:
-                self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
-                self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
-            else:
-                # Иначе показываем обычный статус
-                if process_running:
-                    self.process_status_value.setText("ВКЛЮЧЕН")
-                    self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-                else:
-                    if hasattr(self, 'start_btn'):
-                        self.start_btn.setVisible(True)
-                    if hasattr(self, 'stop_btn'):
-                        self.stop_btn.setVisible(False)
-                    self.process_status_value.setText("ВЫКЛЮЧЕН")
-                    self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-            
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при проверке статуса процесса: {str(e)}", level="ERROR")
         
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
@@ -199,13 +141,13 @@ class LupiDPIApp(QWidget):
         if hasattr(self, 'process_restarting') and self.process_restarting:
             log("Пропускаем проверку: процесс перезапускается", level="INFO") 
             self.process_restarting = False  # Сбрасываем флаг
-            self.check_process_status()  # Просто обновляем статус
+            self._update_process_status()  # Просто обновляем статус
             return
             
         if hasattr(self, 'manually_stopped') and self.manually_stopped:
             log("Пропускаем проверку: процесс остановлен вручную", level="INFO")
             self.manually_stopped = False  # Сбрасываем флаг
-            self.check_process_status()
+            self._update_process_status()
             return
         
         # Проверяем, был ли недавно изменен режим (стратегия)
@@ -213,7 +155,7 @@ class LupiDPIApp(QWidget):
         if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
             # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
             log("Пропускаем проверку: недавно изменена стратегия", level="INFO")
-            self.check_process_status()
+            self._update_process_status()
             return
         
         # Проверяем, запущен ли процесс на данный момент
@@ -245,8 +187,18 @@ class LupiDPIApp(QWidget):
             self.update_ui(running=False)
         
         # В любом случае обновляем статус
-        self.check_process_status()
+        self._update_process_status()
 
+    def _update_process_status(self):
+        """Вспомогательный метод для обновления статуса процесса"""
+        try:
+            process_running = self.dpi_starter.check_process_running() \
+                        if hasattr(self, 'dpi_starter') else False
+            self.on_process_status_changed(process_running)
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при проверке статуса процесса: {str(e)}", level="ERROR")
+        
     def select_strategy(self):
         """Открывает диалог выбора стратегии."""
         try:
@@ -545,7 +497,7 @@ class LupiDPIApp(QWidget):
         autostart_active = self.service_manager.check_autostart_exists() \
                         if hasattr(self, 'service_manager') else False
         
-        # Сохраняем новое состояние
+        # Сохраняем текущее состояние для сравнения в будущем
         self._prev_autostart = autostart_active
         self._prev_running = is_running
         
@@ -606,7 +558,7 @@ class LupiDPIApp(QWidget):
             if result.returncode == 0:
                 log("Обнаружена активная задача планировщика ZapretCensorliber, пропускаем ручной запуск", level="INFO")
                 self.update_ui(running=True)
-                self.check_process_status()
+                self._update_process_status()
                 return
         except Exception as e:
             log(f"Ошибка при проверке задачи планировщика: {str(e)}", level="WARNING")
@@ -752,7 +704,7 @@ class LupiDPIApp(QWidget):
             self.force_enable_combos()
             
             # Принудительно обновляем статус процесса
-            QTimer.singleShot(100, self.check_process_status)
+            QTimer.singleShot(100, self._update_process_status)
             
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
@@ -912,7 +864,7 @@ class LupiDPIApp(QWidget):
                 log("Запрет успешно остановлен", level="INFO")
             
             # Обновляем статус
-            self.check_process_status()
+            self._update_process_status()
                 
         except Exception as e:
             from log import log
@@ -957,7 +909,7 @@ class LupiDPIApp(QWidget):
         """Удаляет службу DPI"""
         if self.service_manager.remove_service():
             self.update_autostart_ui(False)
-            self.check_process_status()
+            self._update_process_status()
 
     def update_proxy_button_state(self):
         """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""

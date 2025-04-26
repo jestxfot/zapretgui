@@ -110,7 +110,7 @@ def update_winws_exe(app_instance):
                         QMessageBox.information(app_instance, "Обновление завершено", 
                                             "Файл winws.exe успешно обновлен и Zapret перезапущен.")
                     else:
-                        app_instance.check_process_status()
+                        app_instance.on_process_status_changed()
                         QMessageBox.warning(app_instance, "Внимание", 
                                         "Файл winws.exe обновлен, но перезапуск Zapret не удался. "
                                         "Попробуйте запустить его вручную.")
