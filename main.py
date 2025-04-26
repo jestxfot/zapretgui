@@ -1259,7 +1259,7 @@ class LupiDPIApp(QWidget):
         layout.addWidget(self.support_label)
         
         self.setLayout(layout)
-        self.setFixedSize(WIDTH, HEIGHT) # ширина, высота окна
+        self.setMinimumSize(WIDTH, HEIGHT) # Минимальный размер окна
 
 def main():
     try:
