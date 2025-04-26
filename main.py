@@ -170,9 +170,17 @@ class LupiDPIApp(QWidget):
 
     def update_ui(self, running):
         """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса запуска"""
-        # Обновляем только кнопки запуска/остановки
-        self.start_btn.setVisible(not running)
-        self.stop_btn.setVisible(running)
+        # Проверяем, активен ли автозапуск
+        autostart_active = False
+        if hasattr(self, 'service_manager'):
+            autostart_active = self.service_manager.check_autostart_exists()
+        
+        # Если автозапуск активен, не обновляем кнопки запуска/остановки
+        # так как они должны управляться методом update_autostart_ui
+        if not autostart_active:
+            # Обновляем кнопки запуска/остановки только если нет автозапуска
+            self.start_btn.setVisible(not running)
+            self.stop_btn.setVisible(running)
         
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
@@ -330,40 +338,77 @@ class LupiDPIApp(QWidget):
 
         return self._strategy_index
 
-    def update_autostart_ui(self, service_running):
-        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса автозапуска"""
-        # Проверяем актуальный статус, если не указан явно
+    def update_autostart_ui(self, service_running: bool | None):
+        """
+        Обновляет интерфейс при включении / выключении автозапуска.
+        • start_btn, stop_btn, autostart_enable_btn скрываются,
+        если автозапуск активен;
+        • autostart_disable_btn растягивается на 2-колонки.
+        """
         if service_running is None and hasattr(self, 'service_manager'):
             service_running = self.service_manager.check_autostart_exists()
-        
-        # Обновляем видимость кнопок включения/отключения автозапуска
-        self.autostart_enable_btn.setVisible(not service_running)
-        self.autostart_disable_btn.setVisible(service_running)
-        
-        # Обновляем видимость кнопки выбора стратегии (скрываем вместо отключения)
-        if hasattr(self, 'select_strategy_btn'):
-            self.select_strategy_btn.setVisible(not service_running)  # Скрываем кнопку вместо изменения цвета
-        
-        # Если автозапуск активен, показываем информационное сообщение
+
+        enable_btn  = self.autostart_enable_btn
+        disable_btn = self.autostart_disable_btn
+        start_btn   = getattr(self, 'start_btn',  None)
+        stop_btn    = getattr(self, 'stop_btn',   None)
+
+        # --- если автозапуск активен -----------------------------------------
         if service_running:
-            # Если метки еще нет, создаем её
+            if start_btn:  start_btn.setVisible(False)
+            if stop_btn:   stop_btn.setVisible(False)
+            enable_btn.setVisible(False)
+
+            # Сначала удаляем кнопку отключения из сетки, чтобы не было дублирования
+            self.button_grid.removeWidget(disable_btn)
+            
+            # Затем добавляем её снова, но растянутую на 2 колонки
+            self.button_grid.addWidget(disable_btn, 0, 0, 1, 2)
+            
+            # Показываем кнопку отключения автозапуска
+            disable_btn.setVisible(True)
+            disable_btn.setText('Выкл. автозапуск')  # Гарантируем правильный текст
+            
+            self.select_strategy_btn.setVisible(False)
+
+            # показываем предупреждение
             if not hasattr(self, 'service_info_label'):
                 from PyQt5.QtWidgets import QLabel
-                from PyQt5.QtCore import Qt
-                self.service_info_label = QLabel("Для смены стратегии сначала отключите автозапуск.", self)
+                from PyQt5.QtCore    import Qt
+                self.service_info_label = QLabel(
+                    "Для смены стратегии сначала отключите автозапуск.", self)
                 self.service_info_label.setAlignment(Qt.AlignCenter)
-                self.service_info_label.setStyleSheet("color: red; font-weight: bold;")
-                
-                # Добавляем метку в layout
-                self.layout().insertWidget(self.layout().count() - 5, self.service_info_label)
-            
-            # Показываем информационную метку
+                self.service_info_label.setStyleSheet("color:red;font-weight:bold;")
+                self.layout().insertWidget(self.layout().count()-5,
+                                        self.service_info_label)
             self.service_info_label.setVisible(True)
+
+        # --- автозапуск выключен ---------------------------------------------
         else:
-            # Скрываем информационную метку, если она существует
+            # Сначала удаляем кнопку отключения из сетки
+            self.button_grid.removeWidget(disable_btn)
+            
+            # Возвращаем стандартную раскладку
+            if start_btn:  
+                start_btn.setVisible(True)
+                self.button_grid.addWidget(start_btn, 0, 0)
+                
+            if stop_btn:   
+                stop_btn.setVisible(False)
+                self.button_grid.addWidget(stop_btn, 0, 0)
+                
+            enable_btn.setVisible(True)
+            self.button_grid.addWidget(enable_btn, 0, 1)
+            
+            # Добавляем кнопку отключения автозапуска на правильное место
+            self.button_grid.addWidget(disable_btn, 0, 1)
+            disable_btn.setVisible(False)  # Но скрываем её, так как автозапуск выключен
+
+            self.select_strategy_btn.setVisible(True)
+            
             if hasattr(self, 'service_info_label'):
                 self.service_info_label.setVisible(False)
-
+            
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
         try:
@@ -1120,7 +1165,6 @@ class LupiDPIApp(QWidget):
 
         ################## Кнопки управления #################
         from PyQt5.QtWidgets import QGridLayout
-        button_grid = QGridLayout()
 
         self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
         self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
@@ -1141,6 +1185,9 @@ class LupiDPIApp(QWidget):
         self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.autostart_disable_btn.clicked.connect(self.remove_service)
+
+        self.button_grid = QGridLayout()          # ← сохранить как атрибут
+        button_grid = self.button_grid            # локальное alias, чтобы не менять дальше
 
         # Устанавливаем равномерное распределение пространства между колонками
         button_grid.setColumnStretch(0, 1)  # Левая колонка растягивается с коэффициентом 1

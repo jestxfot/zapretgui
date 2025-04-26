@@ -1,5 +1,0 @@
-strategy_name=Оригинальная bol-van v1 (07.04.2025)
-strategy_id=original_bolvan
-bat_file=bin\original_bolvan.bat
-installed=2025-04-26 19:38:15
-type=task_scheduler
