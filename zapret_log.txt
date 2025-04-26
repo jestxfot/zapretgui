@@ -1,5 +1,5 @@
-=== Zapret GUI Log - Started 2025-04-26 21:08:23 ===
+=== Zapret GUI Log - Started 2025-04-26 22:00:34 ===
 
-[21:08:23] [START] ========================= ZAPRET ЗАПУСКАЕТСЯ ========================
-[21:08:23] [CHECK_START] Executable path: C:\Program Files\Python311\python.exe
-[21:08:23] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python311\python.exe
+[22:00:34] [START] ========================= ZAPRET ЗАПУСКАЕТСЯ ========================
+[22:00:34] [CHECK_START] Executable path: C:\Program Files\Python311\python.exe
+[22:00:34] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python311\python.exe

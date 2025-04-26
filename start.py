@@ -61,116 +61,108 @@ class DPIStarter:
             status_callback=self.set_status
         )
     
-    def check_process_running(self):
-        """
-        Улучшенная проверка запущен ли процесс DPI с подробной диагностикой.
-        
-        Returns:
-            bool: True если процесс запущен, False если не запущен
-        """
-        log(f"=================== check_process_running ==========================", level="START")
-
+    def check_process_running(self, silent=False):
+        import re
+        """Проверяет, запущен ли процесс winws.exe"""
         try:
+            # Метод 1: Проверка через tasklist (самый быстрый)
+            if not silent:
+                log("=================== check_process_running ==========================", level="START")
+                log("Метод 1: Проверка через tasklist", level="START")
             
-            log("Метод 1: Проверка через tasklist", level="START")
             result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /NH',
+                'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
                 shell=True, 
                 capture_output=True, 
-                text=True,
-                encoding='cp866'  # Используем кодировку cp866 для корректного отображения русских символов
+                text=True
             )
             
-            #log(f"Результат команды tasklist: {result.stdout.strip()}")
-            
             if "winws.exe" in result.stdout:
-                pid_line = [line for line in result.stdout.split('\n') if "winws.exe" in line]
-                
-                if pid_line:
-                    #log(f"Строка с информацией о процессе: {pid_line[0]}")
-                    pid_parts = pid_line[0].split()
-                    
-                    if len(pid_parts) >= 2:
-                        pid = pid_parts[1]
+                # Извлекаем PID процесса
+                pid_match = re.search(r'"winws\.exe","(\d+)"', result.stdout)
+                if pid_match:
+                    pid = pid_match.group(1)
+                    if not silent:
                         log(f"Найден PID процесса: {pid}", level="START")
-                        return True
+                    return True
                 
                 log("Процесс найден, но не удалось определить PID", level="START")
                 return True  # Процесс найден, даже если мы не смогли извлечь PID
             
-            # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
-            log("Метод 2: Проверка через PowerShell", level="START")
-            try:
-                ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id"'
-                ps_result = subprocess.run(
-                    ps_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
+            if not silent:
+                # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
+                log("Метод 2: Проверка через PowerShell", level="START")
+                try:
+                    ps_cmd = 'powershell -Command "Get-Process -Name winws -ErrorAction SilentlyContinue | Select-Object Id"'
+                    ps_result = subprocess.run(
+                        ps_cmd,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        encoding='cp866'
+                    )
+                    
+                    log(f"Результат PowerShell: {ps_result.stdout.strip()}", level="START")
+                    
+                    # Если есть любая строка, содержащая число после Id
+                    if any(line.strip().isdigit() for line in ps_result.stdout.split('\n') if line.strip()):
+                        log("Процесс winws.exe найден через PowerShell", level="START")
+                        return True
+                except Exception as ps_error:
+                    log(f"Ошибка при проверке через PowerShell: {str(ps_error)}", level="START")
                 
-                log(f"Результат PowerShell: {ps_result.stdout.strip()}", level="START")
+                # Метод 3: Проверка через wmic (работает даже на старых системах)
+                log("Метод 3: Проверка через wmic", level="START")
+                try:
+                    wmic_result = subprocess.run(
+                        'wmic process where "name=\'winws.exe\'" get processid',
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        encoding='cp866'
+                    )
+                    
+                    log(f"Результат wmic: {wmic_result.stdout.strip()}", level="START")
+                    
+                    lines = [line.strip() for line in wmic_result.stdout.split('\n') if line.strip()]
+                    # Проверяем есть ли более одной строки (заголовок + данные)
+                    if len(lines) > 1:
+                        log("Процесс winws.exe найден через wmic", level="START")
+                        return True
+                except Exception as wmic_error:
+                    log(f"Ошибка при проверке через wmic: {str(wmic_error)}", level="START")
+                    
+                # Метод 4: Проверка через простую команду findstr
+                log("Метод 4: Проверка через tasklist и findstr", level="START")
+                try:
+                    findstr_result = subprocess.run(
+                        'tasklist | findstr "winws"',
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        encoding='cp866'
+                    )
+                    
+                    log(f"Результат findstr: {findstr_result.stdout.strip()}", level="START")
+                    
+                    if findstr_result.stdout.strip():
+                        log("Процесс winws.exe найден через findstr", level="START")
+                        return True
+                except Exception as findstr_error:
+                    log(f"Ошибка при проверке через findstr: {str(findstr_error)}", level="START")
                 
-                # Если есть любая строка, содержащая число после Id
-                if any(line.strip().isdigit() for line in ps_result.stdout.split('\n') if line.strip()):
-                    log("Процесс winws.exe найден через PowerShell", level="START")
-                    return True
-            except Exception as ps_error:
-                log(f"Ошибка при проверке через PowerShell: {str(ps_error)}", level="START")
+                # Проверка существования файла блокировки
+                # Некоторые процессы создают файлы блокировки, которые можно проверить
+                try:
+                    lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws.lock")
+                    if os.path.exists(lock_file):
+                        log(f"Найден файл блокировки {lock_file}, процесс запущен", level="START")
+                        return True
+                except Exception as lock_error:
+                    log(f"Ошибка при проверке файла блокировки: {str(lock_error)}", level="START")
             
-            # Метод 3: Проверка через wmic (работает даже на старых системах)
-            log("Метод 3: Проверка через wmic", level="START")
-            try:
-                wmic_result = subprocess.run(
-                    'wmic process where "name=\'winws.exe\'" get processid',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                log(f"Результат wmic: {wmic_result.stdout.strip()}", level="START")
-                
-                lines = [line.strip() for line in wmic_result.stdout.split('\n') if line.strip()]
-                # Проверяем есть ли более одной строки (заголовок + данные)
-                if len(lines) > 1:
-                    log("Процесс winws.exe найден через wmic", level="START")
-                    return True
-            except Exception as wmic_error:
-                log(f"Ошибка при проверке через wmic: {str(wmic_error)}", level="START")
-                
-            # Метод 4: Проверка через простую команду findstr
-            log("Метод 4: Проверка через tasklist и findstr", level="START")
-            try:
-                findstr_result = subprocess.run(
-                    'tasklist | findstr "winws"',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                log(f"Результат findstr: {findstr_result.stdout.strip()}", level="START")
-                
-                if findstr_result.stdout.strip():
-                    log("Процесс winws.exe найден через findstr", level="START")
-                    return True
-            except Exception as findstr_error:
-                log(f"Ошибка при проверке через findstr: {str(findstr_error)}", level="START")
-            
-            # Проверка существования файла блокировки
-            # Некоторые процессы создают файлы блокировки, которые можно проверить
-            try:
-                lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws.lock")
-                if os.path.exists(lock_file):
-                    log(f"Найден файл блокировки {lock_file}, процесс запущен", level="START")
-                    return True
-            except Exception as lock_error:
-                log(f"Ошибка при проверке файла блокировки: {str(lock_error)}", level="START")
-            
-            # Если все методы не нашли процесс
-            log("Процесс winws.exe НЕ найден ни одним из методов", level="START")
+                # Если все методы не нашли процесс
+                log("Процесс winws.exe НЕ найден ни одним из методов", level="START")
             return False
             
         except Exception as e:

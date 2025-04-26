@@ -1,7 +1,7 @@
 import threading
 import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QComboBox, QMessageBox, QApplication, QFrame, QSpacerItem, QSizePolicy
 
 from downloader import DOWNLOAD_URLS
@@ -71,7 +71,52 @@ def get_version(self):
 
 BIN_DIR = os.path.join(os.getcwd(), "bin")     # при необходимости переопределите
 
+
+class ProcessMonitorThread(QThread):
+    """Поток для мониторинга процесса winws.exe"""
+    processStatusChanged = pyqtSignal(bool)  # Сигнал: процесс запущен/остановлен
+    
+    def __init__(self, dpi_starter):
+        super().__init__()
+        self.dpi_starter = dpi_starter
+        self.running = True
+        self.current_status = None
+    
+    def run(self):
+        from log import log
+        log("Поток мониторинга процесса запущен", level="INFO")
+        
+        while self.running:
+            try:
+                # Проверяем текущий статус процесса
+                is_running = self.dpi_starter.check_process_running(silent=True)
+                
+                # Если статус изменился, отправляем сигнал
+                if is_running != self.current_status:
+                    log(f"Изменение статуса процесса winws.exe: {is_running}", level="INFO")
+                    self.current_status = is_running
+                    self.processStatusChanged.emit(is_running)
+            except Exception as e:
+                log(f"Ошибка в потоке мониторинга: {str(e)}", level="ERROR")
+            
+            # Проверка каждые 2 секунды достаточна
+            self.msleep(2000)
+    
+    def stop(self):
+        """Останавливает поток мониторинга"""
+        self.running = False
+        self.wait()
+
 class LupiDPIApp(QWidget):
+    def closeEvent(self, event):
+        """Обрабатывает событие закрытия окна"""
+        # Останавливаем поток мониторинга
+        if hasattr(self, 'process_monitor') and self.process_monitor is not None:
+            self.process_monitor.stop()
+        
+        # Стандартная обработка события
+        super().closeEvent(event)
+        
     def set_status(self, text):
         """Sets the status text."""
         self.status_label.setText(text)
@@ -83,20 +128,26 @@ class LupiDPIApp(QWidget):
         self.stop_btn.setVisible(running)
 
     def check_process_status(self):
-        """Проверяет статус процесса и обновляет интерфейс"""
+        """Проверяет статус процесса и обновляет интерфейс (лог только при смене)."""
         try:
-            # Проверяем статус автозапуска (служба или задача планировщика)
-            autostart_active = False
-            if hasattr(self, 'service_manager'):
-                autostart_active = self.service_manager.check_autostart_exists()
-                
-                # Обновляем UI автозапуска при необходимости
-                self.update_autostart_ui(autostart_active)
-            
-            # Проверяем статус процесса
-            process_running = False
-            if hasattr(self, 'dpi_starter'):
-                process_running = self.dpi_starter.check_process_running()
+            autostart_active = self.service_manager.check_autostart_exists() \
+                            if hasattr(self, 'service_manager') else False
+            process_running  = self.dpi_starter.check_process_running() \
+                            if hasattr(self, 'dpi_starter') else False
+
+            # 1. Если ничего не изменилось – просто выходим
+            if (autostart_active  == self._prev_autostart and
+                process_running   == self._prev_running):
+                return   # ни логов, ни перерисовки
+
+            # 2. Сохраняем новое состояние
+            self._prev_autostart = autostart_active
+            self._prev_running   = process_running
+
+            # 3. Пишем ОДНУ строку в лог (можно убрать совсем)
+            from log import log
+            log(f"[STATUS] winws.exe: {'ON' if process_running else 'OFF'} | "
+                f"Autostart: {'ON' if autostart_active else 'OFF'}", level="DEBUG")
             
             # Обновляем состояние элементов интерфейса
             if process_running or autostart_active:
@@ -413,6 +464,7 @@ class LupiDPIApp(QWidget):
         
         # Добавляем флаг защиты процесса от автоматического завершения
         self.protected_process = True
+        self.init_process_monitor()
         
         # Инициализируем последнее время смены стратегии
         self.last_strategy_change_time = time.time()
@@ -475,6 +527,64 @@ class LupiDPIApp(QWidget):
         # Снимаем флаг инициализации и защиты через 8 секунд
         QTimer.singleShot(8000, self.finish_initialization)
 
+
+    def init_process_monitor(self):
+        """Инициализирует поток мониторинга процесса"""
+        if hasattr(self, 'process_monitor') and self.process_monitor is not None:
+            self.process_monitor.stop()
+        
+        self.process_monitor = ProcessMonitorThread(self.dpi_starter)
+        self.process_monitor.processStatusChanged.connect(self.on_process_status_changed)
+        self.process_monitor.start()
+
+    def on_process_status_changed(self, is_running):
+        """Обрабатывает сигнал изменения статуса процесса"""
+        from log import log
+        
+        # Проверяем, изменилось ли состояние автозапуска
+        autostart_active = self.service_manager.check_autostart_exists() \
+                        if hasattr(self, 'service_manager') else False
+        
+        # Сохраняем новое состояние
+        self._prev_autostart = autostart_active
+        self._prev_running = is_running
+        
+        # Обновляем UI
+        if is_running or autostart_active:
+            if hasattr(self, 'start_btn'):
+                self.start_btn.setVisible(False)
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.setVisible(True)
+        else:
+            if hasattr(self, 'start_btn'):
+                self.start_btn.setVisible(True)
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.setVisible(False)
+        
+        # Обновляем статус
+        if autostart_active:
+            self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
+            self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+        else:
+            if is_running:
+                self.process_status_value.setText("ВКЛЮЧЕН")
+                self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.process_status_value.setText("ВЫКЛЮЧЕН")
+                self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+        
+        # Проверяем доступность кнопки выбора стратегии при автозапуске
+        if hasattr(self, 'select_strategy_btn'):
+            self.select_strategy_btn.setVisible(not autostart_active)
+        
+        # Обновляем информационную метку
+        if autostart_active:
+            if hasattr(self, 'service_info_label'):
+                self.service_info_label.setVisible(True)
+        else:
+            if hasattr(self, 'service_info_label'):
+                self.service_info_label.setVisible(False)
+            
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         from log import log
@@ -554,6 +664,9 @@ class LupiDPIApp(QWidget):
 
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
+
+        self.status_timer = None  # Удаляем стандартный таймер
+        self.process_monitor = None  # Будет инициализирован позже
 
         super().__init__()
 
@@ -1147,24 +1260,6 @@ class LupiDPIApp(QWidget):
         
         self.setLayout(layout)
         self.setFixedSize(WIDTH, HEIGHT) # ширина, высота окна
-
-        self.status_timer = QTimer()
-        self.status_timer.timeout.connect(self.check_process_status)
-        self.status_timer.start(100)
-
-    def moveEvent(self, event):
-        """Вызывается при перемещении окна"""
-        # Временно останавливаем таймер
-        was_active = self.status_timer.isActive()
-        if was_active:
-            self.status_timer.stop()
-        
-        # Выполняем стандартную обработку события
-        super().moveEvent(event)
-        
-        # Перезапускаем таймер после небольшой задержки
-        if was_active:
-            QTimer.singleShot(300, lambda: self.status_timer.start())
 
 def main():
     try:
