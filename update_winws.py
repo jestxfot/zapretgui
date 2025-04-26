@@ -3,6 +3,8 @@ import shutil
 import subprocess
 import sys
 from PyQt5.QtWidgets import QMessageBox
+from main import get_last_strategy
+
 
 def update_winws_exe(app_instance):
     """Обновляет файл winws.exe до последней версии с GitHub"""
@@ -18,7 +20,6 @@ def update_winws_exe(app_instance):
         
         # Импортируем необходимые константы
         from config import BIN_FOLDER
-        from config import DPI_COMMANDS
         from downloader import DOWNLOAD_URLS
         
         # URL для загрузки файла
@@ -88,13 +89,23 @@ def update_winws_exe(app_instance):
                 shutil.move(temp_file, target_file)
                 
                 app_instance.set_status("Файл winws.exe успешно обновлен")
-                
+
                 # Перезапускаем Zapret, если он был запущен ранее
                 if process_running and not service_running:
                     app_instance.set_status("Перезапуск Zapret с обновленной версией...")
-                    selected_mode = app_instance.start_mode_combo.currentText()
-                    success = app_instance.dpi_starter.start_dpi(selected_mode, DPI_COMMANDS, DOWNLOAD_URLS)
-                    if success:
+                    
+                    # Получаем текущую стратегию из метки или атрибута
+                    selected_mode = None
+                    if hasattr(app_instance, 'current_strategy_name') and app_instance.current_strategy_name:
+                        selected_mode = app_instance.current_strategy_name
+                    else:
+                        selected_mode = app_instance.current_strategy_label.text()
+                        if selected_mode == "Не выбрана":
+                            selected_mode = get_last_strategy()
+                    
+                    # Запускаем DPI с выбранной стратегией
+                    success = app_instance.start_dpi(selected_mode=selected_mode)
+                    if success:    
                         app_instance.update_ui(running=True)
                         QMessageBox.information(app_instance, "Обновление завершено", 
                                             "Файл winws.exe успешно обновлен и Zapret перезапущен.")

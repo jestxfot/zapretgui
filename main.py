@@ -69,6 +69,8 @@ def get_version(self):
     """Возвращает текущую версию программы"""
     return APP_VERSION
 
+BIN_DIR = os.path.join(os.getcwd(), "bin")     # при необходимости переопределите
+
 class LupiDPIApp(QWidget):
     def set_status(self, text):
         """Sets the status text."""
@@ -258,116 +260,121 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
-             
-    def start_dpi(self, selected_mode=None, delayed=False):
-        """Запускает DPI с выбранной конфигурацией"""
+
+    
+    def _load_strategy_index(self) -> dict:
+        """
+        Загружает и кэширует словарь из bin/index.json
+        """
+        if hasattr(self, "_strategy_index") and self._strategy_index:
+            return self._strategy_index            # уже загружен
+
+        index_path = os.path.join(BIN_DIR, "index.json")
+        from log import log
+
+        if not os.path.isfile(index_path):
+            log(f"index.json не найден по пути {index_path}", level="ERROR")
+            self.set_status("Ошибка: index.json не найден")
+            self._strategy_index = {}
+            return self._strategy_index
+
         try:
-            from log import log
-            
-            # Проверяем, инициализирован ли dpi_starter
-            if not hasattr(self, 'dpi_starter') or self.dpi_starter is None:
-                log("DPI Starter еще не инициализирован, невозможно запустить DPI", level="ERROR")
-                self.set_status("Ошибка: компоненты программы еще не инициализированы")
-                # Повторная попытка через секунду, если это отложенный запуск
-                if delayed:
-                    QTimer.singleShot(1000, lambda: self.start_dpi(selected_mode, delayed))
-                return False
-                
-            # Проверка 1: Проверяем через менеджер служб
-            autostart_active = False
-            if hasattr(self, 'service_manager'):
-                autostart_active = self.service_manager.check_autostart_exists()
-                
-            # Проверка 2: Прямая проверка наличия задачи планировщика (дублирующая для надежности)
-            if not autostart_active:
-                try:
-                    task_name = "ZapretCensorliber"
-                    check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
-                    result = subprocess.run(check_cmd, shell=True, capture_output=True)
-                    if result.returncode == 0:
-                        autostart_active = True
-                        log("Прямая проверка: обнаружена задача в планировщике", level="DEBUG")
-                except Exception as e:
-                    log(f"Ошибка при прямой проверке планировщика: {str(e)}", level="DEBUG")
-            
-            # Если автозапуск активен, не запускаем DPI
-            if autostart_active:
-                log("Автозапуск активен через планировщик задач, не запускаем DPI вручную", level="INFO")
-                self.set_status("Автозапуск уже активен, ручной запуск не требуется")
-                self.update_ui(running=True)
-                self.check_process_status()  # Обновляем интерфейс
-                return False
-            
-            # Если отложенный запуск и процесс уже запущен, пропускаем
-            if delayed and self.dpi_starter.check_process_running():
-                log("Процесс winws.exe уже запущен, пропускаем отложенный запуск", level="INFO")
-                self.update_ui(running=True)
-                self.last_status = (True, False)
-                self.last_status_time = time.time()
-                return True
+            with open(index_path, "r", encoding="utf-8") as f:
+                import json
+                self._strategy_index = json.load(f)
+            log(f"Загружено стратегий: {len(self._strategy_index)}", level="DEBUG")
+        except Exception as e:
+            log(f"Не удалось прочитать index.json: {e}", level="ERROR")
+            self.set_status(f"Ошибка чтения index.json: {e}")
+            self._strategy_index = {}
 
-            # Определяем стратегию для запуска
-            if selected_mode is None or selected_mode is False:
-                # Если режим не задан явно, используем текущую выбранную стратегию
-                if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
-                    selected_mode = self.current_strategy_name
-                else:
-                    # Если ещё не выбрана стратегия, используем последнюю сохраненную
-                    selected_mode = get_last_strategy()
-                    if not selected_mode:
-                        log("Ошибка: стратегия не выбрана и не сохранена", level="ERROR")
-                        self.set_status("Ошибка: не выбрана стратегия")
-                        return False
-            
-            # Устанавливаем флаг намеренного запуска при отложенном запуске
-            if delayed:
-                self.intentional_start = True
-                # Сбрасываем флаг через 5 секунд
-                QTimer.singleShot(5000, lambda: setattr(self, 'intentional_start', False))
-                    
-            log(f"Запуск стратегии: {selected_mode}", level="INFO")
+        return self._strategy_index
+             
+    def start_dpi(self, selected_mode: str | None = None, delay_ms: int = 0) -> bool:
+        """
+        Запускает .bat-файл, описанный в bin/index.json.
 
-            if hasattr(self, 'strategy_manager') and self.strategy_manager:
-                # Определяем ID стратегии
-                strategy_id = None
-                
-                # Если мы знаем текущий ID стратегии и он соответствует имени
-                if hasattr(self, 'current_strategy_id') and hasattr(self, 'current_strategy_name') and self.current_strategy_name == selected_mode:
-                    strategy_id = self.current_strategy_id
-                else:
-                    # Ищем ID по имени в списке стратегий
-                    strategies = self.strategy_manager.get_strategies_list()
-                    for sid, info in strategies.items():
-                        if info.get('name') == selected_mode:
-                            strategy_id = sid
-                            break
-                
-                if strategy_id:
-                    # Получаем путь к BAT-файлу стратегии
-                    bat_path = self.strategy_manager.download_strategy(strategy_id)
-                    if bat_path:
-                        # Используем функцию запуска
-                        success = self.dpi_starter.start_strategy(bat_path)
-                        if success:
-                            # Сохраняем выбранную стратегию
-                            set_last_strategy(selected_mode)
-                            # Обновляем UI
-                            self.update_ui(running=True)
-                            self.set_status(f"Zapret запущен с режимом: {selected_mode}")
-                            self.check_process_status()
-                            return True
-            
-            # Если не удалось запустить через менеджер стратегий
-            log("Запуск не удался. Проверьте наличие BAT-файлов стратегий.", level="ERROR")
+        selected_mode может быть:
+        • ключом из index.json (ID)
+        • «красивым» именем стратегии
+        • именем .bat-файла (c расширением .bat)
+        • None  → будет выбрана текущая/последняя/дефолтная стратегия
+
+        delay_ms – задержка перед фактическим стартом, мс (0 = сразу)
+        """
+        from log import log
+        strategies = self._load_strategy_index()
+
+        # ---------- 0. Выбираем стратегию, если она не передана -----------------
+        if not selected_mode:                             # a) из текущей сессии
+            selected_mode = getattr(self, "current_strategy_name", None)
+
+        if not selected_mode:                             # b) из реестра
+            try:
+                selected_mode = get_last_strategy()
+            except Exception:
+                selected_mode = None
+
+        if not selected_mode:                             # c) хардкод по умолчанию
+            selected_mode = "Оригинальная bol-van v2 (07.04.2025)"
+        
+        # ---------- 1. Определяем имя bat-файла ---------------------------------
+        bat_file = None
+
+        # а) точный ключ
+        if selected_mode in strategies:
+            bat_file = strategies[selected_mode].get("file_path")
+
+        # б) поиск по «красивому» имени
+        if not bat_file:
+            for info in strategies.values():
+                if info.get("name", "").strip().lower() == selected_mode.strip().lower():
+                    bat_file = info.get("file_path")
+                    break
+
+        # в) уже bat
+        if not bat_file and selected_mode.lower().endswith(".bat"):
+            bat_file = selected_mode
+
+        if not bat_file:
+            log(f"start_dpi: не удалось сопоставить '{selected_mode}' с bat-файлом",
+                level="ERROR")
             self.set_status("Ошибка: стратегия не найдена")
             return False
-                    
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при запуске DPI: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка при запуске: {str(e)}")
+
+        # ---------- 2. Проверяем наличие файла ----------------------------------
+        bat_path = os.path.join(BIN_DIR, bat_file)
+        if not os.path.isfile(bat_path):
+            log(f"start_dpi: файл не найден: {bat_path}", level="ERROR")
+            self.set_status("Ошибка: файл стратегии не найден")
             return False
-        
+
+        log(f"start_dpi: собираемся запустить {bat_path}", level="DEBUG")
+
+        # ---------- 3. Функция реального запуска --------------------------------
+        def _do_start() -> bool:
+            try:
+                CREATE_NO_WINDOW = 0x08000000
+                subprocess.Popen(["cmd", "/c", bat_path],
+                                cwd=BIN_DIR,
+                                creationflags=CREATE_NO_WINDOW)
+                log(f"start_dpi: успешно запущен {bat_file}", level="INFO")
+                self.set_status(f"Запущена стратегия: {selected_mode}")
+                self.update_ui(running=True)
+                return True
+            except Exception as e:
+                log(f"start_dpi: ошибка запуска: {e}", level="ERROR")
+                self.set_status(f"Ошибка запуска: {e}")
+                return False
+
+        # ---------- 4. Мгновенный или отложенный старт --------------------------
+        if delay_ms > 0:
+            QTimer.singleShot(delay_ms, _do_start)
+            log(f"start_dpi: запуск отложен на {delay_ms} мс", level="DEBUG")
+            return True
+        else:
+            return _do_start()
+    
     def update_autostart_ui(self, service_running):
         """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса автозапуска"""
         # Проверяем актуальный статус, если не указан явно
@@ -606,7 +613,7 @@ class LupiDPIApp(QWidget):
         
         # Если автозапуск не активен и процесс не запущен, выполняем обычный запуск
         log("Выполняем отложенный запуск DPI", level="INFO")
-        self.start_dpi(delayed=True)
+        self.start_dpi(delay_ms=1000)   # задержка 1 с
     
     def finish_initialization(self):
         """Завершает процесс инициализации"""

@@ -1,6 +1,6 @@
 @echo off
-REM Стратегия Alt 2
-REM VERSION: 3.0
+REM Стратегия Alt 3
+REM VERSION: 3.1
 REM Дата обновления: 2025
 
 chcp 1251

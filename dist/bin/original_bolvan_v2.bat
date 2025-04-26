@@ -1,6 +1,6 @@
 @echo off
 REM Стратегия Оригинальная bol-van v2 (07.04.2025)
-REM VERSION: 2.6
+REM VERSION: 2.7
 REM Дата обновления: 2025-04-10
 
 chcp 1251
