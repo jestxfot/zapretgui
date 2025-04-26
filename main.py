@@ -247,7 +247,7 @@ class LupiDPIApp(QWidget):
             self.last_strategy_change_time = time.time()
             
             # Запускаем стратегию
-            self.start_dpi(selected_mode=strategy_name)
+            self.dpi_starter.start_dpi(selected_mode=strategy_name)
             
             # Перезапускаем Discord только если:
             # 1. Это не первый запуск
@@ -289,92 +289,7 @@ class LupiDPIApp(QWidget):
             self._strategy_index = {}
 
         return self._strategy_index
-             
-    def start_dpi(self, selected_mode: str | None = None, delay_ms: int = 0) -> bool:
-        """
-        Запускает .bat-файл, описанный в bin/index.json.
 
-        selected_mode может быть:
-        • ключом из index.json (ID)
-        • «красивым» именем стратегии
-        • именем .bat-файла (c расширением .bat)
-        • None  → будет выбрана текущая/последняя/дефолтная стратегия
-
-        delay_ms – задержка перед фактическим стартом, мс (0 = сразу)
-        """
-        from log import log
-        strategies = self._load_strategy_index()
-
-        # ---------- 0. Выбираем стратегию, если она не передана -----------------
-        if not selected_mode:                             # a) из текущей сессии
-            selected_mode = getattr(self, "current_strategy_name", None)
-
-        if not selected_mode:                             # b) из реестра
-            try:
-                selected_mode = get_last_strategy()
-            except Exception:
-                selected_mode = None
-
-        if not selected_mode:                             # c) хардкод по умолчанию
-            selected_mode = "Оригинальная bol-van v2 (07.04.2025)"
-        
-        # ---------- 1. Определяем имя bat-файла ---------------------------------
-        bat_file = None
-
-        # а) точный ключ
-        if selected_mode in strategies:
-            bat_file = strategies[selected_mode].get("file_path")
-
-        # б) поиск по «красивому» имени
-        if not bat_file:
-            for info in strategies.values():
-                if info.get("name", "").strip().lower() == selected_mode.strip().lower():
-                    bat_file = info.get("file_path")
-                    break
-
-        # в) уже bat
-        if not bat_file and selected_mode.lower().endswith(".bat"):
-            bat_file = selected_mode
-
-        if not bat_file:
-            log(f"start_dpi: не удалось сопоставить '{selected_mode}' с bat-файлом",
-                level="ERROR")
-            self.set_status("Ошибка: стратегия не найдена")
-            return False
-
-        # ---------- 2. Проверяем наличие файла ----------------------------------
-        bat_path = os.path.join(BIN_DIR, bat_file)
-        if not os.path.isfile(bat_path):
-            log(f"start_dpi: файл не найден: {bat_path}", level="ERROR")
-            self.set_status("Ошибка: файл стратегии не найден")
-            return False
-
-        log(f"start_dpi: собираемся запустить {bat_path}", level="DEBUG")
-
-        # ---------- 3. Функция реального запуска --------------------------------
-        def _do_start() -> bool:
-            try:
-                CREATE_NO_WINDOW = 0x08000000
-                subprocess.Popen(["cmd", "/c", bat_path],
-                                cwd=BIN_DIR,
-                                creationflags=CREATE_NO_WINDOW)
-                log(f"start_dpi: успешно запущен {bat_file}", level="INFO")
-                self.set_status(f"Запущена стратегия: {selected_mode}")
-                self.update_ui(running=True)
-                return True
-            except Exception as e:
-                log(f"start_dpi: ошибка запуска: {e}", level="ERROR")
-                self.set_status(f"Ошибка запуска: {e}")
-                return False
-
-        # ---------- 4. Мгновенный или отложенный старт --------------------------
-        if delay_ms > 0:
-            QTimer.singleShot(delay_ms, _do_start)
-            log(f"start_dpi: запуск отложен на {delay_ms} мс", level="DEBUG")
-            return True
-        else:
-            return _do_start()
-    
     def update_autostart_ui(self, service_running):
         """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса автозапуска"""
         # Проверяем актуальный статус, если не указан явно
@@ -385,13 +300,9 @@ class LupiDPIApp(QWidget):
         self.autostart_enable_btn.setVisible(not service_running)
         self.autostart_disable_btn.setVisible(service_running)
         
-        # Обновляем доступность кнопки выбора стратегии
+        # Обновляем видимость кнопки выбора стратегии (скрываем вместо отключения)
         if hasattr(self, 'select_strategy_btn'):
-            self.select_strategy_btn.setEnabled(not service_running)
-            if service_running:
-                self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("150, 150, 150"))  # Серый для неактивного
-            else:
-                self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))  # Синий для активного
+            self.select_strategy_btn.setVisible(not service_running)  # Скрываем кнопку вместо изменения цвета
         
         # Если автозапуск активен, показываем информационное сообщение
         if service_running:
@@ -536,24 +447,9 @@ class LupiDPIApp(QWidget):
             winws_exe=WINWS_EXE,
             bin_folder=BIN_FOLDER,
             lists_folder=LISTS_FOLDER,
-            status_callback=self.set_status
+            status_callback=self.set_status,
+            ui_callback = self.update_ui    
         )
-        
-        debug_mode = "--debug" in sys.argv
-        
-        # Инициализируем стартер DPI
-        self.dpi_starter = DPIStarter(
-            winws_exe=WINWS_EXE,
-            bin_folder=BIN_FOLDER,
-            lists_folder=LISTS_FOLDER,
-            status_callback=self.set_status
-        )
-        
-        # Если мы в режиме отладки, показываем сообщение в UI
-        if debug_mode:
-            self.set_status("Запуск в режиме отладки")
-            from log import log
-            log("РЕЖИМ ОТЛАДКИ АКТИВЕН - ВСЕ КОНСОЛИ ПРОЦЕССОВ БУДУТ ВИДНЫ", level="DEBUG")
         
         # Проверяем и обновляем UI службы/задачи
         autostart_running = self.service_manager.check_autostart_exists()
@@ -613,7 +509,7 @@ class LupiDPIApp(QWidget):
         
         # Если автозапуск не активен и процесс не запущен, выполняем обычный запуск
         log("Выполняем отложенный запуск DPI", level="INFO")
-        self.start_dpi(delay_ms=1000)   # задержка 1 с
+        self.dpi_starter.start_dpi(delay_ms=1000)   # задержка 1 с
     
     def finish_initialization(self):
         """Завершает процесс инициализации"""
@@ -650,7 +546,7 @@ class LupiDPIApp(QWidget):
                 
                 log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
                 # Запускаем с задержкой 500 мс
-                QTimer.singleShot(500, lambda: self.start_dpi(selected_mode=strategy_name))
+                QTimer.singleShot(500, lambda: self.dpi_starter.start_dpi(selected_mode=strategy_name))
         else:
             log("DPI Starter не инициализирован, пропускаем проверку процесса", level="WARNING")
         
@@ -659,13 +555,17 @@ class LupiDPIApp(QWidget):
     def __init__(self, fast_load=False):
         self.fast_load = fast_load
 
-        # Добавляем защиту от гонок данных при проверке статуса
-        self.status_check_lock = threading.Lock()
-        self.last_status = None
-        self.last_status_time = 0
-        self.status_check_interval = 0.5  # минимальный интервал между проверками в секундах
-
         super().__init__()
+
+
+        self.dpi_starter = DPIStarter(
+            winws_exe   = WINWS_EXE,
+            bin_folder  = BIN_FOLDER,
+            lists_folder= LISTS_FOLDER,
+            status_callback = self.set_status,
+            ui_callback     = self.update_ui
+        )
+
         self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
 
         self.first_start = True  # Флаг для отслеживания первого запуска
@@ -724,7 +624,7 @@ class LupiDPIApp(QWidget):
         else:
             # Если нет, повторяем через полсекунды
             log("Повторная попытка активации комбо-бокса тем")
-            QTimer.singleShot(500, self.delayed_combo_enabler)
+            QTimer.singleShot(100, self.delayed_combo_enabler)
 
     def perform_delayed_checks(self):
         """Выполняет отложенные проверки после отображения UI"""
@@ -739,11 +639,11 @@ class LupiDPIApp(QWidget):
             self.force_enable_combos()
             
             # Принудительно обновляем статус процесса
-            QTimer.singleShot(1500, self.check_process_status)
+            QTimer.singleShot(100, self.check_process_status)
             
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
-            QTimer.singleShot(500, self.delayed_combo_enabler)
+            QTimer.singleShot(100, self.delayed_combo_enabler)
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -765,7 +665,7 @@ class LupiDPIApp(QWidget):
         
         # Запускаем DPI с новым режимом - теперь это безопасно,
         # так как stop.bat гарантированно остановит предыдущий процесс
-        self.start_dpi(selected_mode=selected_mode)
+        self.dpi_starter.start_dpi(selected_mode=selected_mode)
         
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
@@ -906,91 +806,39 @@ class LupiDPIApp(QWidget):
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при остановке: {str(e)}")
 
-    def install_service(self):
-        """Устанавливает автозапуск DPI с текущей выбранной стратегией"""
-        try:
-            from log import log
-            
-            # Получаем текущую выбранную стратегию
-            selected_strategy_name = None
-            if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
-                selected_strategy_name = self.current_strategy_name
-            else:
-                selected_strategy_name = self.current_strategy_label.text()
-                if selected_strategy_name == "Не выбрана":
-                    selected_strategy_name = get_last_strategy()
-            
-            if not selected_strategy_name:
-                log("Не выбрана стратегия для автозапуска", level="ERROR")
-                QMessageBox.critical(self, "Ошибка", "Не выбрана стратегия для автозапуска")
-                self.set_status("Ошибка: стратегия не выбрана")
-                return False
-                
-            log(f"Установка автозапуска с выбранной стратегией: {selected_strategy_name}", level="INFO")
-            
-            # Определяем ID стратегии
-            strategy_id = None
-            if hasattr(self, 'current_strategy_id') and hasattr(self, 'current_strategy_name') and self.current_strategy_name == selected_strategy_name:
-                strategy_id = self.current_strategy_id
-            else:
-                # Ищем ID по имени в списке стратегий
-                strategies = self.strategy_manager.get_strategies_list()
-                for sid, info in strategies.items():
-                    if info.get('name') == selected_strategy_name:
-                        strategy_id = sid
-                        break
-            
-            if not strategy_id:
-                log(f"Не удалось найти ID стратегии для: {selected_strategy_name}", level="ERROR")
-                QMessageBox.critical(self, "Ошибка", f"Не удалось найти ID стратегии для: {selected_strategy_name}")
-                self.set_status(f"Ошибка: стратегия не найдена")
-                return False
-            
-            log(f"Найден ID стратегии: {strategy_id}", level="INFO")
-            
-            # Получаем путь к BAT-файлу стратегии
-            if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
-                log("Менеджер стратегий не инициализирован", level="ERROR")
-                QMessageBox.critical(self, "Ошибка", "Менеджер стратегий не инициализирован")
-                self.set_status("Ошибка: менеджер стратегий не инициализирован")
-                return False
-            
-            # Скачиваем стратегию, если она еще не скачана
-            strategy_bat_path = self.strategy_manager.download_strategy(strategy_id)
-            if not strategy_bat_path:
-                log(f"Не удалось получить BAT-файл для стратегии: {strategy_id}", level="ERROR")
-                QMessageBox.critical(self, "Ошибка", f"Не удалось получить BAT-файл для стратегии: {selected_strategy_name}")
-                self.set_status(f"Ошибка: не удалось получить файл стратегии")
-                return False
-            
-            # Полный путь к BAT-файлу
-            full_bat_path = os.path.abspath(strategy_bat_path)
-            log(f"Путь к BAT-файлу стратегии: {full_bat_path}", level="INFO")
-            
-            # Показываем информацию о процессе
-            self.set_status("Настройка автозапуска...")
-            
-            # Устанавливаем задачу в планировщике для запуска BAT-файла
-            if self.service_manager.install_task_scheduler(
-                bat_file_path=full_bat_path, 
-                config_name=selected_strategy_name,
-                strategy_id=strategy_id
-            ):
-                self.update_autostart_ui(True)
-                self.check_process_status()
-                QMessageBox.information(self, "Успех", f"Автозапуск успешно настроен с режимом: {selected_strategy_name}")
-                return True
-            else:
-                log("Ошибка при настройке автозапуска", level="ERROR")
-                QMessageBox.critical(self, "Ошибка", "Не удалось настроить автозапуск. Проверьте журнал для подробностей.")
-                return False
-                
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка при настройке автозапуска: {str(e)}")
-            self.set_status(f"Ошибка при настройке автозапуска: {str(e)}")
+    def install_service(self) -> bool:
+        """
+        Вызывается из GUI при нажатии «Автозапуск».
+        Делегирует всё ServiceManager’у.
+        """
+        from log import log
+
+        # текущая стратегия
+        selected = getattr(self, "current_strategy_name", None) \
+               or self.current_strategy_label.text()
+        if selected == "Не выбрана":
+            selected = get_last_strategy()
+
+        if not selected:
+            QMessageBox.critical(self, "Ошибка", "Стратегия не выбрана")
+            self.set_status("Ошибка: стратегия не выбрана")
             return False
+
+        log(f"Установка автозапуска для стратегии: {selected}", level="INFO")
+
+        ok = self.service_manager.install_autostart_by_strategy(
+                selected_mode=selected,
+                strategy_manager=self.strategy_manager)
+
+        if ok:
+            self.update_autostart_ui(True)
+            QMessageBox.information(self, "Успех",
+                                     f"Автозапуск настроен для режима:\n{selected}")
+            return True
+
+        QMessageBox.critical(self, "Ошибка",
+                             "Не удалось настроить автозапуск.\nСм. журнал.")
+        return False
     
     def remove_service(self):
         """Удаляет службу DPI"""
@@ -1178,7 +1026,7 @@ class LupiDPIApp(QWidget):
         self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
         self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.start_btn.clicked.connect(self.start_dpi)
+        self.start_btn.clicked.connect(self.dpi_starter.start_dpi)
 
         self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
         self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
@@ -1302,7 +1150,7 @@ class LupiDPIApp(QWidget):
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.check_process_status)
-        self.status_timer.start(3000)
+        self.status_timer.start(100)
 
     def moveEvent(self, event):
         """Вызывается при перемещении окна"""
@@ -1316,27 +1164,23 @@ class LupiDPIApp(QWidget):
         
         # Перезапускаем таймер после небольшой задержки
         if was_active:
-            QTimer.singleShot(200, lambda: self.status_timer.start())
+            QTimer.singleShot(300, lambda: self.status_timer.start())
 
 def main():
     try:
         from log import log
-        # Проверяем наличие флага отладки
-        debug_mode = "--debug" in sys.argv
-        if debug_mode:
-            log("========================= ZAPRET ЗАПУСКАЕТСЯ В РЕЖИМЕ ОТЛАДКИ ========================", level="START")
-        else:
-            log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
+        log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
     except Exception as e:
         log(f"Failed to initialize logger: {e}", level="ERROR")
-
-    app = QApplication(sys.argv)
 
     try:
         from check_start import display_startup_warnings
         can_continue = display_startup_warnings()
         if not can_continue:
             sys.exit(1)
+
+        app = QApplication(sys.argv)
+        
     except Exception as e:
         log(f"Failed to perform startup checks: {e}", level="ERROR")
         # Показываем ошибку пользователю
@@ -1387,12 +1231,20 @@ def main():
         window = LupiDPIApp(fast_load=True)
         window.show()
         
+        # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
+        def _remove_legacy_service():
+            if hasattr(window, "service_manager") and window.service_manager:
+                window.service_manager.remove_legacy_windows_service()
+                log("Входим в службу", level="SERVICE")
+            else:
+                log("Менеджер служб не инициализирован", level="SERVICE")
+
+        QTimer.singleShot(0, _remove_legacy_service)        
         # Выполняем дополнительные проверки ПОСЛЕ отображения UI
-        QTimer.singleShot(100, lambda: window.perform_delayed_checks())
+        window.perform_delayed_checks()
         
         # Дополнительная гарантия, что комбо-боксы будут активны
-        QTimer.singleShot(1000, lambda: window.force_enable_combos())
-        QTimer.singleShot(2000, lambda: window.force_enable_combos())
+        window.force_enable_combos()
 
         sys.exit(app.exec_())
     except Exception as e:

@@ -27,7 +27,7 @@ LABEL_TEXTS = {
     LABEL_STABLE: "СТАБИЛЬНАЯ"
 }
 
-MINIMUM_WIDTH = 400  # Минимальная ширина списка доступных стратегий
+MINIMUM_WIDTH = 450  # Минимальная ширина списка доступных стратегий
 
 class ProviderHeaderItem(QListWidgetItem):
     """Специальный элемент для заголовка группы провайдера"""
@@ -99,7 +99,7 @@ class StrategySelector(QDialog):
         self.selected_strategy_name = None
         
         self.setWindowTitle("Выбор стратегии обхода блокировок")
-        self.resize(1100, 900)  # Начальный размер окна
+        self.resize(1000, 800)  # Начальный размер окна
         
         self.init_ui()
         self.load_strategies()
@@ -298,9 +298,9 @@ class StrategySelector(QDialog):
             # 3. Повторная обработка событий
             QApplication.processEvents()
             
-            # 4. Обновление с задержкой (увеличиваем время до 500 мс)
+            # 4. Обновление с задержкой
             from PyQt5.QtCore import QTimer
-            QTimer.singleShot(500, self.update_all_items)
+            QTimer.singleShot(100, self.update_all_items)
                 
         except Exception as e:
             log(f"Ошибка при загрузке списка стратегий: {str(e)}", level="ERROR")

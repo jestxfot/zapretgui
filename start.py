@@ -9,8 +9,16 @@ from log import log
 
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
-    
-    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None):
+
+    def _set_status(self, text: str):
+        if self.status_callback:
+            self.status_callback(text)
+
+    def _update_ui(self, running: bool):
+        if self.ui_callback:
+            self.ui_callback(running)
+
+    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, ui_callback=None):
         """
         Инициализирует DPIStarter.
         
@@ -24,6 +32,7 @@ class DPIStarter:
         self.bin_folder = bin_folder
         self.lists_folder = lists_folder
         self.status_callback = status_callback
+        self.ui_callback = ui_callback
     
     def set_status(self, text):
         """Отображает статусное сообщение."""
@@ -167,6 +176,103 @@ class DPIStarter:
         except Exception as e:
             log(f"Общая ошибка при проверке статуса процесса: {str(e)}", level="START")
             return False
+
+    # ==================================================================
+    #  ЕДИНЫЙ ЗАПУСК Стратегии (.bat)   → self.start(...)
+    # ==================================================================
+    def start_dpi(self, selected_mode: str | None = None, delay_ms: int = 0) -> bool:
+        """
+        Запускает выбранный .bat скрыто.
+        selected_mode может быть:
+            • ID из index.json
+            • «красивым» Name из index.json
+            • имя .bat
+            • None → берём get_last_strategy() или дефолт
+        delay_ms – задержка в мс (0 = сразу)
+        """
+        from log import log
+        from PyQt5.QtCore import QTimer
+        import json, os, subprocess
+
+        DEFAULT_STRAT = "Оригинальная bol-van v2 (07.04.2025)"
+        BIN_DIR       = self.bin_folder
+
+        # -------- 0. Какая стратегия? -------------------------------------
+        if not selected_mode:
+            try:
+                from main import get_last_strategy     # где-то в проекте
+                selected_mode = get_last_strategy()
+            except Exception:
+                selected_mode = None
+        if not selected_mode:
+            selected_mode = DEFAULT_STRAT
+
+        # -------- 1. Загружаем / кэшируем index.json -----------------------
+        try:
+            if not hasattr(self, "_idx"):
+                with open(os.path.join(BIN_DIR, "index.json"), "r", encoding="utf-8") as f:
+                    self._idx = json.load(f)
+        except Exception as e:
+            log(f"[DPIStarter] index.json error: {e}", level="ERROR")
+            self._set_status("index.json не найден")
+            return False
+        strategies = self._idx
+
+        # -------- 2. Сопоставляем → .bat ----------------------------------
+        def _resolve_bat(name: str) -> str | None:
+            if name in strategies:
+                return strategies[name].get("file_path")
+            # поиск по Name
+            for info in strategies.values():
+                if info.get("name", "").strip().lower() == name.strip().lower():
+                    return info.get("file_path")
+            # пользователь ввёл *.bat
+            if name.lower().endswith(".bat"):
+                return name
+            return None
+
+        bat_rel = _resolve_bat(selected_mode)
+        if not bat_rel:
+            log(f"[DPIStarter] не найден .bat для '{selected_mode}'", level="ERROR")
+            self._set_status("Ошибка: стратегия не найдена")
+            return False
+
+        # убираем дублирующий «bin\\»
+        while bat_rel.lower().startswith(("bin\\", "bin/")):
+            bat_rel = bat_rel[4:]
+        bat_path = os.path.normpath(os.path.join(BIN_DIR, bat_rel))
+
+        if not os.path.isfile(bat_path):
+            log(f"[DPIStarter] файл не найден: {bat_path}", level="ERROR")
+            self._set_status("Ошибка: файл стратегии не найден")
+            return False
+
+        # -------- 3. Внутренняя функция реального запуска -----------------
+        def _do_start() -> bool:
+            try:
+                CREATE_NO_WINDOW = 0x08000000
+                abs_bat = os.path.abspath(bat_path)          # гарантируем абсолютный
+                cmd = ["cmd", "/c", abs_bat]                 # ← подставляем его
+                log(f"[DPIStarter] RUN: {' '.join(cmd)} (hidden)", level="INFO")
+
+                subprocess.Popen(
+                        cmd,
+                        cwd=os.path.dirname(abs_bat),        # можно BIN_DIR; главное – верный bat
+                        creationflags=0x08000000)
+                self._set_status(f"Запущена стратегия: {selected_mode}")
+                self._update_ui(True)
+                return True
+            except Exception as e:
+                log(f"[DPIStarter] ошибка запуска: {e}", level="ERROR")
+                self._set_status(f"Ошибка запуска: {e}")
+                return False
+
+        # -------- 4. Запускаем сразу или с задержкой ----------------------
+        if delay_ms > 0:
+            QTimer.singleShot(delay_ms, _do_start)
+            log(f"[DPIStarter] запуск отложен на {delay_ms} мс", level="DEBUG")
+            return True
+        return _do_start()
         
     def stop_dpi(self):
         """

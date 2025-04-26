@@ -1,10 +1,17 @@
 import os
 import sys
-import ctypes
 from PyQt5.QtWidgets import QMessageBox, QApplication
+import ctypes, sys
 
 # Импортируем константы из конфига
 from config import BIN_FOLDER, LISTS_FOLDER
+
+def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
+    """
+    Показывает нативное окно MessageBox (не требует QApplication)
+    style: 0x10 = MB_ICONERROR,  0x30 = MB_ICONWARNING | MB_YESNO
+    """
+    ctypes.windll.user32.MessageBoxW(0, text, title, style)
 
 def check_if_in_archive():
     """
@@ -38,10 +45,24 @@ def check_if_in_archive():
         log(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
         return False
 
-def contains_special_chars(path):
-    """Проверяет, содержит ли путь специальные символы"""
-    special_chars = '()[]{}^=;!\'"+<>|&'
-    return any(c in path for c in special_chars)
+import re
+def contains_special_chars(path: str) -> bool:
+    """
+    True, если путь содержит:
+      • пробел
+      • (опционально) цифру
+      • символ НЕ из списка  A-Z a-z 0-9 _ . : \ /
+    """
+    if " " in path:
+        return True            # пробел — сразу ошибка
+
+    # если хотите запретить цифры — раскомментируйте строку ниже
+    # if re.search(r"\d", path):
+    #     return True
+
+    # проверяем оставшиеся символы
+    #  ^ – отрицание; разрешаем  A-Z a-z 0-9 _ . : \ /
+    return bool(re.search(r"[^A-Za-z0-9_\.:\\/]", path))
 
 def check_path_for_special_chars():
     """Проверяет пути программы на наличие специальных символов"""
@@ -54,7 +75,7 @@ def check_path_for_special_chars():
         if contains_special_chars(path):
             error_message = (
                 f"Путь содержит специальные символы: {path}\n\n"
-                "Программа не может корректно работать в папке со специальными символами (цифры, точки, скобки, запятые и т.д.).\n"
+                "Программа не может корректно работать в папке со специальными символами (РФ символы, пробелы, цифры, точки, скобки, запятые и т.д.).\n"
                 "Пожалуйста, переместите программу в папку без специальных символов в пути (например, C:\\zapretgui) и запустите её снова."
             )
             try:
@@ -114,21 +135,26 @@ def display_startup_warnings():
     if not success:
         # Определяем, является ли ошибка критической
         is_critical = "специальные символы" in message
-        
+
+        app_exists = QApplication.instance() is not None
+
         if is_critical:
-            # Критическая ошибка - показываем сообщение и рекомендуем закрыть программу
-            print(f"CRITICAL ERROR: {message}")  # Дублируем в консоль для отладки
-            QMessageBox.critical(None, "Критическая ошибка", message)
+            if app_exists:
+                QMessageBox.critical(None, "Критическая ошибка", message)
+            else:
+                _native_message("Критическая ошибка", message, 0x10)
             return False
         else:
-            # Некритическая ошибка - показываем предупреждение, но позволяем продолжить
-            print(f"WARNING: {message}")  # Дублируем в консоль для отладки
-            result = QMessageBox.warning(
-                None, 
-                "Предупреждение", 
-                message + "\n\nПродолжить запуск программы?",
-                QMessageBox.No
-            )
-            return result == QMessageBox.Yes
-    
+            if app_exists:
+                result = QMessageBox.warning(
+                    None, "Предупреждение",
+                    message + "\n\nПродолжить запуск программы?",
+                    QMessageBox.No
+                )
+                return result == QMessageBox.Yes
+            else:
+                btn = _native_message("Предупреждение",
+                                    message + "\n\nНажмите «Да» для продолжения.",
+                                    0x30)  # MB_ICONWARNING | MB_YESNO
+                return btn == 6  # IDYES
     return True

@@ -39,7 +39,7 @@ def get_config_from_registry():
         return None
 
 class ServiceManager:
-    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, service_name="ZapretCensorliber"):
+    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, ui_callback=None, service_name="ZapretCensorliber"):
         """
         Инициализирует менеджер служб.
         
@@ -54,6 +54,7 @@ class ServiceManager:
         self.bin_folder = bin_folder
         self.lists_folder = lists_folder
         self.status_callback = status_callback
+        self.ui_callback     = ui_callback
         self.service_name = service_name
     
     def set_status(self, text):
@@ -68,108 +69,94 @@ class ServiceManager:
         # Просто делегируем вызов новому методу для обеспечения обратной совместимости
         return self.check_autostart_exists()
 
-    def install_service(self, command_args, config_name=""):
+    def install_autostart_by_strategy(
+            self,
+            selected_mode: str,
+            strategy_manager,
+            index_path: str | None = None) -> bool:
         """
-        Устанавливает службу Windows для автоматического запуска DPI.
-        
-        Args:
-            command_args (list): Аргументы командной строки для winws.exe
-            config_name (str, optional): Имя конфигурации для отображения в сообщениях
-            
-        Returns:
-            bool: True если служба успешно установлена, False в случае ошибки
+        • selected_mode   – ID, «красивое» имя из index.json, либо *.bat
+        • strategy_manager – объект StrategyManager (скачивает при надобности)
+        • index_path      – явный путь к bin/index.json (по-умолч. self.bin_folder)
         """
         try:
-            # Если command_args переданы как строка, разбиваем на список
-            if isinstance(command_args, str):
-                command_args = command_args.split()
+            from log import log
+            import json, os, traceback
 
-            # Проверяем путь на наличие пробелов
-            current_path = os.path.dirname(os.path.abspath(self.winws_exe))
-            if " " in current_path:
-                error_msg = (
-                    "Ошибка: Невозможно установить службу, так как путь к программе содержит пробелы:\n"
-                    f"{current_path}\n\n"
-                    "Пожалуйста, переместите программу в папку без пробелов в пути "
-                    "(например, в корень диска C:\\Zapret) и повторите попытку."
-                )
-                self.set_status("Ошибка: Путь содержит пробелы")
-                
-                # Используем QMessageBox для вывода сообщения
-                from PyQt5.QtWidgets import QMessageBox
-                msg_box = QMessageBox()
-                msg_box.setIcon(QMessageBox.Warning)
-                msg_box.setWindowTitle("Ошибка пути")
-                msg_box.setText(error_msg)
-                msg_box.exec_()
-                
+            # ── служебная утилита --------------------------------------------------
+            def _abs_bat(bat: str) -> str:
+                """делаем абсолютный путь + убираем дубликат bin\\"""               
+                if os.path.isabs(bat):
+                    return os.path.normpath(bat)
+
+                # убираем ведущий bin/
+                while bat.lower().startswith(("bin\\", "bin/")):
+                    bat = bat[4:]
+                return os.path.normpath(os.path.join(self.bin_folder, bat))
+
+            # ── 1. index.json ------------------------------------------------------
+            if not index_path:
+                index_path = os.path.join(self.bin_folder, "index.json")
+
+            if not hasattr(self, "_strategy_index"):
+                with open(index_path, "r", encoding="utf-8") as f:
+                    self._strategy_index = json.load(f)
+            strategies: dict = self._strategy_index
+
+            # ── 2. сопоставляем selected_mode → bat_file + strategy_id -------------
+            bat_file = None
+            strategy_id = None
+
+            # ID
+            if selected_mode in strategies:
+                strategy_id = selected_mode
+                bat_file = strategies[strategy_id]["file_path"]
+
+            # красивое имя
+            if not bat_file:
+                for sid, info in strategies.items():
+                    if info.get("name", "").strip().lower() == selected_mode.strip().lower():
+                        strategy_id, bat_file = sid, info["file_path"]
+                        break
+
+            # пользователь дал *.bat
+            if not bat_file and selected_mode.lower().endswith(".bat"):
+                bat_file = selected_mode   # strategy_id остаётся None
+
+            if not bat_file:
+                log(f"Не смогли сопоставить '{selected_mode}' с .bat", level="ERROR")
+                self.set_status("Ошибка: стратегия не найдена")
                 return False
-                
-            # Проверяем существует ли служба
-            if self.check_service_exists():
-                self.set_status("Служба уже существует. Удаление...")
-                stop_cmd = f'sc stop "{self.service_name}"'
-                subprocess.run(stop_cmd, shell=True, capture_output=True)
-                time.sleep(0.1)
-                delete_cmd = f'sc delete "{self.service_name}"'
-                delete_result = subprocess.run(delete_cmd, shell=True, capture_output=True, text=True)
-                if delete_result.returncode != 0:
-                    self.set_status("Не удалось удалить существующую службу")
-                time.sleep(0.1)
 
-            exe_path = os.path.abspath(self.winws_exe)
-            processed_args = []
-            for arg in command_args:
-                if ".txt" in arg or ".bin" in arg:
-                    if "=" in arg:
-                        prefix, filename = arg.split("=", 1)
-                        if ".txt" in filename:
-                            full_path = os.path.join(os.path.abspath(self.lists_folder), os.path.basename(filename))
-                            processed_args.append(f"{prefix}={full_path}")
-                        elif ".bin" in filename:
-                            full_path = os.path.join(os.path.abspath(self.bin_folder), os.path.basename(filename))
-                            processed_args.append(f"{prefix}={full_path}")
-                        else:
-                            processed_args.append(arg)
-                    else:
-                        processed_args.append(arg)
-                else:
-                    processed_args.append(arg)
+            # ── 3. скачиваем батник при необходимости --------------------------------
+            if strategy_id and strategy_manager:
+                dl_path = strategy_manager.download_strategy(strategy_id)
+                if dl_path:  # может вернуть None при ошибке
+                    bat_file = dl_path
 
-            args_str = " ".join(processed_args)
-            service_command = f'"{exe_path}" {args_str}'
+            # ── 4. нормализуем путь --------------------------------------------------
+            bat_path = _abs_bat(bat_file)
 
-            # Создаем службу без описания
-            create_cmd = (
-                f'sc create "{self.service_name}" type= own binPath= "{service_command}" '
-                f'start= auto DisplayName= "{self.service_name}"'
+            if not os.path.isfile(bat_path):
+                log(f"BAT-файл не найден: {bat_path}", level="ERROR")
+                self.set_status("Ошибка: файл стратегии не найден")
+                return False
+
+            log(f"Настройка автозапуска для BAT: {bat_path}", level="INFO")
+
+            # ── 5. создаём задачу планировщика --------------------------------------
+            ok = self.install_task_scheduler(
+                bat_file_path=bat_path,
+                config_name=selected_mode,
+                strategy_id=strategy_id
             )
-            print(f"DEBUG: Service command: {create_cmd}")
-            create_result = subprocess.run(create_cmd, shell=True, capture_output=True, text=True)
-            if create_result.returncode == 0:
-                # Устанавливаем описание службы отдельной командой
-                desc_cmd = f'sc description "{self.service_name}" "Служба для работы Zapret DPI https://t.me/bypassblock"'
-                subprocess.run(desc_cmd, shell=True, capture_output=True, text=True)
-                
-                # Сохраняем конфигурацию в реестр
-                save_config_to_registry(config_name if config_name else "Пользовательская")
-                subprocess.run("taskkill /IM winws.exe /F", shell=True, check=False)
-                time.sleep(0.1)
-                # Запускаем службу
-                start_cmd = f'sc start "{self.service_name}"'
-                start_result = subprocess.run(start_cmd, shell=True, capture_output=True, text=True)
-                if start_result.returncode == 0:
-                    self.set_status(f"Служба установлена и запущена\nКонфиг: {config_name}")
-                    return True
-                else:
-                    self.set_status("Служба создана, но не удалось запустить её")
-                    return False
-            else:
-                error_output = create_result.stderr.strip() if create_result.stderr else create_result.stdout.strip()
-                self.set_status(f"Ошибка при создании службы: {error_output}")
-                return False
+            return ok
+
         except Exception as e:
-            self.set_status(f"Ошибка при установке службы: {str(e)}")
+            from log import log
+            log(f"install_autostart_by_strategy: {e}", level="ERROR")
+            log(traceback.format_exc(), level="DEBUG")
+            self.set_status(f"Ошибка: {e}")
             return False
 
     def install_task_scheduler(self, bat_file_path, config_name, strategy_id=None):
@@ -264,7 +251,7 @@ class ServiceManager:
             log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка: {str(e)}")
             return False
-    
+                
     def remove_service(self):
         """Удаляет автозапуск DPI"""
         try:
@@ -320,6 +307,70 @@ class ServiceManager:
             self.set_status(f"Ошибка при удалении автозапуска: {str(e)}")
             return False
     
+    # ------------------------------------------------------------------
+    #  НОВЫЙ МЕТОД:  удаляет устаревшую Windows-службу ZapretCensorliber
+    # ------------------------------------------------------------------
+    def remove_legacy_windows_service(self) -> bool:
+        """
+        Принудительно удаляет службу Windows ZapretCensorliber, если она ещё
+        осталась от старых версий (автозапуск теперь через планировщик).
+
+        Возвращает:
+            True  – если службы нет или она успешно удалена
+            False – если возникла ошибка
+        """
+        try:
+            from log import log
+            svc = self.service_name  # обычно 'ZapretCensorliber'
+
+            # 1) проверяем, существует ли служба
+            query = subprocess.run(
+                f'sc query "{svc}"',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+
+            if query.returncode != 0:
+                log(f"Служба {svc} не найдена – ничего удалять", level="INFO")
+                self.set_status("Служба не найдена")
+                return True
+
+            # 2) пытаемся остановить
+            self.set_status("Остановка устаревшей службы…")
+            log(f"Останавливаем службу {svc}", level="INFO")
+            subprocess.run(f'sc stop "{svc}"', shell=True, capture_output=True)
+
+            time.sleep(1.0)  # даём время на остановку
+
+            # 3) удаляем службу
+            self.set_status("Удаление устаревшей службы…")
+            log(f"Удаляем службу {svc}", level="INFO")
+            delete = subprocess.run(
+                f'sc delete "{svc}"',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+
+            if delete.returncode == 0:
+                log("Служба успешно удалена", level="INFO")
+                self.set_status("Служба успешно удалена")
+                return True
+            else:
+                err = delete.stderr.strip() or delete.stdout.strip()
+                log(f"Ошибка удаления службы: {err}", level="ERROR")
+                self.set_status(f"Ошибка удаления службы: {err}")
+                return False
+
+        except Exception as e:
+            from log import log
+            log(f"remove_legacy_windows_service: {e}", level="ERROR")
+            self.set_status(f"Ошибка: {e}")
+            return False
+            
     def check_autostart_exists(self):
         """Проверяет, настроен ли автозапуск Zapret через любой механизм (служба или планировщик)"""
         try:
