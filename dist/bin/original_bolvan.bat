@@ -1,6 +1,6 @@
 @echo off
 REM Стратегия Оригинальная bol-van v1 (07.04.2025)
-REM VERSION: 1.8
+REM VERSION: 1.9
 REM Дата обновления: 2025-04-10
 
 net session >nul 2>&1
