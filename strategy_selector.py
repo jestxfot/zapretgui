@@ -79,9 +79,7 @@ class StrategyItem(QWidget):
             self.tag_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             self.tag_label.setMinimumHeight(20)
             layout.addWidget(self.tag_label)
-        
-        # Растягиваем первый элемент для выравнивания меток
-        layout.setStretch(0, 1)
+            layout.addStretch()  # Добавляем растяжение для выравнивания метки вправо
         
         # Устанавливаем минимальную высоту виджета
         self.setMinimumHeight(30)
@@ -103,11 +101,6 @@ class StrategySelector(QDialog):
         
         self.init_ui()
         self.load_strategies()
-        
-        # Автоматически обновляем список после открытия
-        # (это решает проблему отображения меток)
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(200, self.auto_refresh_strategies)
         
         # Выбираем текущую стратегию, если она задана
         if current_strategy_name:

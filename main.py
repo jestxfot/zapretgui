@@ -1,8 +1,10 @@
-import threading
-import ctypes, sys, os, winreg, subprocess, webbrowser, time, shutil
+import sys, os, ctypes, winreg, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QComboBox, QMessageBox, QApplication, QFrame, QSpacerItem, QSizePolicy
+from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QHBoxLayout,
+                             QComboBox, QMessageBox, QApplication, QFrame,
+                             QSpacerItem, QSizePolicy)
+
 
 from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
@@ -65,12 +67,57 @@ def is_admin():
     except:
         return False
 
-def get_version(self):
+def get_version():
     """Возвращает текущую версию программы"""
     return APP_VERSION
 
 BIN_DIR = os.path.join(os.getcwd(), "bin")     # при необходимости переопределите
 
+import platform
+import subprocess
+import ctypes
+
+def remove_windows_terminal_if_win11():
+
+    from log import log
+    """
+    На Windows 11 удаляет Windows Terminal (Store-версию) двумя способами:
+    1) `Remove-AppxPackage` – удаляет у текущего пользователя
+    2) `Remove-AppxProvisionedPackage` – убирает «заготовку» для новых учёток
+
+    Требуются права администратора.  
+    При любой ошибке пишет в лог, но не прерывает запуск программы.
+    """
+    try:
+        # 2. Проверяем права администратора
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            log("remove_windows_terminal: нет прав администратора – пропуск")
+            return
+
+        log("Удаляем Windows Terminal…")
+
+        # 3. Команды PowerShell
+        ps_remove_user = (
+            'Get-AppxPackage -Name Microsoft.WindowsTerminal '
+            '| Remove-AppxPackage -AllUsers'
+        )
+        ps_remove_prov = (
+            'Get-AppxProvisionedPackage -Online '
+            '| Where-Object {$_.PackageName -like "*WindowsTerminal*"} '
+            '| Remove-AppxProvisionedPackage -Online'
+        )
+
+        for cmd in (ps_remove_user, ps_remove_prov):
+            subprocess.run(
+                ["powershell", "-NoLogo", "-NoProfile", "-Command", cmd],
+                check=False,  # ошибки не критичны
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+        log("Windows Terminal удалён (или не был установлен).")
+
+    except Exception as e:
+        log(f"remove_windows_terminal: {e}")
 
 class ProcessMonitorThread(QThread):
     """Поток для мониторинга процесса winws.exe"""
@@ -141,13 +188,13 @@ class LupiDPIApp(QWidget):
         if hasattr(self, 'process_restarting') and self.process_restarting:
             log("Пропускаем проверку: процесс перезапускается", level="INFO") 
             self.process_restarting = False  # Сбрасываем флаг
-            self._update_process_status()  # Просто обновляем статус
+            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
             return
             
         if hasattr(self, 'manually_stopped') and self.manually_stopped:
             log("Пропускаем проверку: процесс остановлен вручную", level="INFO")
             self.manually_stopped = False  # Сбрасываем флаг
-            self._update_process_status()
+            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
             return
         
         # Проверяем, был ли недавно изменен режим (стратегия)
@@ -155,7 +202,7 @@ class LupiDPIApp(QWidget):
         if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
             # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
             log("Пропускаем проверку: недавно изменена стратегия", level="INFO")
-            self._update_process_status()
+            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
             return
         
         # Проверяем, запущен ли процесс на данный момент
@@ -187,17 +234,7 @@ class LupiDPIApp(QWidget):
             self.update_ui(running=False)
         
         # В любом случае обновляем статус
-        self._update_process_status()
-
-    def _update_process_status(self):
-        """Вспомогательный метод для обновления статуса процесса"""
-        try:
-            process_running = self.dpi_starter.check_process_running() \
-                        if hasattr(self, 'dpi_starter') else False
-            self.on_process_status_changed(process_running)
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при проверке статуса процесса: {str(e)}", level="ERROR")
+        self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
         
     def select_strategy(self):
         """Открывает диалог выбора стратегии."""
@@ -558,7 +595,7 @@ class LupiDPIApp(QWidget):
             if result.returncode == 0:
                 log("Обнаружена активная задача планировщика ZapretCensorliber, пропускаем ручной запуск", level="INFO")
                 self.update_ui(running=True)
-                self._update_process_status()
+                self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
                 return
         except Exception as e:
             log(f"Ошибка при проверке задачи планировщика: {str(e)}", level="WARNING")
@@ -702,9 +739,6 @@ class LupiDPIApp(QWidget):
             
             # Вторая попытка активации комбо-боксов после инициализации
             self.force_enable_combos()
-            
-            # Принудительно обновляем статус процесса
-            QTimer.singleShot(100, self._update_process_status)
             
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
@@ -864,7 +898,7 @@ class LupiDPIApp(QWidget):
                 log("Запрет успешно остановлен", level="INFO")
             
             # Обновляем статус
-            self._update_process_status()
+            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
                 
         except Exception as e:
             from log import log
@@ -909,7 +943,7 @@ class LupiDPIApp(QWidget):
         """Удаляет службу DPI"""
         if self.service_manager.remove_service():
             self.update_autostart_ui(False)
-            self._update_process_status()
+            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
 
     def update_proxy_button_state(self):
         """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
@@ -1108,9 +1142,6 @@ class LupiDPIApp(QWidget):
         self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.autostart_disable_btn.clicked.connect(self.remove_service)
 
-        # Добавляем все кнопки напрямую в сетку вместо использования контейнеров
-        button_grid = QGridLayout()
-
         # Устанавливаем равномерное распределение пространства между колонками
         button_grid.setColumnStretch(0, 1)  # Левая колонка растягивается с коэффициентом 1
         button_grid.setColumnStretch(1, 1)  # Правая колонка растягивается с коэффициентом 1
@@ -1226,6 +1257,8 @@ def main():
         if not can_continue:
             sys.exit(1)
 
+        remove_windows_terminal_if_win11()  # Удаляем терминал Windows 11, если он установлен
+        
         app = QApplication(sys.argv)
         
     except Exception as e:
