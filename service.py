@@ -1,6 +1,7 @@
-import os
 import subprocess
 import time, winreg
+
+import winreg
 
 # Константы для работы с реестром
 REGISTRY_KEY = r"SOFTWARE\Zapret"
@@ -76,7 +77,7 @@ class ServiceManager:
 
     def install_autostart_registry(self, selected_mode=None):
         """
-        Настраивает автозапуск приложения через реестр Windows
+        Настраивает автозапуск приложения через ярлык в реестре Windows
         
         Args:
             selected_mode (str): Выбранная стратегия обхода блокировок
@@ -87,22 +88,33 @@ class ServiceManager:
         try:
             from log import log
             import sys, os
+            import pythoncom
+            from win32com.client import Dispatch
             
-            # Используем путь к текущему исполняемому файлу
+            # Пути к exe и директории
             exe_path = sys.executable
             exe_dir = os.path.dirname(exe_path)
             
-            # Полный путь к exe с параметром --tray и установкой рабочей директории
-            # Запускаем через cmd, чтобы установить рабочую директорию перед запуском
-            full_command = f'cmd.exe /c "cd /d "{exe_dir}" && "{exe_path}" --tray"'
+            # Создаем путь для ярлыка в папке пользователя
+            shortcut_path = os.path.join(
+                os.path.expanduser("~"), 
+                "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", 
+                "Programs", "Startup", "ZapretGUI.lnk"
+            )
             
-            # Открываем ключ автозапуска в реестре
-            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE) as key:
-                # Записываем значение
-                winreg.SetValueEx(key, "ZapretGUI", 0, winreg.REG_SZ, full_command)
+            # Создаем директорию, если она не существует
+            os.makedirs(os.path.dirname(shortcut_path), exist_ok=True)
             
-            # Сохраняем выбранную стратегию (если указана)
+            # Создаем ярлык
+            shell = Dispatch('WScript.Shell')
+            shortcut = shell.CreateShortCut(shortcut_path)
+            shortcut.Targetpath = exe_path
+            shortcut.Arguments = "--tray"
+            shortcut.WorkingDirectory = exe_dir
+            shortcut.WindowStyle = 7  # 7 = Minimized
+            shortcut.save()
+            
+            # Сохраняем выбранную стратегию в реестр
             if selected_mode:
                 # Создаем ключ Zapret, если он не существует
                 reg_key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Software\\Zapret")
@@ -110,7 +122,7 @@ class ServiceManager:
                 winreg.SetValueEx(reg_key, "LastStrategy", 0, winreg.REG_SZ, selected_mode)
                 winreg.CloseKey(reg_key)
             
-            log(f"Автозапуск настроен через реестр: {full_command}", level="INFO")
+            log(f"Автозапуск настроен через ярлык: {shortcut_path}", level="INFO")
             self.set_status("Автозапуск успешно настроен")
             return True
             
@@ -147,34 +159,50 @@ class ServiceManager:
 
     def remove_autostart_registry(self):
         """
-        Удаляет автозапуск приложения из реестра Windows
+        Удаляет автозапуск приложения из реестра Windows и удаляет ярлык из папки автозапуска
         
         Returns:
             bool: True если автозапуск успешно удален, иначе False
         """
         try:
             from log import log
+            import os
             
-            # Открываем ключ автозапуска в реестре
+            # 1. Удаляем запись из реестра
             key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE) as key:
                 # Удаляем значение
                 try:
                     winreg.DeleteValue(key, "ZapretGUI")
+                    log("Автозапуск удален из реестра", level="INFO")
                 except FileNotFoundError:
                     # Значение уже удалено
                     pass
+                
+            # 2. Удаляем ярлык из папки автозапуска
+            shortcut_path = os.path.join(
+                os.path.expanduser("~"), 
+                "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", 
+                "Programs", "Startup", "ZapretGUI.lnk"
+            )
             
-            log("Автозапуск удален из реестра", level="INFO")
+            if os.path.exists(shortcut_path):
+                try:
+                    os.remove(shortcut_path)
+                    log(f"Ярлык автозапуска удален: {shortcut_path}", level="INFO")
+                except Exception as e:
+                    log(f"Не удалось удалить ярлык автозапуска: {str(e)}", level="WARNING")
+                    # Продолжаем выполнение - это не критическая ошибка
+            
             self.set_status("Автозапуск успешно удален")
             return True
-        
+            
         except Exception as e:
             from log import log
             log(f"Ошибка при удалении автозапуска: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка: {str(e)}")
             return False
-
+    
     def install_autostart_by_strategy(
             self,
             selected_mode: str,
@@ -213,11 +241,22 @@ class ServiceManager:
     def check_autostart_exists(self):
         """
         Проверяет наличие автозапуска через любой метод
-        (реестр, планировщик или службу Windows)
+        (реестр, ярлык, планировщик или службу Windows)
         
         Returns:
             bool: True если автозапуск настроен, иначе False
         """
+        import os
+        
+        # Проверяем наличие ярлыка в папке автозапуска
+        shortcut_path = os.path.join(
+            os.path.expanduser("~"), 
+            "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", 
+            "Programs", "Startup", "ZapretGUI.lnk"
+        )
+        if os.path.exists(shortcut_path):
+            return True
+        
         # Сначала проверяем реестр (новый метод)
         if self.check_autostart_registry_exists():
             return True
@@ -228,6 +267,7 @@ class ServiceManager:
             
         # Наконец, проверяем службу Windows (самый устаревший метод)
         return self.check_windows_service_exists()
+
     
     def check_scheduler_task_exists(self):
         """

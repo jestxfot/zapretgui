@@ -1,20 +1,19 @@
-@echo off
 REM Стратегия Оригинальная bol-van v2 (07.04.2025)
 REM VERSION: 3.0
 REM Дата обновления: 2025-04-10
 
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -NoLogo -NoProfile -Command ^
-        "Start-Process -FilePath '%~f0' -ArgumentList 'ELEV' -Verb RunAs"
-    exit /b
-)
-if /i "%1"=="ELEV" shift /1
+whoami /groups | find "S-1-5-32-544" >nul 2>&1 && goto :ADMIN
+powershell -nop -c "Start-Process '%~f0' -arg @('ELEV','%*') -Verb RunAs"
+exit /b
+:ADMIN
+if /i "%1"=="ELEV" shift
+
 taskkill /f /im winws.exe
 sc stop windivert
 sc delete windivert
 sc delete windivert
 cd /d "%~dp0"
+
 start "origbolvan v2" /b "winws.exe" ^
 --wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50099 ^
 --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new ^

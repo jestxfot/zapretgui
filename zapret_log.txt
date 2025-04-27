@@ -1,5 +1,9 @@
-=== Zapret GUI Log - Started 2025-04-26 22:16:07 ===
+=== Zapret GUI Log - Started 2025-04-27 14:20:40 ===
 
-[22:16:07] [START] ========================= ZAPRET ЗАПУСКАЕТСЯ ========================
-[22:16:07] [CHECK_START] Executable path: C:\Program Files\Python311\python.exe
-[22:16:07] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python311\python.exe
+[14:20:40] [14:20:40] Traceback (most recent call last):
+[14:20:40] [14:20:40]   File "c:\root\bin\zapretgui\main.py", line 12, in <module>
+[14:20:40] [14:20:40]     [14:20:40] from service import ServiceManager[14:20:40] 
+[14:20:40] [14:20:40]   File "c:\root\bin\zapretgui\service.py", line 4
+[14:20:40]     [14:20:40] from __future__ import annotations
+[14:20:40]     [14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] ^[14:20:40] 
+[14:20:40] [14:20:40] SyntaxError[14:20:40] : [14:20:40] from __future__ imports must occur at the beginning of the file[14:20:40] 
