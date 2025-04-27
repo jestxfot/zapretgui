@@ -1296,6 +1296,31 @@ class LupiDPIApp(QWidget):
         self.setLayout(layout)
         self.setMinimumSize(WIDTH, HEIGHT) # Минимальный размер окна
 
+    def init_tray_if_needed(self):
+        """Инициализирует системный трей, если он еще не был инициализирован"""
+        if not hasattr(self, 'tray_manager') or self.tray_manager is None:
+            from log import log
+            log("Инициализация менеджера системного трея", level="INFO")
+            
+            # Проверяем наличие пути к иконке
+            icon_path = os.path.abspath(ICON_PATH)
+            if not os.path.exists(icon_path):
+                log(f"Предупреждение: иконка {icon_path} не найдена", level="WARNING")
+                
+            # Инициализируем трей
+            from tray import SystemTrayManager
+            self.tray_manager = SystemTrayManager(
+                parent=self,
+                icon_path=icon_path,
+                app_version=APP_VERSION
+            )
+            
+            # Проверяем, запущены ли мы с аргументом --tray
+            if len(sys.argv) > 1 and sys.argv[1] == "--tray":
+                log("Программа запущена с аргументом --tray, скрываем окно", level="INFO")
+                # Гарантируем, что окно скрыто
+                self.hide()
+            
 def main():
     try:
         from log import log
@@ -1369,8 +1394,15 @@ def main():
         # Создаем окно с параметром fast_load=True
         window = LupiDPIApp(fast_load=True)
 
-        # Если запуск в трее, не показываем окно сразу
-        if not start_in_tray:
+        # Инициализируем системный трей до показа окна
+        window.init_tray_if_needed()
+
+        # Важно: если запуск в трее, явно скрываем окно
+        if start_in_tray:
+            log("Запуск приложения скрыто в трее", level="TRAY")
+            # Не показываем окно совсем при запуске в трее
+        else:
+            log("Запуск приложения в обычном режиме", level="TRAY")
             window.show()
         
         # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
