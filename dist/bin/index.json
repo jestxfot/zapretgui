@@ -2,7 +2,7 @@
   "original_bolvan_2": {
     "name": "Оригинальная bol-van v2 (07.04.2025)",
     "description": "Оригинальная стратегия для большинства провайдеров",
-    "version": "3.0",
+    "version": "3.1",
     "provider": "All",
     "author": "bol-van",
     "updated": "2025-04-10",
@@ -16,7 +16,7 @@
   "original_bolvan": {
     "name": "Оригинальная bol-van v1 (07.04.2025)",
     "description": "Оптимизировано для Билайн",
-    "version": "1.9",
+    "version": "2.0",
     "provider": "All",
     "author": "bol-van",
     "updated": "2025-04-10",
@@ -30,7 +30,7 @@
   "2025_01_06": {
     "name": "Все сайты (06.01.2025)",
     "description": "Оптимизировано для всех сайтов",
-    "version": "1.3",
+    "version": "1.4",
     "provider": "All",
     "author": "",
     "updated": "2025-01-06",
@@ -43,7 +43,7 @@
   "ufanet": {
     "name": "Уфанет (31.03.25)",
     "description": "Оптимизировано для дискорда",
-    "version": "1.5",
+    "version": "1.6",
     "provider": "Уфанет",
     "author": "censorliber",
     "updated": "2025-03-31",
@@ -56,7 +56,7 @@
   "alt1": {
     "name": "Alt 1",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.3",
+    "version": "1.7",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -69,7 +69,7 @@
   "alt2": {
     "name": "Alt 2",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "2.3",
+    "version": "2.4",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -82,7 +82,7 @@
   "alt3": {
     "name": "Alt 3",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "3.3",
+    "version": "3.4",
     "provider": "All",
     "author": "Flowseal",
     "label": "recommended",
@@ -96,7 +96,7 @@
   "alt4": {
     "name": "Alt 4",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.4",
+    "version": "1.5",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -109,7 +109,7 @@
   "alt5": {
     "name": "Alt 5",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.3",
+    "version": "1.6",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -122,7 +122,7 @@
   "bystro292_1": {
     "name": "YTDisBystro 2.9.2 v1",
     "description": "",
-    "version": "1.0",
+    "version": "1.1",
     "provider": "All",
     "author": "KDS",
     "updated": "2025-04-27",
@@ -135,7 +135,7 @@
   "bystro292_2": {
     "name": "YTDisBystro 2.9.2 v2",
     "description": "",
-    "version": "1.0",
+    "version": "1.1",
     "provider": "All",
     "author": "KDS",
     "updated": "2025-04-27",
@@ -148,7 +148,7 @@
   "bystro292_3": {
     "name": "YTDisBystro 2.9.2 v3",
     "description": "",
-    "version": "1.0",
+    "version": "1.1",
     "provider": "All",
     "author": "KDS",
     "updated": "2025-04-27",
@@ -161,7 +161,7 @@
   "faketlsmod": {
     "name": "Fake TLS Mod ttl 4",
     "description": "Оптимизировано для Дискорда. Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.5",
+    "version": "1.6",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -174,7 +174,7 @@
   "faketlsmod2": {
     "name": "Fake TLS Mod 2 md5sig",
     "description": "Оптимизировано для Дискорда. Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.3",
+    "version": "1.4",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -187,7 +187,7 @@
   "md5sigpadencap": {
     "name": "md5sig padencap",
     "description": "Использует md5sig и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025",
@@ -200,7 +200,7 @@
   "ttlpadencap": {
     "name": "ttl padencap",
     "description": "Использует ttl 1 и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025",
@@ -213,7 +213,7 @@
   "datanoackpadencap": {
     "name": "datanoack padencap (20.03.2025)",
     "description": "Использует datanoack и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-20",
@@ -226,7 +226,7 @@
   "datanoackpadencapmidsld": {
     "name": "datanoack padencap midsld (20.03.2025)",
     "description": "Использует datanoack, midsld и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-20",
@@ -239,7 +239,7 @@
   "multisplitmd5sigpadencap": {
     "name": "multisplit 1,md5sig padencap (discord)",
     "description": "Использует multisplit midsld и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-25",
@@ -252,7 +252,7 @@
   "multisplitmd5sigpadencapwssize": {
     "name": "multisplit 1,md5sig padencap wssize (discord)",
     "description": "Использует multisplit midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-25",
@@ -266,7 +266,7 @@
   "md5sigpadencapwssize": {
     "name": "md5sig padencap wssize (20.03.2025)",
     "description": "Использует midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-20",
@@ -280,7 +280,7 @@
   "datanoackpadencapmidsldwssize": {
     "name": "datanoack padencap midsld wssize (20.03.2025)",
     "description": "Использует datanoack, midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "Билайн",
     "author": "",
     "updated": "2025-03-20",
@@ -294,7 +294,7 @@
   "discordtcp80": {
     "name": "Discord TCP 80",
     "description": "Рекомендуется для Дискорда",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -307,7 +307,7 @@
   "discordfake": {
     "name": "Discord Fake",
     "description": "Рекомендуется для Дискорда",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -320,7 +320,7 @@
   "discordfakesplit": {
     "name": "Discord Fake Split",
     "description": "Рекомендуется для Дискорда",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -333,7 +333,7 @@
   "ultimatealt": {
     "name": "Ultimate Fix ALT",
     "description": "Рекомендуется для Билайна и Ростелекома",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "Билайн",
     "author": "",
     "updated": "2024",
@@ -346,7 +346,7 @@
   "splitsniext": {
     "name": "Split с sniext",
     "description": "",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -359,7 +359,7 @@
   "splitbadseq": {
     "name": "Split с badseq",
     "description": "",
-    "version": "1.1",
+    "version": "1.2",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -372,7 +372,7 @@
   "rosmega": {
     "name": "Ростелеком и Мегафон",
     "description": "",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "Ростелеком",
     "author": "",
     "updated": "2024",
@@ -385,7 +385,7 @@
   "rosmts": {
     "name": "Ростелеком и МГТС",
     "description": "",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "Ростелеком",
     "author": "",
     "updated": "2024",
@@ -398,7 +398,7 @@
   "other1": {
     "name": "Другие провайдеры 1",
     "description": "",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -411,7 +411,7 @@
   "other2": {
     "name": "Другие провайдеры 2",
     "description": "",
-    "version": "1.3",
+    "version": "1.4",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -424,7 +424,7 @@
   "ankddev10.bat": {
     "name": "Ankddev v10",
     "description": "",
-    "version": "1.4",
+    "version": "1.5",
     "provider": "All",
     "author": "Ankddev",
     "updated": "2024",
@@ -437,7 +437,7 @@
   "mgts1.bat": {
     "name": "МГТС 1",
     "description": "",
-    "version": "1.1",
+    "version": "1.6",
     "provider": "МГТС",
     "author": "",
     "updated": "2024",
@@ -450,7 +450,7 @@
   "mgts2.bat": {
     "name": "МГТС 2",
     "description": "",
-    "version": "1.1",
+    "version": "1.7",
     "provider": "МГТС",
     "author": "",
     "updated": "2024",
@@ -463,7 +463,7 @@
   "mgts3.bat": {
     "name": "МГТС 3",
     "description": "",
-    "version": "1.1",
+    "version": "1.8",
     "provider": "МГТС",
     "author": "",
     "updated": "2024",
@@ -476,7 +476,7 @@
   "mgts4.bat": {
     "name": "МГТС 4",
     "description": "",
-    "version": "1.2",
+    "version": "1.9",
     "provider": "МГТС",
     "author": "",
     "updated": "2024",
@@ -489,7 +489,7 @@
   "ultazl.bat": {
     "name": "Ульта конфиг ZL",
     "description": "",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",
@@ -502,7 +502,7 @@
   "ulta2.bat": {
     "name": "Ульта конфиг v2",
     "description": "",
-    "version": "1.2",
+    "version": "1.3",
     "provider": "All",
     "author": "",
     "updated": "2024",

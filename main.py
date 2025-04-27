@@ -1387,7 +1387,7 @@ def main():
 
     # ВАЖНЫЙ МОМЕНТ - проверяем админские права до создания окна
     if not is_admin():
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv[1:]), None, 1)
         sys.exit(0)
     
     try:

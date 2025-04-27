@@ -1,15 +1,13 @@
 @echo off
 REM Стратегия Уфанет (31.03.25)
-REM VERSION: 1.5
+REM VERSION: 1.6
 REM Дата обновления: 2025-03-31
 
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -NoLogo -NoProfile -Command ^
-        "Start-Process -FilePath '%~f0' -ArgumentList 'ELEV' -Verb RunAs"
-    exit /b
-)
-if /i "%1"=="ELEV" shift /1
+whoami /groups | find "S-1-5-32-544" >nul 2>&1 && goto :ADMIN
+powershell -nop -c "Start-Process '%~f0' -arg @('ELEV','%*') -Verb RunAs"
+exit /b
+:ADMIN
+if /i "%1"=="ELEV" shift
 
 taskkill /f /im winws.exe >nul 2>&1
 sc stop windivert >nul 2>&1
