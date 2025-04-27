@@ -34,7 +34,13 @@ class SystemTrayManager:
         
         # Переопределяем обработчики событий окна
         self.install_event_handlers()
-        
+
+    def show_notification(self, title, message):
+        """Показывает всплывающее уведомление в трее"""
+        if hasattr(self, 'tray_icon'):
+            from PyQt5.QtWidgets import QSystemTrayIcon
+            self.tray_icon.showMessage(title, message, QSystemTrayIcon.Information, 5000)
+
     def set_icon(self, icon_path):
         """Устанавливает иконку для трея"""
         if os.path.exists(icon_path):

@@ -119,6 +119,28 @@ def remove_windows_terminal_if_win11():
     except Exception as e:
         log(f"remove_windows_terminal: {e}")
 
+def remove_scheduler_tasks():
+    """Принудительно удаляет все задачи планировщика, связанные с Zapret"""
+    try:
+        from log import log
+        task_name = "ZapretCensorliber"
+        
+        # Проверяем существование задачи
+        check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
+        result = subprocess.run(check_cmd, shell=True, capture_output=True)
+        
+        if result.returncode == 0:
+            log(f"Обнаружена задача планировщика {task_name}, удаляем...", level="INFO")
+            delete_cmd = f'schtasks /Delete /TN "{task_name}" /F'
+            subprocess.run(delete_cmd, shell=True, check=False)
+            return True
+        
+        return False  # Задача не найдена
+    except Exception as e:
+        from log import log
+        log(f"Ошибка при удалении задачи планировщика: {str(e)}", level="ERROR")
+        return False
+
 class ProcessMonitorThread(QThread):
     """Поток для мониторинга процесса winws.exe"""
     processStatusChanged = pyqtSignal(bool)  # Сигнал: процесс запущен/остановлен
@@ -341,9 +363,9 @@ class LupiDPIApp(QWidget):
     def update_autostart_ui(self, service_running: bool | None):
         """
         Обновляет интерфейс при включении / выключении автозапуска.
-        • start_btn, stop_btn, autostart_enable_btn скрываются,
-        если автозапуск активен;
-        • autostart_disable_btn растягивается на 2-колонки.
+        • start_btn, stop_btn скрываются если автозапуск активен
+        • autostart_enable_btn скрывается если автозапуск активен
+        • autostart_disable_btn растягивается на 2-колонки
         """
         if service_running is None and hasattr(self, 'service_manager'):
             service_running = self.service_manager.check_autostart_exists()
@@ -369,19 +391,15 @@ class LupiDPIApp(QWidget):
             disable_btn.setVisible(True)
             disable_btn.setText('Выкл. автозапуск')  # Гарантируем правильный текст
             
-            self.select_strategy_btn.setVisible(False)
+            # ИЗМЕНЕНО: Оставляем кнопку выбора стратегии видимой всегда
+            # self.select_strategy_btn.setVisible(False)
 
-            # показываем предупреждение
-            if not hasattr(self, 'service_info_label'):
-                from PyQt5.QtWidgets import QLabel
-                from PyQt5.QtCore    import Qt
-                self.service_info_label = QLabel(
-                    "Для смены стратегии сначала отключите автозапуск.", self)
-                self.service_info_label.setAlignment(Qt.AlignCenter)
-                self.service_info_label.setStyleSheet("color:red;font-weight:bold;")
-                self.layout().insertWidget(self.layout().count()-5,
-                                        self.service_info_label)
-            self.service_info_label.setVisible(True)
+            # Удаляем предупреждение о смене стратегии
+            if hasattr(self, 'service_info_label'):
+                self.service_info_label.setVisible(False)
+                self.layout().removeWidget(self.service_info_label)
+                self.service_info_label.deleteLater()
+                self.service_info_label = None
 
         # --- автозапуск выключен ---------------------------------------------
         else:
@@ -392,22 +410,17 @@ class LupiDPIApp(QWidget):
             if start_btn:  
                 start_btn.setVisible(True)
                 self.button_grid.addWidget(start_btn, 0, 0)
-                
+                    
             if stop_btn:   
                 stop_btn.setVisible(False)
                 self.button_grid.addWidget(stop_btn, 0, 0)
-                
+                    
             enable_btn.setVisible(True)
             self.button_grid.addWidget(enable_btn, 0, 1)
             
             # Добавляем кнопку отключения автозапуска на правильное место
             self.button_grid.addWidget(disable_btn, 0, 1)
             disable_btn.setVisible(False)  # Но скрываем её, так как автозапуск выключен
-
-            self.select_strategy_btn.setVisible(True)
-            
-            if hasattr(self, 'service_info_label'):
-                self.service_info_label.setVisible(False)
             
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
@@ -607,17 +620,9 @@ class LupiDPIApp(QWidget):
                 self.process_status_value.setText("ВЫКЛЮЧЕН")
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
         
-        # Проверяем доступность кнопки выбора стратегии при автозапуске
-        if hasattr(self, 'select_strategy_btn'):
-            self.select_strategy_btn.setVisible(not autostart_active)
-        
-        # Обновляем информационную метку
-        if autostart_active:
-            if hasattr(self, 'service_info_label'):
-                self.service_info_label.setVisible(True)
-        else:
-            if hasattr(self, 'service_info_label'):
-                self.service_info_label.setVisible(False)
+        # ИЗМЕНЕНО: Оставляем кнопку выбора стратегии всегда видимой
+        # if hasattr(self, 'select_strategy_btn'):
+        #     self.select_strategy_btn.setVisible(not autostart_active)
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
@@ -1298,6 +1303,11 @@ def main():
     except Exception as e:
         log(f"Failed to initialize logger: {e}", level="ERROR")
 
+    start_in_tray = False
+
+    # Проверяем наличие и удаляем устаревшие задачи планировщика
+    remove_scheduler_tasks()
+    
     try:
         from check_start import display_startup_warnings
         can_continue = display_startup_warnings()
@@ -1319,6 +1329,8 @@ def main():
         if sys.argv[1] == "--version":
             log(APP_VERSION)
             sys.exit(0)
+        elif sys.argv[1] == "--tray":
+            start_in_tray = True
         elif sys.argv[1] == "--update" and len(sys.argv) > 3:
             # Режим обновления: updater.py запускает main.py --update old_exe new_exe
             old_exe = sys.argv[2]
@@ -1356,7 +1368,10 @@ def main():
     try:
         # Создаем окно с параметром fast_load=True
         window = LupiDPIApp(fast_load=True)
-        window.show()
+
+        # Если запуск в трее, не показываем окно сразу
+        if not start_in_tray:
+            window.show()
         
         # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
         def _remove_legacy_service():
@@ -1370,10 +1385,16 @@ def main():
         # Выполняем дополнительные проверки ПОСЛЕ отображения UI
         window.perform_delayed_checks()
         
+        # Если запуск в трее, уведомляем пользователя
+        if start_in_tray and hasattr(window, 'tray_manager'):
+            window.tray_manager.show_notification("Zapret работает в трее", 
+                                                    "Приложение запущено в фоновом режиме")
+                    
         # Дополнительная гарантия, что комбо-боксы будут активны
         window.force_enable_combos()
 
         sys.exit(app.exec_())
+        
     except Exception as e:
         QMessageBox.critical(None, "Ошибка", f"Произошла ошибка: {str(e)}")
         log(f"Ошибка при запуске приложения: {str(e)}", level="ERROR")
