@@ -27,7 +27,10 @@ LABEL_TEXTS = {
     LABEL_STABLE: "СТАБИЛЬНАЯ"
 }
 
-MINIMUM_WIDTH = 450  # Минимальная ширина списка доступных стратегий
+MINIMUM_WIDTH_STRAG = 500  # Минимальная ширина списка доступных стратегий
+
+MINIMUM_WIDTH = 1000 # Минимальная ширина окна
+MINIMIM_HEIGHT = 700 # Минимальная высота окна
 
 class ProviderHeaderItem(QListWidgetItem):
     """Специальный элемент для заголовка группы провайдера"""
@@ -97,7 +100,7 @@ class StrategySelector(QDialog):
         self.selected_strategy_name = None
         
         self.setWindowTitle("Выбор стратегии обхода блокировок")
-        self.resize(1000, 800)  # Начальный размер окна
+        self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)  # Начальный размер окна
         
         self.init_ui()
         self.load_strategies()
@@ -143,7 +146,7 @@ class StrategySelector(QDialog):
         strategies_layout = QVBoxLayout(strategies_group)
         
         self.strategies_list = QListWidget()
-        self.strategies_list.setMinimumWidth(500)  # Увеличиваем ширину с 400 до 500
+        self.strategies_list.setMinimumWidth(MINIMUM_WIDTH_STRAG)
         self.strategies_list.currentRowChanged.connect(self.on_strategy_selected)
         strategies_layout.addWidget(self.strategies_list)
         

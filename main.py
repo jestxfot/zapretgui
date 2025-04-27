@@ -565,14 +565,13 @@ class LupiDPIApp(QWidget):
         self.dpi_starter.download_files(DOWNLOAD_URLS)
         
         # Безопасно запускаем DPI после инициализации всех менеджеров
-        # Увеличиваем задержку до 4 секунд, чтобы уменьшить риск конфликтов
-        QTimer.singleShot(4000, self.delayed_dpi_start)
+        QTimer.singleShot(100, self.delayed_dpi_start)
         
         # Обновляем состояние кнопки прокси через 4.5 секунды
-        QTimer.singleShot(4500, self.update_proxy_button_state)
+        QTimer.singleShot(150, self.update_proxy_button_state)
         
         # Снимаем флаг инициализации и защиты через 8 секунд
-        QTimer.singleShot(8000, self.finish_initialization)
+        QTimer.singleShot(100, self.finish_initialization)
 
 
     def init_process_monitor(self):
@@ -632,7 +631,7 @@ class LupiDPIApp(QWidget):
         if not hasattr(self, 'dpi_starter') or self.dpi_starter is None:
             log("DPI Starter еще не инициализирован, откладываем запуск", level="WARNING")
             # Повторяем попытку через секунду
-            QTimer.singleShot(1000, self.delayed_dpi_start)
+            QTimer.singleShot(100, self.delayed_dpi_start)
             return
         
         # Сначала проверяем, активен ли автозапуск через планировщик задач
@@ -656,9 +655,8 @@ class LupiDPIApp(QWidget):
             self.update_ui(running=True)
             return
         
-        # Если автозапуск не активен и процесс не запущен, выполняем обычный запуск
-        log("Выполняем отложенный запуск DPI", level="INFO")
-        self.dpi_starter.start_dpi(delay_ms=1000)   # задержка 1 с
+        log("Выполняем запуск DPI", level="INFO")
+        self.dpi_starter.start_dpi()
     
     def finish_initialization(self):
         """Завершает процесс инициализации"""
@@ -708,7 +706,6 @@ class LupiDPIApp(QWidget):
         self.process_monitor = None  # Будет инициализирован позже
 
         super().__init__()
-
 
         self.dpi_starter = DPIStarter(
             winws_exe   = WINWS_EXE,
@@ -1322,6 +1319,22 @@ class LupiDPIApp(QWidget):
                 self.hide()
             
 def main():
+    # ---- single instance check -------------------------------------------
+    from single_instance import create_mutex, release_mutex
+    mutex_handle, already_running = create_mutex("ZapretSingleInstance")
+
+    if already_running:
+        # Любое действие на ваш вкус:
+        ctypes.windll.user32.MessageBoxW(
+            None, "Экземпляр Zapret уже запущен и/или работает в трее!",
+            "Zapret", 0x40)          # MB_ICONINFORMATION
+        sys.exit(0)
+
+    # Освобождаем mutex перед выходом приложения
+    import atexit
+    atexit.register(lambda: release_mutex(mutex_handle))
+    # ----------------------------------------------------------------------
+    
     try:
         from log import log
         log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")

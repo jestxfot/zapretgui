@@ -115,12 +115,36 @@ class SystemTrayManager:
         self.parent.showNormal()
         self.parent.activateWindow()
         self.parent.raise_()  # Поднимаем окно поверх других окон
-    
+
     def exit_app(self):
         """Полностью закрывает приложение"""
-        # Останавливаем DPI перед выходом
+        from log import log
+        log("Закрытие приложения через трей", level="INFO")
+        
+        # Останавливаем winws.exe перед выходом
         if hasattr(self.parent, 'dpi_starter'):
+            log("Останавливаем DPI процесс...", level="INFO")
             self.parent.dpi_starter.stop_dpi()
+            
+            # Даем немного времени для корректного завершения процесса
+            import time
+            time.sleep(0.5)
+            
+            # Дополнительная проверка, что процесс точно завершился
+            if self.parent.dpi_starter.check_process_running():
+                log("Процесс winws.exe все еще запущен, пробуем принудительное завершение", level="WARNING")
+                import subprocess
+                try:
+                    # Принудительное завершение процесса
+                    subprocess.run("taskkill /F /IM winws.exe /T", shell=True, check=False)
+                    time.sleep(0.3)
+                except Exception as e:
+                    log(f"Ошибка при принудительном завершении: {str(e)}", level="ERROR")
+        
+        # Остановка потока мониторинга, если он есть
+        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor is not None:
+            log("Останавливаем поток мониторинга...", level="INFO")
+            self.parent.process_monitor.stop()
         
         # Устанавливаем флаг разрешения закрытия
         if not hasattr(self.parent, '_allow_close'):
@@ -131,7 +155,9 @@ class SystemTrayManager:
         # Скрываем иконку трея
         self.tray_icon.hide()
         
+        log("Завершение работы приложения", level="INFO")
         # Завершаем приложение
+        from PyQt5.QtWidgets import QApplication
         QApplication.quit()
     
     def show_message(self, title, message, icon=QSystemTrayIcon.Information, duration=3000):
