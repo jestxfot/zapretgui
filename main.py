@@ -11,6 +11,7 @@ from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager
+from autostart_remove import AutoStartCleaner
 from start import DPIStarter
 from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
@@ -18,11 +19,9 @@ from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
 from updater import check_and_run_update
 from strategy_selector import StrategySelector
-from bfe_util import ensure_bfe_running
+
 from tg_log_delta import LogDeltaDaemon, get_client_id
 
-from strategy_autostart import setup_autostart_for_strategy
-from remove_terminal import remove_windows_terminal_if_win11
 from reg import get_last_strategy, set_last_strategy
 
 def is_admin():
@@ -844,6 +843,8 @@ class LupiDPIApp(QWidget):
 
     def show_autostart_options(self):
         """Показывает меню с вариантами автозапуска программы"""
+        from autostart_exe import setup_autostart_for_exe
+        from autostart_strategy import setup_autostart_for_strategy
         from log import log
         
         # Проверяем, не активен ли уже автозапуск
@@ -869,42 +870,40 @@ class LupiDPIApp(QWidget):
         
         # Обрабатываем выбор
         if action == autostart_exe_action:
-            log("Выбрано: Автозапуск главного приложения", level="INFO")
-            # Используем метод для установки автозапуска exe
-            if self.service_manager.setup_autostart_for_exe():
+            log("Выбрано: Автозапуск главного приложения", "INFO")
+
+            ok = setup_autostart_for_exe(
+                selected_mode=self.current_strategy_label.text(),   # или None
+                status_cb=self.set_status                          # чтобы писать в статус-строку
+            )
+            if ok:
                 self.update_autostart_ui(True)
-                QMessageBox.information(self, "Успех", "Автозапуск настроен для главного приложения")
+                QMessageBox.information(self, "Успех",
+                                        "Автозапуск настроен для главного приложения")
             else:
                 QMessageBox.critical(self, "Ошибка",
                                     "Не удалось настроить автозапуск.\nСм. журнал.")
+                   
         elif action == autostart_strategy_action:
             log("Выбрано: Автозапуск выбранной стратегии", level="INFO")
-            # --- определяем, какое имя стратегии брать ------------------------
-            selected_mode = None
-            if getattr(self, "current_strategy_name", None):
-                selected_mode = self.current_strategy_name
-            else:
-                selected_mode = self.current_strategy_label.text()
 
-            if selected_mode == "Не выбрана" or not selected_mode:
-                selected_mode = get_last_strategy()  # функция уже есть в main.py
+            # текущее имя стратегии
+            selected_mode = self.current_strategy_label.text()
+            if selected_mode == "Не выбрана":
+                selected_mode = get_last_strategy()
 
-            # --- запускаем BAT -------------------------------------------------
             ok = setup_autostart_for_strategy(
                 selected_mode=selected_mode,
-                bin_folder=BIN_FOLDER                   # импортирован из config
+                bin_folder=BIN_FOLDER
             )
 
             if ok:
-                QMessageBox.information(
-                    self, "Успех",
-                    f"Стратегия «{selected_mode}» запущена"
-                )
+                QMessageBox.information(self, "Успех",
+                    f"Автозапуск настроен в планировщике для «{selected_mode}»")
+                self.update_autostart_ui(True)
             else:
-                QMessageBox.critical(
-                    self, "Ошибка",
-                    "Не удалось запустить выбранную стратегию.\nСм. журнал."
-                )
+                QMessageBox.critical(self, "Ошибка",
+                    "Не удалось настроить автозапуск.\nСм. журнал.")
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
@@ -939,10 +938,14 @@ class LupiDPIApp(QWidget):
             QApplication.quit()
 
     def remove_autostart(self):
-        """Удаляет все настройки автозапуска"""
-        if self.service_manager.remove_autostart():
+        cleaner = AutoStartCleaner(
+            status_cb=self.set_status      # передаём вашу строку статуса
+        )
+        if cleaner.run():
             self.update_autostart_ui(False)
-            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
+            self.on_process_status_changed(
+                self.dpi_starter.check_process_running(silent=True)
+            )
 
     def update_proxy_button_state(self):
         """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
@@ -1299,8 +1302,11 @@ class LupiDPIApp(QWidget):
                 self.hide()
             
 def main():
-    # ---- single instance check -------------------------------------------
     from single_instance import create_mutex, release_mutex
+    from bfe_util import ensure_bfe_running
+    from check_start import display_startup_warnings
+    from remove_terminal import remove_windows_terminal_if_win11
+    
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
 
     if already_running:
@@ -1332,7 +1338,6 @@ def main():
     remove_scheduler_tasks()
     
     try:
-        from check_start import display_startup_warnings
         can_continue = display_startup_warnings()
         if not can_continue:
             sys.exit(1)
