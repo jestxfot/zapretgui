@@ -3,7 +3,7 @@ import sys, os, ctypes, winreg, subprocess, webbrowser, time, shutil
 
 from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal, QEvent
 from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLayout,
-                             QComboBox, QApplication, QFrame,
+                             QComboBox, QApplication, QFrame, QMenu,
                              QSpacerItem, QSizePolicy)
 
 from downloader import DOWNLOAD_URLS
@@ -964,6 +964,39 @@ class LupiDPIApp(QWidget):
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при остановке: {str(e)}")
 
+
+    def show_stop_menu(self):
+        """Показывает меню с вариантами остановки программы"""
+        from log import log
+        log("Отображение меню остановки Zapret", level="INFO")
+        
+        # Создаем меню
+        menu = QMenu(self)
+        
+        # Добавляем пункты меню
+        stop_winws_action = menu.addAction("Остановить только winws.exe")
+        stop_and_exit_action = menu.addAction("Остановить и закрыть программу")
+        
+        # Получаем положение кнопки для отображения меню
+        button_pos = self.stop_btn.mapToGlobal(self.stop_btn.rect().bottomLeft())
+        
+        # Показываем меню и получаем выбранное действие
+        action = menu.exec_(button_pos)
+        
+        # Обрабатываем выбор
+        if action == stop_winws_action:
+            log("Выбрано: Остановить только winws.exe", level="INFO")
+            self.stop_dpi()
+        elif action == stop_and_exit_action:
+            log("Выбрано: Остановить и закрыть программу", level="INFO")
+            self.set_status("Останавливаю Zapret и закрываю программу...")
+            
+            # Сначала останавливаем процесс
+            self.stop_dpi()
+            
+            # Затем завершаем приложение
+            QApplication.quit()
+        
     def install_service(self) -> bool:
         """
         Вызывается из GUI при нажатии «Автозапуск».
@@ -1204,7 +1237,8 @@ class LupiDPIApp(QWidget):
         self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
         self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.stop_btn.clicked.connect(self.stop_dpi)
+        # Изменяем обработчик для отображения подменю
+        self.stop_btn.clicked.connect(self.show_stop_menu)
 
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
