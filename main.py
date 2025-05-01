@@ -634,7 +634,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # Инициализируем интерфейс
         self.build_ui(width=WIDTH, height=HEIGHT)
-
+        QTimer.singleShot(0, self.initialize_managers_and_services)
+        
         # подключаем логику к новым кнопкам
         self.select_strategy_clicked.connect(self.select_strategy)
         self.start_clicked.connect(self.dpi_starter.start_dpi)
@@ -654,16 +655,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_6_0_btn.clicked.connect(self.open_info)
         self.extra_7_0_btn.clicked.connect(self.show_logs)
         self.extra_7_1_btn.clicked.connect(self.send_log_to_tg)
-        self.extra_8_0_btn.clicked.connect(
-            lambda: check_and_run_update(parent=self, status_cb=self.set_status))
+        self.extra_8_0_btn.clicked.connect(lambda: check_and_run_update(parent=self, status_cb=self.set_status))
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
         self.current_strategy_name = None
-        
-        # При быстрой загрузке откладываем тяжелые операции
-        if not self.fast_load:
-            self.initialize_managers_and_services()
         
         # Инициализируем системный трей после создания всех элементов интерфейса
         self.tray_manager = SystemTrayManager(
@@ -697,32 +693,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             from log import log
             log(f"Ошибка при активации комбо-бокса тем: {str(e)}")
             return False
-    
-    def delayed_combo_enabler(self):
-        from log import log
-        """Повторно проверяет и активирует комбо-боксы через таймер"""
-        if self.force_enable_combos():
-            # Если успешно активировали, останавливаемся
-            log("Комбо-бокс тем успешно активирован")
-        else:
-            # Если нет, повторяем через полсекунды
-            log("Повторная попытка активации комбо-бокса тем")
-            self.delayed_combo_enabler()
-
-    def perform_delayed_checks(self):
-        """Выполняет отложенные проверки после отображения UI"""
-        if self.fast_load:
-            # Первая попытка активации комбо-боксов
-            self.force_enable_combos()
-            
-            # Инициализируем менеджеры и службы
-            self.initialize_managers_and_services()
-            
-            # Вторая попытка активации комбо-боксов после инициализации
-            self.force_enable_combos()
-            
-            self.delayed_combo_enabler()  # Запускаем таймер для повторной активации
-            lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=True)
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -1092,15 +1062,15 @@ def main():
 
     _remove_legacy_service()
     # Выполняем дополнительные проверки ПОСЛЕ отображения UI
-    window.perform_delayed_checks()
+    window.force_enable_combos()
+    window.initialize_managers_and_services()
+    check_and_run_update(parent=window, status_cb=window.set_status, silent=False)
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):
         window.tray_manager.show_notification("Zapret работает в трее", 
                                                 "Приложение запущено в фоновом режиме")
-                
-    # Дополнительная гарантия, что комбо-боксы будут активны
-    window.force_enable_combos()
+        
 
     sys.exit(app.exec_())
 

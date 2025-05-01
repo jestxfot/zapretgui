@@ -41,7 +41,7 @@ def _download(url: str, dest: str, on_progress=None):
                 on_progress(done, total)
 
 # ────────────────────────────────────────────────────────────────
-def check_and_run_update(parent=None, status_cb=None, silent=False):
+def check_and_run_update(parent=None, status_cb=None, slient=False):
     """
     • читает META_URL;
     • если есть новая версия, спрашивает пользователя (если not silent);
