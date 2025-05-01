@@ -20,6 +20,7 @@ from updater import check_and_run_update
 from strategy_selector import StrategySelector
 from bfe_util import ensure_bfe_running
 from tg_log_delta import LogDeltaDaemon, get_client_id
+from strategy_autostart import setup_autostart_for_strategy
 
 WIDTH = 450
 HEIGHT = 800
@@ -964,7 +965,7 @@ class LupiDPIApp(QWidget):
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при остановке: {str(e)}")
 
-    def show_autostart_menu(self):
+    def show_autostart_options(self):
         """Показывает меню с вариантами автозапуска программы"""
         from log import log
         
@@ -980,7 +981,7 @@ class LupiDPIApp(QWidget):
         menu = QMenu(self)
         
         # Добавляем пункты меню
-        autostart_exe_action = menu.addAction("Автозапуск zapret.exe")
+        autostart_exe_action = menu.addAction("Автозапуск главного приложения")
         autostart_strategy_action = menu.addAction("Автозапуск выбранной стратегии")
         
         # Получаем положение кнопки для отображения меню
@@ -991,17 +992,42 @@ class LupiDPIApp(QWidget):
         
         # Обрабатываем выбор
         if action == autostart_exe_action:
-            log("Выбрано: Автозапуск zapret.exe", level="INFO")
-            # Напрямую используем метод из service_manager
-            if self.service_manager.install_autostart_exe():
+            log("Выбрано: Автозапуск главного приложения", level="INFO")
+            # Используем метод для установки автозапуска exe
+            if self.service_manager.setup_autostart_for_exe():
                 self.update_autostart_ui(True)
-                QMessageBox.information(self, "Успех", "Автозапуск настроен для zapret.exe")
+                QMessageBox.information(self, "Успех", "Автозапуск настроен для главного приложения")
             else:
                 QMessageBox.critical(self, "Ошибка",
                                     "Не удалось настроить автозапуск.\nСм. журнал.")
         elif action == autostart_strategy_action:
             log("Выбрано: Автозапуск выбранной стратегии", level="INFO")
-            self.install_service()
+            # --- определяем, какое имя стратегии брать ------------------------
+            selected_mode = None
+            if getattr(self, "current_strategy_name", None):
+                selected_mode = self.current_strategy_name
+            else:
+                selected_mode = self.current_strategy_label.text()
+
+            if selected_mode == "Не выбрана" or not selected_mode:
+                selected_mode = get_last_strategy()  # функция уже есть в main.py
+
+            # --- запускаем BAT -------------------------------------------------
+            ok = setup_autostart_for_strategy(
+                selected_mode=selected_mode,
+                bin_folder=BIN_FOLDER                   # импортирован из config
+            )
+
+            if ok:
+                QMessageBox.information(
+                    self, "Успех",
+                    f"Стратегия «{selected_mode}» запущена"
+                )
+            else:
+                QMessageBox.critical(
+                    self, "Ошибка",
+                    "Не удалось запустить выбранную стратегию.\nСм. журнал."
+                )
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
@@ -1034,44 +1060,10 @@ class LupiDPIApp(QWidget):
             
             # Затем завершаем приложение
             QApplication.quit()
-        
-    def install_service(self) -> bool:
-        """
-        Вызывается из GUI при нажатии «Автозапуск».
-        Делегирует всё ServiceManager’у.
-        """
-        from log import log
 
-        # текущая стратегия
-        selected = getattr(self, "current_strategy_name", None) \
-               or self.current_strategy_label.text()
-        if selected == "Не выбрана":
-            selected = get_last_strategy()
-
-        if not selected:
-            QMessageBox.critical(self, "Ошибка", "Стратегия не выбрана")
-            self.set_status("Ошибка: стратегия не выбрана")
-            return False
-
-        log(f"Установка автозапуска для стратегии: {selected}", level="INFO")
-
-        ok = self.service_manager.install_autostart_by_strategy(
-                selected_mode=selected,
-                strategy_manager=self.strategy_manager)
-
-        if ok:
-            self.update_autostart_ui(True)
-            QMessageBox.information(self, "Успех",
-                                     f"Автозапуск настроен для режима:\n{selected}")
-            return True
-
-        QMessageBox.critical(self, "Ошибка",
-                             "Не удалось настроить автозапуск.\nСм. журнал.")
-        return False
-    
-    def remove_service(self):
-        """Удаляет службу DPI"""
-        if self.service_manager.remove_service():
+    def remove_autostart(self):
+        """Удаляет все настройки автозапуска"""
+        if self.service_manager.remove_autostart():
             self.update_autostart_ui(False)
             self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
 
@@ -1281,12 +1273,12 @@ class LupiDPIApp(QWidget):
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_enable_btn.clicked.connect(self.show_autostart_menu)
+        self.autostart_enable_btn.clicked.connect(self.show_autostart_options)
 
         self.autostart_disable_btn = RippleButton('Выкл. автозапуск', self, "255, 93, 174") 
         self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_disable_btn.clicked.connect(self.remove_service)
+        self.autostart_disable_btn.clicked.connect(self.remove_autostart)
 
         self.button_grid = QGridLayout()          # ← сохранить как атрибут
         button_grid = self.button_grid            # локальное alias, чтобы не менять дальше

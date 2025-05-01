@@ -2,7 +2,7 @@
   "original_bolvan_2": {
     "name": "Оригинальная bol-van v2 (07.04.2025)",
     "description": "Оригинальная стратегия для большинства провайдеров",
-    "version": "3.1",
+    "version": "3.4",
     "provider": "All",
     "author": "bol-van",
     "updated": "2025-04-10",
@@ -16,7 +16,7 @@
   "original_bolvan": {
     "name": "Оригинальная bol-van v1 (07.04.2025)",
     "description": "Оптимизировано для Билайн",
-    "version": "2.0",
+    "version": "2.2",
     "provider": "All",
     "author": "bol-van",
     "updated": "2025-04-10",
@@ -28,9 +28,9 @@
     "sort_order": 2
   },
   "bolvan3": {
-    "name": "bol-van v3 (все порты)",
+    "name": "bol-van v3 (для игр)",
     "description": "",
-    "version": "2.2",
+    "version": "2.3",
     "provider": "All",
     "author": "bol-van",
     "updated": "2025-04-27",
@@ -44,7 +44,7 @@
   "2025_01_06": {
     "name": "Все сайты (06.01.2025)",
     "description": "Оптимизировано для всех сайтов",
-    "version": "1.4",
+    "version": "1.5",
     "provider": "All",
     "author": "",
     "updated": "2025-01-06",
@@ -70,7 +70,7 @@
   "alt1": {
     "name": "Alt 1",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.7",
+    "version": "1.8",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -83,7 +83,7 @@
   "alt2": {
     "name": "Alt 2",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "2.4",
+    "version": "2.5",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -96,7 +96,7 @@
   "alt3": {
     "name": "Alt 3",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "3.4",
+    "version": "3.5",
     "provider": "All",
     "author": "Flowseal",
     "label": "recommended",
@@ -110,7 +110,7 @@
   "alt3_game": {
     "name": "Alt 3 (для игр)",
     "description": "",
-    "version": "1.0",
+    "version": "1.4",
     "provider": "All",
     "author": "Flowseal",
     "label": "",
@@ -121,10 +121,24 @@
     "fragments": true,
     "sort_order": 9
   },
+  "alt3_lol11": {
+    "name": "Alt 3 LOL 11 (для игр)",
+    "description": "",
+    "version": "1.1",
+    "provider": "All",
+    "author": "G1NEX666",
+    "label": "",
+    "updated": "2025",
+    "file_path": "alt3_lol11.bat",
+    "ports": "ВСЕ ПОРТЫ",
+    "host_lists": "ВСЕ САЙТЫ",
+    "fragments": true,
+    "sort_order": 10
+  },
   "alt4": {
     "name": "Alt 4",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.7",
+    "version": "1.8",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -132,12 +146,12 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 10
+    "sort_order": 11
   },
   "alt5": {
     "name": "Alt 5",
     "description": "Взята с репозитория https://github.com/Flowseal/zapret-discord-youtube",
-    "version": "1.6",
+    "version": "1.9",
     "provider": "All",
     "author": "Flowseal",
     "updated": "2025",
@@ -145,7 +159,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 11
+    "sort_order": 12
   },
   "bystro292_1": {
     "name": "YTDisBystro 2.9.2 v1",
@@ -158,7 +172,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 12
+    "sort_order": 13
   },
   "bystro292_2": {
     "name": "YTDisBystro 2.9.2 v2",
@@ -171,7 +185,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 13
+    "sort_order": 14
   },
   "bystro292_3": {
     "name": "YTDisBystro 2.9.2 v3",
@@ -184,7 +198,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 14
+    "sort_order": 15
   },
   "faketlsmod": {
     "name": "Fake TLS Mod ttl 4",
@@ -197,7 +211,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 15
+    "sort_order": 16
   },
   "faketlsmod2": {
     "name": "Fake TLS Mod 2 md5sig",
@@ -210,7 +224,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 16
+    "sort_order": 17
   },
   "md5sigpadencap": {
     "name": "md5sig padencap",
@@ -223,7 +237,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 17
+    "sort_order": 18
   },
   "ttlpadencap": {
     "name": "ttl padencap",
@@ -236,7 +250,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 18
+    "sort_order": 19
   },
   "datanoackpadencap": {
     "name": "datanoack padencap (20.03.2025)",
@@ -249,7 +263,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 19
+    "sort_order": 20
   },
   "datanoackpadencapmidsld": {
     "name": "datanoack padencap midsld (20.03.2025)",
@@ -262,7 +276,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 20
+    "sort_order": 21
   },
   "multisplitmd5sigpadencap": {
     "name": "multisplit 1,md5sig padencap (discord)",
@@ -275,7 +289,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 21
+    "sort_order": 22
   },
   "multisplitmd5sigpadencapwssize": {
     "name": "multisplit 1,md5sig padencap wssize (discord)",
@@ -289,7 +303,7 @@
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
     "label": "caution",
-    "sort_order": 22
+    "sort_order": 23
   },
   "md5sigpadencapwssize": {
     "name": "md5sig padencap wssize (20.03.2025)",
@@ -303,7 +317,7 @@
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
     "label": "caution",
-    "sort_order": 23
+    "sort_order": 24
   },
   "datanoackpadencapmidsldwssize": {
     "name": "datanoack padencap midsld wssize (20.03.2025)",
@@ -317,7 +331,7 @@
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
     "label": "caution",
-    "sort_order": 24
+    "sort_order": 25
   },
   "discordtcp80": {
     "name": "Discord TCP 80",
@@ -330,7 +344,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 25
+    "sort_order": 26
   },
   "discordfake": {
     "name": "Discord Fake",
@@ -343,7 +357,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 26
+    "sort_order": 27
   },
   "discordfakesplit": {
     "name": "Discord Fake Split",
@@ -356,7 +370,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 27
+    "sort_order": 28
   },
   "ultimatealt": {
     "name": "Ultimate Fix ALT",
@@ -369,7 +383,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 28
+    "sort_order": 29
   },
   "splitsniext": {
     "name": "Split с sniext",
@@ -382,7 +396,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 29
+    "sort_order": 30
   },
   "splitbadseq": {
     "name": "Split с badseq",
@@ -395,7 +409,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 30
+    "sort_order": 31
   },
   "rosmega": {
     "name": "Ростелеком и Мегафон",
@@ -408,7 +422,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 31
+    "sort_order": 32
   },
   "rosmts": {
     "name": "Ростелеком и МГТС",
@@ -421,7 +435,7 @@
     "ports": "80, 443",
     "host_lists": "ВСЕ САЙТЫ",
     "fragments": true,
-    "sort_order": 32
+    "sort_order": 33
   },
   "other1": {
     "name": "Другие провайдеры 1",
@@ -434,7 +448,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 33
+    "sort_order": 34
   },
   "other2": {
     "name": "Другие провайдеры 2",
@@ -447,7 +461,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 34
+    "sort_order": 35
   },
   "ankddev10.bat": {
     "name": "Ankddev v10",
@@ -460,7 +474,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 35
+    "sort_order": 36
   },
   "mgts1.bat": {
     "name": "МГТС 1",
@@ -473,7 +487,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 36
+    "sort_order": 37
   },
   "mgts2.bat": {
     "name": "МГТС 2",
@@ -486,7 +500,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 37
+    "sort_order": 38
   },
   "mgts3.bat": {
     "name": "МГТС 3",
@@ -499,7 +513,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 38
+    "sort_order": 39
   },
   "mgts4.bat": {
     "name": "МГТС 4",
@@ -512,7 +526,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 39
+    "sort_order": 40
   },
   "ultazl.bat": {
     "name": "Ульта конфиг ZL",
@@ -525,7 +539,7 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 40
+    "sort_order": 41
   },
   "ulta2.bat": {
     "name": "Ульта конфиг v2",
@@ -538,6 +552,6 @@
     "ports": "80, 443",
     "host_lists": "Discord, YouTube, Other, Cloudflare",
     "fragments": true,
-    "sort_order": 41
+    "sort_order": 42
   }
 }

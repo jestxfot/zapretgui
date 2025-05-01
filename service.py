@@ -75,7 +75,7 @@ class ServiceManager:
         # Просто делегируем вызов новому методу для обеспечения обратной совместимости
         return self.check_autostart_exists()
 
-    def install_autostart_registry(self, selected_mode=None):
+    def setup_autostart_for_exe(self, selected_mode=None):
         """
         Настраивает автозапуск приложения через ярлык в реестре Windows
         
@@ -202,41 +202,7 @@ class ServiceManager:
             log(f"Ошибка при удалении автозапуска: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка: {str(e)}")
             return False
-    
-    def install_autostart_by_strategy(
-            self,
-            selected_mode: str,
-            strategy_manager=None,
-            index_path=None) -> bool:
-        """
-        Устанавливает автозапуск через реестр Windows
-        
-        Args:
-            selected_mode (str): Выбранная стратегия
-            strategy_manager: Менеджер стратегий (для совместимости)
-            index_path: Путь к индексу (для совместимости)
-        
-        Returns:
-            bool: True если успешно, иначе False
-        """
-        try:
-            from log import log
-            
-            # Удаляем старую задачу планировщика и службу, если они есть
-            self.remove_service()
-            
-            # Устанавливаем автозапуск через реестр
-            result = self.install_autostart_registry(selected_mode)
-            
-            if result:
-                log(f"Автозапуск для стратегии '{selected_mode}' настроен через реестр", level="INFO")
-                
-            return result
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка: {str(e)}")
-            return False
+
 
     def check_autostart_exists(self):
         """
@@ -303,7 +269,7 @@ class ServiceManager:
         except:
             return False
 
-    def remove_service(self):
+    def remove_autostart(self):
         """
         Удаляет все механизмы автозапуска (реестр, планировщик, служба)
         
