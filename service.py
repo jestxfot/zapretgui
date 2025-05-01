@@ -1,44 +1,6 @@
 import subprocess
 import winreg
 
-import winreg
-
-# Константы для работы с реестром
-REGISTRY_KEY = r"SOFTWARE\Zapret"
-CONFIG_VALUE = "ZapretServiceConfig"
-
-def save_config_to_registry(config_name):
-    """Сохраняет имя конфигурации в реестр Windows"""
-    try:
-        # Пытаемся открыть существующий ключ
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_WRITE)
-        except FileNotFoundError:
-            # Если ключ не существует, создаем его
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
-        
-        # Записываем значение
-        winreg.SetValueEx(key, CONFIG_VALUE, 0, winreg.REG_SZ, config_name)
-        winreg.CloseKey(key)
-        return True
-    except Exception as e:
-        print(f"Ошибка при сохранении конфигурации в реестр: {str(e)}")
-        return False
-
-def get_config_from_registry():
-    """Получает имя конфигурации из реестра Windows"""
-    try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_READ)
-        value, _ = winreg.QueryValueEx(key, CONFIG_VALUE)
-        winreg.CloseKey(key)
-        return value
-    except FileNotFoundError:
-        # Ключ или значение не найдены
-        return None
-    except Exception as e:
-        print(f"Ошибка при получении конфигурации из реестра: {str(e)}")
-        return None
-
 class ServiceManager:
     def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, ui_callback=None, service_name="ZapretCensorliber"):
         """
@@ -165,24 +127,3 @@ class ServiceManager:
             return service_result.returncode == 0 and "STATE" in service_result.stdout
         except:
             return False
-            
-    def get_current_service_config(self):
-        """
-        Получает текущую конфигурацию стратегии из реестра
-        
-        Returns:
-            str: Имя стратегии или None, если не удалось определить
-        """
-        try:
-            # Проверяем существование автозапуска
-            if not self.check_autostart_exists():
-                return None  # Автозапуск не настроен
-            
-            # Получаем конфигурацию из реестра
-            config = get_config_from_registry()
-            return config if config else "Пользовательская"
-                
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при определении конфигурации: {str(e)}", level="ERROR")
-            return "Неизвестная"

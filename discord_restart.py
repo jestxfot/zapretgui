@@ -1,104 +1,82 @@
-import winreg
+# discord_restart.py
 from PyQt5.QtWidgets import QMessageBox
+from reg import reg                       # ← единый helper
 
-def get_discord_restart_setting():
-    """Получает настройку автоматического перезапуска Discord из реестра"""
-    try:
-        registry = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Zapret"
-        )
-        value, _ = winreg.QueryValueEx(registry, "AutoRestartDiscord")
-        winreg.CloseKey(registry)
-        return bool(value)
-    except:
-        # По умолчанию включено
-        return True
-    
-def set_discord_restart_setting(enabled):
-    """Сохраняет настройку автоматического перезапуска Discord в реестр"""
-    try:
-        # Пытаемся открыть ключ, если его нет - создаем
-        try:
-            registry = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret",
-                0, 
-                winreg.KEY_WRITE
-            )
-        except:
-            registry = winreg.CreateKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret"
-            )
-        
-        # Записываем значение
-        winreg.SetValueEx(registry, "AutoRestartDiscord", 0, winreg.REG_DWORD, int(enabled))
-        winreg.CloseKey(registry)
-        return True
-    except Exception as e:
-        print(f"Ошибка при сохранении настройки: {str(e)}")
-        return False
+# ----------------------------------------------------------------------
+# 1.  Чтение / запись настройки в реестре
+# ----------------------------------------------------------------------
+def get_discord_restart_setting(default: bool = True) -> bool:
+    """
+    Возвращает текущее значение AutoRestartDiscord.
+    Если параметра нет – отдаёт default (по-умолчанию True).
+    """
+    val = reg(r"Software\Zapret", "AutoRestartDiscord")
+    return bool(val) if val is not None else default
 
-def toggle_discord_restart(parent, status_callback=None, discord_auto_restart_attr_name='discord_auto_restart'):
+
+def set_discord_restart_setting(enabled: bool) -> bool:
     """
-    Переключает настройку автоматического перезапуска Discord
-    
-    Args:
-        parent: Родительское окно для диалогов
-        status_callback: Функция обратного вызова для отображения статуса
-        discord_auto_restart_attr_name: Имя атрибута в родительском объекте для хранения настройки
+    Записывает AutoRestartDiscord = 1/0.
+    Возвращает True при успехе.
     """
-    current_setting = get_discord_restart_setting()
-    
-    # Показываем диалог подтверждения
-    if current_setting:
-        # Если сейчас включено, предлагаем выключить
-        msg = QMessageBox()
+    return reg(r"Software\Zapret", "AutoRestartDiscord", int(enabled))
+
+
+# ----------------------------------------------------------------------
+# 2.  UI-переключатель
+# ----------------------------------------------------------------------
+def toggle_discord_restart(
+        parent,
+        status_callback=None,
+        discord_auto_restart_attr_name: str = "discord_auto_restart"
+    ) -> bool:
+    """
+    Переключает настройку автоперезапуска Discord, показывая диалоги
+    подтверждения/информирования.
+
+    parent  – QWidget-родитель для QMessageBox
+    status_callback(msg) – функция вывода статуса (можно None)
+    discord_auto_restart_attr_name – имя атрибута во `parent`,
+                                     где хранится текущее значение
+    """
+    current = get_discord_restart_setting()
+
+    # ----- хотим ОТКЛЮЧИТЬ ------------------------------------------------
+    if current:
+        msg = QMessageBox(parent)
         msg.setIcon(QMessageBox.Warning)
         msg.setWindowTitle("Отключение автоперезапуска Discord")
-        msg.setText("Вы действительно хотите отключить автоматический перезапуск Discord?")
-        
+        msg.setText("Вы действительно хотите отключить автоматический "
+                    "перезапуск Discord?")
         msg.setInformativeText(
-            "Если вы отключите эту функцию, вам придется самостоятельно перезапускать "
-            "Discord после смены стратегии обхода блокировок.\n\n"
-            "Это может привести к проблемам с подключением к голосовым каналам и "
-            "нестабильной работе Discord.\n\n"
-            "Вы понимаете последствия своих действий?"
+            "После отключения вам придётся вручную перезапускать Discord "
+            "при смене стратегии, иначе возможны проблемы со связью."
         )
-        
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        choice = msg.exec_()
-        
-        if choice == QMessageBox.Yes:
-            # Отключаем автоперезапуск
-            set_discord_restart_setting(False)
-            
-            # Обновляем настройку в родительском объекте
-            if hasattr(parent, discord_auto_restart_attr_name):
-                setattr(parent, discord_auto_restart_attr_name, False)
-            
-            # Выводим статус
-            if status_callback:
-                status_callback("Автоматический перезапуск Discord отключен")
-            
-            QMessageBox.information(parent, "Настройка изменена", 
-                                "Автоматический перезапуск Discord отключен.\n\n"
-                                "Теперь вам нужно будет самостоятельно перезапускать Discord "
-                                "после смены стратегии обхода блокировок.")
-    else:
-        # Включаем автоперезапуск (без дополнительного подтверждения)
-        set_discord_restart_setting(True)
-        
-        # Обновляем настройку в родительском объекте
+
+        if msg.exec_() != QMessageBox.Yes:
+            return False   # пользователь отменил
+
+        set_discord_restart_setting(False)
         if hasattr(parent, discord_auto_restart_attr_name):
-            setattr(parent, discord_auto_restart_attr_name, True)
-        
-        # Выводим статус
+            setattr(parent, discord_auto_restart_attr_name, False)
+
         if status_callback:
-            status_callback("Автоматический перезапуск Discord включен")
-        
-        QMessageBox.information(parent, "Настройка изменена", 
-                            "Автоматический перезапуск Discord снова включен.")
-                            
+            status_callback("Автоматический перезапуск Discord отключён")
+
+        QMessageBox.information(parent, "Настройка изменена",
+                                "Автоматический перезапуск Discord отключён.\n\n"
+                                "При смене стратегии перезапускайте Discord вручную.")
+        return True
+
+    # ----- хотим ВКЛЮЧИТЬ -------------------------------------------------
+    set_discord_restart_setting(True)
+    if hasattr(parent, discord_auto_restart_attr_name):
+        setattr(parent, discord_auto_restart_attr_name, True)
+
+    if status_callback:
+        status_callback("Автоматический перезапуск Discord включён")
+
+    QMessageBox.information(parent, "Настройка изменена",
+                            "Автоматический перезапуск Discord снова включён.")
     return True

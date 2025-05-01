@@ -3,7 +3,7 @@
 import os, sys, winreg
 from pathlib import Path
 from log import log
-
+from reg import reg
 
 def _startup_shortcut_path() -> Path:
     return (Path(os.environ["APPDATA"]) /
@@ -45,9 +45,9 @@ def setup_autostart_for_exe(selected_mode: str | None = None,
 
         # 3. при необходимости – записываем стратегию
         if selected_mode:
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Zapret")
-            winreg.SetValueEx(key, "LastStrategy", 0, winreg.REG_SZ, selected_mode)
-            winreg.CloseKey(key)
+            ok = reg(r"Software\Zapret", "LastStrategy", selected_mode)
+            if not ok:
+                log("Не удалось записать LastStrategy в реестр", "WARNING")
 
         log(f"Автозапуск настроен: {sc_path}", "INFO")
         _status("Автозапуск успешно настроен")

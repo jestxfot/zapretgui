@@ -105,7 +105,10 @@ def update_winws_exe(app_instance):
                             selected_mode = get_last_strategy()
                     
                     # Запускаем DPI с выбранной стратегией
-                    success = app_instance.start_dpi(selected_mode=selected_mode)
+                    success = app_instance.dpi_starter.start_dpi(
+                        selected_mode=selected_mode,
+                        status_callback=app_instance.set_status
+                    )
                     if success:    
                         app_instance.update_ui(running=True)
                         QMessageBox.information(app_instance, "Обновление завершено", 

@@ -1,8 +1,8 @@
 import os
-import winreg
 from PyQt5.QtCore import Qt, QTimer,  QPropertyAnimation, QEasingCurve, QPoint
 from PyQt5.QtGui import QPixmap, QPalette, QBrush
 from PyQt5.QtWidgets import QPushButton
+from reg import reg, HKCU
 
 # Константы
 THEMES = {
@@ -45,57 +45,36 @@ STYLE_SHEET = """
 """
 
 
-def get_selected_theme():
-    """Получает сохраненную тему из реестра"""
-    try:
-        registry = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Zapret"
-        )
-        value, _ = winreg.QueryValueEx(registry, "SelectedTheme")
-        winreg.CloseKey(registry)
-        return value
-    except:
-        # По умолчанию возвращаем None, что означает "использовать системную тему"
-        return None
-    
-def set_selected_theme(theme_name):
-    """Сохраняет выбранную тему в реестр"""
-    try:
-        # Пытаемся открыть ключ, если его нет - создаем
-        try:
-            registry = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret",
-                0, 
-                winreg.KEY_WRITE
-            )
-        except:
-            registry = winreg.CreateKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret"
-            )
-        
-        # Записываем значение
-        winreg.SetValueEx(registry, "SelectedTheme", 0, winreg.REG_SZ, theme_name)
-        winreg.CloseKey(registry)
-        return True
-    except Exception as e:
-        print(f"Ошибка при сохранении темы: {str(e)}")
-        return False
+def get_selected_theme(default: str | None = None) -> str | None:
+    """
+    Возвращает сохранённую тему или default (None означает «системная тема»).
+    """
+    return reg(r"Software\Zapret", "SelectedTheme") or default
 
-def get_windows_theme():
-    """Определяет текущую тему Windows (светлая/темная)"""
-    try:
-        registry = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-        )
-        value, _ = winreg.QueryValueEx(registry, "AppsUseLightTheme")
-        winreg.CloseKey(registry)
-        return "light" if value == 1 else "dark"
-    except:
-        return "dark"  # По умолчанию темная тема
+
+def set_selected_theme(theme_name: str) -> bool:
+    """
+    Записывает строку SelectedTheme.
+    """
+    return reg(r"Software\Zapret", "SelectedTheme", theme_name)
+
+
+# ------------------------------------------------------------------
+# 2. системная тема Windows
+#    HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize
+#    параметр AppsUseLightTheme = 0/1
+# ------------------------------------------------------------------
+def get_windows_theme() -> str:
+    """
+    Читает системную тему Windows: 'light' или 'dark'.
+    Если ключа нет – по-умолчанию 'dark'.
+    """
+    val = reg(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        "AppsUseLightTheme",
+        root=HKCU
+    )
+    return "light" if val == 1 else "dark"
 
 class ThemeManager:
     """Класс для управления темами приложения"""

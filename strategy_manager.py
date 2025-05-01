@@ -360,51 +360,6 @@ class StrategyManager:
         except Exception as e:
             log(f"Ошибка при сохранении версии стратегии: {str(e)}", level="ERROR")
             return False
-
-    def execute_strategy(self, strategy_id, dpi_starter=None):
-        """
-        Выполняет стратегию через DPIStarter.
-        
-        Args:
-            strategy_id (str): Идентификатор стратегии
-            dpi_starter (DPIStarter): Объект DPIStarter для запуска
-            
-        Returns:
-            bool: True при успешном выполнении, False при ошибке
-        """
-        try:
-            from log import log
-            
-            # Проверка наличия DPIStarter
-            if not dpi_starter:
-                log("Ошибка: dpi_starter не передан в execute_strategy", level="ERROR")
-                self.set_status("Ошибка: компонент запуска недоступен")
-                return False
-            
-            # Получаем путь к BAT-файлу стратегии
-            strategy_path = self.download_strategy(strategy_id)
-            if not strategy_path:
-                log(f"Не удалось получить файл стратегии: {strategy_id}", level="ERROR")
-                self.set_status(f"Ошибка: стратегия {strategy_id} не найдена")
-                return False
-            
-            # Запускаем BAT-файл через универсальную функцию DPIStarter
-            log(f"Запуск стратегии {strategy_id}", level="INFO")
-            success = dpi_starter.start_strategy(strategy_path)
-            
-            if success:
-                self.set_status(f"Стратегия {strategy_id} успешно запущена")
-                log(f"Стратегия {strategy_id} успешно запущена", level="INFO")
-                return True
-            else:
-                log(f"Ошибка при запуске стратегии {strategy_id}", level="ERROR")
-                return False
-                
-        except Exception as e:
-            error_msg = f"Ошибка при выполнении стратегии {strategy_id}: {str(e)}"
-            log(error_msg, level="ERROR")
-            self.set_status(error_msg)
-            return False
     
     def get_strategy_details(self, strategy_id):
         """
