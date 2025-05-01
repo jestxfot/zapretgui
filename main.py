@@ -513,7 +513,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         for d in (0, 100, 200):
             QTimer.singleShot(d, self.force_enable_combos)
 
-        QTimer.singleShot(1000, lambda: check_and_run_update(
+        QTimer.singleShot(4000, lambda: check_and_run_update(
             parent=self, status_cb=self.set_status, silent=False))
 
         self.set_status("Готово")
