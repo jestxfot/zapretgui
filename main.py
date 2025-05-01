@@ -56,6 +56,41 @@ def remove_scheduler_tasks():
         log(f"Ошибка при удалении задачи планировщика: {str(e)}", level="ERROR")
         return False
 
+def _handle_update_mode():
+    """
+    updater.py запускает:
+        main.py --update <old_exe> <new_exe>
+
+    Меняем файл и перезапускаем обновлённый exe.
+    """
+    import os, sys, time, shutil, subprocess
+    from log import log
+
+    if len(sys.argv) < 4:
+        log("--update: недостаточно аргументов", "ERROR")
+        return
+
+    old_exe, new_exe = sys.argv[2], sys.argv[3]
+
+    # ждём, пока старый exe освободится
+    for _ in range(10):  # 10 × 0.5 c = 5 сек
+        if not os.path.exists(old_exe) or os.access(old_exe, os.W_OK):
+            break
+        time.sleep(0.5)
+
+    try:
+        shutil.copy2(new_exe, old_exe)
+        subprocess.Popen([old_exe])          # запускаем новую версию
+        log("Файл обновления применён", "INFO")
+    except Exception as e:
+        log(f"Ошибка в режиме --update: {e}", "ERROR")
+    finally:
+        try:
+            os.remove(new_exe)
+        except FileNotFoundError:
+            pass
+    # ничего не возвращаем — вызывающая сторона сделает sys.exit(0)
+
 class LupiDPIApp(QWidget):
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
@@ -842,68 +877,30 @@ class LupiDPIApp(QWidget):
             self.set_status(f"Ошибка при остановке: {str(e)}")
 
     def show_autostart_options(self):
-        """Показывает меню с вариантами автозапуска программы"""
-        from autostart_exe import setup_autostart_for_exe
-        from autostart_strategy import setup_autostart_for_strategy
+        """Показывает диалог автозапуска (вместо старого подменю)."""
+        from autostart_menu import AutoStartMenu
         from log import log
-        
-        # Проверяем, не активен ли уже автозапуск
-        if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
-            log("Автозапуск уже активен", level="WARNING")
+
+        # Если уже есть автозапуск — предупредим и выйдем
+        if self.service_manager.check_autostart_exists():
+            log("Автозапуск уже активен", "WARNING")
             self.set_status("Сначала отключите текущий автозапуск")
             return
-        
-        log("Отображение меню автозапуска Zapret", level="INFO")
-        
-        # Создаем меню
-        menu = QMenu(self)
-        
-        # Добавляем пункты меню
-        autostart_exe_action = menu.addAction("Автозапуск главного приложения")
-        autostart_strategy_action = menu.addAction("Автозапуск выбранной стратегии")
-        
-        # Получаем положение кнопки для отображения меню
-        button_pos = self.autostart_enable_btn.mapToGlobal(self.autostart_enable_btn.rect().bottomLeft())
-        
-        # Показываем меню и получаем выбранное действие
-        action = menu.exec_(button_pos)
-        
-        # Обрабатываем выбор
-        if action == autostart_exe_action:
-            log("Выбрано: Автозапуск главного приложения", "INFO")
 
-            ok = setup_autostart_for_exe(
-                selected_mode=self.current_strategy_label.text(),   # или None
-                status_cb=self.set_status                          # чтобы писать в статус-строку
-            )
-            if ok:
-                self.update_autostart_ui(True)
-                QMessageBox.information(self, "Успех",
-                                        "Автозапуск настроен для главного приложения")
-            else:
-                QMessageBox.critical(self, "Ошибка",
-                                    "Не удалось настроить автозапуск.\nСм. журнал.")
-                   
-        elif action == autostart_strategy_action:
-            log("Выбрано: Автозапуск выбранной стратегии", level="INFO")
+        # как называется текущая стратегия
+        strategy_name = self.current_strategy_label.text()
+        if strategy_name == "Не выбрана":
+            strategy_name = get_last_strategy()
 
-            # текущее имя стратегии
-            selected_mode = self.current_strategy_label.text()
-            if selected_mode == "Не выбрана":
-                selected_mode = get_last_strategy()
-
-            ok = setup_autostart_for_strategy(
-                selected_mode=selected_mode,
-                bin_folder=BIN_FOLDER
-            )
-
-            if ok:
-                QMessageBox.information(self, "Успех",
-                    f"Автозапуск настроен в планировщике для «{selected_mode}»")
-                self.update_autostart_ui(True)
-            else:
-                QMessageBox.critical(self, "Ошибка",
-                    "Не удалось настроить автозапуск.\nСм. журнал.")
+        dlg = AutoStartMenu(
+            parent             = self,
+            strategy_name      = strategy_name,
+            bin_folder         = BIN_FOLDER,
+            check_autostart_cb = self.service_manager.check_autostart_exists,
+            update_ui_cb       = self.update_autostart_ui,
+            status_cb          = self.set_status
+        )
+        dlg.exec_()
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
@@ -1300,140 +1297,89 @@ class LupiDPIApp(QWidget):
                 log("Программа запущена с аргументом --tray, скрываем окно", level="INFO")
                 # Гарантируем, что окно скрыто
                 self.hide()
-            
-def main():
-    from single_instance import create_mutex, release_mutex
-    from bfe_util import ensure_bfe_running
-    from check_start import display_startup_warnings
-    from remove_terminal import remove_windows_terminal_if_win11
-    
-    mutex_handle, already_running = create_mutex("ZapretSingleInstance")
 
+def main():
+    # ---------------- одно-экземплярный mutex -------------------------
+    from single_instance import create_mutex, release_mutex
+    mutex_handle, already_running = create_mutex("ZapretSingleInstance")
     if already_running:
-        # Любое действие на ваш вкус:
         ctypes.windll.user32.MessageBoxW(
             None, "Экземпляр Zapret уже запущен и/или работает в трее!",
-            "Zapret", 0x40)          # MB_ICONINFORMATION
+            "Zapret", 0x40)
         sys.exit(0)
+    import atexit;  atexit.register(lambda: release_mutex(mutex_handle))
 
-    # Освобождаем mutex перед выходом приложения
-    import atexit
-    atexit.register(lambda: release_mutex(mutex_handle))
-    # ----------------------------------------------------------------------
-    from log import log
-    log(f"BFE running: {ensure_bfe_running(show_ui=False)}", level="DEBUG")
-    
+    # ---------------- быстрые проверки (без Qt) -----------------------
+    from bfe_util import ensure_bfe_running
     if not ensure_bfe_running(show_ui=True):
         sys.exit(1)
-        
-    try:
-        from log import log
-        log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")
-    except Exception as e:
-        log(f"Failed to initialize logger: {e}", level="ERROR")
 
-    start_in_tray = False
+    # ---------------- разбор аргументов CLI ---------------------------
+    start_in_tray = "--tray" in sys.argv
+    if "--version" in sys.argv:
+        print(APP_VERSION);  sys.exit(0)
 
-    # Проверяем наличие и удаляем устаревшие задачи планировщика
-    remove_scheduler_tasks()
-    
-    try:
-        can_continue = display_startup_warnings()
-        if not can_continue:
-            sys.exit(1)
-
-        remove_windows_terminal_if_win11()  # Удаляем терминал Windows 11, если он установлен
-        
-        app = QApplication(sys.argv)
-        
-    except Exception as e:
-        log(f"Failed to perform startup checks: {e}", level="ERROR")
-        # Показываем ошибку пользователю
-        QMessageBox.critical(None, "Ошибка при проверке запуска", 
-                         f"Не удалось выполнить проверки запуска: {str(e)}")
-        sys.exit(1)
-    
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--version":
-            log(APP_VERSION)
-            sys.exit(0)
-        elif sys.argv[1] == "--tray":
-            start_in_tray = True
-        elif sys.argv[1] == "--update" and len(sys.argv) > 3:
-            # Режим обновления: updater.py запускает main.py --update old_exe new_exe
-            old_exe = sys.argv[2]
-            new_exe = sys.argv[3]
-            
-            # Ждем, пока старый exe-файл будет доступен для замены
-            for i in range(10):  # 10 попыток с интервалом 0.5 сек
-                try:
-                    if not os.path.exists(old_exe) or os.access(old_exe, os.W_OK):
-                        break
-                    time.sleep(0.5)
-                except:
-                    time.sleep(0.5)
-            
-            # Копируем новый файл поверх старого
-            try:
-                shutil.copy2(new_exe, old_exe)
-                # Запускаем обновленное приложение
-                subprocess.Popen([old_exe])
-            except Exception as e:
-                log(f"Ошибка при обновлении: {str(e)}", level="ERROR")
-            finally:
-                # Удаляем временный файл
-                try:
-                    os.remove(new_exe)
-                except:
-                    pass
-                sys.exit(0)
-
-    # ВАЖНЫЙ МОМЕНТ - проверяем админские права до создания окна
-    if not is_admin():
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv[1:]), None, 1)
+    if "--update" in sys.argv and len(sys.argv) > 3:
+        _handle_update_mode()           # ваша функция обновления
         sys.exit(0)
-    
+
+    # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
+    from log import log
     try:
-        # Создаем окно с параметром fast_load=True
-        window = LupiDPIApp(fast_load=True)
-
-        # Инициализируем системный трей до показа окна
-        window.init_tray_if_needed()
-
-        # Важно: если запуск в трее, явно скрываем окно
-        if start_in_tray:
-            log("Запуск приложения скрыто в трее", level="TRAY")
-            # Не показываем окно совсем при запуске в трее
-        else:
-            log("Запуск приложения в обычном режиме", level="TRAY")
-            window.show()
-        
-        # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
-        def _remove_legacy_service():
-            if hasattr(window, "service_manager") and window.service_manager:
-                window.service_manager.remove_legacy_windows_service()
-                log("Входим в службу", level="SERVICE")
-            else:
-                log("Менеджер служб не инициализирован", level="SERVICE")
-
-        QTimer.singleShot(0, _remove_legacy_service)        
-        # Выполняем дополнительные проверки ПОСЛЕ отображения UI
-        window.perform_delayed_checks()
-        
-        # Если запуск в трее, уведомляем пользователя
-        if start_in_tray and hasattr(window, 'tray_manager'):
-            window.tray_manager.show_notification("Zapret работает в трее", 
-                                                    "Приложение запущено в фоновом режиме")
-                    
-        # Дополнительная гарантия, что комбо-боксы будут активны
-        window.force_enable_combos()
-
-        sys.exit(app.exec_())
-        
+        app = QApplication(sys.argv)
     except Exception as e:
-        QMessageBox.critical(None, "Ошибка", f"Произошла ошибка: {str(e)}")
-        log(f"Ошибка при запуске приложения: {str(e)}", level="ERROR")
+        ctypes.windll.user32.MessageBoxW(None,
+            f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
         sys.exit(1)
+
+    # ---------------- предупреждения, требующие Qt --------------------
+    from check_start import display_startup_warnings
+    if not display_startup_warnings():
+        sys.exit(1)
+
+    # ---------------- прочие стартовые действия -----------------------
+    from remove_terminal import remove_windows_terminal_if_win11
+    remove_windows_terminal_if_win11()
+    remove_scheduler_tasks()
+
+    # ---- admin elevation (после предупреждений, до создания окна) ----
+    if not is_admin():
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, " ".join(sys.argv[1:]), None, 1)
+        sys.exit(0)
+
+    # ---------------- основное окно ----------------------------------
+    window = LupiDPIApp(fast_load=True)
+    window.init_tray_if_needed()
+
+    if start_in_tray:
+        log("Запуск приложения скрыто в трее", "TRAY")
+        # окно не показываем
+    else:
+        log("Запуск приложения в обычном режиме", "TRAY")
+        window.show()
+        
+    # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
+    def _remove_legacy_service():
+        if hasattr(window, "service_manager") and window.service_manager:
+            window.service_manager.remove_legacy_windows_service()
+            log("Входим в службу", level="SERVICE")
+        else:
+            log("Менеджер служб не инициализирован", level="SERVICE")
+
+    QTimer.singleShot(0, _remove_legacy_service)        
+    # Выполняем дополнительные проверки ПОСЛЕ отображения UI
+    window.perform_delayed_checks()
+    
+    # Если запуск в трее, уведомляем пользователя
+    if start_in_tray and hasattr(window, 'tray_manager'):
+        window.tray_manager.show_notification("Zapret работает в трее", 
+                                                "Приложение запущено в фоновом режиме")
+                
+    # Дополнительная гарантия, что комбо-боксы будут активны
+    window.force_enable_combos()
+
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
