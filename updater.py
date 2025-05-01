@@ -114,7 +114,7 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
     # ─ step 5.  запуск установщика ─────────────────────────────
     try:
         from stop import stop_dpi
-        stop_dpi()
+        stop_dpi(parent)  # останавливаем winws.exe
         time.sleep(0.5)       # даём время завершиться
         _kill_winws()          # убиваем winws.exe (если не остановился)
         time.sleep(2)

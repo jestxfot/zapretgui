@@ -1069,10 +1069,15 @@ def main():
 
     # ---- admin elevation (после предупреждений, до создания окна) ----
     if not is_admin():
-        # просим UAC
+        # формируем строку параметров для нового процесса
+        params = " ".join(sys.argv[1:])            # ←  главное изменение
+        # если нужны кавычки для «пробельных» аргументов:
+        # params = " ".join(f'"{a}"' for a in sys.argv[1:])
+
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable,
-            " ".join(map(ctypes.c_wchar_p, sys.argv[1:])), None, 1
+            params,            # ←  передаём обычную строку
+            None, 1
         )
         sys.exit(0)
 
