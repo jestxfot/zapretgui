@@ -1,17 +1,17 @@
 # main.py
-import sys, os, ctypes, winreg, subprocess, webbrowser, time, shutil
+import sys, os, ctypes, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal, QEvent
+from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLayout,
                              QComboBox, QApplication, QFrame, QMenu,
                              QSpacerItem, QSizePolicy)
 
+from process_monitor import ProcessMonitorThread
 from downloader import DOWNLOAD_URLS
-from config import APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
+from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager
 from start import DPIStarter
-
 from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
@@ -20,49 +20,10 @@ from updater import check_and_run_update
 from strategy_selector import StrategySelector
 from bfe_util import ensure_bfe_running
 from tg_log_delta import LogDeltaDaemon, get_client_id
+
 from strategy_autostart import setup_autostart_for_strategy
-
-WIDTH = 450
-HEIGHT = 800
-
-def get_last_strategy():
-    """Получает последнюю выбранную стратегию обхода из реестра"""
-    try:
-        registry = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Zapret"
-        )
-        value, _ = winreg.QueryValueEx(registry, "LastStrategy")
-        winreg.CloseKey(registry)
-        return value
-    except:
-        # По умолчанию возвращаем None, чтобы использовать первую стратегию из списка
-        return "Оригинальная bol-van v2 (07.04.2025)"
-    
-def set_last_strategy(strategy_name):
-    """Сохраняет последнюю выбранную стратегию обхода в реестр"""
-    try:
-        # Пытаемся открыть ключ, если его нет - создаем
-        try:
-            registry = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret",
-                0, 
-                winreg.KEY_WRITE
-            )
-        except:
-            registry = winreg.CreateKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Zapret"
-            )
-        
-        # Записываем значение
-        winreg.SetValueEx(registry, "LastStrategy", 0, winreg.REG_SZ, strategy_name)
-        winreg.CloseKey(registry)
-        return True
-    except Exception as e:
-        print(f"Ошибка при сохранении стратегии: {str(e)}")
-        return False
+from remove_terminal import remove_windows_terminal_if_win11
+from reg import get_last_strategy, set_last_strategy
 
 def is_admin():
     try:
@@ -73,55 +34,6 @@ def is_admin():
 def get_version():
     """Возвращает текущую версию программы"""
     return APP_VERSION
-
-
-BIN_DIR = os.path.join(os.getcwd(), "bin")     # при необходимости переопределите
-
-import platform
-import subprocess
-import ctypes
-
-def remove_windows_terminal_if_win11():
-
-    from log import log
-    """
-    На Windows 11 удаляет Windows Terminal (Store-версию) двумя способами:
-    1) `Remove-AppxPackage` – удаляет у текущего пользователя
-    2) `Remove-AppxProvisionedPackage` – убирает «заготовку» для новых учёток
-
-    Требуются права администратора.  
-    При любой ошибке пишет в лог, но не прерывает запуск программы.
-    """
-    try:
-        # 2. Проверяем права администратора
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            log("remove_windows_terminal: нет прав администратора – пропуск")
-            return
-
-        log("Удаляем Windows Terminal…")
-
-        # 3. Команды PowerShell
-        ps_remove_user = (
-            'Get-AppxPackage -Name Microsoft.WindowsTerminal '
-            '| Remove-AppxPackage -AllUsers'
-        )
-        ps_remove_prov = (
-            'Get-AppxProvisionedPackage -Online '
-            '| Where-Object {$_.PackageName -like "*WindowsTerminal*"} '
-            '| Remove-AppxProvisionedPackage -Online'
-        )
-
-        for cmd in (ps_remove_user, ps_remove_prov):
-            subprocess.run(
-                ["powershell", "-NoLogo", "-NoProfile", "-Command", cmd],
-                check=False,  # ошибки не критичны
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-
-        log("Windows Terminal удалён (или не был установлен).")
-
-    except Exception as e:
-        log(f"remove_windows_terminal: {e}")
 
 def remove_scheduler_tasks():
     """Принудительно удаляет все задачи планировщика, связанные с Zapret"""
@@ -144,41 +56,6 @@ def remove_scheduler_tasks():
         from log import log
         log(f"Ошибка при удалении задачи планировщика: {str(e)}", level="ERROR")
         return False
-
-class ProcessMonitorThread(QThread):
-    """Поток для мониторинга процесса winws.exe"""
-    processStatusChanged = pyqtSignal(bool)  # Сигнал: процесс запущен/остановлен
-    
-    def __init__(self, dpi_starter):
-        super().__init__()
-        self.dpi_starter = dpi_starter
-        self.running = True
-        self.current_status = None
-    
-    def run(self):
-        from log import log
-        log("Поток мониторинга процесса запущен", level="INFO")
-        
-        while self.running:
-            try:
-                # Проверяем текущий статус процесса
-                is_running = self.dpi_starter.check_process_running(silent=True)
-                
-                # Если статус изменился, отправляем сигнал
-                if is_running != self.current_status:
-                    log(f"Изменение статуса процесса winws.exe: {is_running}", level="INFO")
-                    self.current_status = is_running
-                    self.processStatusChanged.emit(is_running)
-            except Exception as e:
-                log(f"Ошибка в потоке мониторинга: {str(e)}", level="ERROR")
-            
-            # Проверка каждые 2 секунды достаточна
-            self.msleep(2000)
-    
-    def stop(self):
-        """Останавливает поток мониторинга"""
-        self.running = False
-        self.wait()
 
 class LupiDPIApp(QWidget):
     def closeEvent(self, event):
