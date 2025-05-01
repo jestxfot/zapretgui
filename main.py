@@ -1064,7 +1064,7 @@ def main():
     # Выполняем дополнительные проверки ПОСЛЕ отображения UI
     window.force_enable_combos()
     window.initialize_managers_and_services()
-    check_and_run_update(parent=window, status_cb=window.set_status, silent=False)
+    check_and_run_update(parent=window, status_cb=window.set_status)
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):
