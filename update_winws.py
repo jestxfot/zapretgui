@@ -47,7 +47,8 @@ def update_winws_exe(app_instance):
         # Если процесс запущен, останавливаем его
         if process_running and not service_running:
             app_instance.set_status("Останавливаем Zapret для обновления...")
-            app_instance.dpi_starter.stop_dpi()
+            from stop import stop_dpi
+            stop_dpi()
             
         # Загружаем файл с отображением прогресса
         app_instance.set_status("Загрузка новой версии winws.exe...")

@@ -405,47 +405,6 @@ class StrategyManager:
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
             return False
-     
-    def create_stop_bat(self, stop_bat_path):
-        """Создает файл stop.bat, если он не существует"""
-        try:
-            from log import log
-            
-            # Содержимое stop.bat
-            stop_bat_content = """@echo off
-    REM stop.bat - останавливает все экземпляры winws.exe
-    REM VERSION: 1.0
-
-    echo Остановка всех процессов winws.exe...
-
-    REM Метод 1: taskkill
-    taskkill /F /IM winws.exe /T
-
-    REM Метод 2: через PowerShell
-    powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"
-
-    REM Метод 3: через wmic
-    wmic process where name='winws.exe' call terminate
-
-    REM Добавляем паузу для стабильности
-    timeout /t 1 /nobreak >nul
-
-    echo Остановка процессов завершена.
-    exit /b 0
-    """
-            
-            # Создаем директорию при необходимости
-            os.makedirs(os.path.dirname(stop_bat_path), exist_ok=True)
-            
-            # Записываем файл
-            with open(stop_bat_path, 'w', encoding='utf-8') as f:
-                f.write(stop_bat_content)
-                
-            log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="INFO")
-            return True
-        except Exception as e:
-            log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
-            return False
     
     def get_strategy_details(self, strategy_id):
         """

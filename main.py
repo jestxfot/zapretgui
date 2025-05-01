@@ -785,97 +785,6 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
 
-    def stop_dpi(self):
-        """Останавливает процесс DPI, используя прямые команды остановки"""
-        try:
-            from log import log
-            log("Остановка Zapret", level="INFO")
-            
-            # Используем прямые команды остановки вместо ненадежного stop.bat
-            process_stopped = False
-            
-            # Метод 1: taskkill (наиболее надежный)
-            log("Метод 1: Остановка через taskkill /F /IM winws.exe /T", level="INFO")
-            try:
-                subprocess.run(
-                    "taskkill /F /IM winws.exe /T", 
-                    shell=True, 
-                    check=False, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE
-                )
-                # Даем время системе на обработку команды
-                time.sleep(1)
-                if not self.dpi_starter.check_process_running():
-                    process_stopped = True
-                    log("Процесс успешно остановлен через taskkill", level="INFO")
-            except Exception as e:
-                log(f"Ошибка при использовании taskkill: {str(e)}", level="ERROR")
-            
-            # Если taskkill не помог, пробуем метод 2: PowerShell
-            if not process_stopped:
-                log("Метод 2: Остановка через PowerShell", level="INFO")
-                try:
-                    subprocess.run(
-                        'powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"',
-                        shell=True,
-                        check=False,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    # Даем время системе на обработку команды
-                    time.sleep(1)
-                    if not self.dpi_starter.check_process_running():
-                        process_stopped = True
-                        log("Процесс успешно остановлен через PowerShell", level="INFO")
-                except Exception as e:
-                    log(f"Ошибка при использовании PowerShell: {str(e)}", level="ERROR")
-            
-            # Метод 3: wmic
-            if not process_stopped:
-                log("Метод 3: Остановка через wmic", level="INFO")
-                try:
-                    subprocess.run(
-                        "wmic process where name='winws.exe' call terminate",
-                        shell=True,
-                        check=False,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    # Даем время системе на обработку команды
-                    time.sleep(1)
-                    if not self.dpi_starter.check_process_running():
-                        process_stopped = True
-                        log("Процесс успешно остановлен через wmic", level="INFO")
-                except Exception as e:
-                    log(f"Ошибка при использовании wmic: {str(e)}", level="ERROR")
-            
-            # Дополнительно останавливаем службы
-            try:
-                log("Остановка служб WinDivert", level="INFO")
-                subprocess.run("sc stop windivert", shell=True, check=False)
-                subprocess.run("sc delete windivert", shell=True, check=False)
-            except Exception as e:
-                log(f"Ошибка при остановке служб: {str(e)}", level="ERROR")
-            
-            # Финальная проверка
-            if self.dpi_starter.check_process_running():
-                log("ВНИМАНИЕ: Не удалось остановить все процессы winws.exe", level="WARNING")
-                self.set_status("Не удалось полностью остановить Zapret")
-            else:
-                # Обновляем UI
-                self.update_ui(running=False)
-                self.set_status("Zapret успешно остановлен")
-                log("Запрет успешно остановлен", level="INFO")
-            
-            # Обновляем статус
-            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
-                
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка при остановке: {str(e)}")
-
     def show_autostart_options(self):
         """Показывает диалог автозапуска (вместо старого подменю)."""
         from autostart_menu import AutoStartMenu
@@ -904,6 +813,7 @@ class LupiDPIApp(QWidget):
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
+        from stop import stop_dpi
         from log import log
         log("Отображение меню остановки Zapret", level="INFO")
         
@@ -923,13 +833,13 @@ class LupiDPIApp(QWidget):
         # Обрабатываем выбор
         if action == stop_winws_action:
             log("Выбрано: Остановить только winws.exe", level="INFO")
-            self.stop_dpi()
+            stop_dpi()
         elif action == stop_and_exit_action:
             log("Выбрано: Остановить и закрыть программу", level="INFO")
             self.set_status("Останавливаю Zapret и закрываю программу...")
             
             # Сначала останавливаем процесс
-            self.stop_dpi()
+            stop_dpi()
             
             # Затем завершаем приложение
             QApplication.quit()
@@ -1317,7 +1227,9 @@ def main():
     # ---------------- разбор аргументов CLI ---------------------------
     start_in_tray = "--tray" in sys.argv
     if "--version" in sys.argv:
-        print(APP_VERSION);  sys.exit(0)
+        ctypes.windll.user32.MessageBoxW(None, APP_VERSION,
+                                        "Zapret – версия", 0x40)
+        sys.exit(0)
 
     if "--update" in sys.argv and len(sys.argv) > 3:
         _handle_update_mode()           # ваша функция обновления

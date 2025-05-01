@@ -1,4 +1,5 @@
 # autostart_exe.py
+
 import os, sys, winreg
 from pathlib import Path
 from log import log

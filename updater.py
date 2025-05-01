@@ -111,7 +111,8 @@ def check_and_run_update(parent=None, status_cb=None, silent=False):
 
     # ─ step 5.  запуск установщика ─────────────────────────────
     try:
-        DPIStarter.stop_dpi(self=parent)  # останавливаем winws.exe
+        from stop import stop_dpi
+        stop_dpi()
         time.sleep(0.5)       # даём время завершиться
         _kill_winws()          # убиваем winws.exe (если не остановился)
         time.sleep(2)

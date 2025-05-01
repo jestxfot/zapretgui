@@ -118,13 +118,14 @@ class SystemTrayManager:
 
     def exit_app(self):
         """Полностью закрывает приложение"""
+        from stop import stop_dpi
         from log import log
         log("Закрытие приложения через трей", level="INFO")
         
         # Останавливаем winws.exe перед выходом
         if hasattr(self.parent, 'dpi_starter'):
             log("Останавливаем DPI процесс...", level="INFO")
-            self.parent.dpi_starter.stop_dpi()
+            stop_dpi()
             
             # Даем немного времени для корректного завершения процесса
             import time
