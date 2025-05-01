@@ -964,7 +964,45 @@ class LupiDPIApp(QWidget):
             log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при остановке: {str(e)}")
 
-
+    def show_autostart_menu(self):
+        """Показывает меню с вариантами автозапуска программы"""
+        from log import log
+        
+        # Проверяем, не активен ли уже автозапуск
+        if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
+            log("Автозапуск уже активен", level="WARNING")
+            self.set_status("Сначала отключите текущий автозапуск")
+            return
+        
+        log("Отображение меню автозапуска Zapret", level="INFO")
+        
+        # Создаем меню
+        menu = QMenu(self)
+        
+        # Добавляем пункты меню
+        autostart_exe_action = menu.addAction("Автозапуск zapret.exe")
+        autostart_strategy_action = menu.addAction("Автозапуск выбранной стратегии")
+        
+        # Получаем положение кнопки для отображения меню
+        button_pos = self.autostart_enable_btn.mapToGlobal(self.autostart_enable_btn.rect().bottomLeft())
+        
+        # Показываем меню и получаем выбранное действие
+        action = menu.exec_(button_pos)
+        
+        # Обрабатываем выбор
+        if action == autostart_exe_action:
+            log("Выбрано: Автозапуск zapret.exe", level="INFO")
+            # Напрямую используем метод из service_manager
+            if self.service_manager.install_autostart_exe():
+                self.update_autostart_ui(True)
+                QMessageBox.information(self, "Успех", "Автозапуск настроен для zapret.exe")
+            else:
+                QMessageBox.critical(self, "Ошибка",
+                                    "Не удалось настроить автозапуск.\nСм. журнал.")
+        elif action == autostart_strategy_action:
+            log("Выбрано: Автозапуск выбранной стратегии", level="INFO")
+            self.install_service()
+        
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
         from log import log
@@ -1243,7 +1281,7 @@ class LupiDPIApp(QWidget):
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_enable_btn.clicked.connect(self.install_service)
+        self.autostart_enable_btn.clicked.connect(self.show_autostart_menu)
 
         self.autostart_disable_btn = RippleButton('Выкл. автозапуск', self, "255, 93, 174") 
         self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))

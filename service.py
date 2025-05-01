@@ -131,7 +131,7 @@ class ServiceManager:
             log(f"Ошибка при настройке автозапуска: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка: {str(e)}")
             return False
-    
+        
     def check_autostart_registry_exists(self):
         """
         Проверяет, настроен ли автозапуск приложения через реестр Windows
