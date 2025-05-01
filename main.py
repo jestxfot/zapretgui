@@ -4,7 +4,7 @@ import sys, os, ctypes, winreg, subprocess, webbrowser, time, shutil
 from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal, QEvent
 from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLayout,
                              QComboBox, QApplication, QFrame,
-                             QSpacerItem, QSizePolicy, QMenu, QToolButton)
+                             QSpacerItem, QSizePolicy)
 
 from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
@@ -872,18 +872,7 @@ class LupiDPIApp(QWidget):
             subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
         except Exception as e:
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
-            
-    def stop_and_quit(self):
-        """
-        1. Останавливает winws.exe (self.stop_dpi)
-        2. Аккуратно закрывает приложение
-        """
-        # Уже есть удобная функция stop_dpi – используем её
-        self.stop_dpi()
 
-        # Дадим системе мгновенье, чтобы процесс гарантированно завершился
-        QTimer.singleShot(300, QApplication.instance().quit)
-    
     def stop_dpi(self):
         """Останавливает процесс DPI, используя прямые команды остановки"""
         try:
@@ -1205,30 +1194,17 @@ class LupiDPIApp(QWidget):
         layout.addLayout(strategy_layout)
 
         ################## Кнопки управления #################
+        from PyQt5.QtWidgets import QGridLayout
 
         self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
         self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.start_btn.clicked.connect(self.dpi_starter.start_dpi)
 
-        # ───────── Кнопка-меню «Остановить…» ─────────
-        self.stop_btn = QToolButton(self)
-        self.stop_btn.setText('Остановить ▼')
+        self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
         self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.stop_btn.setPopupMode(QToolButton.InstantPopup)   # меню раскрывается сразу
-
-        # Создаём выпадающее меню
-        stop_menu = QMenu(self.stop_btn)
-        act_stop_only = stop_menu.addAction("Остановить winws.exe")
-        act_stop_exit = stop_menu.addAction("Остановить и выйти")
-
-        # Подключаем действия
-        act_stop_only.triggered.connect(self.stop_dpi)
-        act_stop_exit.triggered.connect(self.stop_and_quit)
-
-        # Назначаем меню кнопке
-        self.stop_btn.setMenu(stop_menu)
+        self.stop_btn.clicked.connect(self.stop_dpi)
 
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
