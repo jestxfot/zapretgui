@@ -1048,6 +1048,13 @@ def main():
     # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
     from log import log
     try:
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QCoreApplication
+        from PyQt5.QtCore import Qt
+        QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)   # общий скейлинг
+        QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps,  True)     # иконки
+
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
     except Exception as e:

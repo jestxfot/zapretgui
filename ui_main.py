@@ -57,7 +57,6 @@ class MainWindowUI:
         self.select_strategy_btn = RippleButton(
             "Сменить стратегию обхода блокировок…", self, "0, 119, 255")
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.select_strategy_btn.setMinimumHeight(BUTTON_HEIGHT)
         root.addWidget(self.select_strategy_btn)
 
         # ---------- Grid-кнопки ----------------------------------------
@@ -74,7 +73,6 @@ class MainWindowUI:
                     (self.autostart_enable_btn,"54, 153, 70"),
                     (self.autostart_disable_btn,"255, 93, 174")):
             b.setStyleSheet(BUTTON_STYLE.format(c))
-            b.setMinimumHeight(BUTTON_HEIGHT)
 
         grid.addWidget(self.start_btn,              0,0)
         grid.addWidget(self.autostart_enable_btn,   0,1)
@@ -101,7 +99,6 @@ class MainWindowUI:
         for text,color,row,col,*span in extra:
             btn = RippleButton(text, self, color)
             btn.setStyleSheet(BUTTON_STYLE.format(color))
-            btn.setMinimumHeight(BUTTON_HEIGHT)
             grid.addWidget(btn, row, col, 1, span[0] if span else 1)
             # сохраняем ссылку на нужные отдельные кнопки
             if "ChatGPT" in text:
