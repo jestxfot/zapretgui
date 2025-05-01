@@ -2,13 +2,14 @@
 
 import sys, os, ctypes, subprocess, webbrowser, time
 
-from PyQt5.QtCore    import QTimer
+from PyQt5.QtCore    import QTimer, QThread
 from PyQt5.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 
 from ui_main import MainWindowUI
 from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
-from downloader import DOWNLOAD_URLS
+from heavy_worker import HeavyWorker
+from downloader    import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager
@@ -417,69 +418,109 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.strategy_manager = None
 
     def initialize_managers_and_services(self):
-        # Добавляем флаг инициализации
-        self.initializing = True
-        
-        # Добавляем флаг защиты процесса от автоматического завершения
-        self.protected_process = True
+        """
+        Быстрая часть инициализации (в GUI-потоке) + запуск HeavyWorker
+        для сетевых/IO-операций.
+        """
+        from log import log
+        log("initialize_managers_and_services: start", "INFO")
+        self.set_status("Инициализация…")
+
+        # ───── 1. поток мониторинга и время смены стратегии ─────
         self.init_process_monitor()
-        
-        # Инициализируем последнее время смены стратегии
         self.last_strategy_change_time = time.time()
 
-        # Инициализируем Discord Manager
+        # ───── 2. лёгкие менеджеры (мгновенные) ─────
         from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
 
-        # Инициализируем hosts_manager
         self.hosts_manager = HostsManager(status_callback=self.set_status)
-        
-        # Инициализируем менеджер стратегий
-        self.init_strategy_manager()
-        
-        # Инициализируем менеджер тем
-        self.theme_manager = ThemeManager(
-            app=QApplication.instance(),
-            widget=self,
-            status_label=self.status_label,
-            author_label=self.author_label,
-            support_label=self.support_label,
-            bin_folder=BIN_FOLDER,
-            author_url=AUTHOR_URL,
-            bol_van_url=self.bol_van_url
+
+        # StrategyManager (без preload)
+        from strategy_manager import StrategyManager
+        from config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
+                            GITHUB_STRATEGIES_JSON_URL)
+        if not os.path.exists(STRATEGIES_FOLDER):
+            os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
+
+        self.strategy_manager = StrategyManager(
+            base_url  = GITHUB_STRATEGIES_BASE_URL,
+            local_dir = STRATEGIES_FOLDER,
+            status_callback=self.set_status,
+            json_url  = GITHUB_STRATEGIES_JSON_URL
         )
-        
+
+        # ThemeManager (можно создать сразу: это быстро)
+        self.theme_manager = ThemeManager(
+            app=QApplication.instance(), widget=self,
+            status_label=self.status_label, author_label=self.author_label,
+            support_label=self.support_label, bin_folder=BIN_FOLDER,
+            author_url=AUTHOR_URL, bol_van_url=self.bol_van_url
+        )
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
-        
-        # Инициализируем менеджер служб
+
+        # ServiceManager
         self.service_manager = ServiceManager(
-            winws_exe=WINWS_EXE,
-            bin_folder=BIN_FOLDER,
-            lists_folder=LISTS_FOLDER,
+            winws_exe   = WINWS_EXE,
+            bin_folder  = BIN_FOLDER,
+            lists_folder= LISTS_FOLDER,
             status_callback=self.set_status,
-            ui_callback = self.update_ui    
+            ui_callback = self.update_ui
         )
-        
-        # Проверяем и обновляем UI службы/задачи
-        autostart_running = self.service_manager.check_autostart_exists()
-        self.update_autostart_ui(autostart_running)
 
-        service_running = self.service_manager.check_service_exists()
-        self.update_autostart_ui(service_running)
+        # Начальное состояние UI (до heavy-операций)
+        self.update_autostart_ui(self.service_manager.check_autostart_exists())
+        self.update_ui(running=False)
+
+        # ───── 3. HeavyWorker  (preload_strategies + download_files) ─────
+        self.set_status("Загрузка стратегий и winws.exe…")
+
+        self._hw_thread = QThread(self)
+        self._hw_worker = HeavyWorker(
+            strategy_manager=self.strategy_manager,
+            dpi_starter     = self.dpi_starter,
+            download_urls   = DOWNLOAD_URLS
+        )
+        self._hw_worker.moveToThread(self._hw_thread)
+
+        # сигналы
+        self._hw_thread.started.connect(self._hw_worker.run)
+        self._hw_worker.progress.connect(self.set_status)
+        self._hw_worker.finished.connect(self._on_heavy_finished)
+        self._hw_worker.finished.connect(self._hw_thread.quit)
+        self._hw_worker.finished.connect(self._hw_worker.deleteLater)
+        self._hw_thread.finished.connect(self._hw_thread.deleteLater)
+
+        self._hw_thread.start()
         
-        # Обновляем UI состояния запуска
-        self.update_ui(running=True)
-        
-        # Проверяем наличие необходимых файлов
-        self.set_status("Проверка файлов...")
-        self.dpi_starter.download_files(DOWNLOAD_URLS)
-        
+    def _on_heavy_finished(self, ok: bool, err: str):
+        """Действия после тяжёлой фоновой инициализации"""
+        from log import log
+        if not ok:
+            QMessageBox.critical(self, "Ошибка инициализации", err)
+            self.set_status("Ошибка инициализации")
+            log("HeavyWorker failed", "ERROR")
+            return
+
+        log("HeavyWorker done", "INFO")
+
+        # Обновляем список стратегий (теперь index.json уже загружен)
+        self.update_strategies_list()
+
+        # проверяем/запускаем winws после загрузки
         self.delayed_dpi_start()
-        self.update_proxy_button_state()
-        self.finish_initialization()
 
+        # proxy-кнопка и combobox-фикс
+        QTimer.singleShot(100, self.update_proxy_button_state)
+        QTimer.singleShot(0,   self.force_enable_combos)
 
+        # тихая проверка обновлений
+        QTimer.singleShot(200, lambda: check_and_run_update(
+            parent=self, status_cb=self.set_status, silent=True))
+
+        self.set_status("Готово")
+    
     def init_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
         if hasattr(self, 'process_monitor') and self.process_monitor is not None:
@@ -1064,7 +1105,7 @@ def main():
     # Выполняем дополнительные проверки ПОСЛЕ отображения UI
     window.force_enable_combos()
     window.initialize_managers_and_services()
-    check_and_run_update(parent=window, status_cb=window.set_status)
+    check_and_run_update(parent=window, status_cb=window.set_status, silent=True)
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):

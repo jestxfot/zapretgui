@@ -41,13 +41,15 @@ def _download(url: str, dest: str, on_progress=None):
                 on_progress(done, total)
 
 # ────────────────────────────────────────────────────────────────
-def check_and_run_update(parent=None, status_cb=None, slient=False):
+def check_and_run_update(parent=None, status_cb=None, **kwargs):
     """
     • читает META_URL;
     • если есть новая версия, спрашивает пользователя (если not silent);
     • скачивает Setup.exe → TEMP;
     • запускает его /VERYSILENT и через 1.5 с закрывает Zapret.
     """
+    silent = kwargs.get("silent", False)
+    
     # Удобный вывод статуса
     def set_status(msg: str):
         if status_cb: status_cb(msg)
