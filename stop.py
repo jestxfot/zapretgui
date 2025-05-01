@@ -1,105 +1,84 @@
 # stop.py
-
 import subprocess, time
+from typing import TYPE_CHECKING
 
-def stop_dpi(self):
-    """Останавливает процесс DPI, используя прямые команды остановки"""
+if TYPE_CHECKING:
+    from main import LupiDPIApp
+
+def stop_dpi(app: "LupiDPIApp"):
+    """
+    Останавливает процесс winws.exe и обновляет UI.
+    'app' – это экземпляр LupiDPIApp, откуда берём dpi_starter,
+           set_status(), update_ui() и т.д.
+    """
     try:
         from log import log
-        log("Остановка Zapret", level="INFO")
-        
-        # Используем прямые команды остановки вместо ненадежного stop.bat
+
+        log("Остановка Zapret", "INFO")
         process_stopped = False
-        
-        # Метод 1: taskkill (наиболее надежный)
-        log("Метод 1: Остановка через taskkill /F /IM winws.exe /T", level="INFO")
-        try:
+
+        # --------- 1. taskkill ----------------------------------------
+        log("taskkill /F /IM winws.exe /T", "INFO")
+        subprocess.run("taskkill /F /IM winws.exe /T",
+                       shell=True, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+        if not app.dpi_starter.check_process_running():
+            process_stopped = True
+            log("Процесс остановлен через taskkill", "INFO")
+
+        # --------- 2. PowerShell --------------------------------------
+        if not process_stopped:
+            log("Пробуем PowerShell", "INFO")
             subprocess.run(
-                "taskkill /F /IM winws.exe /T", 
-                shell=True, 
-                check=False, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE
+                'powershell -Command "Get-Process winws -EA SilentlyContinue | Stop-Process -Force"',
+                shell=True, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            # Даем время системе на обработку команды
             time.sleep(1)
-            if not self.dpi_starter.check_process_running():
+            if not app.dpi_starter.check_process_running():
                 process_stopped = True
-                log("Процесс успешно остановлен через taskkill", level="INFO")
-        except Exception as e:
-            log(f"Ошибка при использовании taskkill: {str(e)}", level="ERROR")
-        
-        # Если taskkill не помог, пробуем метод 2: PowerShell
+                log("Процесс остановлен через PowerShell", "INFO")
+
+        # --------- 3. WMIC -------------------------------------------
         if not process_stopped:
-            log("Метод 2: Остановка через PowerShell", level="INFO")
-            try:
-                subprocess.run(
-                    'powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"',
-                    shell=True,
-                    check=False,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                # Даем время системе на обработку команды
-                time.sleep(1)
-                if not self.dpi_starter.check_process_running():
-                    process_stopped = True
-                    log("Процесс успешно остановлен через PowerShell", level="INFO")
-            except Exception as e:
-                log(f"Ошибка при использовании PowerShell: {str(e)}", level="ERROR")
-        
-        # Метод 3: wmic
-        if not process_stopped:
-            log("Метод 3: Остановка через wmic", level="INFO")
-            try:
-                subprocess.run(
-                    "wmic process where name='winws.exe' call terminate",
-                    shell=True,
-                    check=False,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                # Даем время системе на обработку команды
-                time.sleep(1)
-                if not self.dpi_starter.check_process_running():
-                    process_stopped = True
-                    log("Процесс успешно остановлен через wmic", level="INFO")
-            except Exception as e:
-                log(f"Ошибка при использовании wmic: {str(e)}", level="ERROR")
-        
-        # Дополнительно останавливаем службы
-        try:
-            log("Остановка служб WinDivert", level="INFO")
-            subprocess.run("sc stop windivert", shell=True, check=False)
-            subprocess.run("sc delete windivert", shell=True, check=False)
-        except Exception as e:
-            log(f"Ошибка при остановке служб: {str(e)}", level="ERROR")
-        
-        # Финальная проверка
-        if self.dpi_starter.check_process_running():
-            log("ВНИМАНИЕ: Не удалось остановить все процессы winws.exe", level="WARNING")
-            self.set_status("Не удалось полностью остановить Zapret")
+            log("Пробуем wmic", "INFO")
+            subprocess.run(
+                "wmic process where name='winws.exe' call terminate",
+                shell=True, check=False,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            time.sleep(1)
+            if not app.dpi_starter.check_process_running():
+                process_stopped = True
+                log("Процесс остановлен через wmic", "INFO")
+
+        # --------- 4. WinDivert service ------------------------------
+        log("Останавливаем/удаляем службу WinDivert", "INFO")
+        subprocess.run("sc stop windivert", shell=True, check=False)
+        subprocess.run("sc delete windivert", shell=True, check=False)
+
+        # --------- 5. итог -------------------------------------------
+        if app.dpi_starter.check_process_running():
+            log("Не удалось остановить winws.exe", "WARNING")
+            app.set_status("Не удалось полностью остановить Zapret")
         else:
-            # Обновляем UI
-            self.update_ui(running=False)
-            self.set_status("Zapret успешно остановлен")
-            log("Запрет успешно остановлен", level="INFO")
-        
-        # Обновляем статус
-        self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
-            
+            app.update_ui(running=False)
+            app.set_status("Zapret успешно остановлен")
+            log("Zapret успешно остановлен", "INFO")
+
+        app.on_process_status_changed(app.dpi_starter.check_process_running(silent=True))
+
     except Exception as e:
         from log import log
-        log(f"Ошибка при остановке DPI: {str(e)}", level="ERROR")
-        self.set_status(f"Ошибка при остановке: {str(e)}")
-
+        log(f"stop_dpi: {e}", "ERROR")
+        app.set_status(f"Ошибка остановки: {e}")
 
 ##############################
 
 import os, subprocess, time
 from log import log
 
-def stop_dpi(self):
+def stop_dpi2(self):
     """
     Останавливает процесс DPI.
     

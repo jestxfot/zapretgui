@@ -833,13 +833,13 @@ class LupiDPIApp(QWidget):
         # Обрабатываем выбор
         if action == stop_winws_action:
             log("Выбрано: Остановить только winws.exe", level="INFO")
-            stop_dpi()
+            stop_dpi(self)
         elif action == stop_and_exit_action:
             log("Выбрано: Остановить и закрыть программу", level="INFO")
             self.set_status("Останавливаю Zapret и закрываю программу...")
             
             # Сначала останавливаем процесс
-            stop_dpi()
+            stop_dpi(self)
             
             # Затем завершаем приложение
             QApplication.quit()
