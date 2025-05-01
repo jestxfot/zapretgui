@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLay
                              QComboBox, QApplication, QFrame, QMenu,
                              QSpacerItem, QSizePolicy)
 
+from ui_main import MainWindowUI
 from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
 from downloader import DOWNLOAD_URLS
@@ -86,7 +87,7 @@ def _handle_update_mode():
             pass
     # ничего не возвращаем — вызывающая сторона сделает sys.exit(0)
 
-class LupiDPIApp(QWidget):
+class LupiDPIApp(QWidget, MainWindowUI):
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
         # Останавливаем поток мониторинга
@@ -639,7 +640,29 @@ class LupiDPIApp(QWidget):
             QApplication.instance().setWindowIcon(app_icon)
         
         # Инициализируем интерфейс
-        self.init_ui()
+        self.build_ui(width=WIDTH, height=HEIGHT)
+
+        # подключаем логику к новым кнопкам
+        self.select_strategy_clicked.connect(self.select_strategy)
+        self.start_clicked.connect(self.dpi_starter.start_dpi)
+        self.stop_clicked.connect(self.show_stop_menu)
+        self.autostart_enable_clicked.connect(self.show_autostart_options)
+        self.autostart_disable_clicked.connect(self.remove_autostart)
+        self.theme_changed.connect(self.change_theme)
+
+        # дополнительные кнопки (по тексту)
+        self.extra_2_0_btn.clicked.connect(self.open_folder)
+        self.extra_2_1_btn.clicked.connect(self.open_connection_test)
+        self.extra_3_0_btn.clicked.connect(self.update_other_list)
+        self.extra_3_1_btn.clicked.connect(self.open_general)
+        self.extra_4_0_btn.clicked.connect(self.update_winws_exe)
+        self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
+        self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
+        self.extra_6_0_btn.clicked.connect(self.open_info)
+        self.extra_7_0_btn.clicked.connect(self.show_logs)
+        self.extra_7_1_btn.clicked.connect(self.send_log_to_tg)
+        self.extra_8_0_btn.clicked.connect(
+            lambda: check_and_run_update(parent=self, status_cb=self.set_status))
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -973,210 +996,6 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка",
                                 f"Не удалось отправить лог:\n{e}")
-        
-    def init_ui(self):
-        """Creates the user interface elements."""
-        self.setStyleSheet(STYLE_SHEET)
-        layout = QVBoxLayout()
-
-        header_layout = QVBoxLayout()
-
-        title_label = QLabel('Zapret GUI')
-        title_label.setStyleSheet(f"{COMMON_STYLE} font: 16pt Arial;")
-        header_layout.addWidget(title_label, alignment=Qt.AlignCenter)
-        layout.addLayout(header_layout)
-
-        # Добавляем разделитель
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
-
-        ################# Статус программы #################
-        status_layout = QVBoxLayout()
-        
-        # Статус запуска программы
-        process_status_layout = QHBoxLayout()
-        process_status_label = QLabel("Статус программы:")
-        process_status_label.setStyleSheet("font-weight: bold;")
-        process_status_layout.addWidget(process_status_label)
-        
-        self.process_status_value = QLabel("проверка...")
-        process_status_layout.addWidget(self.process_status_value)
-        process_status_layout.addStretch(1)  # Добавляем растяжку для центрирования
-        
-        status_layout.addLayout(process_status_layout)
-
-        layout.addLayout(status_layout)
-
-        ############# Стратегия обхода блокировок #############
-        strategy_layout = QVBoxLayout()
-
-        # Сначала добавляем метку с текущей стратегией на всю ширину
-        strategy_header = QLabel("Текущая стратегия:")
-        strategy_header.setStyleSheet(f"{COMMON_STYLE} font-weight: bold;")
-        strategy_header.setAlignment(Qt.AlignCenter)
-        strategy_layout.addWidget(strategy_header)
-
-        # Метка с текущей стратегией (увеличиваем шрифт и делаем его заметным)
-        self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setStyleSheet(f"{COMMON_STYLE} font-weight: bold; font-size: 12pt; color: #0077ff;")
-        self.current_strategy_label.setAlignment(Qt.AlignCenter)
-        self.current_strategy_label.setWordWrap(True)  # Разрешаем перенос длинных названий
-        self.current_strategy_label.setMinimumHeight(40)  # Достаточная высота для двух строк текста
-        strategy_layout.addWidget(self.current_strategy_label)
-
-        # Добавляем небольшой интервал между меткой и кнопкой
-        strategy_layout.addSpacing(5)
-
-        # Затем добавляем кнопку выбора стратегии
-        self.select_strategy_btn = RippleButton('Сменить стратегию обхода блокировок...', self, "0, 119, 255")
-        self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.select_strategy_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.select_strategy_btn.clicked.connect(self.select_strategy)
-        strategy_layout.addWidget(self.select_strategy_btn)
-
-        layout.addLayout(strategy_layout)
-
-        ################## Кнопки управления #################
-        from PyQt5.QtWidgets import QGridLayout
-
-        self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
-        self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
-        self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.start_btn.clicked.connect(self.dpi_starter.start_dpi)
-
-        self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
-        self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
-        self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
-        # Изменяем обработчик для отображения подменю
-        self.stop_btn.clicked.connect(self.show_stop_menu)
-
-        self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
-        self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
-        self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_enable_btn.clicked.connect(self.show_autostart_options)
-
-        self.autostart_disable_btn = RippleButton('Выкл. автозапуск', self, "255, 93, 174") 
-        self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
-        self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_disable_btn.clicked.connect(self.remove_autostart)
-
-        self.button_grid = QGridLayout()          # ← сохранить как атрибут
-        button_grid = self.button_grid            # локальное alias, чтобы не менять дальше
-
-        # Устанавливаем равномерное распределение пространства между колонками
-        button_grid.setColumnStretch(0, 1)  # Левая колонка растягивается с коэффициентом 1
-        button_grid.setColumnStretch(1, 1)  # Правая колонка растягивается с коэффициентом 1
-
-        # Добавляем кнопки напрямую в grid layout
-        button_grid.addWidget(self.start_btn, 0, 0)
-        button_grid.addWidget(self.autostart_enable_btn, 0, 1)
-        button_grid.addWidget(self.stop_btn, 0, 0)
-        button_grid.addWidget(self.autostart_disable_btn, 0, 1)
-
-        # По умолчанию устанавливаем правильную видимость кнопок
-        self.start_btn.setVisible(True)
-        self.stop_btn.setVisible(False)
-        self.autostart_enable_btn.setVisible(True)
-        self.autostart_disable_btn.setVisible(False)
-
-        # Определяем кнопки
-        button_configs = [            
-            ('Открыть папку Zapret', self.open_folder, "0, 119, 255", 2, 0),
-            ('Тест соединения', self.open_connection_test, "0, 119, 255", 2, 1),
-            ('Обновить список сайтов', self.update_other_list, "0, 119, 255", 3, 0),
-            ('Добавить свои сайты', self.open_general, "0, 119, 255", 3, 1),
-            ('Обновить winws.exe', self.update_winws_exe, "0, 119, 255", 4, 0),
-            ('Настройка DNS-серверов', self.open_dns_settings, "0, 119, 255", 4, 1),
-            ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
-            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0, 2),  # col_span=2
-            ('Логи', self.show_logs, "38, 38, 38", 7, 0),
-            ('Отправить лог', self.send_log_to_tg, "38, 38, 38", 7, 1),
-            ('Проверить обновления', lambda: check_and_run_update(parent=self, status_cb=self.set_status), "38, 38, 38", 8, 0, 2)
-        ]
-
-        # Создаем и размещаем кнопки в сетке
-        for button_info in button_configs:
-            text, callback, color, row, col = button_info[:5]
-            
-            # Определяем col_span
-            col_span = button_info[5] if len(button_info) > 5 else (2 if (row == 10) else 1)
-            
-            btn = RippleButton(text, self, color)
-            btn.setStyleSheet(BUTTON_STYLE.format(color))
-            btn.setMinimumHeight(BUTTON_HEIGHT)
-            btn.clicked.connect(callback)
-            
-            button_grid.addWidget(btn, row, col, 1, col_span)
-            
-            # Сохраняем ссылку на кнопку разблокировки
-            if 'ChatGPT' in text:
-                self.proxy_button = btn
-            
-            # Сохраняем ссылку на кнопку запуска
-            if text == 'Запустить Zapret':
-                self.start_btn = btn
-        
-        # Добавляем сетку с кнопками в основной лейаут
-        layout.addLayout(button_grid)
-
-        theme_layout = QVBoxLayout()
-        theme_label = QLabel('Тема оформления:')
-        theme_label.setStyleSheet(COMMON_STYLE)
-        theme_layout.addWidget(theme_label, alignment=Qt.AlignCenter)
-    
-        self.theme_combo = QComboBox(self)
-        self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-        self.theme_combo.addItems(THEMES.keys())
-        self.theme_combo.currentTextChanged.connect(self.change_theme)
-
-        theme_layout.addWidget(self.theme_combo)
-        layout.addLayout(theme_layout)
-
-        # Предупреждение
-        #self.warning_label = QLabel('Не закрывайте открывшийся терминал!')  # Доступ нужен
-        #self.warning_label.setStyleSheet("color:rgb(255, 93, 174);")
-        #layout.addWidget(self.warning_label, alignment=Qt.AlignCenter)
-
-        # Статусная строка
-        self.status_label = QLabel("")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color:rgb(0, 0, 0);")
-        
-        layout.addWidget(self.status_label)
-        
-        spacer = QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding)
-        layout.addItem(spacer)
-
-        self.author_label = QLabel('Автор: <a href="https://t.me/bypassblock">t.me/bypassblock</a>')
-        self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>')
-        self.bol_van_url = QLabel('<a href="https://github.com/bol-van">github.com/bol-van</a>')
-
-        self.bol_van_url.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
-        self.bol_van_url.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.bol_van_url)
-
-        self.author_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
-        self.author_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.author_label)
-
-        self.support_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
-        self.support_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.support_label)
-
-        # ───────── UUID клиента ─────────
-        cid = get_client_id()
-
-        self.uuid_label = QLabel(f'ID устройства: <code>{cid}</code>')
-        self.uuid_label.setOpenExternalLinks(False)
-        self.uuid_label.setAlignment(Qt.AlignCenter)
-        # маленький серый шрифт
-        self.uuid_label.setStyleSheet("color: #666666; font-size: 8pt;")
-        layout.addWidget(self.uuid_label)
-            
-        self.setLayout(layout)
-        self.setMinimumSize(WIDTH, HEIGHT) # Минимальный размер окна
 
     def init_tray_if_needed(self):
         """Инициализирует системный трей, если он еще не был инициализирован"""

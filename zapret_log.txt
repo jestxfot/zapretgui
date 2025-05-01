@@ -1,3 +1,2 @@
-=== Zapret GUI Log - Started 2025-05-01 18:27:15 ===
+=== Zapret GUI Log - Started 2025-05-01 20:03:26 ===
 
-[18:27:15] <function setup_autostart_for_strategy at 0x000001917668AAC0>[18:27:15] 
