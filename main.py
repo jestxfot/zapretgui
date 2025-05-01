@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLay
                              QComboBox, QApplication, QFrame, QMenu,
                              QSpacerItem, QSizePolicy)
 
+from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
 from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
@@ -23,12 +24,6 @@ from strategy_selector import StrategySelector
 from tg_log_delta import LogDeltaDaemon, get_client_id
 
 from reg import get_last_strategy, set_last_strategy
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
 
 def get_version():
     """Возвращает текущую версию программы"""
@@ -1259,8 +1254,11 @@ def main():
 
     # ---- admin elevation (после предупреждений, до создания окна) ----
     if not is_admin():
+        # просим UAC
         ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable, " ".join(sys.argv[1:]), None, 1)
+            None, "runas", sys.executable,
+            " ".join(map(ctypes.c_wchar_p, sys.argv[1:])), None, 1
+        )
         sys.exit(0)
 
     # ---------------- основное окно ----------------------------------
