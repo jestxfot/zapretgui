@@ -1,7 +1,7 @@
 # ui_main.py
-from PyQt5.QtCore    import Qt, QPoint
+from PyQt5.QtCore    import Qt
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QComboBox, QSpacerItem, QSizePolicy, QFrame
 )
 

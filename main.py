@@ -1,10 +1,9 @@
 # main.py
-import sys, os, ctypes, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLayout,
-                             QComboBox, QApplication, QFrame, QMenu,
-                             QSpacerItem, QSizePolicy)
+import sys, os, ctypes, subprocess, webbrowser, time
+
+from PyQt5.QtCore    import QTimer
+from PyQt5.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 
 from ui_main import MainWindowUI
 from admin_check import is_admin
@@ -15,7 +14,7 @@ from hosts import HostsManager
 from service import ServiceManager
 from autostart_remove import AutoStartCleaner
 from start import DPIStarter
-from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
+from theme import ThemeManager, BUTTON_STYLE, COMMON_STYLE
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
@@ -476,14 +475,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.set_status("Проверка файлов...")
         self.dpi_starter.download_files(DOWNLOAD_URLS)
         
-        # Безопасно запускаем DPI после инициализации всех менеджеров
-        QTimer.singleShot(100, self.delayed_dpi_start)
-        
-        # Обновляем состояние кнопки прокси через 4.5 секунды
-        QTimer.singleShot(150, self.update_proxy_button_state)
-        
-        # Снимаем флаг инициализации и защиты через 8 секунд
-        QTimer.singleShot(100, self.finish_initialization)
+        self.delayed_dpi_start()
+        self.update_proxy_button_state()
+        self.finish_initialization()
 
 
     def init_process_monitor(self):
@@ -604,8 +598,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         strategy_name = get_last_strategy()
                 
                 log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
-                # Запускаем с задержкой 500 мс
-                QTimer.singleShot(500, lambda: self.dpi_starter.start_dpi(selected_mode=strategy_name))
+                lambda: self.dpi_starter.start_dpi(selected_mode=strategy_name)
         else:
             log("DPI Starter не инициализирован, пропускаем проверку процесса", level="WARNING")
         
@@ -714,7 +707,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         else:
             # Если нет, повторяем через полсекунды
             log("Повторная попытка активации комбо-бокса тем")
-            QTimer.singleShot(100, self.delayed_combo_enabler)
+            self.delayed_combo_enabler()
 
     def perform_delayed_checks(self):
         """Выполняет отложенные проверки после отображения UI"""
@@ -728,10 +721,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Вторая попытка активации комбо-боксов после инициализации
             self.force_enable_combos()
             
-            # Запускаем таймер для повторных проверок активации
-            # Это гарантирует, что комбо-боксы точно станут активными
-            QTimer.singleShot(100, self.delayed_combo_enabler)
-            QTimer.singleShot(100, lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=True))
+            self.delayed_combo_enabler()  # Запускаем таймер для повторной активации
+            lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=True)
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -1099,7 +1090,7 @@ def main():
         else:
             log("Менеджер служб не инициализирован", level="SERVICE")
 
-    QTimer.singleShot(0, _remove_legacy_service)        
+    _remove_legacy_service()
     # Выполняем дополнительные проверки ПОСЛЕ отображения UI
     window.perform_delayed_checks()
     

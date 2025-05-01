@@ -1,2 +1,3 @@
-=== Zapret GUI Log - Started 2025-05-01 20:03:26 ===
+=== Zapret GUI Log - Started 2025-05-01 20:37:44 ===
 
+[20:37:44] [INFO] remove_windows_terminal: нет прав администратора – пропуск
