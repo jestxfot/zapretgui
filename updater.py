@@ -1,4 +1,4 @@
-# update_manager.py
+# update.py
 # -----------------------------------------------------------------
 # Проверяет https://gitflic.ru/.../version.json и, если версия новее,
 # качает ZapretSetup.exe, запускает его /VERYSILENT и закрывает программу.

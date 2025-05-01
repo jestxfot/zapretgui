@@ -713,7 +713,7 @@ class LupiDPIApp(QWidget):
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
             QTimer.singleShot(100, self.delayed_combo_enabler)
-            QTimer.singleShot(100, lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=False))
+            QTimer.singleShot(100, lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=True))
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -1327,6 +1327,7 @@ def main():
     from log import log
     try:
         app = QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
@@ -1334,7 +1335,9 @@ def main():
 
     # ---------------- предупреждения, требующие Qt --------------------
     from check_start import display_startup_warnings
-    if not display_startup_warnings():
+
+    warnings_ok = display_startup_warnings()
+    if not warnings_ok and not start_in_tray:      # <── ключевое отличие
         sys.exit(1)
 
     # ---------------- прочие стартовые действия -----------------------
