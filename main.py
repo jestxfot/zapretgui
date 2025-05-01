@@ -179,31 +179,37 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
         
     def select_strategy(self):
-        """Открывает диалог выбора стратегии."""
+        """Открывает диалог выбора стратегии. При первом вызове
+        скачивает index.json и все .bat-файлы."""
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
                 from log import log
                 log("Ошибка: менеджер стратегий не инициализирован", level="ERROR")
                 self.set_status("Ошибка: менеджер стратегий не инициализирован")
                 return
-            
-            # Получаем текущую выбранную стратегию из метки
+
+            # ---------- первая загрузка стратегий ---------------------
+            if not self.strategy_manager.already_loaded:
+                self.set_status("Загружаю список стратегий…")
+                QApplication.processEvents()          # сразу обновим строку статуса
+                self.strategy_manager.preload_strategies()
+                self.update_strategies_list(force_update=True)
+                self.set_status("Список стратегий загружен")
+
+            # ---------- определяем текущую стратегию ------------------
             current_strategy = self.current_strategy_label.text()
             if current_strategy == "Не выбрана":
                 current_strategy = get_last_strategy()
-            
-            # Создаем и показываем диалог выбора стратегии
+
+            # ---------- создаём и показываем диалог -------------------
             selector = StrategySelector(
-                parent=self,
-                strategy_manager=self.strategy_manager,
-                current_strategy_name=current_strategy
+                parent              = self,
+                strategy_manager    = self.strategy_manager,
+                current_strategy_name = current_strategy
             )
-            
-            # Подключаем сигнал выбора стратегии
             selector.strategySelected.connect(self.on_strategy_selected_from_dialog)
-            
-            # Показываем диалог
             selector.exec_()
+
         except Exception as e:
             from log import log
             log(f"Ошибка при открытии диалога выбора стратегии: {str(e)}", level="ERROR")
@@ -419,56 +425,64 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.strategy_manager = None
 
     def initialize_managers_and_services(self):
-        """Быстрая инициализация + запуск HeavyInitWorker в QThread."""
+        """
+        Быстрая (лёгкая) инициализация и запуск HeavyInitWorker.
+        Теперь StrategyManager создаётся «ленивым» – ничего не качает,
+        пока пользователь не откроет Меню стратегий.
+        """
         from log import log
         log("initialize_managers_and_services: quick part", "INFO")
 
-        # --- лёгкие вещи (≈10-50 мс) ------------------------------------
+        # --- лёгкие вещи (≈10-50 мс) ----------------------------------
         self.init_process_monitor()
         self.last_strategy_change_time = time.time()
 
         from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
+        self.hosts_manager   = HostsManager   (status_callback=self.set_status)
 
-        self.hosts_manager = HostsManager(status_callback=self.set_status)
-
-        # StrategyManager БЕЗ preload
+        # StrategyManager  (preload=False  ⇒  ничего не скачивает)
         from strategy_manager import StrategyManager
         from config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
                             GITHUB_STRATEGIES_JSON_URL)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
         self.strategy_manager = StrategyManager(
-            base_url  = GITHUB_STRATEGIES_BASE_URL,
-            local_dir = STRATEGIES_FOLDER,
-            status_callback=self.set_status,
-            json_url  = GITHUB_STRATEGIES_JSON_URL)
+            base_url        = GITHUB_STRATEGIES_BASE_URL,
+            local_dir       = STRATEGIES_FOLDER,
+            status_callback = self.set_status,
+            json_url        = GITHUB_STRATEGIES_JSON_URL,
+            preload         = False)           # ← ключ
 
-        # ThemeManager (создать можно сразу – это быстро)
+        # ThemeManager
         self.theme_manager = ThemeManager(
-            app=QApplication.instance(), widget=self,
-            status_label=self.status_label, author_label=self.author_label,
-            support_label=self.support_label, bin_folder=BIN_FOLDER,
-            author_url=AUTHOR_URL, bol_van_url=self.bol_van_url)
+            app           = QApplication.instance(),
+            widget        = self,
+            status_label  = self.status_label,
+            author_label  = self.author_label,
+            support_label = self.support_label,
+            bin_folder    = BIN_FOLDER,
+            author_url    = AUTHOR_URL,
+            bol_van_url   = self.bol_van_url)
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
 
-        # ServiceManager (практически мгновенно)
+        # ServiceManager
         self.service_manager = ServiceManager(
-            winws_exe=WINWS_EXE, bin_folder=BIN_FOLDER,
-            lists_folder=LISTS_FOLDER,
-            status_callback=self.set_status,
-            ui_callback=self.update_ui)
+            winws_exe    = WINWS_EXE,
+            bin_folder   = BIN_FOLDER,
+            lists_folder = LISTS_FOLDER,
+            status_callback = self.set_status,
+            ui_callback     = self.update_ui)
 
         # стартовое состояние интерфейса
         self.update_autostart_ui(self.service_manager.check_autostart_exists())
         self.update_ui(running=False)
 
-        # --- HeavyInitWorker (сеть + диск) ------------------------------
+        # --- HeavyInitWorker (качает winws.exe, списки и т.п.) --------
         self.set_status("Инициализация…")
+
         self._hthr = QThread(self)
-        self._hwrk = HeavyInitWorker(self.strategy_manager,
-                                    self.dpi_starter,
-                                    DOWNLOAD_URLS)
+        self._hwrk = HeavyInitWorker(self.dpi_starter, DOWNLOAD_URLS)
         self._hwrk.moveToThread(self._hthr)
 
         # сигналы
@@ -480,7 +494,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self._hthr.finished.connect(self._hthr.deleteLater)
 
         self._hthr.start()
-
+        
     def _on_heavy_done(self, ok: bool, err: str):
         """GUI-поток: получаем результат тяжёлой работы."""
         if not ok:
@@ -488,8 +502,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status("Ошибка инициализации")
             return
 
-        # теперь index.json и winws.exe готовы
-        self.update_strategies_list()
+        # index.json и winws.exe готовы (если они требовались)
+        if self.strategy_manager.already_loaded:
+            self.update_strategies_list()
+
         self.delayed_dpi_start()
         self.update_proxy_button_state()
 
@@ -1080,8 +1096,6 @@ def main():
             log("Менеджер служб не инициализирован", level="SERVICE")
 
     _remove_legacy_service()
-    # Выполняем дополнительные проверки ПОСЛЕ отображения UI
-    window.initialize_managers_and_services()
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):
