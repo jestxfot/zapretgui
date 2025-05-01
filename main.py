@@ -9,6 +9,7 @@ from ui_main import MainWindowUI
 from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
 from heavy_worker import HeavyWorker
+from heavy_init_worker import HeavyInitWorker
 from downloader    import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
@@ -418,106 +419,86 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.strategy_manager = None
 
     def initialize_managers_and_services(self):
-        """
-        Быстрая часть инициализации (в GUI-потоке) + запуск HeavyWorker
-        для сетевых/IO-операций.
-        """
+        """Быстрая инициализация + запуск HeavyInitWorker в QThread."""
         from log import log
-        log("initialize_managers_and_services: start", "INFO")
-        self.set_status("Инициализация…")
+        log("initialize_managers_and_services: quick part", "INFO")
 
-        # ───── 1. поток мониторинга и время смены стратегии ─────
+        # --- лёгкие вещи (≈10-50 мс) ------------------------------------
         self.init_process_monitor()
         self.last_strategy_change_time = time.time()
 
-        # ───── 2. лёгкие менеджеры (мгновенные) ─────
         from discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
 
         self.hosts_manager = HostsManager(status_callback=self.set_status)
 
-        # StrategyManager (без preload)
+        # StrategyManager БЕЗ preload
         from strategy_manager import StrategyManager
         from config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
                             GITHUB_STRATEGIES_JSON_URL)
-        if not os.path.exists(STRATEGIES_FOLDER):
-            os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
-
+        os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
         self.strategy_manager = StrategyManager(
             base_url  = GITHUB_STRATEGIES_BASE_URL,
             local_dir = STRATEGIES_FOLDER,
             status_callback=self.set_status,
-            json_url  = GITHUB_STRATEGIES_JSON_URL
-        )
+            json_url  = GITHUB_STRATEGIES_JSON_URL)
 
-        # ThemeManager (можно создать сразу: это быстро)
+        # ThemeManager (создать можно сразу – это быстро)
         self.theme_manager = ThemeManager(
             app=QApplication.instance(), widget=self,
             status_label=self.status_label, author_label=self.author_label,
             support_label=self.support_label, bin_folder=BIN_FOLDER,
-            author_url=AUTHOR_URL, bol_van_url=self.bol_van_url
-        )
+            author_url=AUTHOR_URL, bol_van_url=self.bol_van_url)
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
 
-        # ServiceManager
+        # ServiceManager (практически мгновенно)
         self.service_manager = ServiceManager(
-            winws_exe   = WINWS_EXE,
-            bin_folder  = BIN_FOLDER,
-            lists_folder= LISTS_FOLDER,
+            winws_exe=WINWS_EXE, bin_folder=BIN_FOLDER,
+            lists_folder=LISTS_FOLDER,
             status_callback=self.set_status,
-            ui_callback = self.update_ui
-        )
+            ui_callback=self.update_ui)
 
-        # Начальное состояние UI (до heavy-операций)
+        # стартовое состояние интерфейса
         self.update_autostart_ui(self.service_manager.check_autostart_exists())
         self.update_ui(running=False)
 
-        # ───── 3. HeavyWorker  (preload_strategies + download_files) ─────
-        self.set_status("Загрузка стратегий и winws.exe…")
-
-        self._hw_thread = QThread(self)
-        self._hw_worker = HeavyWorker(
-            strategy_manager=self.strategy_manager,
-            dpi_starter     = self.dpi_starter,
-            download_urls   = DOWNLOAD_URLS
-        )
-        self._hw_worker.moveToThread(self._hw_thread)
+        # --- HeavyInitWorker (сеть + диск) ------------------------------
+        self.set_status("Инициализация…")
+        self._hthr = QThread(self)
+        self._hwrk = HeavyInitWorker(self.strategy_manager,
+                                    self.dpi_starter,
+                                    DOWNLOAD_URLS)
+        self._hwrk.moveToThread(self._hthr)
 
         # сигналы
-        self._hw_thread.started.connect(self._hw_worker.run)
-        self._hw_worker.progress.connect(self.set_status)
-        self._hw_worker.finished.connect(self._on_heavy_finished)
-        self._hw_worker.finished.connect(self._hw_thread.quit)
-        self._hw_worker.finished.connect(self._hw_worker.deleteLater)
-        self._hw_thread.finished.connect(self._hw_thread.deleteLater)
+        self._hthr.started.connect(self._hwrk.run)
+        self._hwrk.progress.connect(self.set_status)
+        self._hwrk.finished.connect(self._on_heavy_done)
+        self._hwrk.finished.connect(self._hthr.quit)
+        self._hwrk.finished.connect(self._hwrk.deleteLater)
+        self._hthr.finished.connect(self._hthr.deleteLater)
 
-        self._hw_thread.start()
-        
-    def _on_heavy_finished(self, ok: bool, err: str):
-        """Действия после тяжёлой фоновой инициализации"""
-        from log import log
+        self._hthr.start()
+
+    def _on_heavy_done(self, ok: bool, err: str):
+        """GUI-поток: получаем результат тяжёлой работы."""
         if not ok:
             QMessageBox.critical(self, "Ошибка инициализации", err)
             self.set_status("Ошибка инициализации")
-            log("HeavyWorker failed", "ERROR")
             return
 
-        log("HeavyWorker done", "INFO")
-
-        # Обновляем список стратегий (теперь index.json уже загружен)
+        # теперь index.json и winws.exe готовы
         self.update_strategies_list()
-
-        # проверяем/запускаем winws после загрузки
         self.delayed_dpi_start()
+        self.update_proxy_button_state()
 
-        # proxy-кнопка и combobox-фикс
-        QTimer.singleShot(100, self.update_proxy_button_state)
-        QTimer.singleShot(0,   self.force_enable_combos)
+        # combobox-фикс
+        for d in (0, 100, 200):
+            QTimer.singleShot(d, self.force_enable_combos)
 
-        # тихая проверка обновлений
-        QTimer.singleShot(200, lambda: check_and_run_update(
-            parent=self, status_cb=self.set_status, silent=True))
+        QTimer.singleShot(1000, lambda: check_and_run_update(
+            parent=self, status_cb=self.set_status, silent=False))
 
         self.set_status("Готово")
     
@@ -645,10 +626,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         log("Процесс инициализации завершен", level="INFO")
 
-    def __init__(self, fast_load=False):
-        self.fast_load = fast_load
-
-        self.status_timer = None  # Удаляем стандартный таймер
+    def __init__(self):
         self.process_monitor = None  # Будет инициализирован позже
 
         super().__init__()
@@ -1083,7 +1061,7 @@ def main():
         sys.exit(0)
 
     # ---------------- основное окно ----------------------------------
-    window = LupiDPIApp(fast_load=True)
+    window = LupiDPIApp()
     window.init_tray_if_needed()
 
     if start_in_tray:
@@ -1103,9 +1081,7 @@ def main():
 
     _remove_legacy_service()
     # Выполняем дополнительные проверки ПОСЛЕ отображения UI
-    window.force_enable_combos()
     window.initialize_managers_and_services()
-    check_and_run_update(parent=window, status_cb=window.set_status, silent=True)
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):
