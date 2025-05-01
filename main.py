@@ -1,10 +1,10 @@
+# main.py
 import sys, os, ctypes, winreg, subprocess, webbrowser, time, shutil
 
-from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QHBoxLayout,
-                             QComboBox, QMessageBox, QApplication, QFrame,
-                             QSpacerItem, QSizePolicy)
-
+from PyQt5.QtCore    import Qt, QTimer, QThread, pyqtSignal, QEvent
+from PyQt5.QtWidgets import (QMessageBox, QWidget, QVBoxLayout, QLabel, QHBoxLayout,
+                             QComboBox, QApplication, QFrame,
+                             QSpacerItem, QSizePolicy, QMenu, QToolButton)
 
 from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, LISTS_FOLDER, WINWS_EXE, ICON_PATH
@@ -16,11 +16,13 @@ from theme import ThemeManager, RippleButton, THEMES, BUTTON_STYLE, COMMON_STYLE
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
-from updater import check_for_update
+from updater import check_and_run_update
 from strategy_selector import StrategySelector
+from bfe_util import ensure_bfe_running
+from tg_log_delta import LogDeltaDaemon, get_client_id
 
 WIDTH = 450
-HEIGHT = 700
+HEIGHT = 800
 
 def get_last_strategy():
     """Получает последнюю выбранную стратегию обхода из реестра"""
@@ -70,6 +72,7 @@ def is_admin():
 def get_version():
     """Возвращает текущую версию программы"""
     return APP_VERSION
+
 
 BIN_DIR = os.path.join(os.getcwd(), "bin")     # при необходимости переопределите
 
@@ -435,9 +438,10 @@ class LupiDPIApp(QWidget):
                 return
             
             # Выводим список стратегий в лог для отладки
-            log(f"Получены стратегии: {list(strategies.keys())}", level="DEBUG")
+            #log(f"Получены стратегии: {list(strategies.keys())}", level="DEBUG")
             for strategy_id, info in strategies.items():
-                log(f"Стратегия ID: {strategy_id}, Name: {info.get('name')}, Path: {info.get('file_path')}", level="DEBUG")
+                #log(f"Стратегия ID: {strategy_id}, Name: {info.get('name')}, Path: {info.get('file_path')}", level="DEBUG")
+                pass  # Убираем лишний лог, если не нужно
             
             # Сохраняем текущий выбор
             current_strategy = None
@@ -745,6 +749,13 @@ class LupiDPIApp(QWidget):
             app_version=APP_VERSION
         )
 
+        # после создания GUI и инициализации логгера:
+        from tg_log_full import FullLogDaemon
+        self.log_sender = FullLogDaemon(
+                log_path = "zapret_log.txt",
+                interval = 120,      # интервал отправки в секундах
+                parent   = self)
+        
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы тем"""
         try:
@@ -790,6 +801,7 @@ class LupiDPIApp(QWidget):
             # Запускаем таймер для повторных проверок активации
             # Это гарантирует, что комбо-боксы точно станут активными
             QTimer.singleShot(100, self.delayed_combo_enabler)
+            QTimer.singleShot(100, lambda: check_and_run_update(parent=self, status_cb=self.set_status, silent=False))
 
     def on_mode_changed(self, selected_mode):
         """Обработчик смены режима в combobox"""
@@ -860,7 +872,18 @@ class LupiDPIApp(QWidget):
             subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
         except Exception as e:
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
+            
+    def stop_and_quit(self):
+        """
+        1. Останавливает winws.exe (self.stop_dpi)
+        2. Аккуратно закрывает приложение
+        """
+        # Уже есть удобная функция stop_dpi – используем её
+        self.stop_dpi()
 
+        # Дадим системе мгновенье, чтобы процесс гарантированно завершился
+        QTimer.singleShot(300, QApplication.instance().quit)
+    
     def stop_dpi(self):
         """Останавливает процесс DPI, используя прямые команды остановки"""
         try:
@@ -1101,6 +1124,22 @@ class LupiDPIApp(QWidget):
         except Exception as e:
             self.set_status(f"Ошибка при открытии журнала: {str(e)}")
 
+    def send_log_to_tg(self):
+        """Отправляет текущий лог-файл в Telegram."""
+        try:
+            from tg_sender import send_log_to_tg
+            # путь к вашему лог-файлу (как в модуле log)
+            LOG_PATH = "zapret_log.txt"
+
+            caption = f"Zapret log  (ID: {get_client_id()}, v{APP_VERSION})"
+            send_log_to_tg(LOG_PATH, caption)
+
+            QMessageBox.information(self, "Отправка",
+                                    "Лог отправлен боту.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка",
+                                f"Не удалось отправить лог:\n{e}")
+        
     def init_ui(self):
         """Creates the user interface elements."""
         self.setStyleSheet(STYLE_SHEET)
@@ -1166,17 +1205,30 @@ class LupiDPIApp(QWidget):
         layout.addLayout(strategy_layout)
 
         ################## Кнопки управления #################
-        from PyQt5.QtWidgets import QGridLayout
 
         self.start_btn = RippleButton('Запустить Zapret', self, "54, 153, 70")
         self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
         self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.start_btn.clicked.connect(self.dpi_starter.start_dpi)
 
-        self.stop_btn = RippleButton('Остановить Zapret', self, "255, 93, 174")
+        # ───────── Кнопка-меню «Остановить…» ─────────
+        self.stop_btn = QToolButton(self)
+        self.stop_btn.setText('Остановить ▼')
         self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
         self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.stop_btn.clicked.connect(self.stop_dpi)
+        self.stop_btn.setPopupMode(QToolButton.InstantPopup)   # меню раскрывается сразу
+
+        # Создаём выпадающее меню
+        stop_menu = QMenu(self.stop_btn)
+        act_stop_only = stop_menu.addAction("Остановить winws.exe")
+        act_stop_exit = stop_menu.addAction("Остановить и выйти")
+
+        # Подключаем действия
+        act_stop_only.triggered.connect(self.stop_dpi)
+        act_stop_exit.triggered.connect(self.stop_and_quit)
+
+        # Назначаем меню кнопке
+        self.stop_btn.setMenu(stop_menu)
 
         self.autostart_enable_btn = RippleButton('Вкл. автозапуск', self, "54, 153, 70")
         self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
@@ -1216,9 +1268,10 @@ class LupiDPIApp(QWidget):
             ('Обновить winws.exe', self.update_winws_exe, "0, 119, 255", 4, 0),
             ('Настройка DNS-серверов', self.open_dns_settings, "0, 119, 255", 4, 1),
             ('Разблокировать ChatGPT, Spotify, Notion и др.', self.toggle_proxy_domains, "218, 165, 32", 5, 0, 2),  # col_span=2
-            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0),
-            ('Логи', self.show_logs, "38, 38, 38", 6, 1),  # col_span=2
-            ('Проверить обновления', lambda: check_for_update(parent=self, status_callback=self.set_status), "38, 38, 38", 7, 0, 2),  # col_span=2
+            ('Что это такое?', self.open_info, "38, 38, 38", 6, 0, 2),  # col_span=2
+            ('Логи', self.show_logs, "38, 38, 38", 7, 0),
+            ('Отправить лог', self.send_log_to_tg, "38, 38, 38", 7, 1),
+            ('Проверить обновления', lambda: check_and_run_update(parent=self, status_cb=self.set_status), "38, 38, 38", 8, 0, 2)
         ]
 
         # Создаем и размещаем кнопки в сетке
@@ -1275,7 +1328,7 @@ class LupiDPIApp(QWidget):
         layout.addItem(spacer)
 
         self.author_label = QLabel('Автор: <a href="https://t.me/bypassblock">t.me/bypassblock</a>')
-        self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>\n или на почту <a href="mail:fuckyourkn@yandex.ru">fuckyourkn@yandex.ru</a>')
+        self.support_label = QLabel('Поддержка: <a href="https://t.me/youtubenotwork">t.me/youtubenotwork</a>')
         self.bol_van_url = QLabel('<a href="https://github.com/bol-van">github.com/bol-van</a>')
 
         self.bol_van_url.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
@@ -1289,7 +1342,17 @@ class LupiDPIApp(QWidget):
         self.support_label.setOpenExternalLinks(True)  # Разрешаем открытие внешних ссылок
         self.support_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.support_label)
-        
+
+        # ───────── UUID клиента ─────────
+        cid = get_client_id()
+
+        self.uuid_label = QLabel(f'ID устройства: <code>{cid}</code>')
+        self.uuid_label.setOpenExternalLinks(False)
+        self.uuid_label.setAlignment(Qt.AlignCenter)
+        # маленький серый шрифт
+        self.uuid_label.setStyleSheet("color: #666666; font-size: 8pt;")
+        layout.addWidget(self.uuid_label)
+            
         self.setLayout(layout)
         self.setMinimumSize(WIDTH, HEIGHT) # Минимальный размер окна
 
@@ -1334,7 +1397,12 @@ def main():
     import atexit
     atexit.register(lambda: release_mutex(mutex_handle))
     # ----------------------------------------------------------------------
+    from log import log
+    log(f"BFE running: {ensure_bfe_running(show_ui=False)}", level="DEBUG")
     
+    if not ensure_bfe_running(show_ui=True):
+        sys.exit(1)
+        
     try:
         from log import log
         log("========================= ZAPRET ЗАПУСКАЕТСЯ ========================", level="START")

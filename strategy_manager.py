@@ -124,10 +124,11 @@ class StrategyManager:
             
         for strategy_id, strategy_info in strategies.items():
             try:
-                log(f"Предзагрузка стратегии: {strategy_id}", level="INFO")
+                #log(f"Предзагрузка стратегии: {strategy_id}", level="INFO")
                 file_path = self.download_strategy(strategy_id)
                 if file_path:
-                    log(f"Стратегия {strategy_id} предзагружена: {file_path}", level="INFO")
+                    #log(f"Стратегия {strategy_id} предзагружена: {file_path}", level="INFO")
+                    self.set_status(f"Стратегия {strategy_id} предзагружена")
                 else:
                     log(f"Не удалось предзагрузить стратегию: {strategy_id}", level="WARNING")
             except Exception as e:
@@ -144,7 +145,7 @@ class StrategyManager:
             str: Путь к локальному файлу стратегии или None при ошибке
         """
         try:
-            log(f"Запрос на скачивание стратегии: {strategy_id}", level="DEBUG")
+            #log(f"Запрос на скачивание стратегии: {strategy_id}", level="DEBUG")
             strategies = self.get_strategies_list()
             
             if not strategies:
@@ -153,7 +154,7 @@ class StrategyManager:
                 self.set_status(error_msg)
                 return None
                 
-            log(f"Доступные стратегии: {list(strategies.keys())}", level="DEBUG")
+            #log(f"Доступные стратегии: {list(strategies.keys())}", level="DEBUG")
             
             if strategy_id not in strategies:
                 error_msg = f"Стратегия {strategy_id} не найдена в списке"
@@ -162,18 +163,18 @@ class StrategyManager:
                 return None
             
             strategy_info = strategies[strategy_id]
-            log(f"Информация о стратегии {strategy_id}: {strategy_info}", level="DEBUG")
+            #log(f"Информация о стратегии {strategy_id}: {strategy_info}", level="DEBUG")
             
             # Используем file_path из JSON, если указан
             if 'file_path' in strategy_info:
                 strategy_url_path = strategy_info['file_path']
                 # Извлекаем только имя файла для локального сохранения
                 strategy_filename = os.path.basename(strategy_url_path)
-                log(f"Используется file_path из JSON: {strategy_url_path}", level="DEBUG")
+                #log(f"Используется file_path из JSON: {strategy_url_path}", level="DEBUG")
             else:
                 strategy_url_path = f"{strategy_id}.bat"
                 strategy_filename = f"{strategy_id}.bat"
-                log(f"file_path не указан, используется ID: {strategy_url_path}", level="DEBUG")
+                #log(f"file_path не указан, используется ID: {strategy_url_path}", level="DEBUG")
             
             # Сохраняем в папку bin
             local_path = os.path.join(self.local_dir, strategy_filename)
@@ -189,7 +190,7 @@ class StrategyManager:
                         local_version = self.get_local_strategy_version(local_path, strategy_id)
                         
                         if local_version and local_version == current_version:
-                            log(f"Локальная версия стратегии {strategy_id} ({local_version}) совпадает с версией на сервере", level="INFO")
+                            #log(f"Локальная версия стратегии {strategy_id} ({local_version}) совпадает с версией на сервере", level="INFO")
                             should_download = False
                         else:
                             log(f"Требуется обновление стратегии {strategy_id}: локальная версия {local_version}, серверная версия {current_version}", level="INFO")
@@ -205,7 +206,7 @@ class StrategyManager:
                     # Формируем прямой URL для Gitflic
                     # Правильный формат: https://gitflic.ru/project/main1234/main1234/blob/raw?file=имя_файла.bat
                     strategy_url = f"https://gitflic.ru/project/main1234/main1234/blob/raw?file={strategy_url_path}"
-                    log(f"Скачивание стратегии с URL: {strategy_url}", level="DEBUG")
+                    #log(f"Скачивание стратегии с URL: {strategy_url}", level="DEBUG")
                     
                     # Скачиваем файл
                     response = requests.get(strategy_url, timeout=10)
@@ -227,7 +228,7 @@ class StrategyManager:
                     log(f"Стратегия {strategy_id} успешно скачана из {strategy_url}", level="INFO")
                 else:
                     self.set_status(f"Используется локальная копия стратегии {strategy_id}")
-                    log(f"Используется локальная копия стратегии {strategy_id}", level="INFO")
+                    #log(f"Используется локальная копия стратегии {strategy_id}", level="INFO")
                 
                 return local_path
                 

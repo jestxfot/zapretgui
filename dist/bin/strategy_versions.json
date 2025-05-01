@@ -6,7 +6,7 @@
   "alt1": "1.7",
   "alt2": "2.4",
   "alt3": "3.4",
-  "alt4": "1.5",
+  "alt4": "1.7",
   "faketlsmod": "1.6",
   "faketlsmod2": "1.4",
   "md5sig padencap (20.03.2025)": "1.0",
@@ -24,7 +24,7 @@
   "ultimatealt": "1.3",
   "splitsniext": "1.2",
   "splitbadseq": "1.2",
-  "rosmega": "1.3",
+  "rosmega": "1.4",
   "rosmts": "1.3",
   "other1": "1.3",
   "ankddev10.bat": "1.5",
@@ -42,5 +42,7 @@
   "datanoackpadencapmidsld": "1.2",
   "bystro292_1": "1.1",
   "bystro292_2": "1.1",
-  "bystro292_3": "1.1"
+  "bystro292_3": "1.1",
+  "bolvan3": "2.2",
+  "alt3_game": "1.0"
 }

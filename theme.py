@@ -167,7 +167,7 @@ class ThemeManager:
             self.bol_van_url.setText(f'Автор Zapret: <a href="https://github.com/bol-van" style="color:{status_color}">github.com/bol-van</a>')
             self.author_label.setText(f'Автор GUI: <a href="https://t.me/bypassblock" style="color:{status_color}">t.me/bypassblock</a>')
 
-            self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a><br>или на почту <a href="mail:fuckyourkn@yandex.ru"  style="color:{status_color}">fuckyourkn@yandex.ru</a>')
+            self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a>')
 
             # Если выбрана тема РКН Тян, применяем фоновое изображение
             if theme_name == "РКН Тян":

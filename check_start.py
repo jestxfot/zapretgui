@@ -45,6 +45,48 @@ def check_if_in_archive():
         log(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
         return False
 
+def is_in_onedrive(path: str) -> bool:
+    """
+    True, если путь находится в каталоге OneDrive
+    (учитывается как пользовательский, так и корпоративный вариант).
+    """
+    path_lower = os.path.abspath(path).lower()
+
+    # 1) Самый надёжный способ – сравнить с переменной окружения ONEDRIVE
+    onedrive_env = os.environ.get("ONEDRIVE")
+    if onedrive_env and path_lower.startswith(os.path.abspath(onedrive_env).lower()):
+        return True
+
+    # 2) Резерв – ищем «onedrive» в любом сегменте пути
+    #    (OneDrive, OneDrive - CompanyName и т.п.)
+    return any(seg.startswith("onedrive") for seg in path_lower.split(os.sep))
+
+def check_path_for_onedrive() -> tuple[bool, str]:
+    """
+    Проверяет, лежит ли программа (или вспомогательные папки) в OneDrive.
+    Возвращает (True, msg) если обнаружен OneDrive, иначе (False, "").
+    """
+    current_path = os.path.abspath(os.getcwd())
+    exe_path     = os.path.abspath(sys.executable)
+
+    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
+
+    for path in paths_to_check:
+        if is_in_onedrive(path):
+            err = (
+                f"Путь содержит каталог OneDrive:\n{path}\n\n"
+                "OneDrive часто блокирует доступ к файлам и может вызывать ошибки.\n"
+                "Переместите программу в любую локальную папку "
+                "(например, C:\\zapret) и запустите её снова."
+            )
+            try:
+                from log import log
+                log(f"ERROR: Обнаружен OneDrive в пути: {path}", level="ERROR")
+            except ImportError:
+                log(f"ERROR: Обнаружен OneDrive в пути: {path}")
+            return True, err
+    return False, ""
+
 import re
 def contains_special_chars(path: str) -> bool:
     """
@@ -105,7 +147,12 @@ def check_startup_conditions():
                 "Продолжение работы возможно, но некоторые функции могут работать некорректно."
             )
             return False, error_message
-        
+
+        # Проверка на наличие OneDrive в пути
+        in_onedrive, msg = check_path_for_onedrive()
+        if in_onedrive:
+            return False, msg
+                
         # Проверка на специальные символы в пути
         has_special_chars, error_message = check_path_for_special_chars()
         if has_special_chars:
