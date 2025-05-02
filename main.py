@@ -647,6 +647,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # Инициализируем интерфейс
         self.build_ui(width=WIDTH, height=HEIGHT)
+        # показываем тот же CID, который использует Telegram-бот
+        cid = get_client_id()
+        self.set_device_id(cid)                 # <<< одна строка
+
         QTimer.singleShot(0, self.initialize_managers_and_services)
         
         # подключаем логику к новым кнопкам

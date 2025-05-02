@@ -134,6 +134,7 @@ class MainWindowUI:
 
         # ---------- UUID ----------------------------------------------
         self.uuid_label = QLabel("ID устройства: …")
+        self.uuid_label.setAlignment(Qt.AlignCenter)
         self.uuid_label.setStyleSheet("color:#666;font-size:8pt;")
         root.addWidget(self.uuid_label)
 
