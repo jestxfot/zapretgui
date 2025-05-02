@@ -13,7 +13,7 @@ def _startup_shortcut_path() -> Path:
 def setup_autostart_for_exe(selected_mode: str | None = None,
                             status_cb=None) -> bool:
     def _status(msg): (status_cb or (lambda *_: None))(msg)
-
+    
     try:
         # 1. импортируем pywin32
         try:

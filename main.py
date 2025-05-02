@@ -31,28 +31,6 @@ def get_version():
     """Возвращает текущую версию программы"""
     return APP_VERSION
 
-def remove_scheduler_tasks():
-    """Принудительно удаляет все задачи планировщика, связанные с Zapret"""
-    try:
-        from log import log
-        task_name = "ZapretCensorliber"
-        
-        # Проверяем существование задачи
-        check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
-        result = subprocess.run(check_cmd, shell=True, capture_output=True)
-        
-        if result.returncode == 0:
-            log(f"Обнаружена задача планировщика {task_name}, удаляем...", level="INFO")
-            delete_cmd = f'schtasks /Delete /TN "{task_name}" /F'
-            subprocess.run(delete_cmd, shell=True, check=False)
-            return True
-        
-        return False  # Задача не найдена
-    except Exception as e:
-        from log import log
-        log(f"Ошибка при удалении задачи планировщика: {str(e)}", level="ERROR")
-        return False
-
 def _handle_update_mode():
     """
     updater.py запускает:
@@ -1069,11 +1047,6 @@ def main():
     if not warnings_ok and not start_in_tray:      # <── ключевое отличие
         sys.exit(1)
 
-    # ---------------- прочие стартовые действия -----------------------
-    from remove_terminal import remove_windows_terminal_if_win11
-    remove_windows_terminal_if_win11()
-    remove_scheduler_tasks()
-
     # ---- admin elevation (после предупреждений, до создания окна) ----
     if not is_admin():
         # формируем строку параметров для нового процесса
@@ -1088,6 +1061,9 @@ def main():
         )
         sys.exit(0)
 
+    from remove_terminal import remove_windows_terminal_if_win11
+    remove_windows_terminal_if_win11()
+
     # ---------------- основное окно ----------------------------------
     window = LupiDPIApp()
     window.init_tray_if_needed()
@@ -1098,16 +1074,6 @@ def main():
     else:
         log("Запуск приложения в обычном режиме", "TRAY")
         window.show()
-        
-    # удаляем устаревшую службу ZapretCensorliber, если она ещё есть
-    def _remove_legacy_service():
-        if hasattr(window, "service_manager") and window.service_manager:
-            window.service_manager.remove_legacy_windows_service()
-            log("Входим в службу", level="SERVICE")
-        else:
-            log("Менеджер служб не инициализирован", level="SERVICE")
-
-    _remove_legacy_service()
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):

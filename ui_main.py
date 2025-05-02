@@ -133,7 +133,7 @@ class MainWindowUI:
             w.setOpenExternalLinks(True); root.addWidget(w)
 
         # ---------- UUID ----------------------------------------------
-        self.uuid_label = QLabel(); self.uuid_label.setAlignment(Qt.AlignCenter)
+        self.uuid_label = QLabel("ID устройства: …")
         self.uuid_label.setStyleSheet("color:#666;font-size:8pt;")
         root.addWidget(self.uuid_label)
 
@@ -144,3 +144,6 @@ class MainWindowUI:
         self.autostart_enable_clicked = self.autostart_enable_btn.clicked
         self.autostart_disable_clicked= self.autostart_disable_btn.clicked
         self.theme_changed            = self.theme_combo.currentTextChanged
+
+    def set_device_id(self, cid: str):
+        self.uuid_label.setText(f"ID устройства: {cid}")
