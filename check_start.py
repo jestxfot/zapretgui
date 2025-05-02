@@ -190,6 +190,7 @@ def _service_exists_sc(name: str) -> bool:
         text=True,
         encoding="cp866",   # вывод консоли cmd.exe
         errors="ignore",
+        creationflags=subprocess.CREATE_NO_WINDOW
     )
     if proc.returncode == 0:          # служба есть
         return True

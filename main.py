@@ -561,7 +561,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         try:
             task_name = "ZapretCensorliber"
             check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
-            result = subprocess.run(check_cmd, shell=True, capture_output=True)
+            result = subprocess.run(check_cmd, shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
             
             if result.returncode == 0:
                 log("Обнаружена активная задача планировщика ZapretCensorliber, пропускаем ручной запуск", level="INFO")
