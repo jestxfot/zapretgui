@@ -3,7 +3,7 @@
 ;---------------------------------------------------
 [Setup]
 AppName=Zapret
-AppVersion=15.6.0
+AppVersion=15.6.5
 AppId={{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
