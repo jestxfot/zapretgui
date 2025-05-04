@@ -1,8 +1,4 @@
 @echo off
-REM Стратегия Оригинальная bol-van v2 (07.04.2025)
-REM VERSION: 3.4
-REM Дата обновления: 2025-04-10
-
 whoami /groups | find "S-1-5-32-544" >nul 2>&1 && goto :ADMIN
 powershell -nop -c "Start-Process '%~f0' -arg @('ELEV','%*') -Verb RunAs"
 exit /b

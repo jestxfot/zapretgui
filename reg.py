@@ -96,3 +96,16 @@ def get_dpi_autostart() -> bool:
 def set_dpi_autostart(state: bool) -> bool:
     """Сохраняет флаг автозапуска DPI в реестре."""
     return reg(_DPI_KEY, _DPI_NAME, 1 if state else 0)
+
+# ───────────── Автозагрузка стратегий ─────────────
+_STRAT_KEY  = r"Software\Zapret"
+_STRAT_NAME = "StrategyAutoLoad"        # REG_DWORD (1/0)
+
+def get_strategy_autoload() -> bool:
+    """True – разрешено скачивать стратегии с GitHub, False – запрещено."""
+    val = reg(_STRAT_KEY, _STRAT_NAME)         # None → параметр отсутствует
+    return bool(val) if val is not None else True   # дефолт = True
+
+def set_strategy_autoload(enabled: bool) -> bool:
+    """Включает/выключает автозагрузку стратегий."""
+    return reg(_STRAT_KEY, _STRAT_NAME, 1 if enabled else 0)

@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QEvent
 from reg import get_dpi_autostart, set_dpi_autostart
+from reg import get_strategy_autoload, set_strategy_autoload
 
 # ----------------------------------------------------------------------
 #   SystemTrayManager
@@ -69,7 +70,7 @@ class SystemTrayManager:
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
-        # скопировать ID
+        # копировать ID
         copy_id_act = QAction("Скопировать ID устройства", self.parent)
         copy_id_act.triggered.connect(self.copy_device_id_to_clipboard)
         menu.addAction(copy_id_act)
@@ -82,6 +83,12 @@ class SystemTrayManager:
         menu.addAction(self.auto_dpi_act)
         # ───────────────────────────────────────
 
+        self.auto_strat_act = QAction("Автозагрузка стратегий", self.parent,
+                                    checkable=True)
+        self.auto_strat_act.setChecked(get_strategy_autoload())
+        self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
+        menu.addAction(self.auto_strat_act)
+
         menu.addSeparator()
 
         # консоль
@@ -91,12 +98,57 @@ class SystemTrayManager:
 
         menu.addSeparator()
 
-        # выход
-        exit_act = QAction("Выход", self.parent)
-        exit_act.triggered.connect(self.exit_app)
-        menu.addAction(exit_act)
+        # ─── ДВА ОТДЕЛЬНЫХ ВЫХОДА ──────────────────────────
+        exit_only_act = QAction("Выход", self.parent)
+        exit_only_act.triggered.connect(self.exit_only)          # ← NEW
+        menu.addAction(exit_only_act)
+
+        exit_stop_act = QAction("Выход и остановить DPI", self.parent)
+        exit_stop_act.triggered.connect(self.exit_and_stop)      # ← NEW
+        menu.addAction(exit_stop_act)
+        # ───────────────────────────────────────────────────
 
         self.tray_icon.setContextMenu(menu)
+
+    # ------------------------------------------------------------------
+    # 1) ПРОСТО закрыть GUI, winws.exe оставить жить
+    # ------------------------------------------------------------------
+    def exit_only(self):
+        """Закрывает GUI, процесс winws.exe остаётся запущенным."""
+        from log import log
+        log("Выход без остановки DPI (только GUI)", level="INFO")
+
+        # останавливаем мониторинг (он будет «пустым» без окна)
+        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
+            self.parent.process_monitor.stop()
+
+        self.tray_icon.hide()
+        QApplication.quit()
+
+    def toggle_strategy_autoload(self, enabled: bool):
+        set_strategy_autoload(enabled)
+        msg = ("Стратегии будут скачиваться обновляться при запуске меню выбора стратегий" if enabled
+            else "Автообновление стратегий через меню выключено")
+        self.show_notification("Zapret", msg)
+
+    # ------------------------------------------------------------------
+    # 2) СТАРОЕ ПОВЕДЕНИЕ – остановить DPI и выйти
+    # ------------------------------------------------------------------
+    def exit_and_stop(self):
+        """Останавливает winws.exe, затем закрывает GUI."""
+        from stop import stop_dpi
+        from log import log
+
+        log("Выход + остановка DPI", level="INFO")
+
+        if hasattr(self.parent, 'dpi_starter'):
+            stop_dpi(self)
+
+        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
+            self.parent.process_monitor.stop()
+
+        self.tray_icon.hide()
+        QApplication.quit()
 
     # ------------------------------------------------------------------
     #  КОПИРОВАНИЕ ID  ★ NEW
@@ -151,26 +203,13 @@ class SystemTrayManager:
         self.parent.activateWindow()
         self.parent.raise_()
 
-    def exit_app(self):
-        from stop import stop_dpi
-        from log import log
-
-        log("Закрытие приложения через трей", level="INFO")
-        if hasattr(self.parent, 'dpi_starter'):
-            stop_dpi(self)
-        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
-
-        self.tray_icon.hide()
-        QApplication.quit()
-
     # ---------- обработчик переключателя -----------------------------
     def toggle_dpi_autostart(self, enabled: bool):
         set_dpi_autostart(enabled)
-        msg = "DPI будет запускаться автоматически" if enabled \
-              else "Автозапуск DPI выключен"
+        msg = "DPI будет запускаться автоматически при старте программы" if enabled \
+              else "Автоматическое включение DPI при старте программы отключено"
         self.show_notification("Zapret", msg)
-        
+
     # ------------------------------------------------------------------
     #  ВСПОМОГАТЕЛЬНЫЕ
     # ------------------------------------------------------------------

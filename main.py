@@ -174,21 +174,28 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
     def select_strategy(self):
         """Открывает диалог выбора стратегии. При первом вызове
-        скачивает index.json и все .bat-файлы."""
+        скачивает index.json и все .bat-файлы (если автозагрузка не
+        отключена в реестре)."""
+        from log import log
+        from reg import get_strategy_autoload
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
-                from log import log
-                log("Ошибка: менеджер стратегий не инициализирован", level="ERROR")
+                log("Ошибка: менеджер стратегий не инициализирован", "ERROR")
                 self.set_status("Ошибка: менеджер стратегий не инициализирован")
                 return
 
             # ---------- первая загрузка стратегий ---------------------
             if not self.strategy_manager.already_loaded:
-                self.set_status("Загружаю список стратегий…")
-                QApplication.processEvents()          # сразу обновим строку статуса
-                self.strategy_manager.preload_strategies()
-                self.update_strategies_list(force_update=True)
-                self.set_status("Список стратегий загружен")
+                if get_strategy_autoload():                     # ← NEW
+                    self.set_status("Загружаю список стратегий…")
+                    QApplication.processEvents()
+                    self.strategy_manager.preload_strategies()
+                    self.update_strategies_list(force_update=True)
+                    self.set_status("Список стратегий загружен")
+                else:
+                    log("Автозагрузка стратегий отключена (реестр)", "INFO")
+                    # Просто читаем локальный index.json (если есть)
+                    self.update_strategies_list(force_update=False)
 
             # ---------- определяем текущую стратегию ------------------
             current_strategy = self.current_strategy_label.text()
@@ -197,18 +204,18 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
             # ---------- создаём и показываем диалог -------------------
             selector = StrategySelector(
-                parent              = self,
-                strategy_manager    = self.strategy_manager,
-                current_strategy_name = current_strategy
+                parent                 = self,
+                strategy_manager       = self.strategy_manager,
+                current_strategy_name  = current_strategy
             )
-            selector.strategySelected.connect(self.on_strategy_selected_from_dialog)
+            selector.strategySelected.connect(
+                self.on_strategy_selected_from_dialog)
             selector.exec_()
 
         except Exception as e:
-            from log import log
-            log(f"Ошибка при открытии диалога выбора стратегии: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка при выборе стратегии: {str(e)}")
-
+            log(f"Ошибка при открытии диалога выбора стратегии: {e}", "ERROR")
+            self.set_status(f"Ошибка при выборе стратегии: {e}")
+        
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
         """Обрабатывает выбор стратегии из диалога."""
         try:
@@ -302,9 +309,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Показываем кнопку отключения автозапуска
             disable_btn.setVisible(True)
             disable_btn.setText('Выкл. автозапуск')  # Гарантируем правильный текст
-            
-            # ИЗМЕНЕНО: Оставляем кнопку выбора стратегии видимой всегда
-            # self.select_strategy_btn.setVisible(False)
 
             # Удаляем предупреждение о смене стратегии
             if hasattr(self, 'service_info_label'):
@@ -372,51 +376,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             from log import log
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
-        
-    def init_strategy_manager(self):
-        """Инициализирует менеджер стратегий"""
-        try:
-            from strategy_manager import StrategyManager
-            from log import log
-            
-            # Импортируем настройки из config
-            from config import GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER, GITHUB_STRATEGIES_JSON_URL
-            
-            # Создаем директорию для стратегий, если она не существует
-            if not os.path.exists(STRATEGIES_FOLDER):
-                os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
-            
-            # Инициализируем менеджер стратегий
-            self.strategy_manager = StrategyManager(
-                base_url=GITHUB_STRATEGIES_BASE_URL,
-                local_dir=STRATEGIES_FOLDER,
-                status_callback=self.set_status,
-                json_url=GITHUB_STRATEGIES_JSON_URL  # Прямая ссылка на JSON
-            )
-            
-            # Предзагружаем все стратегии
-            self.strategy_manager.preload_strategies()
-            
-            # Обновляем список стратегий с обработкой ошибок
-            try:
-                # Обновляем список доступных стратегий
-                self.update_strategies_list()
-                
-                # Устанавливаем последнюю сохраненную стратегию в текстовую метку
-                last_strategy = get_last_strategy()
-                if last_strategy:
-                    self.current_strategy_label.setText(last_strategy)
-                    self.current_strategy_name = last_strategy
-            except Exception as e:
-                log(f"Ошибка при обновлении списка стратегий: {str(e)}", level="ERROR")
-                self.set_status(f"Не удалось загрузить стратегии: {str(e)}")
-        except Exception as e:
-            from log import log
-            log(f"Ошибка при инициализации менеджера стратегий: {str(e)}", level="ERROR")
-            self.set_status(f"Ошибка стратегий: {str(e)}")
-            
-            # Создаем заглушку для strategy_manager
-            self.strategy_manager = None
 
     def initialize_managers_and_services(self):
         """
@@ -563,10 +522,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             else:
                 self.process_status_value.setText("ВЫКЛЮЧЕН")
                 self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
-        
-        # ИЗМЕНЕНО: Оставляем кнопку выбора стратегии всегда видимой
-        # if hasattr(self, 'select_strategy_btn'):
-        #     self.select_strategy_btn.setVisible(not autostart_active)
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
@@ -579,12 +534,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.update_ui(running=False)
             return
 
-        # 2. Если процесс уже запущен или включён автозапуск-задача – выходим
-        if self.dpi_starter.check_process_running():
-            log("winws.exe уже запущен – запуск пропускаем", level="INFO")
-            self.update_ui(running=True)
-            return
-            
         # 3. Определяем, какую стратегию запускать ---------------------- ☆ NEW
         strategy_name = None
 
