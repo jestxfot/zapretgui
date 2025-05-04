@@ -3,15 +3,15 @@ from pathlib import Path
 from telegram import Bot
 import requests
 
-BOT_TOKEN     = "7541112559:AAHS8aqz-Jq_MqbtNGpH9DHq_UfO-jCJtRM"       # вынести в env / config
-ADMIN_CHAT_ID = 6483277608 
+from tg_log_delta import TOKEN, CHAT_ID, _tg_api as call_tg_api
+
 TIMEOUT       = 30
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=TOKEN)
 
 def _call_tg_api(method: str, files=None, data=None):
     """Небольшой хелпер для вызова Telegram Bot API"""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
     r   = requests.post(url, files=files, data=data, timeout=TIMEOUT)
     r.raise_for_status()          # если не 200 ⇒ вызовем исключение
     return r.json()
@@ -32,7 +32,7 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
         text = text[-4000:]                         # последние 4k
 
     data = {
-        "chat_id" : ADMIN_CHAT_ID,
+        "chat_id" : CHAT_ID,
         "text"    : (caption + "\n\n" if caption else "") + text,
         "parse_mode": "HTML"
     }
@@ -44,7 +44,7 @@ def send_file_to_tg(file_path: str | Path, caption: str = "") -> None:
     file_path = Path(file_path)
     with file_path.open("rb") as f:
         bot.send_document(
-            chat_id=ADMIN_CHAT_ID,
+            chat_id=CHAT_ID,
             document=f,
             caption=caption or file_path.name
         )

@@ -27,6 +27,22 @@ from tg_log_delta import LogDeltaDaemon, get_client_id
 
 from reg import get_last_strategy, set_last_strategy
 
+def is_test_build():
+    from log import log
+    """
+    Проверяет, является ли текущая версия тестовым билдом (начинается с '2025').
+
+    Returns:
+        bool: True, если это тестовый билд, иначе False.
+    """
+    try:
+        # Преобразуем в строку на всякий случай и проверяем префикс
+        return str(APP_VERSION).startswith("2025")
+    except Exception as e:
+        # Логируем ошибку, если версия имеет неожиданный формат
+        log(f"Ошибка при проверке версии на тестовый билд ({APP_VERSION}): {e}", level="ERROR")
+        return False # В случае ошибки считаем, что это не тестовый билд
+
 def get_version():
     """Возвращает текущую версию программы"""
     return APP_VERSION
@@ -491,10 +507,17 @@ class LupiDPIApp(QWidget, MainWindowUI):
         for d in (0, 100, 200):
             QTimer.singleShot(d, self.force_enable_combos)
 
-        QTimer.singleShot(4000, lambda: check_and_run_update(
-            parent=self, status_cb=self.set_status, silent=False))
-
-        self.set_status("Готово")
+        # Проверяем обновления только если это НЕ тестовый билд
+        from log import log
+        if not is_test_build():
+            log("Запуск плановой проверки обновлений...", level="INFO")
+            QTimer.singleShot(1000, lambda: check_and_run_update(
+                parent=self, status_cb=self.set_status, silent=False))
+            self.set_status("Готово")
+        else:
+            log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
+            # Опционально: можно вывести сообщение в статус бар
+            self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
     
     def init_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
@@ -548,37 +571,53 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         from log import log
-        
-        # ВАЖНО: Проверяем, инициализирован ли dpi_starter
-        if not hasattr(self, 'dpi_starter') or self.dpi_starter is None:
-            log("DPI Starter еще не инициализирован, откладываем запуск", level="WARNING")
-            # Повторяем попытку через секунду
-            QTimer.singleShot(100, self.delayed_dpi_start)
+        from reg import get_dpi_autostart
+
+        # 1. Автозапуск DPI включён?
+        if not get_dpi_autostart():
+            log("Автозапуск DPI отключён пользователем.", level="INFO")
+            self.update_ui(running=False)
             return
-        
-        # Сначала проверяем, активен ли автозапуск через планировщик задач
-        # ВАЖНО: делаем прямой запрос к планировщику задач Windows для гарантии актуальности данных
-        try:
-            task_name = "ZapretCensorliber"
-            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
-            result = subprocess.run(check_cmd, shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            
-            if result.returncode == 0:
-                log("Обнаружена активная задача планировщика ZapretCensorliber, пропускаем ручной запуск", level="INFO")
-                self.update_ui(running=True)
-                self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
-                return
-        except Exception as e:
-            log(f"Ошибка при проверке задачи планировщика: {str(e)}", level="WARNING")
-        
-        # Затем проверяем, запущен ли уже процесс winws.exe
+
+        # 2. Если процесс уже запущен или включён автозапуск-задача – выходим
         if self.dpi_starter.check_process_running():
-            log("Процесс winws.exe уже запущен, пропускаем ручной запуск", level="INFO")
+            log("winws.exe уже запущен – запуск пропускаем", level="INFO")
             self.update_ui(running=True)
             return
-        
-        log("Выполняем запуск DPI", level="INFO")
-        self.dpi_starter.start_dpi()
+            
+        # 3. Определяем, какую стратегию запускать ---------------------- ☆ NEW
+        strategy_name = None
+
+        # 3.1 Сначала смотрим, есть ли уже выбранная стратегия
+        if getattr(self, "current_strategy_name", None):
+            strategy_name = self.current_strategy_name
+        else:
+            label_text = self.current_strategy_label.text()
+            if label_text and label_text != "Не выбрана":
+                strategy_name = label_text
+
+        # 3.2 Если до сих пор None – берём последнюю из реестра
+        if not strategy_name:
+            strategy_name = get_last_strategy()
+
+            # Обновляем UI, чтобы пользователь видел, какой режим запущен
+            self.current_strategy_label.setText(strategy_name)
+            self.current_strategy_name = strategy_name
+
+            # Если у вас есть комбобокс со стратегиями – тоже поставим его
+            if hasattr(self, "strategy_manager") and self.strategy_manager:
+                try:
+                    self.strategy_manager.set_current_in_combobox(strategy_name)
+                except AttributeError:
+                    pass  # метод не обязательный
+
+        log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
+
+        # 4. Запускаем DPI
+        self.dpi_starter.start_dpi(selected_mode=strategy_name)
+
+        # 5. Обновляем интерфейс
+        self.update_ui(running=True)
     
     def finish_initialization(self):
         """Завершает процесс инициализации"""
@@ -672,7 +711,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_6_0_btn.clicked.connect(self.open_info)
         self.extra_7_0_btn.clicked.connect(self.show_logs)
         self.extra_7_1_btn.clicked.connect(self.send_log_to_tg)
-        self.extra_8_0_btn.clicked.connect(lambda: check_and_run_update(parent=self, status_cb=self.set_status))
+        self.extra_8_0_btn.clicked.connect(self.manual_update_check)
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -691,7 +730,21 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 log_path = "zapret_log.txt",
                 interval = 120,      # интервал отправки в секундах
                 parent   = self)
-        
+
+    def manual_update_check(self):
+        """Запускает проверку обновлений вручную, если это не тестовый билд."""
+        from log import log
+        if is_test_build():
+            log(f"Ручная проверка обновлений отключена для тестового билда ({APP_VERSION})", level="INFO")
+            QMessageBox.information(self, "Тестовый билд",
+                                    f"Текущая версия ({APP_VERSION}) является тестовой.\n"
+                                    "Ручная проверка обновлений отключена для таких версий.")
+            self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
+        else:
+            log("Запуск ручной проверки обновлений...", level="INFO")
+            # Запускаем проверку как обычно (silent=False для ручного режима)
+            check_and_run_update(parent=self, status_cb=self.set_status, silent=False)
+
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы тем"""
         try:

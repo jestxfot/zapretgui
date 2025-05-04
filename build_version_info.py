@@ -1,61 +1,123 @@
-import os
-from config import APP_VERSION
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Создаёт version_info.txt для PyInstaller.
+Числовая версия = major.minor.micro.<build>, где <build> =
+    • dev-номер   (для .devN)
+    • pre-номер   (alpha/beta/rc → их номер)
+    • post-номер  (для .postN)
+    • 0           (если ничего из выше-перечисленного нет)
+Строковые поля содержат оригинальную версию без изменений.
+"""
 
-# Разбиваем версию на компоненты
-version_parts = APP_VERSION.split('.')
-# Добавляем нули, если нужно, чтобы было 4 компонента
-while len(version_parts) < 4:
-    version_parts.append('0')
-# Преобразуем в кортеж целых чисел
-version_tuple = tuple(map(int, version_parts))
+from __future__ import annotations
 
-# Создаем содержимое файла version_info.txt
-version_info = f'''# UTF-8
+import re
+from pathlib import Path
+
+from config import APP_VERSION            # <-- ваша версия, напр. "2025.0.0.dev1"
+
+# ----------------------------------------------------------------------
+# numeric_tuple
+# ----------------------------------------------------------------------
+try:
+    from packaging.version import Version, InvalidVersion  # pip install packaging
+except ModuleNotFoundError:
+    Version = None
+    InvalidVersion = Exception
+
+
+def numeric_tuple(ver: str) -> tuple[int, int, int, int]:
+    """
+    Возвращает (major, minor, micro, build).
+    build:
+        devN  -> N
+        preN  -> N
+        postN -> N
+        else  -> 0
+    """
+    # Попытка через packaging
+    if Version is not None:
+        try:
+            v = Version(ver)
+            nums = list(v.release)                  # [2025, 0, 0]
+            # добрать четвёртое число
+            if len(nums) < 4:
+                if v.dev is not None:               # .devN
+                    nums.append(v.dev)
+                elif v.pre is not None:             # a/b/rcN
+                    nums.append(v.pre[1] or 0)
+                elif v.post is not None:            # .postN
+                    nums.append(v.post)
+                else:
+                    nums.append(0)
+            nums += [0] * (4 - len(nums))
+            return tuple(nums[:4])
+        except InvalidVersion:
+            pass
+
+    # Фолбек – просто берём все числа подряд
+    nums = [int(m.group()) for m in re.finditer(r"\d+", ver)]
+    nums += [0] * (4 - len(nums))
+    return tuple(nums[:4])
+
+
+VERSION_TUPLE = numeric_tuple(APP_VERSION)
+
+# ----------------------------------------------------------------------
+# Формируем текст ресурса
+# ----------------------------------------------------------------------
+VERSION_INFO_TEXT = f"""# UTF-8
 #
-# For more details about fixed file info 'ffi' see:
-# http://msdn.microsoft.com/en-us/library/ms646997.aspx
+# Автоматически сгенерировано build_version_info.py
+#
 VSVersionInfo(
   ffi=FixedFileInfo(
-    # filevers и prodvers должны быть всегда кортежами из 4 чисел: (1, 2, 3, 4)
-    filevers={version_tuple},
-    prodvers={version_tuple},
-    # Contains a bitmask that specifies the valid bits 'flags'r
+    filevers={VERSION_TUPLE},
+    prodvers={VERSION_TUPLE},
     mask=0x3f,
-    # Contains a bitmask that specifies the Boolean attributes of the file.
     flags=0x0,
-    # The operating system for which this file was designed.
-    # 0x4 - NT и может содержать информацию, определенную в VarFileInfo
     OS=0x40004,
-    # The general type of file.
-    # 0x1 - приложение
     fileType=0x1,
-    # The function of the file.
-    # 0x0 - функция не определена
     subtype=0x0,
-    # Creation date and time stamp.
     date=(0, 0)
-    ),
+  ),
   kids=[
     StringFileInfo(
       [
       StringTable(
         u'040904B0',
-        [StringStruct(u'CompanyName', u't.me/bypassblock'),
+        [
+        StringStruct(u'CompanyName',     u't.me/bypassblock'),
         StringStruct(u'FileDescription', u'Zapret GUI'),
-        StringStruct(u'FileVersion', u'{APP_VERSION}'),
-        StringStruct(u'InternalName', u'zapret'),
-        StringStruct(u'LegalCopyright', u'Copyright © 2025 t.me/bypassblock'),
-        StringStruct(u'OriginalFilename', u'zapret.exe'),
-        StringStruct(u'ProductName', u'Zapret'),
-        StringStruct(u'ProductVersion', u'{APP_VERSION}')])
-      ]), 
+        StringStruct(u'FileVersion',     u'{APP_VERSION}'),
+        StringStruct(u'InternalName',    u'zapret'),
+        StringStruct(u'LegalCopyright',  u'Copyright © 2025 t.me/bypassblock'),
+        StringStruct(u'OriginalFilename',u'zapret.exe'),
+        StringStruct(u'ProductName',     u'Zapret'),
+        StringStruct(u'ProductVersion',  u'{APP_VERSION}')
+        ]
+      )
+      ]
+    ),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
-'''
+"""
 
-# Записываем файл version_info.txt
-with open('version_info.txt', 'w', encoding='utf-8') as f:
-    f.write(version_info)
+# ----------------------------------------------------------------------
+# Записываем файл
+# ----------------------------------------------------------------------
+def main() -> None:
+    out_file = Path(__file__).with_name("version_info.txt")
+    out_file.write_text(VERSION_INFO_TEXT, encoding="utf-8")
 
-print(f"Файл version_info.txt создан с версией {APP_VERSION}")
+    print(
+        f"version_info.txt создан.\n"
+        f"  filevers/prodvers : {'.'.join(map(str, VERSION_TUPLE))}\n"
+        f"  Строковая версия  : {APP_VERSION}"
+    )
+
+
+if __name__ == "__main__":
+    main()
