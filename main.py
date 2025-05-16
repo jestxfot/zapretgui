@@ -199,7 +199,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
             # ---------- определяем текущую стратегию ------------------
             current_strategy = self.current_strategy_label.text()
-            if current_strategy == "Не выбрана":
+            if current_strategy == "Автостарт DPI отключен":
                 current_strategy = get_last_strategy()
 
             # ---------- создаём и показываем диалог -------------------
@@ -362,11 +362,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 current_strategy = self.current_strategy_name
             else:
                 current_strategy = self.current_strategy_label.text()
-                if current_strategy == "Не выбрана":
+                if current_strategy == "Автостарт DPI отключен":
                     current_strategy = get_last_strategy()
             
             # Обновляем текущую метку, если стратегия выбрана
-            if current_strategy and current_strategy != "Не выбрана":
+            if current_strategy and current_strategy != "Автостарт DPI отключен":
                 self.current_strategy_label.setText(current_strategy)
             
             log(f"Загружено {len(strategies)} стратегий", level="INFO")
@@ -542,7 +542,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             strategy_name = self.current_strategy_name
         else:
             label_text = self.current_strategy_label.text()
-            if label_text and label_text != "Не выбрана":
+            if label_text and label_text != "Автостарт DPI отключен":
                 strategy_name = label_text
 
         # 3.2 Если до сих пор None – берём последнюю из реестра
@@ -598,7 +598,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     strategy_name = self.current_strategy_name
                 else:
                     strategy_name = self.current_strategy_label.text()
-                    if strategy_name == "Не выбрана":
+                    if strategy_name == "Автостарт DPI отключен":
                         strategy_name = get_last_strategy()
                 
                 log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
@@ -796,7 +796,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # как называется текущая стратегия
         strategy_name = self.current_strategy_label.text()
-        if strategy_name == "Не выбрана":
+        if strategy_name == "Автостарт DPI отключен":
             strategy_name = get_last_strategy()
 
         dlg = AutoStartMenu(
