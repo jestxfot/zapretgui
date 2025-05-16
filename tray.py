@@ -126,9 +126,41 @@ class SystemTrayManager:
         QApplication.quit()
 
     def toggle_strategy_autoload(self, enabled: bool):
+        """
+        При выключении показываем страшное предупреждение.
+        Если пользователь нажмёт «Нет» – ничего не меняем.
+        """
+        # пользователь хочет ОТКЛЮЧИТЬ авто-скачивание
+        if not enabled:
+            warn = (
+                "<b>Вы действительно хотите ОТКЛЮЧИТЬ автозагрузку "
+                "стратегий?</b><br><br>"
+                "⚠️  Это <span style='color:red;font-weight:bold;'>сломает</span> "
+                "быстрое и удобное обновление стратегий "
+                "<u>без</u> переустановки всей программы! "
+                "<br>Будьте аккуратны!"
+            )
+            resp = QMessageBox.question(
+                self.parent,
+                "Отключить автозагрузку стратегий?",
+                warn,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if resp != QMessageBox.Yes:
+                # Пользователь передумал – возвращаем галку и выходим
+                self.auto_strat_act.blockSignals(True)
+                self.auto_strat_act.setChecked(True)
+                self.auto_strat_act.blockSignals(False)
+                return        # в реестр ничего не пишем
+
+        # сохраняем выбор
         set_strategy_autoload(enabled)
-        msg = ("Стратегии будут скачиваться обновляться при запуске меню выбора стратегий" if enabled
-            else "Автообновление стратегий через меню выключено")
+
+        # уведомление
+        msg = ("Стратегии будут скачиваться автоматически"
+               if enabled
+               else "Автозагрузка стратегий отключена")
         self.show_notification("Zapret", msg)
 
     # ------------------------------------------------------------------

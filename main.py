@@ -10,7 +10,7 @@ from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
 from heavy_worker import HeavyWorker
 from heavy_init_worker import HeavyInitWorker
-from downloader    import DOWNLOAD_URLS
+from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager

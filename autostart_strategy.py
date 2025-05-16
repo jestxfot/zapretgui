@@ -1,8 +1,9 @@
 # autostart_strategy.py
 
 from pathlib import Path
-import json, sys, os, subprocess
+import json, sys, subprocess, traceback
 from log import log
+from typing import Callable, Optional
 
 
 def _resolve_bin_folder(bin_folder: str) -> Path:
@@ -25,23 +26,14 @@ def _resolve_bin_folder(bin_folder: str) -> Path:
     return p.resolve()
 
 
-def _get_startup_shortcut_path(filename: str = "ZapretStrategy.lnk") -> Path:
-    """Возвращает %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\<filename>"""
-    startup_dir = (
-        Path(os.environ["APPDATA"])
-        / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-    )
-    startup_dir.mkdir(parents=True, exist_ok=True)
-    return startup_dir / filename
-
-
 def setup_autostart_for_strategy(
     selected_mode: str,
     bin_folder: str,
     index_path: str | None = None,
+    ui_error_cb: Optional[Callable[[str], None]] = None,
 ) -> bool:
     """
-    Создаёт ярлык в папке «Автозагрузка» на BAT-файл выбранной стратегии.
+    Создаёт задачу в планировщике на BAT-файл выбранной стратегии.
 
     Args:
         selected_mode: отображаемое имя стратегии (поле "name" в index.json)
@@ -85,33 +77,76 @@ def setup_autostart_for_strategy(
             log(f".bat отсутствует: {bat_path}", "ERROR")
             return False
 
-        # ----------- создаём ярлык ------------------------------------------
-        try:
-            from win32com.client import dynamic  # lazy-import
-        except ImportError as e:
-            log("pywin32 (win32com) не установлен – ярлык не создать", "ERROR")
-            return False
-
-        shortcut_path = _get_startup_shortcut_path()
-
-        # удаляем старый ярлык, если был
-        if shortcut_path.exists():
-            try:
-                shortcut_path.unlink()
-            except Exception:
-                pass
-
-        shell = dynamic.Dispatch("WScript.Shell")
-        shortcut = shell.CreateShortcut(str(shortcut_path))
-        shortcut.Targetpath      = str(bat_path)
-        shortcut.WorkingDirectory= str(bat_path.parent)
-        shortcut.WindowStyle     = 7          # Minimized
-        shortcut.IconLocation    = str(bat_path)
-        shortcut.Save()                       # важно: с заглавной S
-
-        log(f"Ярлык автозапуска создан: {shortcut_path}", "INFO")
-        return True
+        # ----------- создаём/обновляем задачу Планировщика -------------------
+        ok = _create_task_scheduler_job(
+                task_name="ZapretStrategy",
+                bat_path = bat_path,
+                ui_error_cb = ui_error_cb
+        )
+        return ok
 
     except Exception as exc:
         log(f"setup_autostart_for_strategy: {exc}", "ERROR")
+        return False
+
+def _create_task_scheduler_job(
+    task_name: str,
+    bat_path:  Path,
+    ui_error_cb: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """
+    Создаёт (или перезаписывает) задачу в Планировщике Windows.
+
+    Args:
+        task_name : Имя задачи (напр. "ZapretStrategy")
+        bat_path  : Полный путь к .bat
+        ui_error_cb : callback для вывода ошибки в GUI (QMessageBox/label)
+
+    Returns:
+        True  – задача успешно создана/обновлена
+        False – ошибка (уже залогирована, ui_error_cb вызван)
+    """
+    # Команда запуска: прячем окно через "start \"\""
+    tr_cmd = f'cmd /c start "" "{bat_path}"'
+
+    cmd = [
+        "schtasks", "/Create",
+        "/TN", task_name,
+        "/TR", tr_cmd,
+        "/SC", "ONSTART",
+        "/RU", "SYSTEM",
+        "/F"               # перезаписать, если задача уже существует
+    ]
+
+    try:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8"
+        )
+        if res.returncode == 0:
+            log(f'Задача "{task_name}" создана/обновлена', "INFO")
+            return True
+
+        # Ошибка — готовим информативное сообщение
+        err_msg = (f'Не удалось создать задачу автозапуска "{task_name}". '
+                   f'Код {res.returncode}.\n{res.stderr.strip()}')
+        log(err_msg, "ERROR")
+        if ui_error_cb:
+            ui_error_cb(err_msg)
+        return False
+
+    except FileNotFoundError:
+        # schtasks отсутствует (теоретически возможно в WinPE)
+        err_msg = "Команда schtasks не найдена – автозапуск невозможен"
+        log(err_msg, "ERROR")
+        if ui_error_cb:
+            ui_error_cb(err_msg)
+        return False
+    except Exception as exc:
+        err_msg = f"_create_task_scheduler_job: {exc}\n{traceback.format_exc()}"
+        log(err_msg, "ERROR")
+        if ui_error_cb:
+            ui_error_cb("Ошибка создания задачи автозапуска; подробности в логе.")
         return False

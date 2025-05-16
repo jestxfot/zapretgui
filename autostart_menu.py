@@ -1,3 +1,5 @@
+# autostart_menu.py
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox
 )
@@ -80,10 +82,17 @@ class AutoStartMenu(QDialog):
     # ------------------------------------------------------------------
     def enable_strategy_autostart(self):
         log("Включаем автозапуск стратегии", "INFO")
+
+        # Колбэк: показываем подробную ошибку, пришедшую из schtasks
+        def _show_error(msg: str):
+            QMessageBox.critical(self, "Автозапуск стратегии", msg)
+
         ok = setup_autostart_for_strategy(
-            selected_mode=self.strategy_name,
-            bin_folder=self.bin_folder
+            selected_mode = self.strategy_name,
+            bin_folder    = self.bin_folder,
+            ui_error_cb   = _show_error
         )
+
         if ok:
             self.status("Автозапуск стратегии настроен")
             self.update_ui(True)
@@ -92,6 +101,4 @@ class AutoStartMenu(QDialog):
                 f"Стратегия «{self.strategy_name}» будет запускаться автоматически"
             )
             self.accept()
-        else:
-            QMessageBox.critical(self, "Ошибка",
-                "Не удалось настроить автозапуск стратегии.\nСм. журнал.")
+        # Если ok == False, подробное окно уже показано в _show_error

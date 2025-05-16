@@ -1,0 +1,5 @@
+strategy_name=Alt 4
+strategy_id=alt4
+bat_file=bin\alt4.bat
+installed=2025-04-27 13:17:04
+type=task_scheduler
