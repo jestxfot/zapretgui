@@ -1,5 +1,5 @@
 # discord_restart.py
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 from reg import reg                       # ← единый helper
 
 # ----------------------------------------------------------------------
@@ -44,7 +44,7 @@ def toggle_discord_restart(
     # ----- хотим ОТКЛЮЧИТЬ ------------------------------------------------
     if current:
         msg = QMessageBox(parent)
-        msg.setIcon(QMessageBox.Warning)
+        msg.setIcon(QMessageBox.warning)
         msg.setWindowTitle("Отключение автоперезапуска Discord")
         msg.setText("Вы действительно хотите отключить автоматический "
                     "перезапуск Discord?")
@@ -52,9 +52,9 @@ def toggle_discord_restart(
             "После отключения вам придётся вручную перезапускать Discord "
             "при смене стратегии, иначе возможны проблемы со связью."
         )
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
-        if msg.exec_() != QMessageBox.Yes:
+        if msg.exec() != QMessageBox.StandardButton.Yes:
             return False   # пользователь отменил
 
         set_discord_restart_setting(False)

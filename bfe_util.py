@@ -1,6 +1,6 @@
 from typing import Optional
 import time, win32service, ctypes, win32serviceutil
-from PyQt5.QtWidgets import QWidget
+from PyQt6.QtWidgets import QWidget
 SERVICE_RUNNING = win32service.SERVICE_RUNNING
 
 def _native_msg(title: str, text: str, icon: int = 0x40):

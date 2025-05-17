@@ -1,10 +1,10 @@
 import os
 import subprocess
 import threading
-from PyQt5.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
+from PyQt6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
                             QPushButton, QRadioButton, QLineEdit, QMessageBox,
                             QGroupBox, QButtonGroup, QApplication, QCheckBox, QProgressBar)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from log import log
 
 IGNORED_ADAPTERS = [
@@ -193,7 +193,7 @@ class DNSSettingsDialog(QDialog):
         
         # Сообщение о загрузке
         loading_label = QLabel("Получение списка сетевых адаптеров и настроек DNS...")
-        loading_label.setAlignment(Qt.AlignCenter)
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(loading_label)
         
         # Индикатор прогресса

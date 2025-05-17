@@ -1,7 +1,7 @@
 # В файле hosts.py импортируйте переменную PROXY_DOMAINS и используйте её в методе add_proxy_domains:
 
 import ctypes
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 from proxy_domains import PROXY_DOMAINS  # Импортируем внешний словарь
 from log import log
 
@@ -20,11 +20,11 @@ class HostsManager:
         """Показывает всплывающее окно с сообщением"""
         try:
             msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setIcon(QMessageBox.information)
             msg_box.setWindowTitle(title)
             msg_box.setText(message)
-            msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            msg_box.exec()
         except:
             try:
                 ctypes.windll.user32.MessageBoxW(0, message, title, 0x40)

@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 
 # Импортируем константы из urls и config
 from urls import OTHER_LIST_URL

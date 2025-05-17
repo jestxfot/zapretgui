@@ -1,6 +1,6 @@
 # autostart_menu.py
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QPushButton, QLabel, QMessageBox
 )
 from autostart_exe      import setup_autostart_for_exe

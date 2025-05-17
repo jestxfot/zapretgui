@@ -1,7 +1,7 @@
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
                           QPushButton, QTextBrowser, QGroupBox, QSplitter, QListWidgetItem, QWidget, QApplication)
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QColor, QBrush
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QColor, QBrush
 
 from log import log
 import os
@@ -43,7 +43,7 @@ class ProviderHeaderItem(QListWidgetItem):
         # Устанавливаем цвет фона
         self.setBackground(QBrush(QColor(240, 240, 240)))
         # Устанавливаем флаги (не выбираемый)
-        self.setFlags(Qt.NoItemFlags)
+        self.setFlags(Qt.ItemFlag.NoItemFlags)
 
 class StrategyItem(QWidget):
     """Виджет для отображения элемента стратегии с цветной меткой"""
@@ -67,7 +67,7 @@ class StrategyItem(QWidget):
         # Увеличиваем минимальную высоту метки
         self.main_label.setMinimumHeight(20)
         # Устанавливаем вертикальное выравнивание по центру
-        self.main_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.main_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         # Устанавливаем стиль с нормальным размером шрифта
         self.main_label.setStyleSheet("font-size: 10pt; margin: 0; padding: 0;")
         layout.addWidget(self.main_label)
@@ -79,7 +79,7 @@ class StrategyItem(QWidget):
             self.tag_label.setStyleSheet(
                 f"color: {LABEL_COLORS[label]}; font-weight: bold; font-size: 9pt; margin: 0; padding: 0;"
             )
-            self.tag_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            self.tag_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
             self.tag_label.setMinimumHeight(20)
             layout.addWidget(self.tag_label)
             layout.addStretch()  # Добавляем растяжение для выравнивания метки вправо
@@ -139,7 +139,7 @@ class StrategySelector(QDialog):
         layout.addSpacing(10)
         
         # Создаем разделитель (сплиттер)
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # Левая панель - список стратегий
         strategies_group = QGroupBox("Доступные стратегии")
@@ -165,7 +165,7 @@ class StrategySelector(QDialog):
         title_font.setBold(True)
         title_font.setPointSize(12)
         self.strategy_title.setFont(title_font)
-        self.strategy_title.setAlignment(Qt.AlignCenter)
+        self.strategy_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(self.strategy_title)
         
         # Детальная информация о стратегии
@@ -273,7 +273,7 @@ class StrategySelector(QDialog):
                         sort_order=sort_order if sort_order != 999 else None
                     )
                     
-                    from PyQt5.QtCore import QSize
+                    from PyQt6.QtCore import QSize
                     # Устанавливаем размер элемента списка и виджет
                     item.setSizeHint(QSize(self.strategies_list.width(), 30))
                     self.strategies_list.setItemWidget(item, item_widget)
@@ -295,7 +295,7 @@ class StrategySelector(QDialog):
             QApplication.processEvents()
             
             # 4. Обновление с задержкой
-            from PyQt5.QtCore import QTimer
+            from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, self.update_all_items)
                 
         except Exception as e:

@@ -4,8 +4,8 @@
 # качает ZapretSetup.exe, запускает его /VERYSILENT и закрывает программу.
 # -----------------------------------------------------------------
 import os, sys, tempfile, subprocess, shutil, time
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtCore    import QTimer
+from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtCore    import QTimer
 from start import DPIStarter
 
 META_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=version.json"          # <- ваш JSON
@@ -96,7 +96,7 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
         txt = (f"Доступна новая версия {new_ver} (у вас {APP_VERSION}).\n\n"
                f"{notes}\n\nУстановить сейчас?")
         if QMessageBox.question(parent, "Доступно обновление",
-                                txt, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                                txt, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return False
 
     # ─ step 4.  скачиваем Setup.exe ─────────────────────────────

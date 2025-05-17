@@ -1,9 +1,18 @@
 # main.py
 
+"""
+pip install PyQt6
+pip install requests
+pip install pywin32
+pip install python-telegram-bot
+pip install psutil
+pip install qt_material
+"""
+
 import sys, os, ctypes, subprocess, webbrowser, time
 
-from PyQt5.QtCore    import QTimer, QThread
-from PyQt5.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
+from PyQt6.QtCore    import QTimer, QThread
+from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 
 from ui_main import MainWindowUI
 from admin_check import is_admin
@@ -11,7 +20,7 @@ from process_monitor import ProcessMonitorThread
 from heavy_worker import HeavyWorker
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
-from config import APP_VERSION, BIN_FOLDER, BIN_DIR, LISTS_FOLDER, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
+from config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, LISTS_FOLDER, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager
 from autostart_remove import AutoStartCleaner
@@ -26,9 +35,29 @@ from strategy_selector import StrategySelector
 from tg_log_delta import LogDeltaDaemon, get_client_id
 
 from reg import get_last_strategy, set_last_strategy
+from log import log
+
+
+def _set_attr_if_exists(name: str, on: bool = True) -> None:
+    """
+    Безопасно включает атрибут, если он есть в текущей версии Qt.
+    Работает и в PyQt5, и в PyQt6.
+    """
+
+    from PyQt6.QtCore import QCoreApplication
+    from PyQt6.QtCore import Qt
+    
+    # 1) PyQt6 ‑ ищем в Qt.ApplicationAttribute
+    attr = getattr(Qt.ApplicationAttribute, name, None)
+    # 2) PyQt5 ‑ там всё лежит прямо в Qt
+    if attr is None:
+        attr = getattr(Qt, name, None)
+
+    if attr is not None:
+        QCoreApplication.setAttribute(attr, on)
 
 def is_test_build():
-    from log import log
+    
     """
     Проверяет, является ли текущая версия тестовым билдом (начинается с '2025').
 
@@ -55,7 +84,7 @@ def _handle_update_mode():
     Меняем файл и перезапускаем обновлённый exe.
     """
     import os, sys, time, shutil, subprocess
-    from log import log
+    
 
     if len(sys.argv) < 4:
         log("--update: недостаточно аргументов", "ERROR")
@@ -112,7 +141,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
-        from log import log
+        
         
         # Проверяем флаг намеренного запуска и сбрасываем его
         intentional_start = getattr(self, 'intentional_start', False)
@@ -176,7 +205,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Открывает диалог выбора стратегии. При первом вызове
         скачивает index.json и все .bat-файлы (если автозагрузка не
         отключена в реестре)."""
-        from log import log
+        
         from reg import get_strategy_autoload
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
@@ -210,7 +239,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             )
             selector.strategySelected.connect(
                 self.on_strategy_selected_from_dialog)
-            selector.exec_()
+            selector.exec()
 
         except Exception as e:
             log(f"Ошибка при открытии диалога выбора стратегии: {e}", "ERROR")
@@ -219,7 +248,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
         """Обрабатывает выбор стратегии из диалога."""
         try:
-            from log import log
+            
             log(f"Выбрана стратегия: {strategy_name} (ID: {strategy_id})", level="INFO")
             
             # Сохраняем ID и имя выбранной стратегии в атрибутах класса
@@ -259,7 +288,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             return self._strategy_index            # уже загружен
 
         index_path = os.path.join(BIN_DIR, "index.json")
-        from log import log
+        
 
         if not os.path.isfile(index_path):
             log(f"index.json не найден по пути {index_path}", level="ERROR")
@@ -341,7 +370,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
         try:
-            from log import log
+            
             
             # Получаем список стратегий
             strategies = self.strategy_manager.get_strategies_list(force_update=force_update)
@@ -373,7 +402,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
         except Exception as e:
             error_msg = f"Ошибка при обновлении списка стратегий: {str(e)}"
-            from log import log
+            
             log(error_msg, level="ERROR")
             self.set_status(error_msg)
 
@@ -383,7 +412,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         Теперь StrategyManager создаётся «ленивым» – ничего не качает,
         пока пользователь не откроет Меню стратегий.
         """
-        from log import log
+        
         log("initialize_managers_and_services: quick part", "INFO")
 
         # --- лёгкие вещи (≈10-50 мс) ----------------------------------
@@ -467,7 +496,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             QTimer.singleShot(d, self.force_enable_combos)
 
         # Проверяем обновления только если это НЕ тестовый билд
-        from log import log
+        
         if not is_test_build():
             log("Запуск плановой проверки обновлений...", level="INFO")
             QTimer.singleShot(1000, lambda: check_and_run_update(
@@ -489,43 +518,49 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def on_process_status_changed(self, is_running):
         """Обрабатывает сигнал изменения статуса процесса"""
-        from log import log
-        
-        # Проверяем, изменилось ли состояние автозапуска
-        autostart_active = self.service_manager.check_autostart_exists() \
-                        if hasattr(self, 'service_manager') else False
-        
-        # Сохраняем текущее состояние для сравнения в будущем
-        self._prev_autostart = autostart_active
-        self._prev_running = is_running
-        
-        # Обновляем UI
-        if is_running or autostart_active:
-            if hasattr(self, 'start_btn'):
-                self.start_btn.setVisible(False)
-            if hasattr(self, 'stop_btn'):
-                self.stop_btn.setVisible(True)
-        else:
-            if hasattr(self, 'start_btn'):
-                self.start_btn.setVisible(True)
-            if hasattr(self, 'stop_btn'):
-                self.stop_btn.setVisible(False)
-        
-        # Обновляем статус
-        if autostart_active:
-            self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
-            self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
-        else:
-            if is_running:
-                self.process_status_value.setText("ВКЛЮЧЕН")
-                self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+        try:
+            # Проверяем, изменилось ли состояние автозапуска
+            autostart_active = self.service_manager.check_autostart_exists() \
+                            if hasattr(self, 'service_manager') else False
+            
+            # Сохраняем текущее состояние для сравнения в будущем
+            if not hasattr(self, '_prev_autostart'):
+                self._prev_autostart = False
+            if not hasattr(self, '_prev_running'):
+                self._prev_running = False
+                
+            self._prev_autostart = autostart_active
+            self._prev_running = is_running
+            
+            # Обновляем UI
+            if is_running or autostart_active:
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.setVisible(False)
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.setVisible(True)
             else:
-                self.process_status_value.setText("ВЫКЛЮЧЕН")
-                self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.setVisible(True)
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.setVisible(False)
+            
+            # Обновляем статус
+            if autostart_active:
+                self.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
+                self.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
+            else:
+                if is_running:
+                    self.process_status_value.setText("ВКЛЮЧЕН")
+                    self.process_status_value.setStyleSheet("color: green; font-weight: bold;")
+                else:
+                    self.process_status_value.setText("ВЫКЛЮЧЕН")
+                    self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+        except Exception as e:
+            log(f"Ошибка в on_process_status_changed: {e}", level="ERROR")
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
-        from log import log
+        
         from reg import get_dpi_autostart
 
         # 1. Автозапуск DPI включён?
@@ -570,7 +605,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     
     def finish_initialization(self):
         """Завершает процесс инициализации"""
-        from log import log
+        
         
         self.initializing = False
         self.protected_process = False
@@ -628,7 +663,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Устанавливаем иконку приложения
         icon_path = os.path.abspath(ICON_PATH)
         if os.path.exists(icon_path):
-            from PyQt5.QtGui import QIcon
+            from PyQt6.QtGui import QIcon
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
@@ -654,7 +689,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_2_1_btn.clicked.connect(self.open_connection_test)
         self.extra_3_0_btn.clicked.connect(self.update_other_list)
         self.extra_3_1_btn.clicked.connect(self.open_general)
-        self.extra_4_0_btn.clicked.connect(self.update_winws_exe)
+        self.extra_4_0_btn.clicked.connect(self.nope)
         self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
         self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
         self.extra_6_0_btn.clicked.connect(self.open_info)
@@ -682,7 +717,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def manual_update_check(self):
         """Запускает проверку обновлений вручную, если это не тестовый билд."""
-        from log import log
+        
         if is_test_build():
             log(f"Ручная проверка обновлений отключена для тестового билда ({APP_VERSION})", level="INFO")
             QMessageBox.information(self, "Тестовый билд",
@@ -709,7 +744,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Возвращаем True если комбо-бокс существует и активен
             return hasattr(self, 'theme_combo') and self.theme_combo.isEnabled()
         except Exception as e:
-            from log import log
+            
             log(f"Ошибка при активации комбо-бокса тем: {str(e)}")
             return False
 
@@ -718,7 +753,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Проверяем, активен ли автозапуск
         if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
             # Если автозапуск активен, игнорируем смену режима и восстанавливаем предыдущий выбор
-            from log import log
+            
             log("Смена стратегии недоступна при активном автозапуске", level="WARNING")
             return
         
@@ -783,10 +818,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
 
+    def nope(self):
+        return  # Заглушка для кнопки "nope"
+    
     def show_autostart_options(self):
         """Показывает диалог автозапуска (вместо старого подменю)."""
         from autostart_menu import AutoStartMenu
-        from log import log
+        
 
         # Если уже есть автозапуск — предупредим и выйдем
         if self.service_manager.check_autostart_exists():
@@ -807,12 +845,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
             update_ui_cb       = self.update_autostart_ui,
             status_cb          = self.set_status
         )
-        dlg.exec_()
+        dlg.exec()
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
         from stop import stop_dpi
-        from log import log
+        
         log("Отображение меню остановки Zapret", level="INFO")
         
         # Создаем меню
@@ -826,7 +864,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         button_pos = self.stop_btn.mapToGlobal(self.stop_btn.rect().bottomLeft())
         
         # Показываем меню и получаем выбранное действие
-        action = menu.exec_(button_pos)
+        action = menu.exec(button_pos)
         
         # Обрабатываем выбор
         if action == stop_winws_action:
@@ -870,7 +908,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if is_active:
             # Показываем информационное сообщение о отключении
             msg = QMessageBox()
-            msg.setIcon(QMessageBox.Question)
+            msg.setIcon(QMessageBox.Icon.Question)
             msg.setWindowTitle("Отключение разблокировки")
             msg.setText("Отключить разблокировку сервисов через hosts-файл?")
             
@@ -879,10 +917,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
             )
             
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            result = msg.exec_()
+            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            result = msg.exec()
             
-            if result == QMessageBox.Yes:
+            if result == QMessageBox.StandardButton.Yes:
                 if self.hosts_manager.remove_proxy_domains():
                     self.set_status("Разблокировка отключена. Перезапустите браузер.")
                     self.update_proxy_button_state()
@@ -893,7 +931,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         else:
             # Показываем информационное сообщение о включении
             msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
+            msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("Разблокировка через hosts-файл")
             msg.setText("Установка соединения к proxy-серверу через файл hosts")
             
@@ -904,10 +942,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
             )
             
-            msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-            result = msg.exec_()
+            msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+            result = msg.exec()
             
-            if result == QMessageBox.Ok:
+            if result == QMessageBox.StandardButton.Ok:
                 if self.hosts_manager.add_proxy_domains():
                     self.set_status("Разблокировка включена. Перезапустите браузер.")
                     self.update_proxy_button_state()
@@ -921,7 +959,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Импортируем модуль тестирования
         from connection_test import ConnectionTestDialog
         dialog = ConnectionTestDialog(self)
-        dialog.exec_()
+        dialog.exec()
 
     def update_other_list(self):
         """Обновляет файл списка other.txt с удаленного сервера"""
@@ -936,20 +974,15 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
             # Передаем текущий стиль в диалог
             dns_dialog = DNSSettingsDialog(self, common_style=COMMON_STYLE)
-            dns_dialog.exec_()
+            dns_dialog.exec()
             
             # Сбрасываем статус после закрытия диалога
             self.set_status("Настройки DNS закрыты")
         except Exception as e:
             error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
-            from log import log
+            
             log(f"Ошибка при открытии настроек DNS: {str(e)}", level="ERROR")
             self.set_status(error_msg)
-
-    def update_winws_exe(self):
-        """Обновляет файл winws.exe до последней версии с GitHub"""
-        from update_winws import update_winws_exe as _update_winws_exe
-        _update_winws_exe(self)
 
     def show_logs(self):
         """Shows the application logs in a dialog"""
@@ -957,7 +990,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             from log import get_log_content, LogViewerDialog
             log_content = get_log_content()
             log_dialog = LogViewerDialog(self, log_content)
-            log_dialog.exec_()
+            log_dialog.exec()
         except Exception as e:
             self.set_status(f"Ошибка при открытии журнала: {str(e)}")
 
@@ -980,7 +1013,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def init_tray_if_needed(self):
         """Инициализирует системный трей, если он еще не был инициализирован"""
         if not hasattr(self, 'tray_manager') or self.tray_manager is None:
-            from log import log
+            
             log("Инициализация менеджера системного трея", level="INFO")
             
             # Проверяем наличие пути к иконке
@@ -1003,6 +1036,16 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.hide()
 
 def main():
+    # Add sys.excepthook to catch unhandled exceptions
+    import sys
+    def global_exception_handler(exctype, value, traceback):
+        from log import log
+        import traceback as tb
+        error_msg = ''.join(tb.format_exception(exctype, value, traceback))
+        log(f"UNCAUGHT EXCEPTION: {error_msg}", level="CRITICAL")
+        sys.__excepthook__(exctype, value, traceback)  # Call the default handler
+
+    sys.excepthook = global_exception_handler
     # ---------------- одно-экземплярный mutex -------------------------
     from single_instance import create_mutex, release_mutex
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
@@ -1030,17 +1073,23 @@ def main():
         sys.exit(0)
 
     # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
-    from log import log
+    
     try:
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtCore import QCoreApplication
-        from PyQt5.QtCore import Qt
-        QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)   # общий скейлинг
-        QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps,  True)     # иконки
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QCoreApplication
+        from PyQt6.QtCore import Qt
+        _set_attr_if_exists("AA_EnableHighDpiScaling")
+        _set_attr_if_exists("AA_UseHighDpiPixmaps")
 
+        from PyQt6.QtWidgets import QApplication
         app = QApplication(sys.argv)
+
+
         app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
+
+        import qt_material                     # импорт после Qt
+        qt_material.apply_stylesheet(app, 'dark_blue.xml',)
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
@@ -1069,7 +1118,7 @@ def main():
 
     from remove_terminal import remove_windows_terminal_if_win11
     remove_windows_terminal_if_win11()
-
+    
     # ---------------- основное окно ----------------------------------
     window = LupiDPIApp()
     window.init_tray_if_needed()
@@ -1087,7 +1136,7 @@ def main():
                                                 "Приложение запущено в фоновом режиме")
         
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()

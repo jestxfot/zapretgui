@@ -1,7 +1,7 @@
 import os
-from PyQt5.QtCore import Qt, QTimer,  QPropertyAnimation, QEasingCurve, QPoint
-from PyQt5.QtGui import QPixmap, QPalette, QBrush
-from PyQt5.QtWidgets import QPushButton
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PyQt6.QtGui import QPixmap, QPalette, QBrush
+from PyQt6.QtWidgets import QPushButton
 from reg import reg, HKCU
 
 # Константы
@@ -114,13 +114,12 @@ class ThemeManager:
             theme_name = self.current_theme
         
         try:
-            from qt_material import apply_stylesheet
-            
+            import qt_material
             # Получаем информацию о теме
             theme_info = THEMES[theme_name]
             
             # Применяем тему
-            apply_stylesheet(self.app, theme=theme_info["file"])
+            qt_material.apply_stylesheet(self.app, theme=theme_info["file"])
             
             # Обновляем цвет текста статуса
             self.status_label.setStyleSheet(f"color: {theme_info['status_color']};")
@@ -243,14 +242,14 @@ class RippleButton(QPushButton):
         self._ripple_animation.setDuration(300)
         self._ripple_animation.setStartValue(0)
         self._ripple_animation.setEndValue(100)
-        self._ripple_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self._ripple_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
 
         self._fade_animation = QPropertyAnimation(self, b"rippleOpacity", self)
         self._fade_animation.setDuration(300)
         self._fade_animation.setStartValue(0.5)
         self._fade_animation.setEndValue(0)
 
-    from PyQt5.QtCore import pyqtProperty
+    from PyQt6.QtCore import pyqtProperty
     @pyqtProperty(float)
     def rippleRadius(self):
         return self._ripple_radius
@@ -282,11 +281,18 @@ class RippleButton(QPushButton):
     def paintEvent(self, event):
         super().paintEvent(event)
         if self._ripple_radius > 0:
-            from PyQt5.QtGui import QPainter, QColor
+            from PyQt6.QtGui import QPainter, QColor
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setOpacity(self._ripple_opacity)
             
             painter.setBrush(QColor(255, 255, 255, 60))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(self._ripple_pos, self._ripple_radius, self._ripple_radius)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(
+                int(self._ripple_pos.x() - self._ripple_radius),
+                int(self._ripple_pos.y() - self._ripple_radius),
+                int(self._ripple_radius * 2),
+                int(self._ripple_radius * 2)
+            )
+
+            painter.end()

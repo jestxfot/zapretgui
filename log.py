@@ -3,8 +3,8 @@ import sys
 import time
 import traceback
 from datetime import datetime
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
-from PyQt5.QtGui import QFont
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+from PyQt6.QtGui import QFont
 
 class Logger:
     """Simple logging system that captures console output and errors to a file"""
@@ -138,7 +138,7 @@ class LogViewerDialog(QDialog):
         # Create log text area
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         
         # Use monospace font for better log readability
         font = QFont("Courier New", 9)
@@ -200,7 +200,7 @@ class LogViewerDialog(QDialog):
         # Create log text area
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         
         # Use monospace font for better log readability
         font = QFont("Courier New", 9)

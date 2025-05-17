@@ -4,8 +4,8 @@ import subprocess
 import logging
 import requests, webbrowser
 from datetime import datetime
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
+from PyQt6.QtCore import QThread, pyqtSignal
 
 class ConnectionTestWorker(QThread):
     """Рабочий поток для выполнения тестов соединения."""
@@ -229,10 +229,10 @@ class ConnectionTestDialog(QDialog):
                 self, 
                 "Ошибка YouTube",
                 "Ошибка 403: YouTube требует дополнительной настройки. Узнать подробнее?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             
-            if reply == QMessageBox.Yes:
+            if reply == QMessageBox.StandardButton.Yes:
                 webbrowser.open("https://github.com/youtubediscord/youtube_59second")
         else:
             # Добавляем текст в окно результатов

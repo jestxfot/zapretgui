@@ -3,7 +3,7 @@ import time
 import subprocess
 import win32con, sys
 
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 
 from log import log
 
@@ -183,7 +183,7 @@ class DPIStarter:
         delay_ms – задержка в мс (0 = сразу)
         """
         from log import log
-        from PyQt5.QtCore import QTimer
+        from PyQt6.QtCore import QTimer
         import json, os, subprocess
 
         DEFAULT_STRAT = "Оригинальная bol-van v2 (07.04.2025)"

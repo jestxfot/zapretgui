@@ -91,7 +91,8 @@ _DPI_NAME  = "DPIAutoStart"          # REG_DWORD (0/1)
 
 def get_dpi_autostart() -> bool:
     """True – запускать DPI автоматически; False – не запускать."""
-    return bool(reg(_DPI_KEY, _DPI_NAME) or 0)
+    val = reg(_DPI_KEY, _DPI_NAME)
+    return bool(val) if val is not None else True  # Default to True if not set
 
 def set_dpi_autostart(state: bool) -> bool:
     """Сохраняет флаг автозапуска DPI в реестре."""

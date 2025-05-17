@@ -1,6 +1,6 @@
 # tg_log_full.py
 import os, time, platform
-from PyQt5.QtCore import QObject, QTimer
+from PyQt6.QtCore import QObject, QTimer
 
 from log import log
 from tg_sender import send_file_to_tg

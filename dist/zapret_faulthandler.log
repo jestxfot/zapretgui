@@ -1,0 +1,20 @@
+Windows fatal exception: access violation
+
+Thread 0x000023cc (most recent call first):
+  File "subprocess.py", line 1612 in _readerthread
+  File "threading.py", line 992 in run
+  File "threading.py", line 1041 in _bootstrap_inner
+  File "threading.py", line 1012 in _bootstrap
+
+Thread 0x000023c8 (most recent call first):
+  File "subprocess.py", line 1612 in _readerthread
+  File "threading.py", line 992 in run
+  File "threading.py", line 1041 in _bootstrap_inner
+  File "threading.py", line 1012 in _bootstrap
+
+Thread 0x00000000 (most recent call first):
+  <no Python frame>
+
+Thread 0xa3ea058d (most recent call first):
+Windows fatal exception: access violation
+

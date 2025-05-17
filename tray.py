@@ -1,10 +1,9 @@
 import os
-from PyQt5.QtWidgets import (
-    QSystemTrayIcon, QMenu, QAction, QStyle, QApplication,
-    QMessageBox
-)
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QEvent
+
+from PyQt6.QtWidgets import QMenu, QWidget, QApplication, QMessageBox, QStyle, QSystemTrayIcon
+from PyQt6.QtGui     import QAction, QIcon, QCursor
+from PyQt6.QtCore    import Qt, QEvent
+
 from reg import get_dpi_autostart, set_dpi_autostart
 from reg import get_strategy_autoload, set_strategy_autoload
 
@@ -41,7 +40,7 @@ class SystemTrayManager:
     def show_notification(self, title, message, msec=5000):
         self.tray_icon.showMessage(
             title, message,
-            QSystemTrayIcon.Information, msec
+            QSystemTrayIcon.MessageIcon.Information, msec
         )
 
     # ------------------------------------------------------------------
@@ -144,10 +143,10 @@ class SystemTrayManager:
                 self.parent,
                 "Отключить автозагрузку стратегий?",
                 warn,
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
             )
-            if resp != QMessageBox.Yes:
+            if resp != QMessageBox.StandardButton.Yes:
                 # Пользователь передумал – возвращаем галку и выходим
                 self.auto_strat_act.blockSignals(True)
                 self.auto_strat_act.setChecked(True)
@@ -203,7 +202,7 @@ class SystemTrayManager:
     #  РЕАКЦИЯ НА КЛИКИ ПО ИКОНКЕ
     # ------------------------------------------------------------------
     def on_tray_icon_activated(self, reason):
-        if reason == QSystemTrayIcon.Trigger:          # левая кнопка
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:          # левая кнопка
             if self.parent.isVisible():
                 self.parent.hide()
             else:
@@ -213,7 +212,7 @@ class SystemTrayManager:
     #  КОНСОЛЬ
     # ------------------------------------------------------------------
     def show_console(self):
-        from PyQt5.QtWidgets import QInputDialog, QLineEdit
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
         from discord_restart import toggle_discord_restart
 
         cmd, ok = QInputDialog.getText(

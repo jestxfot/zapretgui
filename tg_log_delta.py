@@ -32,7 +32,7 @@ MAX_CHUNK = 3500
 
 # ---------- Client-ID (как было) ------------------------------------
 try:
-    from PyQt5.QtCore import QTimer
+    from PyQt6.QtCore import QTimer
 except ImportError:
     QTimer = None
 
@@ -137,7 +137,7 @@ class LogTailSender:
 class LogDeltaDaemon:
     def __init__(self, log_path: str, interval: int = INTERVAL, parent=None):
         if QTimer is None:
-            raise RuntimeError("PyQt5 не установлена")
+            raise RuntimeError("PyQt6 не установлена")
         if interval < 3:
             raise ValueError("Интервал ≥ 3 сек")
         self.sender = LogTailSender(log_path)

@@ -1,6 +1,6 @@
 import os
 import sys
-from PyQt5.QtWidgets import QMessageBox, QApplication
+from PyQt6.QtWidgets import QMessageBox, QApplication
 import ctypes, sys, subprocess, winreg
 
 # Импортируем константы из конфига
@@ -93,7 +93,7 @@ def contains_special_chars(path: str) -> bool:
     True, если путь содержит:
       • пробел
       • (опционально) цифру
-      • символ НЕ из списка  A-Z a-z 0-9 _ . : \ /
+      • символ НЕ из списка  A-Z a-z 0-9 _ . : \\ /
     """
     if " " in path:
         return True            # пробел — сразу ошибка
@@ -155,9 +155,9 @@ def display_startup_warnings():
                 result = QMessageBox.warning(
                     None, "Предупреждение",
                     message,
-                    QMessageBox.No
+                    QMessageBox.StandardButton.No
                 )
-                return result == QMessageBox.Yes
+                return result == QMessageBox.StandardButton.Yes
             else:
                 btn = _native_message("Предупреждение",
                                     message + "\n\nНажмите «Да» для продолжения.",

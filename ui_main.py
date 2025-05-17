@@ -1,6 +1,6 @@
 # ui_main.py
-from PyQt5.QtCore    import Qt
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore    import Qt
+from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QComboBox, QSpacerItem, QSizePolicy, QFrame
 )
@@ -26,9 +26,9 @@ class MainWindowUI:
         # ---------- Заголовок ------------------------------------------
         ttl = QLabel("Zapret GUI")
         ttl.setStyleSheet(f"{COMMON_STYLE} font:16pt Arial;")
-        root.addWidget(ttl, alignment=Qt.AlignCenter)
+        root.addWidget(ttl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        line = QFrame(); line.setFrameShape(QFrame.HLine)
+        line = QFrame(); line.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(line)
 
         # ---------- Статус программы -----------------------------------
@@ -43,11 +43,11 @@ class MainWindowUI:
         # ---------- Текущая стратегия ----------------------------------
         cur_hdr = QLabel("Текущая стратегия:")
         cur_hdr.setStyleSheet(f"{COMMON_STYLE} font-weight:bold;")
-        cur_hdr.setAlignment(Qt.AlignCenter)
+        cur_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(cur_hdr)
 
-        self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setAlignment(Qt.AlignCenter)
+        self.current_strategy_label = QLabel("Автостарт DPI отключен")
+        self.current_strategy_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.current_strategy_label.setWordWrap(True)
         self.current_strategy_label.setMinimumHeight(40)
         self.current_strategy_label.setStyleSheet(
@@ -86,7 +86,7 @@ class MainWindowUI:
             ("Тест соединения",                "0, 119, 255", 2,1),
             ("Обновить список сайтов",         "0, 119, 255", 3,0),
             ("Добавить свои сайты",            "0, 119, 255", 3,1),
-            ("Обновить winws.exe",             "0, 119, 255", 4,0),
+            ("ПУСТО",             "0, 119, 255", 4,0),
             ("Настройка DNS-серверов",         "0, 119, 255", 4,1),
             ("Разблокировать ChatGPT, Spotify, Notion и др.",
                                                "218, 165, 32",5,0,2),
@@ -112,29 +112,29 @@ class MainWindowUI:
 
         # ---------- Тема оформления -----------------------------------
         theme_lbl = QLabel("Тема оформления:"); theme_lbl.setStyleSheet(COMMON_STYLE)
-        root.addWidget(theme_lbl, alignment=Qt.AlignCenter)
+        root.addWidget(theme_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.theme_combo = QComboBox(); self.theme_combo.addItems(THEMES.keys())
         self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align:center;")
         root.addWidget(self.theme_combo)
 
         # ---------- Статус-строка -------------------------------------
-        self.status_label = QLabel(""); self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label = QLabel(""); self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self.status_label)
 
-        root.addItem(QSpacerItem(20,20,QSizePolicy.Minimum,QSizePolicy.Expanding))
+        root.addItem(QSpacerItem(20,20,QSizePolicy.Policy.Minimum,QSizePolicy.Policy.Expanding))
 
         # ---------- ссылки --------------------------------------------
-        self.bol_van_url   = QLabel(); self.bol_van_url.setAlignment(Qt.AlignCenter)
-        self.author_label  = QLabel(); self.author_label.setAlignment(Qt.AlignCenter)
-        self.support_label = QLabel(); self.support_label.setAlignment(Qt.AlignCenter)
+        self.bol_van_url   = QLabel(); self.bol_van_url.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.author_label  = QLabel(); self.author_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.support_label = QLabel(); self.support_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         for w in (self.bol_van_url, self.author_label, self.support_label):
             w.setOpenExternalLinks(True); root.addWidget(w)
 
         # ---------- UUID ----------------------------------------------
         self.uuid_label = QLabel("ID устройства: …")
-        self.uuid_label.setAlignment(Qt.AlignCenter)
+        self.uuid_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.uuid_label.setStyleSheet("color:#666;font-size:8pt;")
         root.addWidget(self.uuid_label)
 

@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QDialog, QProgressBar, QLabel, QVBoxLayout, QPushButton, QApplication, QHBoxLayout
-from PyQt5.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QDialog, QProgressBar, QLabel, QVBoxLayout, QPushButton, QApplication, QHBoxLayout
+from PyQt6.QtCore import Qt, QTimer
 
 class StrategyChangeDialog(QDialog):
     """Диалог с прогрессом при смене стратегии обхода DPI"""
@@ -115,14 +115,14 @@ class StrategyChangeDialog(QDialog):
             self.accept()  # Безопасно закрываем только после завершения операции
         else:
             # Если операция не завершена, показываем предупреждение
-            from PyQt5.QtWidgets import QMessageBox
+            from PyQt6.QtWidgets import QMessageBox
             response = QMessageBox.question(
                 self, 
                 "Прервать операцию?", 
                 "Вы уверены, что хотите прервать смену стратегии? Это может привести к нестабильной работе.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
             )
             
-            if response == QMessageBox.Yes:
+            if response == QMessageBox.StandardButton.Yes:
                 self.accept()  # Закрываем диалог только если пользователь подтвердил
