@@ -123,20 +123,6 @@ class MainWindowUI:
 
         root.addItem(QSpacerItem(20,20,QSizePolicy.Policy.Minimum,QSizePolicy.Policy.Expanding))
 
-        # ---------- ссылки --------------------------------------------
-        self.bol_van_url   = QLabel(); self.bol_van_url.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.author_label  = QLabel(); self.author_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.support_label = QLabel(); self.support_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        for w in (self.bol_van_url, self.author_label, self.support_label):
-            w.setOpenExternalLinks(True); root.addWidget(w)
-
-        # ---------- UUID ----------------------------------------------
-        self.uuid_label = QLabel("ID устройства: …")
-        self.uuid_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.uuid_label.setStyleSheet("color:#666;font-size:8pt;")
-        root.addWidget(self.uuid_label)
-
         # ---------- сигналы-прокси (для main.py) ----------------------
         self.select_strategy_clicked  = self.select_strategy_btn.clicked
         self.start_clicked            = self.start_btn.clicked
@@ -144,6 +130,3 @@ class MainWindowUI:
         self.autostart_enable_clicked = self.autostart_enable_btn.clicked
         self.autostart_disable_clicked= self.autostart_disable_btn.clicked
         self.theme_changed            = self.theme_combo.currentTextChanged
-
-    def set_device_id(self, cid: str):
-        self.uuid_label.setText(f"ID устройства: {cid}")

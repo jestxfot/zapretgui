@@ -441,11 +441,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
             app           = QApplication.instance(),
             widget        = self,
             status_label  = self.status_label,
-            author_label  = self.author_label,
-            support_label = self.support_label,
-            bin_folder    = BIN_FOLDER,
-            author_url    = AUTHOR_URL,
-            bol_van_url   = self.bol_van_url)
+            bin_folder    = BIN_FOLDER
+        )
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
 
@@ -681,10 +678,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # возьмём его через self.layout() и «прикрутим» меню:
         root_layout = self.layout()
         root_layout.setMenuBar(self.menu_bar)
-
-        # показываем тот же CID, который использует Telegram-бот
-        cid = get_client_id()
-        self.set_device_id(cid)                 # <<< одна строка
 
         QTimer.singleShot(0, self.initialize_managers_and_services)
         

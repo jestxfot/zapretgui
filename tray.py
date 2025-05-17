@@ -69,11 +69,6 @@ class SystemTrayManager:
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
-        # копировать ID
-        copy_id_act = QAction("Скопировать ID устройства", self.parent)
-        copy_id_act.triggered.connect(self.copy_device_id_to_clipboard)
-        menu.addAction(copy_id_act)
-
         # ──── НОВЫЙ ПУНКТ: "Автозапуск DPI" ────
         self.auto_dpi_act = QAction("Автозапуск DPI", self.parent,
                                     checkable=True)
@@ -180,23 +175,6 @@ class SystemTrayManager:
 
         self.tray_icon.hide()
         QApplication.quit()
-
-    # ------------------------------------------------------------------
-    #  КОПИРОВАНИЕ ID  ★ NEW
-    # ------------------------------------------------------------------
-    def copy_device_id_to_clipboard(self):
-        """Копирует client-ID бота в буфер обмена и показывает всплывашку."""
-        try:
-            # импортируем только когда нужно, чтобы не тянуть TG-логгер при запуске
-            from tg_log_delta import get_client_id
-            cid = str(get_client_id())
-
-            QApplication.clipboard().setText(cid)
-            self.show_notification("ID устройства скопирован", cid, 3000)
-        except Exception as e:
-            # на всякий случай продублируем ошибку
-            QMessageBox.warning(self.parent, "Ошибка",
-                                f"Не удалось получить ID устройства:\n{e}")
 
     # ------------------------------------------------------------------
     #  РЕАКЦИЯ НА КЛИКИ ПО ИКОНКЕ

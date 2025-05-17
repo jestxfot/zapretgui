@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox
 from PyQt6.QtGui     import QAction
 from config import APP_VERSION
 from urls import INFO_URL
+from about_dialog import AboutDialog
 
 import webbrowser
 
@@ -21,44 +22,28 @@ class AppMenuBar(QMenuBar):
         file_menu = self.addMenu("&Файл")          # Alt+Ф
 
         act_exit = QAction("Выйти из GUI", self, shortcut="Ctrl+Q")
+        act_exit.triggered.connect( parent.close )
+
         file_menu.addAction(act_exit)
 
-        # ---------- 2.  Инструменты -----------------------------------------
-        tools_menu = self.addMenu("&Инструменты")  # Alt+И
+        # ---------- 2.  Телеметрия -----------------------------------------
+        tools_menu = self.addMenu("&Телеметрия")  # Alt+И
 
-        act_update_other = QAction("Обновить other.txt", self)
         act_logs          = QAction("Показать лог-файл",    self)
-        tools_menu.addActions([act_update_other, act_logs])
+        act_logs.triggered.connect(getattr(parent, "show_logs", lambda: None))
+
+        act_about = QAction("О программе...",  self)
+        act_about.triggered.connect(lambda: AboutDialog(parent).exec())
+
+        tools_menu.addActions([act_logs, act_about])
 
         # ---------- 3.  Справка ---------------------------------------------
         help_menu = self.addMenu("&Справка")       # Alt+С
 
         act_help  = QAction("Что это такое? (руководство по программе)",     self)
-        act_about = QAction("О программе...",  self)
-        help_menu.addActions([act_help, act_about])
+        act_help.triggered.connect(getattr(self, "open_info", lambda: None))
 
-        act_about.triggered.connect(
-            lambda: QMessageBox.about(
-                parent,
-                "О программе",
-                f"Zapret\nВерсия: {APP_VERSION}"
-            )
-        )
-
-        # ---------- Подключаем действия к методам главного окна -------------
-        #  (специально через getattr → если метода нет, меню всё равно
-        #   будет создаваться без ошибок)
-
-        act_exit.triggered.connect( parent.close )
-
-        act_update_other.triggered.connect(
-            getattr(parent, "update_other_list", lambda: None))
-
-        act_logs.triggered.connect(
-            getattr(parent, "show_logs", lambda: None))
-
-        act_help.triggered.connect(
-            getattr(self, "open_info", lambda: None))
+        help_menu.addAction(act_help)
         
     def open_info(self):
         """Opens the info website."""

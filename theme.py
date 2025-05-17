@@ -79,7 +79,7 @@ def get_windows_theme() -> str:
 class ThemeManager:
     """Класс для управления темами приложения"""
     
-    def __init__(self, app, widget, status_label, author_label, bin_folder, author_url, bol_van_url, support_label):
+    def __init__(self, app, widget, status_label, bin_folder):
         """
         Инициализирует менеджер тем
         
@@ -87,18 +87,12 @@ class ThemeManager:
         - app: экземпляр QApplication
         - widget: виджет, к которому применяется тема
         - status_label: метка статуса для вывода сообщений
-        - author_label: метка автора для обновления стиля
         - bin_folder: путь к папке с бинарными файлами
-        - author_url: URL автора для отображения в ссылке
         """
         self.app = app
         self.widget = widget
         self.status_label = status_label
-        self.author_label = author_label
         self.bin_folder = bin_folder
-        self.author_url = author_url
-        self.bol_van_url = bol_van_url
-        self.support_label = support_label
         
         # Загружаем сохраненную тему или используем системную
         saved_theme = get_selected_theme()
@@ -123,29 +117,6 @@ class ThemeManager:
             
             # Обновляем цвет текста статуса
             self.status_label.setStyleSheet(f"color: {theme_info['status_color']};")
-            
-            # Обновляем цвет ссылки автора
-            status_color = theme_info['status_color']
-            self.bol_van_url.setStyleSheet(f"""
-                color: {status_color}; 
-                opacity: 0.6; 
-                font-size: 9pt;
-            """)
-            self.author_label.setStyleSheet(f"""
-                color: {status_color}; 
-                opacity: 0.6; 
-                font-size: 9pt;
-            """)
-            self.support_label.setStyleSheet(f"""
-                color: {status_color}; 
-                opacity: 0.6; 
-                font-size: 9pt;
-            """)
-
-            self.bol_van_url.setText(f'Автор Zapret: <a href="https://github.com/bol-van" style="color:{status_color}">github.com/bol-van</a>')
-            self.author_label.setText(f'Автор GUI: <a href="https://t.me/bypassblock" style="color:{status_color}">t.me/bypassblock</a>')
-
-            self.support_label.setText(f'Поддержка: <a href="{self.support_label}" style="color:{status_color}">t.me/youtubenotwork</a>')
 
             # Если выбрана тема РКН Тян, применяем фоновое изображение
             if theme_name == "РКН Тян":
