@@ -13,7 +13,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired=admin
 DefaultGroupName=Zapret
 AllowNoIcons=yes
-OutputDir=installer
+OutputDir=.
 OutputBaseFilename=ZapretSetup
 Compression=lzma2
 SolidCompression=yes
@@ -28,8 +28,8 @@ RestartApplications=no
 Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
-Source: "dist\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
-Source: "dist\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
+Source: "..\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
+Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
 	   
 [Icons]
 Name: "{group}\Zapret";              Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"

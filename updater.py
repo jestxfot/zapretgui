@@ -1,4 +1,5 @@
-# update.py
+# updater.py
+
 # -----------------------------------------------------------------
 # Проверяет https://gitflic.ru/.../version.json и, если версия новее,
 # качает ZapretSetup.exe, запускает его /VERYSILENT и закрывает программу.
@@ -6,7 +7,6 @@
 import os, sys, tempfile, subprocess, shutil, time
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore    import QTimer
-from start import DPIStarter
 
 META_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=version.json"          # <- ваш JSON
 TIMEOUT  = 10                                      # сек.
@@ -84,7 +84,7 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
         set_status("version.json неполон (нет version/update_url).")
         return False
 
-    from config import APP_VERSION
+    from config.config import APP_VERSION
     if version.parse(new_ver) <= version.parse(APP_VERSION):
         if not silent:
             QMessageBox.information(parent, "Обновление",
@@ -113,7 +113,7 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
 
     # ─ step 5.  запуск установщика ─────────────────────────────
     try:
-        from stop import stop_dpi
+        from dpi.stop import stop_dpi
         stop_dpi(parent)  # останавливаем winws.exe
         time.sleep(0.5)       # даём время завершиться
         _kill_winws()          # убиваем winws.exe (если не остановился)

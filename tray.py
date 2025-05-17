@@ -1,11 +1,13 @@
+# tray.py
+
 import os
 
 from PyQt6.QtWidgets import QMenu, QWidget, QApplication, QMessageBox, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon, QCursor
 from PyQt6.QtCore    import Qt, QEvent
 
-from reg import get_dpi_autostart, set_dpi_autostart
-from reg import get_strategy_autoload, set_strategy_autoload
+from config.reg import get_dpi_autostart, set_dpi_autostart
+from config.reg import get_strategy_autoload, set_strategy_autoload
 
 # ----------------------------------------------------------------------
 #   SystemTrayManager
@@ -110,7 +112,7 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def exit_and_stop(self):
         """Останавливает winws.exe, затем закрывает GUI."""
-        from stop import stop_dpi
+        from dpi.stop import stop_dpi
         from log import log
 
         log("Выход + остановка DPI", level="INFO")
@@ -139,7 +141,7 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def show_console(self):
         from PyQt6.QtWidgets import QInputDialog, QLineEdit
-        from discord_restart import toggle_discord_restart
+        from discord.discord_restart import toggle_discord_restart
 
         cmd, ok = QInputDialog.getText(
             self.parent, "Консоль", "Введите команду:",

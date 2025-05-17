@@ -14,23 +14,30 @@ import sys, os, ctypes, subprocess, webbrowser, time
 from PyQt6.QtCore    import QTimer, QThread
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 
-from ui_main import MainWindowUI
-from admin_check import is_admin
-from process_monitor import ProcessMonitorThread
+from ui.theme import ThemeManager, BUTTON_STYLE, COMMON_STYLE
+from ui.main_window import MainWindowUI
+
+from startup.admin_check import is_admin
+
+from config.process_monitor import ProcessMonitorThread
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
-from config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
-from hosts import HostsManager
-from service import ServiceManager
-from autostart_remove import AutoStartCleaner
-from start import DPIStarter
-from theme import ThemeManager, BUTTON_STYLE, COMMON_STYLE
+
+from config.config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
+from config.reg import get_last_strategy, set_last_strategy
+
+from hosts.hosts import HostsManager
+
+from autostart.service import ServiceManager
+from autostart.autostart_remove import AutoStartCleaner
+
+from dpi.start import DPIStarter
+
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from updater import check_and_run_update
-from strategy_selector import StrategySelector
-from app_menubar import AppMenuBar
-from reg import get_last_strategy, set_last_strategy
+from strategy_menu.selector import StrategySelector
+from altmenu.app_menubar import AppMenuBar
 from log import log
 
 
@@ -67,10 +74,6 @@ def is_test_build():
         # Логируем ошибку, если версия имеет неожиданный формат
         log(f"Ошибка при проверке версии на тестовый билд ({APP_VERSION}): {e}", level="ERROR")
         return False # В случае ошибки считаем, что это не тестовый билд
-
-def get_version():
-    """Возвращает текущую версию программы"""
-    return APP_VERSION
 
 def _handle_update_mode():
     """
@@ -202,7 +205,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         скачивает index.json и все .bat-файлы (если автозагрузка не
         отключена в реестре)."""
         
-        from reg import get_strategy_autoload
+        from config.reg import get_strategy_autoload
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
                 log("Ошибка: менеджер стратегий не инициализирован", "ERROR")
@@ -266,7 +269,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Перезапускаем Discord только если:
             # 1. Это не первый запуск
             # 2. Автоперезапуск включен в настройках
-            from discord_restart import get_discord_restart_setting
+            from discord.discord_restart import get_discord_restart_setting
             if not self.first_start and get_discord_restart_setting():
                 self.discord_manager.restart_discord_if_running()
             else:
@@ -415,13 +418,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.init_process_monitor()
         self.last_strategy_change_time = time.time()
 
-        from discord import DiscordManager
+        from discord.discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
         self.hosts_manager   = HostsManager   (status_callback=self.set_status)
 
         # StrategyManager  (preload=False  ⇒  ничего не скачивает)
-        from strategy_manager import StrategyManager
-        from config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
+        from strategy_menu.manager import StrategyManager
+        from config.config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
                             GITHUB_STRATEGIES_JSON_URL)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
         self.strategy_manager = StrategyManager(
@@ -553,7 +556,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         
-        from reg import get_dpi_autostart
+        from config.reg import get_dpi_autostart
 
         # 1. Автозапуск DPI включён?
         if not get_dpi_autostart():
@@ -703,7 +706,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         )
 
         # после создания GUI и инициализации логгера:
-        from tg_log_full import FullLogDaemon
+        from tgram.tg_log_full import FullLogDaemon
         self.log_sender = FullLogDaemon(
                 log_path = "zapret_log.txt",
                 interval = 120,      # интервал отправки в секундах
@@ -767,7 +770,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
         # 2. Автоперезапуск включен в настройках
-        from discord_restart import get_discord_restart_setting
+        from discord.discord_restart import get_discord_restart_setting
         if not self.first_start and get_discord_restart_setting():
             self.discord_manager.restart_discord_if_running()
         else:
@@ -804,7 +807,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     
     def show_autostart_options(self):
         """Показывает диалог автозапуска (вместо старого подменю)."""
-        from autostart_menu import AutoStartMenu
+        from autostart.autostart_menu import AutoStartMenu
         
 
         # Если уже есть автозапуск — предупредим и выйдем
@@ -830,7 +833,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
-        from stop import stop_dpi
+        from dpi.stop import stop_dpi
         
         log("Отображение меню остановки Zapret", level="INFO")
         
@@ -1002,7 +1005,7 @@ def main():
 
     sys.excepthook = global_exception_handler
     # ---------------- одно-экземплярный mutex -------------------------
-    from single_instance import create_mutex, release_mutex
+    from startup.single_instance import create_mutex, release_mutex
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
     if already_running:
         ctypes.windll.user32.MessageBoxW(
@@ -1012,7 +1015,7 @@ def main():
     import atexit;  atexit.register(lambda: release_mutex(mutex_handle))
 
     # ---------------- быстрые проверки (без Qt) -----------------------
-    from bfe_util import ensure_bfe_running
+    from startup.bfe_util import ensure_bfe_running
     if not ensure_bfe_running(show_ui=True):
         sys.exit(1)
 
@@ -1051,7 +1054,7 @@ def main():
         sys.exit(1)
 
     # ---------------- предупреждения, требующие Qt --------------------
-    from check_start import display_startup_warnings
+    from startup.check_start import display_startup_warnings
 
     warnings_ok = display_startup_warnings()
     if not warnings_ok and not start_in_tray:      # <── ключевое отличие
@@ -1071,7 +1074,7 @@ def main():
         )
         sys.exit(0)
 
-    from remove_terminal import remove_windows_terminal_if_win11
+    from startup.remove_terminal import remove_windows_terminal_if_win11
     remove_windows_terminal_if_win11()
     
     # ---------------- основное окно ----------------------------------

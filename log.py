@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import traceback
 from datetime import datetime
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton

@@ -1,3 +1,5 @@
+# dns.py
+ 
 import os
 import subprocess
 import threading
