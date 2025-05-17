@@ -3,8 +3,7 @@
 ;---------------------------------------------------
 [Setup]
 AppName=Zapret
-AppVersion=15.6.5
-;15.6.5
+AppVersion=15.7.0
 AppId={{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
@@ -13,6 +12,7 @@ UsePreviousAppDir=yes
 ; ───────────────────────────────────────────────────────────────
 PrivilegesRequired=admin
 DefaultGroupName=Zapret
+AllowNoIcons=yes
 OutputDir=installer
 OutputBaseFilename=ZapretSetup
 Compression=lzma2
@@ -41,7 +41,7 @@ Name: desktopicon; Description: "Создать ярлык на рабочем �
 
 ;──────────────────────────────────────────────
 [Code]
-{ 1.  КИЛЛИМ два процесса ───────────────────── }
+{ 1.  КИЛЛИМ процессы ──────────────────────── }
 procedure KillProcess(const ExeName: string);
 var R: Integer;
 begin
@@ -49,10 +49,28 @@ begin
        SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
+{ 1a.  ОСТАНОВКА/УДАЛЕНИЕ СЛУЖБЫ WinDivert ─── }
+procedure StopAndDeleteService(const ServiceName: string);
+var R: Integer;
+begin
+  { Остановить службу }
+  Exec('sc.exe', 'stop "' + ServiceName + '"', '',
+       SW_HIDE, ewWaitUntilTerminated, R);
+
+  { Удалить службу (если она уже удалена – игнорируем ошибку) }
+  Exec('sc.exe', 'delete "' + ServiceName + '"', '',
+       SW_HIDE, ewWaitUntilTerminated, R);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 begin
+  { 1) выгружаем драйвер WinDivert }
+  StopAndDeleteService('WinDivert1.4');  { ← актуальное имя службы }
+
+  { 2) гасим процессы }
   KillProcess('winws.exe');
   KillProcess('Zapret.exe');
+
   Result := '';
 end;
 
@@ -60,7 +78,7 @@ end;
 function GetInstallDir(Param: string): string;
 begin
   { если есть предыдущая установка – Inno сам подставит её,
-    иначе отдаём ProgramData }
+    иначе кладём в ProgramData }
   Result := ExpandConstant('{commonappdata}\Zapret');
 end;
 
@@ -72,7 +90,6 @@ end;
 
 function IsAllowedChar(C: Char): Boolean;
 begin
-  { допустимы только лат. буквы, обратный слэш и двоеточие }
   Result := IsAsciiLetter(C) or (C = '\') or (C = ':');
 end;
 
