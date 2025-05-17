@@ -171,9 +171,9 @@ class ThemeManager:
                     # Создаем палитру и устанавливаем фон
                     palette = self.widget.palette()
                     brush = QBrush(pixmap.scaled(self.widget.width(), self.widget.height(), 
-                                                Qt.KeepAspectRatioByExpanding, 
-                                                Qt.SmoothTransformation))
-                    palette.setBrush(QPalette.Window, brush)
+                                                Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
+                                                Qt.TransformationMode.SmoothTransformation))
+                    palette.setBrush(QPalette.ColorRole.Window, brush)
                     self.widget.setPalette(palette)
                     self.widget.setAutoFillBackground(True)
                     print("Фон РКН Тян успешно применен")

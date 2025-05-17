@@ -688,8 +688,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_2_1_btn.clicked.connect(self.open_connection_test)
         self.extra_3_0_btn.clicked.connect(self.update_netrogat_list)
         self.extra_3_1_btn.clicked.connect(self.open_netrogat)
-        self.extra_4_0_btn.clicked.connect(self.nope)
-        self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
+        self.extra_4_0_btn.clicked.connect(self.open_dns_settings)
         self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
         self.extra_6_0_btn.clicked.connect(self.manual_update_check)
         
@@ -803,9 +802,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
         except Exception as e:
             self.set_status(f"Ошибка при открытии файла: {str(e)}")
-
-    def nope(self):
-        return  # Заглушка для кнопки "nope"
     
     def show_autostart_options(self):
         """Показывает диалог автозапуска (вместо старого подменю)."""

@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont, QColor, QBrush
 
 from log import log
 import os
+import re
 
 # Константы для меток стратегий
 LABEL_RECOMMENDED = "recommended"
@@ -486,7 +487,6 @@ class StrategySelector(QDialog):
                                     # Ищем VBScript блок, как в примере
                                     if '"%vbsSilent%" (' in bat_content:
                                         # Ищем все строки с "echo cmd = cmd ^& ""
-                                        import re
                                         cmd_lines = re.findall(r'echo cmd = cmd \^& "(.*?)"', bat_content)
                                         
                                         if cmd_lines:

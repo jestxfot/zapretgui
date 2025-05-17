@@ -1,12 +1,2 @@
-=== Zapret GUI Log - Started 2025-05-17 16:14:41 ===
+=== Zapret GUI Log - Started 2025-05-17 19:23:58 ===
 
-[16:14:42] [TRAY] Запуск приложения в обычном режиме
-[16:14:42] [INFO] initialize_managers_and_services: quick part
-[16:14:42] [INFO] Process-monitor thread started
-[16:14:42] [DEBUG] winws.exe state → False
-[16:14:42] [DOWNLOAD] Все файлы уже загружены и готовы к использованию
-[16:14:42] [INFO] Автозапуск DPI: стратегия «Оригинальная bol-van v2 (07.04.2025)»
-[16:14:42] [INFO] [DPIStarter] RUN: cmd /c E:\bin\zapretgui\bin\original_bolvan_v2.bat (hidden)
-[16:14:43] [INFO] [DPIStarter] Запущена стратегия: Оригинальная bol-van v2 (07.04.2025), PID: неизвестен
-[16:14:43] [INFO] Текущая версия (2025.0.0.dev4) - тестовый билд. Проверка обновлений пропущена.
-[16:14:46] [INFO] Выход без остановки DPI (только GUI)
