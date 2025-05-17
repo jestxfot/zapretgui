@@ -30,7 +30,6 @@ from dns import DNSSettingsDialog
 from updater import check_and_run_update
 from strategy_selector import StrategySelector
 from app_menubar import AppMenuBar
-
 from reg import get_last_strategy, set_last_strategy
 from log import log
 
