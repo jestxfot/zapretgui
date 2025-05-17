@@ -12,7 +12,7 @@ def _is_windows_11() -> bool:
 def _wt_stub_exists() -> bool:
     """
     Быстрая проверка: у MS-Store-версии всегда присутствует stub
-    %USERPROFILE%\AppData\Local\Microsoft\WindowsApps\wt.exe.
+    %USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe.
     """
     stub = (
         Path(os.environ["USERPROFILE"])

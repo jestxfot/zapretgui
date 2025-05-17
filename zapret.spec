@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['C:\\root\\bin\\zapretgui\\main.py'],
+    ['E:\\bin\\zapretgui\\main.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -36,5 +36,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version='version_info.txt',
-    icon=['C:\\root\\bin\\zapretgui\\zapret.ico'],
+    icon=['E:\\bin\\zapretgui\\zapret.ico'],
 )

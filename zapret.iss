@@ -29,12 +29,7 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 Source: "dist\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
-Source: "dist\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion;   Excludes: "aaaaaaaaa"
-Source: "dist\bin\aaaaaaaaa";        DestDir: "{app}\bin";  Flags: onlyifdoesntexist ignoreversion
-Source: "dist\bin\winws.exe";        DestDir: "{app}\bin";  Flags: onlyifdoesntexist ignoreversion
-
-
-[Files]
+Source: "dist\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
 	   
 [Icons]
 Name: "{group}\Zapret";              Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"

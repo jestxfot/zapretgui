@@ -1,2 +1,10 @@
-=== Zapret GUI Log - Started 2025-05-06 22:42:29 ===
+=== Zapret GUI Log - Started 2025-05-17 12:41:22 ===
 
+[12:41:23] [TRAY] Запуск приложения в обычном режиме
+[12:41:23] [INFO] initialize_managers_and_services: quick part
+[12:41:23] [INFO] Process-monitor thread started
+[12:41:23] [DEBUG] winws.exe state → True
+[12:41:23] [DOWNLOAD] Все файлы уже загружены и готовы к использованию
+[12:41:23] [INFO] Автозапуск DPI отключён пользователем.
+[12:41:23] [INFO] Текущая версия (2025.0.0.dev4) - тестовый билд. Проверка обновлений пропущена.
+[12:41:33] [INFO] Выход без остановки DPI (только GUI)

@@ -1,10 +1,11 @@
 # autostart_remove.py
+
 """
 Удаление ВСЕХ способов автозапуска Zapret:
-  • ярлыки в Startup
-  • CurrentVersion\Run
-  • задачи планировщика (ZapretStrategy / ZapretCensorliber)
-  • старая служба ZapretCensorliber
+  ярлыки в Startup
+  CurrentVersion\\Run
+  задачи планировщика (ZapretStrategy / ZapretCensorliber)
+  старая служба ZapretCensorliber
 """
 
 import os
@@ -60,7 +61,7 @@ class AutoStartCleaner:
     @staticmethod
     def _remove_autostart_registry() -> bool:
         try:
-            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+            key_path = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                 key_path, 0, winreg.KEY_WRITE) as key:
                 try:
