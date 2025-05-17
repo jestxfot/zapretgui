@@ -95,7 +95,6 @@ def stop_dpi2(self):
             service_manager = ServiceManager(
                 winws_exe=self.winws_exe,
                 bin_folder=self.bin_folder,
-                lists_folder=self.lists_folder,
                 status_callback=self.set_status
             )
             service_exists = service_manager.check_service_exists()

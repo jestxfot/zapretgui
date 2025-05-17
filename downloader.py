@@ -10,13 +10,12 @@ DOWNLOAD_URLS = {
     "stop.bat": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat",
 }
 
-def download_files(bin_folder, lists_folder, download_urls, status_callback=None):
+def download_files(bin_folder, download_urls, status_callback=None):
     """
     Скачивает необходимые файлы с GitHub
     
     Args:
         bin_folder (str): Путь к папке bin
-        lists_folder (str): Путь к папке lists
         download_urls (dict): Словарь с именами файлов и URL для скачивания
         status_callback (function): Функция для отображения статуса скачивания
         
@@ -26,7 +25,6 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
     try:
         # Создаем папки если они не существуют
         os.makedirs(bin_folder, exist_ok=True)
-        os.makedirs(lists_folder, exist_ok=True)
         
         from log import log
         # Функция для вывода статуса, если передана
@@ -78,7 +76,6 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
             "youtube.txt",
             "youtube_v2.txt",
             "youtubeGV.txt", 
-            "other.txt", 
             "discord.txt",
             "faceinsta.txt",
             "russia-youtube-rtmps.txt",
@@ -87,7 +84,7 @@ def download_files(bin_folder, lists_folder, download_urls, status_callback=None
         ]
         
         for listfile in default_lists:
-            filepath = os.path.join(lists_folder, listfile)
+            filepath = os.path.join(bin_folder, listfile)
             if not os.path.exists(filepath):
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("# Добавьте адреса сайтов по одному на строку\n")

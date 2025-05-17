@@ -44,7 +44,7 @@ def toggle_discord_restart(
     # ----- хотим ОТКЛЮЧИТЬ ------------------------------------------------
     if current:
         msg = QMessageBox(parent)
-        msg.setIcon(QMessageBox.warning)
+        msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle("Отключение автоперезапуска Discord")
         msg.setText("Вы действительно хотите отключить автоматический "
                     "перезапуск Discord?")

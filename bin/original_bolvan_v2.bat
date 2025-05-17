@@ -1,13 +1,5 @@
-@echo off
-whoami /groups | find "S-1-5-32-544" >nul 2>&1 && goto :ADMIN
-powershell -nop -c "Start-Process '%~f0' -arg @('ELEV','%*') -Verb RunAs"
-exit /b
-:ADMIN
-if /i "%1"=="ELEV" shift
-
 taskkill /f /im winws.exe
 sc stop windivert
-sc delete windivert
 sc delete windivert
 cd /d "%~dp0"
 

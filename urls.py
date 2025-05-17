@@ -5,4 +5,4 @@ EXE_UPDATE_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=mai
 INFO_URL = "https://github.com/youtubediscord/zapret_youtube_discord"  # URL с информацией о программе
 AUTHOR_URL = "https://t.me/bypassblock"  # URL автора
 PROXY_DOMAINS_URL = "https://zapret.vercel.app/proxy_domains.txt"  # URL со списком прокси-доменов
-OTHER_LIST_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=other.txt" 
+NETROGAT_LIST_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=netrogat.txt" 

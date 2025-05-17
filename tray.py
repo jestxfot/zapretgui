@@ -143,7 +143,7 @@ class SystemTrayManager:
 
         cmd, ok = QInputDialog.getText(
             self.parent, "Консоль", "Введите команду:",
-            QLineEdit.Normal, ""
+            QLineEdit.EchoMode.Normal, ""
         )
         if ok and cmd:
             if cmd.lower() == "ркн":

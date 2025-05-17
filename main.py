@@ -19,7 +19,7 @@ from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
-from config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, LISTS_FOLDER, ICON_PATH, WIDTH, HEIGHT
+from config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
 from hosts import HostsManager
 from service import ServiceManager
 from autostart_remove import AutoStartCleaner
@@ -446,7 +446,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.service_manager = ServiceManager(
             winws_exe    = WINWS_EXE,
             bin_folder   = BIN_FOLDER,
-            lists_folder = LISTS_FOLDER,
             status_callback = self.set_status,
             ui_callback     = self.update_ui)
 
@@ -645,7 +644,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.dpi_starter = DPIStarter(
             winws_exe   = WINWS_EXE,
             bin_folder  = BIN_FOLDER,
-            lists_folder= LISTS_FOLDER,
             status_callback = self.set_status,
             ui_callback     = self.update_ui
         )
@@ -688,8 +686,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # дополнительные кнопки (по тексту)
         self.extra_2_0_btn.clicked.connect(self.open_folder)
         self.extra_2_1_btn.clicked.connect(self.open_connection_test)
-        self.extra_3_0_btn.clicked.connect(self.update_other_list)
-        self.extra_3_1_btn.clicked.connect(self.open_general)
+        self.extra_3_0_btn.clicked.connect(self.update_netrogat_list)
+        self.extra_3_1_btn.clicked.connect(self.open_netrogat)
         self.extra_4_0_btn.clicked.connect(self.nope)
         self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
         self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
@@ -792,10 +790,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             self.set_status(f"Ошибка при открытии папки: {str(e)}")
 
-    def open_general(self):
-        """Opens the list-general.txt file."""
+    def open_netrogat(self):
+        """Opens the netrogat.txt file."""
         try:
-            general_path = os.path.join(LISTS_FOLDER, 'other.txt')
+            general_path = os.path.join(BIN_FOLDER, 'netrogat.txt')
             # Проверяем существование файла и создаем его при необходимости
             if not os.path.exists(general_path):
                 os.makedirs(os.path.dirname(general_path), exist_ok=True)
@@ -949,10 +947,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         dialog = ConnectionTestDialog(self)
         dialog.exec()
 
-    def update_other_list(self):
-        """Обновляет файл списка other.txt с удаленного сервера"""
-        from update_other import update_other_list as _update_other_list
-        _update_other_list(parent=self, status_callback=self.set_status)
+    def update_netrogat_list(self):
+        """Обновляет файл списка netrogat.txt с удаленного сервера"""
+        from update_netrogat import update_netrogat_list as _update_netrogat_list
+        _update_netrogat_list(parent=self, status_callback=self.set_status)
 
     def open_dns_settings(self):
         """Открывает диалог настройки DNS-серверов"""

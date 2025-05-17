@@ -18,19 +18,17 @@ class DPIStarter:
         if self.ui_callback:
             self.ui_callback(running)
 
-    def __init__(self, winws_exe, bin_folder, lists_folder, status_callback=None, ui_callback=None):
+    def __init__(self, winws_exe, bin_folder, status_callback=None, ui_callback=None):
         """
         Инициализирует DPIStarter.
         
         Args:
             winws_exe (str): Путь к исполняемому файлу winws.exe
             bin_folder (str): Путь к папке с бинарными файлами
-            lists_folder (str): Путь к папке со списками
             status_callback (callable): Функция обратного вызова для отображения статуса
         """
         self.winws_exe = winws_exe
         self.bin_folder = bin_folder
-        self.lists_folder = lists_folder
         self.status_callback = status_callback
         self.ui_callback = ui_callback
     
@@ -56,7 +54,6 @@ class DPIStarter:
         from downloader import download_files
         return download_files(
             bin_folder=self.bin_folder,
-            lists_folder=self.lists_folder,
             download_urls=download_urls,
             status_callback=self.set_status
         )

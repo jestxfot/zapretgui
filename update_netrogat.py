@@ -5,13 +5,11 @@ import subprocess
 from PyQt6.QtWidgets import QMessageBox
 
 # Импортируем константы из urls и config
-from urls import OTHER_LIST_URL
-from config import LISTS_FOLDER
+from urls import NETROGAT_LIST_URL
+from config import BIN_FOLDER
 
-def update_other_list(parent=None, status_callback=None):
+def update_netrogat_list(parent=None, status_callback=None):
     """
-    Обновляет файл списка other.txt с удаленного сервера
-    
     Args:
         parent: Родительское окно для диалогов
         status_callback: Функция для отображения статуса
@@ -31,15 +29,15 @@ def update_other_list(parent=None, status_callback=None):
             import requests
         
         # Путь к локальному файлу
-        other_path = os.path.join(LISTS_FOLDER, 'other.txt')
+        netrogat_path = os.path.join(BIN_FOLDER, 'netrogat.txt')
         
         # Создаем директорию, если она не существует
-        os.makedirs(os.path.dirname(other_path), exist_ok=True)
+        os.makedirs(os.path.dirname(netrogat_path), exist_ok=True)
         
         # Скачиваем файл с сервера
         if status_callback:
             status_callback("Загрузка списка доменов...")
-        response = requests.get(OTHER_LIST_URL, timeout=10)
+        response = requests.get(NETROGAT_LIST_URL, timeout=10)
         
         if response.status_code == 200:
             # Обрабатываем полученное содержимое
@@ -54,8 +52,8 @@ def update_other_list(parent=None, status_callback=None):
             
             # Читаем текущий файл, если он существует
             current_content = ""
-            if os.path.exists(other_path):
-                with open(other_path, 'r', encoding='utf-8') as f:
+            if os.path.exists(netrogat_path):
+                with open(netrogat_path, 'r', encoding='utf-8') as f:
                     # Также обрабатываем существующее содержимое
                     current_domains = []
                     for line in f:
@@ -65,14 +63,14 @@ def update_other_list(parent=None, status_callback=None):
                     current_content = "\n".join(current_domains)
             
             # Если файла нет или содержимое отличается
-            if not os.path.exists(other_path) or current_content != downloaded_content:
+            if not os.path.exists(netrogat_path) or current_content != downloaded_content:
                 # Делаем резервную копию текущего файла
-                if os.path.exists(other_path):
-                    backup_path = other_path + '.bak'
-                    shutil.copy2(other_path, backup_path)
+                if os.path.exists(netrogat_path):
+                    backup_path = netrogat_path + '.bak'
+                    shutil.copy2(netrogat_path, backup_path)
                 
                 # Сохраняем новый файл (без пустых строк)
-                with open(other_path, 'w', encoding='utf-8') as f:
+                with open(netrogat_path, 'w', encoding='utf-8') as f:
                     f.write(downloaded_content)
                     
                 if status_callback:

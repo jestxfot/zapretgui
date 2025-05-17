@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QMessageBox, QApplication
 import ctypes, sys, subprocess, winreg
 
 # Импортируем константы из конфига
-from config import BIN_FOLDER, LISTS_FOLDER
+from config import BIN_FOLDER
 
 def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
     """
@@ -69,7 +69,7 @@ def check_path_for_onedrive() -> tuple[bool, str]:
     current_path = os.path.abspath(os.getcwd())
     exe_path     = os.path.abspath(sys.executable)
 
-    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
+    paths_to_check = [current_path, exe_path, BIN_FOLDER]
 
     for path in paths_to_check:
         if is_in_onedrive(path):
@@ -111,7 +111,7 @@ def check_path_for_special_chars():
     current_path = os.path.abspath(os.getcwd())
     exe_path = os.path.abspath(sys.executable)
     
-    paths_to_check = [current_path, exe_path, BIN_FOLDER, LISTS_FOLDER]
+    paths_to_check = [current_path, exe_path, BIN_FOLDER]
     
     for path in paths_to_check:
         if contains_special_chars(path):
