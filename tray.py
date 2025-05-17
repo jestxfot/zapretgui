@@ -69,20 +69,6 @@ class SystemTrayManager:
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
-        # ──── НОВЫЙ ПУНКТ: "Автозапуск DPI" ────
-        self.auto_dpi_act = QAction("Автозапуск DPI", self.parent,
-                                    checkable=True)
-        self.auto_dpi_act.setChecked(get_dpi_autostart())     # текущее состояние
-        self.auto_dpi_act.toggled.connect(self.toggle_dpi_autostart)
-        menu.addAction(self.auto_dpi_act)
-        # ───────────────────────────────────────
-
-        self.auto_strat_act = QAction("Автозагрузка стратегий", self.parent,
-                                    checkable=True)
-        self.auto_strat_act.setChecked(get_strategy_autoload())
-        self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
-        menu.addAction(self.auto_strat_act)
-
         menu.addSeparator()
 
         # консоль
@@ -118,44 +104,6 @@ class SystemTrayManager:
 
         self.tray_icon.hide()
         QApplication.quit()
-
-    def toggle_strategy_autoload(self, enabled: bool):
-        """
-        При выключении показываем страшное предупреждение.
-        Если пользователь нажмёт «Нет» – ничего не меняем.
-        """
-        # пользователь хочет ОТКЛЮЧИТЬ авто-скачивание
-        if not enabled:
-            warn = (
-                "<b>Вы действительно хотите ОТКЛЮЧИТЬ автозагрузку "
-                "стратегий?</b><br><br>"
-                "⚠️  Это <span style='color:red;font-weight:bold;'>сломает</span> "
-                "быстрое и удобное обновление стратегий "
-                "<u>без</u> переустановки всей программы! "
-                "<br>Будьте аккуратны!"
-            )
-            resp = QMessageBox.question(
-                self.parent,
-                "Отключить автозагрузку стратегий?",
-                warn,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-            if resp != QMessageBox.StandardButton.Yes:
-                # Пользователь передумал – возвращаем галку и выходим
-                self.auto_strat_act.blockSignals(True)
-                self.auto_strat_act.setChecked(True)
-                self.auto_strat_act.blockSignals(False)
-                return        # в реестр ничего не пишем
-
-        # сохраняем выбор
-        set_strategy_autoload(enabled)
-
-        # уведомление
-        msg = ("Стратегии будут скачиваться автоматически"
-               if enabled
-               else "Автозагрузка стратегий отключена")
-        self.show_notification("Zapret", msg)
 
     # ------------------------------------------------------------------
     # 2) СТАРОЕ ПОВЕДЕНИЕ – остановить DPI и выйти
@@ -211,13 +159,6 @@ class SystemTrayManager:
         self.parent.showNormal()
         self.parent.activateWindow()
         self.parent.raise_()
-
-    # ---------- обработчик переключателя -----------------------------
-    def toggle_dpi_autostart(self, enabled: bool):
-        set_dpi_autostart(enabled)
-        msg = "DPI будет запускаться автоматически при старте программы" if enabled \
-              else "Автоматическое включение DPI при старте программы отключено"
-        self.show_notification("Zapret", msg)
 
     # ------------------------------------------------------------------
     #  ВСПОМОГАТЕЛЬНЫЕ

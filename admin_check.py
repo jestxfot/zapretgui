@@ -1,6 +1,6 @@
 # admin_check.py
 
-import os, sys, ctypes
+import os, ctypes
 from ctypes import wintypes
 
 def is_admin() -> bool:
@@ -17,7 +17,7 @@ def is_admin() -> bool:
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except AttributeError:
-        return False
+        pass
 
     # --- Vista+ -----------------------------------------------------
     #   проверяем тип токена: Limited / Split / Full

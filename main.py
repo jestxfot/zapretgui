@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 from ui_main import MainWindowUI
 from admin_check import is_admin
 from process_monitor import ProcessMonitorThread
-from heavy_worker import HeavyWorker
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
 from config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, LISTS_FOLDER, ICON_PATH, WIDTH, HEIGHT
@@ -28,12 +27,9 @@ from start import DPIStarter
 from theme import ThemeManager, BUTTON_STYLE, COMMON_STYLE
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
-from urls import AUTHOR_URL, INFO_URL
 from updater import check_and_run_update
 from strategy_selector import StrategySelector
 from app_menubar import AppMenuBar
-
-from tg_log_delta import LogDeltaDaemon, get_client_id
 
 from reg import get_last_strategy, set_last_strategy
 from log import log
@@ -697,9 +693,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_4_0_btn.clicked.connect(self.nope)
         self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
         self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
-        self.extra_6_0_btn.clicked.connect(self.show_logs)
-        self.extra_6_1_btn.clicked.connect(self.send_log_to_tg)
-        self.extra_7_0_btn.clicked.connect(self.manual_update_check)
+        self.extra_6_0_btn.clicked.connect(self.manual_update_check)
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -977,32 +971,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
             log(f"Ошибка при открытии настроек DNS: {str(e)}", level="ERROR")
             self.set_status(error_msg)
-
-    def show_logs(self):
-        """Shows the application logs in a dialog"""
-        try: 
-            from log import get_log_content, LogViewerDialog
-            log_content = get_log_content()
-            log_dialog = LogViewerDialog(self, log_content)
-            log_dialog.exec()
-        except Exception as e:
-            self.set_status(f"Ошибка при открытии журнала: {str(e)}")
-
-    def send_log_to_tg(self):
-        """Отправляет текущий лог-файл в Telegram."""
-        try:
-            from tg_sender import send_log_to_tg
-            # путь к вашему лог-файлу (как в модуле log)
-            LOG_PATH = "zapret_log.txt"
-
-            caption = f"Zapret log  (ID: {get_client_id()}, v{APP_VERSION})"
-            send_log_to_tg(LOG_PATH, caption)
-
-            QMessageBox.information(self, "Отправка",
-                                    "Лог отправлен боту.")
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка",
-                                f"Не удалось отправить лог:\n{e}")
 
     def init_tray_if_needed(self):
         """Инициализирует системный трей, если он еще не был инициализирован"""

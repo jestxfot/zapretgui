@@ -242,41 +242,58 @@ class DPIStarter:
         # -------- 3. Внутренняя функция реального запуска -----------------
         def _do_start() -> bool:
             try:
-                abs_bat = os.path.abspath(bat_path)          # гарантируем абсолютный
-                cmd = ["cmd", "/c", abs_bat]                 # ← подставляем его
+                # -----------------------------------------------------------
+                # 1. Стартуем .bat
+                # -----------------------------------------------------------
+                abs_bat = os.path.abspath(bat_path)          # гарантируем абсолютный путь
+                cmd     = ["cmd", "/c", abs_bat]
                 log(f"[DPIStarter] RUN: {' '.join(cmd)} (hidden)", level="INFO")
 
                 subprocess.Popen(
-                        cmd,
-                        cwd=os.path.dirname(abs_bat),        # можно BIN_DIR; главное – верный bat
-                        creationflags=0x08000000)
-                self._set_status(f"Запущена стратегия: {selected_mode}")
-                
-                # Даем процессу время запуститься
-                time.sleep(1)
-                
-                # Теперь проверяем PID запущенного процесса
-                try:
-                    result = subprocess.run(
-                        'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
-                        shell=True, 
-                        capture_output=True, 
-                        text=True
-                    )
-                    
-                    pid = "неизвестен"
-                    import re
-                    pid_match = re.search(r'"winws\.exe","(\d+)"', result.stdout)
-                    if pid_match:
-                        pid = pid_match.group(1)
-                        log(f"[DPIStarter] Определен PID процесса winws.exe: {pid}", level="INFO")
-                except Exception as pid_err:
-                    log(f"[DPIStarter] Не удалось определить PID: {pid_err}", level="WARNING")
-                    pid = "неизвестен"
+                    cmd,
+                    cwd=os.path.dirname(abs_bat),            # важна правильная папка запуска
+                    creationflags=0x0800_0000)               # CREATE_NO_WINDOW
+                log(f"[DPIStarter] Запущена стратегия: {selected_mode}", level="INFO")
 
-                log(f"[DPIStarter] Запущена стратегия: {selected_mode}, PID: {pid}", level="INFO")
+                # даём процессу время появиться в списке
+                time.sleep(1)
+
+                # -----------------------------------------------------------
+                # 2. Пытаемся найти PID процесса winws.exe
+                # -----------------------------------------------------------
+                pid     = "неизвестен"
+                result  = subprocess.run(
+                    r'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
+                    shell=True, capture_output=True, text=True
+                )
+
+                if result.returncode != 0:
+                    # tasklist вернул ошибку (маловероятно, но бывает)
+                    log(f"[DPIStarter] tasklist завершился с кодом {result.returncode}: "
+                        f"{result.stderr.strip()}", level="WARNING")
+
+                else:
+                    # tasklist отработал успешно — смотрим вывод
+                    if '"winws.exe"' in result.stdout:
+                        # процесс найден, вытаскиваем PID
+                        import re
+                        m = re.search(r'"winws\.exe","(\d+)"', result.stdout)
+                        if m:
+                            pid = m.group(1)
+                            log(f"[DPIStarter] Определён PID процесса winws.exe: {pid}", level="INFO")
+                        else:
+                            # имя есть, а PID не смогли вытащить (редкая ситуация)
+                            log("[DPIStarter] Не удалось извлечь PID из вывода tasklist", level="WARNING")
+                    else:
+                        # в выводе нет строки с winws.exe
+                        log("[DPIStarter] Процесс winws.exe не найден", level="WARNING")
+
+                # -----------------------------------------------------------
+                # 3. Обновляем UI и выходим
+                # -----------------------------------------------------------
                 self._update_ui(True)
                 return True
+
             except Exception as e:
                 log(f"[DPIStarter] ошибка запуска: {e}", level="ERROR")
                 self._set_status(f"Ошибка запуска: {e}")
