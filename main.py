@@ -31,6 +31,7 @@ from dns import DNSSettingsDialog
 from urls import AUTHOR_URL, INFO_URL
 from updater import check_and_run_update
 from strategy_selector import StrategySelector
+from app_menubar import AppMenuBar
 
 from tg_log_delta import LogDeltaDaemon, get_client_id
 
@@ -670,6 +671,17 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # Инициализируем интерфейс
         self.build_ui(width=WIDTH, height=HEIGHT)
+        # 1. Создаём объект меню, передаём self как parent,
+        #    чтобы внутри можно было обращаться к методам LupiDPIApp
+        self.menu_bar = AppMenuBar(self)
+
+        # 2. Вставляем строку меню в самый верхний layout.
+        #
+        # В build_ui() у вас, скорее всего, главный QVBoxLayout —
+        # возьмём его через self.layout() и «прикрутим» меню:
+        root_layout = self.layout()
+        root_layout.setMenuBar(self.menu_bar)
+
         # показываем тот же CID, который использует Telegram-бот
         cid = get_client_id()
         self.set_device_id(cid)                 # <<< одна строка
@@ -692,10 +704,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.extra_4_0_btn.clicked.connect(self.nope)
         self.extra_4_1_btn.clicked.connect(self.open_dns_settings)
         self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
-        self.extra_6_0_btn.clicked.connect(self.open_info)
-        self.extra_7_0_btn.clicked.connect(self.show_logs)
-        self.extra_7_1_btn.clicked.connect(self.send_log_to_tg)
-        self.extra_8_0_btn.clicked.connect(self.manual_update_check)
+        self.extra_6_0_btn.clicked.connect(self.show_logs)
+        self.extra_6_1_btn.clicked.connect(self.send_log_to_tg)
+        self.extra_7_0_btn.clicked.connect(self.manual_update_check)
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -786,16 +797,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status(f"Тема изменена на: {theme_name}")
         else:
             self.set_status(message)
-
-    def open_info(self):
-        """Opens the info website."""
-        try:
-            webbrowser.open(INFO_URL)
-            self.set_status("Открываю руководство...")
-        except Exception as e:
-            error_msg = f"Ошибка при открытии руководства: {str(e)}"
-            print(error_msg)
-            self.set_status(error_msg)
 
     def open_folder(self):
         """Opens the DPI folder."""
