@@ -1,7 +1,8 @@
-/__pycache__
+__pycache__
 /build
 version_info.txt
 main.spec
 dist/zapret_log.txt
 *.exe
 /dist/lists
+bin/

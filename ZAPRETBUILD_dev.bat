@@ -1,27 +1,43 @@
 @echo off
-rem ──────────────────────────────────────────────────────────────
-rem  build.bat  –  build + clean
-rem ──────────────────────────────────────────────────────────────
-setlocal EnableDelayedExpansion
+rem ───────────────────────────────────────────────────────────────
+rem  build.bat  —  PyInstaller build + clean   (UAC-friendly)
+rem ───────────────────────────────────────────────────────────────
 
-rem -------- пути ------------------------------------------------
+rem 0. Всегда работаем из папки, где лежит .bat
+cd /d "%~dp0"
+
+rem 1. Если не admin → перезапускаем скрипт с Run-as-Admin
+::  в elevated-копию передаём аргумент  --elevated
+::  и каталог через  -WorkingDirectory
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -NoProfile -Command ^
+      "Start-Process -FilePath '%comspec%' -ArgumentList '/c','\"%~f0\" --elevated' -Verb RunAs -WorkingDirectory '%~dp0'"
+    exit /b
+)
+
+rem 2. (опционально) при повторном входе можно удалить флаг аргумента
+if "%1"=="--elevated" shift
+
+rem ───── переменные путей ────────────────────────────────────────
+setlocal EnableDelayedExpansion
 set ROOT=%cd%
 set OUT=%ROOT%\..\zapret
 set WORK=%TEMP%\pyi_%RANDOM%
 
-rem -------- очистка прошлых __pycache__ -------------------------
-echo Cleaning old __pycache__ ...
-for /d /r "%ROOT%" %%d in (__pycache__) do (
-    if exist "%%d" rd /s /q "%%d"
+rem ───── чистим старые кеши ──────────────────────────────────────
+for /d /r "%ROOT%" %%d in (__pycache__) do rd /s /q "%%d" 2>nul
+
+rem ───── генерируем version_info.txt ─────────────────────────────
+python "%ROOT%\zapretbuild.py" || goto :failed
+
+rem ───── гасим старый zapret.exe (если запущен) ─────────────────
+tasklist /fi "imagename eq zapret.exe" | find /i "zapret.exe" >nul
+if not errorlevel 1 (
+    taskkill /f /t /im zapret.exe 2>nul
 )
 
-rem -------- version_info.txt ------------------------------------
-echo Gen file version...
-python zapretbuild.py
-if errorlevel 1 goto :failed
-
-rem -------- PyInstaller ----------------------------------------
-echo Building...
+rem ───── PyInstaller ────────────────────────────────────────────
 python -m PyInstaller ^
         --onefile ^
         --console ^
@@ -34,22 +50,15 @@ python -m PyInstaller ^
         --hidden-import=pythoncom ^
         --workpath "%WORK%" ^
         --distpath "%OUT%" ^
-        "%ROOT%\main.py"
-if errorlevel 1 goto :failed
+        "%ROOT%\main.py" || goto :failed
 
-rem -------- удаляем временный work-каталог ----------------------
-rd /s /q "%WORK%"
+rem ───── удаляем временный workpath и свежие __pycache__ ─────────
+rd /s /q "%WORK%" 2>nul
+for /d /r "%ROOT%" %%d in (__pycache__) do rd /s /q "%%d" 2>nul
 
-rem -------- удаляем новые __pycache__ (если появились) ----------
-echo Cleaning fresh __pycache__ ...
-for /d /r "%ROOT%" %%d in (__pycache__) do (
-    if exist "%%d" rd /s /q "%%d"
-)
-
-echo Done!  Exe is in "%OUT%"
 pause
 goto :eof
 
 :failed
-echo Build FAILED & pause
+pause
 exit /b 1

@@ -1,6 +1,6 @@
 # app_menubar.py
 
-from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox
+from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox, QApplication
 from PyQt6.QtGui     import QKeySequence, QAction
 import webbrowser
 
@@ -45,6 +45,9 @@ class AppMenuBar(QMenuBar):
         act_exit.triggered.connect(parent.close)
         file_menu.addAction(act_exit)
 
+        full_exit_act = QAction("Полностью выйти", self, shortcut=QKeySequence("Ctrl+Shift+Q"))
+        full_exit_act.triggered.connect(self.full_exit)
+        file_menu.addAction(full_exit_act)
 
         # -------- 2. «Телеметрия / Настройки» ------------------------------
         telemetry_menu = self.addMenu("&Телеметрия")
@@ -119,6 +122,69 @@ class AppMenuBar(QMenuBar):
                else "Автозагрузка стратегий отключена")
         self._set_status(msg)
         QMessageBox.information(self.parent, "Автозагрузка стратегий", msg)
+
+    # ==================================================================
+    #  Полный выход (убираем трей +, при желании, останавливаем DPI)
+    # ==================================================================
+
+    def full_exit(self):
+        # -----------------------------------------------------------------
+        # 1. Диалог на русском, но с англ. подсказками в тексте
+        # -----------------------------------------------------------------
+        box = QMessageBox(self.parent)
+        box.setWindowTitle("Выход")
+        box.setIcon(QMessageBox.Icon.Question)
+
+        # сам текст оставляем без изменений
+        box.setText(
+            "Остановить DPI-службу перед выходом?\n"
+            "Да – остановить DPI и выйти\n"
+            "Нет  – выйти, не останавливая DPI\n"
+            "Отмена – остаться в программе"
+        )
+
+        # добавляем три стандартные кнопки
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No  |
+            QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        # ─── Русифицируем подписи ────────────────────────────────────────
+        box.button(QMessageBox.StandardButton.Yes).setText("Да")
+        box.button(QMessageBox.StandardButton.No).setText("Нет")
+        box.button(QMessageBox.StandardButton.Cancel).setText("Отмена")
+
+        # показываем диалог
+        resp = box.exec()
+
+        if resp == QMessageBox.StandardButton.Cancel:
+            return                      # пользователь передумал
+
+        stop_dpi_required = resp == QMessageBox.StandardButton.Yes
+
+        # -----------------------------------------------------------------
+        # 2. Дальше логика выхода (как раньше)
+        # -----------------------------------------------------------------
+        if stop_dpi_required:
+            try:
+                from dpi.stop import stop_dpi
+                stop_dpi(self)
+            except Exception as e:
+                QMessageBox.warning(
+                    self.parent, "Ошибка DPI",
+                    f"Не удалось остановить DPI:\n{e}"
+                )
+
+        if hasattr(self.parent, "process_monitor") and self.parent.process_monitor:
+            self.parent.process_monitor.stop()
+
+        if hasattr(self.parent, "tray_manager"):
+            self.parent.tray_manager.tray_icon.hide()
+
+        self.parent._allow_close = True
+        QApplication.quit()
 
     # ==================================================================
     #  Справка

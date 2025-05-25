@@ -1,0 +1,4 @@
+=== Zapret GUI Log - Started 2025-05-23 12:46:57 ===
+
+[12:46:58] [CHECK_START] Executable path: C:\Program Files\Python313\python.exe
+[12:46:58] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python313\python.exe

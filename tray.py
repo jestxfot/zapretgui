@@ -2,9 +2,9 @@
 
 import os
 
-from PyQt6.QtWidgets import QMenu, QWidget, QApplication, QMessageBox, QStyle, QSystemTrayIcon
-from PyQt6.QtGui     import QAction, QIcon, QCursor
-from PyQt6.QtCore    import Qt, QEvent
+from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
+from PyQt6.QtGui     import QAction, QIcon
+from PyQt6.QtCore    import QEvent
 
 from config.reg import get_dpi_autostart, set_dpi_autostart
 from config.reg import get_strategy_autoload, set_strategy_autoload
@@ -53,7 +53,7 @@ class SystemTrayManager:
             self.tray_icon.setIcon(QIcon(icon_path))
         else:
             self.tray_icon.setIcon(
-                QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+                QApplication.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
             )
             print(f"ОШИБКА: Файл иконки {icon_path} не найден")
 

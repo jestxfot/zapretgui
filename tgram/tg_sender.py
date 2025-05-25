@@ -1,51 +1,69 @@
-# tg_sender.py
+# tgram/tg_sender.py
+"""
+Мини-обёртка для отправки лога (текст / файл) в Telegram-бота.
 
+Зависимостей, кроме requests, нет – поэтому работает синхронно
+и не создаёт предупреждений вида
+    RuntimeWarning: coroutine 'Bot.send_document' was never awaited
+"""
+
+from __future__ import annotations
 from pathlib import Path
-from telegram import Bot
 import requests
 
-from tgram.tg_log_delta import TOKEN, CHAT_ID, _tg_api as call_tg_api
+# ------------------------------------------------------------------
+# общие данные берём из tg_log_delta
+# ------------------------------------------------------------------
+from tgram.tg_log_delta import TOKEN, CHAT_ID, _tg_api as _call_tg_api
 
-TIMEOUT       = 30
+TIMEOUT = 30           # секунд
 
-bot = Bot(token=TOKEN)
-
-def _call_tg_api(method: str, files=None, data=None):
-    """Небольшой хелпер для вызова Telegram Bot API"""
-    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
-    r   = requests.post(url, files=files, data=data, timeout=TIMEOUT)
-    r.raise_for_status()          # если не 200 ⇒ вызовем исключение
-    return r.json()
+# ------------------------------------------------------------------
+# helpers
+# ------------------------------------------------------------------
+def _cut_to_4k(text: str, limit: int = 4000) -> str:
+    """Обрезаем строку до последних 4 000 символов (лимит Telegram)."""
+    return text[-limit:] if len(text) > limit else text
 
 
+# ------------------------------------------------------------------
+# public API
+# ------------------------------------------------------------------
 def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
     """
-    Отправляет содержимое лог-файла ТЕКСТОВЫМ сообщением.
-    Хорошо, когда лог небольшой (≤ 4000 символов).
+    Отправляет содержимое лог-файла текстовым сообщением.
+
+    Если лог > 4 000 символов, берутся последние 4 000.
     """
     path = Path(log_path)
     if not path.exists():
         raise FileNotFoundError(f"{path} not found")
 
     text = path.read_text(encoding="utf-8", errors="replace")
-    # Чтобы не выйти за лимит в 4096 симв. – можно обрезать
-    if len(text) > 4000:
-        text = text[-4000:]                         # последние 4k
+    text = _cut_to_4k(text)
 
     data = {
-        "chat_id" : CHAT_ID,
-        "text"    : (caption + "\n\n" if caption else "") + text,
-        "parse_mode": "HTML"
+        "chat_id": CHAT_ID,
+        "text": f"{caption}\n\n{text}" if caption else text,
+        "parse_mode": "HTML",
     }
     _call_tg_api("sendMessage", data=data)
 
-# уже есть send_log_to_tg(text)  ? оставляем
+
 def send_file_to_tg(file_path: str | Path, caption: str = "") -> None:
-    """Шлём document в TG."""
-    file_path = Path(file_path)
-    with file_path.open("rb") as f:
-        bot.send_document(
-            chat_id=CHAT_ID,
-            document=f,
-            caption=caption or file_path.name
-        )
+    """
+    Отправляет файл (document) через Telegram Bot API.
+
+    Удобно для «полного» лога, когда превышен лимит 4 000 символов.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found")
+
+    with path.open("rb") as fh:
+        files = {"document": fh}
+        data = {
+            "chat_id": CHAT_ID,
+            "caption": caption or path.name,
+        }
+        _call_tg_api("sendDocument", files=files, data=data)
