@@ -49,6 +49,29 @@ class AppMenuBar(QMenuBar):
         full_exit_act.triggered.connect(self.full_exit)
         file_menu.addAction(full_exit_act)
 
+        # === ХОСТЛИСТЫ ===
+        hostlists_menu = self.addMenu("Хостлисты")
+        
+        update_exclusions_action = QAction("Обновить исключения с сервера", self)
+        update_exclusions_action.triggered.connect(self._update_exclusions)
+        hostlists_menu.addAction(update_exclusions_action)
+        
+        exclude_sites_action = QAction("Добавить свой домен в исключения", self)
+        exclude_sites_action.triggered.connect(self._exclude_custom_sites)
+        hostlists_menu.addAction(exclude_sites_action)
+        
+        hostlists_menu.addSeparator()
+        
+        update_custom_sites_action = QAction("Обновить кастомные сайты с сервера", self)
+        update_custom_sites_action.triggered.connect(self._update_custom_sites)
+        hostlists_menu.addAction(update_custom_sites_action)
+        
+        add_custom_sites_action = QAction("Добавить свой домен в кастомные сайты", self)
+        add_custom_sites_action.triggered.connect(self._add_custom_sites)
+        hostlists_menu.addAction(add_custom_sites_action)
+        
+        hostlists_menu.addSeparator()
+
         # -------- 2. «Телеметрия / Настройки» ------------------------------
         telemetry_menu = self.addMenu("&Телеметрия")
 
@@ -185,6 +208,88 @@ class AppMenuBar(QMenuBar):
 
         self.parent._allow_close = True
         QApplication.quit()
+
+    # === ОБРАБОТЧИКИ ДЛЯ ХОСТЛИСТОВ ===
+    def _update_exclusions(self):
+        """Обновляет список исключений"""
+        from log import log
+        from update_netrogat import update_netrogat_list
+        try:
+            if hasattr(self.parent, 'hosts_manager'):
+                self.parent.set_status("Обновление списка исключений...")
+                update_netrogat_list(parent=self.parent, status_callback=self.parent.set_status)
+                QMessageBox.information(self, "Обновление исключений", 
+                                    "Список исключений успешно обновлен!")
+                self.parent.set_status("Готово")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
+        except Exception as e:
+            log(f"Ошибка при обновлении исключений: {e}", level="ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить исключения: {e}")
+
+    def _update_custom_sites(self):
+        """Обновляет список пользовательских сайтов"""
+        from log import log
+        from update_other import update_other_list
+        try:
+            if hasattr(self.parent, 'hosts_manager'):
+                self.parent.set_status("Обновление списка своих сайтов...")
+                update_other_list(parent=self.parent, status_callback=self.parent.set_status)
+                QMessageBox.information(self, "Обновление своих сайтов", 
+                                    "Список пользовательских сайтов успешно обновлен!")
+                self.parent.set_status("Готово")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
+        except Exception as e:
+            log(f"Ошибка при обновлении своих сайтов: {e}", level="ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить свои сайты: {e}")
+
+
+    def _exclude_custom_sites(self):
+        """Открывает файл для исключения пользовательских сайтов"""
+        from log import log
+        try:
+            if hasattr(self.parent, 'open_netrogat'):
+                self.parent.open_netrogat()
+            else:
+                # Резервный вариант
+                import subprocess
+                import os
+                from config.config import BIN_FOLDER
+
+                netrogat_path = os.path.join(BIN_FOLDER, 'netrogat.txt')
+                if not os.path.exists(netrogat_path):
+                    with open(netrogat_path, 'w', encoding='utf-8') as f:
+                        f.write("# Добавьте сюда свои домены, по одному на строку\n")
+
+                subprocess.Popen(f'notepad.exe "{netrogat_path}"', shell=True)
+
+        except Exception as e:
+            log(f"Ошибка при открытии файла пользовательских сайтов: {e}", level="ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
+    
+    def _add_custom_sites(self):
+        """Открывает файл для добавления пользовательских сайтов"""
+        from log import log
+        try:
+            if hasattr(self.parent, 'open_other'):
+                self.parent.open_other()
+            else:
+                # Резервный вариант
+                import subprocess
+                import os
+                from config.config import BIN_FOLDER
+
+                other_path = os.path.join(BIN_FOLDER, 'other.txt')
+                if not os.path.exists(other_path):
+                    with open(other_path, 'w', encoding='utf-8') as f:
+                        f.write("# Добавьте сюда свои домены, по одному на строку\n")
+
+                subprocess.Popen(f'notepad.exe "{other_path}"', shell=True)
+
+        except Exception as e:
+            log(f"Ошибка при открытии файла пользовательских сайтов: {e}", level="ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
 
     # ==================================================================
     #  Справка

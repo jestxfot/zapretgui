@@ -6,3 +6,4 @@ INFO_URL = "https://github.com/youtubediscord/zapret_youtube_discord"  # URL с 
 AUTHOR_URL = "https://t.me/bypassblock"  # URL автора
 PROXY_DOMAINS_URL = "https://zapret.vercel.app/proxy_domains.txt"  # URL со списком прокси-доменов
 NETROGAT_LIST_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=netrogat.txt" 
+OTHER_LIST_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=other.txt" 

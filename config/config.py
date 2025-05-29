@@ -14,7 +14,7 @@ GITHUB_STRATEGIES_JSON_URL = "https://gitflic.ru/project/main1234/main1234/blob/
 STRATEGIES_FOLDER = BIN_FOLDER
 
 WIDTH = 450
-HEIGHT = 700
+HEIGHT = 600
 
 # Discord TCP конфигурации
 

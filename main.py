@@ -688,11 +688,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # дополнительные кнопки (по тексту)
         self.extra_2_0_btn.clicked.connect(self.open_folder)
         self.extra_2_1_btn.clicked.connect(self.open_connection_test)
-        self.extra_3_0_btn.clicked.connect(self.update_netrogat_list)
-        self.extra_3_1_btn.clicked.connect(self.open_netrogat)
-        self.extra_4_0_btn.clicked.connect(self.open_dns_settings)
-        self.extra_5_0_btn.clicked.connect(self.toggle_proxy_domains)
-        self.extra_6_0_btn.clicked.connect(self.manual_update_check)
+        self.extra_3_0_btn.clicked.connect(self.open_dns_settings)
+        self.extra_4_0_btn.clicked.connect(self.toggle_proxy_domains)
+        self.extra_5_0_btn.clicked.connect(self.manual_update_check)
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -791,20 +789,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             self.set_status(f"Ошибка при открытии папки: {str(e)}")
 
-    def open_netrogat(self):
-        """Opens the netrogat.txt file."""
-        try:
-            general_path = os.path.join(BIN_FOLDER, 'netrogat.txt')
-            # Проверяем существование файла и создаем его при необходимости
-            if not os.path.exists(general_path):
-                os.makedirs(os.path.dirname(general_path), exist_ok=True)
-                with open(general_path, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
-            
-            subprocess.Popen(f'notepad.exe "{general_path}"', shell=True)
-        except Exception as e:
-            self.set_status(f"Ошибка при открытии файла: {str(e)}")
-    
     def show_autostart_options(self):
         """Показывает диалог автозапуска (вместо старого подменю)."""
         from autostart.autostart_menu import AutoStartMenu
@@ -944,11 +928,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from connection_test import ConnectionTestDialog
         dialog = ConnectionTestDialog(self)
         dialog.exec()
-
-    def update_netrogat_list(self):
-        """Обновляет файл списка netrogat.txt с удаленного сервера"""
-        from update_netrogat import update_netrogat_list as _update_netrogat_list
-        _update_netrogat_list(parent=self, status_callback=self.set_status)
 
     def open_dns_settings(self):
         """Открывает диалог настройки DNS-серверов"""
