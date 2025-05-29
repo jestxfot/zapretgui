@@ -118,7 +118,7 @@ class SystemTrayManager:
         log("Выход + остановка DPI", level="INFO")
 
         if hasattr(self.parent, 'dpi_starter'):
-            stop_dpi(self)
+            stop_dpi(self.parent)
 
         if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
             self.parent.process_monitor.stop()

@@ -170,7 +170,7 @@ class AppMenuBar(QMenuBar):
         if stop_dpi_required:
             try:
                 from dpi.stop import stop_dpi
-                stop_dpi(self)
+                stop_dpi(self.parent)
             except Exception as e:
                 QMessageBox.warning(
                     self.parent, "Ошибка DPI",
