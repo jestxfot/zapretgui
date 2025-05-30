@@ -5,7 +5,7 @@ from PyQt6.QtGui     import QKeySequence, QAction
 import webbrowser
 
 from config.config import APP_VERSION
-from config.urls   import INFO_URL
+from config.urls import INFO_URL
 from .about_dialog import AboutDialog
 
 # ─── работа с реестром ──────────────────────────
@@ -50,7 +50,7 @@ class AppMenuBar(QMenuBar):
         file_menu.addAction(full_exit_act)
 
         # === ХОСТЛИСТЫ ===
-        hostlists_menu = self.addMenu("Хостлисты")
+        hostlists_menu = self.addMenu("&Хостлисты")
         
         update_exclusions_action = QAction("Обновить исключения с сервера", self)
         update_exclusions_action.triggered.connect(self._update_exclusions)
@@ -218,8 +218,6 @@ class AppMenuBar(QMenuBar):
             if hasattr(self.parent, 'hosts_manager'):
                 self.parent.set_status("Обновление списка исключений...")
                 update_netrogat_list(parent=self.parent, status_callback=self.parent.set_status)
-                QMessageBox.information(self, "Обновление исключений", 
-                                    "Список исключений успешно обновлен!")
                 self.parent.set_status("Готово")
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
@@ -235,8 +233,6 @@ class AppMenuBar(QMenuBar):
             if hasattr(self.parent, 'hosts_manager'):
                 self.parent.set_status("Обновление списка своих сайтов...")
                 update_other_list(parent=self.parent, status_callback=self.parent.set_status)
-                QMessageBox.information(self, "Обновление своих сайтов", 
-                                    "Список пользовательских сайтов успешно обновлен!")
                 self.parent.set_status("Готово")
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
@@ -244,51 +240,110 @@ class AppMenuBar(QMenuBar):
             log(f"Ошибка при обновлении своих сайтов: {e}", level="ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить свои сайты: {e}")
 
-
     def _exclude_custom_sites(self):
         """Открывает файл для исключения пользовательских сайтов"""
         from log import log
         try:
-            if hasattr(self.parent, 'open_netrogat'):
-                self.parent.open_netrogat()
-            else:
-                # Резервный вариант
-                import subprocess
-                import os
-                from config.config import BIN_FOLDER
+            import subprocess
+            import os
+            from config.config import NETROGAT_PATH
 
-                netrogat_path = os.path.join(BIN_FOLDER, 'netrogat.txt')
-                if not os.path.exists(netrogat_path):
-                    with open(netrogat_path, 'w', encoding='utf-8') as f:
-                        f.write("# Добавьте сюда свои домены, по одному на строку\n")
+            if not os.path.exists(NETROGAT_PATH):
+                with open(NETROGAT_PATH, 'w', encoding='utf-8') as f:
+                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
 
-                subprocess.Popen(f'notepad.exe "{netrogat_path}"', shell=True)
+            # Пробуем разные редакторы по полным путям
+            editors = [
+                r'C:\Windows\System32\notepad.exe',                    # Стандартный блокнот
+                r'C:\Windows\notepad.exe',                             # Альтернативный путь
+                r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
+                r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
+                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
+                r'C:\Program Files\Microsoft VS Code\Code.exe',  # VS Code (другой путь)
+                r'C:\Windows\System32\write.exe',                      # WordPad
+            ]
+            
+            success = False
+            for editor in editors:
+                if os.path.exists(editor):
+                    try:
+                        subprocess.Popen(f'"{editor}" "{NETROGAT_PATH}"', shell=True)
+                        editor_name = os.path.basename(editor)
+                        self.parent.set_status(f"Открыт файл исключений в {editor_name}")
+                        success = True
+                        break
+                    except (FileNotFoundError, OSError):
+                        continue
+            
+            if not success:
+                # Если ни один редактор не найден - открываем через ассоциацию Windows
+                try:
+                    self.parent.set_status("Открыт файл исключений в системном редакторе")
+                except Exception as fallback_error:
+                    # Последний вариант - показываем путь к файлу
+                    QMessageBox.information(
+                        self, 
+                        "Мы не нашли никакой редактор :(",
+                        f"Откройте файл вручную:\n{NETROGAT_PATH}\n\n"
+                        "Добавьте туда домены, по одному на строку."
+                    )
+                    self.parent.set_status("Создан файл исключений")
 
         except Exception as e:
-            log(f"Ошибка при открытии файла пользовательских сайтов: {e}", level="ERROR")
+            log(f"Ошибка при открытии файла исключений: {e}", level="ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
-    
+
     def _add_custom_sites(self):
         """Открывает файл для добавления пользовательских сайтов"""
         from log import log
         try:
-            if hasattr(self.parent, 'open_other'):
-                self.parent.open_other()
-            else:
-                # Резервный вариант
-                import subprocess
-                import os
-                from config.config import BIN_FOLDER
+            import subprocess
+            import os
+            from config.config import OTHER_PATH
 
-                other_path = os.path.join(BIN_FOLDER, 'other.txt')
-                if not os.path.exists(other_path):
-                    with open(other_path, 'w', encoding='utf-8') as f:
-                        f.write("# Добавьте сюда свои домены, по одному на строку\n")
+            if not os.path.exists(OTHER_PATH):
+                with open(OTHER_PATH, 'w', encoding='utf-8') as f:
+                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
 
-                subprocess.Popen(f'notepad.exe "{other_path}"', shell=True)
+            # Пробуем разные редакторы по полным путям
+            editors = [
+                r'C:\Windows\System32\notepad.exe',                    # Стандартный блокнот
+                r'C:\Windows\notepad.exe',                             # Альтернативный путь
+                r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
+                r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
+                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
+                r'C:\Program Files\Microsoft VS Code\Code.exe',  # VS Code (другой путь)
+                r'C:\Windows\System32\write.exe',                      # WordPad
+            ]
+            
+            success = False
+            for editor in editors:
+                if os.path.exists(editor):
+                    try:
+                        subprocess.Popen(f'"{editor}" "{OTHER_PATH}"', shell=True)
+                        editor_name = os.path.basename(editor)
+                        self.parent.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
+                        success = True
+                        break
+                    except (FileNotFoundError, OSError):
+                        continue
+            
+            if not success:
+                # Если ни один редактор не найден - открываем через ассоциацию Windows
+                try:
+                    self.parent.set_status("Открыт файл кастомных сайтов в системном редакторе")
+                except Exception as fallback_error:
+                    # Последний вариант - показываем путь к файлу
+                    QMessageBox.information(
+                        self, 
+                        "Мы не нашли никакой редактор :(",
+                        f"Откройте файл вручную:\n{OTHER_PATH}\n\n"
+                        "Добавьте туда домены, по одному на строку."
+                    )
+                    self.parent.set_status("Создан файл кастомных сайтов")
 
         except Exception as e:
-            log(f"Ошибка при открытии файла пользовательских сайтов: {e}", level="ERROR")
+            log(f"Ошибка при открытии файла кастомных сайтов: {e}", level="ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
 
     # ==================================================================

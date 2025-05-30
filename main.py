@@ -1,12 +1,7 @@
 # main.py
 
 """
-pip install PyQt6
-pip install requests
-pip install pywin32
-pip install python-telegram-bot
-pip install psutil
-pip install qt_material
+pip install pyinstaller packaging PyQt6 requests pywin32 python-telegram-bot psutil qt_material
 """
 
 import sys, os, ctypes, subprocess, webbrowser, time
@@ -874,53 +869,96 @@ class LupiDPIApp(QWidget, MainWindowUI):
         is_active = self.hosts_manager.is_proxy_domains_active()
         
         if is_active:
-            # Показываем информационное сообщение о отключении
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Question)
-            msg.setWindowTitle("Отключение разблокировки")
-            msg.setText("Отключить разблокировку сервисов через hosts-файл?")
+            # Показываем меню с вариантами отключения
+            menu = QMenu(self)
             
-            msg.setInformativeText(
-                "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
-                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
-            )
+            disable_all_action = menu.addAction("Отключить всю разблокировку")
+            select_domains_action = menu.addAction("Выбрать домены для отключения")
             
-            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            result = msg.exec()
+            # Получаем положение кнопки для отображения меню
+            button_pos = self.extra_4_0_btn.mapToGlobal(self.extra_4_0_btn.rect().bottomLeft())
             
-            if result == QMessageBox.StandardButton.Yes:
-                if self.hosts_manager.remove_proxy_domains():
-                    self.set_status("Разблокировка отключена. Перезапустите браузер.")
-                    self.update_proxy_button_state()
+            # Показываем меню и получаем выбранное действие
+            action = menu.exec(button_pos)
+            
+            if action == disable_all_action:
+                # Стандартное отключение всех доменов
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Question)
+                msg.setWindowTitle("Отключение разблокировки")
+                msg.setText("Отключить разблокировку сервисов через hosts-файл?")
+                
+                msg.setInformativeText(
+                    "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
+                    "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
+                )
+                
+                msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                result = msg.exec()
+                
+                if result == QMessageBox.StandardButton.Yes:
+                    if self.hosts_manager.remove_proxy_domains():
+                        self.set_status("Разблокировка отключена. Перезапустите браузер.")
+                        self.update_proxy_button_state()
+                    else:
+                        self.set_status("Не удалось отключить разблокировку.")
                 else:
-                    self.set_status("Не удалось отключить разблокировку.")
-            else:
-                self.set_status("Операция отменена.")
+                    self.set_status("Операция отменена.")
+                    
+            elif action == select_domains_action:
+                # Открываем селектор доменов
+                self.show_hosts_selector_dialog()
+            
         else:
-            # Показываем информационное сообщение о включении
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("Разблокировка через hosts-файл")
-            msg.setText("Установка соединения к proxy-серверу через файл hosts")
+            # Показываем меню с вариантами включения
+            menu = QMenu(self)
             
-            msg.setInformativeText(
-                "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
-                "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
-                "(без участия Роскомнадзора).\n\n"
-                "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
-            )
+            enable_all_action = menu.addAction("Включить всю разблокировку")
+            select_domains_action = menu.addAction("Выбрать домены для включения")
             
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-            result = msg.exec()
+            # Получаем положение кнопки для отображения меню
+            button_pos = self.extra_4_0_btn.mapToGlobal(self.extra_4_0_btn.rect().bottomLeft())
             
-            if result == QMessageBox.StandardButton.Ok:
-                if self.hosts_manager.add_proxy_domains():
-                    self.set_status("Разблокировка включена. Перезапустите браузер.")
-                    self.update_proxy_button_state()
+            # Показываем меню и получаем выбранное действие
+            action = menu.exec(button_pos)
+            
+            if action == enable_all_action:
+                # Стандартное включение всех доменов
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Information)
+                msg.setWindowTitle("Разблокировка через hosts-файл")
+                msg.setText("Установка соединения к proxy-серверу через файл hosts")
+                
+                msg.setInformativeText(
+                    "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
+                    "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
+                    "(без участия Роскомнадзора).\n\n"
+                    "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
+                )
+                
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+                result = msg.exec()
+                
+                if result == QMessageBox.StandardButton.Ok:
+                    if self.hosts_manager.add_proxy_domains():
+                        self.set_status("Разблокировка включена. Перезапустите браузер.")
+                        self.update_proxy_button_state()
+                    else:
+                        self.set_status("Не удалось включить разблокировку.")
                 else:
-                    self.set_status("Не удалось включить разблокировку.")
-            else:
-                self.set_status("Операция отменена.")
+                    self.set_status("Операция отменена.")
+                    
+            elif action == select_domains_action:
+                # Открываем селектор доменов
+                self.show_hosts_selector_dialog()
+
+    def show_hosts_selector_dialog(self):
+        """Показывает селектор доменов для hosts файла"""
+        if hasattr(self, 'hosts_manager'):
+            if self.hosts_manager.show_hosts_selector_dialog(self):
+                self.update_proxy_button_state()
+        else:
+            self.set_status("Ошибка: менеджер hosts не инициализирован")
 
     def open_connection_test(self):
         """Открывает окно тестирования соединения."""

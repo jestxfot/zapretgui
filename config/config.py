@@ -2,11 +2,14 @@
 # https://github.com/ankddev/zapret-discord-youtube
 import os
 
-# 2025.0.0.dev8
-BIN_FOLDER, APP_VERSION = "bin", "2025.0.0.dev8"
+# 2025.0.0.dev9
+BIN_FOLDER, APP_VERSION = "bin", "2025.0.0.dev9"
 BIN_DIR = os.path.join(os.getcwd(), "bin")
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
+
+OTHER_PATH = os.path.join(BIN_FOLDER, "other.txt")
+NETROGAT_PATH = os.path.join(BIN_FOLDER, "netrogat.txt")
 
 # Настройки для GitHub стратегий
 GITHUB_STRATEGIES_BASE_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file="
