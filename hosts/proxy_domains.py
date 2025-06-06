@@ -7,8 +7,8 @@ PROXY_DOMAINS = {
     "external-hel3-1.xx.fbcdn.net": "31.13.72.12",
     "www.instagram.com": "157.240.225.174",
     "instagram.com": "157.240.225.174",
-    "scontent.cdninstagram.com": "157.240.247.63",
-    "scontent-hel3-1.cdninstagram.com": "157.240.247.63",
+    "scontent.cdninstagram.com": "157.240.224.63", # 157.240.247.63
+    "scontent-hel3-1.cdninstagram.com": "157.240.224.63",  # 157.240.247.63
     "static.cdninstagram.com": "31.13.72.53",
     "b.i.instagram.com": "157.240.245.174",
     "z-p42-chat-e2ee-ig.facebook.com": "157.240.245.174",
