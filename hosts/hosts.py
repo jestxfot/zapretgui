@@ -240,7 +240,7 @@ class HostsManager:
             if not new_content.endswith('\n'):
                 new_content += '\n'
             
-            new_content += f"\n# Proxy domains added by ZapretGUI\n"
+            new_content += f"\n"
             for domain, ip in PROXY_DOMAINS.items():
                 new_content += f"{ip} {domain}\n"
 
@@ -296,8 +296,8 @@ class HostsManager:
             if not new_content.endswith('\n'):
                 new_content += '\n'
             
-            new_content += f"\n# Proxy domains added by ZapretGUI\n"
-            for domain, ip in selected_proxy_domains.items():
+            new_content += f"\n"
+            for domain, ip in PROXY_DOMAINS.items():
                 new_content += f"{ip} {domain}\n"
 
             if not safe_write_hosts_file(new_content):
