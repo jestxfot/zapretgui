@@ -91,6 +91,10 @@ PROXY_DOMAINS = {
     "netflix.com": "158.255.0.189",
     "www.hulu.com": "2.19.183.66",
     "hulu.com": "2.22.31.233",
+    "soundcloud.com": "18.238.243.27",
+    "style.sndcdn.com": "13.224.222.71",
+    "a-v2.sndcdn.com": "3.164.206.34",
+    "secure.sndcdn.com": "18.165.140.56",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"

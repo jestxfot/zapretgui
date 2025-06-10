@@ -19,6 +19,8 @@
 import os, time, json, requests, subprocess
 from urllib.parse import urljoin
 from log import log
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import signal
 
 SW_HIDE          = 0
 CREATE_NO_WINDOW = 0x08000000
@@ -52,6 +54,11 @@ class StrategyManager:
         self.last_update_time = 0
         self.update_interval  = 3600          # 1 ч
 
+        # Добавляем настройки для обработки зависаний
+        self.download_timeout = 30  # таймаут для скачивания
+        self.max_retries = 3        # максимум попыток
+        self.retry_delay = 2        # задержка между попытками
+
         os.makedirs(self.local_dir, exist_ok=True)
 
         # ленивая загрузка: ничего не качаем, только если явно попросили
@@ -74,8 +81,7 @@ class StrategyManager:
     # ─────────────────────── index.json (GET) ─────────────────────────
     def get_strategies_list(self, *, force_update: bool = False) -> dict:
         """
-        Возвращает словарь стратегий.  По истечении update_interval
-        или при force_update скачивает index.json.
+        Возвращает словарь стратегий с улучшенной обработкой ошибок.
         """
         now = time.time()
 
@@ -88,48 +94,82 @@ class StrategyManager:
         if not need_refresh:
             return self.strategies_cache
 
-        # --- пробуем скачать ------------------------------------------------
-        try:
-            self.set_status("Получение списка стратегий…")
-            index_url = self.json_url or urljoin(self.base_url, "index.json")
-            log(f"GET {index_url}", "DEBUG")
+        # Используем ThreadPoolExecutor для контроля времени выполнения
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            try:
+                future = executor.submit(self._download_strategies_index)
+                result = future.result(timeout=self.download_timeout)
+                return result
+            except TimeoutError:
+                log("Таймаут при загрузке списка стратегий", "ERROR")
+                self.set_status("Таймаут загрузки - используем локальный кэш")
+                return self._load_local_cache()
+            except Exception as e:
+                log(f"Ошибка загрузки списка: {e}", "ERROR")
+                return self._load_local_cache()
 
-            for attempt in range(3):
-                try:
-                    r = requests.get(index_url, timeout=8)
-                    r.raise_for_status()
-                    break
-                except requests.exceptions.RequestException as e:
-                    if attempt == 2:           # последняя попытка
-                        raise
-                    time.sleep(2)              # пауза и ещё раз
+    def _download_strategies_index(self) -> dict:
+        """Внутренний метод для скачивания index.json с retry логикой."""
+        self.set_status("Получение списка стратегий…")
+        index_url = self.json_url or urljoin(self.base_url, "index.json")
+        log(f"GET {index_url}", "DEBUG")
 
-            self.strategies_cache = r.json()
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                # Используем сессию с настройками для лучшей производительности
+                session = requests.Session()
+                session.headers.update({
+                    'User-Agent': 'ZapretGUI/1.0',
+                    'Connection': 'close'  # Закрываем соединение после запроса
+                })
+                
+                response = session.get(
+                    index_url, 
+                    timeout=(10, 30),  # (connect timeout, read timeout)
+                    stream=False
+                )
+                response.raise_for_status()
+                
+                # Проверяем размер ответа
+                if len(response.content) == 0:
+                    raise ValueError("Получен пустой ответ")
+                
+                self.strategies_cache = response.json()
+                self.last_update_time = time.time()
+                self.save_strategies_index()
+                self._loaded = True
 
-            self.last_update_time = now
-            self.save_strategies_index()
-            self._loaded = True
+                self.set_status(f"Получено стратегий: {len(self.strategies_cache)}")
+                log(f"OK, {len(self.strategies_cache)} шт.", "INFO")
+                return self.strategies_cache
 
-            self.set_status(f"Получено стратегий: {len(self.strategies_cache)}")
-            log(f"OK, {len(self.strategies_cache)} шт.", "INFO")
+            except Exception as e:
+                last_error = e
+                log(f"Попытка {attempt + 1}/{self.max_retries} не удалась: {e}", "DEBUG")
+                
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay * (attempt + 1))  # Увеличиваем задержку
+                    self.set_status(f"Повтор попытки {attempt + 2}/{self.max_retries}...")
 
-        except Exception as e:
-            # сеть не доступна → пытаемся взять локальный cache
-            log(f"index.json error: {e}", "ERROR")
-            self.set_status(f"Ошибка загрузки списка стратегий: {e}")
+        # Все попытки неудачны
+        raise last_error or Exception("Неизвестная ошибка")
 
-            index_file = os.path.join(self.local_dir, "index.json")
-            if os.path.isfile(index_file):
-                try:
-                    with open(index_file, encoding="utf-8") as f:
-                        self.strategies_cache = json.load(f)
-                    self._loaded = True
-                    self.set_status("Загружен локальный индекс стратегий")
-                    log("Используем локальный index.json", "INFO")
-                except Exception as e2:
-                    log(f"local index.json read error: {e2}", "ERROR")
-
-        return self.strategies_cache
+    def _load_local_cache(self) -> dict:
+        """Загружает локальный кэш index.json."""
+        index_file = os.path.join(self.local_dir, "index.json")
+        if os.path.isfile(index_file):
+            try:
+                with open(index_file, encoding="utf-8") as f:
+                    self.strategies_cache = json.load(f)
+                self._loaded = True
+                self.set_status("Загружен локальный индекс стратегий")
+                log("Используем локальный index.json", "INFO")
+                return self.strategies_cache
+            except Exception as e:
+                log(f"Ошибка чтения локального индекса: {e}", "ERROR")
+        
+        return {}
 
     def check_strategy_version_status(self, strategy_id: str) -> str:
         """
@@ -211,57 +251,99 @@ class StrategyManager:
     # ─────────────────────── download 1 strategy ──────────────────────
     def download_strategy(self, strategy_id: str) -> str | None:
         """
-        Скачивает (или переиспользует локальную) стратегию .bat
-        и возвращает путь к файлу.
+        Скачивает стратегию с улучшенной обработкой зависаний.
         """
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            try:
+                future = executor.submit(self._download_strategy_sync, strategy_id)
+                return future.result(timeout=self.download_timeout)
+            except TimeoutError:
+                log(f"Таймаут при скачивании {strategy_id}", "ERROR")
+                self.set_status(f"Таймаут скачивания {strategy_id}")
+                
+                # Возвращаем локальную копию если есть
+                strategies = self.strategies_cache or self._load_local_cache()
+                if strategy_id in strategies:
+                    info = strategies[strategy_id]
+                    remote_path = info.get("file_path", f"{strategy_id}.bat")
+                    filename = os.path.basename(remote_path)
+                    local_path = os.path.join(self.local_dir, filename)
+                    return local_path if os.path.isfile(local_path) else None
+                return None
+
+    def _download_strategy_sync(self, strategy_id: str) -> str | None:
+        """Синхронная версия скачивания стратегии."""
         try:
             strategies = self.get_strategies_list()
             if strategy_id not in strategies:
                 self.set_status(f"Стратегия {strategy_id} не найдена")
                 return None
 
-            info          = strategies[strategy_id]
-            remote_path   = info.get("file_path", f"{strategy_id}.bat")
-            filename      = os.path.basename(remote_path)
-            local_path    = os.path.join(self.local_dir, filename)
+            info = strategies[strategy_id]
+            remote_path = info.get("file_path", f"{strategy_id}.bat")
+            filename = os.path.basename(remote_path)
+            local_path = os.path.join(self.local_dir, filename)
             need_download = True
 
-            # проверка версии / времени
+            # Проверка версии / времени
             if os.path.isfile(local_path):
                 if "version" in info:
-                    local_ver = self.get_local_strategy_version(local_path,
-                                                                strategy_id)
+                    local_ver = self.get_local_strategy_version(local_path, strategy_id)
                     if local_ver == info["version"]:
                         need_download = False
                 else:
                     age = time.time() - os.path.getmtime(local_path)
-                    if age < 3600:        # <1 ч
+                    if age < 3600:
                         need_download = False
 
             if not need_download:
                 self.set_status(f"Локальная копия {strategy_id} актуальна")
                 return local_path
 
-            # --- скачиваем ---------------------------------------------------
+            # Скачивание с retry логикой
             self.set_status(f"Скачивание {strategy_id}…")
-            url = (
-                f"https://gitflic.ru/project/main1234/main1234/"
-                f"blob/raw?file={remote_path}"
-            )
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            if not r.content:
-                raise RuntimeError("Получен пустой файл")
+            url = f"https://gitflic.ru/project/main1234/main1234/blob/raw?file={remote_path}"
+            
+            last_error = None
+            for attempt in range(self.max_retries):
+                try:
+                    session = requests.Session()
+                    session.headers.update({
+                        'User-Agent': 'ZapretGUI/1.0',
+                        'Connection': 'close'
+                    })
+                    
+                    response = session.get(
+                        url, 
+                        timeout=(10, 30),
+                        stream=True  # Для больших файлов
+                    )
+                    response.raise_for_status()
+                    
+                    if not response.content:
+                        raise RuntimeError("Получен пустой файл")
 
-            with open(local_path, "wb") as f:
-                f.write(r.content)
+                    with open(local_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
 
-            if "version" in info:
-                self.save_strategy_version(local_path, info)
+                    if "version" in info:
+                        self.save_strategy_version(local_path, info)
 
-            self.set_status(f"{strategy_id} скачана")
-            log(f"{strategy_id} OK ({len(r.content)} B)", "INFO")
-            return local_path
+                    self.set_status(f"{strategy_id} скачана")
+                    log(f"{strategy_id} OK ({len(response.content)} B)", "INFO")
+                    return local_path
+
+                except Exception as e:
+                    last_error = e
+                    log(f"Попытка {attempt + 1} скачивания {strategy_id}: {e}", "DEBUG")
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay)
+
+            # Все попытки неудачны
+            raise last_error
 
         except Exception as e:
             log(f"{strategy_id} DL error: {e}", "ERROR")

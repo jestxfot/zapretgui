@@ -183,6 +183,15 @@ class DPIStarter:
         DEFAULT_STRAT = "Оригинальная bol-van v2 (07.04.2025)"
         BIN_DIR       = self.bin_folder
 
+        # Добавим отладку путей
+        log(f"[DPIStarter] BIN_DIR: {BIN_DIR}", level="DEBUG")
+        log(f"[DPIStarter] Проверяем существование папки: {os.path.exists(BIN_DIR)}", level="DEBUG")
+        
+        index_path = os.path.join(BIN_DIR, "index.json")
+        log(f"[DPIStarter] Полный путь к index.json: {index_path}", level="DEBUG")
+        log(f"[DPIStarter] Файл index.json существует: {os.path.exists(index_path)}", level="DEBUG")
+
+
         # -------- 0. Какая стратегия? -------------------------------------
         if not selected_mode:
             try:
@@ -196,12 +205,41 @@ class DPIStarter:
         # -------- 1. Загружаем / кэшируем index.json -----------------------
         try:
             if not hasattr(self, "_idx"):
-                with open(os.path.join(BIN_DIR, "index.json"), "r", encoding="utf-8") as f:
+                # Если index.json отсутствует, попробуем его скачать
+                if not os.path.exists(index_path):
+                    log(f"[DPIStarter] index.json не найден, пытаемся скачать...", level="WARNING")
+                    try:
+                        from strategy_menu.manager import StrategyManager
+                        from config.config import GITHUB_STRATEGIES_BASE_URL, GITHUB_STRATEGIES_JSON_URL
+                        
+                        manager = StrategyManager(
+                            base_url=GITHUB_STRATEGIES_BASE_URL,
+                            local_dir=BIN_DIR,
+                            json_url=GITHUB_STRATEGIES_JSON_URL,
+                            status_callback=self._set_status
+                        )
+                        
+                        # Принудительно скачиваем индекс
+                        strategies = manager.get_strategies_list(force_update=True)
+                        if strategies:
+                            log(f"[DPIStarter] index.json успешно скачан", level="INFO")
+                        else:
+                            raise Exception("Пустой список стратегий")
+                            
+                    except Exception as download_error:
+                        log(f"[DPIStarter] Не удалось скачать index.json: {download_error}", level="ERROR")
+                        self._set_status("Ошибка: не удалось загрузить список стратегий")
+                        return False
+                
+                with open(index_path, "r", encoding="utf-8") as f:
                     self._idx = json.load(f)
+                    
         except Exception as e:
             log(f"[DPIStarter] index.json error: {e}", level="ERROR")
-            self._set_status("index.json не найден")
+            log(f"[DPIStarter] Содержимое папки bin: {os.listdir(BIN_DIR) if os.path.exists(BIN_DIR) else 'папка не существует'}", level="ERROR")
+            self._set_status("index.json не найден и не удалось скачать")
             return False
+        
         strategies = self._idx
 
         # -------- 2. Сопоставляем → .bat ----------------------------------

@@ -3,7 +3,7 @@
 import os
 
 # 2025.0.0.dev11
-BIN_FOLDER, APP_VERSION = "bin", "2025.0.0.dev14"
+BIN_FOLDER, APP_VERSION = "bin", "2025.0.0.dev15"
 BIN_DIR = os.path.join(os.getcwd(), "bin")
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")

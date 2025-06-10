@@ -1,7 +1,7 @@
-# selector.py
-
+import sys
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
-                          QPushButton, QTextBrowser, QGroupBox, QSplitter, QListWidgetItem, QWidget, QApplication)
+                          QPushButton, QTextBrowser, QGroupBox, QSplitter, QListWidgetItem, QWidget, QApplication,
+                          QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
@@ -17,10 +17,10 @@ LABEL_STABLE = "stable"
 
 # Настройки отображения меток
 LABEL_COLORS = {
-    LABEL_RECOMMENDED: "#007700",  # Зеленый для рекомендуемых
+    LABEL_RECOMMENDED: "#00B900",  # Зеленый для рекомендуемых
     LABEL_CAUTION: "#FF6600",      # Оранжевый для стратегий с осторожностью
     LABEL_EXPERIMENTAL: "#CC0000", # Красный для экспериментальных
-    LABEL_STABLE: "#0055AA"        # Синий для стабильных
+    LABEL_STABLE: "#006DDA"        # Синий для стабильных
 }
 
 LABEL_TEXTS = {
@@ -30,10 +30,222 @@ LABEL_TEXTS = {
     LABEL_STABLE: "СТАБИЛЬНАЯ"
 }
 
-MINIMUM_WIDTH_STRAG = 500  # Минимальная ширина списка доступных стратегий
+MINIMUM_WIDTH_STRAG = 800  # Увеличиваем ширину для таблицы
+MINIMUM_WIDTH = 900  # Уменьшаем минимальную ширину основного окна
+MINIMIM_HEIGHT = 700  # Минимальная высота окна
 
-MINIMUM_WIDTH = 1000 # Минимальная ширина окна
-MINIMIM_HEIGHT = 700 # Минимальная высота окна
+class StrategyInfoDialog(QDialog):
+    """Отдельное окно для отображения подробной информации о стратегии."""
+    
+    def __init__(self, parent=None, strategy_manager=None):
+        super().__init__(parent)
+        self.strategy_manager = strategy_manager
+        self.setWindowTitle("Информация о стратегии")
+        self.resize(800, 600)
+        self.init_ui()
+    
+    def init_ui(self):
+        """Инициализация интерфейса окна информации."""
+        layout = QVBoxLayout(self)
+        
+        # Заголовок стратегии
+        self.strategy_title = QLabel("Информация о стратегии")
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(14)
+        self.strategy_title.setFont(title_font)
+        self.strategy_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.strategy_title)
+        
+        # Детальная информация о стратегии
+        self.strategy_info = QTextBrowser()
+        self.strategy_info.setOpenExternalLinks(True)
+        # Устанавливаем явные цвета текста и фона для совместимости с тёмной темой
+        self.strategy_info.setStyleSheet("background-color: #333333; color: #ffffff;")
+        layout.addWidget(self.strategy_info)
+        
+        # Кнопка закрытия
+        close_button = QPushButton("Закрыть")
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button)
+    
+    def display_strategy_info(self, strategy_id, strategy_name):
+        """Отображает информацию о выбранной стратегии."""
+        try:
+            strategies = self.strategy_manager.get_strategies_list()
+            if strategy_id in strategies:
+                strategy_info = strategies[strategy_id]
+                
+                # Устанавливаем заголовок
+                title_text = strategy_info.get('name', strategy_id)
+                
+                # Добавляем метку к заголовку, если есть
+                label = strategy_info.get('label', None)
+                if label and label in LABEL_TEXTS:
+                    title_text += f" [{LABEL_TEXTS[label]}]"
+                    # Устанавливаем цвет заголовка согласно метке
+                    label_color = LABEL_COLORS.get(label, "#000000")
+                    self.strategy_title.setStyleSheet(f"color: {label_color};")
+                else:
+                    # Сбрасываем цвет на стандартный
+                    self.strategy_title.setStyleSheet("")
+                
+                self.strategy_title.setText(title_text)
+                
+                # Формируем HTML для отображения информации с явными цветами
+                html = "<style>body {font-family: Arial; margin: 10px; color: #ffffff; background-color: #333333;}</style>"
+                
+                # Метка (если есть) - добавляем с соответствующим цветом и стилем
+                if label and label in LABEL_TEXTS:
+                    html += f"<p style='text-align: center; padding: 8px; background-color: {LABEL_COLORS.get(label, '#000000')}; color: white; font-weight: bold; font-size: 14px; border-radius: 5px;'>{LABEL_TEXTS[label]}</p>"
+                
+                # Описание
+                description = strategy_info.get('description', 'Описание отсутствует')
+                html += f"<h3>Описание</h3><p>{description}</p>"
+                
+                # Основная информация
+                html += "<h3>Основная информация</h3>"
+                
+                # Провайдер
+                provider = strategy_info.get('provider', 'universal')
+                html += f"<p><b>Оптимизировано для:</b> {provider}</p>"
+                
+                # Версия
+                version = strategy_info.get('version', 'неизвестно')
+                html += f"<p><b>Версия:</b> {version}</p>"
+                
+                # Автор
+                author = strategy_info.get('author', 'неизвестно')
+                html += f"<p><b>Автор:</b> {author}</p>"
+                
+                # Дата обновления
+                updated = strategy_info.get('updated', 'неизвестно')
+                html += f"<p><b>Обновлено:</b> {updated}</p>"
+                
+                # Файл
+                file_path = strategy_info.get('file_path', 'неизвестно')
+                html += f"<p><b>Файл:</b> {file_path}</p>"
+                
+                # Статус скачивания
+                if self.strategy_manager:
+                    local_path = os.path.join(self.strategy_manager.local_dir, file_path)
+                    if os.path.exists(local_path):
+                        html += "<p><b>Статус:</b> <span style='color:#00ff00; font-weight: bold;'>✓ Файл скачан и готов к использованию</span></p>"
+                    else:
+                        html += "<p><b>Статус:</b> <span style='color:#ffcc00; font-weight: bold;'>⚠ Файл будет скачан при выборе стратегии</span></p>"
+
+                # Технические детали
+                html += "<hr><h3>Технические детали</h3>"
+                
+                # Порты
+                ports = strategy_info.get('ports', [])
+                if ports:
+                    if isinstance(ports, list):
+                        ports_str = ", ".join(map(str, ports))
+                    else:
+                        ports_str = str(ports)
+                    html += f"<p><b>Используемые порты:</b> {ports_str}</p>"
+                else:
+                    html += "<p><b>Используемые порты:</b> 80, 443 (по умолчанию)</p>"
+                
+                # Списки хостов
+                host_lists = strategy_info.get('host_lists', [])
+                if host_lists:
+                    html += "<p><b>Используемые списки хостов:</b></p><ul style='margin-left: 20px;'>"
+                    if isinstance(host_lists, list):
+                        for host_list in host_lists:
+                            html += f"<li>{host_list}</li>"
+                    else:
+                        html += f"<li>{host_lists}</li>"
+                    html += "</ul>"
+                else:
+                    html += "<p><b>Используемые списки хостов:</b> <span style='color:#00ff00; font-weight: bold;'>• ВСЕ САЙТЫ</span></p>"
+                
+                # Дополнительные технические детали
+                use_https = strategy_info.get('use_https', True)
+                html += f"<p><b>Использование HTTPS:</b> {'Да' if use_https else 'Нет'}</p>"
+                
+                fragments = strategy_info.get('fragments', False)
+                if fragments:
+                    html += f"<p><b>Фрагментирование пакетов:</b> Да</p>"
+                
+                ttl = strategy_info.get('ttl', None)
+                if ttl:
+                    html += f"<p><b>TTL:</b> {ttl}</p>"
+                
+                # Командная строка
+                html += "<hr><h3>Аргументы командной строки</h3>"
+
+                command_args = strategy_info.get('command_args', None)
+
+                def format_command_args(cmd_line):
+                    """Форматирует командную строку для удобного отображения."""
+                    # Добавляем переносы строк для улучшения читаемости
+                    cmd_line = cmd_line.replace(" --", "<br>&nbsp;&nbsp;--")
+                    # Выделяем разными цветами названия хостлистов и другие важные параметры
+                    cmd_line = cmd_line.replace("--hostlist=", "--hostlist=<span style='color:#8cff66'>")
+                    cmd_line = cmd_line.replace(".txt", ".txt</span>")
+                    cmd_line = cmd_line.replace("--filter-tcp=", "--filter-tcp=<span style='color:#66ccff'>")
+                    cmd_line = cmd_line.replace("--filter-udp=", "--filter-udp=<span style='color:#ff9966'>")
+                    cmd_line = cmd_line.replace("--wf-tcp=", "--wf-tcp=<span style='color:#66ccff'>")
+                    cmd_line = cmd_line.replace("--wf-udp=", "--wf-udp=<span style='color:#ff9966'>")
+                    cmd_line = cmd_line.replace(" --new", " <span style='color:#ffcc00'>--new</span>")
+                    return cmd_line
+
+                if command_args:
+                    # Используем предопределенные аргументы из JSON
+                    formatted_args = format_command_args(command_args)
+                    html += f"<div style='background-color: #222222; padding: 15px; overflow-x: auto; color: #ffff00; border-radius: 5px; font-family: monospace; word-wrap: break-word;'>{formatted_args}</div>"
+                else:
+                    # Пытаемся прочитать аргументы из BAT-файла
+                    try:
+                        file_path = strategy_info.get('file_path', None)
+                        if file_path and self.strategy_manager:
+                            local_path = os.path.join(self.strategy_manager.local_dir, file_path)
+                            if os.path.exists(local_path):
+                                with open(local_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    bat_content = f.read()
+                                    
+                                    # Ищем VBScript блок
+                                    if '"%vbsSilent%" (' in bat_content:
+                                        # Ищем все строки с "echo cmd = cmd ^& ""
+                                        cmd_lines = re.findall(r'echo cmd = cmd \^& "(.*?)"', bat_content)
+                                        
+                                        if cmd_lines:
+                                            # Собираем полную команду
+                                            full_cmd = 'winws.exe'
+                                            for line in cmd_lines:
+                                                full_cmd += ' ' + line.replace('^&', '&').replace('""', '"')
+                                            formatted_cmd = format_command_args(full_cmd)
+                                            html += f"<div style='background-color: #222222; padding: 15px; overflow-x: auto; color: #ffff00; border-radius: 5px; font-family: monospace; word-wrap: break-word;'>{formatted_cmd}</div>"
+                                        else:
+                                            html += "<p><i>Команда запуска не найдена в формате VBScript.</i></p>"
+                                    else:
+                                        # Простой поиск любой строки с winws.exe и аргументами
+                                        match = re.search(r'winws\.exe\s+(.+?)(\r?\n|$)', bat_content)
+                                        if match:
+                                            cmd_line = "winws.exe " + match.group(1).strip()
+                                            formatted_cmd = format_command_args(cmd_line)
+                                            html += f"<div style='background-color: #222222; padding: 15px; overflow-x: auto; color: #ffff00; border-radius: 5px; font-family: monospace; word-wrap: break-word;'>{formatted_cmd}</div>"
+                                        else:
+                                            html += "<p><i>Команда запуска не найдена в BAT-файле.</i></p>"
+                            else:
+                                html += "<p><i>BAT-файл стратегии будет скачан при выборе. Аргументы будут доступны после загрузки.</i></p>"
+                        else:
+                            html += "<p><i>Информация о файле стратегии отсутствует.</i></p>"
+                    except Exception as e:
+                        html += f"<p><i>Не удалось прочитать аргументы командной строки: {str(e)}</i></p>"
+                
+                # Заключительное примечание
+                html += "<hr><p style='font-style: italic; color: #cccccc;'>Примечание: Технические детали могут изменяться при обновлении стратегии.</p>"
+                
+                # Устанавливаем HTML
+                self.strategy_info.setHtml(html)
+            else:
+                self.strategy_info.setHtml("<p style='color:red; text-align: center;'>Информация о стратегии не найдена</p>")
+        except Exception as e:
+            log(f"Ошибка при получении информации о стратегии: {str(e)}", level="ERROR")
+            self.strategy_info.setHtml(f"<p style='color:red; text-align: center;'>Ошибка: {str(e)}</p>")
 
 class ProviderHeaderItem(QListWidgetItem):
     """Специальный элемент для заголовка группы провайдера"""
@@ -127,20 +339,20 @@ class StrategySelector(QDialog):
         self.current_strategy_name = current_strategy_name
         self.selected_strategy_id = None
         self.selected_strategy_name = None
+        self.info_dialog = None  # Окно с информацией о стратегии
         
         self.setWindowTitle("Выбор стратегии обхода блокировок")
-        self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)  # Начальный размер окна
+        self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)
         self.init_ui()
 
-        # Обновляем index.json при входе в меню (для проверки статусов версий)
+        # Обновляем index.json при входе в меню
         if self.strategy_manager:
             try:
-                # Запрашиваем свежие данные с сервера для проверки версий
                 self.strategy_manager.get_strategies_list(force_update=True)
             except Exception as e:
                 log(f"Ошибка при обновлении индекса при входе в меню: {str(e)}", level="WARNING")
         
-        # Загружаем список стратегий с проверкой версий
+        # Загружаем список стратегий
         self.load_strategies()
         
         # Выбираем текущую стратегию, если она задана
@@ -154,8 +366,9 @@ class StrategySelector(QDialog):
         # Добавляем информационный текст о стратегиях в верхней части
         info_text = QLabel(
             "Выберите стратегию обхода блокировок, если вам требуется сменить метод обхода. Подробнее о Zapret читайте в интернете.\n"
+            "Стратегии с пометкой \"ВСЕ САЙТЫ\" не нуждаются в добавлении своих сайтов - они по умолчанию работают со всеми сайтами - для них доступны только исключения.\n"
             "Стратегии с пометкой \"РЕКОМЕНДУЕМ\" были протестированы и показали наилучшие результаты.\n"
-            "Для экспериментальных стратегий есть пометка \"С ОСТОРОЖНОСТЬЮ\"."
+            "Для экспериментальных стратегий есть пометка \"С ОСТОРОЖНОСТЬЮ\". Галочка \"Все сайты\" означает, что стратегия работает для всех сайтов."
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet("padding: 10px; background-color: #3a3a3a; color: #ffffff; border-radius: 5px;")
@@ -167,46 +380,54 @@ class StrategySelector(QDialog):
         # Создаем разделитель (сплиттер)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Левая панель - список стратегий
+        # Таблица стратегий
         strategies_group = QGroupBox("Доступные стратегии")
         strategies_layout = QVBoxLayout(strategies_group)
         
-        self.strategies_list = QListWidget()
-        self.strategies_list.setMinimumWidth(MINIMUM_WIDTH_STRAG)
-        self.strategies_list.currentRowChanged.connect(self.on_strategy_selected)
-        strategies_layout.addWidget(self.strategies_list)
+        self.strategies_table = QTableWidget()
+        self.strategies_table.setMinimumWidth(MINIMUM_WIDTH_STRAG)
+        self.strategies_table.setColumnCount(4)
+        self.strategies_table.setHorizontalHeaderLabels(["Название стратегии", "Все сайты", "Статус", "Метка"])
         
-        # Кнопка обновления и скачивания стратегий
-        refresh_button = QPushButton("Обновить и скачать стратегии")
+        # Настройки таблицы
+        self.strategies_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.strategies_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.strategies_table.verticalHeader().setVisible(False)
+        
+        # Настройки колонок
+        header = self.strategies_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        
+        self.strategies_table.setColumnWidth(1, 150)   # Все сайты
+        self.strategies_table.setColumnWidth(2, 100)  # Статус
+        self.strategies_table.setColumnWidth(3, 150)  # Метка
+        
+        # Подключаем сигналы
+        self.strategies_table.currentItemChanged.connect(self.on_strategy_selected)
+        self.strategies_table.itemDoubleClicked.connect(self.show_strategy_info)
+        
+        strategies_layout.addWidget(self.strategies_table)
+        
+        # Кнопки управления
+        buttons_row = QHBoxLayout()
+        
+        refresh_button = QPushButton("Обновить список")
         refresh_button.clicked.connect(self.refresh_strategies)
-        strategies_layout.addWidget(refresh_button)
+        buttons_row.addWidget(refresh_button)
         
-        # Правая панель - информация о стратегии
-        info_group = QGroupBox("Информация о стратегии")
-        info_layout = QVBoxLayout(info_group)
+        info_button = QPushButton("Подробная информация")
+        info_button.clicked.connect(self.show_strategy_info)
+        info_button.setEnabled(False)
+        self.info_button = info_button
+        buttons_row.addWidget(info_button)
         
-        # Заголовок стратегии
-        self.strategy_title = QLabel("Выберите стратегию")
-        title_font = QFont()
-        title_font.setBold(True)
-        title_font.setPointSize(12)
-        self.strategy_title.setFont(title_font)
-        self.strategy_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info_layout.addWidget(self.strategy_title)
+        buttons_row.addStretch()
+        strategies_layout.addLayout(buttons_row)
         
-        # Детальная информация о стратегии
-        self.strategy_info = QTextBrowser()
-        self.strategy_info.setOpenExternalLinks(True)
-        # Устанавливаем явные цвета текста и фона для совместимости с тёмной темой
-        self.strategy_info.setStyleSheet("background-color: #333333; color: #ffffff;")
-        info_layout.addWidget(self.strategy_info)
-        
-        # Добавляем панели в сплиттер
-        splitter.addWidget(strategies_group)
-        splitter.addWidget(info_group)
-        splitter.setSizes([450, 550])  # Увеличиваем размер панели стратегий
-        
-        layout.addWidget(splitter, 1)  # 1 - stretch factor
+        layout.addWidget(strategies_group)
         
         # Кнопки внизу
         buttons_layout = QHBoxLayout()
@@ -222,144 +443,202 @@ class StrategySelector(QDialog):
         
         layout.addLayout(buttons_layout)
     
+    def is_strategy_for_all_sites(self, strategy_info):
+        """Проверяет, предназначена ли стратегия для всех сайтов."""
+        # Проверяем по списку хостов
+        host_lists = strategy_info.get('host_lists', [])
+        if isinstance(host_lists, list):
+            for host_list in host_lists:
+                if 'all' in str(host_list).lower() or 'все' in str(host_list).lower():
+                    return True
+        elif isinstance(host_lists, str):
+            if 'all' in host_lists.lower() or 'все' in host_lists.lower():
+                return True
+        
+        # Проверяем по описанию
+        description = strategy_info.get('description', '').lower()
+        if 'все сайты' in description or 'всех сайтов' in description or 'all sites' in description:
+            return True
+            
+        # Проверяем по названию
+        name = strategy_info.get('name', '').lower()
+        if 'все сайты' in name or 'всех сайтов' in name or 'all sites' in name:
+            return True
+            
+        # Проверяем специальное поле (если добавится в будущем)
+        return strategy_info.get('all_sites', False)
+
     def load_strategies(self):
         """Загружает список стратегий."""
-        self.strategies_list.clear()
-        self.strategy_info.clear()
-        self.strategy_title.setText("Выберите стратегию")
+        self.strategies_table.setRowCount(0)
         self.select_button.setEnabled(False)
         
         try:
             if not self.strategy_manager:
                 log("Менеджер стратегий не инициализирован", level="ERROR")
-                self.strategy_info.setHtml("<p style='color:red'>Ошибка: менеджер стратегий не инициализирован</p>")
                 return
             
             strategies = self.strategy_manager.get_strategies_list()
             if not strategies:
                 log("Не удалось получить список стратегий", level="ERROR")
-                self.strategy_info.setHtml("<p style='color:red'>Ошибка: не удалось получить список стратегий</p>")
                 return
-            
-            # Сортируем стратегии по провайдеру и полю sort_order
-            sorted_strategies = sorted(
-                strategies.items(), 
-                key=lambda x: (
-                    # Первый критерий: провайдер
-                    x[1].get('provider', 'zzzz'),
-                    # Второй критерий: sort_order (если есть)
-                    x[1].get('sort_order', 999),
-                    # Третий критерий: название
-                    x[1].get('name', '')
-                )
-            )
+
+            # Создаем словарь для сопоставления строк таблицы с ID стратегий
+            self.strategies_map = {}
             
             # Группируем стратегии по провайдерам
-            provider_groups = {}
-            for strategy_id, strategy_info in sorted_strategies:
-                provider = strategy_info.get('provider', 'Универсальные')
-                if provider not in provider_groups:
-                    provider_groups[provider] = []
-                provider_groups[provider].append((strategy_id, strategy_info))
+            providers = {}
+            for strategy_id, strategy_info in strategies.items():
+                provider = strategy_info.get('provider', 'universal')
+                if provider not in providers:
+                    providers[provider] = []
+                providers[provider].append((strategy_id, strategy_info))
             
-            # Добавляем стратегии в список с разделителями по провайдерам
-            self.strategies_map = {}  # Для хранения соответствия индекса строки и ID стратегии
-            row = 0
+            # Сортируем провайдеров и стратегии внутри каждого провайдера
+            sorted_providers = sorted(providers.items())
+            for provider, strategies_list in sorted_providers:
+                strategies_list.sort(key=lambda x: (x[1].get('sort_order', 999), x[1].get('name', '')))
             
-            # Сортируем провайдеров
-            providers = sorted(provider_groups.keys())
+            # Подсчитываем общее количество строк (провайдеры + стратегии)
+            total_rows = 0
+            for provider, strategies_list in sorted_providers:
+                total_rows += 1 + len(strategies_list)  # +1 для заголовка провайдера
             
-            # Перемещаем "Универсальные" в конец списка
-            if "Универсальные" in providers:
-                providers.remove("Универсальные")
-                providers.append("Универсальные")
+            self.strategies_table.setRowCount(total_rows)
             
-            for provider in providers:
+            current_row = 0
+            
+            for provider, strategies_list in sorted_providers:
                 # Добавляем заголовок провайдера
-                header_item = ProviderHeaderItem(provider)
-                self.strategies_list.addItem(header_item)
-                row += 1
+                provider_name = self.get_provider_display_name(provider)
+                provider_item = QTableWidgetItem(f"📡 {provider_name}")
                 
-                # Добавляем стратегии этого провайдера
-                for strategy_id, strategy_info in provider_groups[provider]:
-                    display_name = strategy_info.get('name', strategy_id)
+                # Стиль для заголовка провайдера
+                provider_font = provider_item.font()
+                provider_font.setBold(True)
+                provider_font.setPointSize(11)
+                provider_item.setFont(provider_font)
+                provider_item.setBackground(QBrush(QColor(70, 70, 70)))
+                provider_item.setForeground(QBrush(QColor(255, 255, 255)))
+                
+                # Делаем строку провайдера неселектируемой
+                provider_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                
+                self.strategies_table.setItem(current_row, 0, provider_item)
+                
+                # Объединяем ячейки для заголовка провайдера
+                self.strategies_table.setSpan(current_row, 0, 1, 4)
+                
+                current_row += 1
+                
+                # Добавляем стратегии для этого провайдера
+                for strategy_id, strategy_info in strategies_list:
+                    # Сохраняем соответствие строки и стратегии
+                    self.strategies_map[current_row] = {
+                        'id': strategy_id,
+                        'name': strategy_info.get('name', strategy_id)
+                    }
                     
-                    # Создаем элемент списка
-                    item = QListWidgetItem()
-                    self.strategies_list.addItem(item)
+                    # Название стратегии с индексом из sort_order
+                    strategy_name = strategy_info.get('name', strategy_id)
+                    sort_order = strategy_info.get('sort_order', 0)
+                    display_name = f"   {sort_order}. {strategy_name}"  # Отступ для визуального разделения
+                    name_item = QTableWidgetItem(display_name)
+                    self.strategies_table.setItem(current_row, 0, name_item)
                     
-                    # Проверяем статус версии стратегии
+                    # Все сайты (галочка)
+                    all_sites = self.is_strategy_for_all_sites(strategy_info)
+                    all_sites_item = QTableWidgetItem("✓" if all_sites else "")
+                    all_sites_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.strategies_table.setItem(current_row, 1, all_sites_item)
+                    
+                    # Создаем статус версии с CSS стилями
                     version_status = None
                     if self.strategy_manager:
                         version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
                     
-                    # Создаем виджет с цветной меткой и статусом версии
+                    status_text = "✓"
+                    status_style = "color: #00C800; font-weight: bold;"  # Зеленый
+                    
+                    if version_status == 'outdated':
+                        status_text = "ОБНОВИТЬ"
+                        status_style = "color: #FF6600; font-weight: bold;"  # Оранжевый
+                    elif version_status == 'not_downloaded':
+                        status_text = "НЕ СКАЧАНА"
+                        status_style = "color: #CC0000; font-weight: bold;"  # Красный
+                    elif version_status == 'unknown':
+                        status_text = "?"
+                        status_style = "color: #888888; font-weight: bold;"  # Серый
+                    
+                    # Создаем виджет с меткой для статуса
+                    status_widget = QWidget()
+                    status_layout = QHBoxLayout(status_widget)
+                    status_label = QLabel(status_text)
+                    status_label.setStyleSheet(status_style)
+                    status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    status_layout.addWidget(status_label)
+                    status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    status_layout.setContentsMargins(0, 0, 0, 0)
+                    
+                    self.strategies_table.setCellWidget(current_row, 2, status_widget)
+                    
+                    # Создаем метку с CSS стилями
                     label = strategy_info.get('label', None)
-                    sort_order = strategy_info.get('sort_order', 999)
+                    if label and label in LABEL_TEXTS:
+                        label_color_hex = LABEL_COLORS[label]
+                        label_style = f"color: {label_color_hex}; font-weight: bold;"
+                        
+                        # Создаем виджет с меткой для метки
+                        label_widget = QWidget()
+                        label_layout = QHBoxLayout(label_widget)
+                        label_label = QLabel(LABEL_TEXTS[label])
+                        label_label.setStyleSheet(label_style)
+                        label_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        label_layout.addWidget(label_label)
+                        label_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        label_layout.setContentsMargins(0, 0, 0, 0)
+                        
+                        self.strategies_table.setCellWidget(current_row, 3, label_widget)
+                    else:
+                        # Пустая ячейка
+                        empty_widget = QWidget()
+                        self.strategies_table.setCellWidget(current_row, 3, empty_widget)
                     
-                    # Создаем кастомный виджет с цветной меткой и статусом версии
-                    item_widget = StrategyItem(
-                        display_name=display_name,
-                        label=label,
-                        sort_order=sort_order if sort_order != 999 else None,
-                        version_status=version_status
-                    )
-                    
-                    from PyQt6.QtCore import QSize
-                    # Устанавливаем размер элемента списка и виджет
-                    item.setSizeHint(QSize(self.strategies_list.width(), 30))
-                    self.strategies_list.setItemWidget(item, item_widget)
-                    
-                    # Сохраняем соответствие
-                    self.strategies_map[row] = {'id': strategy_id, 'name': display_name}
-                    row += 1
+                    current_row += 1
             
             log(f"Загружено {len(strategies)} стратегий", level="INFO")
-
-            # Принудительное обновление UI через несколько механизмов
-            # 1. Обработка всех ожидающих событий приложения
-            QApplication.processEvents()
             
-            # 2. Обновление списка
-            self.strategies_list.repaint()
-            
-            # 3. Повторная обработка событий
-            QApplication.processEvents()
-            
-            # 4. Обновление с задержкой
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, self.update_all_items)
-                
         except Exception as e:
             log(f"Ошибка при загрузке списка стратегий: {str(e)}", level="ERROR")
-            self.strategy_info.setHtml(f"<p style='color:red'>Ошибка: {str(e)}</p>")
+    
+    def get_provider_display_name(self, provider):
+        """Возвращает читаемое название провайдера."""
+        provider_names = {
+            'universal': 'Универсальные',
+            'rostelecom': 'Ростелеком', 
+            'mts': 'МТС',
+            'megafon': 'МегаФон',
+            'tele2': 'Теле2',
+            'beeline': 'Билайн',
+            'yota': 'Yota',
+            'tinkoff': 'Тинькофф Мобайл',
+            'other': 'Другие провайдеры'
+        }
+        return provider_names.get(provider, provider.title())
 
-    def update_all_items(self):
-        """Обновляет все элементы списка для принудительной отрисовки."""
-        try:
-            # Обновляем каждый элемент списка
-            for i in range(self.strategies_list.count()):
-                item = self.strategies_list.item(i)
-                # Заставляем элемент перерисоваться
-                widget = self.strategies_list.itemWidget(item)
-                if widget:
-                    widget.update()
-            
-            # Обновляем весь список
-            self.strategies_list.update()
-            self.strategies_list.repaint()
-            
-            # Обработка событий для правильного отображения
-            QApplication.processEvents()
-        except Exception as e:
-            log(f"Ошибка при обновлении элементов списка: {str(e)}", level="WARNING")
-            
-    def on_strategy_selected(self, row):
-        """Обрабатывает выбор стратегии в списке."""
-        if row < 0 or row not in self.strategies_map:
-            self.strategy_info.clear()
-            self.strategy_title.setText("Выберите стратегию")
+    def on_strategy_selected(self, current, previous):
+        """Обрабатывает выбор стратегии в таблице."""
+        if current is None:
             self.select_button.setEnabled(False)
+            self.info_button.setEnabled(False)
+            return
+        
+        row = current.row()
+        
+        # Проверяем, что выбрана не строка провайдера
+        if row < 0 or row not in self.strategies_map:
+            self.select_button.setEnabled(False)
+            self.info_button.setEnabled(False)
             return
         
         # Получаем ID выбранной стратегии
@@ -370,202 +649,22 @@ class StrategySelector(QDialog):
         self.selected_strategy_id = strategy_id
         self.selected_strategy_name = strategy_name
         
-        # Включаем кнопку выбора
+        # Включаем кнопки
         self.select_button.setEnabled(True)
+        self.info_button.setEnabled(True)
+
+    def show_strategy_info(self):
+        """Показывает окно с подробной информацией о стратегии."""
+        if not self.selected_strategy_id:
+            return
         
-        # Включаем кнопку выбора
-        self.select_button.setEnabled(True)
+        if not self.info_dialog:
+            self.info_dialog = StrategyInfoDialog(self, self.strategy_manager)
         
-        # Получаем информацию о стратегии
-        try:
-            strategies = self.strategy_manager.get_strategies_list()
-            if strategy_id in strategies:
-                strategy_info = strategies[strategy_id]
-                
-                # Устанавливаем заголовок
-                title_text = strategy_info.get('name', strategy_id)
-                
-                # Добавляем метку к заголовку, если есть
-                label = strategy_info.get('label', None)
-                if label and label in LABEL_TEXTS:
-                    title_text += f" [{LABEL_TEXTS[label]}]"
-                    # Устанавливаем цвет заголовка согласно метке
-                    label_color = LABEL_COLORS.get(label, "#000000")
-                    self.strategy_title.setStyleSheet(f"color: {label_color};")
-                else:
-                    # Сбрасываем цвет на стандартный
-                    self.strategy_title.setStyleSheet("")
-                
-                self.strategy_title.setText(title_text)
-                
-                # Формируем HTML для отображения информации с явными цветами
-                html = "<style>body {font-family: Arial; margin: 10px; color: #ffffff; background-color: #333333;}</style>"
-                
-                # Метка (если есть) - добавляем с соответствующим цветом и стилем
-                if label and label in LABEL_TEXTS:
-                    html += f"<p style='text-align: center; padding: 5px; background-color: {LABEL_COLORS.get(label, '#000000')}; color: white; font-weight: bold;'>{LABEL_TEXTS[label]}</p>"
-                
-                # Описание
-                description = strategy_info.get('description', 'Описание отсутствует')
-                html += f"<p><b>Описание:</b> {description}</p>"
-                
-                # Провайдер
-                provider = strategy_info.get('provider', 'universal')
-                html += f"<p><b>Оптимизировано для:</b> {provider}</p>"
-                
-                # Версия
-                version = strategy_info.get('version', 'неизвестно')
-                html += f"<p><b>Версия:</b> {version}</p>"
-                
-                # Автор
-                author = strategy_info.get('author', 'неизвестно')
-                html += f"<p><b>Автор:</b> {author}</p>"
-                
-                # Дата обновления
-                updated = strategy_info.get('updated', 'неизвестно')
-                html += f"<p><b>Обновлено:</b> {updated}</p>"
-                
-                # Файл
-                file_path = strategy_info.get('file_path', 'неизвестно')
-                html += f"<p><b>Файл:</b> {file_path}</p>"
-                
-                # Статус скачивания
-                local_path = os.path.join(self.strategy_manager.local_dir, file_path)
-                if os.path.exists(local_path):
-                    html += "<p><b>Статус:</b> <span style='color:#00ff00'>Файл скачан и готов к использованию</span></p>"
-                else:
-                    html += "<p><b>Статус:</b> <span style='color:#ffcc00'>Файл будет скачан при выборе стратегии</span></p>"
-
-                # Порты и списки хостов
-                html += "<hr>"
-                html += "<h3>Технические детали:</h3>"
-                
-                # Порты
-                ports = strategy_info.get('ports', [])
-                if ports:
-                    if isinstance(ports, list):
-                        ports_str = ", ".join(map(str, ports))
-                    else:
-                        ports_str = str(ports)
-                    html += f"<p><b>Используемые порты:</b> {ports_str}</p>"
-                else:
-                    html += "<p><b>Используемые порты:</b> НЕИЗВЕСТНО</p>"
-                
-                # Списки хостов
-                host_lists = strategy_info.get('host_lists', [])
-                if host_lists:
-                    html += "<p><b>Используемые списки хостов:</b></p><ul>"
-                    if isinstance(host_lists, list):
-                        for host_list in host_lists:
-                            html += f"<li>{host_list}</li>"
-                    else:
-                        html += f"<li>{host_lists}</li>"
-                    html += "</ul>"
-                else:
-                    html += "<p><b>Используемые списки хостов:</b> НЕИЩВЕСТНО</p>"
-                
-                # Дополнительные технические детали
-                use_https = strategy_info.get('use_https', True)
-                html += f"<p><b>Использование HTTPS:</b> {'Да' if use_https else 'Нет'}</p>"
-                
-                fragments = strategy_info.get('fragments', False)
-                if fragments:
-                    html += f"<p><b>Фрагментирование пакетов:</b> Да</p>"
-                
-                ttl = strategy_info.get('ttl', None)
-                if ttl:
-                    html += f"<p><b>TTL:</b> {ttl}</p>"
-                
-                # После вывода технических деталей и перед заключительным примечанием
-                ttl = strategy_info.get('ttl', None)
-                if ttl:
-                    html += f"<p><b>TTL:</b> {ttl}</p>"
-                
-                # Добавляем полную командную строку запуска
-                html += "<hr>"
-                html += "<h3>Аргументы командной строки:</h3>"
-
-                command_args = strategy_info.get('command_args', None)
-
-                def format_command_args(cmd_line):
-                    """Форматирует командную строку для удобного отображения."""
-                    # Добавляем переносы строк для улучшения читаемости
-                    cmd_line = cmd_line.replace(" --", "<br>--")
-                    # Выделяем разными цветами названия хостлистов и другие важные параметры
-                    cmd_line = cmd_line.replace("--hostlist=", "--hostlist=<span style='color:#8cff66'>")
-                    cmd_line = cmd_line.replace(".txt", ".txt</span>")
-                    cmd_line = cmd_line.replace("--filter-tcp=", "--filter-tcp=<span style='color:#66ccff'>")
-                    cmd_line = cmd_line.replace("--filter-udp=", "--filter-udp=<span style='color:#ff9966'>")
-                    cmd_line = cmd_line.replace("--wf-tcp=", "--wf-tcp=<span style='color:#66ccff'>")
-                    cmd_line = cmd_line.replace("--wf-udp=", "--wf-udp=<span style='color:#ff9966'>")
-                    cmd_line = cmd_line.replace(" --new", " <span style='color:#ffcc00'>--new</span>")
-                    return cmd_line
-
-                if command_args:
-                    # Используем предопределенные аргументы из JSON
-                    formatted_args = format_command_args(command_args)
-                    html += f"<div style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00; max-width: 100%; word-wrap: break-word;'>{formatted_args}</div>"
-                else:
-                    # Пытаемся прочитать аргументы из BAT-файла
-                    try:
-                        file_path = strategy_info.get('file_path', None)
-                        if file_path:
-                            local_path = os.path.join(self.strategy_manager.local_dir, file_path)
-                            if os.path.exists(local_path):
-                                with open(local_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                    bat_content = f.read()
-                                    
-                                    # Ищем VBScript блок, как в примере
-                                    if '"%vbsSilent%" (' in bat_content:
-                                        # Ищем все строки с "echo cmd = cmd ^& ""
-                                        cmd_lines = re.findall(r'echo cmd = cmd \^& "(.*?)"', bat_content)
-                                        
-                                        if cmd_lines:
-                                            # Собираем полную команду
-                                            full_cmd = 'winws.exe'
-                                            for line in cmd_lines:
-                                                full_cmd += ' ' + line.replace('^&', '&').replace('""', '"')
-                                            formatted_cmd = format_command_args(full_cmd)
-                                            html += f"<div style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00; max-width: 100%; word-wrap: break-word;'>{formatted_cmd}</div>"
-                                            # Ищем строку с winws.exe
-                                            match = re.search(r'cmd = .+ \^& "(.+?)winws\.exe(.+?)("|\r?\n|$)', bat_content)
-                                            if match:
-                                                cmd_line = "winws.exe" + match.group(2).strip()
-                                                html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
-                                            else:
-                                                # Простой поиск любой строки с winws.exe и аргументами
-                                                match = re.search(r'winws\.exe\s+(.+?)(\r?\n|$)', bat_content)
-                                                if match:
-                                                    cmd_line = "winws.exe " + match.group(1).strip()
-                                                    html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
-                                                else:
-                                                    html += "<p><i>Команда запуска не найдена в формате VBScript или CMD.</i></p>"
-                                    else:
-                                        # Простой поиск любой строки с winws.exe и аргументами
-                                        match = re.search(r'winws\.exe\s+(.+?)(\r?\n|$)', bat_content)
-                                        if match:
-                                            cmd_line = "winws.exe " + match.group(1).strip()
-                                            html += f"<pre style='background-color: #222222; padding: 10px; overflow-x: auto; color: #ffff00;'>{cmd_line}</pre>"
-                                        else:
-                                            html += "<p><i>Команда запуска не найдена в BAT-файле стратегии.</i></p>"
-                            else:
-                                html += "<p><i>BAT-файл стратегии будет скачан при выборе. Аргументы будут доступны после загрузки.</i></p>"
-                        else:
-                            html += "<p><i>Информация о файле стратегии отсутствует.</i></p>"
-                    except Exception as e:
-                        html += f"<p><i>Не удалось прочитать аргументы командной строки: {str(e)}</i></p>"
-                
-                # Продолжаем с заключительным примечанием
-                html += "<hr>"
-                html += "<p><i>Примечание: Вышеуказанные технические детали могут меняться при обновлении стратегии.</i></p>"
-                
-                # Устанавливаем HTML
-                self.strategy_info.setHtml(html)
-            else:
-                self.strategy_info.setHtml("<p style='color:red'>Информация о стратегии не найдена</p>")
-        except Exception as e:
-            log(f"Ошибка при получении информации о стратегии: {str(e)}", level="ERROR")
-            self.strategy_info.setHtml(f"<p style='color:red'>Ошибка: {str(e)}</p>")
+        self.info_dialog.display_strategy_info(self.selected_strategy_id, self.selected_strategy_name)
+        self.info_dialog.show()
+        self.info_dialog.raise_()
+        self.info_dialog.activateWindow()
 
     def download_strategy_files(self):
         """Скачивает все BAT-файлы стратегий."""
@@ -589,7 +688,6 @@ class StrategySelector(QDialog):
                 if file_path:
                     total_count += 1
                     try:
-                        # ИСПРАВЛЕНО: используем download_strategy вместо download_strategy_file
                         local_path = self.strategy_manager.download_strategy(strategy_id)
                         if local_path:
                             downloaded_count += 1
@@ -620,7 +718,6 @@ class StrategySelector(QDialog):
                 return False
                 
             try:
-                # ИСПРАВЛЕНО: используем download_strategy вместо download_strategy_file
                 local_path = self.strategy_manager.download_strategy(strategy_id)
                 if local_path:
                     log(f"Скачан файл стратегии {strategy_id}", level="INFO")
@@ -659,7 +756,7 @@ class StrategySelector(QDialog):
         """Выбирает стратегию по имени."""
         for row, info in self.strategies_map.items():
             if info['name'] == strategy_name:
-                self.strategies_list.setCurrentRow(row)
+                self.strategies_table.selectRow(row)
                 break
     
     def accept(self):

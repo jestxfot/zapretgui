@@ -41,7 +41,7 @@ class AppMenuBar(QMenuBar):
 
         file_menu.addSeparator()
 
-        act_exit = QAction("Выйти из GUI", self, shortcut=QKeySequence("Ctrl+Q"))
+        act_exit = QAction("Скрыть GUI в трей", self, shortcut=QKeySequence("Ctrl+Q"))
         act_exit.triggered.connect(parent.close)
         file_menu.addAction(act_exit)
 
