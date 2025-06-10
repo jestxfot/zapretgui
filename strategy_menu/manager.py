@@ -131,6 +131,48 @@ class StrategyManager:
 
         return self.strategies_cache
 
+    def check_strategy_version_status(self, strategy_id: str) -> str:
+        """
+        Проверяет статус версии стратегии.
+        Возвращает: 'current', 'outdated', 'not_downloaded', 'unknown'
+        """
+        try:
+            strategies = self.get_strategies_list()
+            if strategy_id not in strategies:
+                return 'unknown'
+                
+            info = strategies[strategy_id]
+            remote_path = info.get("file_path", f"{strategy_id}.bat")
+            filename = os.path.basename(remote_path)
+            local_path = os.path.join(self.local_dir, filename)
+            
+            # Если файл не скачан
+            if not os.path.isfile(local_path):
+                return 'not_downloaded'
+                
+            # Если есть информация о версии
+            if "version" in info:
+                local_ver = self.get_local_strategy_version(local_path, strategy_id)
+                remote_ver = info["version"]
+                
+                if local_ver is None:
+                    return 'unknown'
+                elif local_ver == remote_ver:
+                    return 'current'
+                else:
+                    return 'outdated'
+            else:
+                # Проверяем по времени модификации (если нет версии)
+                age = time.time() - os.path.getmtime(local_path)
+                if age > 86400:  # старше суток
+                    return 'outdated'
+                else:
+                    return 'current'
+                    
+        except Exception as e:
+            log(f"Ошибка проверки версии стратегии {strategy_id}: {e}", "DEBUG")
+            return 'unknown'
+    
     def save_strategies_index(self) -> bool:
         if not self.strategies_cache:
             return False
@@ -146,25 +188,26 @@ class StrategyManager:
     # ───────────────────────── preload () ─────────────────────────────
     def preload_strategies(self) -> None:
         """
-        Скачивает index.json (если ещё нет) + все bat-файлы.
+        Скачивает только index.json (без bat-файлов).
         Повторный вызов после успешной загрузки делает ничего.
         """
         if self._loaded:
             log("preload_strategies(): уже загружено – пропуск", "DEBUG")
             return
 
-        log("Preload стратегий…", "INFO")
+        log("Preload стратегий (только индекс)…", "INFO")
         strategies = self.get_strategies_list()
         if not strategies:
             log("Список стратегий пуст – preload отменён", "ERROR")
             return
 
-        for sid in strategies:
-            self.download_strategy(sid)   # логи и статусы внутри
+        # Убираем автоматическое скачивание BAT-файлов
+        # for sid in strategies:
+        #     self.download_strategy(sid)
 
         self._loaded = True
-        log("Preload завершён", "INFO")
-
+        log("Preload индекса завершён", "INFO")
+    
     # ─────────────────────── download 1 strategy ──────────────────────
     def download_strategy(self, strategy_id: str) -> str | None:
         """

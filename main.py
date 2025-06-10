@@ -900,6 +900,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     if self.hosts_manager.remove_proxy_domains():
                         self.set_status("Разблокировка отключена. Перезапустите браузер.")
                         self.update_proxy_button_state()
+                        QTimer.singleShot(50, self.update_proxy_button_state)  # ← добавить
                     else:
                         self.set_status("Не удалось отключить разблокировку.")
                 else:
@@ -943,6 +944,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     if self.hosts_manager.add_proxy_domains():
                         self.set_status("Разблокировка включена. Перезапустите браузер.")
                         self.update_proxy_button_state()
+                        QTimer.singleShot(50, self.update_proxy_button_state)  # ← добавить
                     else:
                         self.set_status("Не удалось включить разблокировку.")
                 else:

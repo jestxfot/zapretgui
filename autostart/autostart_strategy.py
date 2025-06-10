@@ -123,7 +123,7 @@ def _create_task_scheduler_job(
             cmd,
             capture_output=True,
             text=True,
-            encoding="utf-8"
+            encoding="cp1251"  # Changed from "utf-8" to "cp1251"
         )
         if res.returncode == 0:
             log(f'Задача "{task_name}" создана/обновлена', "INFO")
@@ -144,6 +144,32 @@ def _create_task_scheduler_job(
         if ui_error_cb:
             ui_error_cb(err_msg)
         return False
+    except UnicodeDecodeError:
+        # Fallback: try with errors='ignore' if cp1251 fails
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="cp1251",
+                errors="ignore"
+            )
+            if res.returncode == 0:
+                log(f'Задача "{task_name}" создана/обновлена', "INFO")
+                return True
+            else:
+                err_msg = (f'Не удалось создать задачу автозапуска "{task_name}". '
+                          f'Код {res.returncode}.\n{res.stderr.strip()}')
+                log(err_msg, "ERROR")
+                if ui_error_cb:
+                    ui_error_cb(err_msg)
+                return False
+        except Exception as fallback_exc:
+            err_msg = f"Ошибка кодировки при создании задачи: {fallback_exc}"
+            log(err_msg, "ERROR")
+            if ui_error_cb:
+                ui_error_cb("Ошибка кодировки; подробности в логе.")
+            return False
     except Exception as exc:
         err_msg = f"_create_task_scheduler_job: {exc}\n{traceback.format_exc()}"
         log(err_msg, "ERROR")

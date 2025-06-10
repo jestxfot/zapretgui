@@ -49,8 +49,8 @@ class ProviderHeaderItem(QListWidgetItem):
         self.setFlags(Qt.ItemFlag.NoItemFlags)
 
 class StrategyItem(QWidget):
-    """Виджет для отображения элемента стратегии с цветной меткой"""
-    def __init__(self, display_name, label=None, sort_order=None, parent=None):
+    """Виджет для отображения элемента стратегии с цветной меткой и статусом версии"""
+    def __init__(self, display_name, label=None, sort_order=None, version_status=None, parent=None):
         super().__init__(parent)
         
         # Создаем горизонтальный layout с увеличенными вертикальными отступами
@@ -75,6 +75,31 @@ class StrategyItem(QWidget):
         self.main_label.setStyleSheet("font-size: 10pt; margin: 0; padding: 0;")
         layout.addWidget(self.main_label)
         
+        # Добавляем статус версии если есть
+        if version_status and version_status != 'current':
+            version_text = ""
+            version_color = ""
+            
+            if version_status == 'outdated':
+                version_text = "ОБНОВИТЬ"
+                version_color = "#FF6600"  # Оранжевый
+            elif version_status == 'not_downloaded':
+                version_text = "НЕ СКАЧАНА"
+                version_color = "#CC0000"  # Красный
+            elif version_status == 'unknown':
+                version_text = "?"
+                version_color = "#888888"  # Серый
+                
+            if version_text:
+                self.version_label = QLabel(version_text)
+                self.version_label.setStyleSheet(
+                    f"color: {version_color}; font-weight: bold; font-size: 8pt; margin: 0; padding: 2px 4px; "
+                    f"border: 1px solid {version_color}; border-radius: 3px;"
+                )
+                self.version_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter)
+                self.version_label.setMinimumHeight(16)
+                layout.addWidget(self.version_label)
+        
         # Добавляем метку если она задана
         if label and label in LABEL_TEXTS:
             self.tag_label = QLabel(LABEL_TEXTS[label])
@@ -85,7 +110,8 @@ class StrategyItem(QWidget):
             self.tag_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
             self.tag_label.setMinimumHeight(20)
             layout.addWidget(self.tag_label)
-            layout.addStretch()  # Добавляем растяжение для выравнивания метки вправо
+            
+        layout.addStretch()  # Добавляем растяжение для выравнивания меток вправо
         
         # Устанавливаем минимальную высоту виджета
         self.setMinimumHeight(30)
@@ -104,25 +130,22 @@ class StrategySelector(QDialog):
         
         self.setWindowTitle("Выбор стратегии обхода блокировок")
         self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)  # Начальный размер окна
-        
         self.init_ui()
+
+        # Обновляем index.json при входе в меню (для проверки статусов версий)
+        if self.strategy_manager:
+            try:
+                # Запрашиваем свежие данные с сервера для проверки версий
+                self.strategy_manager.get_strategies_list(force_update=True)
+            except Exception as e:
+                log(f"Ошибка при обновлении индекса при входе в меню: {str(e)}", level="WARNING")
+        
+        # Загружаем список стратегий с проверкой версий
         self.load_strategies()
         
         # Выбираем текущую стратегию, если она задана
         if current_strategy_name:
             self.select_strategy_by_name(current_strategy_name)
-
-    def auto_refresh_strategies(self):
-        """Автоматически обновляет список стратегий при первом запуске."""
-        try:
-            # Используем механизм обновления без перезагрузки с сервера
-            self.load_strategies()
-            
-            # Восстанавливаем выбор
-            if self.current_strategy_name:
-                self.select_strategy_by_name(self.current_strategy_name)
-        except Exception as e:
-            log(f"Ошибка при автообновлении списка стратегий: {str(e)}", level="WARNING")
 
     def init_ui(self):
         """Инициализация интерфейса."""
@@ -153,8 +176,8 @@ class StrategySelector(QDialog):
         self.strategies_list.currentRowChanged.connect(self.on_strategy_selected)
         strategies_layout.addWidget(self.strategies_list)
         
-        # Кнопка обновления стратегий
-        refresh_button = QPushButton("Обновить список стратегий")
+        # Кнопка обновления и скачивания стратегий
+        refresh_button = QPushButton("Обновить и скачать стратегии")
         refresh_button.clicked.connect(self.refresh_strategies)
         strategies_layout.addWidget(refresh_button)
         
@@ -265,15 +288,21 @@ class StrategySelector(QDialog):
                     item = QListWidgetItem()
                     self.strategies_list.addItem(item)
                     
-                    # Создаем виджет с цветной меткой
+                    # Проверяем статус версии стратегии
+                    version_status = None
+                    if self.strategy_manager:
+                        version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
+                    
+                    # Создаем виджет с цветной меткой и статусом версии
                     label = strategy_info.get('label', None)
                     sort_order = strategy_info.get('sort_order', 999)
                     
-                    # Создаем кастомный виджет с цветной меткой
+                    # Создаем кастомный виджет с цветной меткой и статусом версии
                     item_widget = StrategyItem(
                         display_name=display_name,
                         label=label,
-                        sort_order=sort_order if sort_order != 999 else None
+                        sort_order=sort_order if sort_order != 999 else None,
+                        version_status=version_status
                     )
                     
                     from PyQt6.QtCore import QSize
@@ -538,13 +567,87 @@ class StrategySelector(QDialog):
             log(f"Ошибка при получении информации о стратегии: {str(e)}", level="ERROR")
             self.strategy_info.setHtml(f"<p style='color:red'>Ошибка: {str(e)}</p>")
 
+    def download_strategy_files(self):
+        """Скачивает все BAT-файлы стратегий."""
+        try:
+            if not self.strategy_manager:
+                log("Менеджер стратегий не инициализирован", level="ERROR")
+                return False
+                
+            strategies = self.strategy_manager.get_strategies_list()
+            if not strategies:
+                log("Список стратегий пуст", level="WARNING")
+                return False
+                
+            log("Начинаем скачивание BAT-файлов стратегий...", level="INFO")
+            
+            downloaded_count = 0
+            total_count = 0
+            
+            for strategy_id, strategy_info in strategies.items():
+                file_path = strategy_info.get('file_path')
+                if file_path:
+                    total_count += 1
+                    try:
+                        # ИСПРАВЛЕНО: используем download_strategy вместо download_strategy_file
+                        local_path = self.strategy_manager.download_strategy(strategy_id)
+                        if local_path:
+                            downloaded_count += 1
+                            log(f"Скачан файл стратегии: {file_path}", level="INFO")
+                        else:
+                            log(f"Не удалось скачать файл: {file_path}", level="WARNING")
+                            
+                    except Exception as e:
+                        log(f"Ошибка при скачивании файла {file_path}: {str(e)}", level="WARNING")
+            
+            log(f"Завершено скачивание BAT-файлов стратегий: {downloaded_count}/{total_count}", level="INFO")
+            return downloaded_count > 0
+            
+        except Exception as e:
+            log(f"Ошибка при скачивании файлов стратегий: {str(e)}", level="ERROR")
+            return False
+
+    def download_single_strategy_file(self, strategy_id):
+        """Скачивает BAT-файл конкретной стратегии."""
+        try:
+            if not self.strategy_manager:
+                log("Менеджер стратегий не инициализирован", level="ERROR")
+                return False
+                
+            strategies = self.strategy_manager.get_strategies_list()
+            if strategy_id not in strategies:
+                log(f"Стратегия {strategy_id} не найдена", level="ERROR")
+                return False
+                
+            try:
+                # ИСПРАВЛЕНО: используем download_strategy вместо download_strategy_file
+                local_path = self.strategy_manager.download_strategy(strategy_id)
+                if local_path:
+                    log(f"Скачан файл стратегии {strategy_id}", level="INFO")
+                    return True
+                else:
+                    log(f"Не удалось скачать файл стратегии {strategy_id}", level="WARNING")
+                    return False
+                    
+            except Exception as e:
+                log(f"Ошибка при скачивании файла стратегии {strategy_id}: {str(e)}", level="WARNING")
+                return False
+                
+        except Exception as e:
+            log(f"Ошибка при скачивании файла стратегии {strategy_id}: {str(e)}", level="ERROR")
+            return False
+
     def refresh_strategies(self):
-        """Обновляет список стратегий."""
+        """Обновляет список стратегий и скачивает BAT-файлы."""
         try:
             if self.strategy_manager:
                 # Запрашиваем свежие данные с сервера
                 self.strategy_manager.get_strategies_list(force_update=True)
-                # Перезагружаем список
+                
+                # Скачиваем все BAT-файлы стратегий
+                self.download_strategy_files()
+                
+                # Перезагружаем список (это обновит статусы версий)
                 self.load_strategies()
                 # Восстанавливаем выбор текущей стратегии, если она задана
                 if self.current_strategy_name:

@@ -12,6 +12,74 @@ def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
     style: 0x10 = MB_ICONERROR,  0x30 = MB_ICONWARNING | MB_YESNO
     """
     ctypes.windll.user32.MessageBoxW(0, text, title, style)
+
+import psutil
+
+def check_mitmproxy() -> tuple[bool, str]:
+    """
+    Проверяет, запущен ли mitmproxy или связанные процессы.
+    True + msg, если обнаружен конфликтующий процесс.
+    """
+    CONFLICTING_PROCESSES = [
+        "mitmproxy",
+        "mitmdump", 
+        "mitmweb",
+        "mitmproxy.exe",
+        "mitmdump.exe",
+        "mitmweb.exe"
+    ]
+    
+    try:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                proc_name = proc.info['name'].lower() if proc.info['name'] else ""
+                
+                # Проверяем имя процесса
+                if any(name.lower() in proc_name for name in CONFLICTING_PROCESSES):
+                    err = (
+                        f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
+                        "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
+                        "Одновременная работа этих программ невозможна.\n\n"
+                        "Пожалуйста, завершите все процессы mitmproxy и перезапустите Zapret."
+                    )
+                    try:
+                        from log import log
+                        log(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
+                    except ImportError:
+                        print(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']}")
+                    return True, err
+                
+                # Дополнительная проверка через командную строку
+                if proc.info['cmdline']:
+                    cmdline = ' '.join(proc.info['cmdline']).lower()
+                    if any(name.lower() in cmdline for name in CONFLICTING_PROCESSES):
+                        err = (
+                            f"Обнаружен запущенный процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
+                            "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
+                            "Одновременная работа этих программ невозможна.\n\n"
+                            "Пожалуйста, завершите все процессы mitmproxy и перезапустите Zapret."
+                        )
+                        try:
+                            from log import log
+                            log(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
+                        except ImportError:
+                            print(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']}")
+                        return True, err
+                        
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                # Процесс завершился или нет доступа - пропускаем
+                continue
+                
+    except Exception as e:
+        try:
+            from log import log
+            log(f"Ошибка при проверке процессов mitmproxy: {e}", level="WARNING")
+        except ImportError:
+            print(f"WARNING: Ошибка при проверке процессов mitmproxy: {e}")
+        # Не прерываем работу при ошибках проверки
+        return False, ""
+    
+    return False, ""
     
 def check_if_in_archive():
     """
@@ -246,7 +314,12 @@ def check_startup_conditions():
         has_gdpi, gdpi_msg = check_goodbyedpi()
         if has_gdpi:
             return False, gdpi_msg
-        
+
+        # Проверка на mitmproxy
+        has_mitmproxy, mitmproxy_msg = check_mitmproxy()
+        if has_mitmproxy:
+            return False, mitmproxy_msg
+               
         # Проверка на запуск из архива
         if check_if_in_archive():
             error_message = (

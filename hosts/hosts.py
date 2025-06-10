@@ -146,12 +146,30 @@ class HostsManager:
     # ------------------------- проверки -------------------------
 
     def is_proxy_domains_active(self) -> bool:
-        """Есть ли хотя бы один из наших доменов в hosts?"""
+        """Проверяет, есть ли активные (НЕ закомментированные) записи наших доменов в hosts"""
         try:
             content = safe_read_hosts_file()
             if content is None:
                 return False
-            return any(domain in content for domain in PROXY_DOMAINS)
+                
+            lines = content.splitlines()
+            domains = set(PROXY_DOMAINS.keys())
+            
+            for line in lines:
+                line = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Разбиваем строку на части (IP домен)
+                parts = line.split()
+                if len(parts) >= 2:
+                    domain = parts[1]  # Второй элемент - это домен
+                    if domain in domains:
+                        # Найден активный (не закомментированный) домен
+                        return True
+                        
+            return False
         except Exception as e:
             log(f"Ошибка при проверке hosts: {e}")
             return False
@@ -236,11 +254,10 @@ class HostsManager:
                 return False
             
             # Добавляем наши домены
-            new_content = content
-            if not new_content.endswith('\n'):
-                new_content += '\n'
+            new_content = content.rstrip()  # убираем лишние пробелы в конце
+            if new_content:  # если файл не пустой
+                new_content += '\n\n'  # добавляем разделитель
             
-            new_content += f"\n"
             for domain, ip in PROXY_DOMAINS.items():
                 new_content += f"{ip} {domain}\n"
 
@@ -292,12 +309,11 @@ class HostsManager:
                 return False
             
             # Добавляем только выбранные домены
-            new_content = content
-            if not new_content.endswith('\n'):
-                new_content += '\n'
-            
-            new_content += f"\n"
-            for domain, ip in PROXY_DOMAINS.items():
+            new_content = content.rstrip()  # убираем лишние пробелы в конце
+            if new_content:  # если файл не пустой
+                new_content += '\n\n'  # добавляем разделитель
+
+            for domain, ip in selected_proxy_domains.items():
                 new_content += f"{ip} {domain}\n"
 
             if not safe_write_hosts_file(new_content):
@@ -330,7 +346,7 @@ class HostsManager:
             return False
     
     def remove_proxy_domains(self) -> bool:
-        """Убираем старые записи."""
+        """Убираем старые записи и лишние пустые строки."""
         # Проверяем доступность файла hosts перед операцией
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
@@ -345,16 +361,27 @@ class HostsManager:
             lines = content.splitlines(keepends=True)
             domains = set(PROXY_DOMAINS.keys())
 
-            new_lines = [
-                line
-                for line in lines
-                if not (
-                    line.strip()
-                    and not line.lstrip().startswith("#")
-                    and len(line.split()) >= 2
-                    and line.split()[1] in domains
-                )
-            ]
+            new_lines = []
+            for line in lines:
+                # Пропускаем наши записи доменов
+                if (line.strip() and 
+                    not line.lstrip().startswith("#") and 
+                    len(line.split()) >= 2 and 
+                    line.split()[1] in domains):
+                    continue
+                
+                # Добавляем строку
+                new_lines.append(line)
+
+            # Убираем лишние пустые строки в конце файла
+            while new_lines and new_lines[-1].strip() == "":
+                new_lines.pop()
+            
+            # Оставляем одну пустую строку в конце, если файл не пустой
+            if new_lines and not new_lines[-1].endswith('\n'):
+                new_lines[-1] += '\n'
+            elif new_lines:
+                new_lines.append('\n')
 
             if not safe_write_hosts_file("".join(new_lines)):
                 self.set_status("Не удалось записать файл hosts")
