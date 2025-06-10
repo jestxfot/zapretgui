@@ -173,6 +173,20 @@ class ThemeManager:
                     button.setStyleSheet(BUTTON_STYLE.format(button_color))
                     button._bgcolor = button_color  # Обновляем внутренний цвет для ripple
 
+            # Применяем тему к меткам
+            if hasattr(self.widget, 'themed_labels'):
+                for label in self.widget.themed_labels:
+                    label_color = theme_info.get('button_color', '0, 119, 255')
+                    # Преобразуем RGB значения в hex цвет
+                    if ',' in label_color:
+                        rgb_values = [int(x.strip()) for x in label_color.split(',')]
+                        label_color = f"#{rgb_values[0]:02x}{rgb_values[1]:02x}{rgb_values[2]:02x}"
+                    
+                    current_style = label.styleSheet()
+                    # Обновляем только цвет, сохраняя остальные стили
+                    updated_style = self._update_color_in_style(current_style, label_color)
+                    label.setStyleSheet(updated_style)
+
             # Если выбрана тема РКН Тян, применяем фоновое изображение
             if theme_name == "РКН Тян":
                 QTimer.singleShot(500, self.apply_rkn_background)
@@ -188,6 +202,15 @@ class ThemeManager:
             print(error_msg)
             return False, error_msg
 
+    def _update_color_in_style(self, current_style, new_color):
+        """Обновляет цвет в существующем стиле"""
+        import re
+        # Заменяем существующий color или добавляем новый
+        if 'color:' in current_style:
+            updated_style = re.sub(r'color:\s*[^;]+;', f'color: {new_color};', current_style)
+        else:
+            updated_style = current_style + f' color: {new_color};'
+        return updated_style
     
     def apply_rkn_background(self):
         """Применяет фоновое изображение для темы РКН Тян"""

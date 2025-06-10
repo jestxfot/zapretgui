@@ -1,11 +1,14 @@
-from PyQt6.QtCore    import Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QComboBox, QSpacerItem, QSizePolicy, QFrame
 )
+from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtCore import QSize
 
 from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
                       STYLE_SHEET, RippleButton)
+
 
 class MainWindowUI:
     """
@@ -53,13 +56,15 @@ class MainWindowUI:
         self.current_strategy_label.setWordWrap(True)
         self.current_strategy_label.setMinimumHeight(40)
         self.current_strategy_label.setStyleSheet(
-            f"{COMMON_STYLE} font-weight: bold; font-size: 12pt; color: #0077ff;")
+            f"{COMMON_STYLE} font-weight: bold; font-size: 12pt;")
         root.addWidget(self.current_strategy_label)
 
         self.themed_buttons = []
+        # Добавляем метку стратегии в список тематических элементов
+        self.themed_labels = [self.current_strategy_label]
 
         self.select_strategy_btn = RippleButton(
-            "Сменить стратегию обхода блокировок…", self, "0, 119, 255")
+            "⚡ Сменить стратегию обхода блокировок…", self, "0, 119, 255")
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.select_strategy_btn)
         root.addWidget(self.select_strategy_btn)
@@ -71,10 +76,10 @@ class MainWindowUI:
         grid.setSpacing(10)
         self.button_grid = grid
 
-        self.start_btn = RippleButton("Запустить Zapret", self, "54, 153, 70")
-        self.stop_btn = RippleButton("Остановить Zapret", self, "255, 93, 174")
-        self.autostart_enable_btn = RippleButton("Вкл. автозапуск", self, "54, 153, 70")
-        self.autostart_disable_btn = RippleButton("Выкл. автозапуск", self, "255, 93, 174")
+        self.start_btn = RippleButton("▶ Запустить Zapret", self, "54, 153, 70")
+        self.stop_btn = RippleButton("■ Остановить Zapret", self, "255, 93, 174")
+        self.autostart_enable_btn = RippleButton("✓ Вкл. автозапуск", self, "54, 153, 70")
+        self.autostart_disable_btn = RippleButton("✗ Выкл. автозапуск", self, "255, 93, 174")
 
         for b, c in ((self.start_btn, "54, 153, 70"),
                      (self.stop_btn, "255, 93, 174"),
@@ -88,27 +93,27 @@ class MainWindowUI:
         grid.addWidget(self.autostart_disable_btn, 0, 1)
 
         # ---- служебные/прочие кнопки ---------------------------------
-        self.open_folder_btn = RippleButton("Открыть папку Zapret", self, "0, 119, 255")
+        self.open_folder_btn = RippleButton("▸ Открыть папку Zapret", self, "0, 119, 255")
         self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.open_folder_btn)
         grid.addWidget(self.open_folder_btn, 2, 0)
 
-        self.test_connection_btn = RippleButton("Тест соединения", self, "0, 119, 255")
+        self.test_connection_btn = RippleButton("◉ Тест соединения", self, "0, 119, 255")
         self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.test_connection_btn)
         grid.addWidget(self.test_connection_btn, 2, 1)
 
-        self.dns_settings_btn = RippleButton("Настройка DNS-серверов", self, "0, 119, 255")
+        self.dns_settings_btn = RippleButton("▪ Настройка DNS-серверов", self, "0, 119, 255")
         self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.dns_settings_btn)
         grid.addWidget(self.dns_settings_btn, 3, 0, 1, 2)
 
         self.proxy_button = RippleButton(
-            "Разблокировать ChatGPT, Spotify, Notion и др.", self, "218, 165, 32")
+            "◆ Разблокировать ChatGPT, Spotify, Notion и др.", self, "218, 165, 32")
         self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
         grid.addWidget(self.proxy_button, 4, 0, 1, 2)
 
-        self.update_check_btn = RippleButton("Проверить обновления", self, "38, 38, 38")
+        self.update_check_btn = RippleButton("↻ Проверить обновления", self, "38, 38, 38")
         self.update_check_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
         grid.addWidget(self.update_check_btn, 5, 0, 1, 2)
 
