@@ -1,5 +1,3 @@
-# main_window.py
-
 from PyQt6.QtCore    import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
@@ -7,42 +5,46 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
-                   STYLE_SHEET, RippleButton)
+                      STYLE_SHEET, RippleButton)
 
 class MainWindowUI:
     """
     Миксин-класс: создаёт интерфейс, ничего не знает о логике.
-    Гарантирует наличие атрибутов, которыми пользуется main.py
-    (start_btn, stop_btn, theme_combo, status_label, button_grid …)
     """
 
-    # ------------------------------------------------------------------
     def build_ui(self: QWidget, width: int, height: int):
         self.setStyleSheet(STYLE_SHEET)
         self.setMinimumSize(width, height)
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(15, 15, 15, 15)
+        root.setSpacing(10)
 
         # ---------- Заголовок ------------------------------------------
         ttl = QLabel("Zapret GUI")
-        ttl.setStyleSheet(f"{COMMON_STYLE} font:16pt Arial;")
+        ttl.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
         root.addWidget(ttl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        line = QFrame(); line.setFrameShape(QFrame.Shape.HLine)
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("QFrame { color: #e0e0e0; }")
         root.addWidget(line)
 
         # ---------- Статус программы -----------------------------------
-        proc_lbl = QLabel("Статус программы:"); proc_lbl.setStyleSheet("font-weight:bold")
+        proc_lbl = QLabel("Статус программы:")
+        proc_lbl.setStyleSheet("font-weight: bold; font-size: 10pt;")
         self.process_status_value = QLabel("проверка…")
+        self.process_status_value.setStyleSheet("font-size: 10pt;")
 
         proc_lay = QHBoxLayout()
-        proc_lay.addWidget(proc_lbl); proc_lay.addWidget(self.process_status_value)
+        proc_lay.addWidget(proc_lbl)
+        proc_lay.addWidget(self.process_status_value)
         proc_lay.addStretch()
         root.addLayout(proc_lay)
 
         # ---------- Текущая стратегия ----------------------------------
         cur_hdr = QLabel("Текущая стратегия:")
-        cur_hdr.setStyleSheet(f"{COMMON_STYLE} font-weight:bold;")
+        cur_hdr.setStyleSheet(f"{COMMON_STYLE} font-weight: bold; font-size: 11pt;")
         cur_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(cur_hdr)
 
@@ -51,77 +53,89 @@ class MainWindowUI:
         self.current_strategy_label.setWordWrap(True)
         self.current_strategy_label.setMinimumHeight(40)
         self.current_strategy_label.setStyleSheet(
-            f"{COMMON_STYLE} font-weight:bold; font-size:12pt; color:#0077ff;")
+            f"{COMMON_STYLE} font-weight: bold; font-size: 12pt; color: #0077ff;")
         root.addWidget(self.current_strategy_label)
+
+        self.themed_buttons = []
 
         self.select_strategy_btn = RippleButton(
             "Сменить стратегию обхода блокировок…", self, "0, 119, 255")
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.themed_buttons.append(self.select_strategy_btn)
         root.addWidget(self.select_strategy_btn)
 
         # ---------- Grid-кнопки ----------------------------------------
-        grid = QGridLayout(); grid.setColumnStretch(0,1); grid.setColumnStretch(1,1)
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setSpacing(10)
         self.button_grid = grid
 
-        self.start_btn  = RippleButton("Запустить Zapret", self, "54, 153, 70")
-        self.stop_btn   = RippleButton("Остановить Zapret", self, "255, 93, 174")
-        self.autostart_enable_btn  = RippleButton("Вкл. автозапуск", self, "54, 153, 70")
+        self.start_btn = RippleButton("Запустить Zapret", self, "54, 153, 70")
+        self.stop_btn = RippleButton("Остановить Zapret", self, "255, 93, 174")
+        self.autostart_enable_btn = RippleButton("Вкл. автозапуск", self, "54, 153, 70")
         self.autostart_disable_btn = RippleButton("Выкл. автозапуск", self, "255, 93, 174")
 
-        for b,c in ((self.start_btn,"54, 153, 70"),
-                    (self.stop_btn,"255, 93, 174"),
-                    (self.autostart_enable_btn,"54, 153, 70"),
-                    (self.autostart_disable_btn,"255, 93, 174")):
+        for b, c in ((self.start_btn, "54, 153, 70"),
+                     (self.stop_btn, "255, 93, 174"),
+                     (self.autostart_enable_btn, "54, 153, 70"),
+                     (self.autostart_disable_btn, "255, 93, 174")):
             b.setStyleSheet(BUTTON_STYLE.format(c))
 
-        grid.addWidget(self.start_btn,              0,0)
-        grid.addWidget(self.autostart_enable_btn,   0,1)
-        grid.addWidget(self.stop_btn,               0,0)
-        grid.addWidget(self.autostart_disable_btn,  0,1)
+        grid.addWidget(self.start_btn, 0, 0)
+        grid.addWidget(self.autostart_enable_btn, 0, 1)
+        grid.addWidget(self.stop_btn, 0, 0)
+        grid.addWidget(self.autostart_disable_btn, 0, 1)
 
         # ---- служебные/прочие кнопки ---------------------------------
-        # кортеж:  text, color, row, col, col_span
-        extra = [
-            ("Открыть папку Zapret",           "0, 119, 255", 2,0),
-            ("Тест соединения",                "0, 119, 255", 2,1),
-            ("Настройка DNS-серверов",         "0, 119, 255", 3,0,2),
-            ("Разблокировать ChatGPT, Spotify, Notion и др.",
-                                               "218, 165, 32",4,0,2),
-            ("Проверить обновления",           "38, 38, 38",  5,0,2),
-        ]
+        self.open_folder_btn = RippleButton("Открыть папку Zapret", self, "0, 119, 255")
+        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.themed_buttons.append(self.open_folder_btn)
+        grid.addWidget(self.open_folder_btn, 2, 0)
 
-        for text,color,row,col,*span in extra:
-            btn = RippleButton(text, self, color)
-            btn.setStyleSheet(BUTTON_STYLE.format(color))
-            grid.addWidget(btn, row, col, 1, span[0] if span else 1)
-            # сохраняем ссылку на нужные отдельные кнопки
-            if "ChatGPT" in text:
-                self.proxy_button = btn
-            if text == "Запустить Zapret":
-                self.start_btn = btn
-            # основная логика подпишет сигналы позже:
-            setattr(self, f"extra_{row}_{col}_btn", btn)
+        self.test_connection_btn = RippleButton("Тест соединения", self, "0, 119, 255")
+        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.themed_buttons.append(self.test_connection_btn)
+        grid.addWidget(self.test_connection_btn, 2, 1)
+
+        self.dns_settings_btn = RippleButton("Настройка DNS-серверов", self, "0, 119, 255")
+        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.themed_buttons.append(self.dns_settings_btn)
+        grid.addWidget(self.dns_settings_btn, 3, 0, 1, 2)
+
+        self.proxy_button = RippleButton(
+            "Разблокировать ChatGPT, Spotify, Notion и др.", self, "218, 165, 32")
+        self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
+        grid.addWidget(self.proxy_button, 4, 0, 1, 2)
+
+        self.update_check_btn = RippleButton("Проверить обновления", self, "38, 38, 38")
+        self.update_check_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
+        grid.addWidget(self.update_check_btn, 5, 0, 1, 2)
 
         root.addLayout(grid)
 
         # ---------- Тема оформления -----------------------------------
-        theme_lbl = QLabel("Тема оформления:"); theme_lbl.setStyleSheet(COMMON_STYLE)
+        theme_lbl = QLabel("Тема оформления:")
+        theme_lbl.setStyleSheet(f"{COMMON_STYLE} font-size: 10pt;")
         root.addWidget(theme_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.theme_combo = QComboBox(); self.theme_combo.addItems(THEMES.keys())
-        self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align:center;")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(THEMES.keys())
+        self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center; font-size: 10pt;")
         root.addWidget(self.theme_combo)
 
         # ---------- Статус-строка -------------------------------------
-        self.status_label = QLabel(""); self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 9pt; color: #666;")
         root.addWidget(self.status_label)
 
-        root.addItem(QSpacerItem(20,20,QSizePolicy.Policy.Minimum,QSizePolicy.Policy.Expanding))
+        root.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # ---------- сигналы-прокси (для main.py) ----------------------
-        self.select_strategy_clicked  = self.select_strategy_btn.clicked
-        self.start_clicked            = self.start_btn.clicked
-        self.stop_clicked             = self.stop_btn.clicked
+        self.select_strategy_clicked = self.select_strategy_btn.clicked
+        self.start_clicked = self.start_btn.clicked
+        self.stop_clicked = self.stop_btn.clicked
         self.autostart_enable_clicked = self.autostart_enable_btn.clicked
-        self.autostart_disable_clicked= self.autostart_disable_btn.clicked
-        self.theme_changed            = self.theme_combo.currentTextChanged
+        self.autostart_disable_clicked = self.autostart_disable_btn.clicked
+        self.theme_changed = self.theme_combo.currentTextChanged

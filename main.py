@@ -680,12 +680,14 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.autostart_disable_clicked.connect(self.remove_autostart)
         self.theme_changed.connect(self.change_theme)
 
-        # дополнительные кнопки (по тексту)
-        self.extra_2_0_btn.clicked.connect(self.open_folder)
-        self.extra_2_1_btn.clicked.connect(self.open_connection_test)
-        self.extra_3_0_btn.clicked.connect(self.open_dns_settings)
-        self.extra_4_0_btn.clicked.connect(self.toggle_proxy_domains)
-        self.extra_5_0_btn.clicked.connect(self.manual_update_check)
+        # дополнительные кнопки
+        self.open_folder_btn.clicked.connect(self.open_folder)
+        self.test_connection_btn.clicked.connect(self.open_connection_test)
+        self.dns_settings_btn.clicked.connect(self.open_dns_settings)
+        self.proxy_button.clicked.connect(self.toggle_proxy_domains)
+        self.update_check_btn.clicked.connect(self.manual_update_check)
+
+
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -876,7 +878,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             select_domains_action = menu.addAction("Выбрать домены для отключения")
             
             # Получаем положение кнопки для отображения меню
-            button_pos = self.extra_4_0_btn.mapToGlobal(self.extra_4_0_btn.rect().bottomLeft())
+            button_pos = self.proxy_button.mapToGlobal(self.proxy_button.rect().bottomLeft())
             
             # Показываем меню и получаем выбранное действие
             action = menu.exec(button_pos)
@@ -918,7 +920,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             select_domains_action = menu.addAction("Выбрать домены для включения")
             
             # Получаем положение кнопки для отображения меню
-            button_pos = self.extra_4_0_btn.mapToGlobal(self.extra_4_0_btn.rect().bottomLeft())
+            button_pos = self.proxy_button.mapToGlobal(self.proxy_button.rect().bottomLeft())
             
             # Показываем меню и получаем выбранное действие
             action = menu.exec(button_pos)
