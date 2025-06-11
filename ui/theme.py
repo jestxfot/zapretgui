@@ -3,6 +3,7 @@ from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, p
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
 from PyQt6.QtWidgets import QPushButton
 from config.reg import reg, HKCU
+from log import log
 
 # Константы
 THEMES = {
@@ -138,28 +139,89 @@ class RippleButton(QPushButton):
 class ThemeManager:
     """Класс для управления темами приложения"""
     
-    def __init__(self, app, widget, status_label, bin_folder):
+    def __init__(self, app, widget, status_label, bin_folder, donate_checker=None):
         self.app = app
         self.widget = widget
         self.status_label = status_label
         self.bin_folder = bin_folder
+        self.donate_checker = donate_checker
         
         # Загружаем сохраненную тему или используем системную
         saved_theme = get_selected_theme()
         if saved_theme and saved_theme in THEMES:
-            self.current_theme = saved_theme
+            # Проверяем доступность темы РКН Тян
+            if saved_theme == "РКН Тян" and not self._is_premium_available():
+                log("Тема РКН Тян недоступна без подписки, переключаем на темную синюю", level="INFO")
+                self.current_theme = "Темная синяя"
+                set_selected_theme(self.current_theme)
+            else:
+                self.current_theme = saved_theme
         else:
             windows_theme = get_windows_theme()
             self.current_theme = "Светлая синяя" if windows_theme == "light" else "Темная синяя"
+
+    def _is_premium_available(self):
+        """Проверяет доступность премиум функций"""
+        if not self.donate_checker:
+            return False
+        try:
+            is_premium, _ = self.donate_checker.check_subscription_status()
+            return is_premium
+        except Exception as e:
+            log(f"Ошибка при проверке статуса подписки для темы: {e}", level="ERROR")
+            return False
+        
+    def get_available_themes(self):
+        """Возвращает список всех тем с пометками о доступности"""
+        available_themes = []
+        is_premium = self._is_premium_available()
+        
+        for theme_name in THEMES.keys():
+            if theme_name == "РКН Тян" and not is_premium:
+                # Добавляем заблокированную тему с пометкой
+                available_themes.append(f"{theme_name} (заблокировано)")
+            else:
+                available_themes.append(theme_name)
+        
+        return available_themes
     
+    def get_clean_theme_name(self, display_name):
+        """Извлекает чистое имя темы из отображаемого названия"""
+        if " (заблокировано)" in display_name:
+            return display_name.replace(" (заблокировано)", "")
+        return display_name
+
     def apply_theme(self, theme_name=None):
-        """Применяет указанную тему"""
+        """Применяет указанную тему с проверкой доступности"""
         if theme_name is None:
             theme_name = self.current_theme
         
+        # Очищаем название темы от пометок
+        clean_theme_name = self.get_clean_theme_name(theme_name)
+        
+        # Проверяем доступность темы РКН Тян
+        if clean_theme_name == "РКН Тян" and not self._is_premium_available():
+            from PyQt6.QtWidgets import QMessageBox
+            
+            QMessageBox.information(self.widget, "Премиум тема", 
+                "Тема 'РКН Тян' доступна только для подписчиков Zapret Premium.\n\n"
+                "Для получения доступа используйте кнопку 'Управление подпиской'.")
+            
+            # Возвращаемся к предыдущей теме в комбо-боксе
+            if hasattr(self.widget, 'theme_combo'):
+                available_themes = self.get_available_themes()
+                for theme in available_themes:
+                    if self.get_clean_theme_name(theme) == self.current_theme:
+                        self.widget.theme_combo.blockSignals(True)
+                        self.widget.theme_combo.setCurrentText(theme)
+                        self.widget.theme_combo.blockSignals(False)
+                        break
+            
+            return False, "Тема недоступна без подписки"
+        
         try:
             import qt_material
-            theme_info = THEMES[theme_name]
+            theme_info = THEMES[clean_theme_name]
             
             qt_material.apply_stylesheet(self.app, theme=theme_info["file"])
             
@@ -187,21 +249,28 @@ class ThemeManager:
                     updated_style = self._update_color_in_style(current_style, label_color)
                     label.setStyleSheet(updated_style)
 
-            # Если выбрана тема РКН Тян, применяем фоновое изображение
-            if theme_name == "РКН Тян":
+            # Обновляем заголовок с премиум статусом под новую тему
+            # ПЕРЕДАЕМ АКТУАЛЬНУЮ ТЕМУ, а не берем из реестра
+            if hasattr(self.widget, 'update_title_with_subscription_status'):
+                is_premium = self._is_premium_available()
+                self.widget.update_title_with_subscription_status(is_premium, clean_theme_name)
+
+            # Если выбрана тема РКН Тян, применяем фоновое изображение (только для премиум)
+            if clean_theme_name == "РКН Тян":
+                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(500, self.apply_rkn_background)
             else:
                 self.widget.setAutoFillBackground(False)
             
-            set_selected_theme(theme_name)
-            self.current_theme = theme_name
+            set_selected_theme(clean_theme_name)
+            self.current_theme = clean_theme_name
             
             return True, ""
         except Exception as e:
             error_msg = f"Ошибка при применении темы: {str(e)}"
             print(error_msg)
             return False, error_msg
-
+    
     def _update_color_in_style(self, current_style, new_color):
         """Обновляет цвет в существующем стиле"""
         import re

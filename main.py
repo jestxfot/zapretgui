@@ -34,6 +34,7 @@ from updater import check_and_run_update
 from strategy_menu.selector import StrategySelector
 from altmenu.app_menubar import AppMenuBar
 from log import log
+from donate import DonateChecker
 
 
 def _set_attr_if_exists(name: str, on: bool = True) -> None:
@@ -422,6 +423,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from config.config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
                             GITHUB_STRATEGIES_JSON_URL)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
+
         self.strategy_manager = StrategyManager(
             base_url        = GITHUB_STRATEGIES_BASE_URL,
             local_dir       = STRATEGIES_FOLDER,
@@ -429,13 +431,19 @@ class LupiDPIApp(QWidget, MainWindowUI):
             json_url        = GITHUB_STRATEGIES_JSON_URL,
             preload         = False)           # ← ключ
 
-        # ThemeManager
+        # ThemeManager с передачей donate_checker
         self.theme_manager = ThemeManager(
             app           = QApplication.instance(),
             widget        = self,
             status_label  = self.status_label,
-            bin_folder    = BIN_FOLDER
+            bin_folder    = BIN_FOLDER,
+            donate_checker = self.donate_checker  # ← передаем проверяльщик подписки
         )
+
+        # Обновляем доступные темы в комбо-боксе на основе статуса подписки
+        available_themes = self.theme_manager.get_available_themes()
+        self.update_theme_combo(available_themes)
+
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
 
@@ -449,6 +457,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # стартовое состояние интерфейса
         self.update_autostart_ui(self.service_manager.check_autostart_exists())
         self.update_ui(running=False)
+
+        self.subscription_timer = QTimer()
+        self.subscription_timer.timeout.connect(self.update_subscription_status_in_title)
+        self.subscription_timer.timeout.connect(self.periodic_subscription_check)
+        self.subscription_timer.start(2 * 60 * 1000)  # 2 минуты в миллисекундах
 
         # --- HeavyInitWorker (качает winws.exe, списки и т.п.) --------
         self.set_status("Инициализация…")
@@ -466,7 +479,65 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self._hthr.finished.connect(self._hthr.deleteLater)
 
         self._hthr.start()
-        
+
+    def periodic_subscription_check(self):
+        """Периодическая проверка статуса подписки"""
+        try:
+            log("Выполняется периодическая проверка подписки", level="DEBUG")
+            
+            # Сохраняем предыдущий статус для сравнения
+            prev_premium, _ = self.donate_checker.check_subscription_status(use_cache=True)
+            
+            # Проверяем актуальный статус (без кэша)
+            is_premium, status_msg = self.donate_checker.check_subscription_status(use_cache=False)
+            
+            # Обновляем заголовок с текущей темой
+            current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
+            self.update_title_with_subscription_status(is_premium, current_theme)
+            
+            # Если статус изменился, обновляем интерфейс
+            if prev_premium != is_premium:
+                log(f"Статус подписки изменился: {prev_premium} -> {is_premium}", level="INFO")
+                
+                # Обновляем доступные темы
+                if hasattr(self, 'theme_manager'):
+                    available_themes = self.theme_manager.get_available_themes()
+                    current_theme = self.theme_combo.currentText()
+                    
+                    # Обновляем список тем
+                    self.update_theme_combo(available_themes)
+                    
+                    # Если пользователь потерял доступ к текущей теме
+                    if not is_premium and self.theme_manager.get_clean_theme_name(current_theme) == "РКН Тян":
+                        log("Пользователь потерял доступ к теме РКН Тян, переключаем на Темную синюю", level="INFO")
+                        
+                        # Переключаем на доступную тему
+                        for theme in available_themes:
+                            if "(заблокировано)" not in theme and "синяя" in theme:
+                                self.theme_combo.setCurrentText(theme)
+                                self.theme_manager.apply_theme(theme)
+                                break
+                    
+                    # Если пользователь получил доступ, обновляем отображение текущей темы
+                    elif is_premium and "(заблокировано)" in current_theme:
+                        clean_theme = self.theme_manager.get_clean_theme_name(current_theme)
+                        for theme in available_themes:
+                            if self.theme_manager.get_clean_theme_name(theme) == clean_theme:
+                                self.theme_combo.setCurrentText(theme)
+                                break
+                
+                # Показываем уведомление в статусе о изменении
+                if is_premium:
+                    self.set_status("✅ Подписка активирована! Доступны премиум функции.")
+                    QTimer.singleShot(5000, lambda: self.set_status("Готово"))
+                else:
+                    self.set_status("❌ Подписка деактивирована. Премиум функции недоступны.")
+                    QTimer.singleShot(5000, lambda: self.set_status("Готово"))
+            
+        except Exception as e:
+            log(f"Ошибка при периодической проверке подписки: {e}", level="ERROR")
+
+
     def _on_heavy_done(self, ok: bool, err: str):
         """GUI-поток: получаем результат тяжёлой работы."""
         if not ok:
@@ -486,17 +557,41 @@ class LupiDPIApp(QWidget, MainWindowUI):
             QTimer.singleShot(d, self.force_enable_combos)
 
         # Проверяем обновления только если это НЕ тестовый билд
-        
         if not is_test_build():
             log("Запуск плановой проверки обновлений...", level="INFO")
             QTimer.singleShot(1000, lambda: check_and_run_update(
                 parent=self, status_cb=self.set_status, silent=False))
-            self.set_status("Готово")
         else:
             log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
-            # Опционально: можно вывести сообщение в статус бар
             self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
+        
+        # Выполняем дополнительную проверку подписки после завершения инициализации
+        QTimer.singleShot(3000, self.post_init_subscription_check)
     
+    def post_init_subscription_check(self):
+        """Дополнительная проверка подписки после завершения инициализации"""
+        try:
+            log("Выполняется проверка подписки после завершения инициализации", level="INFO")
+            
+            # Проверяем подписку
+            is_premium, status_msg = self.donate_checker.check_subscription_status(use_cache=False)
+            
+            # Обновляем все компоненты
+            self.update_title_with_subscription_status(is_premium)
+            
+            if hasattr(self, 'theme_manager'):
+                available_themes = self.theme_manager.get_available_themes()
+                self.update_theme_combo(available_themes)
+            
+            # Финальный статус
+            self.set_status("Готово")
+            
+            log(f"Проверка подписки после инициализации завершена. Статус: {'Premium' if is_premium else 'Free'}", level="INFO")
+            
+        except Exception as e:
+            log(f"Ошибка при проверке подписки после инициализации: {e}", level="ERROR")
+            self.set_status("Готово")
+
     def init_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
         if hasattr(self, 'process_monitor') and self.process_monitor is not None:
@@ -638,6 +733,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         super().__init__()
 
+        # Инициализируем проверяльщик подписки
+        self.donate_checker = DonateChecker()
+
         self.dpi_starter = DPIStarter(
             winws_exe   = WINWS_EXE,
             bin_folder  = BIN_FOLDER,
@@ -659,6 +757,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # Инициализируем интерфейс
         self.build_ui(width=WIDTH, height=HEIGHT)
+
+        # Проверяем статус подписки и обновляем заголовок
+        self.update_subscription_status_in_title()
+
+        # Запускаем первичную проверку подписки в фоне через небольшую задержку
+        QTimer.singleShot(2000, self.initial_subscription_check)
+
         # 1. Создаём объект меню, передаём self как parent,
         #    чтобы внутри можно было обращаться к методам LupiDPIApp
         self.menu_bar = AppMenuBar(self)
@@ -683,6 +788,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # дополнительные кнопки
         self.open_folder_btn.clicked.connect(self.open_folder)
         self.test_connection_btn.clicked.connect(self.open_connection_test)
+        self.subscription_btn.clicked.connect(self.show_subscription_dialog)
         self.dns_settings_btn.clicked.connect(self.open_dns_settings)
         self.proxy_button.clicked.connect(self.toggle_proxy_domains)
         self.update_check_btn.clicked.connect(self.manual_update_check)
@@ -699,7 +805,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
             icon_path=os.path.abspath(ICON_PATH),
             app_version=APP_VERSION
         )
-
+        
+        
         # после создания GUI и инициализации логгера:
         from tgram.tg_log_full import FullLogDaemon
         self.log_sender = FullLogDaemon(
@@ -707,6 +814,110 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 interval = 120,      # интервал отправки в секундах
                 parent   = self)
 
+    def initial_subscription_check(self):
+        """Выполняет первичную проверку подписки при запуске программы"""
+        try:
+            log("Выполняется первичная проверка подписки при запуске", level="INFO")
+            
+            # Проверяем подписку (без кэша для актуальных данных)
+            is_premium, status_msg = self.donate_checker.check_subscription_status(use_cache=False)
+            
+            # Обновляем заголовок с текущей темой
+            current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
+            self.update_title_with_subscription_status(is_premium, current_theme)
+            
+            # Обновляем доступные темы
+            if hasattr(self, 'theme_manager'):
+                available_themes = self.theme_manager.get_available_themes()
+                self.update_theme_combo(available_themes)
+                
+                # Если текущая тема стала недоступна, переключаем на доступную
+                current_theme = self.theme_combo.currentText()
+                if "(заблокировано)" in current_theme:
+                    # Ищем первую доступную тему
+                    for theme in available_themes:
+                        if "(заблокировано)" not in theme:
+                            log(f"Переключение с заблокированной темы на: {theme}", level="INFO")
+                            self.theme_combo.setCurrentText(theme)
+                            self.theme_manager.apply_theme(theme)
+                            break
+            
+            log(f"Первичная проверка подписки завершена. Статус: {'Premium' if is_premium else 'Free'}", level="INFO")
+            
+        except Exception as e:
+            log(f"Ошибка при первичной проверке подписки: {e}", level="ERROR")
+            # В случае ошибки показываем обычный заголовок
+            self.update_title_with_subscription_status(False)
+
+    def update_subscription_status_in_title(self):
+        """Обновляет статус подписки в заголовке"""
+        try:
+            is_premium, status_msg = self.donate_checker.check_subscription_status()
+            current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
+            self.update_title_with_subscription_status(is_premium, current_theme)
+            
+            log(f"Статус подписки в заголовке обновлен: {'Premium' if is_premium else 'Free'}", level="DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка при обновлении статуса подписки в заголовке: {e}", level="ERROR")
+            # В случае ошибки показываем обычный заголовок
+            self.update_title_with_subscription_status(False)
+
+    def show_subscription_dialog(self):
+        """Показывает диалог управления подписками"""
+        try:
+            from subscription_dialog import SubscriptionDialog
+            
+            self.set_status("Проверяю статус подписки...")
+            QApplication.processEvents()
+            
+            dialog = SubscriptionDialog(self, self.donate_checker)
+            result = dialog.exec()
+            
+            # После закрытия диалога обновляем статус в заголовке
+            self.update_subscription_status_in_title()
+            
+            # Обновляем доступные темы на основе нового статуса подписки
+            if hasattr(self, 'theme_manager'):
+                available_themes = self.theme_manager.get_available_themes()
+                self.update_theme_combo(available_themes)
+                
+                # Если текущая тема стала доступна (убрали пометку), обновляем выбор
+                current_displayed = self.theme_combo.currentText()
+                current_clean = self.theme_manager.get_clean_theme_name(current_displayed)
+                
+                # Ищем правильное отображение для текущей темы
+                for theme in available_themes:
+                    if self.theme_manager.get_clean_theme_name(theme) == current_clean:
+                        if theme != current_displayed:
+                            self.theme_combo.blockSignals(True)
+                            self.theme_combo.setCurrentText(theme)
+                            self.theme_combo.blockSignals(False)
+                        break
+            
+            self.set_status("Готово")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии диалога подписки: {e}", level="ERROR")
+            self.set_status(f"Ошибка: {e}")
+            
+            # Fallback - показываем простое сообщение с UUID
+            machine_uuid = self.donate_checker.get_machine_uuid()
+            is_premium, status_msg = self.donate_checker.check_subscription_status()
+            
+            status_text = "✅ Активна" if is_premium else "❌ Неактивна"
+            
+            QMessageBox.information(self, "Информация о подписке",
+                f"UUID машины:\n{machine_uuid}\n\n"
+                f"Статус подписки: {status_text}\n"
+                f"Детали: {status_msg}")
+            
+            # Обновляем заголовок и темы даже после fallback диалога
+            self.update_subscription_status_in_title()
+            if hasattr(self, 'theme_manager'):
+                available_themes = self.theme_manager.get_available_themes()
+                self.update_theme_combo(available_themes)
+            
     def manual_update_check(self):
         """Запускает проверку обновлений вручную, если это не тестовый билд."""
         
@@ -772,12 +983,39 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.first_start = False  # Сбрасываем флаг первого запуска
             
     def change_theme(self, theme_name):
-        """Изменяет тему приложения"""
-        success, message = self.theme_manager.apply_theme(theme_name)
-        if success:
-            self.set_status(f"Тема изменена на: {theme_name}")
-        else:
-            self.set_status(message)
+        """Обработчик изменения темы"""
+        try:
+            # Проверяем, не является ли тема заблокированной
+            if "(заблокировано)" in theme_name:
+                clean_theme_name = theme_name.replace(" (заблокировано)", "")
+                
+                # Показываем предупреждение о заблокированной теме
+                success, message = self.theme_manager.apply_theme(clean_theme_name)
+                
+                if not success:
+                    # Возвращаемся к текущей теме
+                    available_themes = self.theme_manager.get_available_themes()
+                    for theme in available_themes:
+                        if self.theme_manager.get_clean_theme_name(theme) == self.theme_manager.current_theme:
+                            self.theme_combo.blockSignals(True)
+                            self.theme_combo.setCurrentText(theme)
+                            self.theme_combo.blockSignals(False)
+                            break
+                    return
+            
+            # Применяем тему
+            success, message = self.theme_manager.apply_theme(theme_name)
+            
+            if success:
+                log(f"Тема изменена на: {theme_name}", level="INFO")
+                self.set_status(f"Тема изменена: {theme_name}")
+            else:
+                log(f"Ошибка при изменении темы: {message}", level="ERROR")
+                self.set_status(f"Ошибка изменения темы: {message}")
+                
+        except Exception as e:
+            log(f"Ошибка при обработке изменения темы: {e}", level="ERROR")
+            self.set_status(f"Ошибка: {e}")
 
     def open_folder(self):
         """Opens the DPI folder."""
