@@ -284,8 +284,9 @@ def check_goodbyedpi() -> tuple[bool, str]:
                 "Обнаружена установленная служба ГудБайДипиАй "
                 f"её название - {svc}.\n\n"
                 "Zapret GUI несовместим с GoodbyeDPI.\n"
-                "Полностью удалите службу командами:\n"
+                "Полностью удалите службу ДВУМЯ отдельными командами:\n"
                 "    sc stop GoodbyeDPI\n"
+                "А потом\n"
                 "    sc delete GoodbyeDPI\n"
                 "Затем перезагрузите ПК и запустите программу снова."
             )
@@ -296,9 +297,6 @@ def check_goodbyedpi() -> tuple[bool, str]:
                 print(f"ERROR: Найдена служба {svc}")
             return True, err
     return False, ""
-
-
-
 
 
 def check_startup_conditions():

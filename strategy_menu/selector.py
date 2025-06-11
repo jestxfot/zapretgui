@@ -414,7 +414,7 @@ class StrategySelector(QDialog):
         # Кнопки управления
         buttons_row = QHBoxLayout()
         
-        refresh_button = QPushButton("Обновить список")
+        refresh_button = QPushButton("Скачать все стратегии")
         refresh_button.clicked.connect(self.refresh_strategies)
         buttons_row.addWidget(refresh_button)
         

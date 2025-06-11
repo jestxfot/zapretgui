@@ -560,7 +560,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if not is_test_build():
             log("Запуск плановой проверки обновлений...", level="INFO")
             QTimer.singleShot(1000, lambda: check_and_run_update(
-                parent=self, status_cb=self.set_status, silent=False))
+                parent=self, status_cb=self.set_status, silent=True))
         else:
             log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
             self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")

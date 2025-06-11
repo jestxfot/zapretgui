@@ -95,6 +95,7 @@ PROXY_DOMAINS = {
     "style.sndcdn.com": "13.224.222.71",
     "a-v2.sndcdn.com": "3.164.206.34",
     "secure.sndcdn.com": "18.165.140.56",
+    "anilib.me": "172.67.192.246",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"
