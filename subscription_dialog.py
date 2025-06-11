@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QPalette
 from log import log
-import pyperclip
+import pyperclip, webbrowser
 
 class SubscriptionCheckWorker(QThread):
     """Рабочий поток для проверки подписки"""
@@ -27,7 +27,7 @@ class SubscriptionDialog(QDialog):
         super().__init__(parent)
         self.donate_checker = donate_checker
         self.setWindowTitle("Управление подпиской")
-        self.setFixedSize(550, 450)  # Увеличиваем размер
+        self.setFixedSize(580, 520)  # Увеличиваем размер для новой кнопки
         self.setModal(True)
         
         # Определяем тему
@@ -201,12 +201,14 @@ class SubscriptionDialog(QDialog):
         """)
         layout.addWidget(self.progress_bar)
         
-        # Информация
+        # Обновленная информация с ссылкой на Boosty
         info_text = QLabel(
-            "Для получения премиум доступа:\n"
-            "1. Скопируйте UUID вашей машины\n"
-            "2. Отправьте его разработчику\n"
-            "3. После активации перезапустите программу"
+            "💎 Для получения премиум доступа:\n"
+            "1. Скопируйте UUID вашей машины кнопкой выше\n"
+            "2. Перейдите на страницу подписки Boosty\n"
+            "3. Оформите подписку и укажите ваш UUID\n"
+            "4. Ожидайте активации в течение 24 часов\n"
+            "5. Используйте кнопку 'Обновить статус' для проверки"
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet(f"""
@@ -221,7 +223,36 @@ class SubscriptionDialog(QDialog):
             }}
         """)
         layout.addWidget(info_text)
+
+        # Кнопка перехода на Boosty
+        boosty_btn = QPushButton("🚀 Оформить подписку на Boosty")
+        boosty_btn.clicked.connect(self.open_boosty)
+        boosty_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B35;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                min-width: 200px;
+            }
+            QPushButton:hover {
+                background-color: #E55A2B;
+            }
+            QPushButton:pressed {
+                background-color: #CC4A21;
+            }
+        """)
         
+        # Центрируем кнопку Boosty
+        boosty_layout = QHBoxLayout()
+        boosty_layout.addStretch()
+        boosty_layout.addWidget(boosty_btn)
+        boosty_layout.addStretch()
+        layout.addLayout(boosty_layout)
+
         # Кнопки управления
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(10)
@@ -245,7 +276,7 @@ class SubscriptionDialog(QDialog):
                 background-color: #0d47a1;
             }
         """)
-        
+            
         clear_cache_btn = QPushButton("Очистить кэш")
         clear_cache_btn.clicked.connect(self.clear_cache)
         clear_cache_btn.setStyleSheet("""
@@ -291,7 +322,30 @@ class SubscriptionDialog(QDialog):
         buttons_layout.addStretch()
         buttons_layout.addWidget(close_btn)
         layout.addLayout(buttons_layout)
-        
+
+    def open_boosty(self):
+        """Открывает страницу подписки на Boosty"""
+        try:
+            boosty_url = "https://boosty.to/censorliber"
+            webbrowser.open(boosty_url)
+            log(f"Открыта ссылка на Boosty: {boosty_url}", level="INFO")
+            
+            # Показываем подтверждение
+            QMessageBox.information(self, "Переход на Boosty", 
+                                "Страница подписки открыта в браузере.\n\n"
+                                "После оформления подписки не забудьте указать ваш UUID "
+                                "и использовать кнопку 'Обновить статус' для проверки активации.")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии ссылки на Boosty: {e}", level="ERROR")
+            
+            # Fallback - показываем ссылку для ручного копирования
+            QMessageBox.information(self, "Ссылка на подписку", 
+                                "Не удалось автоматически открыть браузер.\n\n"
+                                "Скопируйте ссылку для оформления подписки:\n"
+                                "https://boosty.to/censorliber\n\n"
+                                "После оформления укажите ваш UUID в комментарии.")
+
     def copy_uuid(self):
         """Копирует UUID в буфер обмена"""
         try:
