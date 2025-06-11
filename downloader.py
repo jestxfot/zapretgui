@@ -5,7 +5,7 @@ import shutil
 DOWNLOAD_URLS = {
     "winws.exe": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe",
     "WinDivert.dll": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/WinDivert.dll",
-    "WinDivert64.sys": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/WinDivert64.sys",
+    #"WinDivert64.sys": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/WinDivert64.sys",
     "cygwin1.dll": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/cygwin1.dll",
     "stop.bat": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat",
 }

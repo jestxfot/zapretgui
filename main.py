@@ -860,10 +860,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if hasattr(self, 'proxy_button'):
             is_active = self.hosts_manager.is_proxy_domains_active()
             if is_active:
-                self.proxy_button.setText('◇ Отключить разблокировку ChatGPT, Spotify, Notion')
+                self.proxy_button.setText('Отключить доступ к ChatGPT, Spotify, Notion')
                 self.proxy_button.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))  # Красноватый цвет
             else:
-                self.proxy_button.setText('◆ Разблокировать ChatGPT, Spotify, Notion и др.')
+                self.proxy_button.setText('Разблокировать ChatGPT, Spotify, Notion и др.')
                 self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))  # Золотистый цвет
 
     def toggle_proxy_domains(self):

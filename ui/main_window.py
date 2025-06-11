@@ -9,6 +9,7 @@ from PyQt6.QtCore import QSize
 from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
                       STYLE_SHEET, RippleButton)
 
+import qtawesome as qta
 
 class MainWindowUI:
     """
@@ -63,8 +64,10 @@ class MainWindowUI:
         # Добавляем метку стратегии в список тематических элементов
         self.themed_labels = [self.current_strategy_label]
 
-        self.select_strategy_btn = RippleButton(
-            "⚡ Сменить стратегию обхода блокировок…", self, "0, 119, 255")
+        # ---------- Текущая стратегия ----------------------------------
+        self.select_strategy_btn = RippleButton(" Сменить стратегию обхода блокировок", self, "0, 119, 255")
+        self.select_strategy_btn.setIcon(qta.icon('fa5s.cog', color='white'))
+        self.select_strategy_btn.setIconSize(QSize(16, 16))
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.select_strategy_btn)
         root.addWidget(self.select_strategy_btn)
@@ -76,10 +79,23 @@ class MainWindowUI:
         grid.setSpacing(10)
         self.button_grid = grid
 
-        self.start_btn = RippleButton("▶ Запустить Zapret", self, "54, 153, 70")
-        self.stop_btn = RippleButton("■ Остановить Zapret", self, "255, 93, 174")
-        self.autostart_enable_btn = RippleButton("✓ Вкл. автозапуск", self, "54, 153, 70")
-        self.autostart_disable_btn = RippleButton("✗ Выкл. автозапуск", self, "255, 93, 174")
+        # ---------- Grid-кнопки ----------------------------------------
+        self.start_btn = RippleButton(" Запустить Zapret", self, "54, 153, 70")
+        self.start_btn.setIcon(qta.icon('fa5s.play', color='white'))
+        self.start_btn.setIconSize(QSize(16, 16))
+        
+        self.stop_btn = RippleButton(" Остановить Zapret", self, "255, 93, 174")
+        self.stop_btn.setIcon(qta.icon('fa5s.stop', color='white'))
+        self.stop_btn.setIconSize(QSize(16, 16))
+        
+        self.autostart_enable_btn = RippleButton(" Вкл. автозапуск", self, "54, 153, 70")
+        self.autostart_enable_btn.setIcon(qta.icon('fa5s.check', color='white'))
+        self.autostart_enable_btn.setIconSize(QSize(16, 16))
+        
+        self.autostart_disable_btn = RippleButton(" Выкл. автозапуск", self, "255, 93, 174")
+        self.autostart_disable_btn.setIcon(qta.icon('fa5s.times', color='white'))
+        self.autostart_disable_btn.setIconSize(QSize(16, 16))
+
 
         for b, c in ((self.start_btn, "54, 153, 70"),
                      (self.stop_btn, "255, 93, 174"),
@@ -93,29 +109,44 @@ class MainWindowUI:
         grid.addWidget(self.autostart_disable_btn, 0, 1)
 
         # ---- служебные/прочие кнопки ---------------------------------
-        self.open_folder_btn = RippleButton("▸ Открыть папку Zapret", self, "0, 119, 255")
-        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        # ---- служебные/прочие кнопки ---------------------------------
+        self.open_folder_btn = RippleButton(" Открыть папку Zapret", self, "0, 119, 255")
+        self.open_folder_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
+        self.open_folder_btn.setIconSize(QSize(16, 16))
+        
+        self.test_connection_btn = RippleButton(" Тест соединения", self, "0, 119, 255")
+        self.test_connection_btn.setIcon(qta.icon('fa5s.wifi', color='white'))
+        self.test_connection_btn.setIconSize(QSize(16, 16))
+        
+        self.dns_settings_btn = RippleButton(" Настройка DNS-серверов", self, "0, 119, 255")
+        self.dns_settings_btn.setIcon(qta.icon('fa5s.network-wired', color='white'))
+        self.dns_settings_btn.setIconSize(QSize(16, 16))
+        
+        self.proxy_button = RippleButton(" Разблокировать популярные сервисы", self, "218, 165, 32")
+        self.proxy_button.setIcon(qta.icon('fa5s.unlock', color='white'))
+        self.proxy_button.setIconSize(QSize(16, 16))
+        
+        self.update_check_btn = RippleButton(" Проверить обновления", self, "38, 38, 38")
+        self.update_check_btn.setIcon(qta.icon('fa5s.sync-alt', color='white'))
+        self.update_check_btn.setIconSize(QSize(16, 16))
+
+
         self.themed_buttons.append(self.open_folder_btn)
-        grid.addWidget(self.open_folder_btn, 2, 0)
-
-        self.test_connection_btn = RippleButton("◉ Тест соединения", self, "0, 119, 255")
-        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.test_connection_btn)
-        grid.addWidget(self.test_connection_btn, 2, 1)
-
-        self.dns_settings_btn = RippleButton("▪ Настройка DNS-серверов", self, "0, 119, 255")
-        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.themed_buttons.append(self.dns_settings_btn)
-        grid.addWidget(self.dns_settings_btn, 3, 0, 1, 2)
 
-        self.proxy_button = RippleButton(
-            "◆ Разблокировать ChatGPT, Spotify, Notion и др.", self, "218, 165, 32")
+        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
-        grid.addWidget(self.proxy_button, 4, 0, 1, 2)
-
-        self.update_check_btn = RippleButton("↻ Проверить обновления", self, "38, 38, 38")
         self.update_check_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
+
+        grid.addWidget(self.open_folder_btn, 2, 0)
+        grid.addWidget(self.test_connection_btn, 2, 1)
+        grid.addWidget(self.dns_settings_btn, 3, 0, 1, 2)
+        grid.addWidget(self.proxy_button, 4, 0, 1, 2)
         grid.addWidget(self.update_check_btn, 5, 0, 1, 2)
+        
 
         root.addLayout(grid)
 
