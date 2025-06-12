@@ -1,6 +1,6 @@
 import hashlib
 
-uuid = "43bbf3ac-4248-54dc-99c7-1cc4750d51cd"
+uuid = "b8d6d910-47fa-5f5c-82ae-7968c0d6935d"
 salt = "premium_salt_2025_zapret"
 signature = hashlib.sha256(f"{uuid}{salt}premium".encode()).hexdigest()
 

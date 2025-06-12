@@ -112,10 +112,12 @@ def _create_task_scheduler_job(
     cmd = [
         "schtasks", "/Create",
         "/TN", task_name,
-        "/TR", tr_cmd,
-        "/SC", "ONSTART",
+        "/TR", f'"{bat_path}"',
+        "/SC", "ONLOGON",        # Изменено: при входе в систему вместо при запуске
         "/RU", "SYSTEM",
-        "/F"               # перезаписать, если задача уже существует
+        "/RL", "HIGHEST",        # Запуск с повышенными правами
+        "/IT",                   # Интерактивное выполнение (важно для ONLOGON)
+        "/F"                     # перезаписать, если задача уже существует
     ]
 
     try:
@@ -155,7 +157,7 @@ def _create_task_scheduler_job(
                 errors="ignore"
             )
             if res.returncode == 0:
-                log(f'Задача "{task_name}" создана/обновлена', "INFO")
+                log(f'Задача "{task_name}" создана/обновлена (триггер: при входе в систему)', "INFO")
                 return True
             else:
                 err_msg = (f'Не удалось создать задачу автозапуска "{task_name}". '

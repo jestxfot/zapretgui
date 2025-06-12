@@ -34,6 +34,11 @@ class MainWindowUI:
         line.setStyleSheet("QFrame { color: #e0e0e0; }")
         root.addWidget(line)
 
+        # ---------- Предупреждение о Касперском ------------------------
+        kaspersky_warning = self._create_kaspersky_warning()
+        if kaspersky_warning:
+            root.addWidget(kaspersky_warning)
+
         # ---------- Статус программы -----------------------------------
         proc_lbl = QLabel("Статус программы:")
         proc_lbl.setStyleSheet("font-weight: bold; font-size: 10pt;")
@@ -367,3 +372,193 @@ class MainWindowUI:
         except Exception as e:
             # В случае любой ошибки возвращаем зеленый
             return "#4CAF50"
+        
+    def _get_premium_indicator_color(self, current_theme: str = None):
+        """
+        Возвращает цвет для индикатора премиум статуса на основе текущей темы.
+        
+        Args:
+            current_theme: Текущая тема (если не указана, берется из реестра)
+        
+        Returns:
+            str: Hex цвет для индикатора
+        """
+        try:
+            # Импортируем здесь чтобы избежать циклических импортов
+            from ui.theme import THEMES, get_selected_theme
+            
+            # Получаем текущую тему
+            theme_name = current_theme if current_theme else get_selected_theme()
+            
+            if not theme_name or theme_name not in THEMES:
+                # Fallback к зеленому если тема неизвестна
+                return "#4CAF50"
+            
+            theme_info = THEMES[theme_name]
+            button_color = theme_info.get("button_color", "0, 119, 255")
+            
+            # Преобразуем RGB в hex
+            if ',' in button_color:
+                try:
+                    rgb_values = [int(x.strip()) for x in button_color.split(',')]
+                    hex_color = f"#{rgb_values[0]:02x}{rgb_values[1]:02x}{rgb_values[2]:02x}"
+                    return hex_color
+                except (ValueError, IndexError):
+                    return "#4CAF50"  # Fallback
+            
+            return "#4CAF50"  # Fallback если формат неожиданный
+            
+        except Exception as e:
+            # В случае любой ошибки возвращаем зеленый
+            return "#4CAF50"
+
+    def _check_kaspersky_antivirus(self):
+        """
+        Проверяет наличие антивируса Касперского в системе.
+        
+        Returns:
+            bool: True если Касперский обнаружен, False если нет
+        """
+
+        try:
+            import subprocess
+            import os
+            
+            # Проверяем наличие процессов Касперского
+            kaspersky_processes = [
+                'avp.exe', 'kavfs.exe', 'klnagent.exe', 'ksde.exe',
+                'kavfswp.exe', 'kavfswh.exe', 'kavfsslp.exe'
+            ]
+            
+            # Получаем список запущенных процессов
+            try:
+                result = subprocess.run(['tasklist'], capture_output=True, text=True, shell=True)
+                if result.returncode == 0:
+                    running_processes = result.stdout.lower()
+                    
+                    for process in kaspersky_processes:
+                        if process.lower() in running_processes:
+                            return True
+            except Exception:
+                pass
+            
+            # Проверяем папки установки Касперского
+            kaspersky_paths = [
+                r'C:\Program Files\Kaspersky Lab',
+                r'C:\Program Files (x86)\Kaspersky Lab',
+                r'C:\Program Files\Kaspersky Security',
+                r'C:\Program Files (x86)\Kaspersky Security'
+            ]
+            
+            for path in kaspersky_paths:
+                if os.path.exists(path) and os.path.isdir(path):
+                    try:
+                        # Проверяем, что папка не пустая
+                        dir_contents = os.listdir(path)
+                        if dir_contents:
+                            # Дополнительно проверяем наличие исполняемых файлов или подпапок
+                            for item in dir_contents:
+                                item_path = os.path.join(path, item)
+                                if os.path.isdir(item_path) or item.lower().endswith(('.exe', '.dll')):
+                                    return True
+                    except (PermissionError, OSError):
+                        # Если нет доступа к папке, но она существует - считаем что Касперский есть
+                        return True
+            
+            # Если ни один процесс не найден и папки пустые/не найдены, считаем что Касперского нет
+            return False
+            
+        except Exception as e:
+            # В случае ошибки считаем, что Касперского нет
+            return False
+
+    def _create_kaspersky_warning(self):
+        """
+        Создает компактный виджет с предупреждением о Касперском.
+        
+        Returns:
+            QWidget: Виджет с предупреждением или None если Касперский не обнаружен
+        """
+        if not self._check_kaspersky_antivirus():
+            return None
+        
+        from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
+        from PyQt6.QtCore import Qt
+        
+        # Создаем основной фрейм
+        warning_frame = QFrame()
+        warning_frame.setFrameStyle(QFrame.Shape.Box)
+        warning_frame.setStyleSheet("""
+            QFrame {
+                background-color: #FFF3CD;
+                border: 1px solid #FFEAA7;
+                border-radius: 4px;
+                padding: 2px;
+                margin: 0px;
+            }
+        """)
+        
+        layout = QHBoxLayout(warning_frame)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(8)
+        
+        # Иконка предупреждения
+        warning_icon = QLabel()
+        warning_icon.setText("⚠")
+        warning_icon.setStyleSheet("font-size: 14px; color: #F39C12;")
+        layout.addWidget(warning_icon)
+        
+        # Текст предупреждения (компактный)
+        warning_text = QLabel()
+        warning_text.setText("Kaspersky может блокировать Zapret. Добавьте в исключения.")
+        warning_text.setStyleSheet("""
+            QLabel {
+                color: #856404;
+                font-size: 9pt;
+                background: transparent;
+                border: none;
+            }
+        """)
+        layout.addWidget(warning_text, 1)
+        
+        # Кнопка закрытия
+        dismiss_btn = QPushButton("✕")
+        dismiss_btn.setFixedSize(16, 16)
+        dismiss_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #856404;
+                font-size: 10pt;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #F39C12;
+            }
+        """)
+        dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        def close_warning():
+            """Закрывает предупреждение и удаляет его из layout"""
+            if warning_frame.parent():
+                parent_layout = warning_frame.parent().layout()
+                if parent_layout:
+                    parent_layout.removeWidget(warning_frame)
+                
+                # Находим главное окно через self (MainWindowUI)
+                main_window = self
+                while hasattr(main_window, 'parent') and main_window.parent():
+                    main_window = main_window.parent()
+                
+                # Принудительно обновляем размеры
+                if hasattr(main_window, 'adjustSize'):
+                    main_window.adjustSize()
+                if hasattr(main_window, 'updateGeometry'):
+                    main_window.updateGeometry()
+            
+            warning_frame.deleteLater()
+        
+        dismiss_btn.clicked.connect(close_warning)
+        layout.addWidget(dismiss_btn)
+        
+        return warning_frame

@@ -29,13 +29,22 @@ def _wt_stub_exists() -> bool:
 def remove_windows_terminal_if_win11():
     """
     На Windows 11 удаляет MS-Store-версию Windows Terminal,
-    но делает это ТОЛЬКО если терминал действительно установлен.
-    Если wt.exe-стаба нет – функция мгновенно возвращает управление.
+    но делает это ТОЛЬКО если:
+    1. Терминал действительно установлен
+    2. Пользователь включил эту опцию в настройках
+    Если wt.exe-стаба нет или функция отключена – функция мгновенно возвращает управление.
     """
     from log import log   # импорт здесь, чтобы не тащить log в глобалы
 
     try:
-        # 0. Требования к запуску
+        # 0. Проверяем настройку пользователя в реестре
+        from config.reg import get_remove_windows_terminal
+        
+        if not get_remove_windows_terminal():
+            log("Удаление Windows Terminal отключено пользователем в настройках", level="INFO")
+            return
+        
+        # 1. Требования к запуску
         if not _is_windows_11():
             return                  # не Win11 → ничего не делаем
 
@@ -43,7 +52,7 @@ def remove_windows_terminal_if_win11():
             log("Windows Terminal не обнаружен – пропускаем удаление.")
             return                  # терминала нет → выходим
 
-        log("Обнаружен Windows Terminal – выполняем удаление…")
+        log("Обнаружен Windows Terminal – выполняем удаление (согласно настройкам пользователя)…")
 
         # PowerShell-команды
         ps_remove_user = (

@@ -2,6 +2,7 @@
 
 from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox, QApplication
 from PyQt6.QtGui     import QKeySequence, QAction
+from PyQt6.QtCore    import Qt
 import webbrowser
 
 from config.config import APP_VERSION
@@ -11,8 +12,10 @@ from .about_dialog import AboutDialog
 # ─── работа с реестром ──────────────────────────
 from config.reg import (
     get_dpi_autostart,  set_dpi_autostart,
-    get_strategy_autoload, set_strategy_autoload
+    get_strategy_autoload, set_strategy_autoload,
+    get_remove_windows_terminal, set_remove_windows_terminal
 )
+
 
 class AppMenuBar(QMenuBar):
     """
@@ -38,6 +41,12 @@ class AppMenuBar(QMenuBar):
         self.auto_strat_act.setChecked(get_strategy_autoload())
         self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
         file_menu.addAction(self.auto_strat_act)
+
+        # Чек-бокс «Удалять Windows Terminal»
+        self.remove_wt_act = QAction("Удалять Windows Terminal", self, checkable=True)
+        self.remove_wt_act.setChecked(get_remove_windows_terminal())
+        self.remove_wt_act.toggled.connect(self.toggle_remove_windows_terminal)
+        file_menu.addAction(self.remove_wt_act)
 
         file_menu.addSeparator()
 
@@ -96,9 +105,46 @@ class AppMenuBar(QMenuBar):
         act_help.triggered.connect(self.open_info)
         help_menu.addAction(act_help)
 
+        # -------- 4. «Андроид» ---------------------------------------------
+        android_menu = self.addMenu("&Андроид")
+
+        act_byedpi_info = QAction("О ByeDPIAndroid", self)
+        act_byedpi_info.triggered.connect(self.show_byedpi_info)
+        android_menu.addAction(act_byedpi_info)
+
+        act_byedpi_github = QAction("GitHub проекта", self)
+        act_byedpi_github.triggered.connect(self.open_byedpi_github)
+        android_menu.addAction(act_byedpi_github)
+
+        act_byedpi_telegram = QAction("Telegram группа", self)
+        act_byedpi_telegram.triggered.connect(self.open_byedpi_telegram)
+        android_menu.addAction(act_byedpi_telegram)
+
     # ==================================================================
     #  Обработчики чек-боксов
     # ==================================================================
+    def toggle_remove_windows_terminal(self, enabled: bool):
+        """
+        Включает / выключает удаление Windows Terminal при запуске программы.
+        """
+        set_remove_windows_terminal(enabled)
+
+        msg = ("Windows Terminal будет удаляться при запуске программы"
+               if enabled
+               else "Удаление Windows Terminal отключено")
+        self._set_status(msg)
+        
+        if not enabled:
+            # При отключении показываем предупреждение
+            warning_msg = (
+                "Внимание! Windows Terminal может мешать работе программы.\n\n"
+                "Если у вас возникнут проблемы с работой DPI-обхода, "
+                "рекомендуется включить эту опцию обратно."
+            )
+            QMessageBox.warning(self.parent, "Предупреждение", warning_msg)
+        else:
+            QMessageBox.information(self.parent, "Удаление Windows Terminal", msg)
+            
     def toggle_dpi_autostart(self, enabled: bool):
         """
         Включает / выключает автозапуск DPI и показывает диалог-уведомление.
@@ -386,3 +432,58 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка",
                                 f"Не удалось отправить лог:\n{e}")
+            
+    # ==================================================================
+    #  Андроид
+    # ==================================================================
+    def show_byedpi_info(self):
+        """Показывает информацию о ByeDPIAndroid"""
+        info_text = """
+        <h2>ByeDPIAndroid</h2>
+        
+        <p><b>ByeDPIAndroid</b> — это мобильная версия DPI-обхода для устройств Android, 
+        аналогичная Zapret GUI для Windows.</p>
+        
+        <h3>Особенности:</h3>
+        <ul>
+        <li>🔧 Простая настройка и использование</li>
+        <li>🛡️ Обход блокировок сайтов на Android</li>
+        <li>⚡ Работа без root-доступа</li>
+        <li>🔄 Регулярные обновления</li>
+        <li>💬 Активная поддержка сообщества</li>
+        </ul>
+        
+        <h3>Ссылки:</h3>
+        <p>📱 <a href="https://github.com/romanvht/ByeDPIAndroid">GitHub проекта</a></p>
+        <p>💬 <a href="https://t.me/byebyedpi_group">Telegram группа</a></p>
+        
+        <p><i>ByeDPIAndroid разрабатывается независимо от Zapret GUI, 
+        но использует схожие принципы работы.</i></p>
+        """
+        
+        msg_box = QMessageBox(self.parent)
+        msg_box.setWindowTitle("ByeDPIAndroid")
+        msg_box.setTextFormat(Qt.TextFormat.RichText)  # Исправлено: используем Qt.TextFormat
+        msg_box.setText(info_text)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.exec()
+
+    def open_byedpi_github(self):
+        """Открывает GitHub проекта ByeDPIAndroid"""
+        try:
+            webbrowser.open("https://github.com/romanvht/ByeDPIAndroid")
+            self._set_status("Открываю GitHub ByeDPIAndroid...")
+        except Exception as e:
+            err = f"Ошибка при открытии GitHub: {e}"
+            self._set_status(err)
+            QMessageBox.warning(self.parent, "Ошибка", err)
+
+    def open_byedpi_telegram(self):
+        """Открывает Telegram группу ByeDPIAndroid"""
+        try:
+            webbrowser.open("https://t.me/byebyedpi_group")
+            self._set_status("Открываю Telegram группу ByeDPIAndroid...")
+        except Exception as e:
+            err = f"Ошибка при открытии Telegram: {e}"
+            self._set_status(err)
+            QMessageBox.warning(self.parent, "Ошибка", err)

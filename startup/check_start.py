@@ -15,6 +15,159 @@ def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
 
 import psutil
 
+def check_system_commands() -> tuple[bool, str]:
+    """
+    Проверяет доступность основных системных команд, необходимых для работы программы.
+    
+    Returns:
+        tuple: (is_error, error_message)
+    """
+    required_commands = [
+        ("tasklist", "tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV /NH"),
+        ("sc", "sc query"),
+        ("powershell", "powershell -Command \"Get-Process -Name explorer -ErrorAction SilentlyContinue | Select-Object Id\"")
+        # Если что wmic нет по дефолту начиная с винды 11 24h2 вроде ("wmic", "wmic process where \"name='explorer.exe'\" get processid")
+    ]
+    
+    failed_commands = []
+    
+    for cmd_name, test_command in required_commands:
+        try:
+            result = subprocess.run(
+                test_command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                encoding="cp866",  # Используем cp866 для консольных команд
+                errors="ignore",  # Игнорируем ошибки кодировки
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            # Для tasklist проверяем специально на ошибку "не является командой"
+            if cmd_name == "tasklist":
+                if result.returncode != 0:
+                    stderr_text = result.stderr.strip().lower()
+                    if "не является" in stderr_text or "not recognized" in stderr_text:
+                        failed_commands.append(f"{cmd_name} (команда недоступна)")
+                        try:
+                            from log import log
+                            log(f"ERROR: Команда {cmd_name} недоступна: {result.stderr.strip()}", level="ERROR")
+                        except ImportError:
+                            print(f"ERROR: Команда {cmd_name} недоступна")
+                        continue
+                        
+            # Для остальных команд просто проверяем код возврата
+            if result.returncode not in [0, 1]:  # 1 может быть нормальным для некоторых команд
+                failed_commands.append(f"{cmd_name} (код ошибки: {result.returncode})")
+                try:
+                    from log import log
+                    log(f"WARNING: Команда {cmd_name} вернула код {result.returncode}", level="WARNING")
+                except ImportError:
+                    print(f"WARNING: Команда {cmd_name} вернула код {result.returncode}")
+                    
+        except subprocess.TimeoutExpired:
+            failed_commands.append(f"{cmd_name} (превышен таймаут)")
+            try:
+                from log import log
+                log(f"ERROR: Команда {cmd_name} превысила таймаут", level="ERROR")
+            except ImportError:
+                print(f"ERROR: Команда {cmd_name} превысила таймаут")
+                
+        except FileNotFoundError:
+            failed_commands.append(f"{cmd_name} (файл не найден)")
+            try:
+                from log import log
+                log(f"ERROR: Команда {cmd_name} не найдена", level="ERROR")
+            except ImportError:
+                print(f"ERROR: Команда {cmd_name} не найдена")
+                
+        except Exception as e:
+            failed_commands.append(f"{cmd_name} ({str(e)})")
+            try:
+                from log import log
+                log(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}", level="ERROR")
+            except ImportError:
+                print(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}")
+    
+    if failed_commands:
+        error_message = (
+            "Обнаружены проблемы с системными командами:\n\n"
+            + "\n".join(f"• {cmd}" for cmd in failed_commands) + 
+            "\n\nЭто может быть вызвано:\n"
+            "• Блокировкой антивирусом (особенно Касперский)\n"
+            "• Политиками безопасности системы\n"
+            "• Повреждением системных файлов\n\n"
+            "Рекомендации:\n"
+            "1. Добавьте программу в исключения антивируса\n"
+            "2. Проверьте целостность файлов командой: sfc /scannow\n"
+            "Программа может работать нестабильно или не запуститься. Лучше всего переустановить Windows!"
+        )
+        return True, error_message
+    
+    try:
+        from log import log
+        log("Все системные команды доступны", level="INFO")
+    except ImportError:
+        print("INFO: Все системные команды доступны")
+        
+    return False, ""
+
+def check_startup_conditions():
+    """
+    Выполняет все проверки условий запуска программы
+    
+    Возвращает:
+    - tuple: (success, error_message)
+        - success (bool): True если все проверки успешны, False в противном случае
+        - error_message (str): текст сообщения об ошибке, если проверка не пройдена
+    """
+    try:
+        # Проверка системных команд (добавляем в начало)
+        has_cmd_issues, cmd_msg = check_system_commands()
+        if has_cmd_issues:
+            return False, cmd_msg
+
+        has_gdpi, gdpi_msg = check_goodbyedpi()
+        if has_gdpi:
+            return False, gdpi_msg
+
+        # Проверка на mitmproxy
+        has_mitmproxy, mitmproxy_msg = check_mitmproxy()
+        if has_mitmproxy:
+            return False, mitmproxy_msg
+               
+        # Проверка на запуск из архива
+        if check_if_in_archive():
+            error_message = (
+                "Программа запущена из временной директории.\n\n"
+                "Для корректной работы необходимо распаковать архив в постоянную директорию "
+                "(например, C:\\zapretgui) и запустить программу оттуда.\n\n"
+                "Продолжение работы возможно, но некоторые функции могут работать некорректно."
+            )
+            return False, error_message
+
+        # Проверка на наличие OneDrive в пути
+        in_onedrive, msg = check_path_for_onedrive()
+        if in_onedrive:
+            return False, msg
+                
+        # Проверка на специальные символы в пути
+        has_special_chars, error_message = check_path_for_special_chars()
+        if has_special_chars:
+            return False, error_message
+        
+        # Все проверки успешны
+        return True, ""
+    except Exception as e:
+        error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
+        try:
+            from log import log
+            log(error_message, level="ERROR")
+        except ImportError:
+            print(f"ERROR: {error_message}")
+        return False, error_message
+        
 def check_mitmproxy() -> tuple[bool, str]:
     """
     Проверяет, запущен ли mitmproxy или связанные процессы.
@@ -208,7 +361,12 @@ def display_startup_warnings():
     
     if not success:
         # Определяем, является ли ошибка критической
-        is_critical = "специальные символы" in message
+        is_critical = (
+            "специальные символы" in message or 
+            "системными командами" in message or
+            "GoodbyeDPI" in message or
+            "mitmproxy" in message
+        )
 
         app_exists = QApplication.instance() is not None
 
@@ -222,7 +380,8 @@ def display_startup_warnings():
             if app_exists:
                 result = QMessageBox.warning(
                     None, "Предупреждение",
-                    message,
+                    message + "\n\nПродолжить работу?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No
                 )
                 return result == QMessageBox.StandardButton.Yes
@@ -284,7 +443,8 @@ def check_goodbyedpi() -> tuple[bool, str]:
                 "Обнаружена установленная служба ГудБайДипиАй "
                 f"её название - {svc}.\n\n"
                 "Zapret GUI несовместим с GoodbyeDPI.\n"
-                "Полностью удалите службу ДВУМЯ отдельными командами:\n"
+                "Полностью удалите службу ДВУМЯ отдельными командами\n"
+                "(запускать консоль от ИМЕНИ АДМИНИСТРАТОРА!):\n"
                 "    sc stop GoodbyeDPI\n"
                 "А потом\n"
                 "    sc delete GoodbyeDPI\n"
@@ -297,54 +457,3 @@ def check_goodbyedpi() -> tuple[bool, str]:
                 print(f"ERROR: Найдена служба {svc}")
             return True, err
     return False, ""
-
-
-def check_startup_conditions():
-    """
-    Выполняет все проверки условий запуска программы
-    
-    Возвращает:
-    - tuple: (success, error_message)
-        - success (bool): True если все проверки успешны, False в противном случае
-        - error_message (str): текст сообщения об ошибке, если проверка не пройдена
-    """
-    try:
-        has_gdpi, gdpi_msg = check_goodbyedpi()
-        if has_gdpi:
-            return False, gdpi_msg
-
-        # Проверка на mitmproxy
-        has_mitmproxy, mitmproxy_msg = check_mitmproxy()
-        if has_mitmproxy:
-            return False, mitmproxy_msg
-               
-        # Проверка на запуск из архива
-        if check_if_in_archive():
-            error_message = (
-                "Программа запущена из временной директории.\n\n"
-                "Для корректной работы необходимо распаковать архив в постоянную директорию "
-                "(например, C:\\zapretgui) и запустить программу оттуда.\n\n"
-                "Продолжение работы возможно, но некоторые функции могут работать некорректно."
-            )
-            return False, error_message
-
-        # Проверка на наличие OneDrive в пути
-        in_onedrive, msg = check_path_for_onedrive()
-        if in_onedrive:
-            return False, msg
-                
-        # Проверка на специальные символы в пути
-        has_special_chars, error_message = check_path_for_special_chars()
-        if has_special_chars:
-            return False, error_message
-        
-        # Все проверки успешны
-        return True, ""
-    except Exception as e:
-        error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
-        try:
-            from log import log
-            log(error_message, level="ERROR")
-        except ImportError:
-            log(f"ERROR: {error_message}")
-        return False, error_message

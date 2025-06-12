@@ -59,29 +59,49 @@ class DPIStarter:
         import re
         """Проверяет, запущен ли процесс winws.exe"""
         try:
-            # Метод 1: Проверка через tasklist (самый быстрый)
             if not silent:
                 log("=================== check_process_running ==========================", level="START")
+            
+            # Метод 1: Проверка через tasklist (может быть заблокирована)
+            if not silent:
                 log("Метод 1: Проверка через tasklist", level="START")
             
-            result = subprocess.run(
-                'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
-                shell=True, 
-                capture_output=True, 
-                text=True
-            )
-            
-            if "winws.exe" in result.stdout:
-                # Извлекаем PID процесса
-                pid_match = re.search(r'"winws\.exe","(\d+)"', result.stdout)
-                if pid_match:
-                    pid = pid_match.group(1)
+            try:
+                result = subprocess.run(
+                    'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
+                    shell=True, 
+                    capture_output=True, 
+                    text=True,
+                    timeout=5  # Добавляем таймаут
+                )
+                
+                if result.returncode == 0 and "winws.exe" in result.stdout:
+                    # Извлекаем PID процесса
+                    import re
+                    pid_match = re.search(r'"winws\.exe","(\d+)"', result.stdout)
+                    if pid_match:
+                        pid = pid_match.group(1)
+                        if not silent:
+                            log(f"Найден PID процесса: {pid}", level="START")
+                        return True
+                    
                     if not silent:
-                        log(f"Найден PID процесса: {pid}", level="START")
+                        log("Процесс найден, но не удалось определить PID", level="START")
                     return True
                 
-                log("Процесс найден, но не удалось определить PID", level="START")
-                return True  # Процесс найден, даже если мы не смогли извлечь PID
+                # Если tasklist вернула ошибку
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() if result.stderr else "неизвестная ошибка"
+                    if not silent:
+                        log(f"tasklist завершился с кодом {result.returncode}: {error_msg}", level="WARNING")
+                        log("Переходим к альтернативным методам проверки", level="WARNING")
+                
+            except subprocess.TimeoutExpired:
+                if not silent:
+                    log("tasklist превысила таймаут, переходим к другим методам", level="WARNING")
+            except Exception as e:
+                if not silent:
+                    log(f"Ошибка при выполнении tasklist: {e}", level="WARNING")
             
             if not silent:
                 # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)

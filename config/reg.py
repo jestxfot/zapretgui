@@ -4,8 +4,26 @@ import winreg
 HKCU = winreg.HKEY_CURRENT_USER
 HKLM = winreg.HKEY_LOCAL_MACHINE
 
-# спец-значение «аргумент не передан»
-_UNSET = object()
+# Специальная константа для обозначения отсутствующего значения
+class _UnsetType:
+    """Sentinel object для обозначения 'не задано'"""
+    def __repr__(self):
+        return "<UNSET>"
+
+_UNSET = _UnsetType()
+
+# ───────────── Удаление Windows Terminal ─────────────
+_WT_KEY  = r"Software\Zapret"
+_WT_NAME = "RemoveWindowsTerminal"     # REG_DWORD (1/0)
+
+def get_remove_windows_terminal() -> bool:
+    """True – удалять Windows Terminal при запуске, False – не удалять."""
+    val = reg(_WT_KEY, _WT_NAME)
+    return bool(val) if val is not None else True   # дефолт = True (удалять)
+
+def set_remove_windows_terminal(enabled: bool) -> bool:
+    """Включает/выключает удаление Windows Terminal при запуске."""
+    return reg(_WT_KEY, _WT_NAME, 1 if enabled else 0)
 
 def _detect_reg_type(value):
     """Определяет подходящий winreg тип по питоновскому value."""
