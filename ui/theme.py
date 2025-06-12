@@ -294,7 +294,7 @@ class ThemeManager:
             if not os.path.exists(img_path):
                 try:
                     self._set_status("Загрузка фонового изображения...")
-                    img_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=download.jpg"
+                    img_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=rkn_background.jpg"
                     
                     response = requests.get(img_url, stream=True, timeout=10)
                     if response.status_code == 200:
