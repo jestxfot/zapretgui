@@ -24,8 +24,8 @@ def check_system_commands() -> tuple[bool, str]:
     """
     required_commands = [
         ("tasklist", "tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV /NH"),
-        ("sc", "sc query"),
-        ("powershell", "powershell -Command \"Get-Process -Name explorer -ErrorAction SilentlyContinue | Select-Object Id\"")
+        #("sc", "sc query"),
+        #("powershell", "powershell -Command \"Get-Process -Name explorer -ErrorAction SilentlyContinue | Select-Object Id\"")
         # Если что wmic нет по дефолту начиная с винды 11 24h2 вроде ("wmic", "wmic process where \"name='explorer.exe'\" get processid")
     ]
     

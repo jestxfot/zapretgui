@@ -165,7 +165,7 @@ class ThemeManager:
         if not self.donate_checker:
             return False
         try:
-            is_premium, _ = self.donate_checker.check_subscription_status()
+            is_premium, _, days_remaining = self.donate_checker.check_subscription_status()  # Исправляем распаковку
             return is_premium
         except Exception as e:
             log(f"Ошибка при проверке статуса подписки для темы: {e}", level="ERROR")
@@ -251,9 +251,15 @@ class ThemeManager:
 
             # Обновляем заголовок с премиум статусом под новую тему
             # ПЕРЕДАЕМ АКТУАЛЬНУЮ ТЕМУ, а не берем из реестра
-            if hasattr(self.widget, 'update_title_with_subscription_status'):
-                is_premium = self._is_premium_available()
-                self.widget.update_title_with_subscription_status(is_premium, clean_theme_name)
+            if hasattr(self.widget, 'update_title_with_subscription_status') and hasattr(self.widget, 'donate_checker'):
+                try:
+                    is_premium, status_msg, days_remaining = self.widget.donate_checker.check_subscription_status()
+                    self.widget.update_title_with_subscription_status(is_premium, clean_theme_name, days_remaining)
+                    log(f"Обновлен статус подписки после смены темы: premium={is_premium}, тема={clean_theme_name}", level="DEBUG")
+                except Exception as e:
+                    log(f"Ошибка при обновлении статуса подписки после смены темы: {e}", level="ERROR")
+                    # В случае ошибки показываем базовый заголовок
+                    self.widget.update_title_with_subscription_status(False, clean_theme_name, None)
 
             # Если выбрана тема РКН Тян, применяем фоновое изображение (только для премиум)
             if clean_theme_name == "РКН Тян":
@@ -268,7 +274,7 @@ class ThemeManager:
             return True, ""
         except Exception as e:
             error_msg = f"Ошибка при применении темы: {str(e)}"
-            print(error_msg)
+            log(error_msg, level="ERROR")
             return False, error_msg
     
     def _update_color_in_style(self, current_style, new_color):

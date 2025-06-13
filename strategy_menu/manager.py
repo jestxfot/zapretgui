@@ -70,7 +70,12 @@ class StrategyManager:
         # ленивая загрузка: ничего не качаем, только если явно попросили
         self._loaded = False
         if preload:
-            self.preload_strategies()
+            # Проверяем настройку автозагрузки перед preload
+            from config.reg import get_strategy_autoload
+            if get_strategy_autoload():
+                self.preload_strategies()
+            else:
+                log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
 
     def _get_next_working_source(self):
         """Находит следующий рабочий источник"""
@@ -81,6 +86,13 @@ class StrategyManager:
 
     def _download_strategies_index(self) -> dict:
         """Внутренний метод для скачивания index.json с резервными источниками."""
+        # Проверяем настройку автозагрузки
+        from config.reg import get_strategy_autoload
+        if not get_strategy_autoload():
+            log("Автозагрузка стратегий отключена - прерываем загрузку", "INFO")
+            self.set_status("Автозагрузка стратегий отключена")
+            return self._load_local_cache()
+
         self.set_status("Получение списка стратегий…")
         
         # Пробуем все доступные источники
@@ -278,6 +290,13 @@ class StrategyManager:
         """
         Возвращает словарь стратегий с улучшенной обработкой ошибок и резервными источниками.
         """
+        # Проверяем настройку автозагрузки если это не принудительное обновление
+        if not force_update:
+            from config.reg import get_strategy_autoload
+            if not get_strategy_autoload():
+                log("Автозагрузка стратегий отключена - используем локальный кэш", "INFO")
+                return self._load_local_cache()
+
         now = time.time()
 
         need_refresh = (
@@ -383,6 +402,13 @@ class StrategyManager:
             log("preload_strategies(): уже загружено – пропуск", "DEBUG")
             return
 
+        # Проверяем настройку автозагрузки
+        from config.reg import get_strategy_autoload
+        if not get_strategy_autoload():
+            log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
+            self.set_status("Автозагрузка стратегий отключена")
+            return
+
         log("Preload стратегий (только индекс)…", "INFO")
         strategies = self.get_strategies_list()
         if not strategies:
@@ -401,6 +427,9 @@ class StrategyManager:
         """
         Скачивает стратегию с улучшенной обработкой зависаний.
         """
+        # Для загрузки отдельных стратегий проверяем настройку только если это не принудительная загрузка
+        # (например, из GUI пользователь может захотеть скачать стратегию даже при отключенной автозагрузке)
+    
         with ThreadPoolExecutor(max_workers=1) as executor:
             try:
                 future = executor.submit(self._download_strategy_sync, strategy_id)

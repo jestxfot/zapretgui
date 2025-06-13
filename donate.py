@@ -1,176 +1,254 @@
-import requests
+import os
 import json
 import uuid
 import hashlib
-import os, time, tempfile
-from typing import Optional, Dict, Any, Tuple
+import tempfile
+import requests
+import time
+from typing import Dict, Any, Optional, Tuple, List
+from datetime import datetime
 from log import log
-from config.donate_urls import DONATE_URL_SOURCES, PRIMARY_DONATE_URL, BACKUP_DONATE_URL
+
+import subprocess, winreg, platform, socket
 
 class DonateChecker:
-    """
-    Класс для проверки статуса подписки пользователя через удаленный сервер.
-    Проверяет UUID пользователя против JSON файла на сервере без использования реестра.
-    """
-    
     def __init__(self, server_url: str = None):
         """
-        Инициализация проверяльщика подписки.
+        Инициализирует проверяльщик подписки с защищенным UUID.
+        """
+        # Получаем UUID машины на основе аппаратного отпечатка (БЕЗ сохранения в реестр)
+        self.local_uuid = self._generate_machine_uuid()
+        
+        # URL с данными подписчиков
+        self.subscribers_url = "https://gitflic.ru/project/megacompacy/test/blob/raw?file=donate.json"
+        
+        # Настройки кэширования
+        cache_dir = tempfile.gettempdir()
+        self.cache_file = os.path.join(cache_dir, "zapret_subscription_cache.json")
+        self.cache_timeout = 10 * 60  # 10 минут
+        
+        # Настройки сети
+        self.request_timeout = 15
+        self.max_retries = 3
+
+    def _run_powershell_command(self, command: str, timeout: int = 5) -> Optional[str]:
+        """
+        Выполняет PowerShell команду и возвращает результат.
         
         Args:
-            server_url: URL сервера с JSON файлом подписчиков (если None, используется конфигурация)
-        """
-        # Если URL передан явно, используем только его, иначе используем конфигурацию
-        if server_url:
-            self.url_sources = [{"name": "Custom", "url": server_url}]
-        else:
-            self.url_sources = DONATE_URL_SOURCES
+            command: PowerShell команда
+            timeout: Таймаут выполнения
             
-        self.local_uuid = self._get_machine_uuid()
-        self.failed_sources = set()  # Источники, которые не работают
-        self.current_source_index = 0
-
-        # Создаем путь к файлу кэша в папке temp
-        temp_dir = tempfile.gettempdir()
-        self.cache_file = os.path.join(temp_dir, "zapret_subscription_cache.json")
-        
-        self.cache_timeout = 3600  # 1 час в секундах
-        self.max_retries = 2  # Меньше попыток для donate
-        self.retry_delay = 1  # Быстрее переключение
-    
-    def get_cache_info(self) -> Dict[str, Any]:
-        """
-        Возвращает информацию о кэше подписки.
-        
         Returns:
-            Dict с информацией о кэше
+            Результат выполнения или None при ошибке
         """
         try:
-            info = {
-                'cache_file': self.cache_file,
-                'exists': os.path.exists(self.cache_file),
-                'size': 0,
-                'last_modified': None,
-                'age_seconds': None
-            }
+            # Используем PowerShell вместо WMIC
+            full_command = [
+                'powershell.exe', 
+                '-NoProfile', 
+                '-NonInteractive', 
+                '-WindowStyle', 'Hidden',
+                '-Command', 
+                command
+            ]
             
-            if info['exists']:
-                stat = os.stat(self.cache_file)
-                info['size'] = stat.st_size
-                info['last_modified'] = time.ctime(stat.st_mtime)
-                info['age_seconds'] = int(time.time() - stat.st_mtime)
+            result = subprocess.run(
+                full_command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
             
-            return info
-            
+            if result.returncode == 0 and result.stdout.strip():
+                output = result.stdout.strip()
+                # Очищаем от лишних пробелов и переносов
+                cleaned_output = ' '.join(output.split())
+                return cleaned_output if len(cleaned_output) > 2 else None
+                
         except Exception as e:
-            log(f"Ошибка при получении информации о кэше: {e}", level="ERROR")
-            return {'error': str(e)}
-           
-    def _get_machine_uuid(self) -> str:
+            log(f"Ошибка выполнения PowerShell команды: {e}", level="DEBUG")
+            
+        return None
+
+    def _get_registry_value(self, hkey, subkey: str, value_name: str) -> Optional[str]:
         """
-        Получает уникальный UUID машины на основе аппаратных характеристик.
+        Получает значение из реестра Windows.
+        
+        Args:
+            hkey: Раздел реестра (например, winreg.HKEY_LOCAL_MACHINE)
+            subkey: Подключ
+            value_name: Имя значения
+            
+        Returns:
+            Значение из реестра или None
+        """
+        try:
+            with winreg.OpenKey(hkey, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, value_name)
+                if isinstance(value, str) and len(value.strip()) > 2:
+                    return value.strip()
+        except Exception:
+            pass
+        return None
+
+    def _get_stable_machine_fingerprint(self) -> str:
+        """
+        Создает СТАБИЛЬНЫЙ отпечаток машины без использования WMIC.
+        Использует PowerShell и реестр Windows.
+        
+        Returns:
+            str: Стабильный отпечаток машины
+        """
+        try:
+            fingerprint_parts = []
+            
+            # 5. Серийный номер системы через реестр
+            try:
+                system_serial = self._get_registry_value(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"HARDWARE\DESCRIPTION\System\BIOS",
+                    "SystemProductName"
+                )
+                if system_serial and system_serial != "To be filled by O.E.M.":
+                    fingerprint_parts.append(f"system_serial:{system_serial}")
+            except:
+                pass
+            
+            # 6. BIOS информация через реестр
+            try:
+                bios_vendor = self._get_registry_value(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"HARDWARE\DESCRIPTION\System\BIOS",
+                    "SystemManufacturer"
+                )
+                if bios_vendor:
+                    fingerprint_parts.append(f"bios_vendor:{bios_vendor}")
+            except:
+                pass
+            
+            # 11. Machine GUID из реестра (очень стабильный)
+            try:
+                machine_guid = self._get_registry_value(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SOFTWARE\Microsoft\Cryptography",
+                    "MachineGuid"
+                )
+                if machine_guid:
+                    fingerprint_parts.append(f"machine_guid:{machine_guid}")
+            except:
+                pass
+            
+            # Объединяем все части
+            fingerprint_string = "|".join(sorted(fingerprint_parts))
+            
+            # Создаем стабильный хеш
+            fingerprint_hash = hashlib.sha256(fingerprint_string.encode()).hexdigest()[:16]
+            
+            #log(f"Стабильный отпечаток создан из {len(fingerprint_parts)} компонентов", level="DEBUG")
+            #log(f"Компоненты: {[part.split(':')[0] for part in fingerprint_parts]}", level="DEBUG")
+            
+            return fingerprint_hash
+                
+        except Exception as e:
+            log(f"Ошибка при создании отпечатка машины: {e}", level="ERROR")
+            # Критический fallback
+            try:
+                emergency_data = f"{socket.gethostname()}:{platform.system()}:{os.path.dirname(__file__)}"
+                return hashlib.sha256(emergency_data.encode()).hexdigest()[:16]
+            except:
+                return "critical_fallback_fp"
+
+    def _generate_machine_uuid(self) -> str:
+        """
+        Генерирует UUID машины на основе аппаратного отпечатка.
+        UUID НЕ СОХРАНЯЕТСЯ нигде и генерируется каждый раз заново.
         
         Returns:
             str: UUID машины
         """
         try:
-            # Получаем UUID на основе MAC адреса
-            mac = hex(uuid.getnode())
+            # Получаем стабильный отпечаток машины
+            machine_fingerprint = self._get_stable_machine_fingerprint()
             
-            # Получаем имя компьютера для дополнительной уникальности
-            import socket
-            hostname = socket.gethostname()
+            # Создаем детерминированный UUID на основе отпечатка
+            namespace = uuid.NAMESPACE_DNS
+            protected_string = f"zapret_premium_machine_v4:{machine_fingerprint}"
+            machine_uuid = str(uuid.uuid5(namespace, protected_string))
             
-            # Создаем уникальный идентификатор
-            unique_string = f"{mac}-{hostname}"
-            machine_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
-            
-            log(f"Сгенерирован UUID машины: {machine_uuid}", level="DEBUG")
+            #log(f"UUID машины сгенерирован на основе аппаратного отпечатка", level="DEBUG")
             return machine_uuid
             
         except Exception as e:
-            log(f"Ошибка при получении UUID машины: {e}", level="ERROR")
-            # Fallback к случайному UUID
-            return str(uuid.uuid4())
-    
-    def _validate_subscription_data(self, data: Dict[str, Any], user_uuid: str) -> bool:
+            log(f"Ошибка при генерации UUID машины: {e}", level="ERROR")
+            # В крайнем случае создаем UUID на основе минимальных данных
+            try:
+                fallback_data = f"{socket.gethostname()}:{platform.system()}"
+                fallback_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"zapret_fallback:{fallback_data}"))
+                return fallback_uuid
+            except:
+                return str(uuid.uuid4())
+
+    def _get_secret_salt(self) -> str:
         """
-        Проверяет валидность данных подписки с использованием соли.
+        Возвращает секретную соль для генерации подписи.
+        ВАЖНО: Эта соль должна совпадать с серверной и никогда не раскрываться!
+        
+        Returns:
+            str: Секретная соль
+        """
+        return "ZaPrEt_UlTrA_SeCrEt_SaLt_2025_v4_DoNoT_sHaRe_ThIs_KeY_AnYwHeRe_PREMIUM_VALIDATION"
+
+    def _generate_uuid_signature(self, machine_uuid: str) -> str:
+        """
+        Генерирует подпись на основе UUID машины и секретной соли.
         
         Args:
-            data: Данные пользователя из JSON
-            user_uuid: UUID пользователя
+            machine_uuid: UUID машины
             
         Returns:
-            bool: True если данные валидны
+            str: SHA256 подпись
         """
         try:
-            if not isinstance(data, dict):
-                return False
-                
-            required_fields = ['uuid', 'salt', 'premium', 'expires']
-            if not all(field in data for field in required_fields):
-                return False
+            secret_salt = self._get_secret_salt()
+            # Создаем подпись: SHA256(UUID + SECRET_SALT + PREMIUM_MARKER)
+            signature_string = f"{machine_uuid}{secret_salt}premium_user_validated"
+            signature = hashlib.sha256(signature_string.encode('utf-8')).hexdigest()
             
-            # Проверяем UUID
-            if data['uuid'] != user_uuid:
-                return False
-            
-            # Проверяем подпись с солью
-            salt = data.get('salt', '')
-            expected_hash = hashlib.sha256(f"{user_uuid}{salt}premium".encode()).hexdigest()
-            
-            # Ищем хеш в данных (может быть в поле 'signature' или 'hash')
-            actual_hash = data.get('signature') or data.get('hash')
-            
-            if not actual_hash or actual_hash != expected_hash:
-                log(f"Неверная подпись для UUID {user_uuid}", level="WARNING")
-                return False
-            
-            # Проверяем срок действия если указан
-            expires = data.get('expires')
-            if expires and expires != 'never':
-                try:
-                    from datetime import datetime
-                    expire_date = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-                    if datetime.now() > expire_date.replace(tzinfo=None):
-                        log(f"Подписка истекла для UUID {user_uuid}", level="INFO")
-                        return False
-                except ValueError:
-                    log(f"Неверный формат даты истечения: {expires}", level="WARNING")
-                    return False
-            
-            return True
+            log(f"Подпись сгенерирована для UUID", level="DEBUG")
+            return signature
             
         except Exception as e:
-            log(f"Ошибка при валидации данных подписки: {e}", level="ERROR")
-            return False
-    
+            log(f"Ошибка при генерации подписи: {e}", level="ERROR")
+            return ""
+
     def _load_cache(self) -> Optional[Dict[str, Any]]:
         """
-        Загружает кэшированные данные подписки.
+        Загружает кэшированные данные подписчиков.
         
         Returns:
-            Кэшированные данные или None
+            Словарь с данными или None если кэш недоступен/устарел
         """
         try:
             if not os.path.exists(self.cache_file):
                 return None
                 
-            with open(self.cache_file, 'r', encoding='utf-8') as f:
-                cache_data = json.load(f)
-            
-            # Проверяем время кэша
-            if time.time() - cache_data.get('timestamp', 0) > self.cache_timeout:
-                log("Кэш подписки устарел", level="DEBUG")
+            # Проверяем возраст кэша
+            cache_age = time.time() - os.path.getmtime(self.cache_file)
+            if cache_age > self.cache_timeout:
+                log("Кэш устарел", level="DEBUG")
                 return None
                 
-            return cache_data.get('data')
-            
+            with open(self.cache_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                log("Данные загружены из кэша", level="DEBUG")
+                return data
+                
         except Exception as e:
-            log(f"Ошибка при загрузке кэша: {e}", level="DEBUG")
+            log(f"Ошибка при загрузке кэша: {e}", level="WARNING")
             return None
-    
+
     def _save_cache(self, data: Dict[str, Any]) -> None:
         """
         Сохраняет данные в кэш.
@@ -179,203 +257,210 @@ class DonateChecker:
             data: Данные для сохранения
         """
         try:
-            cache_data = {
-                'timestamp': time.time(),
-                'data': data
-            }
-            
             with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
-                
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            log("Данные сохранены в кэш", level="DEBUG")
         except Exception as e:
-            log(f"Ошибка при сохранении кэша: {e}", level="DEBUG")
-    
+            log(f"Ошибка при сохранении кэша: {e}", level="WARNING")
+
     def _fetch_subscription_data(self) -> Optional[Dict[str, Any]]:
         """
-        Загружает данные подписчиков с сервера с поддержкой резервных источников.
+        Загружает данные подписчиков с сервера.
         
         Returns:
             Словарь с данными подписчиков или None при ошибке
         """
-        # Пробуем все доступные источники
-        for source_index, source in enumerate(self.url_sources):
-            if source_index in self.failed_sources:
-                continue
-                
-            url = source["url"]
-            source_name = source["name"]
-            
-            log(f"Запрос данных подписки с {source_name}: {url}", "DEBUG")
-            
-            last_error = None
-            for attempt in range(self.max_retries):
-                try:
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache'
-                    }
-                    
-                    response = requests.get(
-                        url, 
-                        timeout=10,
-                        headers=headers
-                    )
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        log(f"Данные подписки успешно получены с {source_name}", "DEBUG")
-                        
-                        # Обновляем текущий рабочий источник
-                        self.current_source_index = source_index
-                        return data
-                    else:
-                        raise requests.exceptions.HTTPError(f"HTTP {response.status_code}")
-                        
-                except requests.exceptions.RequestException as e:
-                    last_error = e
-                    log(f"Попытка {attempt + 1}/{self.max_retries} для {source_name} не удалась: {e}", "DEBUG")
-                    
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
-                        
-                except json.JSONDecodeError as e:
-                    last_error = e
-                    log(f"Ошибка парсинга JSON с {source_name}: {e}", "ERROR")
-                    break  # Не повторяем при ошибке парсинга
-                    
-                except Exception as e:
-                    last_error = e
-                    log(f"Неожиданная ошибка с {source_name}: {e}", "ERROR")
-                    break
-            
-            # Все попытки для этого источника неудачны
-            log(f"Источник {source_name} недоступен: {last_error}", "WARNING")
-            self.failed_sources.add(source_index)
-        
-        # Все источники исчерпаны
-        log("Все источники данных подписки недоступны", "ERROR")
-        return None
-
-    def get_current_source_info(self) -> dict:
-        """Возвращает информацию о текущем активном источнике"""
-        if 0 <= self.current_source_index < len(self.url_sources):
-            return self.url_sources[self.current_source_index]
-        return {"name": "Неизвестно", "url": ""}
-    
-    def check_sources_availability(self) -> dict:
-        """Проверяет доступность всех источников donate"""
-        results = {}
-        
-        for i, source in enumerate(self.url_sources):
-            source_name = source["name"]
-            test_url = source["url"]
-            
+        for attempt in range(self.max_retries):
             try:
+                log(f"Загрузка данных подписчиков (попытка {attempt + 1})", level="DEBUG")
+                
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
+                    'User-Agent': 'Zapret-Subscriber-Checker/1.0',
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
                 }
                 
-                response = requests.get(test_url, timeout=10, headers=headers)
+                response = requests.get(
+                    self.subscribers_url,
+                    headers=headers,
+                    timeout=self.request_timeout
+                )
                 response.raise_for_status()
                 
-                results[source_name] = {
-                    "status": "OK",
-                    "response_time": response.elapsed.total_seconds(),
-                    "size": len(response.content)
-                }
+                data = response.json()
+                log("Данные подписчиков успешно загружены", level="INFO")
+                return data
                 
-                # Убираем из списка неудачных если проверка прошла
-                if i in self.failed_sources:
-                    self.failed_sources.discard(i)
-                    
+            except requests.exceptions.RequestException as e:
+                log(f"Ошибка сети при загрузке данных (попытка {attempt + 1}): {e}", level="WARNING")
+                if attempt == self.max_retries - 1:
+                    log("Все попытки загрузки данных исчерпаны", level="ERROR")
+            except json.JSONDecodeError as e:
+                log(f"Ошибка парсинга JSON: {e}", level="ERROR")
+                break
             except Exception as e:
-                results[source_name] = {
-                    "status": "ERROR",
-                    "error": str(e)
-                }
-                self.failed_sources.add(i)
-        
-        return results
-    
-    def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str]:
+                log(f"Неожиданная ошибка при загрузке данных: {e}", level="ERROR")
+                break
+                
+        return None
+
+    def _find_user_by_uuid(self, subscribers_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Проверяет статус подписки пользователя с поддержкой резервных источников.
+        Ищет пользователя по UUID в данных подписчиков.
+        
+        Args:
+            subscribers_data: Данные с сервера
+            
+        Returns:
+            Данные пользователя или None если не найден
+        """
+        try:
+            subscribers = subscribers_data.get('subscribers', [])
+            
+            # Генерируем подпись для нашего UUID
+            our_signature = self._generate_uuid_signature(self.local_uuid)
+            
+            for subscriber in subscribers:
+                # Проверяем, совпадает ли подпись в данных с нашей подписью UUID
+                actual_signature = subscriber.get('signature', '')
+                
+                if actual_signature == our_signature:
+                    log(f"Пользователь найден по подписи UUID", level="INFO")
+                    return subscriber
+                        
+        except Exception as e:
+            log(f"Ошибка при поиске пользователя: {e}", level="ERROR")
+            
+        return None
+
+    def _validate_user_data(self, user_data: Dict[str, Any]) -> bool:
+        """
+        Валидирует данные пользователя.
+        
+        Args:
+            user_data: Данные пользователя
+            
+        Returns:
+            bool: True если данные валидны
+        """
+        try:
+            # Проверяем обязательные поля
+            required_fields = ['id', 'premium', 'signature']
+            if not all(field in user_data for field in required_fields):
+                log("Отсутствуют обязательные поля", level="WARNING")
+                return False
+            
+            # Проверяем статус premium
+            if not user_data.get('premium', False):
+                return False
+            
+            # Проверяем подпись - она должна соответствовать нашему UUID
+            expected_signature = self._generate_uuid_signature(self.local_uuid)
+            actual_signature = user_data.get('signature', '')
+            
+            if actual_signature != expected_signature:
+                log("Неверная подпись пользователя", level="WARNING")
+                return False
+            
+            # Проверяем срок действия
+            expires = user_data.get('expires')
+            if expires and expires != 'never':
+                try:
+                    expire_date = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+                    if datetime.now() > expire_date.replace(tzinfo=None):
+                        log("Подписка истекла", level="INFO")
+                        return False
+                except ValueError:
+                    log(f"Неверный формат даты: {expires}", level="WARNING")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            log(f"Ошибка при валидации данных: {e}", level="ERROR")
+            return False
+
+    def _calculate_days_remaining(self, user_data: Dict[str, Any]) -> Optional[int]:
+        """
+        Вычисляет количество дней до окончания подписки.
+        
+        Args:
+            user_data: Данные пользователя
+            
+        Returns:
+            int: Количество дней до окончания или None если бессрочная
+        """
+        try:
+            expires = user_data.get('expires')
+            if not expires or expires == 'never':
+                return None
+                
+            expire_date = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+            current_date = datetime.now()
+            
+            if expire_date.tzinfo:
+                expire_date = expire_date.replace(tzinfo=None)
+                
+            days_diff = (expire_date - current_date).days
+            return max(0, days_diff)
+            
+        except Exception as e:
+            log(f"Ошибка при вычислении дней: {e}", level="WARNING")
+            return None
+
+    def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
+        """
+        Проверяет статус подписки пользователя.
         
         Args:
             use_cache: Использовать ли кэш для проверки
             
         Returns:
-            Tuple[bool, str]: (активна ли подписка, сообщение о статусе)
+            Tuple[bool, str, Optional[int]]: (активна ли подписка, сообщение, дни до окончания)
         """
         try:
-            # Сначала пробуем загрузить из кэша
+            # Загружаем данные
             subscription_data = None
+            
             if use_cache:
                 subscription_data = self._load_cache()
-                if subscription_data:
-                    log("Использую кэшированные данные подписки", "DEBUG")
-            
-            # Если кэш пуст или не используется, загружаем с сервера
+                
             if not subscription_data:
                 subscription_data = self._fetch_subscription_data()
                 if subscription_data:
                     self._save_cache(subscription_data)
-                else:
-                    # Если не удалось загрузить с сервера, пробуем кэш как fallback
-                    if not use_cache:
-                        subscription_data = self._load_cache()
-                        if subscription_data:
-                            log("Используем устаревший кэш как запасной вариант", "INFO")
+                elif use_cache:
+                    # Fallback на кэш если сервер недоступен
+                    subscription_data = self._load_cache()
             
             if not subscription_data:
-                return False, "Не удалось получить данные подписки"
+                return False, "Не удалось получить данные подписки", None
             
-            # Проверяем наш UUID в данных
-            user_data = None
-            
-            # Поддерживаем разные форматы JSON
-            if isinstance(subscription_data, dict):
-                if 'subscribers' in subscription_data:
-                    # Формат: {"subscribers": [{"uuid": "...", ...}, ...]}
-                    subscribers = subscription_data['subscribers']
-                elif 'users' in subscription_data:
-                    # Формат: {"users": [{"uuid": "...", ...}, ...]}
-                    subscribers = subscription_data['users']
-                else:
-                    # Формат: {"uuid1": {...}, "uuid2": {...}}
-                    user_data = subscription_data.get(self.local_uuid)
-                    if user_data:
-                        user_data['uuid'] = self.local_uuid  # Добавляем UUID для валидации
-                
-                # Если данные в виде списка
-                if not user_data and 'subscribers' in locals():
-                    for subscriber in subscribers:
-                        if subscriber.get('uuid') == self.local_uuid:
-                            user_data = subscriber
-                            break
+            # Ищем пользователя по UUID
+            user_data = self._find_user_by_uuid(subscription_data)
             
             if not user_data:
-                log(f"UUID {self.local_uuid} не найден в данных подписчиков", "INFO")
-                return False, "Подписка не найдена"
+                log(f"Подписка не найдена для данной машины", level="INFO")
+                return False, "Подписка не найдена", None
             
-            # Валидируем данные подписки
-            if not self._validate_subscription_data(user_data, self.local_uuid):
-                return False, "Недействительные данные подписки"
+            # Валидируем данные
+            if not self._validate_user_data(user_data):
+                return False, "Недействительная подписка", None
             
-            # Проверяем статус premium
-            if not user_data.get('premium', False):
-                return False, "Подписка неактивна"
+            # Вычисляем оставшиеся дни
+            days_remaining = self._calculate_days_remaining(user_data)
             
-            current_source = self.get_current_source_info()
-            log(f"Подписка активна для UUID {self.local_uuid} (источник: {current_source['name']})", "INFO")
-            return True, "Подписка активна"
+            log(f"Подписка активна", level="INFO")
             
+            if days_remaining is not None:
+                return True, f"Подписка активна (осталось {days_remaining} дней)", days_remaining
+            else:
+                return True, "Подписка активна (бессрочная)", None
+                
         except Exception as e:
-            log(f"Ошибка при проверке статуса подписки: {e}", "ERROR")
-            return False, f"Ошибка проверки: {str(e)}"
-    
+            log(f"Ошибка при проверке подписки: {e}", level="ERROR")
+            return False, f"Ошибка проверки: {str(e)}", None
+
     def get_machine_uuid(self) -> str:
         """
         Возвращает UUID текущей машины.
@@ -384,7 +469,7 @@ class DonateChecker:
             str: UUID машины
         """
         return self.local_uuid
-    
+
     def clear_cache(self) -> None:
         """
         Очищает кэш подписки.
@@ -392,29 +477,27 @@ class DonateChecker:
         try:
             if os.path.exists(self.cache_file):
                 os.remove(self.cache_file)
-                log(f"Кэш подписки очищен: {self.cache_file}", level="INFO")
-            else:
-                log("Файл кэша не существует", level="DEBUG")
+                log("Кэш подписки очищен", level="INFO")
         except Exception as e:
             log(f"Ошибка при очистке кэша: {e}", level="WARNING")
 
-def check_premium_access(server_url: str = None) -> bool:
+def check_premium_access(server_url: str = None) -> Tuple[bool, Optional[int]]:
     """
-    Упрощенная функция для быстрой проверки премиум доступа с поддержкой резервных источников.
+    Упрощенная функция для быстрой проверки премиум доступа.
     
     Args:
-        server_url: URL сервера с данными подписчиков (если None, используется конфигурация)
+        server_url: URL сервера (не используется в новой версии)
         
     Returns:
-        bool: True если пользователь имеет активную подписку
+        Tuple[bool, Optional[int]]: (True если активная подписка, дни до окончания)
     """
     try:
-        checker = DonateChecker(server_url)
-        is_premium, _ = checker.check_subscription_status()
-        return is_premium
+        checker = DonateChecker()
+        is_premium, _, days_remaining = checker.check_subscription_status()
+        return is_premium, days_remaining
     except Exception as e:
-        log(f"Ошибка при проверке премиум доступа: {e}", "ERROR")
-        return False
+        log(f"Ошибка при проверке премиум доступа: {e}", level="ERROR")
+        return False, None
 
 def get_current_machine_uuid() -> str:
     """
@@ -429,3 +512,153 @@ def get_current_machine_uuid() -> str:
     except Exception as e:
         log(f"Ошибка при получении UUID машины: {e}", level="ERROR")
         return "Ошибка получения UUID"
+
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta  # Нужно добавить: pip install python-dateutil
+
+def generate_signature_for_uuid(machine_uuid: str, months: int = None, user_id: str = None) -> str:
+    """
+    Служебная функция для генерации подписи для конкретного UUID.
+    Используется администратором для создания записей на сервере.
+    
+    Args:
+        machine_uuid: UUID машины
+        months: Количество месяцев подписки (None для бессрочной)
+        user_id: ID пользователя (опционально для удобства)
+        
+    Returns:
+        str: SHA256 подпись
+    """
+    try:
+        checker = DonateChecker()
+        secret_salt = checker._get_secret_salt()
+        signature_string = f"{machine_uuid}{secret_salt}premium_user_validated"
+        signature = hashlib.sha256(signature_string.encode('utf-8')).hexdigest()
+        
+        # Вычисляем дату истечения
+        if months is None:
+            expires_date = "never"
+            expires_iso = "never"
+        else:
+            current_date = datetime.now()
+            expires_date = current_date + relativedelta(months=months)
+            expires_iso = expires_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+        
+        print(f"UUID: {machine_uuid}")
+        print(f"Signature: {signature}")
+        print(f"Subscription period: {months if months else 'Forever'} {'months' if months and months != 1 else 'month' if months == 1 else ''}")
+        
+        if months:
+            print(f"Expires: {expires_date.strftime('%d.%m.%Y %H:%M')} ({expires_iso})")
+        else:
+            print(f"Expires: Never")
+            
+        print("\nJSON entry for server:")
+        print(f'{{')
+        print(f'    "id": "{user_id if user_id else "USER_ID_HERE"}",')
+        print(f'    "premium": true,')
+        print(f'    "expires": "{expires_iso}",')
+        print(f'    "signature": "{signature}",')
+        print(f'    "plan": "premium",')
+        
+        if months:
+            print(f'    "notes": "{months} months subscription from {datetime.now().strftime("%d.%m.%Y")}"')
+        else:
+            print(f'    "notes": "Lifetime subscription"')
+            
+        print(f'}}')
+        
+        return signature
+        
+    except Exception as e:
+        log(f"Ошибка при генерации подписи: {e}", level="ERROR")
+        return ""
+
+def create_subscription_entry(machine_uuid: str, months: int = None, user_id: str = None, plan: str = "premium") -> Dict[str, Any]:
+    """
+    Создает полную запись подписки для добавления на сервер.
+    
+    Args:
+        machine_uuid: UUID машины
+        months: Количество месяцев подписки (None для бессрочной)
+        user_id: ID пользователя
+        plan: Тип плана подписки
+        
+    Returns:
+        Dict с полной записью подписки
+    """
+    try:
+        checker = DonateChecker()
+        signature = checker._generate_uuid_signature(machine_uuid)
+        
+        # Вычисляем дату истечения
+        if months is None:
+            expires_iso = "never"
+            notes = "Lifetime subscription"
+        else:
+            current_date = datetime.now()
+            expires_date = current_date + relativedelta(months=months)
+            expires_iso = expires_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+            notes = f"{months} months subscription from {current_date.strftime('%d.%m.%Y')}"
+        
+        entry = {
+            "id": user_id if user_id else f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "premium": True,
+            "expires": expires_iso,
+            "signature": signature,
+            "plan": plan,
+            "notes": notes
+        }
+        
+        return entry
+        
+    except Exception as e:
+        log(f"Ошибка при создании записи подписки: {e}", level="ERROR")
+        return {}
+
+def generate_subscription_variants(machine_uuid: str, user_id: str = None):
+    """
+    Генерирует несколько вариантов подписки для выбора.
+    
+    Args:
+        machine_uuid: UUID машины
+        user_id: ID пользователя
+    """
+    try:
+        print("=" * 60)
+        print(f"SUBSCRIPTION VARIANTS FOR UUID: {machine_uuid}")
+        print("=" * 60)
+        
+        variants = [
+            (1, "1 месяц"),
+            (3, "3 месяца"),
+            (6, "6 месяцев"),
+            (12, "1 год"),
+            (24, "2 года"),
+            (None, "Бессрочная")
+        ]
+        
+        for months, description in variants:
+            print(f"\n--- {description.upper()} ---")
+            entry = create_subscription_entry(machine_uuid, months, user_id)
+            
+            if entry:
+                print(json.dumps(entry, indent=2, ensure_ascii=False))
+                
+                if months:
+                    expires_date = datetime.now() + relativedelta(months=months)
+                    print(f"Истекает: {expires_date.strftime('%d.%m.%Y %H:%M')}")
+                else:
+                    print("Истекает: Никогда")
+                    
+            print("-" * 40)
+            
+    except Exception as e:
+        log(f"Ошибка при генерации вариантов подписки: {e}", level="ERROR")
+
+# Для тестирования
+if __name__ == "__main__":
+    checker = DonateChecker()
+    machine_uuid = "07062779-3f9a-5610-8a58-a6e0d0738658" #checker.get_machine_uuid()
+
+    generate_signature_for_uuid(machine_uuid, months=1, user_id="premium_user_002")

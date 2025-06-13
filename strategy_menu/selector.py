@@ -345,10 +345,14 @@ class StrategySelector(QDialog):
         self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)
         self.init_ui()
 
-        # Обновляем index.json при входе в меню
+        # Обновляем index.json при входе в меню ТОЛЬКО если автозагрузка включена
         if self.strategy_manager:
             try:
-                self.strategy_manager.get_strategies_list(force_update=True)
+                from config.reg import get_strategy_autoload
+                if get_strategy_autoload():
+                    self.strategy_manager.get_strategies_list(force_update=True)
+                else:
+                    log("Автозагрузка стратегий отключена - используем локальный кэш", "INFO")
             except Exception as e:
                 log(f"Ошибка при обновлении индекса при входе в меню: {str(e)}", level="WARNING")
         
@@ -738,6 +742,18 @@ class StrategySelector(QDialog):
         """Обновляет список стратегий и скачивает BAT-файлы."""
         try:
             if self.strategy_manager:
+                # Проверяем настройку автозагрузки
+                from config.reg import get_strategy_autoload
+                if not get_strategy_autoload():
+                    from PyQt6.QtWidgets import QMessageBox
+                    QMessageBox.information(
+                        self, 
+                        "Автозагрузка отключена",
+                        "Автозагрузка стратегий отключена в настройках.\n"
+                        "Включите её в меню 'Настройки' для автоматического обновления."
+                    )
+                    return
+                
                 # Запрашиваем свежие данные с сервера
                 self.strategy_manager.get_strategies_list(force_update=True)
                 

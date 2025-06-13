@@ -1,4 +1,16 @@
-=== Zapret GUI Log - Started 2025-05-25 13:26:57 ===
+=== Zapret GUI Log - Started 2025-06-13 17:57:07 ===
 
-[13:26:58] [CHECK_START] Executable path: C:\Program Files\Python313\python.exe
-[13:26:58] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python313\python.exe
+[17:57:07] UUID: 07062779-3f9a-5610-8a58-a6e0d0738658[17:57:07] 
+[17:57:07] Signature: 05ab8cf5a88eb60330a16285953db7ed4588ce9908fe8f910c7115a3b1d1c006[17:57:07] 
+[17:57:07] Subscription period: 1 month[17:57:07] 
+[17:57:07] Expires: 13.07.2025 17:57 (2025-07-13T17:57:07Z)[17:57:07] 
+[17:57:07] 
+JSON entry for server:[17:57:07] 
+[17:57:07] {[17:57:07] 
+[17:57:07]     "id": "premium_user_002",[17:57:07] 
+[17:57:07]     "premium": true,[17:57:07] 
+[17:57:07]     "expires": "2025-07-13T17:57:07Z",[17:57:07] 
+[17:57:07]     "signature": "05ab8cf5a88eb60330a16285953db7ed4588ce9908fe8f910c7115a3b1d1c006",[17:57:07] 
+[17:57:07]     "plan": "premium",[17:57:07] 
+[17:57:07]     "notes": "1 months subscription from 13.06.2025"[17:57:07] 
+[17:57:07] }[17:57:07] 

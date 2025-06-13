@@ -3,9 +3,7 @@
     "last_updated": "2025-06-12T12:30:00Z",
     "subscribers": [
         {
-            "uuid": "43bbf3ac-4248-54dc-99c7-1cc4750d51cd",
             "id": "0",
-            "salt": "premium_salt_2025_zapret",
             "premium": true,
             "expires": "2025-07-12T20:20:30Z",
             "signature": "9db1a90da42692ca7d19552f594bce0a640bebd4922c3b4ec385005f08d1b6bd",
@@ -140,7 +138,7 @@
             "expires": "2025-07-13T23:59:59Z",
             "signature": "2a0b5af47f850934fd830bfcb04536a4da4f2d1cabead0a3b4d5d05abf8ec581",
             "plan": "premium",
-            "notes": "GitHub Copilot test user"
+            "notes": "Vpsnoopy"
         },
         {
             "uuid": "d9119822-7f27-5745-b2c9-07432ce26f21",
@@ -313,6 +311,16 @@
             "notes": "Олег Поликарпов | CongenitalDisorder"
         },
         {
+            "uuid": "ac0ccae0-bbe3-559a-ab43-c5bb049845fa",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-12-13T23:59:59Z",
+            "signature": "91110a9a9130b878964297009b875bca758b34fe7bb09363acd0aa2b425c536e",
+            "plan": "premium",
+            "notes": "///"
+        },
+        {
             "uuid": "b8d6d910-47fa-5f5c-82ae-7968c0d6935d",
             "id": "27",
             "salt": "premium_salt_2025_zapret",
@@ -321,6 +329,56 @@
             "signature": "4141f37ed9cabdbd2238230494cdce2db138bbc07c475ecf16fc2b1a67f2562a",
             "plan": "premium",
             "notes": "scp 49"
+        },
+        {
+            "uuid": "90e1f76d-af7d-585e-90e0-7f75883a6220",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-07-13T23:59:59Z",
+            "signature": "755947ed4ed780d6545e8d2ec8f476ce4be042cd0470136e75db62cb1e714186",
+            "plan": "premium",
+            "notes": "cnezok, @glebsprehen"
+        },
+        {
+            "uuid": "3605e86a-8313-565f-8e14-648991c064bf",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-07-13T23:59:59Z",
+            "signature": "5203dc956821efd62d369e675acb17d9c8342a9691e03dcd1a53c8d33bb33da1",
+            "plan": "premium",
+            "notes": "Jay"
+        },
+        {
+            "uuid": "22d02ef9-7665-588f-be6f-7800ba0614cc",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-07-13T23:59:59Z",
+            "signature": "5bf9ec7b799e3d8e1e1b96a4392462f582460a2571eb388e88693a218b933eb0",
+            "plan": "premium",
+            "notes": "Чокнутый барандук"
+        },
+        {
+            "uuid": "7cbf6390-282a-5924-8fcf-002059d4da19",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-07-13T23:59:59Z",
+            "signature": "d4c7ae2d2496d84a515f9aa2f74333bfa509a0461bcc3aed26d7cc9d3fedc384",
+            "plan": "premium",
+            "notes": "Виктор Трухманов"
+        },
+        {
+            "uuid": "3a3c4d0e-3d47-5eff-a795-e16938e42bfa",
+            "id": "27",
+            "salt": "premium_salt_2025_zapret",
+            "premium": true,
+            "expires": "2025-07-13T23:59:59Z",
+            "signature": "f635cc4bb5fc89cb1ad0c7aa8d37ba0ed805e5865c991dd0274178c9a806c688",
+            "plan": "premium",
+            "notes": "yhenii"
         }
     ],
     "server_info": {

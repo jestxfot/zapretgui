@@ -10,6 +10,9 @@ from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
                       STYLE_SHEET, RippleButton)
 
 import qtawesome as qta
+from typing import Optional
+
+from config.config import APP_VERSION
 
 class MainWindowUI:
     """
@@ -286,59 +289,91 @@ class MainWindowUI:
         
         self.theme_combo.setStyleSheet(style)
 
-    def update_title_with_subscription_status(self, is_premium: bool = False, current_theme: str = None):
+    def update_title_with_subscription_status(self, is_premium: bool = False, current_theme: str = None, days_remaining: Optional[int] = None):
         """
-        Обновляет заголовок программы с информацией о статусе подписки.
+        Обновляет заголовок окна с информацией о днях подписки и title_label с цветным статусом.
         
         Args:
             is_premium: True если подписка активна
-            current_theme: Текущая тема (если не указана, берется из реестра)
+            current_theme: Текущая тема (если не указана, берется из theme_manager)
+            days_remaining: Количество дней до окончания подписки (None если бессрочная)
         """
-        base_title = "Zapret GUI"
+        # Обновляем системный заголовок окна с информацией о днях
+        base_title = f'Zapret v{APP_VERSION}'
+        
+        if is_premium:
+            # Формируем текст премиум статуса для заголовка окна
+            if days_remaining is not None:
+                if days_remaining > 0:
+                    premium_text = f" [PREMIUM - {days_remaining} дн.]"
+                elif days_remaining == 0:
+                    premium_text = " [PREMIUM - истекает сегодня]"
+                else:
+                    premium_text = " [PREMIUM - истекла]"
+            else:
+                premium_text = " [PREMIUM]"
+                
+            full_title = f"{base_title}{premium_text}"
+            self.setWindowTitle(full_title)
+        else:
+            # Для бесплатной версии просто показываем базовый заголовок
+            self.setWindowTitle(base_title)
+        
+        # Обновляем title_label с цветным статусом (без дней)
+        base_label_title = "Zapret GUI"
         
         if is_premium:
             # Получаем цвет кнопок текущей темы для премиум индикатора
             premium_color = self._get_premium_indicator_color(current_theme)
             premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
-            full_title = f"{base_title}{premium_indicator}"
-            self.title_label.setText(full_title)
+            full_label_title = f"{base_label_title}{premium_indicator}"
+            self.title_label.setText(full_label_title)
             self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
         else:
-            # Приглушенная надпись [FREE] для бесплатной версии
+            # Для бесплатной версии показываем [FREE] с цветом адаптированным под тему
             free_color = self._get_free_indicator_color(current_theme)
             free_indicator = f'<span style="color: {free_color}; font-weight: bold;"> [FREE]</span>'
-            full_title = f"{base_title}{free_indicator}"
-            self.title_label.setText(full_title)
+            full_free_label_title = f"{base_label_title}{free_indicator}"
+            self.title_label.setText(full_free_label_title)
             self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
 
     def _get_free_indicator_color(self, current_theme: str = None):
         """
-        Возвращает цвет для индикатора бесплатной версии.
+        Возвращает цвет для индикатора [FREE] на основе текущей темы.
+        Белый для темных тем, черный для светлых тем.
         
         Args:
             current_theme: Текущая тема (если не указана, берется из реестра)
         
         Returns:
-            str: Hex цвет для индикатора FREE
+            str: Hex цвет для индикатора [FREE]
         """
         try:
+            # Импортируем здесь чтобы избежать циклических импортов
             from ui.theme import THEMES, get_selected_theme
             
+            # Получаем текущую тему
             theme_name = current_theme if current_theme else get_selected_theme()
             
-            if theme_name and theme_name in THEMES:
-                theme_info = THEMES[theme_name]
-                # Для темных тем - светло-серый, для светлых - темно-серый
-                if theme_info.get("status_color") == "#ffffff":  # Темная тема
-                    return "#cccccc"
-                else:  # Светлая тема
-                    return "#333333"
+            if not theme_name or theme_name not in THEMES:
+                # Fallback к черному если тема неизвестна
+                return "#000000"
             
-            return "#ffffff"  # Fallback к белому
-            
-        except Exception:
-            return "#ffffff"  # Fallback к белому
-
+            # Определяем цвет на основе названия темы
+            if theme_name.startswith("Темная") or theme_name == "РКН Тян":
+                # Для темных тем используем белый цвет
+                return "#BBBBBB"
+            elif theme_name.startswith("Светлая"):
+                # Для светлых тем используем черный цвет
+                return "#000000"
+            else:
+                # Fallback для неизвестных тем
+                return "#000000"
+                
+        except Exception as e:
+            # В случае любой ошибки возвращаем черный
+            return "#000000"
+    
     def _get_premium_indicator_color(self, current_theme: str = None):
         """
         Возвращает цвет для индикатора премиум статуса на основе текущей темы.
