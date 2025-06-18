@@ -22,7 +22,7 @@ from log import log
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import signal
 
-from config.backup_urls import URL_SOURCES, BACKUP_BASE_URL, BACKUP_JSON_URL, PRIMARY_JSON_URL, PRIMARY_BASE_URL
+from config.backup_urls import URL_SOURCES
 SW_HIDE          = 0
 CREATE_NO_WINDOW = 0x08000000
 
@@ -34,24 +34,22 @@ class StrategyManager:
 
     # ─────────────────────────────── init ──────────────────────────────
     def __init__(self,
-                 base_url: str,
                  local_dir: str,
                  status_callback=None,
                  json_url: str | None = None,
                  preload: bool = False) -> None:
         """
-        base_url       – базовый URL репозитория
         local_dir      – куда сохраняем bat-файлы и index.json
         status_callback– функция-коллбек для сообщений в GUI / консоль
         json_url       – прямая ссылка на index.json (если есть)
         preload        – True ⇒ сразу скачивать index + bat-файлы
         """
-        self.base_url        = base_url
         self.local_dir       = local_dir
         self.status_callback = status_callback
         self.json_url        = json_url
 
         self.strategies_cache: dict[str, dict] = {}
+        self.cache_loaded = False  # Флаг что кэш уже загружен
         self.last_update_time = 0
         self.update_interval  = 3600          # 1 ч
 
@@ -100,7 +98,6 @@ class StrategyManager:
             if source_index in self.failed_sources:
                 continue
                 
-            # Всегда используем URL из конфигурации источника
             index_url = source["json_url"]
             source_name = source["name"]
             
@@ -110,7 +107,6 @@ class StrategyManager:
             last_error = None
             for attempt in range(self.max_retries):
                 try:
-                    # Используем сессию с настройками для лучшей производительности
                     session = requests.Session()
                     session.headers.update({
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -122,35 +118,38 @@ class StrategyManager:
                     
                     response = session.get(
                         index_url, 
-                        timeout=(15, 45),  # Увеличиваем таймауты для резервных источников
+                        timeout=(15, 45),
                         stream=False
                     )
                     response.raise_for_status()
                     
-                    # Проверяем размер ответа
                     if len(response.content) == 0:
                         raise ValueError("Получен пустой ответ")
                     
-                    self.strategies_cache = response.json()
+                    # ИСПРАВЛЕНИЕ: Сохраняем результат в переменные класса
+                    result = response.json()
+                    self.strategies_cache = result
+                    self.cache_loaded = True
                     self.last_update_time = time.time()
-                    self.save_strategies_index()
                     self._loaded = True
+                    
+                    # Сохраняем на диск
+                    self.save_strategies_index(result)
                     
                     # Обновляем текущий рабочий источник
                     self.current_source_index = source_index
                     
-                    self.set_status(f"Получено стратегий: {len(self.strategies_cache)} ({source_name})")
-                    log(f"OK с {source_name}, {len(self.strategies_cache)} шт.", "INFO")
-                    return self.strategies_cache
+                    self.set_status(f"Получено стратегий: {len(result)} ({source_name})")
+                    log(f"OK с {source_name}, {len(result)} шт.", "INFO")
+                    return result
 
                 except Exception as e:
                     last_error = e
                     log(f"Попытка {attempt + 1}/{self.max_retries} для {source_name} не удалась: {e}", "DEBUG")
                     
                     if attempt < self.max_retries - 1:
-                        # Специальная обработка для 403 ошибок
                         if "403" in str(e):
-                            sleep_time = self.retry_delay * (2 ** attempt)  # Экспоненциальная задержка
+                            sleep_time = self.retry_delay * (2 ** attempt)
                         else:
                             sleep_time = self.retry_delay * (attempt + 1)
                         
@@ -165,7 +164,7 @@ class StrategyManager:
         # Все источники исчерпаны
         log("Все источники недоступны", "ERROR")
         raise last_error or Exception("Все резервные источники недоступны")
-
+    
     def _download_strategy_sync(self, strategy_id: str) -> str | None:
         """Синхронная версия скачивания стратегии с поддержкой резервных источников."""
         try:
@@ -261,18 +260,7 @@ class StrategyManager:
             log(f"{strategy_id} DL error: {e}", "ERROR")
             self.set_status(f"Ошибка загрузки {strategy_id}: {e}")
             return local_path if os.path.isfile(local_path) else None
-
-    def reset_failed_sources(self):
-        """Сбрасывает список неудачных источников (для повторной попытки)"""
-        self.failed_sources.clear()
-        log("Список неудачных источников сброшен", "INFO")
-
-    def get_current_source_info(self) -> dict:
-        """Возвращает информацию о текущем активном источнике"""
-        if 0 <= self.current_source_index < len(self.url_sources):
-            return self.url_sources[self.current_source_index]
-        return {"name": "Неизвестно", "base_url": self.base_url}
-    
+        
     # ────────────────────────── свойства / util ───────────────────────
     @property
     def already_loaded(self) -> bool:
@@ -288,55 +276,70 @@ class StrategyManager:
     # ─────────────────────── index.json (GET) ─────────────────────────
     def get_strategies_list(self, *, force_update: bool = False) -> dict:
         """
-        Возвращает словарь стратегий с улучшенной обработкой ошибок и резервными источниками.
+        Возвращает словарь стратегий с ПРАВИЛЬНЫМ кэшированием.
         """
-        # Проверяем настройку автозагрузки если это не принудительное обновление
-        if not force_update:
-            from config.reg import get_strategy_autoload
-            if not get_strategy_autoload():
-                log("Автозагрузка стратегий отключена - используем локальный кэш", "INFO")
-                return self._load_local_cache()
 
-        now = time.time()
-
-        need_refresh = (
-            force_update
-            or not self.strategies_cache
-            or (now - self.last_update_time) > self.update_interval
-        )
-
-        if not need_refresh:
+        # После первой успешной загрузки index.json — возвращаем только из памяти
+        if self._loaded and self.strategies_cache and not force_update:
+            log("get_strategies_list: уже загружено, возвращаю из кеша", "DEBUG")
             return self.strategies_cache
 
-        # Используем ThreadPoolExecutor для контроля времени выполнения
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            try:
-                future = executor.submit(self._download_strategies_index)
-                result = future.result(timeout=self.download_timeout * len(self.url_sources))  # Увеличиваем таймаут
-                return result
-            except TimeoutError:
-                log("Таймаут при загрузке списка стратегий со всех источников", "ERROR")
-                self.set_status("Таймаут загрузки - используем локальный кэш")
-                return self._load_local_cache()
-            except Exception as e:
-                log(f"Ошибка загрузки списка со всех источников: {e}", "ERROR")
+        # ПЕРВЫЙ ПРИОРИТЕТ: Если кэш уже загружен и не нужно принудительное обновление
+        if self.cache_loaded and self.strategies_cache and not force_update:
+            return self.strategies_cache
+
+        # ВТОРОЙ ПРИОРИТЕТ: Проверяем автозагрузку (только если еще не загружены)
+        if not force_update and not self.cache_loaded:
+            from config.reg import get_strategy_autoload
+            if not get_strategy_autoload():
                 return self._load_local_cache()
 
+        # ТРЕТИЙ ПРИОРИТЕТ: Проверяем нужна ли загрузка по времени
+        if not force_update and self.cache_loaded:
+            now = time.time()
+            if (now - self.last_update_time) <= self.update_interval:
+                return self.strategies_cache
+
+        # ТОЛЬКО ЗДЕСЬ загружаем с сервера
+        return self._download_and_cache()
+    
     def _load_local_cache(self) -> dict:
-        """Загружает локальный кэш index.json."""
+        """Загружает локальный кэш index.json ОДИН РАЗ."""
+        # Если уже загружен в память - возвращаем сразу
+        if self.cache_loaded and self.strategies_cache:
+            return self.strategies_cache
+            
         index_file = os.path.join(self.local_dir, "index.json")
         if os.path.isfile(index_file):
             try:
                 with open(index_file, encoding="utf-8") as f:
                     self.strategies_cache = json.load(f)
+                self.cache_loaded = True
                 self._loaded = True
-                self.set_status("Загружен локальный индекс стратегий")
-                log("Используем локальный index.json", "INFO")
+                self.last_update_time = os.path.getmtime(index_file)
+                log("Загружен локальный index.json", "INFO")
                 return self.strategies_cache
             except Exception as e:
                 log(f"Ошибка чтения локального индекса: {e}", "ERROR")
         
-        return {}
+        self.strategies_cache = {}
+        self.cache_loaded = True
+        return self.strategies_cache
+
+    def _download_and_cache(self) -> dict:
+        """Скачивает данные с сервера и кэширует ОДИН РАЗ."""
+        log("Обновление списка стратегий...", "INFO")
+        
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            try:
+                future = executor.submit(self._download_strategies_index)
+                result = future.result(timeout=self.download_timeout * len(self.url_sources))
+                
+                # УБИРАЕМ дублирование - кэш уже сохранен в _download_strategies_index()
+                return result
+            except Exception as e:
+                log(f"Ошибка загрузки: {e}", "ERROR")
+                return self._load_local_cache()
 
     def check_strategy_version_status(self, strategy_id: str) -> str:
         """
@@ -380,13 +383,15 @@ class StrategyManager:
             log(f"Ошибка проверки версии стратегии {strategy_id}: {e}", "DEBUG")
             return 'unknown'
     
-    def save_strategies_index(self) -> bool:
-        if not self.strategies_cache:
+    def save_strategies_index(self, data: dict = None) -> bool:
+        """Сохраняет index.json на диск"""
+        cache_data = data or self.strategies_cache
+        if not cache_data:
             return False
         try:
             with open(os.path.join(self.local_dir, "index.json"),
                       "w", encoding="utf-8") as f:
-                json.dump(self.strategies_cache, f, ensure_ascii=False, indent=2)
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
             log(f"index.json save error: {e}", "ERROR")
@@ -402,7 +407,6 @@ class StrategyManager:
             log("preload_strategies(): уже загружено – пропуск", "DEBUG")
             return
 
-        # Проверяем настройку автозагрузки
         from config.reg import get_strategy_autoload
         if not get_strategy_autoload():
             log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
@@ -414,10 +418,6 @@ class StrategyManager:
         if not strategies:
             log("Список стратегий пуст – preload отменён", "ERROR")
             return
-
-        # Убираем автоматическое скачивание BAT-файлов
-        # for sid in strategies:
-        #     self.download_strategy(sid)
 
         self._loaded = True
         log("Preload индекса завершён", "INFO")

@@ -30,40 +30,61 @@ def is_service_running(name: str) -> bool:
     finally:
         win32service.CloseServiceHandle(scm)
         
+from startup.check_cache import startup_cache
+from log import log
+import subprocess
 
-
-def ensure_bfe_running(parent: Optional["QWidget"] = None,
-                       show_ui: bool = True) -> bool:
-    if is_service_running("BFE"):
-        return True                      # уже запущена
-
+def ensure_bfe_running(show_ui: bool = False) -> bool:
+    """
+    Проверяет и запускает службу BFE с кэшированием результата.
+    """
+    
+    # Проверяем кэш сначала
+    has_cache, cached_result = startup_cache.is_cached_and_valid("bfe_check")
+    if has_cache:
+        log(f"BFE проверка из кэша: {'OK' if cached_result else 'FAIL'}", "DEBUG")
+        return cached_result
+    
+    log("Выполняется проверка службы Base Filtering Engine (BFE)", "INFO")
+    
     try:
-        # Делаем автозапуск
-        win32serviceutil.ChangeServiceConfig(None, "BFE", startType=win32service.SERVICE_AUTO_START)
-        # Пытаемся запустить
-        win32serviceutil.StartService("BFE")
-    except win32service.error as e:
-        # Не хватило прав или другая ошибка
-        if show_ui:
-            _native_msg("Не удалось запустить BFE",
-                        f"Ошибка Windows: {e.winerror}\n"
-                        "Попробуйте запустить службу вручную:\n    sc start BFE",
-                        icon=0x10)
+        # Проверяем состояние службы
+        result = subprocess.run(
+            ["sc", "query", "BFE"],
+            capture_output=True,
+            text=True,
+            timeout=5,  # ← ДОБАВЛЯЕМ ТАЙМАУТ
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        if result.returncode != 0:
+            startup_cache.cache_result("bfe_check", False)
+            return False
+        
+        # Проверяем запущена ли служба
+        if "RUNNING" not in result.stdout:
+            log("Служба BFE остановлена, пытаемся запустить", "WARNING")
+            
+            start_result = subprocess.run(
+                ["sc", "start", "BFE"],
+                capture_output=True,
+                text=True,
+                timeout=10,  # ← ТАЙМАУТ ДЛЯ ЗАПУСКА
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            if start_result.returncode != 0 and "уже запущена" not in start_result.stderr:
+                startup_cache.cache_result("bfe_check", False)
+                return False
+        
+        startup_cache.cache_result("bfe_check", True)
+        return True
+        
+    except subprocess.TimeoutExpired:
+        log("Таймаут при проверке службы BFE", "ERROR")
+        startup_cache.cache_result("bfe_check", False)
         return False
-
-    # Ждём, пока ОС действительно запустит службу
-    for _ in range(10):                  # ~10 секунд
-        if is_service_running("BFE"):
-            if show_ui:
-                _native_msg("BFE запущена",
-                            "Служба Base Filtering Engine была успешно запущена.")
-            return True
-        time.sleep(1)
-
-    # Не дождались
-    if show_ui:
-        _native_msg("Не удалось запустить BFE",
-                    "Операционная система так и не запустила службу BFE.\n"
-                    "Попробуйте команду:\n    sc start BFE",
-                    icon=0x10)
-    return False
+    except Exception as e:
+        log(f"Ошибка при проверке службы BFE: {e}", "ERROR")
+        startup_cache.cache_result("bfe_check", False)
+        return False

@@ -8,6 +8,7 @@ import webbrowser
 from config.config import APP_VERSION
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
+from config.reg import get_auto_download_enabled, set_auto_download_enabled
 
 # ─── работа с реестром ──────────────────────────
 from config.reg import (
@@ -29,6 +30,11 @@ class AppMenuBar(QMenuBar):
 
         # -------- 1. Настройки -------------------------------------------------
         file_menu = self.addMenu("&Настройки")
+
+        auto_download_action = file_menu.addAction("Автозагрузка при старте")
+        auto_download_action.setCheckable(True)
+        auto_download_action.setChecked(get_auto_download_enabled())
+        auto_download_action.triggered.connect(self.toggle_auto_download)
 
         # Чек-бокс «Автозапуск DPI»
         self.auto_dpi_act = QAction("Автозапуск DPI", self, checkable=True)
@@ -103,6 +109,11 @@ class AppMenuBar(QMenuBar):
 
         act_help = QAction("Что это такое? (Руководство)", self)
         act_help.triggered.connect(self.open_info)
+
+        # Добавляем пункт очистки кэша в меню "Справка"
+        clear_cache_action = help_menu.addAction("Очистить кэш проверок")
+        clear_cache_action.triggered.connect(self.clear_startup_cache)
+
         help_menu.addAction(act_help)
 
         # -------- 4. «Андроид» ---------------------------------------------
@@ -119,6 +130,64 @@ class AppMenuBar(QMenuBar):
         act_byedpi_telegram = QAction("Telegram группа", self)
         act_byedpi_telegram.triggered.connect(self.open_byedpi_telegram)
         android_menu.addAction(act_byedpi_telegram)
+
+    def toggle_auto_download(self, checked):
+        """Переключает автозагрузку при старте"""
+        from log import log
+        try:
+            set_auto_download_enabled(checked)
+            
+            status_text = "включена" if checked else "отключена"
+            QMessageBox.information(self.parent, "Автозагрузка", 
+                                  f"Автозагрузка при старте {status_text}.\n"
+                                  f"Изменения вступят в силу при следующем запуске программы.")
+            log(f"Пользователь {'включил' if checked else 'отключил'} автозагрузку", "INFO")
+            
+        except Exception as e:
+            QMessageBox.warning(self.parent, "Ошибка", 
+                              f"Не удалось изменить настройку автозагрузки: {e}")
+            log(f"Ошибка изменения автозагрузки: {e}", "ERROR")
+
+    def clear_startup_cache(self):
+        """Очищает кэш проверок запуска"""
+        from startup.check_cache import startup_cache
+        from log import log
+        try:
+            startup_cache.invalidate_cache()
+            QMessageBox.information(self.parent, "Кэш очищен", 
+                                  "Кэш проверок запуска успешно очищен.\n"
+                                  "При следующем запуске все проверки будут выполнены заново.")
+            log("Кэш проверок запуска очищен пользователем", "INFO")
+        except Exception as e:
+            QMessageBox.warning(self.parent, "Ошибка", 
+                              f"Не удалось очистить кэш: {e}")
+            log(f"Ошибка очистки кэша: {e}", "ERROR")
+
+    def create_premium_menu(self):
+        """Создает меню Premium функций"""
+        premium_menu = self.addMenu("💎 Premium")
+        
+        # Управление подпиской
+        subscription_action = premium_menu.addAction("📋 Управление подпиской")
+        subscription_action.triggered.connect(self.parent.show_subscription_dialog)
+        
+        premium_menu.addSeparator()
+        
+        # Информация о сервере
+        server_info_action = premium_menu.addAction("⚙️ Статус сервера")
+        server_info_action.triggered.connect(self.parent.get_boosty_server_info)
+        
+        # Переключение сервера  
+        server_toggle_action = premium_menu.addAction("🔄 Переключить сервер")
+        server_toggle_action.triggered.connect(self.parent.toggle_boosty_server)
+        
+        premium_menu.addSeparator()
+        
+        # Ссылка на Boosty
+        boosty_action = premium_menu.addAction("🌐 Открыть Boosty")
+        boosty_action.triggered.connect(lambda: webbrowser.open("https://boosty.to/censorliber"))
+        
+        return premium_menu
 
     # ==================================================================
     #  Обработчики чек-боксов

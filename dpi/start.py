@@ -230,12 +230,9 @@ class DPIStarter:
                     log(f"[DPIStarter] index.json не найден, пытаемся скачать...", level="WARNING")
                     try:
                         from strategy_menu.manager import StrategyManager
-                        from config.config import GITHUB_STRATEGIES_BASE_URL, GITHUB_STRATEGIES_JSON_URL
-                        
+                      
                         manager = StrategyManager(
-                            base_url=GITHUB_STRATEGIES_BASE_URL,
                             local_dir=BIN_DIR,
-                            json_url=GITHUB_STRATEGIES_JSON_URL,
                             status_callback=self._set_status
                         )
                         

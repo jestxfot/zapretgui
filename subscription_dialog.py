@@ -1,40 +1,57 @@
 import sys
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QProgressBar, QMessageBox, QGroupBox, QWidget, QFrame
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+                           QLineEdit, QProgressBar, QMessageBox, QGroupBox, QWidget, 
+                           QFrame, QInputDialog)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QPalette
 from log import log
 import pyperclip, webbrowser
+from donate import DonateChecker
 
 from typing import Tuple, Optional
 
 class SubscriptionCheckWorker(QThread):
     """Рабочий поток для проверки подписки"""
-    finished = pyqtSignal(bool, str, object)  # (is_premium, status_message, days_remaining)
+    finished = pyqtSignal(dict)  # результат проверки
     
-    def __init__(self, donate_checker):
+    def __init__(self, donate_checker, email):
         super().__init__()
         self.donate_checker = donate_checker
+        self.email = email
         
     def run(self):
         try:
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
-            self.finished.emit(is_premium, status_msg, days_remaining)
+            result = self.donate_checker.check_user_subscription(self.email)
+            self.finished.emit(result)
         except Exception as e:
-            self.finished.emit(False, f"Ошибка проверки: {str(e)}", None)
+            self.finished.emit({
+                'found': False,
+                'level': '–',
+                'days_remaining': None,
+                'status': f'Ошибка проверки: {str(e)}',
+                'auto_payment': False
+            })
 
 class SubscriptionDialog(QDialog):
-    def __init__(self, parent, donate_checker):
+    def __init__(self, parent):
         super().__init__(parent)
-        self.donate_checker = donate_checker
+        self.donate_checker = DonateChecker()
+        self.current_email = None
         self.setWindowTitle("Управление подпиской")
-        self.setFixedSize(500, 480)  # Более компактный размер
+        self.setFixedSize(500, 550)
         self.setModal(True)
         
         # Определяем тему
         self.is_dark_theme = self.is_dark_theme_active()
         
-        self.init_ui()
-        self.check_subscription_status()
+        # Проверяем есть ли сохраненный email
+        saved_email = self.donate_checker.get_email_from_registry()
+        if saved_email:
+            self.current_email = saved_email
+            self.init_main_ui()
+            self.start_subscription_check()
+        else:
+            self.init_email_input_ui()
         
     def is_dark_theme_active(self):
         """Определяет, активна ли темная тема"""
@@ -78,15 +95,153 @@ class SubscriptionDialog(QDialog):
                 'error_text': '#721c24',
                 'group_bg': '#f8f9fa'
             }
+
+    def init_email_input_ui(self):
+        """Инициализирует UI для ввода email"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
-    def init_ui(self):
+        styles = self.get_theme_styles()
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {styles['bg_color']};
+                color: {styles['text_color']};
+            }}
+        """)
+        
+        # Заголовок
+        title_label = QLabel("🔐 Zapret Premium")
+        title_font = QFont()
+        title_font.setPointSize(20)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Инструкция
+        info_label = QLabel(
+            "Как получить премиум доступ:\n\n"
+            "1. Создайте аккаунт на Boosty и привяжите ОБЯЗАТЕЛЬНО туда почту!\n"
+            "2. Оформите подписку на любой период\n"
+            "3. Добавьтесь в Telegram чат\n"
+            "4. Активация происходит в течение 24 часов автоматически по почте\n\n"
+            "Введите email, который вы указали на Boosty:"
+        )
+        info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(f"""
+            QLabel {{
+                color: {styles['text_color']};
+                padding: 15px;
+                background-color: {styles['group_bg']};
+                border: 1px solid {styles['border_color']};
+                border-radius: 8px;
+                font-size: 12px;
+                line-height: 1.4;
+            }}
+        """)
+        layout.addWidget(info_label)
+        
+        # Поле ввода email
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("example@email.com")
+        self.email_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {styles['input_bg']};
+                color: {styles['input_text']};
+                border: 2px solid {styles['border_color']};
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 14px;
+            }}
+            QLineEdit:focus {{
+                border-color: #2196F3;
+            }}
+        """)
+        layout.addWidget(self.email_input)
+        
+        # Кнопка Boosty
+        boosty_btn = QPushButton("🚀 Оформить подписку на Boosty")
+        boosty_btn.clicked.connect(self.open_boosty)
+        boosty_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FF6900;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 20px;
+                font-size: 12px;
+                font-weight: bold;
+                min-height: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #E55A00;
+            }}
+            QPushButton:pressed {{
+                background-color: #CC5100;
+            }}
+        """)
+        layout.addWidget(boosty_btn)
+        
+        # Кнопки управления
+        buttons_layout = QHBoxLayout()
+        
+        cancel_btn = QPushButton("Отмена")
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {styles['border_color']};
+                color: {styles['text_color']};
+                border: 1px solid {styles['border_color']};
+                border-radius: 6px;
+                padding: 12px 20px;
+                font-size: 12px;
+                min-height: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: {styles['input_bg']};
+            }}
+        """)
+        
+        save_btn = QPushButton("Проверить статус")
+        save_btn.setDefault(True)
+        save_btn.clicked.connect(self.save_email_and_continue)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 20px;
+                font-size: 12px;
+                font-weight: bold;
+                min-height: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #1976D2;
+            }}
+            QPushButton:pressed {{
+                background-color: #1565C0;
+            }}
+        """)
+        
+        buttons_layout.addWidget(cancel_btn)
+        buttons_layout.addWidget(save_btn)
+        layout.addLayout(buttons_layout)
+        
+        self.email_input.setFocus()
+
+    def init_main_ui(self):
+        """Инициализирует основной UI после ввода email"""
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 15, 20, 15)
         main_layout.setSpacing(10)
         
         styles = self.get_theme_styles()
         
-        # Устанавливаем общий стиль диалога
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {styles['bg_color']};
@@ -108,7 +263,7 @@ class SubscriptionDialog(QDialog):
             }}
         """)
         
-        # Заголовок с иконкой
+        # Заголовок
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
         
@@ -116,48 +271,46 @@ class SubscriptionDialog(QDialog):
         icon_label.setStyleSheet("font-size: 24px;")
         header_layout.addWidget(icon_label)
         
-        title_label = QLabel("Управление подпиской Zapret Premium")
+        title_label = QLabel("Статус подписки Zapret Premium")
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setStyleSheet(f"color: {styles['text_color']};")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         
         main_layout.addLayout(header_layout)
         
-        # Группа UUID
-        uuid_group = QGroupBox("Идентификатор машины")
-        uuid_layout = QVBoxLayout(uuid_group)
-        uuid_layout.setContentsMargins(10, 20, 10, 10)
+        # Группа email
+        email_group = QGroupBox("Пользователь")
+        email_layout = QVBoxLayout(email_group)
+        email_layout.setContentsMargins(10, 20, 10, 10)
         
-        uuid_container = QHBoxLayout()
-        uuid_container.setSpacing(8)
+        email_container = QHBoxLayout()
+        email_container.setSpacing(8)
         
-        self.uuid_text = QLineEdit()
-        self.uuid_text.setText(self.donate_checker.get_machine_uuid())
-        self.uuid_text.setReadOnly(True)
-        self.uuid_text.setStyleSheet(f"""
+        self.email_display = QLineEdit()
+        self.email_display.setText(self.current_email)
+        self.email_display.setReadOnly(True)
+        self.email_display.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {styles['input_bg']};
                 color: {styles['input_text']};
                 border: 1px solid {styles['border_color']};
                 border-radius: 4px;
                 padding: 8px;
-                font-family: 'Courier New', monospace;
-                font-size: 11px;
+                font-size: 12px;
             }}
         """)
         
-        copy_uuid_btn = QPushButton("Копировать")
-        copy_uuid_btn.setFixedWidth(120)
-        copy_uuid_btn.clicked.connect(self.copy_uuid)
+        change_email_btn = QPushButton("Изменить")
+        change_email_btn.setFixedWidth(100)
+        change_email_btn.clicked.connect(self.change_email)
         
-        uuid_container.addWidget(self.uuid_text)
-        uuid_container.addWidget(copy_uuid_btn)
-        uuid_layout.addLayout(uuid_container)
-        main_layout.addWidget(uuid_group)
+        email_container.addWidget(self.email_display)
+        email_container.addWidget(change_email_btn)
+        email_layout.addLayout(email_container)
+        main_layout.addWidget(email_group)
         
         # Группа статуса
         status_group = QGroupBox("Статус подписки")
@@ -167,13 +320,13 @@ class SubscriptionDialog(QDialog):
         self.status_text = QLabel("Проверяю...")
         self.status_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_text.setWordWrap(True)
-        self.status_text.setMinimumHeight(50)
+        self.status_text.setMinimumHeight(60)
         self.status_text.setStyleSheet(f"""
             QLabel {{
                 background-color: {styles['input_bg']};
                 color: {styles['text_color']};
                 border: 2px solid {styles['border_color']};
-                padding: 12px;
+                padding: 15px;
                 border-radius: 6px;
                 font-size: 12px;
             }}
@@ -203,10 +356,9 @@ class SubscriptionDialog(QDialog):
         info_layout.setContentsMargins(10, 20, 10, 10)
         
         info_text = QLabel(
-            "1. Скопируйте UUID вашей машины\n"
-            "2. Оформите подписку на Boosty\n"
-            "3. Добавьтесь в Telegram чат и укажите UUID\n"
-            "4. Активация происходит в течение 24 часов"
+            "1. Создайте аккаунт на Boosty и привяжите ОБЯЗАТЕЛЬНО туда почту! Настройте подписку.\n"
+            "2. Добавьтесь в Telegram чат\n"
+            "3. Активация происходит в течение 24 часов автоматически по почте"
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet(f"""
@@ -235,21 +387,58 @@ class SubscriptionDialog(QDialog):
         refresh_btn = QPushButton("Обновить статус")
         refresh_btn.clicked.connect(self.refresh_subscription)
 
-        clear_cache_btn = QPushButton("Очистить кэш")
-        clear_cache_btn.clicked.connect(self.clear_cache)
-
         close_btn = QPushButton("Закрыть")
         close_btn.clicked.connect(self.accept)
 
         control_layout.addWidget(refresh_btn)
-        control_layout.addWidget(clear_cache_btn)
         control_layout.addStretch()
         control_layout.addWidget(close_btn)
 
         main_layout.addWidget(control_panel)
         main_layout.addStretch()
 
-    # Остальные методы остаются без изменений
+    def save_email_and_continue(self):
+        """Сохраняет email и переходит к основному UI"""
+        email = self.email_input.text().strip()
+        
+        if not email:
+            QMessageBox.warning(self, "Ошибка", "Введите email")
+            return
+        
+        # Простая валидация email
+        if '@' not in email or '.' not in email:
+            QMessageBox.warning(self, "Ошибка", "Введите корректный email")
+            return
+        
+        # Сохраняем в реестр
+        if self.donate_checker.save_email_to_registry(email):
+            self.current_email = email
+            # Закрываем текущий диалог и открываем новый
+            self.accept()
+            # Создаем новый диалог с основным UI
+            new_dialog = SubscriptionDialog(self.parent())
+            new_dialog.exec()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось сохранить email")
+
+    def change_email(self):
+        """Изменяет сохраненный email"""
+        email, ok = QInputDialog.getText(self, "Изменить email", 
+                                       "Введите новый email:", 
+                                       text=self.current_email)
+        if ok and email.strip():
+            email = email.strip()
+            if '@' not in email or '.' not in email:
+                QMessageBox.warning(self, "Ошибка", "Введите корректный email")
+                return
+                
+            if self.donate_checker.save_email_to_registry(email):
+                self.current_email = email
+                self.email_display.setText(email)
+                self.start_subscription_check()
+            else:
+                QMessageBox.critical(self, "Ошибка", "Не удалось сохранить email")
+
     def open_boosty(self):
         """Открывает страницу подписки на Boosty"""
         try:
@@ -259,89 +448,96 @@ class SubscriptionDialog(QDialog):
             
             QMessageBox.information(self, "Переход на Boosty", 
                                 "Страница подписки открыта в браузере.\n\n"
-                                "После оформления подписки не забудьте добавиться в Telegram чат и указать свой UUID, "
-                                "затем используйте кнопку 'Обновить статус' для проверки активации.")
+                                "ОБЯЗАТЕЛЬНО ПРИВЯЖИТЕ email К СВОЕМУ АККАУНТУ, "
+                                "затем используйте кнопку 'Обновить статус'. Статус выдаётся в течении 24 часов.")
             
         except Exception as e:
             log(f"Ошибка при открытии ссылки на Boosty: {e}", level="ERROR")
-            
             QMessageBox.information(self, "Ссылка на подписку", 
                                 "Не удалось автоматически открыть браузер.\n\n"
                                 "Скопируйте ссылку для оформления подписки:\n"
-                                "https://boosty.to/censorliber\n\n"
-                                "После оформления укажите ваш UUID в Telegram чате.")
+                                "https://boosty.to/censorliber")
 
-    def copy_uuid(self):
-        """Копирует UUID в буфер обмена"""
-        try:
-            uuid = self.donate_checker.get_machine_uuid()
-            pyperclip.copy(uuid)
-            
-            original_text = self.sender().text()
-            self.sender().setText("✅ Скопировано")
-            
-            QTimer.singleShot(2000, lambda: self.sender().setText(original_text))
-            
-            log("UUID скопирован в буфер обмена", level="INFO")
-            
-        except Exception as e:
-            log(f"Ошибка при копировании UUID: {e}", level="ERROR")
-            QMessageBox.warning(self, "Ошибка", "Не удалось скопировать UUID")
-    
-    def on_subscription_checked(self, is_premium, status_msg, days_remaining):
+    def on_subscription_checked(self, result):
         """Обработчик результата проверки подписки"""
         self.progress_bar.setVisible(False)
         styles = self.get_theme_styles()
         
-        if is_premium:
-            # Формируем текст статуса с учетом дней
-            if days_remaining is not None:
-                if days_remaining > 0:
-                    status_text = f"✅ Подписка активна (осталось {days_remaining} дней)"
-                else:
-                    status_text = "⚠️ Подписка истекает сегодня"
+        if result['found']:
+            if result['days_remaining'] is not None and result['days_remaining'] > 0:
+                # Активная подписка
+                status_text = f"✅ {result['status']}\nУровень: {result['level']}"
+                self.status_text.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {styles['success_bg']};
+                        border: 2px solid {styles['success_border']};
+                        color: {styles['success_text']};
+                        padding: 15px;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        font-weight: bold;
+                    }}
+                """)
+            elif "включен" in result['status'].lower():
+                # Активная подписка с автоплатежом
+                status_text = f"✅ {result['status']}\nУровень: {result['level']}"
+                self.status_text.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {styles['success_bg']};
+                        border: 2px solid {styles['success_border']};
+                        color: {styles['success_text']};
+                        padding: 15px;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        font-weight: bold;
+                    }}
+                """)
             else:
-                status_text = "✅ Подписка активна (бессрочная)"
-                
-            self.status_text.setText(status_text)
-            self.status_text.setStyleSheet(f"""
-                QLabel {{
-                    background-color: {styles['success_bg']};
-                    border: 2px solid {styles['success_border']};
-                    color: {styles['success_text']};
-                    padding: 12px;
-                    border-radius: 6px;
-                    font-size: 12px;
-                    font-weight: bold;
-                }}
-            """)
+                # Подписка истекла или неактивна
+                status_text = f"⚠️ {result['status']}\nУровень: {result['level']}"
+                self.status_text.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {styles['error_bg']};
+                        border: 2px solid {styles['error_border']};
+                        color: {styles['error_text']};
+                        padding: 15px;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        font-weight: bold;
+                    }}
+                """)
         else:
-            self.status_text.setText(f"❌ Подписка неактивна\n{status_msg}")
+            # Пользователь не найден
+            status_text = f"❌ {result['status']}"
             self.status_text.setStyleSheet(f"""
                 QLabel {{
                     background-color: {styles['error_bg']};
                     border: 2px solid {styles['error_border']};
                     color: {styles['error_text']};
-                    padding: 12px;
+                    padding: 15px;
                     border-radius: 6px;
                     font-size: 12px;
                     font-weight: bold;
                 }}
             """)
         
-        log(f"Статус подписки обновлен: {is_premium}, дней осталось: {days_remaining}", level="INFO")
+        self.status_text.setText(status_text)
+        log(f"Статус подписки обновлен для {self.current_email}: {result['status']}", level="INFO")
         
-    def check_subscription_status(self):
+    def start_subscription_check(self):
         """Запускает проверку статуса подписки в отдельном потоке"""
+        if not self.current_email:
+            return
+            
         try:
-            log("Запуск проверки статуса подписки в диалоге", level="DEBUG")
+            log(f"Запуск проверки статуса подписки для {self.current_email}", level="DEBUG")
             
             # Показываем прогресс-бар
             self.progress_bar.setVisible(True)
             self.status_text.setText("Проверяю статус подписки...")
             
             # Создаем и запускаем worker
-            self.worker = SubscriptionCheckWorker(self.donate_checker)
+            self.worker = SubscriptionCheckWorker(self.donate_checker, self.current_email)
             self.worker.finished.connect(self.on_subscription_checked)
             self.worker.start()
             
@@ -353,16 +549,4 @@ class SubscriptionDialog(QDialog):
     def refresh_subscription(self):
         """Принудительно обновляет статус подписки"""
         log("Принудительное обновление статуса подписки", level="INFO")
-        self.check_subscription_status()
-    
-    def clear_cache(self):
-        """Очищает кэш подписки"""
-        try:
-            self.donate_checker.clear_cache()
-            QMessageBox.information(self, "Кэш очищен", 
-                                  "Кэш подписки успешно очищен.\n"
-                                  "При следующей проверке данные будут загружены заново.")
-            log("Кэш подписки очищен пользователем", level="INFO")
-        except Exception as e:
-            log(f"Ошибка при очистке кэша: {e}", level="ERROR")
-            QMessageBox.warning(self, "Ошибка", "Не удалось очистить кэш")
+        self.start_subscription_check()

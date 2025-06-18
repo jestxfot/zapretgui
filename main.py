@@ -420,15 +420,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # StrategyManager  (preload=False  ⇒  ничего не скачивает)
         from strategy_menu.manager import StrategyManager
-        from config.config import (GITHUB_STRATEGIES_BASE_URL, STRATEGIES_FOLDER,
-                            GITHUB_STRATEGIES_JSON_URL)
+        from config.config import (STRATEGIES_FOLDER)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
 
         self.strategy_manager = StrategyManager(
-            base_url        = GITHUB_STRATEGIES_BASE_URL,
             local_dir       = STRATEGIES_FOLDER,
             status_callback = self.set_status,
-            json_url        = GITHUB_STRATEGIES_JSON_URL,
             preload         = False)           # ← ключ
 
         # ThemeManager с передачей donate_checker
@@ -458,14 +455,28 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.update_autostart_ui(self.service_manager.check_autostart_exists())
         self.update_ui(running=False)
 
-        self.subscription_timer = QTimer()
-        self.subscription_timer.timeout.connect(self.update_subscription_status_in_title)
-        self.subscription_timer.timeout.connect(self.periodic_subscription_check)
-        self.subscription_timer.start(2 * 60 * 1000)  # 2 минуты в миллисекундах
+        # НЕ запускаем subscription_timer здесь - он запустится после готовности checker'а
 
-        # --- HeavyInitWorker (качает winws.exe, списки и т.п.) --------
-        self.set_status("Инициализация…")
+        # Убираем автоматический запуск тяжелой инициализации
+        # Запускаем HeavyInitWorker только при необходимости
+        from config.reg import get_auto_download_enabled
+        
+        if get_auto_download_enabled():  # Новая настройка в реестре
+            # --- HeavyInitWorker (качает winws.exe, списки и т.п.) --------
+            self.set_status("Инициализация…")
+            self._start_heavy_init()
+        else:
+            log("Автозагрузка отключена - работаем с локальными файлами", "INFO")
+            self.set_status("Готово (автономный режим)")
+            
+            # Проверяем локальные файлы
+            self._check_local_files()
+            
+            # Сразу переходим к финальной инициализации
+            QTimer.singleShot(100, lambda: self._on_heavy_done(True, ""))
 
+    def _start_heavy_init(self):
+        """Запускает тяжелую инициализацию"""
         self._hthr = QThread(self)
         self._hwrk = HeavyInitWorker(self.dpi_starter, DOWNLOAD_URLS)
         self._hwrk.moveToThread(self._hthr)
@@ -479,6 +490,15 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self._hthr.finished.connect(self._hthr.deleteLater)
 
         self._hthr.start()
+
+    def _check_local_files(self):
+        """Проверяет наличие критически важных локальных файлов"""
+        if not os.path.exists(WINWS_EXE):
+            self.set_status("❌ winws.exe не найден - включите автозагрузку")
+            return False
+        
+        self.set_status("✅ Локальные файлы найдены")
+        return True
 
     def periodic_subscription_check(self):
         """Периодическая проверка статуса подписки"""
@@ -565,32 +585,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
             self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
         
-        # Выполняем дополнительную проверку подписки после завершения инициализации
-        QTimer.singleShot(3000, self.post_init_subscription_check)
-    
-    def post_init_subscription_check(self):
-        """Дополнительная проверка подписки после завершения инициализации"""
-        try:
-            log("Выполняется проверка подписки после завершения инициализации", level="INFO")
-            
-            # Проверяем подписку
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)  # Ожидаем 3 значения
-            
-            # Обновляем все компоненты
-            self.update_title_with_subscription_status(is_premium, None, days_remaining)
-            
-            if hasattr(self, 'theme_manager'):
-                available_themes = self.theme_manager.get_available_themes()
-                self.update_theme_combo(available_themes)
-            
-            # Финальный статус
-            self.set_status("Готово")
-            
-            log(f"Проверка подписки после инициализации завершена. Статус: {'Premium' if is_premium else 'Free'}", level="INFO")
-            
-        except Exception as e:
-            log(f"Ошибка при проверке подписки после инициализации: {e}", level="ERROR")
-            self.set_status("Готово")
+        # УБИРАЕМ дополнительную проверку подписки - она уже идет асинхронно
+        # QTimer.singleShot(3000, self.post_init_subscription_check)
 
     def init_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
@@ -733,8 +729,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         super().__init__()
 
-        # Инициализируем проверяльщик подписки
-        self.donate_checker = DonateChecker()
+        # УБИРАЕМ блокирующую инициализацию DonateChecker
+        # self._init_donate_checker_async()
 
         self.dpi_starter = DPIStarter(
             winws_exe   = WINWS_EXE,
@@ -755,23 +751,20 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
         
-        # Инициализируем интерфейс
+        # Инициализируем интерфейс БЕЗ подписки
         self.build_ui(width=WIDTH, height=HEIGHT)
 
-        # Проверяем статус подписки и обновляем заголовок
-        self.update_subscription_status_in_title()
+        # Временная заглушка для DonateChecker
+        self._init_dummy_donate_checker()
 
-        # Запускаем первичную проверку подписки в фоне через небольшую задержку
-        QTimer.singleShot(2000, self.initial_subscription_check)
+        # Устанавливаем базовый заголовок (без статуса подписки)
+        self.update_title_with_subscription_status(False, None, 0)
 
         # 1. Создаём объект меню, передаём self как parent,
         #    чтобы внутри можно было обращаться к методам LupiDPIApp
         self.menu_bar = AppMenuBar(self)
 
-        # 2. Вставляем строку меню в самый верхний layout.
-        #
-        # В build_ui() у вас, скорее всего, главный QVBoxLayout —
-        # возьмём его через self.layout() и «прикрутим» меню:
+        # 2. Вставляем строку меню в самый верхний layout
         root_layout = self.layout()
         root_layout.setMenuBar(self.menu_bar)
 
@@ -792,8 +785,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.dns_settings_btn.clicked.connect(self.open_dns_settings)
         self.proxy_button.clicked.connect(self.toggle_proxy_domains)
         self.update_check_btn.clicked.connect(self.manual_update_check)
-
-
         
         # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
@@ -813,65 +804,211 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 log_path = "zapret_log.txt",
                 interval = 120,      # интервал отправки в секундах
                 parent   = self)
+        
+        # ЗАПУСКАЕМ асинхронную инициализацию подписки ПОСЛЕ создания UI
+        QTimer.singleShot(1000, self._init_donate_checker_async)
 
-    def initial_subscription_check(self):
-        """Выполняет первичную проверку подписки при запуске программы"""
+    def _init_dummy_donate_checker(self):
+        """Создает временную заглушку для DonateChecker"""
+        class DummyChecker:
+            def check_subscription_status(self, use_cache=True):
+                return False, "Проверка подписки...", 0
+            def get_email_from_registry(self):
+                return None
+        
+        self.donate_checker = DummyChecker()
+        log("Инициализирована заглушка DonateChecker", "DEBUG")
+
+    def _init_donate_checker_async(self):
+        """Асинхронная инициализация проверяльщика подписки"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class DonateCheckerWorker(QObject):
+            finished = pyqtSignal(object)  # DonateChecker instance
+            progress = pyqtSignal(str)     # Статус загрузки
+            
+            def run(self):
+                try:
+                    self.progress.emit("Инициализация проверки подписки...")
+                    
+                    from donate import DonateChecker
+                    checker = DonateChecker()
+                    
+                    self.progress.emit("Проверка статуса подписки...")
+                    # Делаем первую проверку сразу
+                    checker.check_subscription_status(use_cache=False)
+                    
+                    self.finished.emit(checker)
+                except Exception as e:
+                    log(f"Ошибка инициализации DonateChecker: {e}", "ERROR")
+                    self.finished.emit(None)
+        
+        # Показываем что идет загрузка
+        self.set_status("Инициализация проверки подписки...")
+        
+        self._donate_thread = QThread()
+        self._donate_worker = DonateCheckerWorker()
+        self._donate_worker.moveToThread(self._donate_thread)
+        
+        self._donate_thread.started.connect(self._donate_worker.run)
+        self._donate_worker.progress.connect(self.set_status)
+        self._donate_worker.finished.connect(self._on_donate_checker_ready)
+        self._donate_worker.finished.connect(self._donate_thread.quit)
+        self._donate_worker.finished.connect(self._donate_worker.deleteLater)
+        self._donate_thread.finished.connect(self._donate_thread.deleteLater)
+        
+        self._donate_thread.start()
+
+    def _on_donate_checker_ready(self, checker):
+        """Вызывается когда DonateChecker готов"""
+        if checker:
+            self.donate_checker = checker
+            log("DonateChecker инициализирован асинхронно", "INFO")
+            
+            # Сразу обновляем UI с реальными данными
+            QTimer.singleShot(100, self._update_subscription_ui)
+            
+            # Запускаем периодическую проверку
+            self._start_subscription_timer()
+            
+        else:
+            log("DonateChecker недоступен - работаем без проверки подписки", "WARNING")
+            self.set_status("Проверка подписки недоступна")
+        
+        # Обновляем ThemeManager после готовности checker'а
+        if hasattr(self, 'theme_manager'):
+            self.theme_manager.donate_checker = self.donate_checker
+            # Обновляем доступные темы
+            available_themes = self.theme_manager.get_available_themes()
+            self.update_theme_combo(available_themes)
+
+    def _update_subscription_ui(self):
+        """Обновляет UI с реальным статусом подписки"""
         try:
-            log("Выполняется первичная проверка подписки при запуске", level="INFO")
-            
-            # Проверяем подписку (без кэша для актуальных данных)
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)  # Ожидаем 3 значения
-            
-            # Обновляем заголовок с текущей темой
+            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
             current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
             self.update_title_with_subscription_status(is_premium, current_theme, days_remaining)
             
-            # Остальная логика...
+            # Если статус изменился, обновляем темы
             if hasattr(self, 'theme_manager'):
                 available_themes = self.theme_manager.get_available_themes()
+                current_selection = self.theme_combo.currentText()
+                
+                # Обновляем список тем
                 self.update_theme_combo(available_themes)
                 
-                # Если текущая тема стала недоступна, переключаем на доступную
-                current_theme = self.theme_combo.currentText()
-                if "(заблокировано)" in current_theme:
-                    # Ищем первую доступную тему
-                    for theme in available_themes:
-                        if "(заблокировано)" not in theme:
-                            log(f"Переключение с заблокированной темы на: {theme}", level="INFO")
-                            self.theme_combo.setCurrentText(theme)
-                            self.theme_manager.apply_theme(theme)
-                            break
+                # Восстанавливаем выбор если возможно
+                if current_selection in [theme for theme in available_themes]:
+                    self.theme_combo.setCurrentText(current_selection)
             
-            log(f"Первичная проверка подписки завершена. Статус: {'Premium' if is_premium else 'Free'}", level="INFO")
+            self.set_status("Проверка подписки завершена")
+            log(f"Статус подписки обновлен: {'Premium' if is_premium else 'Free'}", "INFO")
             
         except Exception as e:
-            log(f"Ошибка при первичной проверке подписки: {e}", level="ERROR")
-            # В случае ошибки показываем обычный заголовок
-            self.update_title_with_subscription_status(False)
+            log(f"Ошибка при обновлении UI подписки: {e}", "ERROR")
+            self.set_status("Ошибка проверки подписки")
+
+    def _start_subscription_timer(self):
+        """Запускает таймер периодической проверки подписки"""
+        if not hasattr(self, 'subscription_timer'):
+            self.subscription_timer = QTimer()
+            self.subscription_timer.timeout.connect(self.periodic_subscription_check)
+        
+        # Запускаем проверку каждые 10 минут
+        self.subscription_timer.start(10 * 60 * 1000)
+        log("Таймер периодической проверки подписки запущен", "DEBUG")
+
+    def _init_donate_checker_async(self):
+        """Асинхронная инициализация проверяльщика подписки"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class DonateCheckerWorker(QObject):
+            finished = pyqtSignal(object)  # DonateChecker instance
+            
+            def run(self):
+                try:
+                    from donate import DonateChecker
+                    checker = DonateChecker()
+                    self.finished.emit(checker)
+                except Exception as e:
+                    log(f"Ошибка инициализации DonateChecker: {e}", "ERROR")
+                    # Создаем заглушку при ошибке
+                    self.finished.emit(None)
+        
+        self._donate_thread = QThread()
+        self._donate_worker = DonateCheckerWorker()
+        self._donate_worker.moveToThread(self._donate_thread)
+        
+        self._donate_thread.started.connect(self._donate_worker.run)
+        self._donate_worker.finished.connect(self._on_donate_checker_ready)
+        self._donate_worker.finished.connect(self._donate_thread.quit)
+        self._donate_worker.finished.connect(self._donate_worker.deleteLater)
+        self._donate_thread.finished.connect(self._donate_thread.deleteLater)
+        
+        # Временная заглушка
+        self.donate_checker = None
+        
+        self._donate_thread.start()
+
+    def _on_donate_checker_ready(self, checker):
+        """Вызывается когда DonateChecker готов"""
+        self.donate_checker = checker
+        
+        if checker:
+            log("DonateChecker инициализирован", "INFO")
+            # Обновляем UI с данными подписки
+            QTimer.singleShot(100, self.update_subscription_status_in_title)
+        else:
+            log("DonateChecker недоступен - работаем без проверки подписки", "WARNING")
+            # Создаем заглушку для методов
+            class DummyChecker:
+                def check_subscription_status(self, use_cache=True):
+                    return False, "Проверка недоступна", 0
+                def get_email_from_registry(self):
+                    return None
+            
+            self.donate_checker = DummyChecker()
+        
+        # Обновляем ThemeManager после готовности checker'а
+        if hasattr(self, 'theme_manager'):
+            self.theme_manager.donate_checker = self.donate_checker
 
     def update_subscription_status_in_title(self):
         """Обновляет статус подписки в title_label"""
         try:
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()  # Ожидаем 3 значения
+            if not self.donate_checker:
+                return
+                
+            # Проверяем, не заглушка ли это
+            if hasattr(self.donate_checker, '__class__') and self.donate_checker.__class__.__name__ == 'DummyChecker':
+                return
+                
+            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
             current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
             self.update_title_with_subscription_status(is_premium, current_theme, days_remaining)
             
-            log(f"Статус подписки в title_label обновлен: {'Premium' if is_premium else 'Free'}", level="DEBUG")
-            
         except Exception as e:
-            log(f"Ошибка при обновлении статуса подписки в title_label: {e}", level="ERROR")
-            # В случае ошибки показываем обычный заголовок
+            log(f"Ошибка при обновлении статуса подписки: {e}", "ERROR")
+            # Не падаем, просто показываем базовый заголовок
             self.update_title_with_subscription_status(False)
 
     def show_subscription_dialog(self):
         """Показывает диалог управления подписками"""
         try:
+            # Проверяем, готов ли DonateChecker
+            if (hasattr(self.donate_checker, '__class__') and 
+                self.donate_checker.__class__.__name__ == 'DummyChecker'):
+                QMessageBox.information(self, "Подписка", 
+                                      "Система проверки подписки еще инициализируется.\n"
+                                      "Попробуйте через несколько секунд.")
+                return
+            
             from subscription_dialog import SubscriptionDialog
             
             self.set_status("Проверяю статус подписки...")
             QApplication.processEvents()
             
-            dialog = SubscriptionDialog(self, self.donate_checker)
+            dialog = SubscriptionDialog(self)
             result = dialog.exec()
             
             # После закрытия диалога обновляем статус в заголовке
@@ -901,22 +1038,29 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Ошибка при открытии диалога подписки: {e}", level="ERROR")
             self.set_status(f"Ошибка: {e}")
             
-            # Fallback - показываем простое сообщение с UUID
-            machine_uuid = self.donate_checker.get_machine_uuid()
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
-            
-            status_text = "✅ Активна" if is_premium else "❌ Неактивна"
-            
-            QMessageBox.information(self, "Информация о подписке",
-                f"UUID машины:\n{machine_uuid}\n\n"
-                f"Статус подписки: {status_text}\n"
-                f"Детали: {status_msg}")
-            
-            # Обновляем заголовок и темы даже после fallback диалога
-            self.update_subscription_status_in_title()
-            if hasattr(self, 'theme_manager'):
-                available_themes = self.theme_manager.get_available_themes()
-                self.update_theme_combo(available_themes)
+            # Fallback - показываем простое сообщение
+            if (not hasattr(self.donate_checker, '__class__') or 
+                self.donate_checker.__class__.__name__ != 'DummyChecker'):
+                
+                email = self.donate_checker.get_email_from_registry()
+                is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
+                
+                status_text = "✅ Активна" if is_premium else "❌ Неактивна"
+                
+                if email:
+                    QMessageBox.information(self, "Информация о подписке",
+                        f"Email пользователя:\n{email}\n\n"
+                        f"Статус подписки: {status_text}\n"
+                        f"Детали: {status_msg}")
+                else:
+                    QMessageBox.information(self, "Информация о подписке",
+                        f"Email не найден в реестре.\n\n"
+                        f"Статус подписки: {status_text}\n"
+                        f"Детали: {status_msg}")
+
+    # УБИРАЕМ все автоматические вызовы проверки подписки из других методов
+    # Например, из _on_heavy_done убираем:
+    # QTimer.singleShot(3000, self.post_init_subscription_check)
             
     def manual_update_check(self):
         """Запускает проверку обновлений вручную, если это не тестовый билд."""
@@ -1289,7 +1433,29 @@ def main():
 
     # ---------------- быстрые проверки (без Qt) -----------------------
     from startup.bfe_util import ensure_bfe_running
-    if not ensure_bfe_running(show_ui=True):
+
+    # Добавляем быструю проверку кэша BFE перед UI
+    from startup.check_cache import startup_cache
+    has_bfe_cache, bfe_cached = startup_cache.is_cached_and_valid("bfe_check")
+    
+    if has_bfe_cache and bfe_cached:
+        log("BFE: используем кэшированный результат (OK)", "DEBUG")
+    elif has_bfe_cache and not bfe_cached:
+        log("BFE: кэшированный результат - ОШИБКА", "ERROR")
+        sys.exit(1)
+    else:
+        # Только если нет кэша - делаем реальную проверку
+        if not ensure_bfe_running(show_ui=True):
+            sys.exit(1)
+
+    # ---------------- предупреждения с кэшем -----------------------
+    from startup.check_start import check_startup_conditions
+    
+    # Используем кэшированную функцию вместо display_startup_warnings
+    conditions_ok, error_msg = check_startup_conditions()
+    if not conditions_ok and not start_in_tray:
+        if error_msg:
+            QMessageBox.critical(None, "Ошибка запуска", error_msg)
         sys.exit(1)
 
     # ---------------- разбор аргументов CLI ---------------------------

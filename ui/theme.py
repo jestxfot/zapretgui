@@ -165,25 +165,37 @@ class ThemeManager:
         if not self.donate_checker:
             return False
         try:
-            is_premium, _, days_remaining = self.donate_checker.check_subscription_status()  # Исправляем распаковку
+            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
             return is_premium
         except Exception as e:
             log(f"Ошибка при проверке статуса подписки для темы: {e}", level="ERROR")
             return False
         
     def get_available_themes(self):
-        """Возвращает список всех тем с пометками о доступности"""
-        available_themes = []
-        is_premium = self._is_premium_available()
+        """Возвращает список доступных тем с учетом статуса подписки"""
+        themes = []
         
-        for theme_name in THEMES.keys():
-            if theme_name == "РКН Тян" and not is_premium:
-                # Добавляем заблокированную тему с пометкой
-                available_themes.append(f"{theme_name} (заблокировано)")
+        # Проверяем статус подписки, но безопасно
+        is_premium = False
+        try:
+            if (self.donate_checker and 
+                hasattr(self.donate_checker, '__class__') and 
+                self.donate_checker.__class__.__name__ != 'DummyChecker'):
+                is_premium, _, _ = self.donate_checker.check_subscription_status()
+        except Exception as e:
+            log(f"Ошибка проверки подписки в ThemeManager: {e}", "DEBUG")
+        
+        for theme_info in self.themes:
+            theme_name = theme_info['name']
+            
+            if theme_info['premium'] and not is_premium:
+                # Премиум тема недоступна
+                themes.append(f"{theme_name} (заблокировано)")
             else:
-                available_themes.append(theme_name)
-        
-        return available_themes
+                # Обычная тема или доступная премиум
+                themes.append(theme_name)
+                
+        return themes
     
     def get_clean_theme_name(self, display_name):
         """Извлекает чистое имя темы из отображаемого названия"""

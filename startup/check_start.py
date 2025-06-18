@@ -6,6 +6,11 @@ import ctypes, sys, subprocess, winreg
 # Импортируем константы из конфига
 from config.config import BIN_FOLDER
 
+# Добавляем импорт кэша
+from startup.check_cache import startup_cache
+
+import psutil
+
 def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
     """
     Показывает нативное окно MessageBox (не требует QApplication)
@@ -13,20 +18,23 @@ def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
     """
     ctypes.windll.user32.MessageBoxW(0, text, title, style)
 
-import psutil
-
 def check_system_commands() -> tuple[bool, str]:
     """
-    Проверяет доступность основных системных команд, необходимых для работы программы.
-    
-    Returns:
-        tuple: (is_error, error_message)
+    Проверяет доступность основных системных команд с кэшированием.
     """
+    # Проверяем кэш (короткое время жизни - 1 час)
+    has_cache, cached_result = startup_cache.is_cached_and_valid("system_commands")
+    if has_cache:
+        return cached_result, ""
+    
+    try:
+        from log import log
+        log("Проверка системных команд", "DEBUG")
+    except ImportError:
+        print("DEBUG: Проверка системных команд")
+    
     required_commands = [
         ("tasklist", "tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV /NH"),
-        #("sc", "sc query"),
-        #("powershell", "powershell -Command \"Get-Process -Name explorer -ErrorAction SilentlyContinue | Select-Object Id\"")
-        # Если что wmic нет по дефолту начиная с винды 11 24h2 вроде ("wmic", "wmic process where \"name='explorer.exe'\" get processid")
     ]
     
     failed_commands = []
@@ -39,12 +47,11 @@ def check_system_commands() -> tuple[bool, str]:
                 capture_output=True,
                 text=True,
                 timeout=10,
-                encoding="cp866",  # Используем cp866 для консольных команд
-                errors="ignore",  # Игнорируем ошибки кодировки
+                encoding="cp866",
+                errors="ignore",
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             
-            # Для tasklist проверяем специально на ошибку "не является командой"
             if cmd_name == "tasklist":
                 if result.returncode != 0:
                     stderr_text = result.stderr.strip().lower()
@@ -57,8 +64,7 @@ def check_system_commands() -> tuple[bool, str]:
                             print(f"ERROR: Команда {cmd_name} недоступна")
                         continue
                         
-            # Для остальных команд просто проверяем код возврата
-            if result.returncode not in [0, 1]:  # 1 может быть нормальным для некоторых команд
+            if result.returncode not in [0, 1]:
                 failed_commands.append(f"{cmd_name} (код ошибки: {result.returncode})")
                 try:
                     from log import log
@@ -90,7 +96,9 @@ def check_system_commands() -> tuple[bool, str]:
             except ImportError:
                 print(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}")
     
-    if failed_commands:
+    has_issues = bool(failed_commands)
+    
+    if has_issues:
         error_message = (
             "Обнаружены проблемы с системными командами:\n\n"
             + "\n".join(f"• {cmd}" for cmd in failed_commands) + 
@@ -103,27 +111,25 @@ def check_system_commands() -> tuple[bool, str]:
             "2. Проверьте целостность файлов командой: sfc /scannow\n"
             "Программа может работать нестабильно или не запуститься. Лучше всего переустановить Windows!"
         )
-        return True, error_message
+    else:
+        error_message = ""
+        try:
+            from log import log
+            log("Все системные команды доступны", level="INFO")
+        except ImportError:
+            print("INFO: Все системные команды доступны")
     
-    try:
-        from log import log
-        log("Все системные команды доступны", level="INFO")
-    except ImportError:
-        print("INFO: Все системные команды доступны")
-        
-    return False, ""
+    # Кэшируем результат (короткое время - 1 час)
+    startup_cache.cache_result("system_commands", has_issues)
+    
+    return has_issues, error_message
 
 def check_startup_conditions():
     """
-    Выполняет все проверки условий запуска программы
-    
-    Возвращает:
-    - tuple: (success, error_message)
-        - success (bool): True если все проверки успешны, False в противном случае
-        - error_message (str): текст сообщения об ошибке, если проверка не пройдена
+    Выполняет все проверки условий запуска программы с кэшированием
     """
     try:
-        # Проверка системных команд (добавляем в начало)
+        # Все проверки теперь используют кэш автоматически
         has_cmd_issues, cmd_msg = check_system_commands()
         if has_cmd_issues:
             return False, cmd_msg
@@ -132,12 +138,10 @@ def check_startup_conditions():
         if has_gdpi:
             return False, gdpi_msg
 
-        # Проверка на mitmproxy
         has_mitmproxy, mitmproxy_msg = check_mitmproxy()
         if has_mitmproxy:
             return False, mitmproxy_msg
                
-        # Проверка на запуск из архива
         if check_if_in_archive():
             error_message = (
                 "Программа запущена из временной директории.\n\n"
@@ -147,18 +151,16 @@ def check_startup_conditions():
             )
             return False, error_message
 
-        # Проверка на наличие OneDrive в пути
         in_onedrive, msg = check_path_for_onedrive()
         if in_onedrive:
             return False, msg
                 
-        # Проверка на специальные символы в пути
         has_special_chars, error_message = check_path_for_special_chars()
         if has_special_chars:
             return False, error_message
         
-        # Все проверки успешны
         return True, ""
+        
     except Exception as e:
         error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
         try:
@@ -170,9 +172,13 @@ def check_startup_conditions():
         
 def check_mitmproxy() -> tuple[bool, str]:
     """
-    Проверяет, запущен ли mitmproxy или связанные процессы.
-    True + msg, если обнаружен конфликтующий процесс.
+    Проверяет, запущен ли mitmproxy с кэшированием (короткое время).
     """
+    # Кэш только на 5 минут для процессов
+    has_cache, cached_result = startup_cache.is_cached_and_valid("mitmproxy_check")
+    if has_cache:
+        return cached_result, ""
+    
     CONFLICTING_PROCESSES = [
         "mitmproxy",
         "mitmdump", 
@@ -187,7 +193,6 @@ def check_mitmproxy() -> tuple[bool, str]:
             try:
                 proc_name = proc.info['name'].lower() if proc.info['name'] else ""
                 
-                # Проверяем имя процесса
                 if any(name.lower() in proc_name for name in CONFLICTING_PROCESSES):
                     err = (
                         f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
@@ -200,9 +205,11 @@ def check_mitmproxy() -> tuple[bool, str]:
                         log(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
                     except ImportError:
                         print(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']}")
+                    
+                    # Кэшируем отрицательный результат (найден конфликт)
+                    startup_cache.cache_result("mitmproxy_check", True)
                     return True, err
                 
-                # Дополнительная проверка через командную строку
                 if proc.info['cmdline']:
                     cmdline = ' '.join(proc.info['cmdline']).lower()
                     if any(name.lower() in cmdline for name in CONFLICTING_PROCESSES):
@@ -217,10 +224,11 @@ def check_mitmproxy() -> tuple[bool, str]:
                             log(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
                         except ImportError:
                             print(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']}")
+                        
+                        startup_cache.cache_result("mitmproxy_check", True)
                         return True, err
                         
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                # Процесс завершился или нет доступа - пропускаем
                 continue
                 
     except Exception as e:
@@ -229,41 +237,58 @@ def check_mitmproxy() -> tuple[bool, str]:
             log(f"Ошибка при проверке процессов mitmproxy: {e}", level="WARNING")
         except ImportError:
             print(f"WARNING: Ошибка при проверке процессов mitmproxy: {e}")
-        # Не прерываем работу при ошибках проверки
+        
+        # При ошибке не кэшируем
         return False, ""
     
+    # Кэшируем положительный результат (конфликтов не найдено)
+    startup_cache.cache_result("mitmproxy_check", False)
     return False, ""
     
 def check_if_in_archive():
     """
-    Проверяет, находится ли EXE-файл в временной директории,
-    что обычно характерно для распаковки из архива.
+    Проверяет, находится ли EXE-файл в временной директории с кэшированием.
     """
+    exe_path = os.path.abspath(sys.executable)
+    
+    # Проверяем кэш с контекстом пути
+    has_cache, cached_result = startup_cache.is_cached_and_valid("archive_check", exe_path)
+    if has_cache:
+        return cached_result
+    
     try:
-        exe_path = os.path.abspath(sys.executable)
         try:
             from log import log
             log(f"Executable path: {exe_path}", level="CHECK_START")
         except ImportError:
-            log(f"DEBUG: Executable path: {exe_path}")
+            print(f"DEBUG: Executable path: {exe_path}")
 
-        # Получаем пути к системным временным директориям
         system32_path = os.path.abspath(os.path.join(os.environ.get("WINDIR", ""), "System32"))
         temp_env = os.environ.get("TEMP", "")
         tmp_env = os.environ.get("TMP", "")
         temp_dirs = [temp_env, tmp_env, system32_path]
         
+        is_in_temp = False
         for temp_dir in temp_dirs:
             if temp_dir and exe_path.lower().startswith(os.path.abspath(temp_dir).lower()):
                 try:
                     from log import log
                     log(f"EXE запущен из временной директории: {temp_dir}", level="WARNING")
                 except ImportError:
-                    log(f"WARNING: EXE запущен из временной директории: {temp_dir}")
-                return True
-        return False
+                    print(f"WARNING: EXE запущен из временной директории: {temp_dir}")
+                is_in_temp = True
+                break
+        
+        # Кэшируем результат
+        startup_cache.cache_result("archive_check", is_in_temp, exe_path)
+        return is_in_temp
+        
     except Exception as e:
-        log(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
+        try:
+            from log import log
+            log(f"Ошибка при проверке расположения EXE: {str(e)}", level="DEBUG")
+        except ImportError:
+            print(f"DEBUG: Ошибка при проверке расположения EXE: {str(e)}")
         return False
 
 def is_in_onedrive(path: str) -> bool:
@@ -284,11 +309,16 @@ def is_in_onedrive(path: str) -> bool:
 
 def check_path_for_onedrive() -> tuple[bool, str]:
     """
-    Проверяет, лежит ли программа (или вспомогательные папки) в OneDrive.
-    Возвращает (True, msg) если обнаружен OneDrive, иначе (False, "").
+    Проверяет OneDrive в путях с кэшированием.
     """
     current_path = os.path.abspath(os.getcwd())
-    exe_path     = os.path.abspath(sys.executable)
+    exe_path = os.path.abspath(sys.executable)
+    paths_context = f"{current_path}|{exe_path}|{BIN_FOLDER}"
+    
+    # Проверяем кэш с контекстом всех путей
+    has_cache, cached_result = startup_cache.is_cached_and_valid("onedrive_check", paths_context)
+    if has_cache:
+        return cached_result, ""
 
     paths_to_check = [current_path, exe_path, BIN_FOLDER]
 
@@ -304,8 +334,14 @@ def check_path_for_onedrive() -> tuple[bool, str]:
                 from log import log
                 log(f"ERROR: Обнаружен OneDrive в пути: {path}", level="ERROR")
             except ImportError:
-                log(f"ERROR: Обнаружен OneDrive в пути: {path}")
+                print(f"ERROR: Обнаружен OneDrive в пути: {path}")
+            
+            # Кэшируем отрицательный результат
+            startup_cache.cache_result("onedrive_check", True, paths_context)
             return True, err
+    
+    # Кэшируем положительный результат
+    startup_cache.cache_result("onedrive_check", False, paths_context)
     return False, ""
 
 import re
@@ -328,9 +364,15 @@ def contains_special_chars(path: str) -> bool:
     return bool(re.search(r"[^A-Za-z0-9_\.:\\/]", path))
 
 def check_path_for_special_chars():
-    """Проверяет пути программы на наличие специальных символов"""
+    """Проверяет пути программы на наличие специальных символов с кэшированием"""
     current_path = os.path.abspath(os.getcwd())
     exe_path = os.path.abspath(sys.executable)
+    paths_context = f"{current_path}|{exe_path}|{BIN_FOLDER}"
+    
+    # Проверяем кэш с контекстом всех путей
+    has_cache, cached_result = startup_cache.is_cached_and_valid("special_chars", paths_context)
+    if has_cache:
+        return cached_result, ""  # ← ИСПРАВЛЕНО: возвращаем tuple, а не только bool
     
     paths_to_check = [current_path, exe_path, BIN_FOLDER]
     
@@ -345,8 +387,14 @@ def check_path_for_special_chars():
                 from log import log
                 log(f"ERROR: Путь содержит специальные символы: {path}", level="ERROR")
             except ImportError:
-                log(f"ERROR: Путь содержит специальных символов: {path}")
+                print(f"ERROR: Путь содержит специальные символы: {path}")
+            
+            # Кэшируем отрицательный результат
+            startup_cache.cache_result("special_chars", True, paths_context)
             return True, error_message
+    
+    # Кэшируем положительный результат
+    startup_cache.cache_result("special_chars", False, paths_context)
     return False, ""
 
 # Изменяем функцию для работы с уже созданным QApplication
@@ -428,11 +476,16 @@ def _service_exists_sc(name: str) -> bool:
 
 def check_goodbyedpi() -> tuple[bool, str]:
     """
-    True + msg, если обнаружена любая из служб GoodbyeDPI.
+    Проверяет службы GoodbyeDPI с кэшированием.
     """
+    # Кэш на 1 час для служб
+    has_cache, cached_result = startup_cache.is_cached_and_valid("goodbyedpi_check")
+    if has_cache:
+        return cached_result, ""
+    
     SERVICE_NAMES = [
-        "GoodbyeDPI",            # стандартное имя из install_service.bat
-        "GoodbyeDPI Service",
+        "GoodbyeDPI",
+        "GoodbyeDPI Service", 
         "GoodbyeDPI_x64",
         "GoodbyeDPI_x86",
     ]
@@ -455,5 +508,11 @@ def check_goodbyedpi() -> tuple[bool, str]:
                 log(f"ERROR: Найдена служба {svc}", level="ERROR")
             except ImportError:
                 print(f"ERROR: Найдена служба {svc}")
+            
+            # Кэшируем отрицательный результат
+            startup_cache.cache_result("goodbyedpi_check", True)
             return True, err
+    
+    # Кэшируем положительный результат
+    startup_cache.cache_result("goodbyedpi_check", False)
     return False, ""

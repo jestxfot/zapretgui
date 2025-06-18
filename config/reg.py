@@ -3,6 +3,8 @@ import winreg
 
 HKCU = winreg.HKEY_CURRENT_USER
 HKLM = winreg.HKEY_LOCAL_MACHINE
+REGISTRY_KEY = r"SOFTWARE\Zapret"
+from log import log
 
 # Специальная константа для обозначения отсутствующего значения
 class _UnsetType:
@@ -127,3 +129,27 @@ def get_strategy_autoload() -> bool:
 def set_strategy_autoload(enabled: bool) -> bool:
     """Включает/выключает автозагрузку стратегий."""
     return reg(_STRAT_KEY, _STRAT_NAME, 1 if enabled else 0)
+
+def get_auto_download_enabled() -> bool:
+    """Проверяет, включена ли автоматическая загрузка при старте"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, "AutoDownloadEnabled")
+            return bool(value)
+    except FileNotFoundError:
+        return True  # По умолчанию включено
+    except Exception as e:
+        log(f"Ошибка чтения настройки автозагрузки: {e}", "ERROR")
+        return True
+
+def set_auto_download_enabled(enabled: bool):
+    """Устанавливает состояние автоматической загрузки"""
+    try:
+        # Создаем ключ если его нет
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
+        
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "AutoDownloadEnabled", 0, winreg.REG_DWORD, int(enabled))
+        log(f"Автозагрузка {'включена' if enabled else 'отключена'}", "INFO")
+    except Exception as e:
+        log(f"Ошибка записи настройки автозагрузки: {e}", "ERROR")

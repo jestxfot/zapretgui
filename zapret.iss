@@ -64,9 +64,12 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 begin
-  { 1) выгружаем драйвер WinDivert }
-  StopAndDeleteService('WinDivert1.4');  { ← актуальное имя службы }
-
+  { 1) выгружаем ВСЕ драйверы WinDivert }
+  StopAndDeleteService('WinDivert');
+  StopAndDeleteService('WinDivert14'); 
+  StopAndDeleteService('WinDivert1.4');
+  StopAndDeleteService('WinDivert64');
+  
   { 2) гасим процессы }
   KillProcess('winws.exe');
   KillProcess('Zapret.exe');

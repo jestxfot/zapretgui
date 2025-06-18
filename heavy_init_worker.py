@@ -2,6 +2,7 @@
 
 from PyQt6.QtCore import QObject, pyqtSignal
 import traceback, os
+from log import log
 
 class HeavyInitWorker(QObject):
     """
@@ -17,14 +18,30 @@ class HeavyInitWorker(QObject):
         self.dpi  = dpi_starter
         self.urls = download_urls
 
+        # Уменьшаем таймауты для быстрого старта
+        self.connection_timeout = 3    # было 10
+        self.read_timeout = 10         # было 30
+        self.max_retries = 1           # было 3
+
     def run(self):
         try:
-            self.progress.emit("Проверка winws.exe…")
-            self.dpi.download_files(self.urls)         # SHA / download
-
-            self.finished.emit(True, "")
+            # Быстрая проверка сети перед загрузкой
+            if not self._quick_connectivity_check():
+                log("Нет интернета - пропускаем загрузку", "WARNING")
+                self.progress.emit("Работаем в автономном режиме")
+                self.finished.emit(True, "")
+                return
+            
         except Exception as e:
-            from log import log
-            err = f"{e}\n{traceback.format_exc()}"
-            log(err, "ERROR")
-            self.finished.emit(False, err)
+            log(f"Ошибка в HeavyInitWorker: {e}", "ERROR")
+            self.finished.emit(False, str(e))
+
+    def _quick_connectivity_check(self) -> bool:
+        """Быстрая проверка доступности интернета"""
+        try:
+            import socket
+            socket.setdefaulttimeout(2)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
+            return True
+        except Exception:
+            return False
