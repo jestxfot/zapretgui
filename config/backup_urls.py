@@ -12,10 +12,12 @@ BACKUP_JSON_URL = "https://raw.githubusercontent.com/youtubediscord/src/refs/hea
 URL_SOURCES = [
     {
         "name": "GitHub",
-        "json_url": PRIMARY_JSON_URL
+        "json_url": PRIMARY_JSON_URL,
+        "raw_template": "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/{0}"
     },
     {
         "name": "GitHub 2",
-        "json_url": BACKUP_JSON_URL
+        "json_url": BACKUP_JSON_URL,
+        "raw_template": "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/{0}"
     }
 ]

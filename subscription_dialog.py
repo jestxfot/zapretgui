@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                            QLineEdit, QProgressBar, QMessageBox, QGroupBox, QWidget, 
-                           QFrame, QInputDialog)
+                           QFrame, QInputDialog, QSizePolicy, QStackedWidget)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QPalette
 from log import log
@@ -38,20 +38,44 @@ class SubscriptionDialog(QDialog):
         self.donate_checker = DonateChecker()
         self.current_email = None
         self.setWindowTitle("Управление подпиской")
-        self.setFixedSize(500, 550)
+        self.setMinimumSize(500, 550)
         self.setModal(True)
         
         # Определяем тему
         self.is_dark_theme = self.is_dark_theme_active()
         
-        # Проверяем есть ли сохраненный email
+        # Создаем стековый виджет для переключения страниц
+        self.stack = QStackedWidget()
+        self.email_page = QWidget()
+        self.main_page = QWidget()
+        
+        self.stack.addWidget(self.email_page)  # index 0
+        self.stack.addWidget(self.main_page)   # index 1
+        
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.addWidget(self.stack)
+        
+        # Строим обе страницы ОДИН раз
+        self.init_email_input_ui()
+        self.init_main_ui()
+        
+        # Проверяем есть ли сохраненный email и решаем какую страницу показать
         saved_email = self.donate_checker.get_email_from_registry()
         if saved_email:
             self.current_email = saved_email
-            self.init_main_ui()
+            self.stack.setCurrentIndex(1)  # показываем главную страницу
             self.start_subscription_check()
         else:
-            self.init_email_input_ui()
+            self.stack.setCurrentIndex(0)  # показываем страницу ввода email
+            
+        # Подгоняем размер и фиксируем его для предотвращения дрожания
+        self.adjustSize()
+        QTimer.singleShot(100, self.fix_window_size)  # фиксируем размер через небольшую задержку        
+    def fix_window_size(self):
+        """Фиксирует размер окна для предотвращения дрожания"""
+        self.adjustSize()
+        self.setFixedSize(self.size())
         
     def is_dark_theme_active(self):
         """Определяет, активна ли темная тема"""
@@ -89,8 +113,7 @@ class SubscriptionDialog(QDialog):
                 'info_border': '#b3d9ff',
                 'success_bg': '#d4edda',
                 'success_border': '#c3e6cb',
-                'success_text': '#155724',
-                'error_bg': '#f8d7da',
+                'success_text': '#155724',                'error_bg': '#f8d7da',
                 'error_border': '#f5c6cb',
                 'error_text': '#721c24',
                 'group_bg': '#f8f9fa'
@@ -98,19 +121,19 @@ class SubscriptionDialog(QDialog):
 
     def init_email_input_ui(self):
         """Инициализирует UI для ввода email"""
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self.email_page)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
         
         styles = self.get_theme_styles()
         
-        self.setStyleSheet(f"""
-            QDialog {{
+        self.email_page.setStyleSheet(f"""
+            QWidget {{
                 background-color: {styles['bg_color']};
                 color: {styles['text_color']};
             }}
         """)
-        
+
         # Заголовок
         title_label = QLabel("🔐 Zapret Premium")
         title_font = QFont()
@@ -125,12 +148,13 @@ class SubscriptionDialog(QDialog):
             "Как получить премиум доступ:\n\n"
             "1. Создайте аккаунт на Boosty и привяжите ОБЯЗАТЕЛЬНО туда почту!\n"
             "2. Оформите подписку на любой период\n"
-            "3. Добавьтесь в Telegram чат\n"
-            "4. Активация происходит в течение 24 часов автоматически по почте\n\n"
+            "3. Добавьтесь в Telegram чат\n"            "4. Активация происходит в течение 24 часов автоматически по почте\n\n"
             "Введите email, который вы указали на Boosty:"
         )
         info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         info_label.setWordWrap(True)
+        info_label.setFixedHeight(180)
+        info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         info_label.setStyleSheet(f"""
             QLabel {{
                 color: {styles['text_color']};
@@ -139,9 +163,10 @@ class SubscriptionDialog(QDialog):
                 border: 1px solid {styles['border_color']};
                 border-radius: 8px;
                 font-size: 12px;
-                line-height: 1.4;
             }}
         """)
+        info_label.setAutoFillBackground(True)
+        self.info_label = info_label
         layout.addWidget(info_label)
         
         # Поле ввода email
@@ -229,21 +254,20 @@ class SubscriptionDialog(QDialog):
         
         buttons_layout.addWidget(cancel_btn)
         buttons_layout.addWidget(save_btn)
-        layout.addLayout(buttons_layout)
-        
+        layout.addLayout(buttons_layout)        
         self.email_input.setFocus()
 
     def init_main_ui(self):
         """Инициализирует основной UI после ввода email"""
 
-        main_layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self.main_page)
         main_layout.setContentsMargins(20, 15, 20, 15)
         main_layout.setSpacing(10)
         
         styles = self.get_theme_styles()
         
-        self.setStyleSheet(f"""
-            QDialog {{
+        self.main_page.setStyleSheet(f"""
+            QWidget {{
                 background-color: {styles['bg_color']};
                 color: {styles['text_color']};
             }}
@@ -320,7 +344,9 @@ class SubscriptionDialog(QDialog):
         self.status_text = QLabel("Проверяю...")
         self.status_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_text.setWordWrap(True)
-        self.status_text.setMinimumHeight(60)
+        self.status_text.setFixedHeight(80)
+        self.status_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
         self.status_text.setStyleSheet(f"""
             QLabel {{
                 background-color: {styles['input_bg']};
@@ -331,11 +357,14 @@ class SubscriptionDialog(QDialog):
                 font-size: 12px;
             }}
         """)
+        self.status_text.setAutoFillBackground(True)
+
         status_layout.addWidget(self.status_text)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
-        self.progress_bar.setMaximumHeight(6)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setTextVisible(False)   # чтобы ширина не плясала
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
                 border: none;
@@ -355,20 +384,22 @@ class SubscriptionDialog(QDialog):
         info_layout = QVBoxLayout(info_group)
         info_layout.setContentsMargins(10, 20, 10, 10)
         
-        info_text = QLabel(
-            "1. Создайте аккаунт на Boosty и привяжите ОБЯЗАТЕЛЬНО туда почту! Настройте подписку.\n"
+        info_text = QLabel(            "1. Создайте аккаунт на Boosty и привяжите ОБЯЗАТЕЛЬНО туда почту! Настройте подписку.\n"
             "2. Добавьтесь в Telegram чат\n"
             "3. Активация происходит в течение 24 часов автоматически по почте"
         )
         info_text.setWordWrap(True)
+        info_text.setFixedHeight(80)
+        info_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         info_text.setStyleSheet(f"""
             QLabel {{
                 color: {styles['text_color']};
                 padding: 8px;
                 font-size: 11px;
-                line-height: 1.5;
             }}
         """)
+        info_text.setAutoFillBackground(True)
+        self.info_text = info_text
         info_layout.addWidget(info_text)
         
         # Кнопка Boosty
@@ -413,11 +444,10 @@ class SubscriptionDialog(QDialog):
         # Сохраняем в реестр
         if self.donate_checker.save_email_to_registry(email):
             self.current_email = email
-            # Закрываем текущий диалог и открываем новый
-            self.accept()
-            # Создаем новый диалог с основным UI
-            new_dialog = SubscriptionDialog(self.parent())
-            new_dialog.exec()
+            self.email_display.setText(email)
+            # Переключаемся на главную страницу
+            self.stack.setCurrentIndex(1)
+            self.start_subscription_check()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось сохранить email")
 

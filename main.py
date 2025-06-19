@@ -363,7 +363,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
         """Обрабатывает выбор стратегии из диалога."""
         try:
-            
             log(f"Выбрана стратегия: {strategy_name} (ID: {strategy_id})", level="INFO")
             
             # Сохраняем ID и имя выбранной стратегии в атрибутах класса
@@ -379,8 +378,27 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Записываем время изменения стратегии
             self.last_strategy_change_time = time.time()
             
-            # Запускаем стратегию
-            self.start_dpi_async(selected_mode=strategy_name)
+            # ✅ ИСПРАВЛЕНИЕ: Получаем полную информацию о стратегии
+            try:
+                # Получаем информацию о стратегии из менеджера
+                strategies = self.strategy_manager.get_strategies_list()
+                strategy_info = strategies.get(strategy_id, {})
+                
+                # Если не удалось получить информацию, создаем минимальную структуру
+                if not strategy_info:
+                    strategy_info = {
+                        'name': strategy_name,
+                        'file_path': f"{strategy_id}.bat"
+                    }
+                    log(f"Не удалось найти информацию о стратегии {strategy_id}, используем базовую", "WARNING")
+                
+                # Запускаем стратегию с полной информацией
+                self.start_dpi_async(selected_mode=strategy_info)
+                
+            except Exception as strategy_error:
+                log(f"Ошибка при получении информации о стратегии: {strategy_error}", "ERROR")
+                # Fallback - запускаем с именем стратегии
+                self.start_dpi_async(selected_mode=strategy_name)
             
             # Перезапускаем Discord только если:
             # 1. Это не первый запуск
@@ -390,6 +408,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.discord_manager.restart_discord_if_running()
             else:
                 self.first_start = False  # Сбрасываем флаг первого запуска
+                
         except Exception as e:
             log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
@@ -1265,11 +1284,23 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     # Проверяем, не запущен ли уже процесс
                     if self.dpi_starter.check_process_running(silent=True):
                         self.progress.emit("Останавливаем предыдущий процесс...")
+                        self.progress.emit("Запуск DPI...")
+                    # ✅ ИСПРАВЛЕНИЕ: Нормализуем selected_mode
+                    mode_param = self.selected_mode
                     
-                    self.progress.emit("Запуск DPI...")
+                    # Если передан словарь, извлекаем имя стратегии
+                    if isinstance(mode_param, dict):
+                        # Правильно извлекаем значения из словаря
+                        name_value = mode_param.get('name')
+                        file_path_value = mode_param.get('file_path')
+                        mode_param = name_value or file_path_value or 'default'
+                        log(f"Извлечено имя стратегии из словаря: {mode_param}", "DEBUG")
+                    elif mode_param is None:
+                        mode_param = 'default'
+                        log("Используется стратегия по умолчанию", "DEBUG")
                     
-                    # ✅ Вызываем синхронный метод в отдельном потоке
-                    success = self.dpi_starter.start_dpi(selected_mode=self.selected_mode)
+                    # Вызываем синхронный метод в отдельном потоке
+                    success = self.dpi_starter.start_dpi(selected_mode=mode_param)
                     
                     if success:
                         self.progress.emit("DPI успешно запущен")
@@ -1320,7 +1351,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Запускаем поток
         self._dpi_start_thread.start()
         
-        log(f"Запуск асинхронного старта DPI: {selected_mode}", "INFO")
+        # ✅ ИСПРАВЛЕНИЕ: Логируем правильную информацию
+        mode_name = selected_mode
+        if isinstance(selected_mode, dict):
+            mode_name = selected_mode.get('name', str(selected_mode))
+        
+        log(f"Запуск асинхронного старта DPI: {mode_name}", "INFO")
 
     def stop_dpi_async(self):
         """✅ Асинхронно останавливает DPI без блокировки UI (оптимизированная версия)"""
