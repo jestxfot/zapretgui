@@ -1870,30 +1870,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 # Гарантируем, что окно скрыто
                 self.hide()
 
-    def test_github_token_status(self):
-        """Тестирует работоспособность GitHub токена"""
-        try:
-            from config.github_config import test_github_token
-            
-            self.set_status("Тестирую GitHub API токен...")
-            
-            success, message = test_github_token()
-            
-            if success:
-                log(f"GitHub токен работает: {message}", "INFO")
-                self.set_status(f"✅ {message}")
-                QMessageBox.information(self, "GitHub API", f"✅ {message}")
-            else:
-                log(f"Проблема с GitHub токеном: {message}", "ERROR")
-                self.set_status(f"❌ {message}")
-                QMessageBox.warning(self, "GitHub API", f"❌ {message}")
-                
-        except Exception as e:
-            error_msg = f"Ошибка тестирования токена: {str(e)}"
-            log(error_msg, "ERROR")
-            self.set_status(error_msg)
-            QMessageBox.critical(self, "Ошибка", error_msg)
-
 def main():
     # Add sys.excepthook to catch unhandled exceptions
     import sys

@@ -2,9 +2,6 @@ import os
 import requests
 import shutil
 
-# Импортируем конфигурацию GitHub
-from config.github_config import get_github_raw_headers, is_github_url
-
 DOWNLOAD_URLS = {
     "winws.exe": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe",
     "WinDivert.dll": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/WinDivert.dll",
@@ -12,17 +9,6 @@ DOWNLOAD_URLS = {
     "cygwin1.dll": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/cygwin1.dll",
     "stop.bat": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat",
 }
-
-def get_headers_for_url(url):
-    """Возвращает подходящие заголовки для URL"""
-    if is_github_url(url):
-        return get_github_raw_headers()
-    else:
-        return {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*',
-            'Connection': 'close'
-        }
 
 def download_files(bin_folder, download_urls, status_callback=None):
     """
@@ -72,42 +58,16 @@ def download_files(bin_folder, download_urls, status_callback=None):
                 continue
 
             log(f"Файл {filename} не найден, скачиваем...", level="DOWNLOAD")
-            set_status(f"Скачивание {filename}...")
+            response = requests.get(url, stream=True)
             
-            # Создаем сессию с правильными заголовками
-            session = requests.Session()
-            headers = get_headers_for_url(url)
-            session.headers.update(headers)
-            
-            if is_github_url(url):
-                log(f"Используем GitHub API токен для {filename}", "DEBUG")
-            
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    response = session.get(url, stream=True, timeout=(20, 60))
-                    
-                    if response.status_code == 200:
-                        with open(filepath, 'wb') as f:
-                            response.raw.decode_content = True
-                            shutil.copyfileobj(response.raw, f)
-                        log(f"Файл {filename} скачан успешно", level="DOWNLOAD")
-                        break
-                    else:
-                        error_msg = f"Ошибка при скачивании {filename}, код: {response.status_code}"
-                        if attempt < max_retries - 1:
-                            log(f"{error_msg}, повтор попытки {attempt + 2}/{max_retries}", level="WARNING")
-                            continue
-                        else:
-                            raise Exception(error_msg)
-                            
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        log(f"Попытка {attempt + 1} неудачна для {filename}: {e}, повтор...", level="WARNING")
-                        continue
-                    else:
-                        log(f"Все попытки исчерпаны для {filename}: {e}", level="ERROR")
-                        raise
+            if response.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    response.raw.decode_content = True
+                    shutil.copyfileobj(response.raw, f)
+                log(f"Файл {filename} скачан успешно", level="DOWNLOAD")
+            else:
+                log(f"Ошибка при скачивании {filename}, код: {response.status_code}", level="ERROR")
+                raise Exception(f"Не удалось скачать {filename}, код: {response.status_code}")
                 
         # Создаем пустые txt файлы в lists, если их нет
         default_lists = [
