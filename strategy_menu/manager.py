@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import signal
 
 from config.backup_urls import URL_SOURCES
+from config.github_config import get_github_headers, get_github_raw_headers, is_github_url
+
 SW_HIDE          = 0
 CREATE_NO_WINDOW = 0x08000000
 
@@ -108,17 +110,23 @@ class StrategyManager:
             for attempt in range(self.max_retries):
                 try:
                     session = requests.Session()
-                    session.headers.update({
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Accept': 'application/json, text/plain, */*',
-                        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
-                        'Cache-Control': 'no-cache',
-                        'Connection': 'close'
-                    })
+                    
+                    # Используем GitHub API заголовки для GitHub источников
+                    if is_github_url(index_url):
+                        session.headers.update(get_github_headers())
+                        log(f"Используем GitHub API токен для {source_name}", "DEBUG")
+                    else:
+                        session.headers.update({
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+                            'Cache-Control': 'no-cache',
+                            'Connection': 'close'
+                        })
                     
                     response = session.get(
                         index_url, 
-                        timeout=(15, 45),
+                        timeout=(20, 60),  # Увеличиваем таймауты
                         stream=False
                     )
                     response.raise_for_status()
@@ -148,8 +156,9 @@ class StrategyManager:
                     log(f"Попытка {attempt + 1}/{self.max_retries} для {source_name} не удалась: {e}", "DEBUG")
                     
                     if attempt < self.max_retries - 1:
-                        if "403" in str(e):
+                        if "403" in str(e) or "rate limit" in str(e).lower():
                             sleep_time = self.retry_delay * (2 ** attempt)
+                            log(f"GitHub лимит достигнут, ждем {sleep_time}с", "WARNING")
                         else:
                             sleep_time = self.retry_delay * (attempt + 1)
                         
@@ -211,15 +220,21 @@ class StrategyManager:
                 for attempt in range(self.max_retries):
                     try:
                         session = requests.Session()
-                        session.headers.update({
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                            'Accept': '*/*',
-                            'Connection': 'close'
-                        })
+                        
+                        # Используем GitHub API заголовки для GitHub источников
+                        if is_github_url(url):
+                            session.headers.update(get_github_raw_headers())
+                            log(f"Используем GitHub API токен для скачивания {strategy_id}", "DEBUG")
+                        else:
+                            session.headers.update({
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                                'Accept': '*/*',
+                                'Connection': 'close'
+                            })
                         
                         response = session.get(
                             url, 
-                            timeout=(15, 45),
+                            timeout=(20, 60),  # Увеличиваем таймауты
                             stream=True  # Для больших файлов
                         )
                         response.raise_for_status()
@@ -244,8 +259,9 @@ class StrategyManager:
                         log(f"Попытка {attempt + 1} скачивания {strategy_id} с {source_name}: {e}", "DEBUG")
                         
                         if attempt < self.max_retries - 1:
-                            if "403" in str(e):
+                            if "403" in str(e) or "rate limit" in str(e).lower():
                                 sleep_time = self.retry_delay * (2 ** attempt)
+                                log(f"GitHub лимит достигнут, ждем {sleep_time}с", "WARNING")
                             else:
                                 sleep_time = self.retry_delay
                             time.sleep(sleep_time)
