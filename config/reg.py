@@ -153,3 +153,24 @@ def set_auto_download_enabled(enabled: bool):
         log(f"Автозагрузка {'включена' if enabled else 'отключена'}", "INFO")
     except Exception as e:
         log(f"Ошибка записи настройки автозагрузки: {e}", "ERROR")
+
+
+def get_subscription_check_interval() -> int:
+    """Возвращает интервал проверки подписки в минутах (по умолчанию 10)"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, "SubscriptionCheckInterval")
+            return max(1, int(value))  # Минимум 1 минута
+    except FileNotFoundError:
+        return 10  # По умолчанию 10 минут
+    except Exception:
+        return 10
+
+def set_subscription_check_interval(minutes: int):
+    """Устанавливает интервал проверки подписки в минутах"""
+    try:
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "SubscriptionCheckInterval", 0, winreg.REG_DWORD, int(minutes))
+    except Exception as e:
+        log(f"Ошибка записи интервала проверки подписки: {e}", "ERROR")

@@ -145,7 +145,16 @@ class ThemeManager:
         self.status_label = status_label
         self.bin_folder = bin_folder
         self.donate_checker = donate_checker
-        
+
+        # Инициализируем themes на основе существующего словаря THEMES
+        self.themes = []
+        for theme_name in THEMES.keys():
+            is_premium = (theme_name == "РКН Тян")  # Только РКН Тян - премиум
+            self.themes.append({
+                'name': theme_name,
+                'premium': is_premium
+            })
+
         # Загружаем сохраненную тему или используем системную
         saved_theme = get_selected_theme()
         if saved_theme and saved_theme in THEMES:

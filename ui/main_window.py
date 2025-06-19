@@ -195,6 +195,103 @@ class MainWindowUI:
         self.autostart_disable_clicked = self.autostart_disable_btn.clicked
         self.theme_changed = self.theme_combo.currentTextChanged
 
+    def update_proxy_button_state(self, is_active: bool = None):
+        """
+        Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts.
+        
+        Args:
+            is_active: Состояние активности proxy доменов. Если None, то будет определено автоматически.
+        """
+        if not hasattr(self, 'proxy_button'):
+            return
+            
+        # Если состояние не передано, пытаемся определить его через hosts_manager
+        if is_active is None and hasattr(self, 'hosts_manager'):
+            is_active = self.hosts_manager.is_proxy_domains_active()
+        elif is_active is None:
+            # Если hosts_manager недоступен, используем состояние по умолчанию
+            is_active = False
+        
+        # Конфигурация состояний кнопки
+        button_states = {
+            True: {  # Когда proxy активен (нужно отключить)
+                'text': 'Отключить доступ к ChatGPT, Spotify, Notion',
+                'color': "255, 93, 174",  # Красноватый
+                'icon': 'fa5s.lock'       # Иконка замка (заблокировано)
+            },
+            False: {  # Когда proxy неактивен (нужно включить)
+                'text': 'Разблокировать ChatGPT, Spotify, Notion и др.',
+                'color': "218, 165, 32",  # Золотистый
+                'icon': 'fa5s.unlock'     # Иконка разблокировки
+            }
+        }
+        
+        state = button_states[is_active]
+        
+        # Обновляем текст кнопки
+        self.proxy_button.setText(f" {state['text']}")
+        
+        # Обновляем стиль кнопки
+        self.proxy_button.setStyleSheet(BUTTON_STYLE.format(state['color']))
+        
+        # Обновляем иконку
+        self.proxy_button.setIcon(qta.icon(state['icon'], color='white'))
+        
+        # Логируем изменение состояния
+        try:
+            from log import log
+            status = "активна" if is_active else "неактивна"
+            log(f"Состояние кнопки proxy обновлено: разблокировка {status}", "DEBUG")
+        except ImportError:
+            pass
+        
+    def get_proxy_button_config(self):
+        """
+        Возвращает конфигурацию для различных состояний кнопки proxy.
+        Полезно для других частей приложения.
+        
+        Returns:
+            dict: Конфигурация состояний кнопки
+        """
+        return {
+            'enabled_state': {
+                'full_text': 'Отключить доступ к ChatGPT, Spotify, Notion',
+                'short_text': 'Отключить разблокировку',
+                'color': "255, 93, 174",
+                'icon': 'fa5s.lock',
+                'tooltip': 'Нажмите чтобы отключить разблокировку сервисов через hosts-файл'
+            },
+            'disabled_state': {
+                'full_text': 'Разблокировать ChatGPT, Spotify, Notion и др.',
+                'short_text': 'Разблокировать сервисы',
+                'color': "218, 165, 32",
+                'icon': 'fa5s.unlock',
+                'tooltip': 'Нажмите чтобы разблокировать популярные сервисы через hosts-файл'
+            }
+        }
+
+    def set_proxy_button_loading(self, is_loading: bool, text: str = ""):
+        """
+        Устанавливает состояние загрузки для кнопки proxy.
+        
+        Args:
+            is_loading: True если идет процесс загрузки/обработки
+            text: Текст для отображения во время загрузки
+        """
+        if not hasattr(self, 'proxy_button'):
+            return
+            
+        if is_loading:
+            loading_text = text if text else "Обработка..."
+            self.proxy_button.setText(f" {loading_text}")
+            self.proxy_button.setEnabled(False)
+            self.proxy_button.setIcon(qta.icon('fa5s.spinner', color='white'))
+            # Можно добавить анимацию вращения иконки
+        else:
+            self.proxy_button.setEnabled(True)
+            # Восстанавливаем нормальное состояние
+            self.update_proxy_button_state()
+
     def update_theme_combo(self, available_themes):
         """
         Обновляет список доступных тем в комбо-боксе с учетом подписки.

@@ -477,6 +477,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def _start_heavy_init(self):
         """Запускает тяжелую инициализацию"""
+        self.set_status("Запуск инициализации...")
+        
         self._hthr = QThread(self)
         self._hwrk = HeavyInitWorker(self.dpi_starter, DOWNLOAD_URLS)
         self._hwrk.moveToThread(self._hthr)
@@ -489,6 +491,14 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self._hwrk.finished.connect(self._hwrk.deleteLater)
         self._hthr.finished.connect(self._hthr.deleteLater)
 
+        # ДОБАВЛЯЕМ больше отладки
+        self._hwrk.progress.connect(lambda msg: log(f"HeavyInit прогресс: {msg}", "DEBUG"))
+        
+        # Отслеживаем старт потока
+        self._hthr.started.connect(lambda: log("HeavyInit поток запущен", "DEBUG"))
+        self._hthr.finished.connect(lambda: log("HeavyInit поток завершен", "DEBUG"))
+
+        log("Запускаем HeavyInit поток...", "DEBUG")
         self._hthr.start()
 
     def _check_local_files(self):
@@ -501,16 +511,59 @@ class LupiDPIApp(QWidget, MainWindowUI):
         return True
 
     def periodic_subscription_check(self):
-        """Периодическая проверка статуса подписки"""
+        """Периодическая проверка статуса подписки в фоне"""
         try:
-            log("Выполняется периодическая проверка подписки", level="DEBUG")
-            
-            # Сохраняем предыдущий статус для сравнения
+            # Быстрая проверка кэша
             prev_premium, _, _ = self.donate_checker.check_subscription_status(use_cache=True)
             
-            # Проверяем актуальный статус (без кэша)
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
+            # Запускаем сетевую проверку в фоне
+            self._check_subscription_async(prev_premium)
             
+        except Exception as e:
+            log(f"Ошибка при периодической проверке подписки: {e}", level="ERROR")
+
+    def _check_subscription_async(self, prev_premium):
+        """Асинхронная проверка подписки"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class SubscriptionCheckWorker(QObject):
+            finished = pyqtSignal(bool, bool, str, int)  # prev_premium, is_premium, status_msg, days_remaining
+            
+            def __init__(self, donate_checker, prev_premium):
+                super().__init__()
+                self.donate_checker = donate_checker
+                self.prev_premium = prev_premium
+                
+            def run(self):
+                try:
+                    # Сетевая проверка в фоне
+                    is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
+                    self.finished.emit(self.prev_premium, is_premium, status_msg, days_remaining)
+                except Exception as e:
+                    log(f"Ошибка фоновой проверки подписки: {e}", "ERROR")
+                    # В случае ошибки возвращаем кэшированные данные
+                    self.finished.emit(self.prev_premium, self.prev_premium, "Ошибка проверки", 0)
+        
+        # Создаем worker только если еще не запущен
+        if hasattr(self, '_subscription_check_thread') and self._subscription_check_thread.isRunning():
+            log("Проверка подписки уже выполняется, пропускаем", "DEBUG")
+            return
+        
+        self._subscription_check_thread = QThread()
+        self._subscription_check_worker = SubscriptionCheckWorker(self.donate_checker, prev_premium)
+        self._subscription_check_worker.moveToThread(self._subscription_check_thread)
+        
+        self._subscription_check_thread.started.connect(self._subscription_check_worker.run)
+        self._subscription_check_worker.finished.connect(self._on_subscription_check_done)
+        self._subscription_check_worker.finished.connect(self._subscription_check_thread.quit)
+        self._subscription_check_worker.finished.connect(self._subscription_check_worker.deleteLater)
+        self._subscription_check_thread.finished.connect(self._subscription_check_thread.deleteLater)
+        
+        self._subscription_check_thread.start()
+
+    def _on_subscription_check_done(self, prev_premium, is_premium, status_msg, days_remaining):
+        """Обрабатывает результат фоновой проверки подписки"""
+        try:
             # Обновляем заголовок с текущей темой
             current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
             self.update_title_with_subscription_status(is_premium, current_theme, days_remaining)
@@ -519,44 +572,67 @@ class LupiDPIApp(QWidget, MainWindowUI):
             if prev_premium != is_premium:
                 log(f"Статус подписки изменился: {prev_premium} -> {is_premium}", level="INFO")
                 
-                # Обновляем доступные темы
+                # Обновляем ThemeManager с новым статусом
                 if hasattr(self, 'theme_manager'):
                     available_themes = self.theme_manager.get_available_themes()
-                    current_theme = self.theme_combo.currentText()
+                    current_selection = self.theme_combo.currentText()
                     
                     # Обновляем список тем
                     self.update_theme_combo(available_themes)
                     
-                    # Если пользователь потерял доступ к текущей теме
-                    if not is_premium and self.theme_manager.get_clean_theme_name(current_theme) == "РКН Тян":
-                        log("Пользователь потерял доступ к теме РКН Тян, переключаем на Темную синюю", level="INFO")
-                        
-                        # Переключаем на доступную тему
+                    # Восстанавливаем выбор если возможно
+                    if current_selection in [theme for theme in available_themes]:
+                        self.theme_combo.setCurrentText(current_selection)
+                    else:
+                        # Если текущая тема стала недоступна, ищем ближайшую доступную
+                        clean_theme_name = self.theme_manager.get_clean_theme_name(current_selection)
                         for theme in available_themes:
-                            if "(заблокировано)" not in theme and "синяя" in theme:
-                                self.theme_combo.setCurrentText(theme)
-                                self.theme_manager.apply_theme(theme)
-                                break
-                    
-                    # Если пользователь получил доступ, обновляем отображение текущей темы
-                    elif is_premium and "(заблокировано)" in current_theme:
-                        clean_theme = self.theme_manager.get_clean_theme_name(current_theme)
-                        for theme in available_themes:
-                            if self.theme_manager.get_clean_theme_name(theme) == clean_theme:
+                            if self.theme_manager.get_clean_theme_name(theme) == clean_theme_name:
                                 self.theme_combo.setCurrentText(theme)
                                 break
+                        else:
+                            # Если не нашли, выбираем первую доступную тему
+                            if available_themes:
+                                self.theme_combo.setCurrentText(available_themes[0])
                 
-                # Показываем уведомление в статусе о изменении
+                # Показываем уведомление пользователю о изменении статуса
+                if is_premium and not prev_premium:
+                    self.set_status("✅ Подписка активирована! Премиум темы доступны")
+                    # Показываем уведомление в трее, если доступно
+                    if hasattr(self, 'tray_manager') and self.tray_manager:
+                        self.tray_manager.show_notification(
+                            "Подписка активирована", 
+                            "Премиум темы теперь доступны!"
+                        )
+                elif not is_premium and prev_premium:
+                    self.set_status("❌ Подписка истекла. Премиум темы недоступны")
+                    # Показываем уведомление в трее, если доступно
+                    if hasattr(self, 'tray_manager') and self.tray_manager:
+                        self.tray_manager.show_notification(
+                            "Подписка истекла", 
+                            "Премиум темы больше недоступны"
+                        )
+            else:
+                # Статус не изменился, просто обновляем статусную строку
                 if is_premium:
-                    self.set_status("✅ Подписка активирована! Доступны премиум функции.")
-                    QTimer.singleShot(5000, lambda: self.set_status("Готово"))
+                    if days_remaining > 0:
+                        self.set_status(f"✅ Подписка активна (осталось {days_remaining} дней)")
+                    else:
+                        self.set_status("✅ Подписка активна")
                 else:
-                    self.set_status("❌ Подписка деактивирована. Премиум функции недоступны.")
-                    QTimer.singleShot(5000, lambda: self.set_status("Готово"))
+                    self.set_status("ℹ️ Проверка подписки завершена")
+            
+            log(f"Фоновая проверка подписки завершена: premium={is_premium}, статус='{status_msg}'", level="DEBUG")
             
         except Exception as e:
-            log(f"Ошибка при периодической проверке подписки: {e}", level="ERROR")
-
+            log(f"Ошибка при обработке результата проверки подписки: {e}", level="ERROR")
+            # В случае ошибки показываем базовый статус
+            try:
+                current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
+                self.update_title_with_subscription_status(False, current_theme, 0)
+                self.set_status("Ошибка при обработке проверки подписки")
+            except Exception as inner_e:
+                log(f"Критическая ошибка при восстановлении статуса: {inner_e}", level="ERROR")
 
     def _on_heavy_done(self, ok: bool, err: str):
         """GUI-поток: получаем результат тяжёлой работы."""
@@ -585,6 +661,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
             self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
         
+        self.set_status("Инициализация завершена")
         # УБИРАЕМ дополнительную проверку подписки - она уже идет асинхронно
         # QTimer.singleShot(3000, self.post_init_subscription_check)
 
@@ -914,9 +991,22 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.subscription_timer = QTimer()
             self.subscription_timer.timeout.connect(self.periodic_subscription_check)
         
-        # Запускаем проверку каждые 10 минут
-        self.subscription_timer.start(10 * 60 * 1000)
-        log("Таймер периодической проверки подписки запущен", "DEBUG")
+        # Получаем интервал из настроек (по умолчанию 10 минут)
+        from config.reg import get_subscription_check_interval
+        interval_minutes = get_subscription_check_interval()
+        
+        # Ограничиваем разумными пределами
+        interval_minutes = max(1, min(interval_minutes, 60))  # от 1 до 60 минут
+        
+        self.subscription_timer.start(interval_minutes * 60 * 1000)
+        log(f"Таймер периодической проверки подписки запущен ({interval_minutes} мин)", "DEBUG")
+
+        # Добавляем возможность остановки таймера
+        def stop_subscription_timer(self):
+            """Останавливает таймер проверки подписки"""
+            if hasattr(self, 'subscription_timer'):
+                self.subscription_timer.stop()
+                log("Таймер периодической проверки подписки остановлен", "DEBUG")
 
     def _init_donate_checker_async(self):
         """Асинхронная инициализация проверяльщика подписки"""
@@ -1252,18 +1342,21 @@ class LupiDPIApp(QWidget, MainWindowUI):
             )
 
     def update_proxy_button_state(self):
-        """Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts"""
-        if hasattr(self, 'proxy_button'):
+        """Обновляет состояние кнопки разблокировки (вызывает метод UI)"""
+        if hasattr(self, 'hosts_manager'):
             is_active = self.hosts_manager.is_proxy_domains_active()
-            if is_active:
-                self.proxy_button.setText('Отключить доступ к ChatGPT, Spotify, Notion')
-                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))  # Красноватый цвет
-            else:
-                self.proxy_button.setText('Разблокировать ChatGPT, Spotify, Notion и др.')
-                self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))  # Золотистый цвет
+            # Вызываем метод UI с определенным состоянием
+            super().update_proxy_button_state(is_active)
+        else:
+            # Если hosts_manager недоступен, вызываем без параметров
+            super().update_proxy_button_state()
 
     def toggle_proxy_domains(self):
         """Переключает состояние разблокировки: добавляет или удаляет записи из hosts"""
+        if not hasattr(self, 'hosts_manager'):
+            self.set_status("Ошибка: менеджер hosts не инициализирован")
+            return
+            
         is_active = self.hosts_manager.is_proxy_domains_active()
         
         if is_active:
@@ -1280,34 +1373,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
             action = menu.exec(button_pos)
             
             if action == disable_all_action:
-                # Стандартное отключение всех доменов
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Icon.Question)
-                msg.setWindowTitle("Отключение разблокировки")
-                msg.setText("Отключить разблокировку сервисов через hosts-файл?")
-                
-                msg.setInformativeText(
-                    "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
-                    "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
-                )
-                
-                msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                result = msg.exec()
-                
-                if result == QMessageBox.StandardButton.Yes:
-                    if self.hosts_manager.remove_proxy_domains():
-                        self.set_status("Разблокировка отключена. Перезапустите браузер.")
-                        self.update_proxy_button_state()
-                        QTimer.singleShot(50, self.update_proxy_button_state)  # ← добавить
-                    else:
-                        self.set_status("Не удалось отключить разблокировку.")
-                else:
-                    self.set_status("Операция отменена.")
-                    
+                self._handle_proxy_disable_all()
             elif action == select_domains_action:
-                # Открываем селектор доменов
-                self.show_hosts_selector_dialog()
-            
+                self._handle_proxy_select_domains()
+                
         else:
             # Показываем меню с вариантами включения
             menu = QMenu(self)
@@ -1322,36 +1391,82 @@ class LupiDPIApp(QWidget, MainWindowUI):
             action = menu.exec(button_pos)
             
             if action == enable_all_action:
-                # Стандартное включение всех доменов
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Icon.Information)
-                msg.setWindowTitle("Разблокировка через hosts-файл")
-                msg.setText("Установка соединения к proxy-серверу через файл hosts")
-                
-                msg.setInformativeText(
-                    "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
-                    "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
-                    "(без участия Роскомнадзора).\n\n"
-                    "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
-                )
-                
-                msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-                result = msg.exec()
-                
-                if result == QMessageBox.StandardButton.Ok:
-                    if self.hosts_manager.add_proxy_domains():
-                        self.set_status("Разблокировка включена. Перезапустите браузер.")
-                        self.update_proxy_button_state()
-                        QTimer.singleShot(50, self.update_proxy_button_state)  # ← добавить
-                    else:
-                        self.set_status("Не удалось включить разблокировку.")
-                else:
-                    self.set_status("Операция отменена.")
-                    
+                self._handle_proxy_enable_all()
             elif action == select_domains_action:
-                # Открываем селектор доменов
-                self.show_hosts_selector_dialog()
+                self._handle_proxy_select_domains()
 
+    def _handle_proxy_disable_all(self):
+        """Обрабатывает отключение всей разблокировки"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Отключение разблокировки")
+        msg.setText("Отключить разблокировку сервисов через hosts-файл?")
+        
+        msg.setInformativeText(
+            "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
+            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
+        )
+        
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        result = msg.exec()
+        
+        if result == QMessageBox.StandardButton.Yes:
+            # Показываем состояние загрузки
+            self.set_proxy_button_loading(True, "Отключение...")
+            
+            if self.hosts_manager.remove_proxy_domains():
+                self.set_status("Разблокировка отключена. Перезапустите браузер.")
+                
+                # Обновляем состояние кнопки с небольшой задержкой
+                QTimer.singleShot(100, self.update_proxy_button_state)
+            else:
+                self.set_status("Не удалось отключить разблокировку.")
+                
+            # Отключаем состояние загрузки
+            self.set_proxy_button_loading(False)
+        else:
+            self.set_status("Операция отменена.")
+
+    def _handle_proxy_enable_all(self):
+        """Обрабатывает включение всей разблокировки"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Разблокировка через hosts-файл")
+        msg.setText("Установка соединения к proxy-серверу через файл hosts")
+        
+        msg.setInformativeText(
+            "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
+            "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
+            "(без участия Роскомнадзора).\n\n"
+            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
+        )
+        
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        result = msg.exec()
+        
+        if result == QMessageBox.StandardButton.Ok:
+            # Показываем состояние загрузки
+            self.set_proxy_button_loading(True, "Включение...")
+            
+            if self.hosts_manager.add_proxy_domains():
+                self.set_status("Разблокировка включена. Перезапустите браузер.")
+                
+                # Обновляем состояние кнопки с небольшой задержкой
+                QTimer.singleShot(100, self.update_proxy_button_state)
+            else:
+                self.set_status("Не удалось включить разблокировку.")
+                
+            # Отключаем состояние загрузки
+            self.set_proxy_button_loading(False)
+        else:
+            self.set_status("Операция отменена.")
+
+    def _handle_proxy_select_domains(self):
+        """Обрабатывает выбор доменов для разблокировки"""
+        if self.hosts_manager.show_hosts_selector_dialog(self):
+            # Обновляем состояние кнопки после изменений
+            QTimer.singleShot(100, self.update_proxy_button_state)
+            
     def show_hosts_selector_dialog(self):
         """Показывает селектор доменов для hosts файла"""
         if hasattr(self, 'hosts_manager'):
@@ -1421,6 +1536,18 @@ def main():
         sys.__excepthook__(exctype, value, traceback)  # Call the default handler
 
     sys.excepthook = global_exception_handler
+    
+    # ---------------- разбор аргументов CLI (ПЕРЕНЕСЕНО В НАЧАЛО) -----
+    start_in_tray = "--tray" in sys.argv
+    if "--version" in sys.argv:
+        ctypes.windll.user32.MessageBoxW(None, APP_VERSION,
+                                        "Zapret – версия", 0x40)
+        sys.exit(0)
+
+    if "--update" in sys.argv and len(sys.argv) > 3:
+        _handle_update_mode()           # ваша функция обновления
+        sys.exit(0)
+    
     # ---------------- одно-экземплярный mutex -------------------------
     from startup.single_instance import create_mutex, release_mutex
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
@@ -1448,29 +1575,7 @@ def main():
         if not ensure_bfe_running(show_ui=True):
             sys.exit(1)
 
-    # ---------------- предупреждения с кэшем -----------------------
-    from startup.check_start import check_startup_conditions
-    
-    # Используем кэшированную функцию вместо display_startup_warnings
-    conditions_ok, error_msg = check_startup_conditions()
-    if not conditions_ok and not start_in_tray:
-        if error_msg:
-            QMessageBox.critical(None, "Ошибка запуска", error_msg)
-        sys.exit(1)
-
-    # ---------------- разбор аргументов CLI ---------------------------
-    start_in_tray = "--tray" in sys.argv
-    if "--version" in sys.argv:
-        ctypes.windll.user32.MessageBoxW(None, APP_VERSION,
-                                        "Zapret – версия", 0x40)
-        sys.exit(0)
-
-    if "--update" in sys.argv and len(sys.argv) > 3:
-        _handle_update_mode()           # ваша функция обновления
-        sys.exit(0)
-
     # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
-    
     try:
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
         from PyQt6.QtWidgets import QApplication
@@ -1482,7 +1587,6 @@ def main():
         from PyQt6.QtWidgets import QApplication
         app = QApplication(sys.argv)
 
-
         app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
 
         import qt_material                     # импорт после Qt
@@ -1490,6 +1594,17 @@ def main():
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
+        sys.exit(1)
+
+    # ---------------- предупреждения с кэшем -----------------------
+    from startup.check_start import check_startup_conditions
+    
+    # Используем кэшированную функцию вместо display_startup_warnings
+    conditions_ok, error_msg = check_startup_conditions()
+    if not conditions_ok and not start_in_tray:
+        if error_msg:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(None, "Ошибка запуска", error_msg)
         sys.exit(1)
 
     # ---------------- предупреждения, требующие Qt --------------------
