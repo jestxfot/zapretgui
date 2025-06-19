@@ -172,6 +172,12 @@ class SystemTrayManager:
         self.parent.changeEvent = self._change_event
 
     def _close_event(self, ev):
+        # ✅ ПРОВЕРЯЕМ флаг полного закрытия программы
+        if hasattr(self.parent, '_closing_completely') and self.parent._closing_completely:
+            # Программа полностью закрывается - не показываем уведомление
+            self._orig_close(ev)
+            return
+            
         if not getattr(self.parent, '_allow_close', False):
             if not self._shown_hint:
                 self.show_notification(

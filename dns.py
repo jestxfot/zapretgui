@@ -9,6 +9,10 @@ from PyQt6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from log import log
 
+from typing import List, Tuple, Dict
+import wmi
+import json
+
 IGNORED_ADAPTERS = [
     "VMware", "VirtualBox", "Hyper-V", "WSL", "vEthernet", 
     "Bluetooth", "Loopback", "Pseudo", "Miniport", 
@@ -34,6 +38,13 @@ PREDEFINED_DNS = {
 class DNSManager:
     """Класс для управления DNS настройками в Windows"""
     
+    def __init__(self):
+        # Кэшируем WMI соединение
+        try:
+            self.wmi_conn = wmi.WMI()
+        except Exception:
+            self.wmi_conn = None
+
     @staticmethod
     def should_ignore_adapter(name, description):
         """Проверяет, должен ли адаптер быть проигнорирован"""
@@ -43,44 +54,155 @@ class DNSManager:
                 pattern.lower() in description.lower()):
                 return True
         return False
-    
+
     @staticmethod
-    def get_network_adapters(include_ignored=False):
-        """Получает список активных сетевых адаптеров"""
+    def get_network_adapters_fast(include_ignored=False) -> List[Tuple[str, str]]:
+        """Быстрое получение сетевых адаптеров через WMI"""
         try:
-            # Используем PowerShell для получения списка активных сетевых адаптеров
-            # Важно: теперь запрашиваем имя точно как его ожидает Get-DnsClientServerAddress
-            command = 'powershell -Command "Get-NetAdapter | Where-Object {$_.Status -eq \'Up\'} | ForEach-Object { [PSCustomObject]@{Name=$_.Name; Description=$_.InterfaceDescription} } | ConvertTo-Json"'
-            result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            # Используем WMI напрямую - в 5-10 раз быстрее PowerShell
+            import wmi
+            c = wmi.WMI()
+            
+            adapters = []
+            # Получаем только активные адаптеры одним запросом
+            for adapter in c.Win32_NetworkAdapter(NetConnectionStatus=2):  # 2 = Connected
+                if adapter.NetConnectionID and adapter.Description:
+                    name = adapter.NetConnectionID
+                    description = adapter.Description
+                    
+                    # Фильтруем игнорируемые адаптеры
+                    if include_ignored or not DNSManager.should_ignore_adapter(name, description):
+                        adapters.append((name, description))
+            
+            return adapters
+            
+        except ImportError:
+            # Fallback к PowerShell если WMI недоступен
+            return DNSManager.get_network_adapters_powershell_fallback(include_ignored)
+        except Exception as e:
+            log(f"Ошибка WMI, используем fallback: {e}", "DEBUG")
+            return DNSManager.get_network_adapters_powershell_fallback(include_ignored)
+    
+
+    @staticmethod
+    def get_network_adapters_powershell_fallback(include_ignored=False):
+        """Fallback через PowerShell с оптимизациями"""
+        try:
+            # Оптимизированная PowerShell команда - без лишних вызовов
+            command = [
+                'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                'Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Select-Object Name,InterfaceDescription | ConvertTo-Json'
+            ]
+            
+            # Используем subprocess с оптимизациями
+            result = subprocess.run(
+                command, 
+                capture_output=True, 
+                text=True, 
+                timeout=5,  # Добавляем таймаут
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
             
             if result.returncode != 0:
-                log(f"Ошибка получения сетевых адаптеров: {result.stderr}", level="ERROR", component="DNS")
+                log(f"PowerShell ошибка: {result.stderr}", "ERROR")
                 return []
             
             adapters = []
-            try:
-                import json
-                adapter_list = json.loads(result.stdout)
-                # Если только один адаптер, результат будет объектом, а не массивом
-                if not isinstance(adapter_list, list):
-                    adapter_list = [adapter_list]
-                    
-                for adapter in adapter_list:
-                    name = adapter.get('Name', '')
-                    description = adapter.get('Description', '')
-                    
-                    # Фильтруем игнорируемые адаптеры, если нужно
-                    if include_ignored or not DNSManager.should_ignore_adapter(name, description):
-                        adapters.append((name, description))
-            except json.JSONDecodeError as e:
-                log(f"Ошибка при разборе JSON с сетевыми адаптерами: {str(e)}", level="ERROR", component="DNS")
-                return []
+            adapter_list = json.loads(result.stdout)
+            if not isinstance(adapter_list, list):
+                adapter_list = [adapter_list]
                 
+            for adapter in adapter_list:
+                name = adapter.get('Name', '')
+                description = adapter.get('InterfaceDescription', '')
+                
+                if include_ignored or not DNSManager.should_ignore_adapter(name, description):
+                    adapters.append((name, description))
+                    
             return adapters
-        except Exception as e:
-            log(f"Ошибка при получении списка сетевых адаптеров: {str(e)}", level="ERROR", component="DNS")
+            
+        except subprocess.TimeoutExpired:
+            log("Таймаут при получении адаптеров", "ERROR")
             return []
+        except Exception as e:
+            log(f"Ошибка fallback: {e}", "ERROR")
+            return []
+
+    def get_all_dns_info_fast(self, adapter_names: List[str]) -> Dict[str, List[str]]:
+        """Быстрое получение DNS для всех адаптеров одним запросом"""
+        try:
+            if not adapter_names:
+                return {}
+            
+            # Формируем одну PowerShell команду для всех адаптеров
+            adapter_list = "','".join(adapter_names)
+            command = [
+                'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                f'''
+                $adapters = @('{adapter_list}')
+                $result = @{{}}
+                foreach ($adapter in $adapters) {{
+                    try {{
+                        $dns = Get-DnsClientServerAddress -InterfaceAlias $adapter -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ServerAddresses
+                        $result[$adapter] = if ($dns) {{ $dns }} else {{ @() }}
+                    }} catch {{
+                        $result[$adapter] = @()
+                    }}
+                }}
+                $result | ConvertTo-Json -Depth 3
+                '''
+            ]
+            
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10,  # Таймаут для всех адаптеров
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            if result.returncode != 0:
+                log(f"Ошибка получения DNS: {result.stderr}", "DEBUG")
+                return self._get_dns_fallback(adapter_names)
+            
+            dns_data = json.loads(result.stdout)
+            
+            # Преобразуем в нужный формат
+            dns_info = {}
+            for adapter_name in adapter_names:
+                dns_list = dns_data.get(adapter_name, [])
+                if isinstance(dns_list, str):
+                    dns_list = [dns_list]
+                elif not isinstance(dns_list, list):
+                    dns_list = []
+                dns_info[adapter_name] = [ip.strip() for ip in dns_list if ip.strip()]
+            
+            return dns_info
+            
+        except subprocess.TimeoutExpired:
+            log("Таймаут при получении DNS, используем fallback", "WARNING")
+            return self._get_dns_fallback(adapter_names)
+        except Exception as e:
+            log(f"Ошибка получения DNS: {e}", "DEBUG")
+            return self._get_dns_fallback(adapter_names)
+
+    def _get_dns_fallback(self, adapter_names: List[str]) -> Dict[str, List[str]]:
+        """Fallback - получаем DNS по одному адаптеру"""
+        dns_info = {}
+        for name in adapter_names:
+            try:
+                dns_servers = self.get_current_dns(name)
+                dns_info[name] = dns_servers
+            except Exception:
+                dns_info[name] = []
+        return dns_info
     
+    # Обновляем старый метод для совместимости
+    @staticmethod
+    def get_network_adapters(include_ignored=False):
+        """Обратная совместимость"""
+        return DNSManager.get_network_adapters_fast(include_ignored)
+        
     @staticmethod
     def get_current_dns(adapter_name):
         """Получает текущие DNS-серверы для указанного адаптера"""
@@ -211,33 +333,51 @@ class DNSSettingsDialog(QDialog):
         # Подключаем сигналы
         self.adapters_loaded.connect(self.on_adapters_loaded)
         self.dns_info_loaded.connect(self.on_dns_info_loaded)
-        
+    
     def load_data_in_background(self):
-        """Загружает данные о сетевых адаптерах и DNS в отдельном потоке"""
+        """Оптимизированная загрузка данных"""
         try:
-            # Получаем список адаптеров (включая игнорируемые для просмотра)
-            all_adapters = self.dns_manager.get_network_adapters(include_ignored=True)
-            
-            # Фильтруем список для активного использования
+            # 1. Быстро получаем все адаптеры (WMI)
+            all_adapters = self.dns_manager.get_network_adapters_fast(include_ignored=True)
             filtered_adapters = [(name, desc) for name, desc in all_adapters 
                             if not self.dns_manager.should_ignore_adapter(name, desc)]
             
-            # Сохраняем оба списка
             self.all_adapters = all_adapters
             self.adapters = filtered_adapters
-            
             self.adapters_loaded.emit(filtered_adapters)
             
-            # Получаем информацию о DNS для каждого адаптера (и игнорируемых тоже для отображения)
+            # 2. Быстро получаем DNS для всех адаптеров ОДНИМ запросом
+            adapter_names = [name for name, _ in all_adapters]
+            dns_info = self.dns_manager.get_all_dns_info_fast(adapter_names)
+            
+            self.dns_info_loaded.emit(dns_info)
+            
+        except Exception as e:
+            log(f"Ошибка при быстрой загрузке данных: {str(e)}", level="ERROR")
+            # Fallback к старому методу
+            self._load_data_slow_fallback()
+
+    def _load_data_slow_fallback(self):
+        """Fallback к старому медленному методу"""
+        try:
+            all_adapters = DNSManager.get_network_adapters_powershell_fallback(include_ignored=True)
+            filtered_adapters = [(name, desc) for name, desc in all_adapters 
+                            if not DNSManager.should_ignore_adapter(name, desc)]
+            
+            self.all_adapters = all_adapters
+            self.adapters = filtered_adapters
+            self.adapters_loaded.emit(filtered_adapters)
+            
+            # DNS по одному адаптеру (медленно)
             dns_info = {}
             for name, _ in all_adapters:
-                dns_servers = self.dns_manager.get_current_dns(name)
+                dns_servers = DNSManager().get_current_dns(name)
                 dns_info[name] = dns_servers
             
             self.dns_info_loaded.emit(dns_info)
         except Exception as e:
-            log(f"Ошибка при загрузке данных: {str(e)}", level="DNS")
-    
+            log(f"Критическая ошибка загрузки DNS данных: {e}", "ERROR")
+
     def on_adapters_loaded(self, adapters):
         """Обработчик загрузки списка адаптеров"""
         self.adapters = adapters

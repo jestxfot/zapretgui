@@ -109,9 +109,32 @@ def _handle_update_mode():
 class LupiDPIApp(QWidget, MainWindowUI):
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
+        # ✅ УСТАНАВЛИВАЕМ флаг закрытия
+        self._is_exiting = True
+        
         # Останавливаем поток мониторинга
         if hasattr(self, 'process_monitor') and self.process_monitor is not None:
             self.process_monitor.stop()
+        
+        # ✅ ОСТАНАВЛИВАЕМ ВСЕ АСИНХРОННЫЕ ОПЕРАЦИИ без уведомлений
+        try:
+            if hasattr(self, '_dpi_start_thread') and self._dpi_start_thread:
+                try:
+                    if self._dpi_start_thread.isRunning():
+                        self._dpi_start_thread.quit()
+                        self._dpi_start_thread.wait(1000)
+                except RuntimeError:
+                    pass
+            
+            if hasattr(self, '_dpi_stop_thread') and self._dpi_stop_thread:
+                try:
+                    if self._dpi_stop_thread.isRunning():
+                        self._dpi_stop_thread.quit()
+                        self._dpi_stop_thread.wait(1000)
+                except RuntimeError:
+                    pass
+        except Exception as e:
+            log(f"Ошибка при очистке потоков: {e}", "ERROR")
         
         # Стандартная обработка события
         super().closeEvent(event)
@@ -197,48 +220,145 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
         
     def select_strategy(self):
-        """Открывает диалог выбора стратегии. При первом вызове
-        скачивает index.json и все .bat-файлы (если автозагрузка не
-        отключена в реестре)."""
-        
-        from config.reg import get_strategy_autoload
+        """Открывает диалог выбора стратегии с асинхронной загрузкой"""
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
                 log("Ошибка: менеджер стратегий не инициализирован", "ERROR")
                 self.set_status("Ошибка: менеджер стратегий не инициализирован")
                 return
 
-            # ---------- первая загрузка стратегий ---------------------
+            # Если стратегии еще не загружены И автозагрузка включена
             if not self.strategy_manager.already_loaded:
-                if get_strategy_autoload():                     # ← NEW
-                    self.set_status("Загружаю список стратегий…")
-                    QApplication.processEvents()
-                    self.strategy_manager.preload_strategies()
-                    self.update_strategies_list(force_update=True)
-                    self.set_status("Список стратегий загружен")
+                from config.reg import get_strategy_autoload
+                if get_strategy_autoload():
+                    # ✅ АСИНХРОННАЯ ЗАГРУЗКА
+                    self._load_strategies_async_then_show_dialog()
+                    return
                 else:
                     log("Автозагрузка стратегий отключена (реестр)", "INFO")
                     # Просто читаем локальный index.json (если есть)
                     self.update_strategies_list(force_update=False)
 
-            # ---------- определяем текущую стратегию ------------------
-            current_strategy = self.current_strategy_label.text()
-            if current_strategy == "Автостарт DPI отключен":
-                current_strategy = get_last_strategy()
-
-            # ---------- создаём и показываем диалог -------------------
-            selector = StrategySelector(
-                parent                 = self,
-                strategy_manager       = self.strategy_manager,
-                current_strategy_name  = current_strategy
-            )
-            selector.strategySelected.connect(
-                self.on_strategy_selected_from_dialog)
-            selector.exec()
+            # Если стратегии уже загружены - сразу показываем диалог
+            self._show_strategy_dialog()
 
         except Exception as e:
             log(f"Ошибка при открытии диалога выбора стратегии: {e}", "ERROR")
             self.set_status(f"Ошибка при выборе стратегии: {e}")
+
+    def _load_strategies_async_then_show_dialog(self):
+        """Асинхронно загружает стратегии, затем показывает диалог"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class StrategyLoader(QObject):
+            finished = pyqtSignal(bool, str)  # success, error_message
+            progress = pyqtSignal(str)        # status_message
+            
+            def __init__(self, strategy_manager):
+                super().__init__()
+                self.strategy_manager = strategy_manager
+            
+            def run(self):
+                try:
+                    self.progress.emit("Загрузка списка стратегий...")
+                    
+                    # Вызываем preload_strategies (который внутри уже асинхронный)
+                    self.strategy_manager.preload_strategies()
+                    
+                    self.progress.emit("Список стратегий загружен")
+                    self.finished.emit(True, "")
+                    
+                except Exception as e:
+                    error_msg = f"Ошибка загрузки стратегий: {str(e)}"
+                    log(error_msg, "ERROR")
+                    self.finished.emit(False, error_msg)
+        
+        # Показываем состояние загрузки
+        self.set_status("Загружаю список стратегий…")
+        
+        # Предотвращаем повторный запуск
+        if hasattr(self, '_strategy_loader_thread') and self._strategy_loader_thread.isRunning():
+            log("Загрузка стратегий уже выполняется", "DEBUG")
+            return
+        
+        self._strategy_loader_thread = QThread()
+        self._strategy_loader_worker = StrategyLoader(self.strategy_manager)
+        self._strategy_loader_worker.moveToThread(self._strategy_loader_thread)
+        
+        # Подключаем сигналы
+        self._strategy_loader_thread.started.connect(self._strategy_loader_worker.run)
+        self._strategy_loader_worker.progress.connect(self.set_status)
+        self._strategy_loader_worker.finished.connect(self._on_strategies_loaded)
+        self._strategy_loader_worker.finished.connect(self._strategy_loader_thread.quit)
+        self._strategy_loader_worker.finished.connect(self._strategy_loader_worker.deleteLater)
+        self._strategy_loader_thread.finished.connect(self._strategy_loader_thread.deleteLater)
+        
+        # Запускаем
+        self._strategy_loader_thread.start()
+
+    def _on_strategies_loaded(self, success, error_message):
+        """Обрабатывает результат асинхронной загрузки стратегий"""
+        try:
+            if success:
+                log("Стратегии загружены асинхронно", "INFO")
+                
+                # Обновляем список стратегий в UI
+                self.update_strategies_list(force_update=True)
+                
+                # Теперь показываем диалог
+                self._show_strategy_dialog()
+                
+            else:
+                log(f"Ошибка асинхронной загрузки стратегий: {error_message}", "ERROR")
+                self.set_status(f"Ошибка загрузки: {error_message}")
+                
+                # Показываем диалог с локальными стратегиями (если есть)
+                self.update_strategies_list(force_update=False)
+                self._show_strategy_dialog()
+                
+        except Exception as e:
+            log(f"Ошибка при обработке результата загрузки стратегий: {e}", "ERROR")
+            self.set_status(f"Ошибка: {e}")
+
+    def _show_strategy_dialog(self):
+        """Показывает диалог выбора стратегии"""
+        try:
+            # Проверяем, не открыт ли уже диалог
+            if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog:
+                if self._strategy_selector_dialog.isVisible():
+                    # Поднимаем существующее окно на передний план
+                    self._strategy_selector_dialog.raise_()
+                    self._strategy_selector_dialog.activateWindow()
+                    return
+
+            # Определяем текущую стратегию
+            current_strategy = self.current_strategy_label.text()
+            if current_strategy == "Автостарт DPI отключен":
+                current_strategy = get_last_strategy()
+
+            # Создаём диалог
+            from strategy_menu.selector import StrategySelector
+            self._strategy_selector_dialog = StrategySelector(
+                parent=self,
+                strategy_manager=self.strategy_manager,
+                current_strategy_name=current_strategy
+            )
+            
+            # Подключаем сигналы
+            self._strategy_selector_dialog.strategySelected.connect(self.on_strategy_selected_from_dialog)
+            
+            # ✅ ПОКАЗЫВАЕМ БЕЗ БЛОКИРОВКИ!
+            self._strategy_selector_dialog.show()  # НЕ exec()!
+            
+            # Поднимаем на передний план
+            self._strategy_selector_dialog.raise_()
+            self._strategy_selector_dialog.activateWindow()
+            
+            log("Открыт диалог выбора стратегии (неблокирующий)", "INFO")
+            
+        except Exception as e:
+            log(f"Ошибка при показе диалога стратегий: {e}", "ERROR")
+            self.set_status(f"Ошибка диалога: {e}")
         
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
         """Обрабатывает выбор стратегии из диалога."""
@@ -260,7 +380,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.last_strategy_change_time = time.time()
             
             # Запускаем стратегию
-            self.dpi_starter.start_dpi(selected_mode=strategy_name)
+            self.start_dpi_async(selected_mode=strategy_name)
             
             # Перезапускаем Discord только если:
             # 1. Это не первый запуск
@@ -273,35 +393,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
-
-    
-    def _load_strategy_index(self) -> dict:
-        """
-        Загружает и кэширует словарь из bin/index.json
-        """
-        if hasattr(self, "_strategy_index") and self._strategy_index:
-            return self._strategy_index            # уже загружен
-
-        index_path = os.path.join(BIN_DIR, "index.json")
-        
-
-        if not os.path.isfile(index_path):
-            log(f"index.json не найден по пути {index_path}", level="ERROR")
-            self.set_status("Ошибка: index.json не найден")
-            self._strategy_index = {}
-            return self._strategy_index
-
-        try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                import json
-                self._strategy_index = json.load(f)
-            log(f"Загружено стратегий: {len(self._strategy_index)}", level="DEBUG")
-        except Exception as e:
-            log(f"Не удалось прочитать index.json: {e}", level="ERROR")
-            self.set_status(f"Ошибка чтения index.json: {e}")
-            self._strategy_index = {}
-
-        return self._strategy_index
 
     def update_autostart_ui(self, service_running: bool | None):
         """
@@ -718,7 +809,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
-        
         from config.reg import get_dpi_autostart
 
         # 1. Автозапуск DPI включён?
@@ -756,50 +846,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
 
         # 4. Запускаем DPI
-        self.dpi_starter.start_dpi(selected_mode=strategy_name)
+        self.start_dpi_async(selected_mode=strategy_name)
 
         # 5. Обновляем интерфейс
         self.update_ui(running=True)
-    
-    def finish_initialization(self):
-        """Завершает процесс инициализации"""
-        
-        
-        self.initializing = False
-        self.protected_process = False
-        
-        # Удаляем маркерный файл защиты после завершения инициализации
-        marker_file = os.path.join(os.path.dirname(WINWS_EXE), "process_protected.txt")
-        try:
-            if os.path.exists(marker_file):
-                os.remove(marker_file)
-        except Exception as e:
-            log(f"Не удалось удалить маркер защиты процесса: {str(e)}", level="WARNING")
-        
-        # Проверяем существование dpi_starter перед использованием
-        if hasattr(self, 'dpi_starter') and self.dpi_starter:
-            # Проверяем состояние процесса для обновления UI
-            if self.dpi_starter.check_process_running():
-                self.update_ui(running=True)
-            else:
-                # Если процесс не найден, повторяем запуск
-                log("Процесс не найден после инициализации, повторяем запуск", level="INFO")
-                
-                # Получаем стратегию из метки или используем последнюю сохраненную
-                strategy_name = None
-                if hasattr(self, 'current_strategy_name') and self.current_strategy_name:
-                    strategy_name = self.current_strategy_name
-                else:
-                    strategy_name = self.current_strategy_label.text()
-                    if strategy_name == "Автостарт DPI отключен":
-                        strategy_name = get_last_strategy()
-                
-                log(f"Выбранная стратегия для запуска: {strategy_name}", level="INFO")
-                lambda: self.dpi_starter.start_dpi(selected_mode=strategy_name)
-        else:
-            log("DPI Starter не инициализирован, пропускаем проверку процесса", level="WARNING")
-        
-        log("Процесс инициализации завершен", level="INFO")
 
     def __init__(self):
         self.process_monitor = None  # Будет инициализирован позже
@@ -849,7 +899,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # подключаем логику к новым кнопкам
         self.select_strategy_clicked.connect(self.select_strategy)
-        self.start_clicked.connect(self.dpi_starter.start_dpi)
+        self.start_clicked.connect(self.start_dpi_async)
         self.stop_clicked.connect(self.show_stop_menu)
         self.autostart_enable_clicked.connect(self.show_autostart_options)
         self.autostart_disable_clicked.connect(self.remove_autostart)
@@ -1001,45 +1051,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.subscription_timer.start(interval_minutes * 60 * 1000)
         log(f"Таймер периодической проверки подписки запущен ({interval_minutes} мин)", "DEBUG")
 
-        # Добавляем возможность остановки таймера
-        def stop_subscription_timer(self):
-            """Останавливает таймер проверки подписки"""
-            if hasattr(self, 'subscription_timer'):
-                self.subscription_timer.stop()
-                log("Таймер периодической проверки подписки остановлен", "DEBUG")
-
-    def _init_donate_checker_async(self):
-        """Асинхронная инициализация проверяльщика подписки"""
-        from PyQt6.QtCore import QThread, QObject, pyqtSignal
-        
-        class DonateCheckerWorker(QObject):
-            finished = pyqtSignal(object)  # DonateChecker instance
-            
-            def run(self):
-                try:
-                    from donate import DonateChecker
-                    checker = DonateChecker()
-                    self.finished.emit(checker)
-                except Exception as e:
-                    log(f"Ошибка инициализации DonateChecker: {e}", "ERROR")
-                    # Создаем заглушку при ошибке
-                    self.finished.emit(None)
-        
-        self._donate_thread = QThread()
-        self._donate_worker = DonateCheckerWorker()
-        self._donate_worker.moveToThread(self._donate_thread)
-        
-        self._donate_thread.started.connect(self._donate_worker.run)
-        self._donate_worker.finished.connect(self._on_donate_checker_ready)
-        self._donate_worker.finished.connect(self._donate_thread.quit)
-        self._donate_worker.finished.connect(self._donate_worker.deleteLater)
-        self._donate_thread.finished.connect(self._donate_thread.deleteLater)
-        
-        # Временная заглушка
-        self.donate_checker = None
-        
-        self._donate_thread.start()
-
     def _on_donate_checker_ready(self, checker):
         """Вызывается когда DonateChecker готов"""
         self.donate_checker = checker
@@ -1102,7 +1113,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             result = dialog.exec()
             
             # После закрытия диалога обновляем статус в заголовке
-            self.update_subscription_status_in_title()
+            self._update_subscription_ui()
             
             # Обновляем доступные темы на основе нового статуса подписки
             if hasattr(self, 'theme_manager'):
@@ -1190,7 +1201,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Проверяем, активен ли автозапуск
         if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
             # Если автозапуск активен, игнорируем смену режима и восстанавливаем предыдущий выбор
-            
             log("Смена стратегии недоступна при активном автозапуске", level="WARNING")
             return
         
@@ -1203,9 +1213,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Сохраняем выбранную стратегию в реестр
         set_last_strategy(selected_mode)
         
-        # Запускаем DPI с новым режимом - теперь это безопасно,
-        # так как stop.bat гарантированно остановит предыдущий процесс
-        self.dpi_starter.start_dpi(selected_mode=selected_mode)
+        # ✅ ЗАМЕНЯЕМ эту строку:
+        # self.dpi_starter.start_dpi(selected_mode=selected_mode)
+        # НА:
+        self.start_dpi_async(selected_mode=selected_mode)
         
         # Перезапускаем Discord только если:
         # 1. Это не первый запуск
@@ -1215,6 +1226,328 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.discord_manager.restart_discord_if_running()
         else:
             self.first_start = False  # Сбрасываем флаг первого запуска
+ 
+    # ------------------------------------------- Асинхронные методы запуска и остановки DPI -------------------------------------------
+    def start_dpi_async(self, selected_mode=None):
+        """✅ Асинхронно запускает DPI без блокировки UI (оптимизированная версия)"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        # ✅ БЫСТРАЯ И НАДЕЖНАЯ ПРОВЕРКА без sip
+        try:
+            if (hasattr(self, '_dpi_start_thread') and 
+                self._dpi_start_thread is not None):
+                # Пытаемся проверить состояние потока в try-catch
+                if self._dpi_start_thread.isRunning():
+                    log("Запуск DPI уже выполняется", "DEBUG")
+                    return
+        except RuntimeError:
+            # Объект уже удален - это нормально, продолжаем
+            log("Предыдущий поток запуска уже удален", "DEBUG")
+            self._dpi_start_thread = None
+        except Exception as e:
+            # Любая другая ошибка - тоже продолжаем
+            log(f"Ошибка проверки потока запуска: {e}", "DEBUG")
+            self._dpi_start_thread = None
+        
+        class DPIStartWorker(QObject):
+            finished = pyqtSignal(bool, str)  # success, error_message
+            progress = pyqtSignal(str)        # status_message
+            
+            def __init__(self, dpi_starter, selected_mode):
+                super().__init__()
+                self.dpi_starter = dpi_starter
+                self.selected_mode = selected_mode
+            
+            def run(self):
+                try:
+                    self.progress.emit("Подготовка к запуску...")
+                    
+                    # Проверяем, не запущен ли уже процесс
+                    if self.dpi_starter.check_process_running(silent=True):
+                        self.progress.emit("Останавливаем предыдущий процесс...")
+                    
+                    self.progress.emit("Запуск DPI...")
+                    
+                    # ✅ Вызываем синхронный метод в отдельном потоке
+                    success = self.dpi_starter.start_dpi(selected_mode=self.selected_mode)
+                    
+                    if success:
+                        self.progress.emit("DPI успешно запущен")
+                        self.finished.emit(True, "")
+                    else:
+                        self.finished.emit(False, "Не удалось запустить DPI")
+                        
+                except Exception as e:
+                    error_msg = f"Ошибка запуска DPI: {str(e)}"
+                    log(error_msg, "ERROR")
+                    self.finished.emit(False, error_msg)
+        
+        # Показываем состояние запуска
+        self.set_status("🚀 Запуск DPI...")
+        
+        # Блокируем кнопки во время операции
+        if hasattr(self, 'start_btn'):
+            self.start_btn.setEnabled(False)
+        if hasattr(self, 'stop_btn'):
+            self.stop_btn.setEnabled(False)
+        
+        # ✅ СОЗДАЕМ НОВЫЙ ПОТОК (простое создание)
+        self._dpi_start_thread = QThread()
+        self._dpi_start_worker = DPIStartWorker(self.dpi_starter, selected_mode)
+        self._dpi_start_worker.moveToThread(self._dpi_start_thread)
+        
+        # ✅ ПОДКЛЮЧЕНИЕ СИГНАЛОВ
+        self._dpi_start_thread.started.connect(self._dpi_start_worker.run)
+        self._dpi_start_worker.progress.connect(self.set_status)
+        self._dpi_start_worker.finished.connect(self._on_dpi_start_finished)
+        
+        # ✅ УПРОЩЕННАЯ ОЧИСТКА РЕСУРСОВ
+        def cleanup_start_thread():
+            try:
+                if hasattr(self, '_dpi_start_thread') and self._dpi_start_thread:
+                    self._dpi_start_thread.quit()
+                    self._dpi_start_thread.wait(2000)  # Без terminate() - надежнее
+                    self._dpi_start_thread = None
+                    
+                if hasattr(self, '_dpi_start_worker') and self._dpi_start_worker:
+                    self._dpi_start_worker.deleteLater()
+                    self._dpi_start_worker = None
+            except Exception as e:
+                log(f"Ошибка при очистке потока запуска: {e}", "ERROR")
+        
+        self._dpi_start_worker.finished.connect(cleanup_start_thread)
+        
+        # Запускаем поток
+        self._dpi_start_thread.start()
+        
+        log(f"Запуск асинхронного старта DPI: {selected_mode}", "INFO")
+
+    def stop_dpi_async(self):
+        """✅ Асинхронно останавливает DPI без блокировки UI (оптимизированная версия)"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        # ✅ БЫСТРАЯ И НАДЕЖНАЯ ПРОВЕРКА без sip
+        try:
+            if (hasattr(self, '_dpi_stop_thread') and 
+                self._dpi_stop_thread is not None):
+                # Пытаемся проверить состояние потока в try-catch
+                if self._dpi_stop_thread.isRunning():
+                    log("Остановка DPI уже выполняется", "DEBUG")
+                    return
+        except RuntimeError:
+            # Объект уже удален - это нормально, продолжаем
+            log("Предыдущий поток остановки уже удален", "DEBUG")
+            self._dpi_stop_thread = None
+        except Exception as e:
+            # Любая другая ошибка - тоже продолжаем
+            log(f"Ошибка проверки потока остановки: {e}", "DEBUG")
+            self._dpi_stop_thread = None
+        
+        class DPIStopWorker(QObject):
+            finished = pyqtSignal(bool, str)  # success, error_message
+            progress = pyqtSignal(str)        # status_message
+            
+            def __init__(self, app_instance):
+                super().__init__()
+                self.app_instance = app_instance
+            
+            def run(self):
+                try:
+                    self.progress.emit("Остановка DPI...")
+                    
+                    # Проверяем, запущен ли процесс
+                    if not self.app_instance.dpi_starter.check_process_running(silent=True):
+                        self.progress.emit("DPI уже остановлен")
+                        self.finished.emit(True, "DPI уже был остановлен")
+                        return
+                    
+                    self.progress.emit("Завершение процессов...")
+                    
+                    # ✅ Вызываем синхронную остановку в отдельном потоке
+                    from dpi.stop import stop_dpi
+                    stop_dpi(self.app_instance)
+                    
+                    # Проверяем результат
+                    if not self.app_instance.dpi_starter.check_process_running(silent=True):
+                        self.progress.emit("DPI успешно остановлен")
+                        self.finished.emit(True, "")
+                    else:
+                        self.finished.emit(False, "Не удалось полностью остановить процесс")
+                        
+                except Exception as e:
+                    error_msg = f"Ошибка остановки DPI: {str(e)}"
+                    log(error_msg, "ERROR")
+                    self.finished.emit(False, error_msg)
+        
+        # Показываем состояние остановки
+        self.set_status("🛑 Остановка DPI...")
+        
+        # Блокируем кнопки во время операции
+        if hasattr(self, 'start_btn'):
+            self.start_btn.setEnabled(False)
+        if hasattr(self, 'stop_btn'):
+            self.stop_btn.setEnabled(False)
+        
+        # ✅ СОЗДАЕМ НОВЫЙ ПОТОК (простое создание)
+        self._dpi_stop_thread = QThread()
+        self._dpi_stop_worker = DPIStopWorker(self)
+        self._dpi_stop_worker.moveToThread(self._dpi_stop_thread)
+        
+        # ✅ ПОДКЛЮЧЕНИЕ СИГНАЛОВ
+        self._dpi_stop_thread.started.connect(self._dpi_stop_worker.run)
+        self._dpi_stop_worker.progress.connect(self.set_status)
+        self._dpi_stop_worker.finished.connect(self._on_dpi_stop_finished)
+        
+        # ✅ УПРОЩЕННАЯ ОЧИСТКА РЕСУРСОВ
+        def cleanup_stop_thread():
+            try:
+                if hasattr(self, '_dpi_stop_thread') and self._dpi_stop_thread:
+                    self._dpi_stop_thread.quit()
+                    self._dpi_stop_thread.wait(2000)  # Без terminate() - надежнее
+                    self._dpi_stop_thread = None
+                    
+                if hasattr(self, '_dpi_stop_worker') and self._dpi_stop_worker:
+                    self._dpi_stop_worker.deleteLater()
+                    self._dpi_stop_worker = None
+            except Exception as e:
+                log(f"Ошибка при очистке потока остановки: {e}", "ERROR")
+        
+        self._dpi_stop_worker.finished.connect(cleanup_stop_thread)
+        
+        # Устанавливаем флаг ручной остановки
+        self.manually_stopped = True
+        
+        # Запускаем поток
+        self._dpi_stop_thread.start()
+        
+        log("Запуск асинхронной остановки DPI", "INFO")
+
+    def _on_dpi_start_finished(self, success, error_message):
+        """Обрабатывает завершение асинхронного запуска DPI"""
+        try:
+            # Восстанавливаем кнопки
+            if hasattr(self, 'start_btn'):
+                self.start_btn.setEnabled(True)
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.setEnabled(True)
+            
+            if success:
+                log("DPI запущен асинхронно", "INFO")
+                self.set_status("✅ DPI успешно запущен")
+                
+                # Обновляем UI
+                self.update_ui(running=True)
+                
+                # Обновляем статус процесса
+                self.on_process_status_changed(True)
+                
+                # Устанавливаем флаг намеренного запуска
+                self.intentional_start = True
+                
+                # Перезапускаем Discord если нужно
+                from discord.discord_restart import get_discord_restart_setting
+                if not self.first_start and get_discord_restart_setting():
+                    self.discord_manager.restart_discord_if_running()
+                else:
+                    self.first_start = False
+                    
+            else:
+                log(f"Ошибка асинхронного запуска DPI: {error_message}", "ERROR")
+                self.set_status(f"❌ Ошибка запуска: {error_message}")
+                
+                # Обновляем UI как неактивный
+                self.update_ui(running=False)
+                self.on_process_status_changed(False)
+                
+        except Exception as e:
+            log(f"Ошибка при обработке результата запуска DPI: {e}", "ERROR")
+            self.set_status(f"Ошибка: {e}")
+
+    def _on_dpi_stop_finished(self, success, error_message):
+        """Обрабатывает завершение асинхронной остановки DPI"""
+        try:
+            # Восстанавливаем кнопки
+            if hasattr(self, 'start_btn'):
+                self.start_btn.setEnabled(True)
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.setEnabled(True)
+            
+            if success:
+                log("DPI остановлен асинхронно", "INFO")
+                if error_message:
+                    self.set_status(f"✅ {error_message}")
+                else:
+                    self.set_status("✅ DPI успешно остановлен")
+                
+                # Обновляем UI
+                self.update_ui(running=False)
+                
+                # Обновляем статус процесса
+                self.on_process_status_changed(False)
+                
+            else:
+                log(f"Ошибка асинхронной остановки DPI: {error_message}", "ERROR")
+                self.set_status(f"❌ Ошибка остановки: {error_message}")
+                
+                # Проверяем реальный статус процесса
+                is_running = self.dpi_starter.check_process_running(silent=True)
+                self.update_ui(running=is_running)
+                self.on_process_status_changed(is_running)
+                
+        except Exception as e:
+            log(f"Ошибка при обработке результата остановки DPI: {e}", "ERROR")
+            self.set_status(f"Ошибка: {e}")
+
+    def _stop_and_exit_async(self):
+        """Асинхронно останавливает DPI и закрывает программу"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        # ✅ ДОБАВЛЯЕМ флаг, что программа закрывается
+        self._is_exiting = True
+        
+        class StopAndExitWorker(QObject):
+            finished = pyqtSignal()
+            progress = pyqtSignal(str)
+            
+            def __init__(self, app_instance):
+                super().__init__()
+                self.app_instance = app_instance
+            
+            def run(self):
+                try:
+                    self.progress.emit("Остановка DPI перед закрытием...")
+                    
+                    # Останавливаем DPI
+                    from dpi.stop import stop_dpi
+                    stop_dpi(self.app_instance)
+                    
+                    self.progress.emit("Завершение работы...")
+                    self.finished.emit()
+                    
+                except Exception as e:
+                    log(f"Ошибка при остановке перед закрытием: {e}", "ERROR")
+                    self.finished.emit()
+        
+        # Создаем worker и поток
+        self._stop_exit_thread = QThread()
+        self._stop_exit_worker = StopAndExitWorker(self)
+        self._stop_exit_worker.moveToThread(self._stop_exit_thread)
+        
+        # Подключаем сигналы
+        self._stop_exit_thread.started.connect(self._stop_exit_worker.run)
+        self._stop_exit_worker.progress.connect(self.set_status)
+        self._stop_exit_worker.finished.connect(self._on_stop_and_exit_finished)
+        self._stop_exit_worker.finished.connect(self._stop_exit_thread.quit)
+        self._stop_exit_worker.finished.connect(self._stop_exit_worker.deleteLater)
+        self._stop_exit_thread.finished.connect(self._stop_exit_thread.deleteLater)
+        
+        # Запускаем поток
+        self._stop_exit_thread.start()
+
+    def _on_stop_and_exit_finished(self):
+        """Завершает приложение после остановки DPI"""
+        self.set_status("Завершение...")
+        QApplication.quit()
 
     def change_theme(self, theme_name):
         """Обработчик изменения темы"""
@@ -1246,7 +1579,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 
                 # Дополнительно обновляем статус подписки с новой темой
                 # через небольшую задержку, чтобы тема успела примениться
-                QTimer.singleShot(100, lambda: self.update_subscription_status_with_current_theme(theme_name))
+                QTimer.singleShot(100, self.update_subscription_status_in_title)
             else:
                 log(f"Ошибка при изменении темы: {message}", level="ERROR")
                 self.set_status(f"Ошибка изменения темы: {message}")
@@ -1254,16 +1587,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при обработке изменения темы: {e}", level="ERROR")
             self.set_status(f"Ошибка: {e}")
-
-    def update_subscription_status_with_current_theme(self, theme_name):
-        """Обновляет статус подписки с учетом текущей темы"""
-        try:
-            clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()  # Ожидаем 3 значения
-            self.update_title_with_subscription_status(is_premium, clean_theme_name, days_remaining)
-            log(f"Статус подписки обновлен для темы {clean_theme_name}: premium={is_premium}", level="DEBUG")
-        except Exception as e:
-            log(f"Ошибка при обновлении статуса подписки для темы: {e}", level="ERROR")
 
     def open_folder(self):
         """Opens the DPI folder."""
@@ -1300,8 +1623,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
-        from dpi.stop import stop_dpi
-        
         log("Отображение меню остановки Zapret", level="INFO")
         
         # Создаем меню
@@ -1320,16 +1641,16 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Обрабатываем выбор
         if action == stop_winws_action:
             log("Выбрано: Остановить только winws.exe", level="INFO")
-            stop_dpi(self)
+            self.stop_dpi_async()
         elif action == stop_and_exit_action:
             log("Выбрано: Остановить и закрыть программу", level="INFO")
             self.set_status("Останавливаю Zapret и закрываю программу...")
             
-            # Сначала останавливаем процесс
-            stop_dpi(self)
+            # ✅ УСТАНАВЛИВАЕМ флаг полного закрытия перед остановкой
+            self._closing_completely = True
             
-            # Затем завершаем приложение
-            QApplication.quit()
+            # ✅ НЕ показываем уведомление - программа полностью закрывается
+            self._stop_and_exit_async()
 
     def remove_autostart(self):
         cleaner = AutoStartCleaner(
@@ -1446,6 +1767,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         if result == QMessageBox.StandardButton.Ok:
             # Показываем состояние загрузки
+
             self.set_proxy_button_loading(True, "Включение...")
             
             if self.hosts_manager.add_proxy_domains():
@@ -1476,11 +1798,34 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status("Ошибка: менеджер hosts не инициализирован")
 
     def open_connection_test(self):
-        """Открывает окно тестирования соединения."""
-        # Импортируем модуль тестирования
-        from connection_test import ConnectionTestDialog
-        dialog = ConnectionTestDialog(self)
-        dialog.exec()
+        """✅ Открывает неблокирующее окно тестирования соединения."""
+        try:
+            # Проверяем, не открыто ли уже окно
+            if hasattr(self, '_connection_test_dialog') and self._connection_test_dialog:
+                if self._connection_test_dialog.isVisible():
+                    # Поднимаем существующее окно на передний план
+                    self._connection_test_dialog.raise_()
+                    self._connection_test_dialog.activateWindow()
+                    return
+            
+            # Создаем новое окно
+            from connection_test import ConnectionTestDialog
+            self._connection_test_dialog = ConnectionTestDialog(self)
+            
+            # ✅ ПОКАЗЫВАЕМ БЕЗ БЛОКИРОВКИ!
+            self._connection_test_dialog.show()  # НЕ exec()!
+            
+            # Поднимаем на передний план
+            self._connection_test_dialog.raise_()
+            self._connection_test_dialog.activateWindow()
+            
+            from log import log
+            log("Открыто окно тестирования соединения (неблокирующее)", "INFO")
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при открытии окна тестирования: {e}", "ERROR")
+            self.set_status(f"Ошибка: {e}")
 
     def open_dns_settings(self):
         """Открывает диалог настройки DNS-серверов"""

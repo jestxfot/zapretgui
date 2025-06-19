@@ -327,19 +327,16 @@ class StrategyManager:
         return self.strategies_cache
 
     def _download_and_cache(self) -> dict:
-        """Скачивает данные с сервера и кэширует ОДИН РАЗ."""
+        """Скачивает данные с сервера и кэширует БЕЗ дополнительного ThreadPoolExecutor"""
         log("Обновление списка стратегий...", "INFO")
         
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            try:
-                future = executor.submit(self._download_strategies_index)
-                result = future.result(timeout=self.download_timeout * len(self.url_sources))
-                
-                # УБИРАЕМ дублирование - кэш уже сохранен в _download_strategies_index()
-                return result
-            except Exception as e:
-                log(f"Ошибка загрузки: {e}", "ERROR")
-                return self._load_local_cache()
+        try:
+            # ✅ Убираем ThreadPoolExecutor - вызывающий код сам решает про асинхронность
+            result = self._download_strategies_index()
+            return result
+        except Exception as e:
+            log(f"Ошибка загрузки: {e}", "ERROR")
+            return self._load_local_cache()
 
     def check_strategy_version_status(self, strategy_id: str) -> str:
         """
@@ -426,10 +423,8 @@ class StrategyManager:
     def download_strategy(self, strategy_id: str) -> str | None:
         """
         Скачивает стратегию с улучшенной обработкой зависаний.
+        Остается асинхронным для отдельных загрузок.
         """
-        # Для загрузки отдельных стратегий проверяем настройку только если это не принудительная загрузка
-        # (например, из GUI пользователь может захотеть скачать стратегию даже при отключенной автозагрузке)
-    
         with ThreadPoolExecutor(max_workers=1) as executor:
             try:
                 future = executor.submit(self._download_strategy_sync, strategy_id)
