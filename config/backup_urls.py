@@ -2,22 +2,19 @@
 Конфигурация основных и резервных URL для загрузки стратегий
 """
 
-# Основные URLs (GitFlic)
-PRIMARY_JSON_URL = "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/strag.json"
-
-# Резервные URLs (GitHub)
-BACKUP_JSON_URL = "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/strag.json"
+PRIMARY_JSON_URL = "https://zapretdpi.ru/index.json"
+BACKUP_JSON_URL = "https://zapretdpi.ru/index.json"
 
 # Список всех доступных источников в порядке приоритета
 URL_SOURCES = [
     {
-        "name": "GitHub",
+        "name": "ZapretDPI.ru",
         "json_url": PRIMARY_JSON_URL,
-        "raw_template": "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/{0}"
+        "raw_template": "https://zapretdpi.ru/{0}"
     },
     {
         "name": "GitHub 2",
         "json_url": BACKUP_JSON_URL,
-        "raw_template": "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/{0}"
+        "raw_template": "https://zapretdpi.ru/{0}"
     }
 ]

@@ -8,9 +8,8 @@ from typing import Optional, Dict, Any, Tuple
 from log import log
 
 RAW_CSV_URL = (
-    "https://raw.githubusercontent.com/"
-    "testsuperorganizationforzapret391/README/"
-    "main/subscriptions.csv"
+    "https://zapretdpi.ru/"
+    "/subscriptions.csv"
 )
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)

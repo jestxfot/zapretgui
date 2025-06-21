@@ -328,7 +328,7 @@ class AppMenuBar(QMenuBar):
     def _update_exclusions(self):
         """Обновляет список исключений"""
         from log import log
-        from update_netrogat import update_netrogat_list
+        from updater import update_netrogat_list
         try:
             if hasattr(self.parent, 'hosts_manager'):
                 self.parent.set_status("Обновление списка исключений...")
@@ -343,7 +343,7 @@ class AppMenuBar(QMenuBar):
     def _update_custom_sites(self):
         """Обновляет список пользовательских сайтов"""
         from log import log
-        from update_other import update_other_list
+        from updater import update_other_list
         try:
             if hasattr(self.parent, 'hosts_manager'):
                 self.parent.set_status("Обновление списка своих сайтов...")

@@ -1,13 +1,2 @@
-=== Zapret GUI Log - Started 2025-06-19 19:23:37 ===
+=== Zapret GUI Log - Started 2025-06-21 22:23:56 ===
 
-[19:23:37] [DEBUG] Используем кэшированный результат для bfe_check: True (TTL: 2ч)
-[19:23:37] [DEBUG] BFE: используем кэшированный результат (OK)
-[19:23:37] [DEBUG] Используем кэшированный результат для system_commands: False (TTL: 6ч)
-[19:23:37] [DEBUG] Используем кэшированный результат для goodbyedpi_check: False (TTL: 1ч)
-[19:23:37] [DEBUG] Кэш для mitmproxy_check истек (TTL: 0.083ч)
-[19:23:38] [DEBUG] Результат mitmproxy_check сохранен в кэш: False
-[19:23:38] [CHECK_START] Executable path: C:\Program Files\Python313\python.exe
-[19:23:38] [DEBUG] Результат archive_check сохранен в кэш: False
-[19:23:38] [DEBUG] Результат onedrive_check сохранен в кэш: False
-[19:23:38] [ERROR] ERROR: Путь содержит специальные символы: C:\Program Files\Python313\python.exe
-[19:23:38] [DEBUG] Результат special_chars сохранен в кэш: True

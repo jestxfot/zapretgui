@@ -31,11 +31,8 @@ from dpi.start import DPIStarter
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from updater import check_and_run_update
-from strategy_menu.selector import StrategySelector
 from altmenu.app_menubar import AppMenuBar
 from log import log
-from donate import DonateChecker
-
 
 def _set_attr_if_exists(name: str, on: bool = True) -> None:
     """
@@ -977,7 +974,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 try:
                     self.progress.emit("Инициализация проверки подписки...")
                     
-                    from donate import DonateChecker
+                    from donater import DonateChecker
                     checker = DonateChecker()
                     
                     self.progress.emit("Проверка статуса подписки...")
@@ -1123,7 +1120,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                                       "Попробуйте через несколько секунд.")
                 return
             
-            from subscription_dialog import SubscriptionDialog
+            from donater import SubscriptionDialog
             
             self.set_status("Проверяю статус подписки...")
             QApplication.processEvents()
@@ -1959,13 +1956,9 @@ def main():
     # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
     try:
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtCore import QCoreApplication
-        from PyQt6.QtCore import Qt
         _set_attr_if_exists("AA_EnableHighDpiScaling")
         _set_attr_if_exists("AA_UseHighDpiPixmaps")
 
-        from PyQt6.QtWidgets import QApplication
         app = QApplication(sys.argv)
 
         app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
@@ -2025,10 +2018,8 @@ def main():
     
     # Если запуск в трее, уведомляем пользователя
     if start_in_tray and hasattr(window, 'tray_manager'):
-        window.tray_manager.show_notification("Zapret работает в трее", 
-                                                "Приложение запущено в фоновом режиме")
-        
-
+        window.tray_manager.show_notification("Zapret работает в трее", "Приложение запущено в фоновом режиме")
+    
     sys.exit(app.exec())
 
 if __name__ == "__main__":

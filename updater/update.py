@@ -8,7 +8,7 @@ import os, sys, tempfile, subprocess, shutil, time
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore    import QTimer
 
-META_URL = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=version.json"          # <- ваш JSON
+META_URL = "https://zapretdpi.ru/version.json"          # <- ваш JSON
 TIMEOUT  = 10                                      # сек.
 
 def _kill_winws():
