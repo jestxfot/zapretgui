@@ -1,11 +1,15 @@
+#donate/donate.py
 import csv
 import datetime as dt
 import io
 import re
 import requests
+from requests.adapters import HTTPAdapter, Retry
 import winreg
 from typing import Optional, Dict, Any, Tuple
 from log import log
+import time
+from net_helpers import HTTP
 
 RAW_CSV_URL = (
     "https://zapretdpi.ru/"
@@ -17,9 +21,20 @@ REGISTRY_KEY = r"SOFTWARE\ZapretGUI"
 EMAIL_VALUE_NAME = "UserEmail2"
 
 class DonateChecker:
+    # --- новый "глобальный" кэш на процесс -----------------------------
+    _CSV_CACHE_TTL = 15 * 60            # 15 минут
+    _csv_cache: tuple[float, str] | None = None
+    # -------------------------------------------------------------------
+
     def __init__(self):
-        """Инициализирует проверяльщик подписки на основе CSV"""
-        pass
+        # один Session на весь объект
+        retries = Retry(
+            total          = 3,             # 3 попытки
+            backoff_factor = 1,             # 1-2-4 c
+            status_forcelist = (502, 503, 504, 522, 524)
+        )
+        self._ses = requests.Session()
+        self._ses.mount("https://", HTTPAdapter(max_retries=retries))
 
     def _pick_key(self, keys, *variants):
         """Находит ключ в словаре по вариантам названий"""
@@ -29,11 +44,14 @@ class DonateChecker:
                     return k
         return None
 
+    # -------------------------------------------------------------------
     def fetch_csv(self) -> str:
-        """Загружает CSV с сервера"""
-        r = requests.get(RAW_CSV_URL, timeout=10)
-        r.raise_for_status()
-        return r.text
+        try:
+            resp = HTTP.get(RAW_CSV_URL, timeout=(5, 30))
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            raise RuntimeError(f"Сетевой сбой: {e}") from e
 
     def find_row(self, csv_text: str, identifier: str) -> Optional[Dict[str, Any]]:
         """Находит ПОСЛЕДНЮЮ по времени строку пользователя по email или имени"""

@@ -1,3 +1,4 @@
+#startup/check_start.py
 import os
 import sys
 from PyQt6.QtWidgets import QMessageBox, QApplication
@@ -128,11 +129,13 @@ def check_startup_conditions():
     """
     Выполняет все проверки условий запуска программы с кэшированием
     """
+    warnings = []       # <- собираем все non-critical
+
     try:
         # Все проверки теперь используют кэш автоматически
         has_cmd_issues, cmd_msg = check_system_commands()
         if has_cmd_issues:
-            return False, cmd_msg
+            warnings.append(cmd_msg)
 
         has_gdpi, gdpi_msg = check_goodbyedpi()
         if has_gdpi:
@@ -159,7 +162,8 @@ def check_startup_conditions():
         if has_special_chars:
             return False, error_message
         
-        return True, ""
+        # если дошли сюда – критичных ошибок нет
+        return True, "\n\n".join(warnings)   # строка может быть пустой
         
     except Exception as e:
         error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
@@ -369,11 +373,6 @@ def check_path_for_special_chars():
     exe_path = os.path.abspath(sys.executable)
     paths_context = f"{current_path}|{exe_path}|{BIN_FOLDER}"
     
-    # Проверяем кэш с контекстом всех путей
-    has_cache, cached_result = startup_cache.is_cached_and_valid("special_chars", paths_context)
-    if has_cache:
-        return cached_result, ""  # ← ИСПРАВЛЕНО: возвращаем tuple, а не только bool
-    
     paths_to_check = [current_path, exe_path, BIN_FOLDER]
     
     for path in paths_to_check:
@@ -425,6 +424,10 @@ def display_startup_warnings():
                 _native_message("Критическая ошибка", message, 0x10)
             return False
         else:
+            if message:                        # только предупреждения
+                QMessageBox.information(None,
+                    "Предупреждение при запуске", message)
+    
             if app_exists:
                 result = QMessageBox.warning(
                     None, "Предупреждение",
@@ -478,10 +481,6 @@ def check_goodbyedpi() -> tuple[bool, str]:
     """
     Проверяет службы GoodbyeDPI с кэшированием.
     """
-    # Кэш на 1 час для служб
-    has_cache, cached_result = startup_cache.is_cached_and_valid("goodbyedpi_check")
-    if has_cache:
-        return cached_result, ""
     
     SERVICE_NAMES = [
         "GoodbyeDPI",

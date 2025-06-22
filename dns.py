@@ -10,7 +10,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from log import log
 
 from typing import List, Tuple, Dict
-import wmi
 import json
 
 IGNORED_ADAPTERS = [
@@ -41,6 +40,7 @@ class DNSManager:
     def __init__(self):
         # Кэшируем WMI соединение
         try:
+            import wmi
             self.wmi_conn = wmi.WMI()
         except Exception:
             self.wmi_conn = None

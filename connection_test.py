@@ -6,9 +6,9 @@ import logging
 import requests, webbrowser
 from datetime import datetime
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
-class ConnectionTestWorker(QThread):
+class ConnectionTestWorker(QObject):
     """Рабочий поток для выполнения тестов соединения."""
     update_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -51,8 +51,11 @@ class ConnectionTestWorker(QThread):
             logging.info(message)
             self.update_signal.emit(message)
     
+
     def ping(self, host, count=4):
         """Выполняет ping до указанного хоста с проверкой остановки."""
+        from utils.subproc import run   # импортируем наш обёрточный run
+
         if self.is_stop_requested():
             return False
             
@@ -62,17 +65,14 @@ class ConnectionTestWorker(QThread):
             # Параметры для Windows
             command = ["ping", "-n", str(count), host]
             
-            if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
-                subprocess.CREATE_NO_WINDOW = 0x08000000
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             # ✅ ДОБАВЛЯЕМ ПРОВЕРКУ ОСТАНОВКИ ПЕРЕД ЗАПУСКОМ
             if self.is_stop_requested():
                 return False
-            
-            result = subprocess.run(command, capture_output=True, text=True, 
-                                creationflags=subprocess.CREATE_NO_WINDOW,
-                                timeout=10)  # Уменьшаем таймаут
-            
+
+            result = run(command, timeout=10)
+
             # ✅ ПРОВЕРЯЕМ ОСТАНОВКУ ПОСЛЕ ВЫПОЛНЕНИЯ
             if self.is_stop_requested():
                 return False
@@ -1019,7 +1019,7 @@ class ConnectionTestDialog(QDialog):
         self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
         
         # ✅ СОЗДАЕМ ОТДЕЛЬНЫЙ ПОТОК ДЛЯ WORKER'а
-        self.worker_thread = QThread()
+        self.worker_thread = QThread(self)           # привязываем к диалогу
         self.worker = ConnectionTestWorker(test_type)
         
         # ✅ ПЕРЕНОСИМ WORKER В ОТДЕЛЬНЫЙ ПОТОК
@@ -1030,22 +1030,15 @@ class ConnectionTestDialog(QDialog):
         self.worker.update_signal.connect(self.update_result_async)
         self.worker.finished_signal.connect(self.on_test_finished_async)
         
-        # ✅ УЛУЧШЕННАЯ ОЧИСТКА ПОТОКА
-        def cleanup_thread():
-            if self.worker_thread:
-                self.worker_thread.quit()
-                if not self.worker_thread.wait(3000):
-                    self.worker_thread.terminate()
-                    self.worker_thread.wait(1000)
-        
-        self.worker.finished_signal.connect(cleanup_thread)
+        # корректная очистка
+        self.worker.finished_signal.connect(self.worker_thread.quit)
         self.worker.finished_signal.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
         
         # Устанавливаем флаг
         self.is_testing = True
         
-        # ✅ ЗАПУСКАЕМ ПОТОК
+        # запускаем
         self.worker_thread.start()
         
         from log import log
@@ -1053,6 +1046,9 @@ class ConnectionTestDialog(QDialog):
     
     def stop_test(self):
         """✅ Корректно останавливает текущий тест."""
+        if self.worker:
+            self.worker.stop_gracefully()
+
         if self.worker_thread and self.worker_thread.isRunning():
             try:
                 # ✅ МЯГКАЯ ОСТАНОВКА ВМЕСТО terminate()

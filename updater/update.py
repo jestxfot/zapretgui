@@ -1,4 +1,4 @@
-# updater.py
+# updater/updater.py
 
 # -----------------------------------------------------------------
 # Проверяет https://gitflic.ru/.../version.json и, если версия новее,
@@ -8,8 +8,84 @@ import os, sys, tempfile, subprocess, shutil, time
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore    import QTimer
 
+# ──────────────────────────────────────────────────────────────────
+#  Потоковая оболочка  (новое) 
+# ──────────────────────────────────────────────────────────────────
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+
 META_URL = "https://zapretdpi.ru/version.json"          # <- ваш JSON
 TIMEOUT  = 10                                      # сек.
+
+class UpdateWorker(QObject):
+    """Фоновая проверка и установка обновления"""
+    progress = pyqtSignal(str)    # любой статус
+    finished = pyqtSignal(bool)   # True – обновление запущено / False – отказ
+
+    def __init__(self, parent=None, silent=False):
+        super().__init__()
+        self._parent = parent
+        self._silent = silent
+
+    def run(self):
+        """Запускается внутри QThread"""
+        try:
+            ok = check_and_run_update(
+                parent    = self._parent,
+                status_cb = self._emit_status,
+                silent    = self._silent
+            )
+            self.finished.emit(ok)
+        except Exception as e:
+            # Любое необработанное исключение сюда
+            self._emit_status(f"Ошибка обновления: {e}")
+            self.finished.emit(False)
+
+    # ----------------------------------------------------------------
+    def _emit_status(self, msg: str):
+        self.progress.emit(msg)
+
+# ──────────────────────────────────────────────────────────────────
+def run_update_async(parent, silent: bool = False):
+    from log import log
+    """
+    1. Создаёт поток и воркер;
+    2. Запускает check_and_run_update() внутри него;
+    3. Автоматически освобождает ресурсы.
+    """
+    thr  = QThread(parent)
+    work = UpdateWorker(parent, silent)
+    work.moveToThread(thr)
+
+    # сигналы
+    thr.started.connect(work.run)
+
+    # а) в статус-строку
+    work.progress.connect(lambda m: _safe_set_status(parent, m))
+    # б) в лог для отладки
+    work.progress.connect(lambda m: log(f"[Updater] {m}", "DEBUG"))
+    
+    work.finished.connect(thr.quit)
+    work.finished.connect(work.deleteLater)
+    thr.finished.connect(thr.deleteLater)
+
+    thr._worker = work          # ← 1. Сохраняем ссылку (ключевая строчка)
+    thr.start()
+    
+    # 2. (необязательно) держим thread в parent, чтобы и его не съели GC
+    if parent is not None:
+        lst = getattr(parent, "_active_upd_threads", [])
+        lst.append(thr)
+        parent._active_upd_threads = lst
+        thr.finished.connect(lambda *, l=lst, t=thr: l.remove(t))
+
+    return thr
+
+# вспомогательный setter (чтобы не тянуть status_cb из main окна)
+def _safe_set_status(parent, msg: str):
+    if parent and hasattr(parent, "set_status"):
+        parent.set_status(msg)
+    else:
+        print(msg)
 
 def _kill_winws():
     """
@@ -72,7 +148,7 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
         meta = requests.get(META_URL, timeout=TIMEOUT).json()
     except Exception as e:
         from log import log
-        log(f"Не удалось проверить обновления: {e}")
+        log(f"Не удалось проверить обновления: {e}", "ERROR")
         set_status("Не удалось проверить обновления.")
         return False
 
@@ -81,16 +157,20 @@ def check_and_run_update(parent=None, status_cb=None, **kwargs):
     notes     = meta.get("release_notes", "")
 
     if not new_ver or not upd_url:
-        set_status("version.json неполон (нет version/update_url).")
+        log("version.json неполон (нет version/update_url).", "DEBUG")
         return False
 
     from config.config import APP_VERSION
     if version.parse(new_ver) <= version.parse(APP_VERSION):
-        if not silent:
-            QMessageBox.information(parent, "Обновление",
-                                     f"У вас установлена последняя версия {APP_VERSION}.")
-        return False
+        msg = f"Обновлений нет (v{APP_VERSION})"
+        set_status(msg)                     # ← STATUS ДЛЯ SILENT-РЕЖИМА
+        from log import log
+        log(f"[Updater] {msg}", "DEBUG")    # ← в лог, чтобы было видно
 
+        if not silent:                      # окно показываем только при ручной проверке
+            QMessageBox.information(parent, "Обновление", msg)
+        return False
+    
     # ─ step 3.  спрашиваем пользователя ────────────────────────
     if not silent:
         txt = (f"Доступна новая версия {new_ver} (у вас {APP_VERSION}).\n\n"

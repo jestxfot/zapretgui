@@ -2,102 +2,59 @@ import os
 import sys
 import traceback
 from datetime import datetime
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+)
 from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QThread
+from PyQt6.QtCore import Qt
+
+from log_tail import LogTailWorker
 
 class Logger:
     """Simple logging system that captures console output and errors to a file"""
     
     def __init__(self, log_file_path=None):
-        """Initialize the logger with optional log file path"""
-        if log_file_path is None:
-            # Default log file in the same directory as the executable
-            base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
-            self.log_file = os.path.join(base_dir, "zapret_log.txt")
-        else:
-            self.log_file = log_file_path
-            
-        # Ensure the directory exists
+        base_dir = os.path.dirname(
+            os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
+        )
+        self.log_file = log_file_path or os.path.join(base_dir, "zapret_log.txt")
+
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        
-        # Create or truncate the log file with a header
-        try:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write(f"=== Zapret GUI Log - Started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
-        except Exception as e:
-            print(f"Error creating log file: {str(e)}")
-        
-        # Store original stdout and stderr - with safety checks
-        try:
-            self.orig_stdout = sys.stdout if hasattr(sys.stdout, 'write') else None
-            self.orig_stderr = sys.stderr if hasattr(sys.stderr, 'write') else None
-        except Exception:
-            # In case of any error, set them to None
-            self.orig_stdout = None
-            self.orig_stderr = None
-        
-        # Replace stdout and stderr with our custom writers
-        try:
-            sys.stdout = self
-            sys.stderr = self
-        except Exception as e:
-            print(f"Error redirecting stdout/stderr: {str(e)}")
+        with open(self.log_file, "w", encoding="utf-8") as f:
+            f.write(f"=== Zapret GUI Log - Started {datetime.now():%Y-%m-%d %H:%M:%S} ===\n\n")
+
+        self.orig_stdout = sys.stdout
+        self.orig_stderr = sys.stderr
+        sys.stdout = sys.stderr = self           # перенаправляем
     
-    def write(self, message):
-        """Write to the log file and the original stdout"""
-        # Write to the original stdout if it exists
-        if self.orig_stdout is not None:
-            try:
-                self.orig_stdout.write(message)
-            except Exception:
-                # If writing to stdout fails, just ignore it
-                pass
-        
-        # Write to the log file
-        try:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                timestamp = datetime.now().strftime('%H:%M:%S')
-                f.write(f"[{timestamp}] {message}")
-        except Exception as e:
-            # If we can't write to the log file and have stderr, try to write there
-            if self.orig_stderr is not None:
-                try:
-                    self.orig_stderr.write(f"Error writing to log: {str(e)}\n")
-                except Exception:
-                    pass
+    # --- redirect interface ---------------------------------------------------
+    def write(self, message: str):
+        if self.orig_stdout:
+            self.orig_stdout.write(message)
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now():%H:%M:%S}] {message}")
+
+    def flush(self):                              # нужен для print(...)
+        if self.orig_stdout:
+            self.orig_stdout.flush()
     
-    def flush(self):
-        """Flush the output streams"""
-        if self.orig_stdout is not None:
-            try:
-                self.orig_stdout.flush()
-            except Exception:
-                pass
-        
-        if self.orig_stderr is not None:
-            try:
-                self.orig_stderr.flush()
-            except Exception:
-                pass
-    
+    # --- helper API -----------------------------------------------------------
     def log(self, message, level="INFO", component=None):
-        """Log a message with component and level prefixes"""
-        if component:
-            prefix = f"[{component}][{level}]"
-        else:
-            prefix = f"[{level}]"
-            
+        prefix = f"[{component}][{level}]" if component else f"[{level}]"
+        self.write(f"{prefix} {message}\n")
+
+    def log_exception(self, e, context=""):
+        tb = traceback.format_exc()
+        self.write(f"[ERROR] Exception in {context}: {e}\n{tb}\n")
+
+    def get_log_content(self) -> str:
         try:
-            self.write(f"{prefix} {message}\n")
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                return f.read()
         except Exception as e:
-            # Last resort - attempt direct write to the log file
-            try:
-                with open(self.log_file, 'a', encoding='utf-8') as f:
-                    timestamp = datetime.now().strftime('%H:%M:%S')
-                    f.write(f"[{timestamp}] [ERROR] Logger error: {str(e)}\n")
-                    f.write(f"[{timestamp}] {prefix} {message}\n")
-            except Exception:
-                pass
+            return f"Error reading log: {e}"
     
     def log_exception(self, e, context=""):
         """Log an exception with its traceback"""
@@ -122,162 +79,98 @@ class Logger:
         except Exception as e:
             return f"Error reading log: {str(e)}"
 
-
 class LogViewerDialog(QDialog):
-    """Dialog for viewing application logs"""
-    
-    def __init__(self, parent=None, log_content="No logs available"):
+    """
+    Просмотр лог-файла в реальном времени
+    (работает и если файл переписывается другим потоком).
+    """
+
+    def __init__(self, parent=None, log_file=None):
         super().__init__(parent)
-        self.setWindowTitle("Zapret Logs")
+        self.setWindowTitle("Zapret Logs (live)")
         self.setMinimumSize(800, 600)
-        
-        # Create layout
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+
+        # ---------- UI ----------
         layout = QVBoxLayout(self)
-        
-        # Create log text area
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
+
+        self.log_text = QTextEdit(readOnly=True)
         self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        
-        # Use monospace font for better log readability
-        font = QFont("Courier New", 9)
-        self.log_text.setFont(font)
-        
-        # Set log content
-        self.log_text.setText(log_content)
-        
-        # Add to layout
+        self.log_text.setFont(QFont("Courier New", 9))
         layout.addWidget(self.log_text)
-        
-        # Create button row
-        button_layout = QHBoxLayout()
-        
-        # Refresh button
-        refresh_button = QPushButton("Обновить")
-        refresh_button.clicked.connect(self.refresh_logs)
-        button_layout.addWidget(refresh_button)
-        
-        # Copy button
-        copy_button = QPushButton("Скопировать в буфер")
-        copy_button.clicked.connect(self.copy_to_clipboard)
-        button_layout.addWidget(copy_button)
-        
-        # Close button
-        close_button = QPushButton("Закрыть")
-        close_button.clicked.connect(self.close)
-        button_layout.addWidget(close_button)
-        
-        # Add button row to layout
-        layout.addLayout(button_layout)
-        
-        # Store reference to parent for log refresh
-        self.parent = parent
-        
-    def refresh_logs(self):
-        """Refresh the log content"""
-        from log import get_log_content
-        self.log_text.setText(get_log_content())
-        
-    def copy_to_clipboard(self):
-        """Copy log content to clipboard"""
+
+        btn_layout = QHBoxLayout()
+        btn_copy   = QPushButton("Copy to clipboard", clicked=self.copy_all)
+        btn_clear  = QPushButton("Clear view", clicked=self.log_text.clear)
+        btn_close  = QPushButton("Close", clicked=self.close)
+        btn_layout.addWidget(btn_copy)
+        btn_layout.addWidget(btn_clear)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_close)
+        layout.addLayout(btn_layout)
+
+        # ---------- Tail worker ----------
+        self._thread = QThread(self)
+        self._worker = LogTailWorker(
+            log_file or getattr(global_logger, "log_file", "application.log")
+        )
+        self._worker.moveToThread(self._thread)
+
+        self._thread.started.connect(self._worker.run)
+        self._worker.new_lines.connect(self._append_text)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+
+        self._thread.start()
+
+    # ----------- slots -----------
+    def _append_text(self, text: str):
+        cursor = self.log_text.textCursor()
+        cursor.movePosition(cursor.End)
+        cursor.insertText(text)
+        self.log_text.verticalScrollBar().setValue(
+            self.log_text.verticalScrollBar().maximum()
+        )
+
+    def copy_all(self):
         self.log_text.selectAll()
         self.log_text.copy()
-        self.log_text.moveCursor(self.log_text.textCursor().Start)
-        self.log_text.ensureCursorVisible()
+        cursor = self.log_text.textCursor()
+        cursor.movePosition(cursor.End)
+        self.log_text.setTextCursor(cursor)
 
-class LogViewerDialog(QDialog):
-    """Dialog for viewing application logs"""
-    
-    def __init__(self, parent=None, log_content="No logs available"):
-        super().__init__(parent)
-        self.setWindowTitle("Zapret Logs")
-        self.setMinimumSize(800, 600)
-        
-        # Create layout
-        layout = QVBoxLayout(self)
-        
-        # Create log text area
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        
-        # Use monospace font for better log readability
-        font = QFont("Courier New", 9)
-        self.log_text.setFont(font)
-        
-        # Set log content
-        self.log_text.setText(log_content)
-        
-        # Add to layout
-        layout.addWidget(self.log_text)
-        
-        # Create button row
-        button_layout = QHBoxLayout()
-        
-        # Refresh button
-        refresh_button = QPushButton("Refresh")
-        refresh_button.clicked.connect(self.refresh_logs)
-        button_layout.addWidget(refresh_button)
-        
-        # Copy button
-        copy_button = QPushButton("Copy to Clipboard")
-        copy_button.clicked.connect(self.copy_to_clipboard)
-        button_layout.addWidget(copy_button)
-        
-        # Close button
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(self.close)
-        button_layout.addWidget(close_button)
-        
-        # Add button row to layout
-        layout.addLayout(button_layout)
-        
-        # Store reference to parent for log refresh
-        self.parent = parent
-        
-    def refresh_logs(self):
-        """Refresh the log content"""
-        self.log_text.setText(get_log_content())
-        
-    def copy_to_clipboard(self):
-        """Copy log content to clipboard"""
-        self.log_text.selectAll()
-        self.log_text.copy()
-        self.log_text.moveCursor(self.log_text.textCursor().Start)
-        self.log_text.ensureCursorVisible()
+    def closeEvent(self, event):
+        """
+        Останавливаем tail-воркер и дожидаемся завершения потока,
+        чтобы не упасть на «Destroyed while thread is still running».
+        """
+        try:
+            if hasattr(self, "_worker") and self._worker:
+                self._worker.stop()           # просим воркер завершиться
+            if hasattr(self, "_thread") and self._thread.isRunning():
+                self._thread.quit()
+                self._thread.wait(2_000)      # <= 2 сек
+        finally:
+            super().closeEvent(event)
 
-# Create a global logger instance - with error handling
+# ───────────────────────────────────────────────────────────────
+# 3.  GLOBAL LOGGER + HELPERS
+# ───────────────────────────────────────────────────────────────
 try:
     global_logger = Logger()
-except Exception as setup_error:
-    # If logger creation fails, create a minimalist fallback
-    class FallbackLogger:
-        def log(self, message, level="INFO", component=None):
-            pass
-        def log_exception(self, e, context=""):
-            pass
-        def get_log_content(self):
-            return "Logging system initialization failed."
-    
-    global_logger = FallbackLogger()
+except Exception:
+    class _FallbackLogger:
+        def log(self, *_a, **_kw): pass
+        def log_exception(self, *_a, **_kw): pass
+        def get_log_content(self): return "Logging system initialization failed."
+    global_logger = _FallbackLogger()
 
-# Helper functions that can be imported anywhere - with error handling
-def log(message, level="INFO", component=None):
-    try:
-        global_logger.log(message, level, component)
-    except Exception:
-        # If all else fails, do nothing
-        pass
+def log(msg, level="INFO", component=None):       # удобный helper
+    global_logger.log(msg, level, component)
 
-def log_exception(e, context=""):
-    try:
-        global_logger.log_exception(e, context)
-    except Exception:
-        # If all else fails, do nothing
-        pass
+def log_exception(e, context=""):                 # helper для исключений
+    global_logger.log_exception(e, context)
 
 def get_log_content():
-    try:
-        return global_logger.get_log_content()
-    except Exception as e:
-        return f"Error retrieving log content: {str(e)}"
+    return global_logger.get_log_content()

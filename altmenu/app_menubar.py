@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox, QApplication
 from PyQt6.QtGui     import QKeySequence, QAction
-from PyQt6.QtCore    import Qt
+from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
 
 from config.config import APP_VERSION
@@ -25,7 +25,8 @@ class AppMenuBar(QMenuBar):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.parent      = parent
+        self._parent_widget = parent
+        self._settings = QSettings("ZapretGUI", "Zapret") # для сохранения настроек
         self._set_status = getattr(parent, "set_status", lambda *_: None)
 
         # -------- 1. Настройки -------------------------------------------------
@@ -475,33 +476,95 @@ class AppMenuBar(QMenuBar):
             QMessageBox.warning(self.parent, "Ошибка", err)
 
     def show_logs(self):
-        """Shows the application logs in a dialog"""
-        try: 
-            from log import get_log_content, LogViewerDialog
-            log_content = get_log_content()
-            log_dialog = LogViewerDialog(self, log_content)
-            log_dialog.exec()
+        """
+        Открывает окно просмотра логов без блокировки остального GUI.
+        Держим ссылку на объект, чтобы его не удалил сборщик мусора.
+        """
+        try:
+            from log import LogViewerDialog, global_logger
+            # если окно уже открыто ‑ просто поднимаем его
+            if getattr(self, "_log_dlg", None) and self._log_dlg.isVisible():
+                self._log_dlg.raise_()
+                self._log_dlg.activateWindow()
+                return
+
+            self._log_dlg = LogViewerDialog(
+                parent   = self.parentWidget() or self,
+                log_file = global_logger.log_file,
+            )
+            self._log_dlg.show()                   # <<- вместо exec()
+
         except Exception as e:
-            self.set_status(f"Ошибка при открытии журнала: {str(e)}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self.parentWidget() or self,
+                                "Ошибка",
+                                f"Не удалось открыть журнал:\n{e}")
 
     def send_log_to_tg(self):
-        """Отправляет текущий лог-файл в Telegram."""
-        try:
-            from tgram.tg_sender import send_log_to_tg
-            from tgram.tg_log_delta import get_client_id
+        """Асинхронно отправляет полный лог, но не чаще раза в 10 минут даже после перезапуска."""
+        import time
+        now = time.time()
+        interval = 10 * 60  # 10 минут
 
-            # путь к вашему лог-файлу (как в модуле log)
-            LOG_PATH = "zapret_log.txt"
+        # читаем из настроек (реестра)
+        last = self._settings.value("last_full_log_send", 0.0, type=float)
 
-            caption = f"Zapret log  (ID: {get_client_id()}, v{APP_VERSION})"
-            send_log_to_tg(LOG_PATH, caption)
+        if now - last < interval:
+            remaining = int((interval - (now - last)) // 60) + 1
+            QMessageBox.information(self.parent(), "Отправка логов",
+                f"Лог отправлялся недавно.\n"
+                f"Следующая отправка возможна через {remaining} мин.")
+            return
 
-            QMessageBox.information(self, "Отправка",
-                                    "Лог отправлен боту.")
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка",
-                                f"Не удалось отправить лог:\n{e}")
-            
+        # запоминаем текущее время
+        self._settings.setValue("last_full_log_send", now)
+
+        # Обычный асинхронный код отправки…
+        from tgram.tg_log_full  import TgSendWorker
+        from tgram.tg_log_delta import get_client_id
+        from config.config      import APP_VERSION
+
+        LOG_PATH = "zapret_log.txt"
+        caption  = f"Zapret log (ID: {get_client_id()}, v{APP_VERSION})"
+
+        action = self.sender()                # QAction, вызвавший слот
+        if action:
+            action.setEnabled(False)
+
+        wnd = self._parent_widget  # объект LupiDPIApp
+
+        if hasattr(wnd, "set_status"):
+            wnd.set_status("Отправка полного лога…")
+
+        # поток + воркер
+        thr    = QThread(self)
+        worker = TgSendWorker(LOG_PATH, caption)
+        worker.moveToThread(thr)
+        thr.started.connect(worker.run)
+
+        def _on_done(ok: bool, extra_wait: float):
+            if ok:
+                QMessageBox.information(wnd, "Отправка", "Лог успешно отправлен.")
+                if hasattr(wnd, "set_status"):
+                    wnd.set_status("Полный лог отправлен в Telegram")
+            else:
+                QMessageBox.warning(wnd, "Отправка",
+                    "Не удалось отправить лог (flood-wait).\n"
+                    "Повторите позже.")
+                if hasattr(wnd, "set_status"):
+                    wnd.set_status("Не удалось отправить лог")
+            # чистим
+            worker.deleteLater()
+            thr.quit(); thr.wait()
+            if action:
+                action.setEnabled(True)
+
+        worker.finished.connect(_on_done)
+
+        # чтобы поток и воркер не были собраны GC
+        self._log_send_thread = thr
+        thr.start()
+
     # ==================================================================
     #  Андроид
     # ==================================================================

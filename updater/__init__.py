@@ -7,11 +7,12 @@ Contains functionality for downloading and installing updates from GitHub releas
 
 from .update_netrogat import update_netrogat_list
 from .update_other import update_other_list
-from .update import check_and_run_update
+from .update import run_update_async, check_and_run_update
 
 __all__ = [
     'update_netrogat_list',
     'update_other_list', 
+    'run_update_async',
     'check_and_run_update'
 ]
 

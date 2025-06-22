@@ -4,7 +4,7 @@
 pip install pyinstaller packaging PyQt6 requests pywin32 python-telegram-bot psutil qt_material
 """
 
-import sys, os, ctypes, subprocess, webbrowser, time
+import sys, os, subprocess, webbrowser, time
 
 from PyQt6.QtCore    import QTimer, QThread
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
@@ -30,7 +30,6 @@ from dpi.start import DPIStarter
 
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
-from updater import check_and_run_update
 from altmenu.app_menubar import AppMenuBar
 from log import log
 
@@ -761,9 +760,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # Проверяем обновления только если это НЕ тестовый билд
         if not is_test_build():
-            log("Запуск плановой проверки обновлений...", level="INFO")
-            QTimer.singleShot(1000, lambda: check_and_run_update(
-                parent=self, status_cb=self.set_status, silent=True))
+            QTimer.singleShot(1000, self._start_auto_update)
         else:
             log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
             self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
@@ -772,6 +769,46 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # УБИРАЕМ дополнительную проверку подписки - она уже идет асинхронно
         # QTimer.singleShot(3000, self.post_init_subscription_check)
 
+    def _start_auto_update(self):
+        """
+        Плановая (тихая) проверка обновлений в фоне.
+        Вызывается один раз из _on_heavy_done().
+        """
+        self.set_status("Плановая проверка обновлений…")
+
+        # --- запускаем воркер ---
+        try:
+            from updater import run_update_async           # из updater/__init__.py
+        except Exception as e:
+            log(f"Auto-update: import error {e}", "ERROR")
+            self.set_status("Не удалось запустить авто-апдейт")
+            return
+
+        # создаём поток/воркер
+        thread = run_update_async(parent=self, silent=True)
+        worker = thread._worker            # ссылка, которую мы сохранили в run_update_async
+
+        # --------- обработчик завершения ----------
+        def _upd_done(ok: bool):
+            if ok:
+                self.set_status("🔄 Обновление установлено – Zapret перезапустится")
+            else:
+                self.set_status("✅ Обновлений нет")
+            log(f"Auto-update finished, ok={ok}", "DEBUG")
+
+            # убираем ссылки, чтобы thread/worker мог закрыться
+            if hasattr(self, "_auto_upd_thread"):
+                del self._auto_upd_thread
+            if hasattr(self, "_auto_upd_worker"):
+                del self._auto_upd_worker
+
+        # подключаемся к сигналу *worker*.finished(bool)
+        worker.finished.connect(_upd_done)
+
+        # храним ссылки, чтобы объекты не удалились преждевременно
+        self._auto_upd_thread = thread
+        self._auto_upd_worker = worker
+    
     def init_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
         if hasattr(self, 'process_monitor') and self.process_monitor is not None:
@@ -942,7 +979,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         
         # после создания GUI и инициализации логгера:
-        from tgram.tg_log_full import FullLogDaemon
+        from tgram import FullLogDaemon
         self.log_sender = FullLogDaemon(
                 log_path = "zapret_log.txt",
                 interval = 120,      # интервал отправки в секундах
@@ -1180,18 +1217,19 @@ class LupiDPIApp(QWidget, MainWindowUI):
     # QTimer.singleShot(3000, self.post_init_subscription_check)
             
     def manual_update_check(self):
-        """Запускает проверку обновлений вручную, если это не тестовый билд."""
-        
+        """Ручная проверка обновлений (кнопка)"""
+
         if is_test_build():
-            log(f"Ручная проверка обновлений отключена для тестового билда ({APP_VERSION})", level="INFO")
-            QMessageBox.information(self, "Тестовый билд",
-                                    f"Текущая версия ({APP_VERSION}) является тестовой.\n"
-                                    "Ручная проверка обновлений отключена для таких версий.")
-            self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
-        else:
-            log("Запуск ручной проверки обновлений...", level="INFO")
-            # Запускаем проверку как обычно (silent=False для ручного режима)
-            check_and_run_update(parent=self, status_cb=self.set_status, silent=False)
+            QMessageBox.information(self, "Обновления",
+                                    "Тестовый билд – обновления отключены")
+            return
+
+        log("Запуск ручной проверки обновлений...", level="INFO")
+        # работаем синхронно – GUI-поток, появится QMessageBox
+        from updater import check_and_run_update
+        check_and_run_update(parent=self, status_cb=self.set_status, silent=False)
+
+        self.set_status("Проверка обновлений…")
 
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы тем"""
@@ -1905,7 +1943,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
 def main():
     # Add sys.excepthook to catch unhandled exceptions
-    import sys
+    import sys, ctypes
     def global_exception_handler(exctype, value, traceback):
         from log import log
         import traceback as tb
@@ -1937,20 +1975,36 @@ def main():
     import atexit;  atexit.register(lambda: release_mutex(mutex_handle))
 
     # ---------------- быстрые проверки (без Qt) -----------------------
-    from startup.bfe_util import ensure_bfe_running
-
-    # Добавляем быструю проверку кэша BFE перед UI
     from startup.check_cache import startup_cache
     has_bfe_cache, bfe_cached = startup_cache.is_cached_and_valid("bfe_check")
-    
+
     if has_bfe_cache and bfe_cached:
         log("BFE: используем кэшированный результат (OK)", "DEBUG")
+
     elif has_bfe_cache and not bfe_cached:
         log("BFE: кэшированный результат - ОШИБКА", "ERROR")
+
+        # СООБЩЕНИЕ ДЛЯ ПОЛЬЗОВАТЕЛЯ
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            "Служба Base Filtering Engine (BFE) отключена или не запускается.\n"
+            "Без неё Zapret работать не может.\n\n"
+            "1. Откройте «services.msc» и запустите службу "
+            "«Base Filtering Engine» (тип запуска – Автоматически).\n"
+            "2. Если не запускается, выполните в PowerShell от имени администратора:\n"
+            "   sc config bfe start= auto\n"
+            "   net start bfe\n"
+            "3. После исправления удалите кэш (zapret --clear-cache bfe_check) "
+            "или подождите 2 часа и запустите Zapret снова.",
+            "Zapret – ошибка запуска",
+            0x30  # MB_ICONWARNING
+        )
         sys.exit(1)
+
     else:
-        # Только если нет кэша - делаем реальную проверку
-        if not ensure_bfe_running(show_ui=True):
+        # Нет кэша → выполняем реальную проверку
+        from startup.bfe_util import ensure_bfe_running
+        if not ensure_bfe_running(show_ui=True):     # эта функция сама покажет MessageBox
             sys.exit(1)
 
     # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
