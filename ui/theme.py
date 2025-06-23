@@ -138,48 +138,72 @@ class RippleButton(QPushButton):
 
 class ThemeManager:
     """Класс для управления темами приложения"""
-    
-    def __init__(self, app, widget, status_label, bin_folder, donate_checker=None):
-        self.app = app
-        self.widget = widget
-        self.status_label = status_label
-        self.bin_folder = bin_folder
+
+    # ------------------------------------------------------------------
+    def __init__(self, app, widget, status_label, bin_folder,
+                 donate_checker=None):
+        self.app            = app
+        self.widget         = widget
+        self.status_label   = status_label
+        self.bin_folder     = bin_folder
         self.donate_checker = donate_checker
+        self._fallback_due_to_premium: str | None = None  # ← запомним, если был откат
 
-        # Инициализируем themes на основе существующего словаря THEMES
-        self.themes = []
-        for theme_name in THEMES.keys():
-            is_premium = (theme_name == "РКН Тян")  # Только РКН Тян - премиум
-            self.themes.append({
-                'name': theme_name,
-                'premium': is_premium
-            })
+        # ---------- список тем (делаем один раз!) ---------------------
+        self.themes = [
+            {'name': name, 'premium': name == "РКН Тян"}
+            for name in THEMES
+        ]
 
-        # Загружаем сохраненную тему или используем системную
-        saved_theme = get_selected_theme()
-        if saved_theme and saved_theme in THEMES:
-            # Проверяем доступность темы РКН Тян
-            if saved_theme == "РКН Тян" and not self._is_premium_available():
-                log("Тема РКН Тян недоступна без подписки, переключаем на темную синюю", level="INFO")
+        # ---------- выбираем стартовую тему ---------------------------
+        saved = get_selected_theme()
+        if saved and saved in THEMES:
+            if saved == "РКН Тян" and not self._is_premium_available():
+                log("Премиум недоступен; временно «Тёмная синяя»", "INFO")
                 self.current_theme = "Темная синяя"
-                set_selected_theme(self.current_theme)
+                self._fallback_due_to_premium = saved  # запомнили «РКН Тян»
             else:
-                self.current_theme = saved_theme
+                self.current_theme = saved
         else:
-            windows_theme = get_windows_theme()
-            self.current_theme = "Светлая синяя" if windows_theme == "light" else "Темная синяя"
+            self.current_theme = (
+                "Светлая синяя" if get_windows_theme() == "light"
+                else "Темная синяя"
+            )
 
-    def _is_premium_available(self):
-        """Проверяет доступность премиум функций"""
+        # применяем тему, НО БЕЗ записи в настройки
+        self.apply_theme(self.current_theme, persist=False)
+
+    # -------------------------------------------------------------------------
+    # вспомогательные методы
+    # -------------------------------------------------------------------------
+    def _is_premium_available(self) -> bool:
         if not self.donate_checker:
             return False
         try:
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
-            return is_premium
+            is_prem, *_ = self.donate_checker.check_subscription_status()
+            return is_prem
         except Exception as e:
-            log(f"Ошибка при проверке статуса подписки для темы: {e}", level="ERROR")
+            log(f"Ошибка проверки подписки: {e}", "ERROR")
             return False
         
+    def reapply_saved_theme_if_premium(self):
+        """
+        Вызывайте после инициализации DonateChecker.
+        Восстанавливает премиум-тему «РКН Тян», если подписка подтверждена.
+        """
+        if (not self._fallback_due_to_premium or      # не было отката
+                not self._is_premium_available()):    # премиум всё ещё нет
+            return
+
+        ok, msg = self.apply_theme(self._fallback_due_to_premium,
+                                   persist=True)      # Сохраняем выбор!
+        if ok:
+            log(f"Премиум-тема «{self._fallback_due_to_premium}» восстановлена",
+                "INFO")
+            self._fallback_due_to_premium = None
+        else:
+            log(f"Не удалось восстановить тему: {msg}", "WARNING")
+
     def get_available_themes(self):
         """Возвращает список доступных тем с учетом статуса подписки"""
         themes = []
@@ -212,92 +236,79 @@ class ThemeManager:
             return display_name.replace(" (заблокировано)", "")
         return display_name
 
-    def apply_theme(self, theme_name=None):
-        """Применяет указанную тему с проверкой доступности"""
+    def apply_theme(self, theme_name: str | None = None, *, persist: bool = True) -> tuple[bool, str]:
+        """
+        Применяет тему.
+        persist=False  – только визуально, без записи в настройки.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+        import qt_material
+
         if theme_name is None:
             theme_name = self.current_theme
-        
-        # Очищаем название темы от пометок
-        clean_theme_name = self.get_clean_theme_name(theme_name)
-        
-        # Проверяем доступность темы РКН Тян
-        if clean_theme_name == "РКН Тян" and not self._is_premium_available():
-            from PyQt6.QtWidgets import QMessageBox
-            
-            QMessageBox.information(self.widget, "Премиум тема", 
-                "Тема 'РКН Тян' доступна только для подписчиков Zapret Premium.\n\n"
-                "Для получения доступа используйте кнопку 'Управление подпиской'.")
-            
-            # Возвращаемся к предыдущей теме в комбо-боксе
-            if hasattr(self.widget, 'theme_combo'):
-                available_themes = self.get_available_themes()
-                for theme in available_themes:
-                    if self.get_clean_theme_name(theme) == self.current_theme:
-                        self.widget.theme_combo.blockSignals(True)
-                        self.widget.theme_combo.setCurrentText(theme)
-                        self.widget.theme_combo.blockSignals(False)
-                        break
-            
-            return False, "Тема недоступна без подписки"
-        
+
+        clean = self.get_clean_theme_name(theme_name)
+
+        # --- премиум-проверка --------------------------------------
+        if clean == "РКН Тян" and not self._is_premium_available():
+            QMessageBox.information(
+                self.widget, "Премиум-тема",
+                "Тема «РКН Тян» доступна только для подписчиков Zapret Premium."
+            )
+            return False, "need premium"
+
         try:
-            import qt_material
-            theme_info = THEMES[clean_theme_name]
-            
-            qt_material.apply_stylesheet(self.app, theme=theme_info["file"])
-            
-            # Обновляем цвет текста статуса
-            self.status_label.setStyleSheet(f"color: {theme_info['status_color']}; font-size: 9pt;")
+            info = THEMES[clean]
+            qt_material.apply_stylesheet(self.app, theme=info["file"])
 
-            # Обновляем цвет синих кнопок
-            if hasattr(self.widget, 'themed_buttons'):
-                button_color = theme_info.get("button_color", "0, 119, 255")
-                for button in self.widget.themed_buttons:
-                    button.setStyleSheet(BUTTON_STYLE.format(button_color))
-                    button._bgcolor = button_color  # Обновляем внутренний цвет для ripple
+            # обновляем цвета, кнопки, лейблы … (как у вас было)
+            self.status_label.setStyleSheet(
+                f"color: {info['status_color']}; font-size: 9pt;"
+            )
 
-            # Применяем тему к меткам
-            if hasattr(self.widget, 'themed_labels'):
-                for label in self.widget.themed_labels:
-                    label_color = theme_info.get('button_color', '0, 119, 255')
-                    # Преобразуем RGB значения в hex цвет
-                    if ',' in label_color:
-                        rgb_values = [int(x.strip()) for x in label_color.split(',')]
-                        label_color = f"#{rgb_values[0]:02x}{rgb_values[1]:02x}{rgb_values[2]:02x}"
-                    
-                    current_style = label.styleSheet()
-                    # Обновляем только цвет, сохраняя остальные стили
-                    updated_style = self._update_color_in_style(current_style, label_color)
-                    label.setStyleSheet(updated_style)
+            # цвет «синих» кнопок
+            if hasattr(self.widget, "themed_buttons"):
+                btn_color = info.get("button_color", "0, 119, 255")
+                for btn in self.widget.themed_buttons:
+                    btn.setStyleSheet(BUTTON_STYLE.format(btn_color))
+                    btn._bgcolor = btn_color
 
-            # Обновляем заголовок с премиум статусом под новую тему
-            # ПЕРЕДАЕМ АКТУАЛЬНУЮ ТЕМУ, а не берем из реестра
-            if hasattr(self.widget, 'update_title_with_subscription_status') and hasattr(self.widget, 'donate_checker'):
+            # цвет меток
+            if hasattr(self.widget, "themed_labels"):
+                lbl_color = info.get("button_color", "0, 119, 255")
+                if "," in lbl_color:                                   # RGB→HEX
+                    r, g, b = [int(x) for x in lbl_color.split(",")]
+                    lbl_color = f"#{r:02x}{g:02x}{b:02x}"
+                for lbl in self.widget.themed_labels:
+                    cur = lbl.styleSheet()
+                    lbl.setStyleSheet(self._update_color_in_style(cur, lbl_color))
+
+            # обновляем заголовок (если есть донат-чекер)
+            if (hasattr(self.widget, "update_title_with_subscription_status")
+                    and hasattr(self.widget, "donate_checker")):
                 try:
-                    is_premium, status_msg, days_remaining = self.widget.donate_checker.check_subscription_status()
-                    self.widget.update_title_with_subscription_status(is_premium, clean_theme_name, days_remaining)
-                    log(f"Обновлен статус подписки после смены темы: premium={is_premium}, тема={clean_theme_name}", level="DEBUG")
+                    is_prem, msg, days = self.widget.donate_checker.check_subscription_status()
+                    self.widget.update_title_with_subscription_status(is_prem, clean, days)
                 except Exception as e:
-                    log(f"Ошибка при обновлении статуса подписки после смены темы: {e}", level="ERROR")
-                    # В случае ошибки показываем базовый заголовок
-                    self.widget.update_title_with_subscription_status(False, clean_theme_name, None)
+                    log(f"Ошибка обновления статуса подписки: {e}", "ERROR")
+                    self.widget.update_title_with_subscription_status(False, clean, None)
 
-            # Если выбрана тема РКН Тян, применяем фоновое изображение (только для премиум)
-            if clean_theme_name == "РКН Тян":
+            # фон для РКН-тян
+            if clean == "РКН Тян":
                 from PyQt6.QtCore import QTimer
                 QTimer.singleShot(500, self.apply_rkn_background)
             else:
                 self.widget.setAutoFillBackground(False)
-            
-            set_selected_theme(clean_theme_name)
-            self.current_theme = clean_theme_name
-            
-            return True, ""
+
+            if persist:
+                set_selected_theme(clean)           # ← запись ТОЛЬКО если persist
+            self.current_theme = clean
+            return True, "ok"
+
         except Exception as e:
-            error_msg = f"Ошибка при применении темы: {str(e)}"
-            log(error_msg, level="ERROR")
-            return False, error_msg
-    
+            log(f"Theme error: {e}", "ERROR")
+            return False, str(e)
+
     def _update_color_in_style(self, current_style, new_color):
         """Обновляет цвет в существующем стиле"""
         import re

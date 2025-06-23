@@ -1029,27 +1029,39 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self._donate_thread.start()
 
     def _on_donate_checker_ready(self, checker):
-        """Вызывается когда DonateChecker готов"""
-        if checker:
-            self.donate_checker = checker
-            log("DonateChecker инициализирован асинхронно", "INFO")
-            
-            # Сразу обновляем UI с реальными данными
-            QTimer.singleShot(100, self._update_subscription_ui)
-            
-            # Запускаем периодическую проверку
-            self._start_subscription_timer()
-            
-        else:
-            log("DonateChecker недоступен - работаем без проверки подписки", "WARNING")
-            self.set_status("Проверка подписки недоступна")
-        
-        # Обновляем ThemeManager после готовности checker'а
-        if hasattr(self, 'theme_manager'):
-            self.theme_manager.donate_checker = self.donate_checker
-            # Обновляем доступные темы
-            available_themes = self.theme_manager.get_available_themes()
-            self.update_theme_combo(available_themes)
+        """Колбэк фонового потока DonateChecker."""
+        if not checker:
+            log("DonateChecker не инициализирован – работаем без премиума", "WARNING")
+            return
+
+        self.donate_checker = checker
+        self.theme_manager.donate_checker = checker
+
+        # 1. восстанавливаем премиум-тему, если надо
+        log("Пробуем вернуть премиум-тему…", "DEBUG")
+        self.theme_manager.reapply_saved_theme_if_premium()
+
+        # 2. запрашиваем статус подписки
+        try:
+            is_premium, status_msg, days_remaining = checker.check_subscription_status()
+        except Exception as e:
+            log(f"Ошибка проверки подписки: {e}", "ERROR")
+            is_premium, status_msg, days_remaining = False, "", None
+
+        # 3. обновляем заголовок
+        self.update_title_with_subscription_status(
+            is_premium,
+            self.theme_manager.current_theme,
+            days_remaining
+        )
+
+        # 4. перезаполняем список тем в комбобоксе
+        self.update_theme_combo(self.theme_manager.get_available_themes())
+
+        # 5. запускаем периодический таймер проверки
+        self._start_subscription_timer()
+
+
 
     def _update_subscription_ui(self):
         """Обновляет UI с реальным статусом подписки"""
@@ -1092,29 +1104,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         self.subscription_timer.start(interval_minutes * 60 * 1000)
         log(f"Таймер периодической проверки подписки запущен ({interval_minutes} мин)", "DEBUG")
-
-    def _on_donate_checker_ready(self, checker):
-        """Вызывается когда DonateChecker готов"""
-        self.donate_checker = checker
-        
-        if checker:
-            log("DonateChecker инициализирован", "INFO")
-            # Обновляем UI с данными подписки
-            QTimer.singleShot(100, self.update_subscription_status_in_title)
-        else:
-            log("DonateChecker недоступен - работаем без проверки подписки", "WARNING")
-            # Создаем заглушку для методов
-            class DummyChecker:
-                def check_subscription_status(self, use_cache=True):
-                    return False, "Проверка недоступна", 0
-                def get_email_from_registry(self):
-                    return None
-            
-            self.donate_checker = DummyChecker()
-        
-        # Обновляем ThemeManager после готовности checker'а
-        if hasattr(self, 'theme_manager'):
-            self.theme_manager.donate_checker = self.donate_checker
 
     def update_subscription_status_in_title(self):
         """Обновляет статус подписки в title_label"""
