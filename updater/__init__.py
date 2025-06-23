@@ -1,10 +1,4 @@
-"""
-Updater module for Zapret GUI application.
-
-This module handles automatic updates, version checking, and update notifications.
-Contains functionality for downloading and installing updates from GitHub releases.
-"""
-
+# updater/__init__.py
 from .update_netrogat import update_netrogat_list
 from .update_other import update_other_list
 from .update import run_update_async, check_and_run_update

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from config.config import APP_VERSION
+from config import APP_VERSION # build_info moved to config/__init__.py
 from log import log
 from tgram import get_client_id            # UUID устройства
 

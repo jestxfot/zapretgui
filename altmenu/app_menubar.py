@@ -5,7 +5,7 @@ from PyQt6.QtGui     import QKeySequence, QAction
 from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
 
-from config.config import APP_VERSION
+from config import APP_VERSION # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
 from config.reg import get_auto_download_enabled, set_auto_download_enabled
@@ -25,7 +25,7 @@ class AppMenuBar(QMenuBar):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._parent_widget = parent
+        self._pw = parent
         self._settings = QSettings("ZapretGUI", "Zapret") # для сохранения настроек
         self._set_status = getattr(parent, "set_status", lambda *_: None)
 
@@ -139,13 +139,13 @@ class AppMenuBar(QMenuBar):
             set_auto_download_enabled(checked)
             
             status_text = "включена" if checked else "отключена"
-            QMessageBox.information(self.parent, "Автозагрузка", 
+            QMessageBox.information(self._pw, "Автозагрузка", 
                                   f"Автозагрузка при старте {status_text}.\n"
                                   f"Изменения вступят в силу при следующем запуске программы.")
             log(f"Пользователь {'включил' if checked else 'отключил'} автозагрузку", "INFO")
             
         except Exception as e:
-            QMessageBox.warning(self.parent, "Ошибка", 
+            QMessageBox.warning(self._pw, "Ошибка", 
                               f"Не удалось изменить настройку автозагрузки: {e}")
             log(f"Ошибка изменения автозагрузки: {e}", "ERROR")
 
@@ -155,12 +155,12 @@ class AppMenuBar(QMenuBar):
         from log import log
         try:
             startup_cache.invalidate_cache()
-            QMessageBox.information(self.parent, "Кэш очищен", 
+            QMessageBox.information(self._pw, "Кэш очищен", 
                                   "Кэш проверок запуска успешно очищен.\n"
                                   "При следующем запуске все проверки будут выполнены заново.")
             log("Кэш проверок запуска очищен пользователем", "INFO")
         except Exception as e:
-            QMessageBox.warning(self.parent, "Ошибка", 
+            QMessageBox.warning(self._pw, "Ошибка", 
                               f"Не удалось очистить кэш: {e}")
             log(f"Ошибка очистки кэша: {e}", "ERROR")
 
@@ -170,18 +170,18 @@ class AppMenuBar(QMenuBar):
         
         # Управление подпиской
         subscription_action = premium_menu.addAction("📋 Управление подпиской")
-        subscription_action.triggered.connect(self.parent.show_subscription_dialog)
+        subscription_action.triggered.connect(self._pw.show_subscription_dialog)
         
         premium_menu.addSeparator()
         
         # Информация о сервере
         server_info_action = premium_menu.addAction("⚙️ Статус сервера")
-        server_info_action.triggered.connect(self.parent.get_boosty_server_info)
-        
-        # Переключение сервера  
+        server_info_action.triggered.connect(self._pw.get_boosty_server_info)
+
+        # Переключение сервера
         server_toggle_action = premium_menu.addAction("🔄 Переключить сервер")
-        server_toggle_action.triggered.connect(self.parent.toggle_boosty_server)
-        
+        server_toggle_action.triggered.connect(self._pw.toggle_boosty_server)
+
         premium_menu.addSeparator()
         
         # Ссылка на Boosty
@@ -211,10 +211,10 @@ class AppMenuBar(QMenuBar):
                 "Если у вас возникнут проблемы с работой DPI-обхода, "
                 "рекомендуется включить эту опцию обратно."
             )
-            QMessageBox.warning(self.parent, "Предупреждение", warning_msg)
+            QMessageBox.warning(self._pw, "Предупреждение", warning_msg)
         else:
-            QMessageBox.information(self.parent, "Удаление Windows Terminal", msg)
-            
+            QMessageBox.information(self._pw, "Удаление Windows Terminal", msg)
+
     def toggle_dpi_autostart(self, enabled: bool):
         """
         Включает / выключает автозапуск DPI и показывает диалог-уведомление.
@@ -225,7 +225,7 @@ class AppMenuBar(QMenuBar):
                if enabled
                else "Автоматический запуск DPI отключён")
         self._set_status(msg)
-        QMessageBox.information(self.parent, "Автозапуск DPI", msg)
+        QMessageBox.information(self._pw, "Автозапуск DPI", msg)
 
     def toggle_strategy_autoload(self, enabled: bool):
         """
@@ -241,7 +241,7 @@ class AppMenuBar(QMenuBar):
                 "всей программы!"
             )
             resp = QMessageBox.question(
-                self.parent,
+                self._pw,
                 "Отключить автозагрузку стратегий?",
                 warn,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -260,7 +260,7 @@ class AppMenuBar(QMenuBar):
                if enabled
                else "Автозагрузка стратегий отключена")
         self._set_status(msg)
-        QMessageBox.information(self.parent, "Автозагрузка стратегий", msg)
+        QMessageBox.information(self._pw, "Автозагрузка стратегий", msg)
 
     # ==================================================================
     #  Полный выход (убираем трей +, при желании, останавливаем DPI)
@@ -270,7 +270,7 @@ class AppMenuBar(QMenuBar):
         # -----------------------------------------------------------------
         # 1. Диалог на русском, но с англ. подсказками в тексте
         # -----------------------------------------------------------------
-        box = QMessageBox(self.parent)
+        box = QMessageBox(self._pw)
         box.setWindowTitle("Выход")
         box.setIcon(QMessageBox.Icon.Question)
 
@@ -309,20 +309,20 @@ class AppMenuBar(QMenuBar):
         if stop_dpi_required:
             try:
                 from dpi.stop import stop_dpi
-                stop_dpi(self.parent)
+                stop_dpi(self._pw)
             except Exception as e:
                 QMessageBox.warning(
-                    self.parent, "Ошибка DPI",
+                    self._pw, "Ошибка DPI",
                     f"Не удалось остановить DPI:\n{e}"
                 )
 
-        if hasattr(self.parent, "process_monitor") and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
+        if hasattr(self._pw, "process_monitor") and self._pw.process_monitor:
+            self._pw.process_monitor.stop()
 
-        if hasattr(self.parent, "tray_manager"):
-            self.parent.tray_manager.tray_icon.hide()
+        if hasattr(self._pw, "tray_manager"):
+            self._pw.tray_manager.tray_icon.hide()
 
-        self.parent._allow_close = True
+        self._pw._allow_close = True
         QApplication.quit()
 
     # === ОБРАБОТЧИКИ ДЛЯ ХОСТЛИСТОВ ===
@@ -331,10 +331,10 @@ class AppMenuBar(QMenuBar):
         from log import log
         from updater import update_netrogat_list
         try:
-            if hasattr(self.parent, 'hosts_manager'):
-                self.parent.set_status("Обновление списка исключений...")
-                update_netrogat_list(parent=self.parent, status_callback=self.parent.set_status)
-                self.parent.set_status("Готово")
+            if hasattr(self._pw, 'hosts_manager'):
+                self._pw.set_status("Обновление списка исключений...")
+                update_netrogat_list(parent=self._pw, status_callback=self._pw.set_status)
+                self._pw.set_status("Готово")
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
         except Exception as e:
@@ -346,10 +346,10 @@ class AppMenuBar(QMenuBar):
         from log import log
         from updater import update_other_list
         try:
-            if hasattr(self.parent, 'hosts_manager'):
-                self.parent.set_status("Обновление списка своих сайтов...")
-                update_other_list(parent=self.parent, status_callback=self.parent.set_status)
-                self.parent.set_status("Готово")
+            if hasattr(self._pw, 'hosts_manager'):
+                self._pw.set_status("Обновление списка своих сайтов...")
+                update_other_list(parent=self._pw, status_callback=self._pw.set_status)
+                self._pw.set_status("Готово")
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
         except Exception as e:
@@ -362,11 +362,11 @@ class AppMenuBar(QMenuBar):
         try:
             import subprocess
             import os
-            from config.config import NETROGAT_PATH
+            from config.config import NETROGAT2_PATH
 
-            if not os.path.exists(NETROGAT_PATH):
-                with open(NETROGAT_PATH, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
+            if not os.path.exists(NETROGAT2_PATH):
+                with open(NETROGAT2_PATH, 'w', encoding='utf-8') as f:
+                    f.write("# Добавьте сюда свои домены, по одному на ОДНУ строку БЕЗ WWW И HTTP ИЛИ HTTPS! Пример: vk.com\n")
 
             # Пробуем разные редакторы по полным путям
             editors = [
@@ -374,6 +374,7 @@ class AppMenuBar(QMenuBar):
                 r'C:\Windows\notepad.exe',                             # Альтернативный путь
                 r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
                 r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
+                r'C:\Program Files\VsCodium\VsCodium.exe',            # VsCodium
                 r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
                 r'C:\Program Files\Microsoft VS Code\Code.exe',  # VS Code (другой путь)
                 r'C:\Windows\System32\write.exe',                      # WordPad
@@ -383,9 +384,9 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        subprocess.Popen(f'"{editor}" "{NETROGAT_PATH}"', shell=True)
+                        subprocess.Popen(f'"{editor}" "{NETROGAT2_PATH}"', shell=True)
                         editor_name = os.path.basename(editor)
-                        self.parent.set_status(f"Открыт файл исключений в {editor_name}")
+                        self._pw.set_status(f"Открыт файл исключений в {editor_name}")
                         success = True
                         break
                     except (FileNotFoundError, OSError):
@@ -394,16 +395,16 @@ class AppMenuBar(QMenuBar):
             if not success:
                 # Если ни один редактор не найден - открываем через ассоциацию Windows
                 try:
-                    self.parent.set_status("Открыт файл исключений в системном редакторе")
+                    self._pw.set_status("Открыт файл исключений в системном редакторе")
                 except Exception as fallback_error:
                     # Последний вариант - показываем путь к файлу
                     QMessageBox.information(
                         self, 
                         "Мы не нашли никакой редактор :(",
-                        f"Откройте файл вручную:\n{NETROGAT_PATH}\n\n"
+                        f"Откройте файл вручную:\n{NETROGAT2_PATH}\n\n"
                         "Добавьте туда домены, по одному на строку."
                     )
-                    self.parent.set_status("Создан файл исключений")
+                    self._pw.set_status("Создан файл исключений")
 
         except Exception as e:
             log(f"Ошибка при открытии файла исключений: {e}", level="ERROR")
@@ -415,11 +416,11 @@ class AppMenuBar(QMenuBar):
         try:
             import subprocess
             import os
-            from config.config import OTHER_PATH
+            from config.config import OTHER2_PATH
 
-            if not os.path.exists(OTHER_PATH):
-                with open(OTHER_PATH, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на строку\n")
+            if not os.path.exists(OTHER2_PATH):
+                with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
+                    f.write("# Добавьте сюда свои домены, по одному на ОДНУ строку БЕЗ WWW И HTTP ИЛИ HTTPS! Пример: vk.com\n")
 
             # Пробуем разные редакторы по полным путям
             editors = [
@@ -436,9 +437,9 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        subprocess.Popen(f'"{editor}" "{OTHER_PATH}"', shell=True)
+                        subprocess.Popen(f'"{editor}" "{OTHER2_PATH}"', shell=True)
                         editor_name = os.path.basename(editor)
-                        self.parent.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
+                        self._pw.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
                         success = True
                         break
                     except (FileNotFoundError, OSError):
@@ -447,16 +448,16 @@ class AppMenuBar(QMenuBar):
             if not success:
                 # Если ни один редактор не найден - открываем через ассоциацию Windows
                 try:
-                    self.parent.set_status("Открыт файл кастомных сайтов в системном редакторе")
+                    self._pw.set_status("Открыт файл кастомных сайтов в системном редакторе")
                 except Exception as fallback_error:
                     # Последний вариант - показываем путь к файлу
                     QMessageBox.information(
                         self, 
                         "Мы не нашли никакой редактор :(",
-                        f"Откройте файл вручную:\n{OTHER_PATH}\n\n"
+                        f"Откройте файл вручную:\n{OTHER2_PATH}\n\n"
                         "Добавьте туда домены, по одному на строку."
                     )
-                    self.parent.set_status("Создан файл кастомных сайтов")
+                    self._pw.set_status("Создан файл кастомных сайтов")
 
         except Exception as e:
             log(f"Ошибка при открытии файла кастомных сайтов: {e}", level="ERROR")
@@ -473,7 +474,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии руководства: {e}"
             self._set_status(err)
-            QMessageBox.warning(self.parent, "Ошибка", err)
+            QMessageBox.warning(self._pw, "Ошибка", err)
 
     def show_logs(self):
         """
@@ -489,14 +490,14 @@ class AppMenuBar(QMenuBar):
                 return
 
             self._log_dlg = LogViewerDialog(
-                parent   = self.parentWidget() or self,
+                parent   = self._pw or self,
                 log_file = global_logger.log_file,
             )
             self._log_dlg.show()                   # <<- вместо exec()
 
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self.parentWidget() or self,
+            QMessageBox.critical(self._pw or self,
                                 "Ошибка",
                                 f"Не удалось открыть журнал:\n{e}")
 
@@ -511,7 +512,7 @@ class AppMenuBar(QMenuBar):
 
         if now - last < interval:
             remaining = int((interval - (now - last)) // 60) + 1
-            QMessageBox.information(self.parent(), "Отправка логов",
+            QMessageBox.information(self._pw, "Отправка логов",
                 f"Лог отправлялся недавно.\n"
                 f"Следующая отправка возможна через {remaining} мин.")
             return
@@ -522,7 +523,6 @@ class AppMenuBar(QMenuBar):
         # Обычный асинхронный код отправки…
         from tgram.tg_log_full  import TgSendWorker
         from tgram.tg_log_delta import get_client_id
-        from config.config      import APP_VERSION
 
         LOG_PATH = "zapret_log.txt"
         caption  = f"Zapret log (ID: {get_client_id()}, v{APP_VERSION})"
@@ -531,7 +531,7 @@ class AppMenuBar(QMenuBar):
         if action:
             action.setEnabled(False)
 
-        wnd = self._parent_widget  # объект LupiDPIApp
+        wnd = self._pw             # объект LupiDPIApp
 
         if hasattr(wnd, "set_status"):
             wnd.set_status("Отправка полного лога…")
@@ -593,7 +593,7 @@ class AppMenuBar(QMenuBar):
         но использует схожие принципы работы.</i></p>
         """
         
-        msg_box = QMessageBox(self.parent)
+        msg_box = QMessageBox(self._pw)
         msg_box.setWindowTitle("ByeDPIAndroid")
         msg_box.setTextFormat(Qt.TextFormat.RichText)  # Исправлено: используем Qt.TextFormat
         msg_box.setText(info_text)
@@ -608,7 +608,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии GitHub: {e}"
             self._set_status(err)
-            QMessageBox.warning(self.parent, "Ошибка", err)
+            QMessageBox.warning(self._pw, "Ошибка", err)
 
     def open_byedpi_telegram(self):
         """Открывает Telegram группу ByeDPIAndroid"""
@@ -618,4 +618,4 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии Telegram: {e}"
             self._set_status(err)
-            QMessageBox.warning(self.parent, "Ошибка", err)
+            QMessageBox.warning(self._pw, "Ошибка", err)

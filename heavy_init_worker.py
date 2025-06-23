@@ -6,8 +6,6 @@ from log import log
 
 class HeavyInitWorker(QObject):
     """
-    • preload_strategies   – сеть + JSON
-    • download_files       – проверка/скачивание winws.exe
     Все Qt-объекты создаём ТОЛЬКО в GUI-потоке!
     """
     progress = pyqtSignal(str)            # для status-строки

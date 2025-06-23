@@ -2,6 +2,8 @@ import os
 import requests
 import shutil
 
+from config import LISTS_FOLDER
+# БОЛЬШЕ НЕ РАБОТАЕТ!
 DOWNLOAD_URLS = {
     "winws.exe": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/winws.exe",
     "WinDivert.dll": "https://github.com/bol-van/zapret-win-bundle/raw/refs/heads/master/zapret-winws/WinDivert.dll",
@@ -84,7 +86,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
         ]
         
         for listfile in default_lists:
-            filepath = os.path.join(bin_folder, listfile)
+            filepath = os.path.join(LISTS_FOLDER, listfile)
             if not os.path.exists(filepath):
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("# Добавьте адреса сайтов по одному на строку\n")

@@ -2,23 +2,23 @@
 ;  Zapret installer / updater (ProgramData by default)
 ;---------------------------------------------------
 [Setup]
-AppName=Zapret
-AppVersion=16.1.0
-AppId={{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
+AppName= Zapret
+AppVersion= 16.1.1
+AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
 DisableDirPage=no
 UsePreviousAppDir=yes
 ; ───────────────────────────────────────────────────────────────
 PrivilegesRequired=admin
-DefaultGroupName=Zapret
+DefaultGroupName= Zapret
 AllowNoIcons=yes
-OutputDir=.
-OutputBaseFilename=ZapretSetup
+OutputDir= "D:\Privacy\zapretgui"
+OutputBaseFilename= ZapretSetup
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile=zapret.ico
-UninstallDisplayIcon={app}\Zapret.exe
+SetupIconFile= zapret.ico
+UninstallDisplayIcon= {app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
@@ -42,8 +42,6 @@ Name: desktopicon; Description: "Создать ярлык на рабочем �
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\Zapret"
-
-;──────────────────────────────────────────────
 [Code]
 { 1.  КИЛЛИМ процессы ──────────────────────── }
 procedure KillProcess(const ExeName: string);

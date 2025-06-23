@@ -36,25 +36,6 @@ class DPIStarter:
         else:
             print(text)
     
-    def download_files(self, download_urls):
-        """
-        Скачивает необходимые файлы.
-        
-        Args:
-            download_urls (dict): Словарь с URL для скачивания
-        
-        Returns:
-            bool: True при успешном скачивании, False при ошибке
-        """
-        # Эта функция может вызывать внешний загрузчик
-        # или иметь собственную реализацию загрузки файлов
-        from downloader import download_files
-        return download_files(
-            bin_folder=self.bin_folder,
-            download_urls=download_urls,
-            status_callback=self.set_status
-        )
-    
     def check_process_running(self, silent=False):
         import re
         """Проверяет, запущен ли процесс winws.exe"""

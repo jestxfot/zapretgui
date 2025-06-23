@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
                           QPushButton, QTextBrowser, QGroupBox, QSplitter, QListWidgetItem, QWidget, QApplication,
-                          QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QAbstractItemView)
+                          QTableWidget, QTableWidgetItem, QToolButton, QSizePolicy, QProgressBar, QHeaderView, QCheckBox, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
@@ -366,45 +366,85 @@ class StrategySelector(QDialog):
         # ✅ АСИНХРОННАЯ загрузка стратегий при инициализации
         self.load_strategies_async()
 
-    def init_ui(self):
-        """Инициализация интерфейса."""
-        layout = QVBoxLayout(self)
+    def _on_toggle_description(self, checked: bool):
+        self.desc_widget.setVisible(checked)
+        self.toggle_btn.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
         
-        # Информационный текст
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # ────────── Заголовок + мини-кнопка ──────────
+        header = QWidget()
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(0, 0, 0, 0)
+        header_lay.setSpacing(4)
+
+        self.toggle_btn = QToolButton()
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(False)                           # скрыто по умолч.
+        self.toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.toggle_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly)                  # ← только иконка
+        self.toggle_btn.setFixedSize(18, 18)
+        self.toggle_btn.setStyleSheet("QToolButton{border:none;padding:0;}")
+
+        title_lbl = QLabel("Описание")                              # подпись (по желанию)
+        title_lbl.setStyleSheet("font-weight:bold;")
+
+        header_lay.addWidget(self.toggle_btn)
+        header_lay.addWidget(title_lbl)
+        header_lay.addStretch()
+
+        layout.addWidget(header)
+
+        # ────────── Описание (сначала скрыто) ──────────
+        self.desc_widget = QWidget()
+        self.desc_widget.setVisible(False)                          # вот оно – скрываем
+        self.desc_widget.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Preferred)
+
+        desc_lay = QVBoxLayout(self.desc_widget)
+        desc_lay.setContentsMargins(0, 0, 0, 0)
+
         info_text = QLabel(
-            "Выберите стратегию обхода блокировок, если вам требуется сменить метод обхода. Подробнее о Zapret читайте в интернете.\n"
-            "Стратегии с пометкой \"ВСЕ САЙТЫ\" не нуждаются в добавлении своих сайтов - они по умолчанию работают со всеми сайтами - для них доступны только исключения.\n"
-            "Стратегии с пометкой \"РЕКОМЕНДУЕМ\" были протестированы и показали наилучшие результаты.\n"
-            "Для экспериментальных стратегий есть пометка \"С ОСТОРОЖНОСТЬЮ\". Галочка \"Все сайты\" означает, что стратегия работает для всех сайтов."
+            "Выберите стратегию обхода блокировок, если вам требуется сменить метод обхода. "
+            "Подробнее о Zapret читайте в интернете.\n"
+            "Стратегии с пометкой «ВСЕ САЙТЫ» не нуждаются в добавлении своих сайтов — "
+            "они по умолчанию работают со всеми сайтами (для них доступны только исключения).\n"
+            "Стратегии с пометкой «РЕКОМЕНДУЕМ» были протестированы и показали наилучшие результаты.\n"
+            "Для экспериментальных стратегий есть пометка «С ОСТОРОЖНОСТЬЮ». "
+            "Галочка «Все сайты» означает, что стратегия работает для всех сайтов."
         )
         info_text.setWordWrap(True)
-        info_text.setStyleSheet("padding: 10px; background-color: #3a3a3a; color: #ffffff; border-radius: 5px;")
-        layout.addWidget(info_text)
-        
-        layout.addSpacing(10)
-        
-        # Статус загрузки
-        from PyQt6.QtWidgets import QProgressBar
+        info_text.setStyleSheet("""
+            padding:10px;
+            background:#3a3a3a;
+            color:#fff;
+            border-radius:5px;
+        """)
+        desc_lay.addWidget(info_text)
+
+        layout.addWidget(self.desc_widget)
+        layout.addSpacing(3)
+
+        # ────────── Статус + прогрессбар ──────────
         self.status_label = QLabel("🔄 Загрузка списка стратегий...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
+        self.status_label.setStyleSheet(
+            "font-weight:bold;color:#2196F3;padding:5px;")
         layout.addWidget(self.status_label)
-        
+
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
-        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                width: 20px;
-            }
+            QProgressBar{border:2px solid grey;border-radius:5px;text-align:center;}
+            QProgressBar::chunk{background:#4CAF50;width:20px;}
         """)
         layout.addWidget(self.progress_bar)
+
+        # ────────── Подключаем сигнал ──────────
+        self.toggle_btn.toggled.connect(self._on_toggle_description)
         
         # Группа стратегий
         strategies_group = QGroupBox("Доступные стратегии")

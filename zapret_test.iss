@@ -2,23 +2,23 @@
 ;  Zapret installer / updater (ProgramData by default)
 ;---------------------------------------------------
 [Setup]
-AppName=Zapret
-AppVersion=16.1.0
-AppId={{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
+AppName= Zapret Dev
+AppVersion= 16.2.12
+AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
 DisableDirPage=no
 UsePreviousAppDir=yes
 ; ───────────────────────────────────────────────────────────────
 PrivilegesRequired=admin
-DefaultGroupName=Zapret
+DefaultGroupName= Zapret Dev
 AllowNoIcons=yes
-OutputDir=.
-OutputBaseFilename=ZapretSetup
+OutputDir= "D:\Privacy\zapretgui"
+OutputBaseFilename= ZapretSetup_TEST
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile=zapret.ico
-UninstallDisplayIcon={app}\Zapret.exe
+SetupIconFile= ZapretDevLogo.ico
+UninstallDisplayIcon= {app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
@@ -41,9 +41,7 @@ Name: "{commondesktop}\Zapret";      Filename: "{app}\Zapret.exe"; Tasks: deskto
 Name: desktopicon; Description: "Создать ярлык на рабочем столе"; Flags: unchecked
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{commonappdata}\Zapret"
-
-;──────────────────────────────────────────────
+Type: filesandordirs; Name: "{commonappdata}\ZapretDev"
 [Code]
 { 1.  КИЛЛИМ процессы ──────────────────────── }
 procedure KillProcess(const ExeName: string);
@@ -86,7 +84,7 @@ function GetInstallDir(Param: string): string;
 begin
   { если есть предыдущая установка – Inno сам подставит её,
     иначе кладём в ProgramData }
-  Result := ExpandConstant('{commonappdata}\Zapret');
+  Result := ExpandConstant('{commonappdata}\ZapretDev');
 end;
 
 { 3.  ПРОВЕРКА ПУТИ ──────────────────────────── }

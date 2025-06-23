@@ -18,8 +18,9 @@ from config.process_monitor import ProcessMonitorThread
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
 
-from config.config import APP_VERSION, BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, WIDTH, HEIGHT
+from config.config import BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
 from config.reg import get_last_strategy, set_last_strategy
+from config import APP_VERSION # build_info moved to config/__init__.py
 
 from hosts.hosts import HostsManager
 
@@ -32,6 +33,8 @@ from tray import SystemTrayManager
 from dns import DNSSettingsDialog
 from altmenu.app_menubar import AppMenuBar
 from log import log
+
+from config import CHANNEL # config/__init__.py
 
 def _set_attr_if_exists(name: str, on: bool = True) -> None:
     """
@@ -50,22 +53,6 @@ def _set_attr_if_exists(name: str, on: bool = True) -> None:
 
     if attr is not None:
         QCoreApplication.setAttribute(attr, on)
-
-def is_test_build():
-    
-    """
-    Проверяет, является ли текущая версия тестовым билдом (начинается с '2025').
-
-    Returns:
-        bool: True, если это тестовый билд, иначе False.
-    """
-    try:
-        # Преобразуем в строку на всякий случай и проверяем префикс
-        return str(APP_VERSION).startswith("2025")
-    except Exception as e:
-        # Логируем ошибку, если версия имеет неожиданный формат
-        log(f"Ошибка при проверке версии на тестовый билд ({APP_VERSION}): {e}", level="ERROR")
-        return False # В случае ошибки считаем, что это не тестовый билд
 
 def _handle_update_mode():
     """
@@ -741,13 +728,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 log(f"Критическая ошибка при восстановлении статуса: {inner_e}", level="ERROR")
 
     def _on_heavy_done(self, ok: bool, err: str):
-        """GUI-поток: получаем результат тяжёлой работы."""
+        """GUI-поток: тяжёлая инициализация завершена."""
         if not ok:
             QMessageBox.critical(self, "Ошибка инициализации", err)
             self.set_status("Ошибка инициализации")
             return
 
-        # index.json и winws.exe готовы (если они требовались)
+        # index.json и winws.exe готовы
         if self.strategy_manager.already_loaded:
             self.update_strategies_list()
 
@@ -758,16 +745,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         for d in (0, 100, 200):
             QTimer.singleShot(d, self.force_enable_combos)
 
-        # Проверяем обновления только если это НЕ тестовый билд
-        if not is_test_build():
-            QTimer.singleShot(1000, self._start_auto_update)
-        else:
-            log(f"Текущая версия ({APP_VERSION}) - тестовый билд. Проверка обновлений пропущена.", level="INFO")
-            self.set_status(f"Тестовый билд ({APP_VERSION}) - обновления отключены")
-        
+        # ---------- АВТО-ОБНОВЛЕНИЕ ---------------------------------
+        #  Новая логика: проверяем ВСЕГДА, но берём только свой канал
+        QTimer.singleShot(1000, self._start_auto_update)
+
         self.set_status("Инициализация завершена")
-        # УБИРАЕМ дополнительную проверку подписки - она уже идет асинхронно
-        # QTimer.singleShot(3000, self.post_init_subscription_check)
+        # подписка проверяется асинхронно – ничего не трогаем
+
 
     def _start_auto_update(self):
         """
@@ -924,13 +908,18 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.first_start = True  # Флаг для отслеживания первого запуска
 
         # Устанавливаем иконку приложения
-        icon_path = os.path.abspath(ICON_PATH)
+        icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
+
         if os.path.exists(icon_path):
             from PyQt6.QtGui import QIcon
+
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
         
+        else:
+            log(f"Иконка приложения не найдена: {icon_path}", "ERROR")
+
         # Инициализируем интерфейс БЕЗ подписки
         self.build_ui(width=WIDTH, height=HEIGHT)
 
@@ -1218,11 +1207,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
     def manual_update_check(self):
         """Ручная проверка обновлений (кнопка)"""
-
-        if is_test_build():
-            QMessageBox.information(self, "Обновления",
-                                    "Тестовый билд – обновления отключены")
-            return
 
         log("Запуск ручной проверки обновлений...", level="INFO")
         # работаем синхронно – GUI-поток, появится QMessageBox

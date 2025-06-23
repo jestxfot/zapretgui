@@ -232,14 +232,8 @@ class ConnectionTestWorker(QObject):
                 "--silent", "--show-error",
                 url
             ]
-            
-            result = subprocess.run(
-                command, 
-                capture_output=True, 
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=15
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -344,12 +338,8 @@ class ConnectionTestWorker(QObject):
         try:
             # Проверяем процесс winws.exe
             command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             if "winws.exe" in result.stdout:
                 self.log_message("✅ Процесс winws.exe запущен")
@@ -490,12 +480,8 @@ class ConnectionTestWorker(QObject):
                 "schtasks", "/query", "/tn", "ZapretAutoStart", "/fo", "csv"
             ]
             
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             if result.returncode == 0 and "ZapretAutoStart" in result.stdout:
                 self.log_message("   Системный автозапуск: ✅ Активен (планировщик задач)")
@@ -568,13 +554,8 @@ class ConnectionTestWorker(QObject):
             if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
                 subprocess.CREATE_NO_WINDOW = 0x08000000
             
-            result = subprocess.run(
-                command, 
-                capture_output=True, 
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=10  # Уменьшаем общий таймаут
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             if self.is_stop_requested():
                 return
@@ -689,13 +670,8 @@ class ConnectionTestWorker(QObject):
                 f"http://{domain}/"
             ]
             
-            result = subprocess.run(
-                command, 
-                capture_output=True, 
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=15
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=10)     # ← заменили subprocess.run
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -779,13 +755,8 @@ class ConnectionTestWorker(QObject):
                     f"https://{domain}/"
                 ]
                 
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                    timeout=10
-                )
+                from utils.subproc import run   # импортируем наш обёрточный run
+                result  = run(command, timeout=10)     # ← заменили subprocess.run
                 
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
@@ -812,13 +783,8 @@ class ConnectionTestWorker(QObject):
                 f"https://{domain}/"
             ]
             
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True, 
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=15
-            )
+            from utils.subproc import run   # импортируем наш обёрточный run
+            result  = run(command, timeout=15)     # ← заменили subprocess.run
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -834,6 +800,7 @@ class ConnectionTestWorker(QObject):
         except Exception as e:
             self.log_message(f"  ❌ Ошибка HTTPS -k теста: {str(e)}")
 
+    # даже есть есть curl не работает эта проверка после замены на свой run из utils.subproc
     def is_curl_available(self):
         """Проверяет доступность curl в системе."""
         try:
@@ -842,12 +809,9 @@ class ConnectionTestWorker(QObject):
                 if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     subprocess.CREATE_NO_WINDOW = 0x08000000
                     
-                result = subprocess.run(
-                    ["curl", "--version"], 
-                    capture_output=True, 
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                    timeout=3
-                )
+                command = ["curl", "--version"]
+                from utils.subproc import run   # импортируем наш обёрточный run
+                result  = run(command, timeout=5)     # ← заменили subprocess.run
                 self._curl_available = result.returncode == 0
                 
                 if self._curl_available:

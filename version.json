@@ -1,5 +1,13 @@
 {
-    "version":"16.1.0",
-    "update_url":"https://zapretdpi.ru/ZapretSetup.exe",
-    "release_notes":"Zapret 16.1.0\nПеренос на сервер благодаря нашим спонсорам boosty.to/censorliber" 
+  "stable": {
+    "version": "16.1.0.0",
+    "update_url": "https://zapretdpi.ru/ZapretSetup.exe",
+    "release_notes": "Zapret 16.1.0 – перенос на сервер благодаря нашим спонсорам boosty.to/censorliber"
+  },
+
+  "test": {
+    "version": "16.1.0.100",
+    "update_url": "https://zapretdpi.ru/ZapretSetup_TEST.exe",
+    "release_notes": "Dev 16.1.0.100 – та же версия, но с отладочной телеметрией"
+  }
 }

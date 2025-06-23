@@ -1,77 +1,111 @@
-# updater/updater.py
+"""
+updater/update.py
+────────────────────────────────────────────────────────────────
+Проверяет https://zapretdpi.ru/version.json и, если в своём
+канале (stable / test) есть более свежая версия, тихо
+скачивает установщик, запускает его и закрывает программу.
 
-# -----------------------------------------------------------------
-# Проверяет https://gitflic.ru/.../version.json и, если версия новее,
-# качает ZapretSetup.exe, запускает его /VERYSILENT и закрывает программу.
-# -----------------------------------------------------------------
-import os, sys, tempfile, subprocess, shutil, time
+API 100-% совместим со старым кодом:
+    • run_update_async(parent, silent=False)        – создаёт поток
+    • check_and_run_update(parent, status_cb, …)    – сама логика
+    • сигнал UpdateWorker.finished(bool)            – остаётся bool
+"""
+from __future__ import annotations
+
+import os, sys, tempfile, subprocess, shutil, time, json
+from typing import Callable
+
+from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QMessageBox
-from PyQt6.QtCore    import QTimer
 
-# ──────────────────────────────────────────────────────────────────
-#  Потоковая оболочка  (новое) 
-# ──────────────────────────────────────────────────────────────────
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+# ──────────────────────────── конфиг программы ────────────────────────────
+from config import CHANNEL, APP_VERSION            # build_info moved to config/__init__.py
+from log                import log
 
-META_URL = "https://zapretdpi.ru/version.json"          # <- ваш JSON
-TIMEOUT  = 10                                      # сек.
+META_URL = "https://zapretdpi.ru/version.json"                # единый JSON
+TIMEOUT  = 10                                                 # сек.
 
+# ──────────────────────────── вспомогательные утилиты ─────────────────────
+def _safe_set_status(parent, msg: str):
+    """Пишем в status-label, если она есть; иначе в консоль."""
+    if parent and hasattr(parent, "set_status"):
+        parent.set_status(msg)
+    else:
+        print(msg)
+
+def _kill_winws():
+    """Мягко-агрессивно убиваем winws.exe, чтобы установщик мог заменить файл."""
+    subprocess.run(
+        "taskkill /F /IM winws.exe /T",
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+def _download(url: str, dest: str, on_progress: Callable[[int, int], None] | None):
+    import requests
+
+    with requests.get(url, stream=True, timeout=TIMEOUT) as resp:
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0))
+        done  = 0
+        with open(dest, "wb") as fp:
+            for chunk in resp.iter_content(8192):
+                fp.write(chunk)
+                if on_progress and total:
+                    done += len(chunk)
+                    on_progress(done, total)
+
+# ──────────────────────────── фоновой воркер ──────────────────────────────
 class UpdateWorker(QObject):
-    """Фоновая проверка и установка обновления"""
-    progress = pyqtSignal(str)    # любой статус
-    finished = pyqtSignal(bool)   # True – обновление запущено / False – отказ
+    progress = pyqtSignal(str)    # статус-строка
+    finished = pyqtSignal(bool)   # True – установщик запущен
 
-    def __init__(self, parent=None, silent=False):
+    def __init__(self, parent=None, silent: bool = False):
         super().__init__()
         self._parent = parent
         self._silent = silent
 
+    # ----------------------------------------------------------
+    def _emit(self, msg: str):
+        self.progress.emit(msg)
+
+    # ----------------------------------------------------------
     def run(self):
-        """Запускается внутри QThread"""
         try:
             ok = check_and_run_update(
                 parent    = self._parent,
-                status_cb = self._emit_status,
-                silent    = self._silent
+                status_cb = self._emit,
+                silent    = self._silent,
             )
             self.finished.emit(ok)
         except Exception as e:
-            # Любое необработанное исключение сюда
-            self._emit_status(f"Ошибка обновления: {e}")
+            self._emit(f"Ошибка обновления: {e}")
             self.finished.emit(False)
 
-    # ----------------------------------------------------------------
-    def _emit_status(self, msg: str):
-        self.progress.emit(msg)
-
-# ──────────────────────────────────────────────────────────────────
-def run_update_async(parent, silent: bool = False):
-    from log import log
+# ──────────────────────────── public-API ──────────────────────────────────
+def run_update_async(parent=None, *, silent: bool = False) -> QThread:
     """
-    1. Создаёт поток и воркер;
-    2. Запускает check_and_run_update() внутри него;
-    3. Автоматически освобождает ресурсы.
+    Создаёт QThread + UpdateWorker.
+    Возвращает ссылку на thread (в нём есть ._worker).
     """
-    thr  = QThread(parent)
-    work = UpdateWorker(parent, silent)
-    work.moveToThread(thr)
+    thr   = QThread(parent)
+    worker = UpdateWorker(parent, silent)
+    worker.moveToThread(thr)
 
-    # сигналы
-    thr.started.connect(work.run)
-
-    # а) в статус-строку
-    work.progress.connect(lambda m: _safe_set_status(parent, m))
-    # б) в лог для отладки
-    work.progress.connect(lambda m: log(f"[Updater] {m}", "DEBUG"))
-    
-    work.finished.connect(thr.quit)
-    work.finished.connect(work.deleteLater)
+    thr.started .connect(worker.run)
+    worker.finished.connect(thr.quit)
+    worker.finished.connect(worker.deleteLater)
     thr.finished.connect(thr.deleteLater)
 
-    thr._worker = work          # ← 1. Сохраняем ссылку (ключевая строчка)
+    # status-label + лог
+    worker.progress.connect(lambda m: _safe_set_status(parent, m))
+    worker.progress.connect(lambda m: log(f"[Updater] {m}", "DEBUG"))
+
+    thr._worker = worker          # 👈 защитили от GC
     thr.start()
-    
-    # 2. (необязательно) держим thread в parent, чтобы и его не съели GC
+
+    # держим thread в parent-окне, чтобы GC не убил раньше времени
     if parent is not None:
         lst = getattr(parent, "_active_upd_threads", [])
         lst.append(thr)
@@ -80,132 +114,102 @@ def run_update_async(parent, silent: bool = False):
 
     return thr
 
-# вспомогательный setter (чтобы не тянуть status_cb из main окна)
-def _safe_set_status(parent, msg: str):
-    if parent and hasattr(parent, "set_status"):
-        parent.set_status(msg)
-    else:
-        print(msg)
-
-def _kill_winws():
+# ──────────────────────────── основная логика ─────────────────────────────
+def check_and_run_update(
+    *,
+    parent   = None,
+    status_cb: Callable[[str], None] | None = None,
+    silent   : bool = False,
+) -> bool:
     """
-    Безопасно пытается убить winws.exe (и дочерние),
-    чтобы установщик смог заменить файл.
+    1) Скачивает META_URL и берёт узел CHANNEL (stable / test).
+    2) Если версия новее – (optionally) спрашивает пользователя,
+       затем качает .exe → TEMP, останавливает winws.exe
+       и запускает установщик.
+    3) Через 1,5 с закрывает текущую программу.
     """
-    try:
-        # /T = вместе с дочерними; /F = принудительно
-        subprocess.run("taskkill /F /IM winws.exe /T",
-                       shell=True, check=False,
-                       stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL)
-        # даём ОС мгновение завершить процесс
-    except Exception:
-        pass
-
-# ────────────────────────────────────────────────────────────────
-def _download(url: str, dest: str, on_progress=None):
-    import requests
-    r = requests.get(url, stream=True, timeout=TIMEOUT)
-    r.raise_for_status()
-    total = int(r.headers.get("content-length", 0))
-    done = 0
-    with open(dest, "wb") as fp:
-        for chunk in r.iter_content(8192):
-            fp.write(chunk)
-            if on_progress and total:
-                done += len(chunk)
-                on_progress(done, total)
-
-# ────────────────────────────────────────────────────────────────
-def check_and_run_update(parent=None, status_cb=None, **kwargs):
-    """
-    • читает META_URL;
-    • если есть новая версия, спрашивает пользователя (если not silent);
-    • скачивает Setup.exe → TEMP;
-    • запускает его /VERYSILENT и через 1.5 с закрывает Zapret.
-    """
-    silent = kwargs.get("silent", False)
-    
-    # Удобный вывод статуса
+    # локальные «шорткаты»
     def set_status(msg: str):
-        if status_cb: status_cb(msg)
-        elif parent and hasattr(parent, "set_status"): parent.set_status(msg)
-        else: print(msg)
+        if status_cb:
+            status_cb(msg)
+        else:
+            _safe_set_status(parent, msg)
 
-    # ─ step 1.  requests / packaging ────────────────────────────
-    try:
-        import requests
-        from packaging import version
-    except ImportError:
-        set_status("Устанавливаю зависимости для обновления…")
-        subprocess.run([sys.executable, "-m", "pip", "-q",
-                        "install", "requests", "packaging"], check=True)
-        import requests
-        from packaging import version
+    from packaging import version
+    import requests
 
-    # ─ step 2.  meta-файл ───────────────────────────────────────
+    # — 1. meta-файл --------------------------------------------------------
+    set_status("Проверка обновлений…")
     try:
-        meta = requests.get(META_URL, timeout=TIMEOUT).json()
+        resp = requests.get(META_URL, timeout=TIMEOUT)
+        resp.raise_for_status()
+        meta_all = resp.json()
     except Exception as e:
-        from log import log
-        log(f"Не удалось проверить обновления: {e}", "ERROR")
+        log(f"Не удалось загрузить version.json: {e}", "ERROR")
         set_status("Не удалось проверить обновления.")
         return False
 
-    new_ver   = meta.get("version")
-    upd_url   = meta.get("update_url")
-    notes     = meta.get("release_notes", "")
+    meta = meta_all.get(CHANNEL)
+    if not meta:
+        log(f"В version.json отсутствует блок '{CHANNEL}'", "ERROR")
+        return False
+
+    new_ver = meta.get("version")
+    upd_url = meta.get("update_url")
+    notes   = meta.get("release_notes", "")
 
     if not new_ver or not upd_url:
-        log("version.json неполон (нет version/update_url).", "DEBUG")
+        log("Неполный блок version/update_url.", "ERROR")
         return False
 
-    from config.config import APP_VERSION
+    log(f"Auto-update: channel={CHANNEL}, local={APP_VERSION}, remote={new_ver}", "INFO")
+
     if version.parse(new_ver) <= version.parse(APP_VERSION):
-        msg = f"Обновлений нет (v{APP_VERSION})"
-        set_status(msg)                     # ← STATUS ДЛЯ SILENT-РЕЖИМА
-        from log import log
-        log(f"[Updater] {msg}", "DEBUG")    # ← в лог, чтобы было видно
-
-        if not silent:                      # окно показываем только при ручной проверке
-            QMessageBox.information(parent, "Обновление", msg)
+        set_status(f"✅ Обновлений нет (v{APP_VERSION})")
+        if not silent:
+            QMessageBox.information(parent, "Обновление", f"У вас последняя версия ({APP_VERSION}).")
         return False
-    
-    # ─ step 3.  спрашиваем пользователя ────────────────────────
+
+    # — 2. спрашиваем пользователя -----------------------------------------
     if not silent:
         txt = (f"Доступна новая версия {new_ver} (у вас {APP_VERSION}).\n\n"
                f"{notes}\n\nУстановить сейчас?")
-        if QMessageBox.question(parent, "Доступно обновление",
-                                txt, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+        btn = QMessageBox.question(
+            parent, "Доступно обновление",
+            txt,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if btn != QMessageBox.StandardButton.Yes:
             return False
 
-    # ─ step 4.  скачиваем Setup.exe ─────────────────────────────
+    # — 3. скачиваем установщик --------------------------------------------
     tmp_dir   = tempfile.mkdtemp(prefix="zapret_upd_")
     setup_exe = os.path.join(tmp_dir, "ZapretSetup.exe")
 
     def _prog(done, total): set_status(f"Скачивание… {done*100//total}%")
     try:
-        _download(upd_url, setup_exe, _prog if parent else None)
+        _download(upd_url, setup_exe, _prog if not silent else None)
     except Exception as e:
         set_status(f"Ошибка загрузки: {e}")
         shutil.rmtree(tmp_dir, True)
         return False
 
-    # ─ step 5.  запуск установщика ─────────────────────────────
+    # — 4. запускаем установщик --------------------------------------------
     try:
+        # останавливаем DPI-процесс и убиваем, если не успел
         from dpi.stop import stop_dpi
-        stop_dpi(parent)  # останавливаем winws.exe
-        time.sleep(0.5)       # даём время завершиться
-        _kill_winws()          # убиваем winws.exe (если не остановился)
-        time.sleep(2)
-        subprocess.Popen(['cmd', '/c', 'start', '', setup_exe, '/NORESTART'])
-        QTimer.singleShot(10, lambda: os._exit(0))
-    
+        stop_dpi(parent)
+        time.sleep(0.5)
+        _kill_winws()
+        time.sleep(1.5)
+
+        subprocess.Popen(["cmd", "/c", "start", "", setup_exe, "/NORESTART"], shell=False)
+        set_status("Запущен установщик…")
+        # через 1,5 сек выходим, чтобы Install‐EXE смог перезаписать файлы
+        QTimer.singleShot(1500, lambda: os._exit(0))
+        return True
+
     except Exception as e:
         set_status(f"Не удалось запустить установщик: {e}")
         shutil.rmtree(tmp_dir, True)
         return False
-
-    set_status("Запущен установщик обновления…")
-    QTimer.singleShot(1500, lambda: sys.exit(0))   # освободить exe-файл
-    return True

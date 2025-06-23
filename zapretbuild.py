@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# zapretbuild.py
 """
 Создаёт version_info.txt для PyInstaller.
 Числовая версия = major.minor.micro.<build>, где <build> =
@@ -15,11 +14,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from config.config import APP_VERSION            # <-- ваша версия, напр. "2025.0.0.dev1"
+# ────────────────────────────────────────────────────────────────
+# 1.  Берём APP_VERSION из config/build_info.py,
+# 
+# ────────────────────────────────────────────────────────────────
+from config import APP_VERSION           # из config/__init__.py
 
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 # numeric_tuple
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 try:
     from packaging.version import Version, InvalidVersion  # pip install packaging
 except ModuleNotFoundError:
@@ -40,8 +43,8 @@ def numeric_tuple(ver: str) -> tuple[int, int, int, int]:
     if Version is not None:
         try:
             v = Version(ver)
-            nums = list(v.release)                  # [2025, 0, 0]
-            # добрать четвёртое число
+            nums = list(v.release)                  # [16, 1, 0] и т.-д.
+            # добираем четвёртое число
             if len(nums) < 4:
                 if v.dev is not None:               # .devN
                     nums.append(v.dev)
@@ -64,12 +67,12 @@ def numeric_tuple(ver: str) -> tuple[int, int, int, int]:
 
 VERSION_TUPLE = numeric_tuple(APP_VERSION)
 
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 # Формируем текст ресурса
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 VERSION_INFO_TEXT = f"""# UTF-8
 #
-# Автоматически сгенерировано build_version_info.py
+# Автоматически сгенерировано zapretbuild.py
 #
 VSVersionInfo(
   ffi=FixedFileInfo(
@@ -105,9 +108,9 @@ VSVersionInfo(
 )
 """
 
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 # Записываем файл
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------
 def main() -> None:
     out_file = Path(__file__).with_name("version_info.txt")
     out_file.write_text(VERSION_INFO_TEXT, encoding="utf-8")

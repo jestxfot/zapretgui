@@ -36,5 +36,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version='D:\\Privacy\\zapretgui\\version_info.txt',
-    icon=['D:\\Privacy\\zapretgui\\zapret.ico'],
+    icon=['D:\\Privacy\\zapretgui\\ZapretDevLogo.ico'],
 )

@@ -11,8 +11,9 @@ from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
 
 import qtawesome as qta
 from typing import Optional
+from pathlib import Path
 
-from config.config import APP_VERSION
+from config import APP_VERSION, CHANNEL # build_info moved to config/__init__.py
 
 class MainWindowUI:
     """
@@ -28,7 +29,8 @@ class MainWindowUI:
         root.setSpacing(10)
 
         # ---------- Заголовок ------------------------------------------
-        self.title_label = QLabel("Zapret GUI")
+        title = f"Zapret GUI {APP_VERSION} ({CHANNEL})"     # итоговая подпись
+        self.title_label = QLabel(title)
         self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
         root.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -699,7 +701,33 @@ class MainWindowUI:
         layout.addWidget(dismiss_btn)
         
         return warning_frame
-    
+
+    def get_hosts_path() -> Path:
+        """
+        Возвращает абсолютный путь к файлу hosts на той букве диска,
+        где реально установлена Windows.
+        """
+        import os
+        import ctypes
+        from ctypes import wintypes
+
+        # 1. Пробуем переменную среды — самый простой и быстрый способ
+        sys_root = os.getenv("SystemRoot")
+        if sys_root and Path(sys_root).exists():
+            return Path(sys_root, "System32", "drivers", "etc", "hosts")
+
+        # 2. Если почему-то переменной нет — берём через WinAPI
+        GetSystemWindowsDirectoryW = ctypes.windll.kernel32.GetSystemWindowsDirectoryW
+        GetSystemWindowsDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+        GetSystemWindowsDirectoryW.restype  = wintypes.UINT
+
+        buf = ctypes.create_unicode_buffer(260)
+        if GetSystemWindowsDirectoryW(buf, len(buf)):
+            return Path(buf.value, "System32", "drivers", "etc", "hosts")
+
+        # 3. Фолбэк на C:\Windows (маловероятно, но пусть будет)
+        return Path(r"C:\Windows\System32\drivers\etc\hosts")
+
     def _check_hosts_file(self):
         """
         Проверяет наличие и доступность файла hosts.
@@ -715,11 +743,13 @@ class MainWindowUI:
         """
         import os
         import platform
+        from log import log
         
         try:
             # Определяем путь к файлу hosts в зависимости от ОС
             if platform.system().lower() == 'windows':
-                hosts_path = r'C:\Windows\System32\drivers\etc\hosts'
+                hosts_path = MainWindowUI.get_hosts_path()
+                log(f"Проверка файла hosts для Windows: {hosts_path}", "DEBUG")
             else:
                 hosts_path = '/etc/hosts'
             

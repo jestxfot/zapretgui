@@ -9,7 +9,7 @@ from __future__ import annotations
 import os, sys, uuid, platform, threading, requests, pathlib, winreg, traceback
 from datetime import datetime
 from typing import Optional
-from config.config import APP_VERSION          # ← ваша версия
+from config import APP_VERSION # build_info moved to config/__init__.py
 
 # ───────────── определяем, dev это или нет ─────────────
 IS_DEV_BUILD = str(APP_VERSION).startswith("2025")
