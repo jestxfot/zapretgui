@@ -368,7 +368,7 @@ class ConnectionTestWorker(QObject):
     def check_current_strategy(self):
         """Проверяет и выводит информацию о текущей выбранной стратегии"""
         try:
-            from config.reg import get_last_strategy
+            from config import get_last_strategy
             
             self.log_message("📋 ИНФОРМАЦИЯ О СТРАТЕГИИ:")
             
@@ -407,22 +407,21 @@ class ConnectionTestWorker(QObject):
             self.log_message(f"❌ Ошибка при проверке стратегии: {e}")
 
     def _find_strategy_file(self, strategy_name):
-        """Ищет файл стратегии в папке bin"""
+        """Ищет файл стратегии в папке bat"""
         try:
             # Возможные расширения файлов стратегий
             possible_extensions = ['.bat', '.cmd']
-            
-            # Проверяем папку bin
-            bin_folder = "bin"
-            if not os.path.exists(bin_folder):
+
+            bat_folder = "bat"
+            if not os.path.exists(bat_folder):
                 return None
             
             # Ищем файлы, содержащие ключевые слова из названия стратегии
             strategy_keywords = strategy_name.lower().replace(" ", "_").replace("-", "_")
             
-            for file in os.listdir(bin_folder):
+            for file in os.listdir(bat_folder):
                 if any(file.lower().endswith(ext) for ext in possible_extensions):
-                    file_path = os.path.join(bin_folder, file)
+                    file_path = os.path.join(bat_folder, file)
                     
                     # Простое сопоставление по ключевым словам
                     file_lower = file.lower()
@@ -434,9 +433,9 @@ class ConnectionTestWorker(QObject):
                         return file_path
             
             # Если точное совпадение не найдено, возвращаем первый .bat файл
-            for file in os.listdir(bin_folder):
+            for file in os.listdir(bat_folder):
                 if file.lower().endswith('.bat'):
-                    return os.path.join(bin_folder, file)
+                    return os.path.join(bat_folder, file)
                     
             return None
             
@@ -447,7 +446,7 @@ class ConnectionTestWorker(QObject):
     def _check_autostart_settings(self):
         """Проверяет настройки автозапуска"""
         try:
-            from config.reg import get_dpi_autostart, get_strategy_autoload, get_auto_download_enabled
+            from config import get_dpi_autostart, get_strategy_autoload, get_auto_download_enabled
             
             self.log_message("⚙️ НАСТРОЙКИ АВТОЗАПУСКА:")
             
@@ -507,7 +506,7 @@ class ConnectionTestWorker(QObject):
     def get_strategy_info_summary(self):
         """Возвращает краткую сводку о текущей стратегии для основного лога"""
         try:
-            from config.reg import get_last_strategy
+            from config import get_last_strategy
             strategy_name = get_last_strategy()
             
             # Проверяем наличие файла

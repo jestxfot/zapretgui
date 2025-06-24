@@ -38,7 +38,7 @@ def remove_windows_terminal_if_win11():
 
     try:
         # 0. Проверяем настройку пользователя в реестре
-        from config.reg import get_remove_windows_terminal
+        from config import get_remove_windows_terminal
         
         if not get_remove_windows_terminal():
             log("Удаление Windows Terminal отключено пользователем в настройках", level="INFO")

@@ -3,7 +3,10 @@
 import os
 
 BIN_FOLDER = "bin"
+BAT_FOLDER = "bat"
+INDEXJSON_FOLDER = "json"
 LISTS_FOLDER = "lists"
+THEME_FOLDER = "themes"
 BIN_DIR = os.path.join(os.getcwd(), "bin")
 WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
@@ -13,9 +16,11 @@ OTHER_PATH = os.path.join(BIN_FOLDER, "other.txt")
 OTHER2_PATH = os.path.join(BIN_FOLDER, "other2.txt")
 NETROGAT_PATH = os.path.join(BIN_FOLDER, "netrogat.txt")
 NETROGAT2_PATH = os.path.join(BIN_FOLDER, "netrogat2.txt")
+DEFAULT_STRAT = "Если эта стратегия не работает смени её!"
+REG_LATEST_STRATEGY = "LastStrategy2"
 
 # Настройки для GitHub стратегий
-STRATEGIES_FOLDER = BIN_FOLDER
+STRATEGIES_FOLDER = BAT_FOLDER
 
 WIDTH = 450
 HEIGHT = 680

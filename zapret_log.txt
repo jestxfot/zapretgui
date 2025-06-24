@@ -1,2 +1,5 @@
-=== Zapret GUI Log - Started 2025-06-23 22:59:57 ===
+=== Zapret GUI Log - Started 2025-06-24 22:34:37 ===
 
+[22:34:37] version_info.txt создан.
+  filevers/prodvers : 16.2.16.2
+  Строковая версия  : 16.2.16.2[22:34:37] 

@@ -6,13 +6,13 @@ from log import log
 from typing import Callable, Optional
 
 
-def _resolve_bin_folder(bin_folder: str) -> Path:
-    """Возвращает абсолютный путь к bin, учитывая PyInstaller one-file."""
-    p = Path(bin_folder)
+def _resolve_bat_folder(bat_folder: str) -> Path:
+    """Возвращает абсолютный путь к bat, учитывая PyInstaller one-file."""
+    p = Path(bat_folder)
     if p.is_absolute():
         return p
 
-    # 1) <cwd>\bin
+    # 1) <cwd>\bat
     cwd_variant = (Path.cwd() / p).resolve()
     if cwd_variant.exists():
         return cwd_variant
@@ -25,10 +25,9 @@ def _resolve_bin_folder(bin_folder: str) -> Path:
 
     return p.resolve()
 
-
 def setup_autostart_for_strategy(
     selected_mode: str,
-    bin_folder: str,
+    bat_folder: str,
     index_path: str | None = None,
     ui_error_cb: Optional[Callable[[str], None]] = None,
 ) -> bool:
@@ -37,8 +36,8 @@ def setup_autostart_for_strategy(
 
     Args:
         selected_mode: отображаемое имя стратегии (поле "name" в index.json)
-        bin_folder:    каталог с *.bat* и index.json
-        index_path:    путь к index.json (по­умолчанию <bin_folder>/index.json)
+        bat_folder:    каталог с *.bat* и index.json
+        index_path:    путь к index.json
 
     Returns:
         True  – ярлык создан;
@@ -46,9 +45,9 @@ def setup_autostart_for_strategy(
     """
     try:
         # ----------- ищем BAT ------------------------------------------------
-        bin_dir = _resolve_bin_folder(bin_folder)
+        bat_dir = _resolve_bat_folder(bat_folder)
 
-        idx_path = Path(index_path) if index_path else bin_dir / "index.json"
+        idx_path = Path(index_path) if index_path else bat_dir / "index.json"
         if not idx_path.is_file():
             log(f"index.json не найден: {idx_path}", "ERROR")
             return False
@@ -72,7 +71,7 @@ def setup_autostart_for_strategy(
             bat_name = entry_key if entry_key.lower().endswith(".bat") \
                                  else f"{entry_key}.bat"
 
-        bat_path = (bin_dir / bat_name).resolve()
+        bat_path = (bat_dir / bat_name).resolve()
         if not bat_path.is_file():
             log(f".bat отсутствует: {bat_path}", "ERROR")
             return False

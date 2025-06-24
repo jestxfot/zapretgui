@@ -127,9 +127,10 @@ def stop_running_zapret():
 #  ПАТЧИМ zapret.iss
 # ────────────────────────────────────────────────────────────────
 def _sub(line: str, repl: str, text: str) -> str:
-    pat = rf"(?im)^\s*{line}\s*=.*$"
-    if re.search(pat, text):
-        return re.sub(pat,
+    """Безопасно заменяет строку  <line>=…  (учитывает пробелы, комментарии)."""
+    pattern = rf"(?im)^\s*{line}\s*=.*$"
+    if re.search(pattern, text):
+        return re.sub(pattern,
                       lambda m: f"{m.group(0).split('=')[0]}= {repl}",
                       text)
     return text.replace("[Setup]", f"[Setup]\n{line}={repl}", 1)
@@ -148,44 +149,51 @@ def _ensure_uninstall_delete(text: str, path: str) -> str:
         text += "\n" + block
     return text
 
-def prepare_iss(CHANNEL: str, version: str) -> Path:
-    """Создаёт zapret_<channel>.iss с нужными полями"""
+
+def prepare_iss(channel: str, version: str) -> Path:
+    """Создаёт zapret_<channel>.iss с нужными полями."""
     src = ROOT / "zapret.iss"
     if not src.exists():
         raise FileNotFoundError("zapret.iss not found")
 
     txt = src.read_text(encoding="utf-8")
+
+    # ── если version пустая, берём текущую из .iss и увеличиваем ──
+    if not version.strip():
+        import re
+        m = re.search(r"^AppVersion\s*=\s*([0-9\.]+)", txt, re.MULTILINE)
+        current = m.group(1) if m else "0.0.0.0"
+        version = suggest_next(current)        # функция у вас уже есть
+
     txt = _sub("AppVersion", version, txt)
 
     base_guid = "5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0"
 
-    if CHANNEL == "test":                    # DEV-ветка
+    if channel == "test":                                   # DEV
         txt = _sub("AppName",            "Zapret Dev",           txt)
         txt = _sub("OutputBaseFilename", "ZapretSetup_TEST",     txt)
         txt = _sub("AppId",              f"{{{{{base_guid}-TEST}}}}", txt)
         txt = _sub("DefaultGroupName",   "Zapret Dev",           txt)
-        # +++ ДЕФОЛТНЫЙ ПУТЬ УСТАНОВКИ ++++++++++++++++++++++++++++++
-        #  {commonappdata}\Zapret  →  {commonappdata}\ZapretDev
-        txt = txt.replace(r"{commonappdata}\Zapret", r"{commonappdata}\ZapretDev")
-        txt = _ensure_uninstall_delete(txt, r"{commonappdata}\ZapretDev")
-    
+        txt = txt.replace(r"{commonappdata}\Zapret",
+                          r"{commonappdata}\ZapretDev")
+        txt = _ensure_uninstall_delete(txt,
+                          r"{commonappdata}\ZapretDev")
         txt = _sub("SetupIconFile",      "ZapretDevLogo.ico",    txt)
-        txt = _sub("UninstallDisplayIcon", r"{app}\Zapret.exe", txt)
-
-    else:                                   # stable
+    else:                                                  # STABLE
         txt = _sub("AppName",            "Zapret",               txt)
         txt = _sub("OutputBaseFilename", "ZapretSetup",          txt)
         txt = _sub("AppId",              f"{{{{{base_guid}}}}}", txt)
         txt = _sub("DefaultGroupName",   "Zapret",               txt)
+        txt = _ensure_uninstall_delete(txt,
+                          r"{commonappdata}\Zapret")
         txt = _sub("SetupIconFile",      "zapret.ico",           txt)
-        txt = _ensure_uninstall_delete(txt, r"{commonappdata}\Zapret")
-        txt = _sub("UninstallDisplayIcon", r"{app}\Zapret.exe", txt)
 
-    # куда класть итоговый Setup.exe
+    # ── OutputDir ────────────────────────────────────────────────
     outdir_line = f'OutputDir="{ROOT}"'
-    txt = _sub("OutputDir", outdir_line.split("=",1)[1].lstrip(), txt)
+    txt = _sub("OutputDir", outdir_line.split("=", 1)[1].lstrip(), txt)
 
-    patched = ROOT / f"zapret_{CHANNEL}.iss"
+    # ── сохраняем во временный .iss рядом с проектом ─────────────
+    patched = ROOT / f"zapret_{channel}.iss"
     patched.write_text(txt, encoding="utf-8")
     return patched
 
@@ -305,36 +313,52 @@ def patch_version_json(channel: str, version: str, url: str, notes: str):
 # ════════════════════════════════════════════════════════════════
 #  ОСНОВНОЙ SCRIPT
 # ════════════════════════════════════════════════════════════════
-def main():
+def main() -> None:
+
     if not is_admin():
         print("Перезапуск с правами администратора…")
         elevate_as_admin()
 
-    vers = fetch_versions()
+    vers = fetch_versions()                 # {"stable": "...", "test": "..."}
     print("\n=== Опубликованные версии ===")
     print(f"  stable : {vers['stable']}")
     print(f"  test   : {vers['test']}\n")
-    
-    raw = input("Канал публикации [S/t] > ").strip().lower()
+
+    # ───────── 1. Канал ─────────
+    raw_channel = input("Канал публикации [S/t] > ").strip().lower()
+    channel     = "stable" if raw_channel in ("s", "stable") else "test"
+
     global CHANNEL
-    CHANNEL = "stable" if raw in ("s", "stable") else "test"
+    CHANNEL = "stable" if raw_channel in ("s", "stable") else "test"
 
     # после channel / ver / notes
     global ICON_FILE
     ICON_FILE = ROOT / ("ZapretDevLogo.ico" if CHANNEL == "test" else "zapret.ico")
 
-    default_ver = suggest_next(vers[CHANNEL] if vers[CHANNEL] != "—" else "0.0.0.0")
-    ver = input(f"Номер версии [{default_ver}] > ").strip() or default_ver
-    notes = input("Release-notes > ").strip() or f"Zapret {ver}"
+    # ─── 2. номер версии ────────────────────────────────────────
+    last_ver    = vers[channel] if vers[channel] != "—" else "0.0.0.0"
+    auto_next   = suggest_next(last_ver)           # +1 к последней цифре
+    raw_ver     = input(f"Номер версии [{auto_next}] > ").strip()
 
-    print(f"\nКанал: {CHANNEL}   Версия: {ver}")
-    if input("Продолжить? [y/N] > ").strip().lower() != "y":
-        sys.exit(0)
+    VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:\.\d+)?$")   # 1.2.3 или 1.2.3.4
+    # если пользователь просто нажал Enter → берём auto_next
+    version = raw_ver or auto_next
 
-    # 1) build_info.py
-    write_build_info(CHANNEL, ver)
 
-    # 2) останавливаем запущенный Zapret.exe
+    if not VERSION_RE.fullmatch(version):
+        print(f"[ERROR] Неверный формат номера версии: “{version}”")
+        sys.exit(1)
+
+    # ───────── 3. Release-notes ──
+    notes = input("Release-notes (Enter = авто) > ").strip() or f"Zapret {version}"
+
+    fast_mode = (not raw_channel) and (not raw_ver)  # ничего не вводили вручную
+
+    print(f"\nКанал: {channel}   Версия: {version}")
+    if not fast_mode:
+        if input("Продолжить? [y/N] > ").strip().lower() != "y":
+            sys.exit(0)
+    write_build_info(channel, version)
     stop_running_zapret()
 
     # 3) PyInstaller
@@ -355,7 +379,7 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
 
     # 4) Inno Setup
-    iss_file = prepare_iss(CHANNEL, ver)
+    iss_file = prepare_iss(CHANNEL, version)
     run([INNO_ISCC, str(iss_file)])
 
     # 5) итоговый инсталлятор
@@ -367,7 +391,7 @@ def main():
     run(["scp", "-i", str(SSH_KEY), "-C", str(produced),
          f"{SSH_HOST}:{REMOTE_DIR}"])
 
-    patch_version_json(CHANNEL, ver, f"https://zapretdpi.ru/{produced.name}", notes)
+    patch_version_json(CHANNEL, version, f"https://zapretdpi.ru/{produced.name}", notes)
     print("\n✔ Всё готово!")
     os.system("pause")
 

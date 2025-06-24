@@ -15,17 +15,15 @@ class DPIStarter:
         if self.ui_callback:
             self.ui_callback(running)
 
-    def __init__(self, winws_exe, bin_folder, status_callback=None, ui_callback=None):
+    def __init__(self, winws_exe, status_callback=None, ui_callback=None):
         """
         Инициализирует DPIStarter.
         
         Args:
             winws_exe (str): Путь к исполняемому файлу winws.exe
-            bin_folder (str): Путь к папке с бинарными файлами
             status_callback (callable): Функция обратного вызова для отображения статуса
         """
         self.winws_exe = winws_exe
-        self.bin_folder = bin_folder
         self.status_callback = status_callback
         self.ui_callback = ui_callback
     
@@ -181,14 +179,13 @@ class DPIStarter:
         from PyQt6.QtCore import QTimer
         import json, os, subprocess
 
-        DEFAULT_STRAT = "Оригинальная bol-van v2 (07.04.2025)"
-        BIN_DIR       = self.bin_folder
+        from config import BAT_FOLDER, INDEXJSON_FOLDER, DEFAULT_STRAT
 
         # Добавим отладку путей
-        log(f"[DPIStarter] BIN_DIR: {BIN_DIR}", level="DEBUG")
-        log(f"[DPIStarter] Проверяем существование папки: {os.path.exists(BIN_DIR)}", level="DEBUG")
-        
-        index_path = os.path.join(BIN_DIR, "index.json")
+        log(f"[DPIStarter] BAT_FOLDER: {BAT_FOLDER}", level="DEBUG")
+        log(f"[DPIStarter] Проверяем существование папки: {os.path.exists(BAT_FOLDER)}", level="DEBUG")
+
+        index_path = os.path.join(INDEXJSON_FOLDER, "index.json")
         log(f"[DPIStarter] Полный путь к index.json: {index_path}", level="DEBUG")
         log(f"[DPIStarter] Файл index.json существует: {os.path.exists(index_path)}", level="DEBUG")
 
@@ -213,7 +210,7 @@ class DPIStarter:
                         from strategy_menu.manager import StrategyManager
                       
                         manager = StrategyManager(
-                            local_dir=BIN_DIR,
+                            local_dir=BAT_FOLDER,
                             status_callback=self._set_status
                         )
                         
@@ -234,7 +231,7 @@ class DPIStarter:
                     
         except Exception as e:
             log(f"[DPIStarter] index.json error: {e}", level="ERROR")
-            log(f"[DPIStarter] Содержимое папки bin: {os.listdir(BIN_DIR) if os.path.exists(BIN_DIR) else 'папка не существует'}", level="ERROR")
+            log(f"[DPIStarter] Содержимое папки bin: {os.listdir(BAT_FOLDER) if os.path.exists(BAT_FOLDER) else 'папка не существует'}", level="ERROR")
             self._set_status("index.json не найден и не удалось скачать")
             return False
         
@@ -262,7 +259,7 @@ class DPIStarter:
         # убираем дублирующий «bin\\»
         while bat_rel.lower().startswith(("bin\\", "bin/")):
             bat_rel = bat_rel[4:]
-        bat_path = os.path.normpath(os.path.join(BIN_DIR, bat_rel))
+        bat_path = os.path.normpath(os.path.join(BAT_FOLDER, bat_rel))
 
         if not os.path.isfile(bat_path):
             log(f"[DPIStarter] файл не найден: {bat_path}", level="ERROR")

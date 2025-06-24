@@ -552,7 +552,7 @@ class StrategySelector(QDialog):
                         strategies = self.strategy_manager.get_strategies_list(force_update=True)
                     else:
                         # Проверяем настройки автозагрузки
-                        from config.reg import get_strategy_autoload
+                        from config import get_strategy_autoload
                         if get_strategy_autoload():
                             self.progress.emit("Обновление индекса стратегий...")
                             strategies = self.strategy_manager.get_strategies_list(force_update=True)
@@ -776,7 +776,7 @@ class StrategySelector(QDialog):
         
         # Проверяем настройку автозагрузки
         try:
-            from config.reg import get_strategy_autoload
+            from config import get_strategy_autoload
             if not get_strategy_autoload():
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(

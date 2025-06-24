@@ -18,8 +18,8 @@ from config.process_monitor import ProcessMonitorThread
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
 
-from config.config import BIN_FOLDER, BIN_DIR, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
-from config.reg import get_last_strategy, set_last_strategy
+from config import BIN_FOLDER, THEME_FOLDER, BAT_FOLDER, INDEXJSON_FOLDER, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
+from config import get_last_strategy, set_last_strategy
 from config import APP_VERSION # build_info moved to config/__init__.py
 
 from hosts.hosts import HostsManager
@@ -212,7 +212,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
             # Если стратегии еще не загружены И автозагрузка включена
             if not self.strategy_manager.already_loaded:
-                from config.reg import get_strategy_autoload
+                from config import get_strategy_autoload
                 if get_strategy_autoload():
                     # ✅ АСИНХРОННАЯ ЗАГРУЗКА
                     self._load_strategies_async_then_show_dialog()
@@ -513,11 +513,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # StrategyManager  (preload=False  ⇒  ничего не скачивает)
         from strategy_menu.manager import StrategyManager
-        from config.config import (STRATEGIES_FOLDER)
+        from config import (STRATEGIES_FOLDER)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
 
         self.strategy_manager = StrategyManager(
             local_dir       = STRATEGIES_FOLDER,
+            json_dir        = INDEXJSON_FOLDER,
             status_callback = self.set_status,
             preload         = False)           # ← ключ
 
@@ -526,7 +527,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             app           = QApplication.instance(),
             widget        = self,
             status_label  = self.status_label,
-            bin_folder    = BIN_FOLDER,
+            theme_folder  = THEME_FOLDER,
             donate_checker = self.donate_checker  # ← передаем проверяльщик подписки
         )
 
@@ -552,7 +553,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # Убираем автоматический запуск тяжелой инициализации
         # Запускаем HeavyInitWorker только при необходимости
-        from config.reg import get_auto_download_enabled
+        from config import get_auto_download_enabled
         
         if get_auto_download_enabled():  # Новая настройка в реестре
             # --- HeavyInitWorker (качает winws.exe, списки и т.п.) --------
@@ -846,7 +847,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
-        from config.reg import get_dpi_autostart
+        from config import get_dpi_autostart
 
         # 1. Автозапуск DPI включён?
         if not get_dpi_autostart():
@@ -898,7 +899,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         self.dpi_starter = DPIStarter(
             winws_exe   = WINWS_EXE,
-            bin_folder  = BIN_FOLDER,
             status_callback = self.set_status,
             ui_callback     = self.update_ui
         )
@@ -1096,7 +1096,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.subscription_timer.timeout.connect(self.periodic_subscription_check)
         
         # Получаем интервал из настроек (по умолчанию 10 минут)
-        from config.reg import get_subscription_check_interval
+        from config import get_subscription_check_interval
         interval_minutes = get_subscription_check_interval()
         
         # Ограничиваем разумными пределами
@@ -1658,7 +1658,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         dlg = AutoStartMenu(
             parent             = self,
             strategy_name      = strategy_name,
-            bin_folder         = BIN_FOLDER,
+            bat_folder         = BAT_FOLDER,
+            json_folder        = INDEXJSON_FOLDER,
             check_autostart_cb = self.service_manager.check_autostart_exists,
             update_ui_cb       = self.update_autostart_ui,
             status_cb          = self.set_status

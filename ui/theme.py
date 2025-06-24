@@ -2,7 +2,7 @@ import os
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
 from PyQt6.QtWidgets import QPushButton
-from config.reg import reg, HKCU
+from config import reg, HKCU
 from log import log
 
 # Константы
@@ -140,12 +140,12 @@ class ThemeManager:
     """Класс для управления темами приложения"""
 
     # ------------------------------------------------------------------
-    def __init__(self, app, widget, status_label, bin_folder,
+    def __init__(self, app, widget, status_label, theme_folder,
                  donate_checker=None):
         self.app            = app
         self.widget         = widget
         self.status_label   = status_label
-        self.bin_folder     = bin_folder
+        self.theme_folder     = theme_folder
         self.donate_checker = donate_checker
         self._fallback_due_to_premium: str | None = None  # ← запомним, если был откат
 
@@ -324,7 +324,7 @@ class ThemeManager:
         try:
             import requests
             
-            temp_dir = os.path.join(self.bin_folder, "temp")
+            temp_dir = os.path.join(self.theme_folder, "rkn_tyan")
             os.makedirs(temp_dir, exist_ok=True)
             
             img_path = os.path.join(temp_dir, "rkn_background.jpg")

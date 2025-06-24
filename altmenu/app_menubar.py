@@ -8,10 +8,10 @@ import webbrowser
 from config import APP_VERSION # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
-from config.reg import get_auto_download_enabled, set_auto_download_enabled
+from config import get_auto_download_enabled, set_auto_download_enabled
 
 # ─── работа с реестром ──────────────────────────
-from config.reg import (
+from config import (
     get_dpi_autostart,  set_dpi_autostart,
     get_strategy_autoload, set_strategy_autoload,
     get_remove_windows_terminal, set_remove_windows_terminal
@@ -362,7 +362,7 @@ class AppMenuBar(QMenuBar):
         try:
             import subprocess
             import os
-            from config.config import NETROGAT2_PATH
+            from config import NETROGAT2_PATH
 
             if not os.path.exists(NETROGAT2_PATH):
                 with open(NETROGAT2_PATH, 'w', encoding='utf-8') as f:
@@ -416,7 +416,7 @@ class AppMenuBar(QMenuBar):
         try:
             import subprocess
             import os
-            from config.config import OTHER2_PATH
+            from config import OTHER2_PATH
 
             if not os.path.exists(OTHER2_PATH):
                 with open(OTHER2_PATH, 'w', encoding='utf-8') as f:

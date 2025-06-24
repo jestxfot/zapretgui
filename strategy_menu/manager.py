@@ -35,16 +35,19 @@ class StrategyManager:
     # ─────────────────────────────── init ──────────────────────────────
     def __init__(self,
                  local_dir: str,
+                 json_dir: str,
                  status_callback=None,
                  json_url: str | None = None,
                  preload: bool = False) -> None:
         """
-        local_dir      – куда сохраняем bat-файлы и index.json
+        local_dir      – куда сохраняем bat-файлы
+        json_dir       – куда сохраняем index.json и strategy_versions.json
         status_callback– функция-коллбек для сообщений в GUI / консоль
         json_url       – прямая ссылка на index.json (если есть)
         preload        – True ⇒ сразу скачивать index + bat-файлы
         """
         self.local_dir       = local_dir
+        self.json_dir        = json_dir
         self.status_callback = status_callback
         self.json_url        = json_url
 
@@ -69,7 +72,7 @@ class StrategyManager:
         self._loaded = False
         if preload:
             # Проверяем настройку автозагрузки перед preload
-            from config.reg import get_strategy_autoload
+            from config import get_strategy_autoload
             if get_strategy_autoload():
                 self.preload_strategies()
             else:
@@ -85,7 +88,7 @@ class StrategyManager:
     def _download_strategies_index(self) -> dict:
         """Внутренний метод для скачивания index.json с резервными источниками."""
         # Проверяем настройку автозагрузки
-        from config.reg import get_strategy_autoload
+        from config import get_strategy_autoload
         if not get_strategy_autoload():
             log("Автозагрузка стратегий отключена - прерываем загрузку", "INFO")
             self.set_status("Автозагрузка стратегий отключена")
@@ -290,7 +293,7 @@ class StrategyManager:
 
         # ВТОРОЙ ПРИОРИТЕТ: Проверяем автозагрузку (только если еще не загружены)
         if not force_update and not self.cache_loaded:
-            from config.reg import get_strategy_autoload
+            from config import get_strategy_autoload
             if not get_strategy_autoload():
                 return self._load_local_cache()
 
@@ -386,7 +389,7 @@ class StrategyManager:
         if not cache_data:
             return False
         try:
-            with open(os.path.join(self.local_dir, "index.json"),
+            with open(os.path.join(self.json_dir, "index.json"),
                       "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
             return True
@@ -404,7 +407,7 @@ class StrategyManager:
             log("preload_strategies(): уже загружено – пропуск", "DEBUG")
             return
 
-        from config.reg import get_strategy_autoload
+        from config import get_strategy_autoload
         if not get_strategy_autoload():
             log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
             self.set_status("Автозагрузка стратегий отключена")
@@ -446,7 +449,7 @@ class StrategyManager:
     # ─────────────────────────── version util ─────────────────────────
     def get_local_strategy_version(self, file_path, strategy_id):
         try:
-            meta = os.path.join(self.local_dir, "strategy_versions.json")
+            meta = os.path.join(self.json_dir, "strategy_versions.json")
             if os.path.isfile(meta):
                 with open(meta, encoding="utf-8") as f:
                     versions = json.load(f)
@@ -468,7 +471,7 @@ class StrategyManager:
             if not sid:
                 return False
 
-            meta = os.path.join(self.local_dir, "strategy_versions.json")
+            meta = os.path.join(self.json_dir, "strategy_versions.json")
             vers = {}
             if os.path.isfile(meta):
                 with open(meta, encoding="utf-8") as f:

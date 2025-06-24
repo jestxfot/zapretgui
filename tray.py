@@ -6,9 +6,6 @@ from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
 from PyQt6.QtCore    import QEvent
 
-from config.reg import get_dpi_autostart, set_dpi_autostart
-from config.reg import get_strategy_autoload, set_strategy_autoload
-
 # ----------------------------------------------------------------------
 #   SystemTrayManager
 # ----------------------------------------------------------------------

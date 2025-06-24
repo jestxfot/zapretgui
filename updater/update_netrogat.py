@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 # Импортируем константы из urls и config
 from config.urls import NETROGAT_LIST_URL
-from config.config import BIN_FOLDER
+from config import BIN_FOLDER
 
 def update_netrogat_list(parent=None, status_callback=None):
     """

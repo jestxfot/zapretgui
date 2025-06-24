@@ -70,7 +70,7 @@ class HeavyInitWorker(QObject):
     def _check_and_download_winws(self) -> bool:
         """Проверяет наличие winws.exe и загружает при необходимости"""
         try:
-            from config.config import WINWS_EXE
+            from config import WINWS_EXE
             
             if os.path.exists(WINWS_EXE):
                 log(f"winws.exe найден: {WINWS_EXE}", "DEBUG")

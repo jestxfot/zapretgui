@@ -97,12 +97,13 @@ def reg(subkey: str,
 # Шорткаты вашей программы
 # ------------------------------------------------------------------
 def get_last_strategy():
-    return reg(r"Software\Zapret", "LastStrategy") \
-        or "Оригинальная bol-van v2 (07.04.2025)"
+    from config import DEFAULT_STRAT, REG_LATEST_STRATEGY
+    return reg(r"Software\Zapret", REG_LATEST_STRATEGY) or DEFAULT_STRAT
 
 
 def set_last_strategy(name: str) -> bool:
-    return reg(r"Software\\Zapret", "LastStrategy", name)
+    from config import REG_LATEST_STRATEGY
+    return reg(r"Software\Zapret", REG_LATEST_STRATEGY, name)
 
 # ───────────── DPI-автозапуск ─────────────
 _DPI_KEY   = r"Software\Zapret"

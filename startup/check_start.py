@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QMessageBox, QApplication
 import ctypes, sys, subprocess, winreg
 
 # Импортируем константы из конфига
-from config.config import BIN_FOLDER
+from config import BIN_FOLDER
 
 # Добавляем импорт кэша
 from startup.check_cache import startup_cache

@@ -29,7 +29,9 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 Source: "..\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
+Source: "..\zapret\bat\*";              DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
+Source: "..\zapret\exe\*";              DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\lists\*";              DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion
 
 [Icons]
