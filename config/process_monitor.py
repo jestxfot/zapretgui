@@ -32,7 +32,7 @@ class ProcessMonitorThread(QThread):
 
             except Exception as e:
                 from log import log
-                log(f"Ошибка в потоке мониторинга: {e}", level="ERROR")
+                log(f"Ошибка в потоке мониторинга: {e}", level="❌ ERROR")
 
             self.msleep(self.interval_ms)            # 2 сек.
 

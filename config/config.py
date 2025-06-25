@@ -5,17 +5,19 @@ import os
 BIN_FOLDER = "bin"
 BAT_FOLDER = "bat"
 INDEXJSON_FOLDER = "json"
+EXE_FOLDER = "exe"
+ICO_FOLDER = "ico"
 LISTS_FOLDER = "lists"
 THEME_FOLDER = "themes"
-BIN_DIR = os.path.join(os.getcwd(), "bin")
-WINWS_EXE = os.path.join(BIN_FOLDER, "winws.exe")
-ICON_PATH = os.path.join(BIN_FOLDER, "zapret.ico")
-ICON_TEST_PATH = os.path.join(BIN_FOLDER, "ZapretDevLogo.ico")
+LOGS_FOLDER = "logs"
+WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")
+ICON_PATH = os.path.join(ICO_FOLDER, "zapret.ico")
+ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo.ico")
 
-OTHER_PATH = os.path.join(BIN_FOLDER, "other.txt")
-OTHER2_PATH = os.path.join(BIN_FOLDER, "other2.txt")
-NETROGAT_PATH = os.path.join(BIN_FOLDER, "netrogat.txt")
-NETROGAT2_PATH = os.path.join(BIN_FOLDER, "netrogat2.txt")
+OTHER_PATH = os.path.join(LISTS_FOLDER, "other.txt")
+OTHER2_PATH = os.path.join(LISTS_FOLDER, "other2.txt")
+NETROGAT_PATH = os.path.join(LISTS_FOLDER, "netrogat.txt")
+NETROGAT2_PATH = os.path.join(LISTS_FOLDER, "netrogat2.txt")
 DEFAULT_STRAT = "Если эта стратегия не работает смени её!"
 REG_LATEST_STRATEGY = "LastStrategy2"
 
@@ -31,4 +33,4 @@ HEIGHT = 680
 Ankddev10_1 = ""
 
 
-#$UDP6 = "--filter-udp=50000-65535 --dpi-desync=fake,split2 --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic={BIN_FOLDER}/quic_test_00.bin --new"
+#$UDP6 = "--filter-udp=50000-65535 --dpi-desync=fake,split2 --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic=quic_test_00.bin --new"

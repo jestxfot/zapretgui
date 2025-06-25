@@ -18,7 +18,7 @@ from config.process_monitor import ProcessMonitorThread
 from heavy_init_worker import HeavyInitWorker
 from downloader import DOWNLOAD_URLS
 
-from config import BIN_FOLDER, THEME_FOLDER, BAT_FOLDER, INDEXJSON_FOLDER, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
+from config import THEME_FOLDER, BAT_FOLDER, INDEXJSON_FOLDER, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
 from config import get_last_strategy, set_last_strategy
 from config import APP_VERSION # build_info moved to config/__init__.py
 
@@ -65,7 +65,7 @@ def _handle_update_mode():
     
 
     if len(sys.argv) < 4:
-        log("--update: недостаточно аргументов", "ERROR")
+        log("--update: недостаточно аргументов", "❌ ERROR")
         return
 
     old_exe, new_exe = sys.argv[2], sys.argv[3]
@@ -81,7 +81,7 @@ def _handle_update_mode():
         subprocess.Popen([old_exe])          # запускаем новую версию
         log("Файл обновления применён", "INFO")
     except Exception as e:
-        log(f"Ошибка в режиме --update: {e}", "ERROR")
+        log(f"Ошибка в режиме --update: {e}", "❌ ERROR")
     finally:
         try:
             os.remove(new_exe)
@@ -117,7 +117,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 except RuntimeError:
                     pass
         except Exception as e:
-            log(f"Ошибка при очистке потоков: {e}", "ERROR")
+            log(f"Ошибка при очистке потоков: {e}", "❌ ERROR")
         
         # Стандартная обработка события
         super().closeEvent(event)
@@ -183,7 +183,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Если флаг намеренного запуска установлен, но процесс не запущен
         if intentional_start and not process_running:
             # Вместо показа ошибки просто логируем информацию
-            log("Процесс не запустился после намеренного запуска", level="WARNING")
+            log("Процесс не запустился после намеренного запуска", level="⚠ WARNING")
             self.update_ui(running=False)
         elif not intentional_start and not process_running:
             # Если процесс не запущен, и это не связано с переключением стратегии, показываем ошибку
@@ -206,7 +206,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Открывает диалог выбора стратегии с асинхронной загрузкой"""
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
-                log("Ошибка: менеджер стратегий не инициализирован", "ERROR")
+                log("Ошибка: менеджер стратегий не инициализирован", "❌ ERROR")
                 self.set_status("Ошибка: менеджер стратегий не инициализирован")
                 return
 
@@ -226,7 +226,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self._show_strategy_dialog()
 
         except Exception as e:
-            log(f"Ошибка при открытии диалога выбора стратегии: {e}", "ERROR")
+            log(f"Ошибка при открытии диалога выбора стратегии: {e}", "❌ ERROR")
             self.set_status(f"Ошибка при выборе стратегии: {e}")
 
     def _load_strategies_async_then_show_dialog(self):
@@ -253,7 +253,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     
                 except Exception as e:
                     error_msg = f"Ошибка загрузки стратегий: {str(e)}"
-                    log(error_msg, "ERROR")
+                    log(error_msg, "❌ ERROR")
                     self.finished.emit(False, error_msg)
         
         # Показываем состояние загрузки
@@ -292,7 +292,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self._show_strategy_dialog()
                 
             else:
-                log(f"Ошибка асинхронной загрузки стратегий: {error_message}", "ERROR")
+                log(f"Ошибка асинхронной загрузки стратегий: {error_message}", "❌ ERROR")
                 self.set_status(f"Ошибка загрузки: {error_message}")
                 
                 # Показываем диалог с локальными стратегиями (если есть)
@@ -300,7 +300,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self._show_strategy_dialog()
                 
         except Exception as e:
-            log(f"Ошибка при обработке результата загрузки стратегий: {e}", "ERROR")
+            log(f"Ошибка при обработке результата загрузки стратегий: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def _show_strategy_dialog(self):
@@ -340,7 +340,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log("Открыт диалог выбора стратегии (неблокирующий)", "INFO")
             
         except Exception as e:
-            log(f"Ошибка при показе диалога стратегий: {e}", "ERROR")
+            log(f"Ошибка при показе диалога стратегий: {e}", "❌ ERROR")
             self.set_status(f"Ошибка диалога: {e}")
         
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
@@ -373,13 +373,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         'name': strategy_name,
                         'file_path': f"{strategy_id}.bat"
                     }
-                    log(f"Не удалось найти информацию о стратегии {strategy_id}, используем базовую", "WARNING")
+                    log(f"Не удалось найти информацию о стратегии {strategy_id}, используем базовую", "⚠ WARNING")
                 
                 # Запускаем стратегию с полной информацией
                 self.start_dpi_async(selected_mode=strategy_info)
                 
             except Exception as strategy_error:
-                log(f"Ошибка при получении информации о стратегии: {strategy_error}", "ERROR")
+                log(f"Ошибка при получении информации о стратегии: {strategy_error}", "❌ ERROR")
                 # Fallback - запускаем с именем стратегии
                 self.start_dpi_async(selected_mode=strategy_name)
             
@@ -393,7 +393,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.first_start = False  # Сбрасываем флаг первого запуска
                 
         except Exception as e:
-            log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="ERROR")
+            log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="❌ ERROR")
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
 
     def update_autostart_ui(self, service_running: bool | None):
@@ -464,7 +464,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             strategies = self.strategy_manager.get_strategies_list(force_update=force_update)
             
             if not strategies:
-                log("Не удалось получить список стратегий", level="ERROR")
+                log("Не удалось получить список стратегий", level="❌ ERROR")
                 return
             
             # Выводим список стратегий в лог для отладки
@@ -491,7 +491,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             error_msg = f"Ошибка при обновлении списка стратегий: {str(e)}"
             
-            log(error_msg, level="ERROR")
+            log(error_msg, level="❌ ERROR")
             self.set_status(error_msg)
 
     def initialize_managers_and_services(self):
@@ -541,7 +541,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # ServiceManager
         self.service_manager = ServiceManager(
             winws_exe    = WINWS_EXE,
-            bin_folder   = BIN_FOLDER,
             status_callback = self.set_status,
             ui_callback     = self.update_ui)
 
@@ -614,7 +613,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self._check_subscription_async(prev_premium)
             
         except Exception as e:
-            log(f"Ошибка при периодической проверке подписки: {e}", level="ERROR")
+            log(f"Ошибка при периодической проверке подписки: {e}", level="❌ ERROR")
 
     def _check_subscription_async(self, prev_premium):
         """Асинхронная проверка подписки"""
@@ -634,7 +633,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
                     self.finished.emit(self.prev_premium, is_premium, status_msg, days_remaining)
                 except Exception as e:
-                    log(f"Ошибка фоновой проверки подписки: {e}", "ERROR")
+                    log(f"Ошибка фоновой проверки подписки: {e}", "❌ ERROR")
                     # В случае ошибки возвращаем кэшированные данные
                     self.finished.emit(self.prev_premium, self.prev_premium, "Ошибка проверки", 0)
         
@@ -719,14 +718,14 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Фоновая проверка подписки завершена: premium={is_premium}, статус='{status_msg}'", level="DEBUG")
             
         except Exception as e:
-            log(f"Ошибка при обработке результата проверки подписки: {e}", level="ERROR")
+            log(f"Ошибка при обработке результата проверки подписки: {e}", level="❌ ERROR")
             # В случае ошибки показываем базовый статус
             try:
                 current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
                 self.update_title_with_subscription_status(False, current_theme, 0)
                 self.set_status("Ошибка при обработке проверки подписки")
             except Exception as inner_e:
-                log(f"Критическая ошибка при восстановлении статуса: {inner_e}", level="ERROR")
+                log(f"Критическая ошибка при восстановлении статуса: {inner_e}", level="❌ ERROR")
 
     def _on_heavy_done(self, ok: bool, err: str):
         """GUI-поток: тяжёлая инициализация завершена."""
@@ -765,7 +764,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         try:
             from updater import run_update_async           # из updater/__init__.py
         except Exception as e:
-            log(f"Auto-update: import error {e}", "ERROR")
+            log(f"Auto-update: import error {e}", "❌ ERROR")
             self.set_status("Не удалось запустить авто-апдейт")
             return
 
@@ -843,7 +842,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.process_status_value.setText("ВЫКЛЮЧЕН")
                     self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
         except Exception as e:
-            log(f"Ошибка в on_process_status_changed: {e}", level="ERROR")
+            log(f"Ошибка в on_process_status_changed: {e}", level="❌ ERROR")
             
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
@@ -918,7 +917,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             QApplication.instance().setWindowIcon(app_icon)
         
         else:
-            log(f"Иконка приложения не найдена: {icon_path}", "ERROR")
+            log(f"Иконка приложения не найдена: {icon_path}", "❌ ERROR")
 
         # Инициализируем интерфейс БЕЗ подписки
         self.build_ui(width=WIDTH, height=HEIGHT)
@@ -966,14 +965,17 @@ class LupiDPIApp(QWidget, MainWindowUI):
             app_version=APP_VERSION
         )
         
+        from log import Logger
+        self.logger = Logger()  # создаём экземпляр Logger
         
-        # после создания GUI и инициализации логгера:
+        # используем путь из Logger
         from tgram import FullLogDaemon
         self.log_sender = FullLogDaemon(
-                log_path = "zapret_log.txt",
-                interval = 120,      # интервал отправки в секундах
-                parent   = self)
-        
+            log_path = self.logger.log_file,  # ← берём путь из Logger
+            interval = 120,
+            parent   = self
+        )
+
         # ЗАПУСКАЕМ асинхронную инициализацию подписки ПОСЛЕ создания UI
         QTimer.singleShot(1000, self._init_donate_checker_async)
 
@@ -1009,7 +1011,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     
                     self.finished.emit(checker)
                 except Exception as e:
-                    log(f"Ошибка инициализации DonateChecker: {e}", "ERROR")
+                    log(f"Ошибка инициализации DonateChecker: {e}", "❌ ERROR")
                     self.finished.emit(None)
         
         # Показываем что идет загрузка
@@ -1031,7 +1033,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def _on_donate_checker_ready(self, checker):
         """Колбэк фонового потока DonateChecker."""
         if not checker:
-            log("DonateChecker не инициализирован – работаем без премиума", "WARNING")
+            log("DonateChecker не инициализирован – работаем без премиума", "⚠ WARNING")
             return
 
         self.donate_checker = checker
@@ -1045,7 +1047,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         try:
             is_premium, status_msg, days_remaining = checker.check_subscription_status()
         except Exception as e:
-            log(f"Ошибка проверки подписки: {e}", "ERROR")
+            log(f"Ошибка проверки подписки: {e}", "❌ ERROR")
             is_premium, status_msg, days_remaining = False, "", None
 
         # 3. обновляем заголовок
@@ -1086,7 +1088,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Статус подписки обновлен: {'Premium' if is_premium else 'Free'}", "INFO")
             
         except Exception as e:
-            log(f"Ошибка при обновлении UI подписки: {e}", "ERROR")
+            log(f"Ошибка при обновлении UI подписки: {e}", "❌ ERROR")
             self.set_status("Ошибка проверки подписки")
 
     def _start_subscription_timer(self):
@@ -1120,7 +1122,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.update_title_with_subscription_status(is_premium, current_theme, days_remaining)
             
         except Exception as e:
-            log(f"Ошибка при обновлении статуса подписки: {e}", "ERROR")
+            log(f"Ошибка при обновлении статуса подписки: {e}", "❌ ERROR")
             # Не падаем, просто показываем базовый заголовок
             self.update_title_with_subscription_status(False)
 
@@ -1167,7 +1169,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status("Готово")
             
         except Exception as e:
-            log(f"Ошибка при открытии диалога подписки: {e}", level="ERROR")
+            log(f"Ошибка при открытии диалога подписки: {e}", level="❌ ERROR")
             self.set_status(f"Ошибка: {e}")
             
             # Fallback - показываем простое сообщение
@@ -1228,7 +1230,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Проверяем, активен ли автозапуск
         if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
             # Если автозапуск активен, игнорируем смену режима и восстанавливаем предыдущий выбор
-            log("Смена стратегии недоступна при активном автозапуске", level="WARNING")
+            log("Смена стратегии недоступна при активном автозапуске", level="⚠ WARNING")
             return
         
         # Обновляем отображение текущей стратегии
@@ -1318,7 +1320,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         
                 except Exception as e:
                     error_msg = f"Ошибка запуска DPI: {str(e)}"
-                    log(error_msg, "ERROR")
+                    log(error_msg, "❌ ERROR")
                     self.finished.emit(False, error_msg)
         
         # Показываем состояние запуска
@@ -1352,7 +1354,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self._dpi_start_worker.deleteLater()
                     self._dpi_start_worker = None
             except Exception as e:
-                log(f"Ошибка при очистке потока запуска: {e}", "ERROR")
+                log(f"Ошибка при очистке потока запуска: {e}", "❌ ERROR")
         
         self._dpi_start_worker.finished.connect(cleanup_start_thread)
         
@@ -1420,7 +1422,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         
                 except Exception as e:
                     error_msg = f"Ошибка остановки DPI: {str(e)}"
-                    log(error_msg, "ERROR")
+                    log(error_msg, "❌ ERROR")
                     self.finished.emit(False, error_msg)
         
         # Показываем состояние остановки
@@ -1454,7 +1456,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self._dpi_stop_worker.deleteLater()
                     self._dpi_stop_worker = None
             except Exception as e:
-                log(f"Ошибка при очистке потока остановки: {e}", "ERROR")
+                log(f"Ошибка при очистке потока остановки: {e}", "❌ ERROR")
         
         self._dpi_stop_worker.finished.connect(cleanup_stop_thread)
         
@@ -1496,7 +1498,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.first_start = False
                     
             else:
-                log(f"Ошибка асинхронного запуска DPI: {error_message}", "ERROR")
+                log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
                 self.set_status(f"❌ Ошибка запуска: {error_message}")
                 
                 # Обновляем UI как неактивный
@@ -1504,7 +1506,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.on_process_status_changed(False)
                 
         except Exception as e:
-            log(f"Ошибка при обработке результата запуска DPI: {e}", "ERROR")
+            log(f"Ошибка при обработке результата запуска DPI: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def _on_dpi_stop_finished(self, success, error_message):
@@ -1530,7 +1532,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.on_process_status_changed(False)
                 
             else:
-                log(f"Ошибка асинхронной остановки DPI: {error_message}", "ERROR")
+                log(f"Ошибка асинхронной остановки DPI: {error_message}", "❌ ERROR")
                 self.set_status(f"❌ Ошибка остановки: {error_message}")
                 
                 # Проверяем реальный статус процесса
@@ -1539,7 +1541,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.on_process_status_changed(is_running)
                 
         except Exception as e:
-            log(f"Ошибка при обработке результата остановки DPI: {e}", "ERROR")
+            log(f"Ошибка при обработке результата остановки DPI: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def _stop_and_exit_async(self):
@@ -1569,7 +1571,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.finished.emit()
                     
                 except Exception as e:
-                    log(f"Ошибка при остановке перед закрытием: {e}", "ERROR")
+                    log(f"Ошибка при остановке перед закрытием: {e}", "❌ ERROR")
                     self.finished.emit()
         
         # Создаем worker и поток
@@ -1625,11 +1627,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 # через небольшую задержку, чтобы тема успела примениться
                 QTimer.singleShot(100, self.update_subscription_status_in_title)
             else:
-                log(f"Ошибка при изменении темы: {message}", level="ERROR")
+                log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
                 self.set_status(f"Ошибка изменения темы: {message}")
                 
         except Exception as e:
-            log(f"Ошибка при обработке изменения темы: {e}", level="ERROR")
+            log(f"Ошибка при обработке изменения темы: {e}", level="❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def open_folder(self):
@@ -1646,7 +1648,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # Если уже есть автозапуск — предупредим и выйдем
         if self.service_manager.check_autostart_exists():
-            log("Автозапуск уже активен", "WARNING")
+            log("Автозапуск уже активен", "⚠ WARNING")
             self.set_status("Сначала отключите текущий автозапуск")
             return
 
@@ -1869,7 +1871,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
         except Exception as e:
             from log import log
-            log(f"Ошибка при открытии окна тестирования: {e}", "ERROR")
+            log(f"Ошибка при открытии окна тестирования: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def open_dns_settings(self):
@@ -1887,7 +1889,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
             
-            log(f"Ошибка при открытии настроек DNS: {str(e)}", level="ERROR")
+            log(f"Ошибка при открытии настроек DNS: {str(e)}", level="❌ ERROR")
             self.set_status(error_msg)
 
     def init_tray_if_needed(self):
@@ -1899,7 +1901,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Проверяем наличие пути к иконке
             icon_path = os.path.abspath(ICON_PATH)
             if not os.path.exists(icon_path):
-                log(f"Предупреждение: иконка {icon_path} не найдена", level="WARNING")
+                log(f"Предупреждение: иконка {icon_path} не найдена", level="⚠ WARNING")
                 
             # Инициализируем трей
             from tray import SystemTrayManager
@@ -1915,6 +1917,28 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 # Гарантируем, что окно скрыто
                 self.hide()
 
+def set_batfile_association():
+    """
+    Устанавливает ассоциацию типа файла для .bat файлов
+    """
+    try:
+        from log import log
+        # Выполняем команду через subprocess
+        result = subprocess.run(['cmd', '/c', 'ftype', 'batfile="%SystemRoot%\\System32\\cmd.exe" /c "%1" %*'], shell=False, capture_output=True)
+
+        # Проверяем результат
+        if result.returncode == 0:
+            log("Ассоциация успешно установлена", level="set_batfile_association")
+            log(f"Вывод: {result.stdout}", level="set_batfile_association")
+            return True
+        else:
+            log(f"Ошибка при выполнении команды: {result.stderr}", level="❌ ERROR set_batfile_association")
+            return False
+            
+    except Exception as e:
+        log(f"Произошла ошибка: {e}", level="❌ ERROR set_batfile_association")
+        return False
+
 def main():
     # Add sys.excepthook to catch unhandled exceptions
     import sys, ctypes
@@ -1922,12 +1946,13 @@ def main():
         from log import log
         import traceback as tb
         error_msg = ''.join(tb.format_exception(exctype, value, traceback))
-        log(f"UNCAUGHT EXCEPTION: {error_msg}", level="CRITICAL")
-        sys.__excepthook__(exctype, value, traceback)  # Call the default handler
+        log(f"UNCAUGHT EXCEPTION: {error_msg}", level="❌ CRITICAL global_exception_handler")
+        # Не вызываем sys.__excepthook__ чтобы избежать дополнительных диалогов
+        # sys.__excepthook__(exctype, value, traceback)
 
     sys.excepthook = global_exception_handler
     
-    # ---------------- разбор аргументов CLI (ПЕРЕНЕСЕНО В НАЧАЛО) -----
+    # ---------------- разбор аргументов CLI -----
     start_in_tray = "--tray" in sys.argv
     if "--version" in sys.argv:
         ctypes.windll.user32.MessageBoxW(None, APP_VERSION,
@@ -1935,9 +1960,21 @@ def main():
         sys.exit(0)
 
     if "--update" in sys.argv and len(sys.argv) > 3:
-        _handle_update_mode()           # ваша функция обновления
+        _handle_update_mode()
         sys.exit(0)
     
+    # ---- admin elevation (после предупреждений, до создания окна) ----
+    if not is_admin():
+        # формируем строку параметров для нового процесса
+        params = " ".join(sys.argv[1:])
+        
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable,
+            params,
+            None, 1
+        )
+        sys.exit(0)
+
     # ---------------- одно-экземплярный mutex -------------------------
     from startup.single_instance import create_mutex, release_mutex
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
@@ -1953,10 +1990,10 @@ def main():
     has_bfe_cache, bfe_cached = startup_cache.is_cached_and_valid("bfe_check")
 
     if has_bfe_cache and bfe_cached:
-        log("BFE: используем кэшированный результат (OK)", "DEBUG")
+        log("BFE: используем кэшированный результат (OK)", "is_cached_and_valid")
 
     elif has_bfe_cache and not bfe_cached:
-        log("BFE: кэшированный результат - ОШИБКА", "ERROR")
+        log("BFE: кэшированный результат - ОШИБКА", "❌ ERROR")
 
         # СООБЩЕНИЕ ДЛЯ ПОЛЬЗОВАТЕЛЯ
         ctypes.windll.user32.MessageBoxW(
@@ -2016,20 +2053,6 @@ def main():
     if not warnings_ok and not start_in_tray:      # <── ключевое отличие
         sys.exit(1)
 
-    # ---- admin elevation (после предупреждений, до создания окна) ----
-    if not is_admin():
-        # формируем строку параметров для нового процесса
-        params = " ".join(sys.argv[1:])            # ←  главное изменение
-        # если нужны кавычки для «пробельных» аргументов:
-        # params = " ".join(f'"{a}"' for a in sys.argv[1:])
-
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable,
-            params,            # ←  передаём обычную строку
-            None, 1
-        )
-        sys.exit(0)
-
     from startup.remove_terminal import remove_windows_terminal_if_win11
     remove_windows_terminal_if_win11()
     
@@ -2048,6 +2071,9 @@ def main():
     if start_in_tray and hasattr(window, 'tray_manager'):
         window.tray_manager.show_notification("Zapret работает в трее", "Приложение запущено в фоновом режиме")
     
+    from startup.admin_check_debug import debug_admin_status
+    debug_admin_status()  # Проверка UAC и прав администратора
+    set_batfile_association()  # Устанавливаем ассоциацию для .bat файлов
     sys.exit(app.exec())
 
 if __name__ == "__main__":

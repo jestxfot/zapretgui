@@ -104,7 +104,7 @@ class DNSManager:
             )
             
             if result.returncode != 0:
-                log(f"PowerShell ошибка: {result.stderr}", "ERROR")
+                log(f"PowerShell ошибка: {result.stderr}", "❌ ERROR")
                 return []
             
             adapters = []
@@ -122,10 +122,10 @@ class DNSManager:
             return adapters
             
         except subprocess.TimeoutExpired:
-            log("Таймаут при получении адаптеров", "ERROR")
+            log("Таймаут при получении адаптеров", "❌ ERROR")
             return []
         except Exception as e:
-            log(f"Ошибка fallback: {e}", "ERROR")
+            log(f"Ошибка fallback: {e}", "❌ ERROR")
             return []
 
     def get_all_dns_info_fast(self, adapter_names: List[str]) -> Dict[str, List[str]]:
@@ -180,7 +180,7 @@ class DNSManager:
             return dns_info
             
         except subprocess.TimeoutExpired:
-            log("Таймаут при получении DNS, используем fallback", "WARNING")
+            log("Таймаут при получении DNS, используем fallback", "⚠ WARNING")
             return self._get_dns_fallback(adapter_names)
         except Exception as e:
             log(f"Ошибка получения DNS: {e}", "DEBUG")
@@ -353,7 +353,7 @@ class DNSSettingsDialog(QDialog):
             self.dns_info_loaded.emit(dns_info)
             
         except Exception as e:
-            log(f"Ошибка при быстрой загрузке данных: {str(e)}", level="ERROR")
+            log(f"Ошибка при быстрой загрузке данных: {str(e)}", level="❌ ERROR")
             # Fallback к старому методу
             self._load_data_slow_fallback()
 
@@ -376,7 +376,7 @@ class DNSSettingsDialog(QDialog):
             
             self.dns_info_loaded.emit(dns_info)
         except Exception as e:
-            log(f"Критическая ошибка загрузки DNS данных: {e}", "ERROR")
+            log(f"Критическая ошибка загрузки DNS данных: {e}", "❌ ERROR")
 
     def on_adapters_loaded(self, adapters):
         """Обработчик загрузки списка адаптеров"""

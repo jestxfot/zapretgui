@@ -31,7 +31,7 @@ def main():
     # 1) скачиваем текущий JSON
     run(["curl", "-fsSL", args.json_url, "-o", tmp])
 
-    data = json.loads(tmp.read_text(encoding="utf-8"))
+    data = json.loads(tmp.read_text(encoding="utf-8-sig"))
 
     # 2) патчим нужный блок
     data[args.channel] = {
@@ -41,7 +41,7 @@ def main():
         "date": datetime.date.today().isoformat()
     }
 
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8-sig")
 
     # 3) грузим обратно
     run([

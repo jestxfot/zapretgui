@@ -9,10 +9,10 @@ from __future__ import annotations
 import os, sys, uuid, platform, threading, requests, pathlib, winreg, traceback
 from datetime import datetime
 from typing import Optional
-from config import APP_VERSION # build_info moved to config/__init__.py
+from config import APP_VERSION, CHANNEL # build_info moved to config/__init__.py
 
-# ───────────── определяем, dev это или нет ─────────────
-IS_DEV_BUILD = str(APP_VERSION).startswith("2025")
+# ───────────── определяем, test это или нет ─────────────
+IS_DEV_BUILD = True if CHANNEL == "test" else False
 
 # ───────────── cred’ы для двух ботов ───────────────────
 #  прод-бот
@@ -20,7 +20,7 @@ PROD_TOKEN   = "7541112559:AAHS8aqz-Jq_MqbtNGpH9DHq_UfO-jCJtRM"
 PROD_CHAT_ID = 6483277608
 
 #  dev-бот  (создайте своего и вставьте данные)
-DEV_TOKEN    = "7714173083:AAHO4aGrnjFdFKJXxLn__fJMMhF6sqVwt9c"
+DEV_TOKEN    = "7508331220:AAFNbBAXKQGwmfbi1ecQ8IBNZv-b1z2W3Kk"
 DEV_CHAT_ID  = 6483277608
 
 #  выбираем
@@ -122,7 +122,7 @@ class LogTailSender:
                 self.pos = 0
             if size == self.pos:
                 return
-            with open(self.path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.path, "r", encoding="utf-8-sig", errors="ignore") as f:
                 f.seek(self.pos)
                 delta = f.read()
                 self.pos = f.tell()
@@ -158,7 +158,7 @@ def _tg_api(method: str, files=None, data=None):
 
 def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
     path = Path(log_path)
-    text = path.read_text(encoding="utf-8", errors="replace")[-4000:]
+    text = path.read_text(encoding="utf-8-sig", errors="replace")[-4000:]
     data = {
         "chat_id": CHAT_ID,
         "text": (caption + "\n\n" if caption else "") + text,

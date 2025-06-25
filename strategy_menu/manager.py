@@ -129,8 +129,21 @@ class StrategyManager:
                     if len(response.content) == 0:
                         raise ValueError("Получен пустой ответ")
                     
-                    # ИСПРАВЛЕНИЕ: Сохраняем результат в переменные класса
-                    result = response.json()
+                    # ИСПРАВЛЕНИЕ: Декодируем контент с учетом BOM
+                    content = response.content
+                    
+                    # Удаляем BOM если он есть
+                    if content.startswith(b'\xef\xbb\xbf'):
+                        content = content[3:]
+                    
+                    # Декодируем и парсим JSON
+                    import json
+                    text = content.decode('utf-8')
+                    result = json.loads(text)
+                    
+                    # Альтернативный вариант - использовать utf-8-sig
+                    # result = json.loads(response.content.decode('utf-8-sig'))
+                    
                     self.strategies_cache = result
                     self.cache_loaded = True
                     self.last_update_time = time.time()
@@ -160,14 +173,14 @@ class StrategyManager:
                         self.set_status(f"Повтор попытки {attempt + 2}/{self.max_retries} для {source_name}...")
 
             # Все попытки для этого источника неудачны
-            log(f"Источник {source_name} недоступен: {last_error}", "WARNING")
+            log(f"Источник {source_name} недоступен: {last_error}", "⚠ WARNING")
             self.failed_sources.add(source_index)
             self.set_status(f"Источник {source_name} недоступен, пробуем следующий...")
 
         # Все источники исчерпаны
-        log("Все источники недоступны", "ERROR")
+        log("Все источники недоступны", "❌ ERROR")
         raise last_error or Exception("Все резервные источники недоступны")
-    
+
     def _download_strategy_sync(self, strategy_id: str) -> str | None:
         """Синхронная версия скачивания стратегии с поддержкой резервных источников."""
         try:
@@ -254,13 +267,13 @@ class StrategyManager:
                             time.sleep(sleep_time)
 
                 # Все попытки для этого источника неудачны
-                log(f"Не удалось скачать {strategy_id} с {source_name}: {last_error}", "WARNING")
+                log(f"Не удалось скачать {strategy_id} с {source_name}: {last_error}", "⚠ WARNING")
 
             # Все источники исчерпаны
             raise Exception(f"Не удалось скачать {strategy_id} ни с одного источника")
 
         except Exception as e:
-            log(f"{strategy_id} DL error: {e}", "ERROR")
+            log(f"{strategy_id} DL error: {e}", "❌ ERROR")
             self.set_status(f"Ошибка загрузки {strategy_id}: {e}")
             return local_path if os.path.isfile(local_path) else None
         
@@ -315,7 +328,7 @@ class StrategyManager:
         index_file = os.path.join(self.local_dir, "index.json")
         if os.path.isfile(index_file):
             try:
-                with open(index_file, encoding="utf-8") as f:
+                with open(index_file, encoding="utf-8-sig") as f:
                     self.strategies_cache = json.load(f)
                 self.cache_loaded = True
                 self._loaded = True
@@ -323,7 +336,7 @@ class StrategyManager:
                 log("Загружен локальный index.json", "INFO")
                 return self.strategies_cache
             except Exception as e:
-                log(f"Ошибка чтения локального индекса: {e}", "ERROR")
+                log(f"Ошибка чтения локального индекса: {e}", "❌ ERROR")
         
         self.strategies_cache = {}
         self.cache_loaded = True
@@ -338,7 +351,7 @@ class StrategyManager:
             result = self._download_strategies_index()
             return result
         except Exception as e:
-            log(f"Ошибка загрузки: {e}", "ERROR")
+            log(f"Ошибка загрузки: {e}", "❌ ERROR")
             return self._load_local_cache()
 
     def check_strategy_version_status(self, strategy_id: str) -> str:
@@ -390,11 +403,11 @@ class StrategyManager:
             return False
         try:
             with open(os.path.join(self.json_dir, "index.json"),
-                      "w", encoding="utf-8") as f:
+                      "w", encoding="utf-8-sig") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            log(f"index.json save error: {e}", "ERROR")
+            log(f"index.json save error: {e}", "❌ ERROR")
             return False
 
     # ───────────────────────── preload () ─────────────────────────────
@@ -416,7 +429,7 @@ class StrategyManager:
         log("Preload стратегий (только индекс)…", "INFO")
         strategies = self.get_strategies_list()
         if not strategies:
-            log("Список стратегий пуст – preload отменён", "ERROR")
+            log("Список стратегий пуст – preload отменён", "❌ ERROR")
             return
 
         self._loaded = True
@@ -433,7 +446,7 @@ class StrategyManager:
                 future = executor.submit(self._download_strategy_sync, strategy_id)
                 return future.result(timeout=self.download_timeout)
             except TimeoutError:
-                log(f"Таймаут при скачивании {strategy_id}", "ERROR")
+                log(f"Таймаут при скачивании {strategy_id}", "❌ ERROR")
                 self.set_status(f"Таймаут скачивания {strategy_id}")
                 
                 # Возвращаем локальную копию если есть
@@ -451,12 +464,12 @@ class StrategyManager:
         try:
             meta = os.path.join(self.json_dir, "strategy_versions.json")
             if os.path.isfile(meta):
-                with open(meta, encoding="utf-8") as f:
+                with open(meta, encoding="utf-8-sig") as f:
                     versions = json.load(f)
                 if strategy_id in versions:
                     return versions[strategy_id]
 
-            with open(file_path, encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8-sig", errors="ignore") as f:
                 for line in f:
                     if "VERSION:" in line:
                         return line.split("VERSION:")[1].strip()
@@ -474,15 +487,15 @@ class StrategyManager:
             meta = os.path.join(self.json_dir, "strategy_versions.json")
             vers = {}
             if os.path.isfile(meta):
-                with open(meta, encoding="utf-8") as f:
+                with open(meta, encoding="utf-8-sig") as f:
                     vers = json.load(f)
             vers[sid] = info.get("version", "1.0")
-            with open(meta, "w", encoding="utf-8") as f:
+            with open(meta, "w", encoding="utf-8-sig") as f:
                 json.dump(vers, f, ensure_ascii=False, indent=2)
 
             # добавляем ремарку в .bat
             try:
-                with open(file_path, encoding="utf-8", errors="ignore") as f:
+                with open(file_path, encoding="utf-8-sig", errors="ignore") as f:
                     content = f.read()
                 header = (
                     "@echo off\n"
@@ -491,14 +504,14 @@ class StrategyManager:
                 )
                 if not content.startswith("@echo off"):
                     content = header + content
-                with open(file_path, "w", encoding="utf-8") as f:
+                with open(file_path, "w", encoding="utf-8-sig") as f:
                     f.write(content)
             except Exception as e:
                 log(f"bat header warn: {e}", "DEBUG")
 
             return True
         except Exception as e:
-            log(f"save ver error: {e}", "ERROR")
+            log(f"save ver error: {e}", "❌ ERROR")
             return False
 
     def check_sources_availability(self) -> dict:

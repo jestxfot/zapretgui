@@ -29,7 +29,7 @@ def main():
             channel,
             version
         ),
-        encoding="utf-8"
+        encoding="utf-8-sig"
     )
     print("✔ build_info.py written:", dst)
 

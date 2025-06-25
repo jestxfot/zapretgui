@@ -113,7 +113,7 @@ VSVersionInfo(
 # -----------------------------------------------------------------
 def main() -> None:
     out_file = Path(__file__).with_name("version_info.txt")
-    out_file.write_text(VERSION_INFO_TEXT, encoding="utf-8")
+    out_file.write_text(VERSION_INFO_TEXT, encoding="utf-8-sig")
 
     print(
         f"version_info.txt создан.\n"

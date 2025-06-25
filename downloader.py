@@ -12,12 +12,12 @@ DOWNLOAD_URLS = {
     "stop.bat": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=stop.bat",
 }
 
-def download_files(bin_folder, download_urls, status_callback=None):
+def download_files(exe_folder, download_urls, status_callback=None):
     """
     Скачивает необходимые файлы с GitHub
     
     Args:
-        bin_folder (str): Путь к папке bin
+        exe_folder (str): Путь к папке bin
         download_urls (dict): Словарь с именами файлов и URL для скачивания
         status_callback (function): Функция для отображения статуса скачивания
         
@@ -26,7 +26,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
     """
     try:
         # Создаем папки если они не существуют
-        os.makedirs(bin_folder, exist_ok=True)
+        os.makedirs(exe_folder, exist_ok=True)
         
         from log import log
         # Функция для вывода статуса, если передана
@@ -39,7 +39,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
         # Проверяем, существуют ли все файлы
         all_files_exist = True
         for filename in download_urls.keys():
-            filepath = os.path.join(bin_folder, filename)
+            filepath = os.path.join(exe_folder, filename)
             if not os.path.exists(filepath):
                 all_files_exist = False
                 break
@@ -52,7 +52,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
         
         # Скачиваем файлы
         for filename, url in download_urls.items():
-            filepath = os.path.join(bin_folder, filename)
+            filepath = os.path.join(exe_folder, filename)
             
             # Проверяем, существует ли файл уже
             if os.path.exists(filepath):
@@ -68,7 +68,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
                     shutil.copyfileobj(response.raw, f)
                 log(f"Файл {filename} скачан успешно", level="DOWNLOAD")
             else:
-                log(f"Ошибка при скачивании {filename}, код: {response.status_code}", level="ERROR")
+                log(f"Ошибка при скачивании {filename}, код: {response.status_code}", level="❌ ERROR")
                 raise Exception(f"Не удалось скачать {filename}, код: {response.status_code}")
                 
         # Создаем пустые txt файлы в lists, если их нет
@@ -97,7 +97,7 @@ def download_files(bin_folder, download_urls, status_callback=None):
                 
     except Exception as e:
         error_msg = f"Ошибка при скачивании файлов: {str(e)}"
-        log(f"Ошибка при скачивании файлов: {error_msg}", level="ERROR")
+        log(f"Ошибка при скачивании файлов: {error_msg}", level="❌ ERROR")
         if status_callback:
             status_callback(error_msg)
         return False

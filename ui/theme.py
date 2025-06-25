@@ -183,7 +183,7 @@ class ThemeManager:
             is_prem, *_ = self.donate_checker.check_subscription_status()
             return is_prem
         except Exception as e:
-            log(f"Ошибка проверки подписки: {e}", "ERROR")
+            log(f"Ошибка проверки подписки: {e}", "❌ ERROR")
             return False
         
     def reapply_saved_theme_if_premium(self):
@@ -202,7 +202,7 @@ class ThemeManager:
                 "INFO")
             self._fallback_due_to_premium = None
         else:
-            log(f"Не удалось восстановить тему: {msg}", "WARNING")
+            log(f"Не удалось восстановить тему: {msg}", "⚠ WARNING")
 
     def get_available_themes(self):
         """Возвращает список доступных тем с учетом статуса подписки"""
@@ -290,7 +290,7 @@ class ThemeManager:
                     is_prem, msg, days = self.widget.donate_checker.check_subscription_status()
                     self.widget.update_title_with_subscription_status(is_prem, clean, days)
                 except Exception as e:
-                    log(f"Ошибка обновления статуса подписки: {e}", "ERROR")
+                    log(f"Ошибка обновления статуса подписки: {e}", "❌ ERROR")
                     self.widget.update_title_with_subscription_status(False, clean, None)
 
             # фон для РКН-тян
@@ -306,7 +306,7 @@ class ThemeManager:
             return True, "ok"
 
         except Exception as e:
-            log(f"Theme error: {e}", "ERROR")
+            log(f"Theme error: {e}", "❌ ERROR")
             return False, str(e)
 
     def _update_color_in_style(self, current_style, new_color):
@@ -332,7 +332,7 @@ class ThemeManager:
             if not os.path.exists(img_path):
                 try:
                     self._set_status("Загрузка фонового изображения...")
-                    img_url = "https://gitflic.ru/project/main1234/main1234/blob/raw?file=rkn_background.jpg"
+                    img_url = "https://zapretdpi.ru/rkn_background.jpg"
                     
                     response = requests.get(img_url, stream=True, timeout=10)
                     if response.status_code == 200:

@@ -26,7 +26,7 @@ class StartupCheckCache:
         try:
             winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_KEY)
         except Exception as e:
-            log(f"Не удалось создать ключ реестра для кэша: {e}", "WARNING")
+            log(f"Не удалось создать ключ реестра для кэша: {e}", "⚠ WARNING")
     
     def _get_cache_key(self, check_name: str, context: str = "") -> str:
         """Генерирует ключ для кэша с контекстом"""
@@ -79,7 +79,7 @@ class StartupCheckCache:
             log(f"Результат {check_name} сохранен в кэш: {result}", "DEBUG")
             
         except Exception as e:
-            log(f"Не удалось сохранить кэш для {check_name}: {e}", "WARNING")
+            log(f"Не удалось сохранить кэш для {check_name}: {e}", "⚠ WARNING")
     
     def invalidate_cache(self, check_name: str = None):
         """Очищает кэш (конкретную проверку или весь)"""
@@ -106,7 +106,7 @@ class StartupCheckCache:
                     log("Весь кэш проверок очищен", "INFO")
                     
         except Exception as e:
-            log(f"Ошибка очистки кэша: {e}", "WARNING")
+            log(f"Ошибка очистки кэша: {e}", "⚠ WARNING")
 
 # Глобальный экземпляр кэша
 startup_cache = StartupCheckCache()

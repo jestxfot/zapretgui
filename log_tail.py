@@ -28,7 +28,7 @@ class LogTailWorker(QObject):
                 return
 
             # открываем с правильной кодировкой
-            with codecs.open(self.file_path, "r", encoding="utf-8",
+            with codecs.open(self.file_path, "r", encoding="utf-8-sig",
                              errors="replace") as f:
                 # читаем «историю» (можно ограничить размер, если нужно)
                 start_text = f.read()

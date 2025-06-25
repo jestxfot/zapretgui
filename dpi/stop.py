@@ -59,7 +59,7 @@ def stop_dpi(app: "LupiDPIApp"):
 
         # --------- 5. итог -------------------------------------------
         if app.dpi_starter.check_process_running():
-            log("Не удалось остановить winws.exe", "WARNING")
+            log("Не удалось остановить winws.exe", "⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
         else:
             app.update_ui(running=False)
@@ -70,7 +70,7 @@ def stop_dpi(app: "LupiDPIApp"):
 
     except Exception as e:
         from log import log
-        log(f"stop_dpi: {e}", "ERROR")
+        log(f"stop_dpi: {e}", "❌ ERROR")
         app.set_status(f"Ошибка остановки: {e}")
 
 ##############################
@@ -94,12 +94,11 @@ def stop_dpi2(self):
             from autostart.service import ServiceManager
             service_manager = ServiceManager(
                 winws_exe=self.winws_exe,
-                bin_folder=self.bin_folder,
                 status_callback=self.set_status
             )
             service_exists = service_manager.check_service_exists()
         except Exception as e:
-            log(f"Ошибка при проверке службы: {str(e)}", level="ERROR")
+            log(f"Ошибка при проверке службы: {str(e)}", level="❌ ERROR")
             
         if service_exists:
             log("Обнаружена активная служба ZapretCensorliber", level="START")
@@ -115,7 +114,8 @@ def stop_dpi2(self):
             return True
         
         # Используем только stop.bat для остановки процесса
-        stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+        from config import EXE_FOLDER
+        stop_bat_path = os.path.join(EXE_FOLDER, "stop.bat")
         if os.path.exists(stop_bat_path):
             self.set_status("Останавливаю winws.exe через stop.bat...")
             log("Использую stop.bat для остановки процесса", level="START")
@@ -128,7 +128,7 @@ def stop_dpi2(self):
             process = subprocess.Popen(
                 stop_bat_path,
                 startupinfo=startupinfo,
-                cwd=self.bin_folder,
+                cwd=EXE_FOLDER,
                 shell=True
             )
             
@@ -136,7 +136,7 @@ def stop_dpi2(self):
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                log("Таймаут ожидания stop.bat", level="WARNING")
+                log("Таймаут ожидания stop.bat", level="⚠ WARNING")
                 # Продолжаем выполнение, не ждем полного завершения
             
             # Даем время на завершение процессов
@@ -147,7 +147,7 @@ def stop_dpi2(self):
                 self.set_status("Zapret успешно остановлен")
                 return True
             else:
-                log("Процесс winws.exe не был остановлен через stop.bat, но мы не будем использовать другие методы", level="WARNING")
+                log("Процесс winws.exe не был остановлен через stop.bat, но мы не будем использовать другие методы", level="⚠ WARNING")
                 self.set_status("Zapret не удалось остановить через stop.bat")
                 return False
         else:
@@ -159,7 +159,7 @@ def stop_dpi2(self):
         return True
     except Exception as e:
         error_msg = f"Ошибка при остановке DPI: {str(e)}"
-        log(error_msg, level="ERROR")
+        log(error_msg, level="❌ ERROR")
         self.set_status(error_msg)
         return False
     
@@ -167,7 +167,8 @@ def stop_dpi2(self):
 def create_stop_bat(self):
     """Создает файл stop.bat, если он не существует"""
     try:
-        stop_bat_path = os.path.join(self.bin_folder, "stop.bat")
+        from config import EXE_FOLDER
+        stop_bat_path = os.path.join(EXE_FOLDER, "stop.bat")
         
         # Содержимое stop.bat
         stop_bat_content = """@echo off
@@ -203,5 +204,5 @@ exit /b 0
         log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="START")
         return True
     except Exception as e:
-        log(f"Ошибка при создании stop.bat: {str(e)}", level="ERROR")
+        log(f"Ошибка при создании stop.bat: {str(e)}", level="❌ ERROR")
         return False

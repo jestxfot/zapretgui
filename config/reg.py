@@ -89,7 +89,7 @@ def reg(subkey: str,
         return None if value is _UNSET else False
     except Exception as e:
         # при желании можете залогировать здесь
-        # from log import log; log(f"reg error: {e}", "ERROR")
+        # from log import log; log(f"reg error: {e}", "❌ ERROR")
         return None if value is _UNSET else False
 
 
@@ -140,7 +140,7 @@ def get_auto_download_enabled() -> bool:
     except FileNotFoundError:
         return True  # По умолчанию включено
     except Exception as e:
-        log(f"Ошибка чтения настройки автозагрузки: {e}", "ERROR")
+        log(f"Ошибка чтения настройки автозагрузки: {e}", "❌ ERROR")
         return True
 
 def set_auto_download_enabled(enabled: bool):
@@ -153,7 +153,7 @@ def set_auto_download_enabled(enabled: bool):
             winreg.SetValueEx(key, "AutoDownloadEnabled", 0, winreg.REG_DWORD, int(enabled))
         log(f"Автозагрузка {'включена' if enabled else 'отключена'}", "INFO")
     except Exception as e:
-        log(f"Ошибка записи настройки автозагрузки: {e}", "ERROR")
+        log(f"Ошибка записи настройки автозагрузки: {e}", "❌ ERROR")
 
 
 def get_subscription_check_interval() -> int:
@@ -174,4 +174,4 @@ def set_subscription_check_interval(minutes: int):
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
             winreg.SetValueEx(key, "SubscriptionCheckInterval", 0, winreg.REG_DWORD, int(minutes))
     except Exception as e:
-        log(f"Ошибка записи интервала проверки подписки: {e}", "ERROR")
+        log(f"Ошибка записи интервала проверки подписки: {e}", "❌ ERROR")

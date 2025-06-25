@@ -1,3 +1,4 @@
+# dpi/start.py
 import os
 import time
 import subprocess
@@ -47,7 +48,7 @@ class DPIStarter:
             
             try:
                 result = subprocess.run(
-                    'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH', 
+                    'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',  ##########
                     shell=True, 
                     capture_output=True, 
                     text=True,
@@ -72,15 +73,15 @@ class DPIStarter:
                 if result.returncode != 0:
                     error_msg = result.stderr.strip() if result.stderr else "неизвестная ошибка"
                     if not silent:
-                        log(f"tasklist завершился с кодом {result.returncode}: {error_msg}", level="WARNING")
-                        log("Переходим к альтернативным методам проверки", level="WARNING")
+                        log(f"tasklist завершился с кодом {result.returncode}: {error_msg}", level="⚠ WARNING")
+                        log("Переходим к альтернативным методам проверки", level="⚠ WARNING")
                 
             except subprocess.TimeoutExpired:
                 if not silent:
-                    log("tasklist превысила таймаут, переходим к другим методам", level="WARNING")
+                    log("tasklist превысила таймаут, переходим к другим методам", level="⚠ WARNING")
             except Exception as e:
                 if not silent:
-                    log(f"Ошибка при выполнении tasklist: {e}", level="WARNING")
+                    log(f"Ошибка при выполнении tasklist: {e}", level="⚠ WARNING")
             
             if not silent:
                 # Метод 2: Проверка через PowerShell (работает лучше на некоторых системах)
@@ -108,7 +109,7 @@ class DPIStarter:
                 log("Метод 3: Проверка через wmic", level="START")
                 try:
                     wmic_result = subprocess.run(
-                        'wmic process where "name=\'winws.exe\'" get processid',
+                        'wmic process where "name=\'winws.exe\'" get processid',##############
                         shell=True,
                         capture_output=True,
                         text=True,
@@ -165,6 +166,97 @@ class DPIStarter:
     # ==================================================================
     #  ЕДИНЫЙ ЗАПУСК Стратегии (.bat)   → self.start(...)
     # ==================================================================
+    def cleanup_windivert_service(self):
+        """Принудительно останавливает и удаляет службу windivert"""
+        try:
+            log("=================== cleanup_windivert_service ==========================", level="START")
+            
+            # Шаг 1: Проверяем состояние службы
+            log("Проверяем состояние службы windivert...", level="INFO")
+            check_result = subprocess.run(
+                'C:\\Windows\\System32\\sc.exe query windivert',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+            
+            if "SERVICE_NAME: windivert" not in check_result.stdout:
+                log("Служба windivert не найдена", level="INFO")
+                return True
+                
+            # Шаг 2: Принудительная остановка службы
+            log("Останавливаем службу windivert...", level="INFO")
+            stop_result = subprocess.run(
+                'C:\\Windows\\System32\\sc.exe stop windivert',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+            
+            # Ждем остановки службы
+            for i in range(10):  # Максимум 10 секунд
+                time.sleep(1)
+                query_result = subprocess.run(
+                    'C:\\Windows\\System32\\sc.exe query windivert',
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                if "STOPPED" in query_result.stdout:
+                    log("Служба успешно остановлена", level="INFO")
+                    break
+                elif i == 9:
+                    log("Не удалось дождаться остановки службы", level="⚠ WARNING")
+            
+            # Шаг 3: Удаление службы
+            log("Удаляем службу windivert...", level="INFO")
+            delete_result = subprocess.run(
+                'C:\\Windows\\System32\\sc.exe delete windivert',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+            
+            if delete_result.returncode == 0:
+                log("Служба windivert успешно удалена", level="✅ SUCCESS")
+                return True
+            else:
+                error_msg = delete_result.stderr.strip() if delete_result.stderr else delete_result.stdout.strip()
+                log(f"Ошибка при удалении службы: {error_msg}", level="❌ ERROR")
+                
+                # Альтернативный метод через PowerShell
+                log("Пробуем удалить через PowerShell...", level="INFO")
+                ps_result = subprocess.run(
+                    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command "Remove-Service -Name windivert -Force -ErrorAction SilentlyContinue""',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Проверяем, удалилась ли служба
+                final_check = subprocess.run(
+                    'C:\\Windows\\System32\\sc.exe query windivert',
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp866'
+                )
+                
+                if "SERVICE_NAME: windivert" not in final_check.stdout:
+                    log("Служба успешно удалена через PowerShell", level="✅ SUCCESS")
+                    return True
+                else:
+                    log("Не удалось удалить службу", level="❌ ERROR")
+                    return False
+                    
+        except Exception as e:
+            log(f"Критическая ошибка при удалении службы windivert: {e}", level="❌ ERROR")
+            return False
+    
     def start_dpi(self, selected_mode: str | None = None, delay_ms: int = 0) -> bool:
         """
         Запускает выбранный .bat скрыто.
@@ -189,6 +281,22 @@ class DPIStarter:
         log(f"[DPIStarter] Полный путь к index.json: {index_path}", level="DEBUG")
         log(f"[DPIStarter] Файл index.json существует: {os.path.exists(index_path)}", level="DEBUG")
 
+        def diagnose_environment():
+            """Диагностика окружения для отладки"""
+            import platform, sys
+            from main import is_admin
+
+            bat_path = os.path.normpath(os.path.join(BAT_FOLDER))
+            log("=== ДИАГНОСТИКА ОКРУЖЕНИЯ ===", level="🔹 INFO")
+            log(f"OS: {platform.system()} {platform.version()}", level="🔹 INFO")
+            log(f"Python: {sys.version}", level="🔹 INFO")
+            log(f"Текущий пользователь: {os.environ.get('USERNAME', 'unknown')}", level="🔹 INFO")
+            log(f"Права админа: {is_admin()}", level="🔹 INFO")
+            log(f"Рабочая директория: {os.getcwd()}", level="🔹 INFO")
+            log(f"BAT exists: {os.path.exists(bat_path)}", level="🔹 INFO")
+            log(f"BAT readable: {os.access(bat_path, os.R_OK)}", level="🔹 INFO")
+            log(f"BAT executable: {os.access(bat_path, os.X_OK)}", level="🔹 INFO")
+        diagnose_environment()
 
         # -------- 0. Какая стратегия? -------------------------------------
         if not selected_mode:
@@ -199,16 +307,18 @@ class DPIStarter:
                 selected_mode = None
         if not selected_mode:
             selected_mode = DEFAULT_STRAT
-
+            
         # -------- 1. Загружаем / кэшируем index.json -----------------------
         try:
             if not hasattr(self, "_idx"):
+                index_path = os.path.join(INDEXJSON_FOLDER, "index.json")
+                
                 # Если index.json отсутствует, попробуем его скачать
                 if not os.path.exists(index_path):
-                    log(f"[DPIStarter] index.json не найден, пытаемся скачать...", level="WARNING")
+                    log(f"[DPIStarter] index.json не найден, пытаемся скачать...", level="⚠ WARNING")
                     try:
                         from strategy_menu.manager import StrategyManager
-                      
+                        
                         manager = StrategyManager(
                             local_dir=BAT_FOLDER,
                             status_callback=self._set_status
@@ -222,18 +332,62 @@ class DPIStarter:
                             raise Exception("Пустой список стратегий")
                             
                     except Exception as download_error:
-                        log(f"[DPIStarter] Не удалось скачать index.json: {download_error}", level="ERROR")
+                        log(f"[DPIStarter] Не удалось скачать index.json: {download_error}", level="❌ ERROR")
                         self._set_status("Ошибка: не удалось загрузить список стратегий")
                         return False
                 
-                with open(index_path, "r", encoding="utf-8") as f:
-                    self._idx = json.load(f)
+                # Читаем файл с правильной кодировкой
+                try:
+                    # Сначала пробуем utf-8-sig для файлов с BOM
+                    with open(index_path, "r", encoding="utf-8-sig") as f:
+                        self._idx = json.load(f)
+                except UnicodeDecodeError:
+                    # Если не получилось, пробуем обычный utf-8
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        self._idx = json.load(f)
+                except json.JSONDecodeError as je:
+                    # Если JSON поврежден, пробуем прочитать и исправить
+                    log(f"[DPIStarter] JSON decode error: {je}", level="❌ ERROR")
                     
+                    # Читаем содержимое файла
+                    with open(index_path, "rb") as f:
+                        content = f.read()
+                    
+                    # Удаляем BOM если есть
+                    if content.startswith(b'\xef\xbb\xbf'):
+                        content = content[3:]
+                    
+                    # Пробуем декодировать и парсить
+                    try:
+                        text = content.decode('utf-8')
+                        self._idx = json.loads(text)
+                    except Exception as e2:
+                        log(f"[DPIStarter] Не удалось исправить JSON: {e2}", level="❌ ERROR")
+                        raise
+                        
         except Exception as e:
-            log(f"[DPIStarter] index.json error: {e}", level="ERROR")
-            log(f"[DPIStarter] Содержимое папки bin: {os.listdir(BAT_FOLDER) if os.path.exists(BAT_FOLDER) else 'папка не существует'}", level="ERROR")
-            self._set_status("index.json не найден и не удалось скачать")
-            return False
+            log(f"[DPIStarter] index.json error: {e}", level="❌ ERROR")
+            
+            # Если index.json не читается, попробуем создать временный из списка файлов
+            bat_files = [f for f in os.listdir(BAT_FOLDER) if f.endswith('.bat')]
+            if bat_files:
+                log(f"[DPIStarter] Создаем временный индекс из {len(bat_files)} .bat файлов", level="⚠ WARNING")
+                
+                # Создаем простой индекс
+                self._idx = {}
+                for bat_file in bat_files:
+                    name = bat_file[:-4]  # убираем .bat
+                    self._idx[name] = {
+                        "name": name,
+                        "file_path": bat_file,
+                        "description": f"Стратегия {name}"
+                    }
+                
+                self._set_status(f"Используется временный список из {len(bat_files)} стратегий")
+            else:
+                log(f"[DPIStarter] Содержимое папки {BAT_FOLDER}: {os.listdir(BAT_FOLDER) if os.path.exists(BAT_FOLDER) else 'папка не существует'}", level="❌ ERROR")
+                self._set_status("index.json не найден и не удалось создать временный")
+                return False
         
         strategies = self._idx
 
@@ -252,7 +406,7 @@ class DPIStarter:
 
         bat_rel = _resolve_bat(selected_mode)
         if not bat_rel:
-            log(f"[DPIStarter] не найден .bat для '{selected_mode}'", level="ERROR")
+            log(f"[DPIStarter] не найден .bat для '{selected_mode}'", level="❌ ERROR")
             self._set_status("Ошибка: стратегия не найдена")
             return False
 
@@ -262,69 +416,227 @@ class DPIStarter:
         bat_path = os.path.normpath(os.path.join(BAT_FOLDER, bat_rel))
 
         if not os.path.isfile(bat_path):
-            log(f"[DPIStarter] файл не найден: {bat_path}", level="ERROR")
+            log(f"[DPIStarter] файл не найден: {bat_path}", level="❌ ERROR")
             self._set_status("Ошибка: файл стратегии не найден")
             return False
 
         # -------- 3. Внутренняя функция реального запуска -----------------
         def _do_start() -> bool:
-            try:
-                # -----------------------------------------------------------
-                # 1. Стартуем .bat
-                # -----------------------------------------------------------
-                abs_bat = os.path.abspath(bat_path)          # гарантируем абсолютный путь
-                cmd     = ["cmd", "/c", abs_bat]
-                log(f"[DPIStarter] RUN: {' '.join(cmd)} (hidden)", level="INFO")
-
-                subprocess.Popen(
-                    cmd,
-                    cwd=os.path.dirname(abs_bat),            # важна правильная папка запуска
-                    creationflags=0x0800_0000)               # CREATE_NO_WINDOW
-                log(f"[DPIStarter] Запущена стратегия: {selected_mode}", level="INFO")
-
-                # даём процессу время появиться в списке
-                time.sleep(1)
-
-                # -----------------------------------------------------------
-                # 2. Пытаемся найти PID процесса winws.exe
-                # -----------------------------------------------------------
-                pid     = "неизвестен"
-                result  = subprocess.run(
-                    r'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
-                    shell=True, capture_output=True, text=True
-                )
-
-                if result.returncode != 0:
-                    # tasklist вернул ошибку (маловероятно, но бывает)
-                    log(f"[DPIStarter] tasklist завершился с кодом {result.returncode}: "
-                        f"{result.stderr.strip()}", level="WARNING")
-
-                else:
-                    # tasklist отработал успешно — смотрим вывод
-                    if '"winws.exe"' in result.stdout:
-                        # процесс найден, вытаскиваем PID
-                        import re
-                        m = re.search(r'"winws\.exe","(\d+)"', result.stdout)
-                        if m:
-                            pid = m.group(1)
-                            log(f"[DPIStarter] Определён PID процесса winws.exe: {pid}", level="INFO")
-                        else:
-                            # имя есть, а PID не смогли вытащить (редкая ситуация)
-                            log("[DPIStarter] Не удалось извлечь PID из вывода tasklist", level="WARNING")
+            # Путь к файлу блокировки
+            lock_file = os.path.join(os.path.dirname(self.winws_exe), "winws_starting.lock")
+            
+            # Проверяем, не идет ли уже процесс запуска
+            if os.path.exists(lock_file):
+                try:
+                    # Проверяем возраст lock-файла (может быть "зависший")
+                    lock_age = time.time() - os.path.getmtime(lock_file)
+                    if lock_age > 30:  # Если файл старше 30 секунд
+                        log(f"[DPIStarter] Обнаружен старый lock-файл ({lock_age:.1f} сек), удаляем", level="⚠ WARNING")
+                        os.remove(lock_file)
                     else:
-                        # в выводе нет строки с winws.exe
-                        log("[DPIStarter] Процесс winws.exe не найден", level="WARNING")
+                        log("[DPIStarter] Уже идет процесс запуска (lock-файл существует)", level="⚠ WARNING")
+                        return False
+                except Exception as e:
+                    log(f"[DPIStarter] Ошибка при проверке lock-файла: {e}", level="⚠ WARNING")
+            
+            # Создаем lock-файл
+            try:
+                with open(lock_file, 'w') as f:
+                    f.write(f"{os.getpid()}\n{time.time()}")
+                log(f"[DPIStarter] Создан lock-файл: {lock_file}", level="DEBUG")
+            except Exception as e:
+                log(f"[DPIStarter] Не удалось создать lock-файл: {e}", level="❌ ERROR")
+                return False
+            
+            # Основная логика запуска в блоке try-finally
+            try:
+                # НОВОЕ: Очистка службы windivert перед запуском
+                log("[DPIStarter] Проверяем и очищаем службу windivert...", level="INFO")
+                self.cleanup_windivert_service()
 
-                # -----------------------------------------------------------
-                # 3. Обновляем UI и выходим
-                # -----------------------------------------------------------
-                self._update_ui(True)
-                return True
+                # Сначала проверяем, не запущен ли уже процесс
+                if self.check_process_running(silent=True):
+                    log("[DPIStarter] Процесс winws.exe уже запущен, останавливаем перед перезапуском", level="INFO")
+                    # Останавливаем существующие процессы
+                    try:
+                        subprocess.run('C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe', shell=True, capture_output=True)
+                        time.sleep(2)  # Увеличиваем время ожидания
+                        
+                        # Дополнительная проверка, что процесс действительно остановлен
+                        for i in range(5):
+                            if not self.check_process_running(silent=True):
+                                log(f"[DPIStarter] Процесс успешно остановлен (попытка {i+1})", level="INFO")
+                                break
+                            time.sleep(0.5)
+                        else:
+                            log("[DPIStarter] Не удалось остановить процесс после 5 попыток", level="❌ ERROR")
+                            return False
+                            
+                    except Exception as stop_error:
+                        log(f"[DPIStarter] Ошибка при остановке процесса: {stop_error}", level="❌ ERROR")
+                        return False
+                
+                abs_bat = os.path.abspath(bat_path)
+                
+                # ===============================================
+                # Способ 1: Основной метод
+                # ===============================================
+                log("[DPIStarter] Попытка 1: Основной метод через cmd /c", level="INFO")
+                try:
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
+                    
+                    cmd = f'C:\\Windows\\System32\\cmd.exe /c start /b cmd /c "{abs_bat}"'
+                    log(f"[DPIStarter] RUN: {cmd} (hidden)", level="INFO")
+                    
+                    # В методе _do_start()
+                    work_dir = os.path.dirname(abs_bat)
+                    if not os.path.exists(work_dir):
+                        log(f"[DPIStarter] Рабочая директория не существует: {work_dir}", level="❌ ERROR")
+                        return False
+
+                    process = subprocess.Popen(
+                        ['C:\\Windows\\System32\\cmd.exe', '/c', abs_bat],
+                        shell=True,
+                        cwd=work_dir,  # Явно указываем рабочую директорию
+                        startupinfo=startupinfo,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+
+                    # Ждем немного
+                    time.sleep(1)
+                    
+                    # Проверяем, не завершился ли процесс с ошибкой
+                    if process.poll() is not None and process.returncode != 0:
+                        log(f"[DPIStarter] Процесс завершился с кодом {process.returncode}", level="⚠ WARNING")
+                    else:
+                        # Проверяем несколько раз, запустился ли winws.exe
+                        for i in range(5):  # 5 попыток с интервалом
+                            if self.check_process_running(silent=True):
+                                log(f"[DPIStarter] ✅ Успех! Запущена стратегия: {selected_mode} (основной метод, попытка {i+1})", level="INFO")
+                                self._update_ui(True)
+                                return True
+                            time.sleep(0.5)
+                        
+                        # Если процесс все еще работает, но winws.exe не найден
+                        if process.poll() is None:
+                            log("[DPIStarter] BAT-процесс работает, но winws.exe не обнаружен", level="⚠ WARNING")
+                                
+                except WindowsError as e:
+                    if e.winerror == 5:  # Access Denied
+                        log("[DPIStarter] Ошибка доступа при основном методе", level="⚠ WARNING")
+                    else:
+                        log(f"[DPIStarter] Windows ошибка: {e}", level="❌ ERROR")
+                except Exception as e:
+                    log(f"[DPIStarter] Ошибка основного метода: {e}", level="⚠ WARNING")
+                
+                # ===============================================
+                # ВАЖНО: Проверяем еще раз перед следующей попыткой
+                # ===============================================
+                time.sleep(0.5)
+                if self.check_process_running(silent=True):
+                    log("[DPIStarter] ✅ Процесс запущен после первой попытки!", level="INFO")
+                    self._update_ui(True)
+                    return True
+                
+                # ===============================================
+                # Способ 2: Альтернативный метод через start
+                # ===============================================
+                log("[DPIStarter] Попытка 2: Альтернативный метод через start /b", level="INFO")
+                
+                try:
+                    alt_cmd = f'C:\\Windows\\System32\\cmd.exe /c start /b cmd /c "{abs_bat}"'
+                    result = subprocess.run(
+                        alt_cmd,
+                        shell=True,
+                        cwd=os.path.dirname(abs_bat),
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if result.returncode != 0:
+                        log(f"[DPIStarter] start вернул код {result.returncode}: {result.stderr}", level="⚠ WARNING")
+                    
+                    # Даем время на запуск
+                    time.sleep(1)
+                    
+                    # Проверяем несколько раз
+                    for i in range(5):
+                        if self.check_process_running(silent=True):
+                            log(f"[DPIStarter] ✅ Успех! Запуск через start (попытка {i+1})", level="INFO")
+                            self._update_ui(True)
+                            return True
+                        time.sleep(0.5)
+                        
+                except Exception as alt_error:
+                    log(f"[DPIStarter] start не сработал: {alt_error}", level="⚠ WARNING")
+                
+                # ===============================================
+                # ВАЖНО: Проверяем еще раз перед последней попыткой
+                # ===============================================
+                time.sleep(0.5)
+                if self.check_process_running(silent=True):
+                    log("[DPIStarter] ✅ Процесс запущен после второй попытки!", level="INFO")
+                    self._update_ui(True)
+                    return True
+                
+                # ===============================================
+                # Способ 3: Через прямой вызов
+                # ===============================================
+                log("[DPIStarter] Попытка 3: Прямой запуск bat-файла", level="INFO")
+                
+                try:
+                    # Запускаем напрямую без cmd /c
+                    process = subprocess.Popen(
+                        ['C:\\Windows\\System32\\cmd.exe', '/c', abs_bat],
+                        shell=False,
+                        cwd=os.path.dirname(abs_bat),
+                        startupinfo=startupinfo,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    
+                    # Даем время на запуск
+                    time.sleep(1)
+                    
+                    # Проверяем несколько раз
+                    for i in range(5):
+                        if self.check_process_running(silent=True):
+                            log(f"[DPIStarter] ✅ Успех! Прямой запуск (попытка {i+1})", level="INFO")
+                            self._update_ui(True)
+                            return True
+                        time.sleep(0.5)
+                        
+                except Exception as direct_error:
+                    log(f"[DPIStarter] Прямой запуск не сработал: {direct_error}", level="⚠ WARNING")
+                
+                # ===============================================
+                # Финальная проверка
+                # ===============================================
+                time.sleep(1)
+                if self.check_process_running(silent=True):
+                    log("[DPIStarter] ✅ Процесс все-таки запустился!", level="INFO")
+                    self._update_ui(True)
+                    return True
+                
+                # Если ничего не помогло
+                log("[DPIStarter] ❌ Все методы запуска не сработали", level="❌ ERROR")
+                self._set_status("Не удалось запустить DPI")
+                return False
 
             except Exception as e:
-                log(f"[DPIStarter] ошибка запуска: {e}", level="ERROR")
+                log(f"[DPIStarter] Критическая ошибка запуска: {e}", level="❌ ERROR")
                 self._set_status(f"Ошибка запуска: {e}")
                 return False
+            
+            finally:
+                # Всегда удаляем lock-файл в конце
+                try:
+                    if os.path.exists(lock_file):
+                        os.remove(lock_file)
+                        log(f"[DPIStarter] Удален lock-файл: {lock_file}", level="DEBUG")
+                except Exception as e:
+                    log(f"[DPIStarter] Ошибка при удалении lock-файла: {e}", level="⚠ WARNING")
 
         # -------- 4. Запускаем сразу или с задержкой ----------------------
         if delay_ms > 0:

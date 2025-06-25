@@ -19,10 +19,11 @@ class Logger:
         base_dir = os.path.dirname(
             os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
         )
-        self.log_file = log_file_path or os.path.join(base_dir, "zapret_log.txt")
+        from config import LOGS_FOLDER
+        self.log_file = log_file_path or os.path.join(base_dir, LOGS_FOLDER, "zapret_log.txt")
 
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        with open(self.log_file, "w", encoding="utf-8") as f:
+        with open(self.log_file, "w", encoding="utf-8-sig") as f:
             f.write(f"=== Zapret GUI Log - Started {datetime.now():%Y-%m-%d %H:%M:%S} ===\n\n")
 
         self.orig_stdout = sys.stdout
@@ -33,7 +34,7 @@ class Logger:
     def write(self, message: str):
         if self.orig_stdout:
             self.orig_stdout.write(message)
-        with open(self.log_file, "a", encoding="utf-8") as f:
+        with open(self.log_file, "a", encoding="utf-8-sig") as f:
             f.write(f"[{datetime.now():%H:%M:%S}] {message}")
 
     def flush(self):                              # нужен для print(...)
@@ -51,7 +52,7 @@ class Logger:
 
     def get_log_content(self) -> str:
         try:
-            with open(self.log_file, "r", encoding="utf-8") as f:
+            with open(self.log_file, "r", encoding="utf-8-sig") as f:
                 return f.read()
         except Exception as e:
             return f"Error reading log: {e}"

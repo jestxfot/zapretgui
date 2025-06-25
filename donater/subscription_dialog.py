@@ -490,7 +490,7 @@ class SubscriptionDialog(QDialog):
                                 "затем используйте кнопку 'Обновить статус'. Статус выдаётся в течении 24 часов.")
             
         except Exception as e:
-            log(f"Ошибка при открытии ссылки на Boosty: {e}", level="ERROR")
+            log(f"Ошибка при открытии ссылки на Boosty: {e}", level="❌ ERROR")
             QMessageBox.information(self, "Ссылка на подписку", 
                                 "Не удалось автоматически открыть браузер.\n\n"
                                 "Скопируйте ссылку для оформления подписки:\n"
@@ -580,7 +580,7 @@ class SubscriptionDialog(QDialog):
             self.worker.start()
             
         except Exception as e:
-            log(f"Ошибка при запуске проверки подписки: {e}", level="ERROR")
+            log(f"Ошибка при запуске проверки подписки: {e}", level="❌ ERROR")
             self.progress_bar.setVisible(False)
             self.status_text.setText(f"❌ Ошибка проверки: {str(e)}")
 

@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import QMessageBox
 
 # Импортируем константы из urls и config
 from config.urls import OTHER_LIST_URL
-from config import BIN_FOLDER
 
 def update_other_list(parent=None, status_callback=None):
     """
@@ -31,10 +30,10 @@ def update_other_list(parent=None, status_callback=None):
             import requests
         
         # Путь к локальному файлу
-        other_path = os.path.join(BIN_FOLDER, 'other.txt')
+        from config import OTHER_PATH
 
         # Создаем директорию, если она не существует
-        os.makedirs(os.path.dirname(other_path), exist_ok=True)
+        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
 
         # Скачиваем файл с сервера
         if status_callback:
@@ -54,8 +53,8 @@ def update_other_list(parent=None, status_callback=None):
             
             # Читаем текущий файл, если он существует
             current_content = ""
-            if os.path.exists(other_path):
-                with open(other_path, 'r', encoding='utf-8') as f:
+            if os.path.exists(OTHER_PATH):
+                with open(OTHER_PATH, 'r', encoding='utf-8') as f:
                     # Также обрабатываем существующее содержимое
                     current_domains = []
                     for line in f:
@@ -65,14 +64,14 @@ def update_other_list(parent=None, status_callback=None):
                     current_content = "\n".join(current_domains)
             
             # Если файла нет или содержимое отличается
-            if not os.path.exists(other_path) or current_content != downloaded_content:
+            if not os.path.exists(OTHER_PATH) or current_content != downloaded_content:
                 # Делаем резервную копию текущего файла
-                if os.path.exists(other_path):
-                    backup_path = other_path + '.bak'
-                    shutil.copy2(other_path, backup_path)
+                if os.path.exists(OTHER_PATH):
+                    backup_path = OTHER_PATH + '.bak'
+                    shutil.copy2(OTHER_PATH, backup_path)
 
                 # Сохраняем новый файл (без пустых строк)
-                with open(other_path, 'w', encoding='utf-8') as f:
+                with open(OTHER_PATH, 'w', encoding='utf-8') as f:
                     f.write(downloaded_content)
                     
                 if status_callback:

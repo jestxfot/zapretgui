@@ -147,7 +147,7 @@ class DonateChecker:
             log(f"Email сохранен в реестр: {email}", level="INFO")
             return True
         except Exception as e:
-            log(f"Ошибка сохранения email в реестр: {e}", level="ERROR")
+            log(f"Ошибка сохранения email в реестр: {e}", level="❌ ERROR")
             return False
 
     def get_email_from_registry(self) -> Optional[str]:
@@ -161,7 +161,7 @@ class DonateChecker:
             log("Email не найден в реестре", level="INFO")
             return None
         except Exception as e:
-            log(f"Ошибка чтения email из реестра: {e}", level="ERROR")
+            log(f"Ошибка чтения email из реестра: {e}", level="❌ ERROR")
             return None
 
     def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
@@ -190,7 +190,7 @@ class DonateChecker:
             return is_premium, result['status'], result['days_remaining']
             
         except Exception as e:
-            log(f"Ошибка при проверке статуса подписки: {e}", level="ERROR")
+            log(f"Ошибка при проверке статуса подписки: {e}", level="❌ ERROR")
             return False, f"Ошибка проверки: {str(e)}", None
 
     def check_user_subscription(self, email: str) -> Dict[str, Any]:
@@ -264,7 +264,7 @@ class DonateChecker:
             }
             
         except Exception as e:
-            log(f"Ошибка при проверке подписки: {e}", level="ERROR")
+            log(f"Ошибка при проверке подписки: {e}", level="❌ ERROR")
             return {
                 'found': False,
                 'level': '–',
@@ -302,5 +302,5 @@ def check_premium_access(email: str = None) -> Tuple[bool, Optional[int]]:
         return is_active, result['days_remaining']
         
     except Exception as e:
-        log(f"Ошибка при проверке премиум доступа: {e}", level="ERROR")
+        log(f"Ошибка при проверке премиум доступа: {e}", level="❌ ERROR")
         return False, None

@@ -64,7 +64,7 @@ class TgSendWorker(QObject):
         except Exception as e:
             # send_file_to_tg уже залогировал; если это flood-wait,
             # функция внутри сама ждала, но мы дадим ещё 60 с запаса
-            log(f"[FullLogDaemon] worker error: {e}", "ERROR")
+            log(f"[FullLogDaemon] worker error: {e}", "❌ ERROR")
             self.finished.emit(False, 60.0)
 
 
@@ -163,7 +163,7 @@ class FullLogDaemon(QObject):
         added_lines: list[str] = []
         line_count = 0
 
-        with self.log_path.open("r", encoding="utf-8", errors="replace") as f:
+        with self.log_path.open("r", encoding="utf-8-sig", errors="replace") as f:
             for idx, line in enumerate(f, 1):
                 if idx > self.last_line_count:
                     added_lines.append(line.rstrip("\n"))
@@ -193,5 +193,5 @@ class FullLogDaemon(QObject):
 
     # ----------------------------------------------------------------
     def _read_all_lines(self) -> list[str]:
-        with self.log_path.open("r", encoding="utf-8", errors="replace") as f:
+        with self.log_path.open("r", encoding="utf-8-sig", errors="replace") as f:
             return [ln.rstrip("\n") for ln in f]

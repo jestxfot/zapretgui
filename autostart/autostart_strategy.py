@@ -49,10 +49,10 @@ def setup_autostart_for_strategy(
 
         idx_path = Path(index_path) if index_path else bat_dir / "index.json"
         if not idx_path.is_file():
-            log(f"index.json не найден: {idx_path}", "ERROR")
+            log(f"index.json не найден: {idx_path}", "❌ ERROR")
             return False
 
-        with idx_path.open(encoding="utf-8") as f:
+        with idx_path.open(encoding="utf-8-sig") as f:
             data: dict = json.load(f)
 
         entry_key, entry_val = next(
@@ -61,7 +61,7 @@ def setup_autostart_for_strategy(
             (None, None)
         )
         if not entry_key:
-            log(f"Стратегия «{selected_mode}» не найдена", "ERROR")
+            log(f"Стратегия «{selected_mode}» не найдена", "❌ ERROR")
             return False
 
         # берём file_path, если указан
@@ -73,7 +73,7 @@ def setup_autostart_for_strategy(
 
         bat_path = (bat_dir / bat_name).resolve()
         if not bat_path.is_file():
-            log(f".bat отсутствует: {bat_path}", "ERROR")
+            log(f".bat отсутствует: {bat_path}", "❌ ERROR")
             return False
 
         # ----------- создаём/обновляем задачу Планировщика -------------------
@@ -85,7 +85,7 @@ def setup_autostart_for_strategy(
         return ok
 
     except Exception as exc:
-        log(f"setup_autostart_for_strategy: {exc}", "ERROR")
+        log(f"setup_autostart_for_strategy: {exc}", "❌ ERROR")
         return False
 
 def _create_task_scheduler_job(
@@ -133,7 +133,7 @@ def _create_task_scheduler_job(
         # Ошибка — готовим информативное сообщение
         err_msg = (f'Не удалось создать задачу автозапуска "{task_name}". '
                    f'Код {res.returncode}.\n{res.stderr.strip()}')
-        log(err_msg, "ERROR")
+        log(err_msg, "❌ ERROR")
         if ui_error_cb:
             ui_error_cb(err_msg)
         return False
@@ -141,7 +141,7 @@ def _create_task_scheduler_job(
     except FileNotFoundError:
         # schtasks отсутствует (теоретически возможно в WinPE)
         err_msg = "Команда schtasks не найдена – автозапуск невозможен"
-        log(err_msg, "ERROR")
+        log(err_msg, "❌ ERROR")
         if ui_error_cb:
             ui_error_cb(err_msg)
         return False
@@ -161,19 +161,19 @@ def _create_task_scheduler_job(
             else:
                 err_msg = (f'Не удалось создать задачу автозапуска "{task_name}". '
                           f'Код {res.returncode}.\n{res.stderr.strip()}')
-                log(err_msg, "ERROR")
+                log(err_msg, "❌ ERROR")
                 if ui_error_cb:
                     ui_error_cb(err_msg)
                 return False
         except Exception as fallback_exc:
             err_msg = f"Ошибка кодировки при создании задачи: {fallback_exc}"
-            log(err_msg, "ERROR")
+            log(err_msg, "❌ ERROR")
             if ui_error_cb:
                 ui_error_cb("Ошибка кодировки; подробности в логе.")
             return False
     except Exception as exc:
         err_msg = f"_create_task_scheduler_job: {exc}\n{traceback.format_exc()}"
-        log(err_msg, "ERROR")
+        log(err_msg, "❌ ERROR")
         if ui_error_cb:
             ui_error_cb("Ошибка создания задачи автозапуска; подробности в логе.")
         return False

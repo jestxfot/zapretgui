@@ -60,7 +60,7 @@ def check_system_commands() -> tuple[bool, str]:
                         failed_commands.append(f"{cmd_name} (команда недоступна)")
                         try:
                             from log import log
-                            log(f"ERROR: Команда {cmd_name} недоступна: {result.stderr.strip()}", level="ERROR")
+                            log(f"ERROR: Команда {cmd_name} недоступна: {result.stderr.strip()}", level="❌ ERROR")
                         except ImportError:
                             print(f"ERROR: Команда {cmd_name} недоступна")
                         continue
@@ -69,7 +69,7 @@ def check_system_commands() -> tuple[bool, str]:
                 failed_commands.append(f"{cmd_name} (код ошибки: {result.returncode})")
                 try:
                     from log import log
-                    log(f"WARNING: Команда {cmd_name} вернула код {result.returncode}", level="WARNING")
+                    log(f"WARNING: Команда {cmd_name} вернула код {result.returncode}", level="⚠ WARNING")
                 except ImportError:
                     print(f"WARNING: Команда {cmd_name} вернула код {result.returncode}")
                     
@@ -77,7 +77,7 @@ def check_system_commands() -> tuple[bool, str]:
             failed_commands.append(f"{cmd_name} (превышен таймаут)")
             try:
                 from log import log
-                log(f"ERROR: Команда {cmd_name} превысила таймаут", level="ERROR")
+                log(f"ERROR: Команда {cmd_name} превысила таймаут", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Команда {cmd_name} превысила таймаут")
                 
@@ -85,7 +85,7 @@ def check_system_commands() -> tuple[bool, str]:
             failed_commands.append(f"{cmd_name} (файл не найден)")
             try:
                 from log import log
-                log(f"ERROR: Команда {cmd_name} не найдена", level="ERROR")
+                log(f"ERROR: Команда {cmd_name} не найдена", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Команда {cmd_name} не найдена")
                 
@@ -93,7 +93,7 @@ def check_system_commands() -> tuple[bool, str]:
             failed_commands.append(f"{cmd_name} ({str(e)})")
             try:
                 from log import log
-                log(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}", level="ERROR")
+                log(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Ошибка при проверке команды {cmd_name}: {e}")
     
@@ -169,7 +169,7 @@ def check_startup_conditions():
         error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
         try:
             from log import log
-            log(error_message, level="ERROR")
+            log(error_message, level="❌ ERROR")
         except ImportError:
             print(f"ERROR: {error_message}")
         return False, error_message
@@ -206,7 +206,7 @@ def check_mitmproxy() -> tuple[bool, str]:
                     )
                     try:
                         from log import log
-                        log(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
+                        log(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})", level="❌ ERROR")
                     except ImportError:
                         print(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']}")
                     
@@ -225,7 +225,7 @@ def check_mitmproxy() -> tuple[bool, str]:
                         )
                         try:
                             from log import log
-                            log(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})", level="ERROR")
+                            log(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})", level="❌ ERROR")
                         except ImportError:
                             print(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']}")
                         
@@ -238,7 +238,7 @@ def check_mitmproxy() -> tuple[bool, str]:
     except Exception as e:
         try:
             from log import log
-            log(f"Ошибка при проверке процессов mitmproxy: {e}", level="WARNING")
+            log(f"Ошибка при проверке процессов mitmproxy: {e}", level="⚠ WARNING")
         except ImportError:
             print(f"WARNING: Ошибка при проверке процессов mitmproxy: {e}")
         
@@ -277,7 +277,7 @@ def check_if_in_archive():
             if temp_dir and exe_path.lower().startswith(os.path.abspath(temp_dir).lower()):
                 try:
                     from log import log
-                    log(f"EXE запущен из временной директории: {temp_dir}", level="WARNING")
+                    log(f"EXE запущен из временной директории: {temp_dir}", level="⚠ WARNING")
                 except ImportError:
                     print(f"WARNING: EXE запущен из временной директории: {temp_dir}")
                 is_in_temp = True
@@ -336,7 +336,7 @@ def check_path_for_onedrive() -> tuple[bool, str]:
             )
             try:
                 from log import log
-                log(f"ERROR: Обнаружен OneDrive в пути: {path}", level="ERROR")
+                log(f"ERROR: Обнаружен OneDrive в пути: {path}", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Обнаружен OneDrive в пути: {path}")
             
@@ -384,7 +384,7 @@ def check_path_for_special_chars():
             )
             try:
                 from log import log
-                log(f"ERROR: Путь содержит специальные символы: {path}", level="ERROR")
+                log(f"ERROR: Путь содержит специальные символы: {path}", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Путь содержит специальные символы: {path}")
             
@@ -504,7 +504,7 @@ def check_goodbyedpi() -> tuple[bool, str]:
             )
             try:
                 from log import log
-                log(f"ERROR: Найдена служба {svc}", level="ERROR")
+                log(f"ERROR: Найдена служба {svc}", level="❌ ERROR")
             except ImportError:
                 print(f"ERROR: Найдена служба {svc}")
             

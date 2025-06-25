@@ -52,7 +52,7 @@ class AutoStartCleaner:
                     log(f"Ярлык автозапуска удалён: {p}", "INFO")
                     removed = True
                 except Exception as e:
-                    log(f"Не удалось удалить ярлык {p}: {e}", "WARNING")
+                    log(f"Не удалось удалить ярлык {p}: {e}", "⚠ WARNING")
         return removed
 
     # =====================================================================
@@ -71,7 +71,7 @@ class AutoStartCleaner:
                 except FileNotFoundError:
                     return False
         except Exception as e:
-            log(f"Ошибка удаления из реестра: {e}", "ERROR")
+            log(f"Ошибка удаления из реестра: {e}", "❌ ERROR")
             return False
 
     # =====================================================================
@@ -118,7 +118,7 @@ class AutoStartCleaner:
             log("Служба успешно удалена", "INFO")
         else:
             err = delete.stderr.strip() or delete.stdout.strip()
-            log(f"Ошибка удаления службы: {err}", "ERROR")
+            log(f"Ошибка удаления службы: {err}", "❌ ERROR")
         return ok
 
     # =====================================================================

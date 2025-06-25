@@ -18,17 +18,17 @@ def check_hosts_file_name():
     if hosts_lower.exists():
         # Дополнительно проверяем кодировку файла
         try:
-            hosts_lower.read_text(encoding="utf-8")
+            hosts_lower.read_text(encoding="utf-8-sig")
             return True, None
         except UnicodeDecodeError:
             # Файл существует, но с проблемами кодировки
-            log("Файл hosts существует, но содержит некорректные символы", level="WARNING")
+            log("Файл hosts существует, но содержит некорректные символы", level="⚠ WARNING")
             return False, "Файл hosts содержит некорректные символы и не может быть прочитан в UTF-8"
     
     # Если правильного файла нет, проверяем есть ли неправильный HOSTS
     hosts_upper = hosts_dir / "HOSTS"
     if hosts_upper.exists():
-        log("Обнаружен файл HOSTS (с большими буквами) - это неправильно!", level="WARNING")
+        log("Обнаружен файл HOSTS (с большими буквами) - это неправильно!", level="⚠ WARNING")
         return False, "Файл должен называться 'hosts' (с маленькими буквами), а не 'HOSTS'"
     
     # Если ни того, ни другого нет
@@ -55,7 +55,7 @@ def safe_read_hosts_file():
     # Если ни одна кодировка не подошла, пробуем с игнорированием ошибок
     try:
         content = hosts_path.read_text(encoding='utf-8', errors='ignore')
-        log("Файл hosts прочитан с игнорированием ошибок кодировки", level="WARNING")
+        log("Файл hosts прочитан с игнорированием ошибок кодировки", level="⚠ WARNING")
         return content
     except Exception as e:
         log(f"Критическая ошибка при чтении файла hosts: {e}")
@@ -64,7 +64,7 @@ def safe_read_hosts_file():
 def safe_write_hosts_file(content):
     """Безопасно записывает файл hosts с правильной кодировкой"""
     try:
-        HOSTS_PATH.write_text(content, encoding="utf-8", newline='\n')
+        HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
         return True
     except Exception as e:
         log(f"Ошибка при записи файла hosts: {e}")
@@ -83,7 +83,7 @@ class HostsManager:
         if self.is_proxy_domains_active():
             # Получаем текущие активные домены из hosts файла
             try:
-                content = HOSTS_PATH.read_text(encoding="utf-8")
+                content = HOSTS_PATH.read_text(encoding="utf-8-sig")
                 for domain in PROXY_DOMAINS.keys():
                     if domain in content:
                         current_active.add(domain)
@@ -188,7 +188,7 @@ class HostsManager:
                         f"а не 'HOSTS' (с большими буквами).\n\n"
                         f"Переименуйте файл 'HOSTS' в 'hosts' и попробуйте снова."
                     )
-                    self.show_popup_message("Неправильное название файла", full_error_msg, "warning")
+                    self.show_popup_message("Неправильное название файла", full_error_msg, "⚠ WARNING")
                 elif "некорректные символы" in error_msg:
                     # Специальное сообщение для проблем с кодировкой
                     full_error_msg = (
@@ -199,7 +199,7 @@ class HostsManager:
                         f"• Файл создан другой программой с неправильной кодировкой\n\n"
                         f"Рекомендуется пересоздать файл hosts или очистить его содержимое."
                     )
-                    self.show_popup_message("Проблема с кодировкой файла", full_error_msg, "warning")
+                    self.show_popup_message("Проблема с кодировкой файла", full_error_msg, "⚠ WARNING")
                 else:
                     # Файл не найден
                     self.show_popup_message("Ошибка", error_msg, "critical")
@@ -212,7 +212,7 @@ class HostsManager:
                 return False
             
             # Проверяем возможность записи (пробуем открыть в режиме добавления)
-            with HOSTS_PATH.open("a", encoding="utf-8") as f:
+            with HOSTS_PATH.open("a", encoding="utf-8-sig") as f:
                 pass
             
             return True
@@ -220,7 +220,7 @@ class HostsManager:
         except PermissionError:
             error_msg = f"Нет прав доступа к файлу hosts.\nТребуются права администратора для изменения файла:\n{HOSTS_PATH}"
             log(f"Нет прав доступа к файлу hosts: {HOSTS_PATH}")
-            self.show_popup_message("Ошибка доступа", error_msg, "warning")
+            self.show_popup_message("Ошибка доступа", error_msg, "⚠ WARNING")
             return False
         except FileNotFoundError:
             error_msg = f"Файл hosts не найден:\n{HOSTS_PATH}"

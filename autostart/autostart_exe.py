@@ -18,7 +18,7 @@ def setup_autostart_for_exe(selected_mode: str | None = None,
         try:
             from win32com.client import dynamic, gencache, pywintypes
         except ImportError:
-            log("pywin32 не установлен", "ERROR")
+            log("pywin32 не установлен", "❌ ERROR")
             _status("pywin32 не установлен")
             return False
 
@@ -30,7 +30,7 @@ def setup_autostart_for_exe(selected_mode: str | None = None,
         try:
             shell = dynamic.Dispatch("WScript.Shell")
         except pywintypes.com_error as ce:
-            log(f"COM-ошибка WScript.Shell: {ce}", "ERROR")
+            log(f"COM-ошибка WScript.Shell: {ce}", "❌ ERROR")
             _status("Не удалось создать ярлык (COM error)")
             return False
 
@@ -47,13 +47,13 @@ def setup_autostart_for_exe(selected_mode: str | None = None,
         if selected_mode:
             ok = set_last_strategy(selected_mode)
             if not ok:
-                log("Не удалось записать последнюю выбранную стратегию в реестр", "WARNING")
+                log("Не удалось записать последнюю выбранную стратегию в реестр", "⚠ WARNING")
 
         log(f"Автозапуск настроен: {sc_path}", "INFO")
         _status("Автозапуск успешно настроен")
         return True
 
     except Exception as exc:
-        log(f"setup_autostart_for_exe: {exc}", "ERROR")
+        log(f"setup_autostart_for_exe: {exc}", "❌ ERROR")
         _status(f"Ошибка: {exc}")
         return False

@@ -1,9 +1,9 @@
-;---------------------------------------------------
+﻿;---------------------------------------------------
 ;  Zapret installer / updater (ProgramData by default)
 ;---------------------------------------------------
 [Setup]
 AppName= Zapret Dev
-AppVersion= 16.2.16.2
+AppVersion= 16.2.16.8
 AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
@@ -29,8 +29,13 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 Source: "..\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
+Source: "..\zapret\bat\*";              DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
+Source: "..\zapret\exe\*";              DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\json\*";              DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\ico\*";              DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\lists\*";              DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\sos\*";              DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\Zapret";              Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"

@@ -48,7 +48,7 @@ def _safe_call_tg_api(method: str, *, data=None, files=None):
                 # запас +1 с, чтобы не промахнуться
                 wait = int(retry_after) + 1
                 from log import log
-                log(f"[TG] Flood-wait {wait}s (attempt {attempt+1})", "WARNING")
+                log(f"[TG] Flood-wait {wait}s (attempt {attempt+1})", "⚠ WARNING")
                 time.sleep(wait)
                 continue      # повторяем запрос
             raise            # если это не 429 → бросаем дальше
@@ -63,7 +63,7 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
     if not path.exists():
         raise FileNotFoundError(f"{path} not found")
 
-    text = _cut_to_4k(path.read_text(encoding="utf-8", errors="replace"))
+    text = _cut_to_4k(path.read_text(encoding="utf-8-sig", errors="replace"))
     data = {"chat_id": CHAT_ID,
             "text": f"{caption}\n\n{text}" if caption else text,
             "parse_mode": "HTML"}

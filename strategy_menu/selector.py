@@ -248,7 +248,7 @@ class StrategyInfoDialog(QDialog):
             else:
                 self.strategy_info.setHtml("<p style='color:red; text-align: center;'>Информация о стратегии не найдена</p>")
         except Exception as e:
-            log(f"Ошибка при получении информации о стратегии: {str(e)}", level="ERROR")
+            log(f"Ошибка при получении информации о стратегии: {str(e)}", level="❌ ERROR")
             self.strategy_info.setHtml(f"<p style='color:red; text-align: center;'>Ошибка: {str(e)}</p>")
 
 class ProviderHeaderItem(QListWidgetItem):
@@ -569,7 +569,7 @@ class StrategySelector(QDialog):
                         
                 except Exception as e:
                     error_msg = f"Ошибка загрузки: {str(e)}"
-                    log(error_msg, "ERROR")
+                    log(error_msg, "❌ ERROR")
                     self.finished.emit({}, error_msg)
         
         # ✅ Создаем отдельный поток
@@ -640,7 +640,7 @@ class StrategySelector(QDialog):
             
         except Exception as e:
             from log import log
-            log(f"Ошибка при обработке загруженных стратегий: {e}", "ERROR")
+            log(f"Ошибка при обработке загруженных стратегий: {e}", "❌ ERROR")
             self.status_label.setText(f"❌ Ошибка обработки: {e}")
             self.status_label.setStyleSheet("font-weight: bold; color: #f44336; padding: 5px;")
             self.progress_bar.setVisible(False)
@@ -788,7 +788,7 @@ class StrategySelector(QDialog):
                 return
         except Exception as e:
             from log import log
-            log(f"Ошибка проверки настроек автозагрузки: {e}", "ERROR")
+            log(f"Ошибка проверки настроек автозагрузки: {e}", "❌ ERROR")
         
         # ✅ Запускаем с force_update=True
         self.load_strategies_async(force_update=True)
@@ -863,15 +863,15 @@ class StrategySelector(QDialog):
                                     downloaded_count += 1
                                     log(f"Скачан файл стратегии: {file_path}", "INFO")
                                 else:
-                                    log(f"Не удалось скачать файл: {file_path}", "WARNING")
+                                    log(f"Не удалось скачать файл: {file_path}", "⚠ WARNING")
                             except Exception as e:
-                                log(f"Ошибка при скачивании {file_path}: {e}", "WARNING")
+                                log(f"Ошибка при скачивании {file_path}: {e}", "⚠ WARNING")
                     
                     self.finished.emit(downloaded_count, total_count, "")
                     
                 except Exception as e:
                     error_msg = f"Ошибка скачивания: {str(e)}"
-                    log(error_msg, "ERROR")
+                    log(error_msg, "❌ ERROR")
                     self.finished.emit(0, 0, error_msg)
         
         # ✅ Создаем отдельный поток
@@ -1053,7 +1053,7 @@ class StrategySelector(QDialog):
         else:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Выбор стратегии", "Пожалуйста, выберите стратегию из списка")
-            log("Попытка выбора стратегии без выбора в списке", level="WARNING")
+            log("Попытка выбора стратегии без выбора в списке", level="⚠ WARNING")
 
     def reject(self):
         """Обрабатывает нажатие кнопки 'Отмена'."""

@@ -51,33 +51,68 @@ class ConnectionTestWorker(QObject):
             logging.info(message)
             self.update_signal.emit(message)
     
-
     def ping(self, host, count=4):
-        """Выполняет ping до указанного хоста с проверкой остановки."""
-        from utils.subproc import run   # импортируем наш обёрточный run
-
+        """Выполняет ping с возможностью прерывания."""
         if self.is_stop_requested():
             return False
             
         try:
             self.log_message(f"Проверка доступности для URL: {host}")
             
-            # Параметры для Windows
+            # Используем Popen для возможности прерывания
             command = ["ping", "-n", str(count), host]
             
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
+            # Запускаем процесс
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
             
-            # ✅ ДОБАВЛЯЕМ ПРОВЕРКУ ОСТАНОВКИ ПЕРЕД ЗАПУСКОМ
+            # Ждем завершения с проверкой остановки
+            poll_interval = 0.1  # 100мс
+            timeout = 10
+            elapsed = 0
+            
+            while elapsed < timeout:
+                if self.is_stop_requested():
+                    # Прерываем процесс
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    return False
+                    
+                # Проверяем, завершился ли процесс
+                if process.poll() is not None:
+                    break
+                    
+                import time
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+            
+            # Если процесс все еще работает - прерываем
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if not self.is_stop_requested():
+                    self.log_message(f"Таймаут при проверке {host}")
+                return False
+            
+            # Получаем результат
+            stdout, stderr = process.communicate(timeout=1)
+            
             if self.is_stop_requested():
                 return False
-
-            result = run(command, timeout=10)
-
-            # ✅ ПРОВЕРЯЕМ ОСТАНОВКУ ПОСЛЕ ВЫПОЛНЕНИЯ
-            if self.is_stop_requested():
-                return False
-                
-            output = result.stdout
+            
+            # Используем полученный stdout (НЕ вызываем run снова!)
+            output = stdout
             
             # Анализируем результат для Windows
             if "TTL=" in output:
@@ -1008,40 +1043,53 @@ class ConnectionTestDialog(QDialog):
         log(f"Запуск асинхронного теста соединения: {test_type}", "INFO")
     
     def stop_test(self):
-        """✅ Корректно останавливает текущий тест."""
-        if self.worker:
-            self.worker.stop_gracefully()
+        """✅ Корректно останавливает текущий тест БЕЗ БЛОКИРОВКИ GUI."""
+        if not self.worker or not self.worker_thread:
+            return
+            
+        # Показываем статус остановки
+        self.result_text.append("\n⚠️ Остановка теста...")
+        self.status_label.setText("⏹️ Остановка в процессе...")
+        self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
+        
+        # Просим worker остановиться
+        self.worker.stop_gracefully()
+        
+        # Создаем таймер для проверки состояния БЕЗ БЛОКИРОВКИ
+        from PyQt6.QtCore import QTimer
+        
+        self.stop_check_timer = QTimer()
+        self.stop_check_attempts = 0
+        
+        def check_thread_stopped():
+            self.stop_check_attempts += 1
+            
+            if not self.worker_thread.isRunning():
+                # Поток остановился
+                self.stop_check_timer.stop()
+                self.result_text.append("✅ Тест остановлен корректно")
+                self.on_test_finished_async()
+                
+            elif self.stop_check_attempts > 50:  # 5 секунд (50 * 100мс)
+                # Принудительная остановка
+                self.stop_check_timer.stop()
+                self.result_text.append("⚠️ Принудительная остановка теста...")
+                self.worker_thread.terminate()
+                
+                # Даем еще немного времени на terminate
+                QTimer.singleShot(1000, lambda: self._finalize_stop())
+        
+        self.stop_check_timer.timeout.connect(check_thread_stopped)
+        self.stop_check_timer.start(100)  # Проверяем каждые 100мс
 
+    def _finalize_stop(self):
+        """Финализация остановки после terminate."""
         if self.worker_thread and self.worker_thread.isRunning():
-            try:
-                # ✅ МЯГКАЯ ОСТАНОВКА ВМЕСТО terminate()
-                if self.worker:
-                    self.worker.stop_gracefully()  # Просим worker остановиться мягко
-                    
-                # Показываем статус остановки
-                self.result_text.append("\n⚠️ Остановка теста...")
-                self.status_label.setText("⏹️ Остановка в процессе...")
-                self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
-                
-                # Ждем мягкого завершения
-                if self.worker_thread.wait(5000):  # Ждем 5 секунд
-                    self.result_text.append("✅ Тест остановлен корректно")
-                else:
-                    # Если мягкая остановка не сработала - принудительно
-                    self.result_text.append("⚠️ Принудительная остановка теста...")
-                    self.worker_thread.terminate()
-                    if self.worker_thread.wait(3000):
-                        self.result_text.append("✅ Тест остановлен принудительно")
-                    else:
-                        self.result_text.append("❌ Не удалось остановить тест")
-                    
-            except Exception as e:
-                from log import log
-                log(f"Ошибка при остановке теста: {e}", "ERROR")
-                self.result_text.append(f"❌ Ошибка остановки: {e}")
-                
-            # Принудительно вызываем финализацию
-            self.on_test_finished_async()
+            self.result_text.append("❌ Не удалось остановить тест")
+        else:
+            self.result_text.append("✅ Тест остановлен принудительно")
+        
+        self.on_test_finished_async()
     
     def update_result_async(self, message):
         """✅ Асинхронно обновляет текстовое поле с результатами."""
@@ -1159,8 +1207,8 @@ class ConnectionTestDialog(QDialog):
             )
             
             # Чтение и запись с явным указанием кодировки UTF-8
-            with open("connection_test.log", "r", encoding="utf-8") as src, \
-                 open(save_path, "w", encoding="utf-8") as dest:
+            with open("connection_test.log", "r", encoding="utf-8-sig") as src, \
+                 open(save_path, "w", encoding="utf-8-sig") as dest:
                 dest.write(src.read())
             
             QMessageBox.information(

@@ -115,6 +115,18 @@ def run_update_async(parent=None, *, silent: bool = False) -> QThread:
     return thr
 
 # ──────────────────────────── основная логика ─────────────────────────────
+def safe_json_response(response):
+    """Безопасно парсит JSON из response, обрабатывая BOM"""
+    try:
+        # Сначала пробуем стандартный способ
+        return response.json()
+    except json.JSONDecodeError:
+        # Если не получилось, пробуем с обработкой BOM
+        content = response.content
+        if content.startswith(b'\xef\xbb\xbf'):
+            content = content[3:]
+        return json.loads(content.decode('utf-8'))
+    
 def check_and_run_update(
     *,
     parent   = None,
@@ -143,15 +155,15 @@ def check_and_run_update(
     try:
         resp = requests.get(META_URL, timeout=TIMEOUT)
         resp.raise_for_status()
-        meta_all = resp.json()
+        meta_all = safe_json_response(resp)
     except Exception as e:
-        log(f"Не удалось загрузить version.json: {e}", "ERROR")
+        log(f"Не удалось загрузить version.json: {e}", "❌ ERROR")
         set_status("Не удалось проверить обновления.")
         return False
 
     meta = meta_all.get(CHANNEL)
     if not meta:
-        log(f"В version.json отсутствует блок '{CHANNEL}'", "ERROR")
+        log(f"В version.json отсутствует блок '{CHANNEL}'", "❌ ERROR")
         return False
 
     new_ver = meta.get("version")
@@ -159,7 +171,7 @@ def check_and_run_update(
     notes   = meta.get("release_notes", "")
 
     if not new_ver or not upd_url:
-        log("Неполный блок version/update_url.", "ERROR")
+        log("Неполный блок version/update_url.", "❌ ERROR")
         return False
 
     log(f"Auto-update: channel={CHANNEL}, local={APP_VERSION}, remote={new_ver}", "INFO")

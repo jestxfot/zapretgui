@@ -63,7 +63,7 @@ def ensure_bfe_running(show_ui: bool = False) -> bool:
         
         # Проверяем запущена ли служба
         if "RUNNING" not in result.stdout:
-            log("Служба BFE остановлена, пытаемся запустить", "WARNING")
+            log("Служба BFE остановлена, пытаемся запустить", "⚠ WARNING")
             
             start_result = subprocess.run(
                 ["sc", "start", "BFE"],
@@ -81,10 +81,10 @@ def ensure_bfe_running(show_ui: bool = False) -> bool:
         return True
         
     except subprocess.TimeoutExpired:
-        log("Таймаут при проверке службы BFE", "ERROR")
+        log("Таймаут при проверке службы BFE", "❌ ERROR")
         startup_cache.cache_result("bfe_check", False)
         return False
     except Exception as e:
-        log(f"Ошибка при проверке службы BFE: {e}", "ERROR")
+        log(f"Ошибка при проверке службы BFE: {e}", "❌ ERROR")
         startup_cache.cache_result("bfe_check", False)
         return False

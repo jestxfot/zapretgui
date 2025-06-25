@@ -27,7 +27,7 @@ class HeavyInitWorker(QObject):
             
             # Быстрая проверка сети перед загрузкой
             if not self._quick_connectivity_check():
-                log("Нет интернета - пропускаем загрузку", "WARNING")
+                log("Нет интернета - пропускаем загрузку", "⚠ WARNING")
                 self.progress.emit("Работаем в автономном режиме")
                 self.finished.emit(True, "")
                 return
@@ -40,7 +40,7 @@ class HeavyInitWorker(QObject):
             self.progress.emit("Проверка winws.exe...")
             success = self._check_and_download_winws()
             if not success:
-                log("Ошибка при работе с winws.exe", "ERROR")
+                log("Ошибка при работе с winws.exe", "❌ ERROR")
                 self.finished.emit(False, "Не удалось загрузить winws.exe")
                 return
             
@@ -48,7 +48,7 @@ class HeavyInitWorker(QObject):
             self.progress.emit("Загрузка стратегий...")
             success = self._download_strategies()
             if not success:
-                log("Ошибка при загрузке стратегий", "WARNING")
+                log("Ошибка при загрузке стратегий", "⚠ WARNING")
                 # Не критично, продолжаем
             
             # 3. Загрузка других ресурсов
@@ -62,8 +62,8 @@ class HeavyInitWorker(QObject):
             
         except Exception as e:
             error_msg = f"Ошибка в HeavyInitWorker: {e}"
-            log(error_msg, "ERROR")
-            log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            log(error_msg, "❌ ERROR")
+            log(f"Traceback: {traceback.format_exc()}", "❌ ERROR")
             self.progress.emit(f"Ошибка: {e}")
             self.finished.emit(False, error_msg)
 
@@ -84,11 +84,11 @@ class HeavyInitWorker(QObject):
             # return self._download_winws_file()
             
             # Временная заглушка
-            log("ЗАГЛУШКА: загрузка winws.exe пропущена", "WARNING")
+            log("ЗАГЛУШКА: загрузка winws.exe пропущена", "⚠ WARNING")
             return True
             
         except Exception as e:
-            log(f"Ошибка при проверке winws.exe: {e}", "ERROR")
+            log(f"Ошибка при проверке winws.exe: {e}", "❌ ERROR")
             return False
 
     def _download_strategies(self) -> bool:
@@ -100,11 +100,11 @@ class HeavyInitWorker(QObject):
             # return self.strategy_manager.download_strategies()
             
             # Временная заглушка
-            log("ЗАГЛУШКА: загрузка стратегий пропущена", "WARNING")
+            log("ЗАГЛУШКА: загрузка стратегий пропущена", "❓ TEST")
             return True
             
         except Exception as e:
-            log(f"Ошибка при загрузке стратегий: {e}", "ERROR")
+            log(f"Ошибка при загрузке стратегий: {e}", "❌ ERROR")
             return False
 
     def _download_additional_resources(self):
@@ -118,7 +118,7 @@ class HeavyInitWorker(QObject):
             log("Дополнительные ресурсы обработаны", "DEBUG")
             
         except Exception as e:
-            log(f"Ошибка при загрузке дополнительных ресурсов: {e}", "WARNING")
+            log(f"Ошибка при загрузке дополнительных ресурсов: {e}", "⚠ WARNING")
             # Не критично, продолжаем
 
     def _quick_connectivity_check(self) -> bool:

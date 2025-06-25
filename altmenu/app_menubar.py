@@ -147,7 +147,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             QMessageBox.warning(self._pw, "Ошибка", 
                               f"Не удалось изменить настройку автозагрузки: {e}")
-            log(f"Ошибка изменения автозагрузки: {e}", "ERROR")
+            log(f"Ошибка изменения автозагрузки: {e}", "❌ ERROR")
 
     def clear_startup_cache(self):
         """Очищает кэш проверок запуска"""
@@ -162,7 +162,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             QMessageBox.warning(self._pw, "Ошибка", 
                               f"Не удалось очистить кэш: {e}")
-            log(f"Ошибка очистки кэша: {e}", "ERROR")
+            log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
 
     def create_premium_menu(self):
         """Создает меню Premium функций"""
@@ -338,7 +338,7 @@ class AppMenuBar(QMenuBar):
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
         except Exception as e:
-            log(f"Ошибка при обновлении исключений: {e}", level="ERROR")
+            log(f"Ошибка при обновлении исключений: {e}", level="❌ ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить исключения: {e}")
 
     def _update_custom_sites(self):
@@ -353,7 +353,7 @@ class AppMenuBar(QMenuBar):
             else:
                 QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
         except Exception as e:
-            log(f"Ошибка при обновлении своих сайтов: {e}", level="ERROR")
+            log(f"Ошибка при обновлении своих сайтов: {e}", level="❌ ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить свои сайты: {e}")
 
     def _exclude_custom_sites(self):
@@ -407,7 +407,7 @@ class AppMenuBar(QMenuBar):
                     self._pw.set_status("Создан файл исключений")
 
         except Exception as e:
-            log(f"Ошибка при открытии файла исключений: {e}", level="ERROR")
+            log(f"Ошибка при открытии файла исключений: {e}", level="❌ ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
 
     def _add_custom_sites(self):
@@ -460,7 +460,7 @@ class AppMenuBar(QMenuBar):
                     self._pw.set_status("Создан файл кастомных сайтов")
 
         except Exception as e:
-            log(f"Ошибка при открытии файла кастомных сайтов: {e}", level="ERROR")
+            log(f"Ошибка при открытии файла кастомных сайтов: {e}", level="❌ ERROR")
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
 
     # ==================================================================
@@ -524,7 +524,9 @@ class AppMenuBar(QMenuBar):
         from tgram.tg_log_full  import TgSendWorker
         from tgram.tg_log_delta import get_client_id
 
-        LOG_PATH = "zapret_log.txt"
+        import os
+        from config import LOGS_FOLDER
+        LOG_PATH = os.path.join(LOGS_FOLDER, "zapret_log.txt")
         caption  = f"Zapret log (ID: {get_client_id()}, v{APP_VERSION})"
 
         action = self.sender()                # QAction, вызвавший слот

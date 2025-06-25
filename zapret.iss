@@ -32,7 +32,10 @@ Source: "..\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreve
 Source: "..\zapret\bat\*";              DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
 Source: "..\zapret\exe\*";              DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\json\*";              DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\ico\*";              DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\lists\*";              DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion
+Source: "..\zapret\sos\*";              DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\Zapret";              Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
