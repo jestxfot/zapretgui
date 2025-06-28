@@ -60,6 +60,9 @@ class TgSendWorker(QObject):
         from tgram import send_file_to_tg
         try:
             ok = send_file_to_tg(self._path, self._cap)
+            # Преобразуем None в False
+            if ok is None:
+                ok = False
             self.finished.emit(ok, 0.0)
         except Exception as e:
             # send_file_to_tg уже залогировал; если это flood-wait,

@@ -12,10 +12,24 @@ from PyQt6.QtCore import Qt
 
 from log_tail import LogTailWorker
 
+from config import LOGS_FOLDER
+LOG_FILE = os.path.join(LOGS_FOLDER, "zapret_log.txt")
+
 class Logger:
     """Simple logging system that captures console output and errors to a file"""
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
     
     def __init__(self, log_file_path=None):
+        if self._initialized:
+            return
+        self._initialized = True
+
         base_dir = os.path.dirname(
             os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
         )

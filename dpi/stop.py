@@ -19,7 +19,7 @@ def stop_dpi(app: "LupiDPIApp"):
 
         # --------- 1. taskkill ----------------------------------------
         log("taskkill /F /IM winws.exe /T", "INFO")
-        subprocess.run("taskkill /F /IM winws.exe /T",
+        subprocess.run("C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T",
                        shell=True, check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1)
@@ -54,8 +54,8 @@ def stop_dpi(app: "LupiDPIApp"):
 
         # --------- 4. WinDivert service ------------------------------
         log("Останавливаем/удаляем службу WinDivert", "INFO")
-        subprocess.run("sc stop windivert", shell=True, check=False)
-        subprocess.run("sc delete windivert", shell=True, check=False)
+        subprocess.run("C:\\Windows\\System32\\sc.exe stop windivert", shell=True, check=False)
+        subprocess.run("C:\\Windows\\System32\\sc.exe delete windivert", shell=True, check=False)
 
         # --------- 5. итог -------------------------------------------
         if app.dpi_starter.check_process_running():

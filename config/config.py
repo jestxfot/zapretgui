@@ -25,7 +25,7 @@ REG_LATEST_STRATEGY = "LastStrategy2"
 STRATEGIES_FOLDER = BAT_FOLDER
 
 WIDTH = 450
-HEIGHT = 680
+HEIGHT = 710
 
 # Discord TCP конфигурации
 

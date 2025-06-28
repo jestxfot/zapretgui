@@ -14,10 +14,11 @@ def debug_admin_status():
     except Exception as e:
         log(f"IsUserAnAdmin() failed: {e}", level="⚠ WARNING")
     
-    # 2. Проверка SID
+    # 2. Проверка SID (исправлено)
     try:
         import win32security
-        admin_sid = win32security.WinBuiltinAdministratorsSid
+        # Получаем SID группы администраторов
+        admin_sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
         is_admin_sid = win32security.CheckTokenMembership(None, admin_sid)
         log(f"CheckTokenMembership(Administrators): {is_admin_sid}", level="🔍 DIAG")
     except ImportError:
@@ -25,38 +26,67 @@ def debug_admin_status():
     except Exception as e:
         log(f"SID check failed: {e}", level="⚠ WARNING")
     
-    # 3. Токены
-    advapi = ctypes.windll.advapi32
-    kernel = ctypes.windll.kernel32
+    # 3. Токены (исправлено)
+    advapi32 = ctypes.windll.advapi32
+    kernel32 = ctypes.windll.kernel32
     
     TOKEN_QUERY = 0x0008
     TokenElevationType = 18
     TokenElevation = 20
     
-    hTok = wintypes.HANDLE()
-    if advapi.OpenProcessToken(kernel.GetCurrentProcess(), TOKEN_QUERY, ctypes.byref(hTok)):
+    # GetCurrentProcess возвращает псевдо-хэндл -1
+    current_process = wintypes.HANDLE(kernel32.GetCurrentProcess())
+    
+    hToken = wintypes.HANDLE()
+    # Исправлен вызов OpenProcessToken
+    if advapi32.OpenProcessToken(
+        current_process,
+        TOKEN_QUERY,
+        ctypes.byref(hToken)
+    ):
         try:
             # Elevation Type
-            etype = wintypes.DWORD()
-            sz = wintypes.DWORD(ctypes.sizeof(etype))
-            if advapi.GetTokenInformation(hTok, TokenElevationType, ctypes.byref(etype), sz, ctypes.byref(sz)):
-                types = {1: "TokenElevationTypeDefault", 2: "TokenElevationTypeFull", 3: "TokenElevationTypeLimited"}
-                log(f"TokenElevationType: {etype.value} ({types.get(etype.value, 'Unknown')})", level="🔍 DIAG")
+            elevation_type = wintypes.DWORD()
+            size_needed = wintypes.DWORD()
+            
+            if advapi32.GetTokenInformation(
+                hToken,
+                TokenElevationType,
+                ctypes.byref(elevation_type),
+                ctypes.sizeof(elevation_type),
+                ctypes.byref(size_needed)
+            ):
+                types = {
+                    1: "TokenElevationTypeDefault",
+                    2: "TokenElevationTypeFull", 
+                    3: "TokenElevationTypeLimited"
+                }
+                log(f"TokenElevationType: {elevation_type.value} ({types.get(elevation_type.value, 'Unknown')})", level="🔍 DIAG")
             else:
-                log("Не удалось получить TokenElevationType", level="⚠ WARNING")
+                error = kernel32.GetLastError()
+                log(f"Не удалось получить TokenElevationType, код ошибки: {error}", level="⚠ WARNING")
             
             # Elevation Status
-            elev = wintypes.DWORD()
-            sz = wintypes.DWORD(ctypes.sizeof(elev))
-            if advapi.GetTokenInformation(hTok, TokenElevation, ctypes.byref(elev), sz, ctypes.byref(sz)):
-                log(f"TokenElevation: {bool(elev.value)}", level="🔍 DIAG")
+            is_elevated = wintypes.DWORD()
+            size_needed = wintypes.DWORD()
+            
+            if advapi32.GetTokenInformation(
+                hToken,
+                TokenElevation,
+                ctypes.byref(is_elevated),
+                ctypes.sizeof(is_elevated),
+                ctypes.byref(size_needed)
+            ):
+                log(f"TokenElevation: {bool(is_elevated.value)}", level="🔍 DIAG")
             else:
-                log("Не удалось получить TokenElevation", level="⚠ WARNING")
+                error = kernel32.GetLastError()
+                log(f"Не удалось получить TokenElevation, код ошибки: {error}", level="⚠ WARNING")
                 
         finally:
-            kernel.CloseHandle(hTok)
+            kernel32.CloseHandle(hToken)
     else:
-        log("Не удалось открыть токен процесса", level="❌ ERROR")
+        error = kernel32.GetLastError()
+        log(f"Не удалось открыть токен процесса, код ошибки: {error}", level="❌ ERROR")
     
     # 4. Реальный тест
     log("=== РЕАЛЬНЫЙ ТЕСТ ПРАВ ===", level="🔍 DIAG")

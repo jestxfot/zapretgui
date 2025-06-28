@@ -1,11 +1,11 @@
-# UTF-8
+﻿# UTF-8
 #
 # Автоматически сгенерировано zapretbuild.py
 #
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(16, 2, 17, 0),
-    prodvers=(16, 2, 17, 0),
+    filevers=(16, 2, 16, 11),
+    prodvers=(16, 2, 16, 11),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -21,12 +21,12 @@ VSVersionInfo(
         [
         StringStruct(u'CompanyName',     u't.me/bypassblock'),
         StringStruct(u'FileDescription', u'Zapret GUI'),
-        StringStruct(u'FileVersion',     u'16.2.17'),
+        StringStruct(u'FileVersion',     u'16.2.16.11'),
         StringStruct(u'InternalName',    u'zapret'),
         StringStruct(u'LegalCopyright',  u'Copyright © 2025 t.me/bypassblock'),
         StringStruct(u'OriginalFilename',u'zapret.exe'),
         StringStruct(u'ProductName',     u'Zapret'),
-        StringStruct(u'ProductVersion',  u'16.2.17')
+        StringStruct(u'ProductVersion',  u'16.2.16.11')
         ]
       )
       ]

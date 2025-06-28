@@ -1,8 +1,14 @@
 # bfe_util.py
 
-from typing import Optional
-import time, win32service, ctypes, win32serviceutil
+from typing import Optional, Tuple
+import time
+import win32service
+import win32serviceutil
+import ctypes
+import threading
+from queue import Queue
 from PyQt6.QtWidgets import QWidget
+
 SERVICE_RUNNING = win32service.SERVICE_RUNNING
 ERROR_SERVICE_DOES_NOT_EXIST = 1060
 
@@ -11,6 +17,7 @@ def _native_msg(title: str, text: str, icon: int = 0x40):
     ctypes.windll.user32.MessageBoxW(None, text, title, icon)
 
 def is_service_running(name: str) -> bool:
+    """Быстрая проверка состояния службы через Win32 API."""
     scm = win32service.OpenSCManager(None, None,
                                      win32service.SC_MANAGER_CONNECT)
     try:
@@ -29,62 +36,226 @@ def is_service_running(name: str) -> bool:
             win32service.CloseServiceHandle(svc)
     finally:
         win32service.CloseServiceHandle(scm)
+
+
+class ServiceCache:
+    """Кэш для хранения состояний служб."""
+    def __init__(self):
+        self._cache = {}
+        self._lock = threading.Lock()
+        self._default_ttl = 300  # 5 минут по умолчанию
+    
+    def get(self, service_name: str) -> Optional[bool]:
+        """Получить статус из кэша, если он ещё актуален."""
+        with self._lock:
+            if service_name in self._cache:
+                timestamp, status, ttl = self._cache[service_name]
+                if time.time() - timestamp < ttl:
+                    return status
+        return None
+    
+    def set(self, service_name: str, status: bool, ttl: Optional[int] = None):
+        """Обновить статус в кэше."""
+        if ttl is None:
+            # Если служба работает, кэшируем на дольше
+            ttl = 600 if status else 60
         
-from startup.check_cache import startup_cache
-from log import log
-import subprocess
+        with self._lock:
+            self._cache[service_name] = (time.time(), status, ttl)
+    
+    def invalidate(self, service_name: str):
+        """Инвалидировать кэш для службы."""
+        with self._lock:
+            self._cache.pop(service_name, None)
+
+
+class AsyncServiceChecker:
+    """Асинхронный проверщик состояний служб."""
+    def __init__(self):
+        self._results = {}
+        self._lock = threading.Lock()
+        self._queue = Queue()
+        self._running = True
+        self._worker = threading.Thread(target=self._check_worker, daemon=True)
+        self._worker.start()
+    
+    def _check_worker(self):
+        """Фоновый поток для проверки служб."""
+        while self._running:
+            try:
+                # Ждём задачу с таймаутом
+                task = self._queue.get(timeout=1)
+                if task is None:
+                    break
+                
+                service_name, callback = task
+                
+                # Выполняем проверку
+                try:
+                    result = is_service_running(service_name)
+                    with self._lock:
+                        self._results[service_name] = (time.time(), result)
+                    
+                    # Обновляем кэш
+                    service_cache.set(service_name, result)
+                    
+                    # Вызываем callback если предоставлен
+                    if callback:
+                        callback(service_name, result)
+                        
+                except Exception as e:
+                    from log import log
+                    log(f"Ошибка при асинхронной проверке {service_name}: {e}", "❌ ERROR")
+                    
+            except:
+                # Timeout или другая ошибка - продолжаем работу
+                pass
+    
+    def check_async(self, service_name: str, callback=None):
+        """Запустить асинхронную проверку службы."""
+        self._queue.put((service_name, callback))
+    
+    def get_last_result(self, service_name: str) -> Optional[Tuple[float, bool]]:
+        """Получить последний результат проверки."""
+        with self._lock:
+            return self._results.get(service_name)
+    
+    def stop(self):
+        """Остановить фоновый поток."""
+        self._running = False
+        self._queue.put(None)
+
+
+# Глобальные экземпляры
+service_cache = ServiceCache()
+async_checker = AsyncServiceChecker()
+
+
+def start_service(service_name: str, timeout: int = 10) -> bool:
+    """Запустить службу Windows."""
+    try:
+        win32serviceutil.StartService(service_name)
+        
+        # Ждём запуска
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if is_service_running(service_name):
+                return True
+            time.sleep(0.5)
+        
+        return False
+        
+    except Exception as e:
+        # Если служба уже запущена
+        if "уже запущена" in str(e) or "already running" in str(e).lower():
+            return True
+        return False
+
 
 def ensure_bfe_running(show_ui: bool = False) -> bool:
     """
-    Проверяет и запускает службу BFE с кэшированием результата.
+    Проверяет и запускает службу BFE с асинхронной оптимизацией.
     """
+    from startup.check_cache import startup_cache
+    from log import log
     
-    # Проверяем кэш сначала
+    # 1. Сначала проверяем кэш службы
+    cached_status = service_cache.get("BFE")
+    if cached_status is not None:
+        # Запускаем фоновую проверку для обновления кэша
+        async_checker.check_async("BFE")
+        return cached_status
+    
+    # 2. Проверяем startup кэш
     has_cache, cached_result = startup_cache.is_cached_and_valid("bfe_check")
     if has_cache:
-        log(f"BFE проверка из кэша: {'OK' if cached_result else 'FAIL'}", "DEBUG")
+        # Используем кэшированный результат
         return cached_result
     
-    log("Выполняется проверка службы Base Filtering Engine (BFE)", "INFO")
+    log("Выполняется проверка службы Base Filtering Engine (BFE)", "🧹 bfe_util")
     
     try:
-        # Проверяем состояние службы
-        result = subprocess.run(
-            ["sc", "query", "BFE"],
-            capture_output=True,
-            text=True,
-            timeout=5,  # ← ДОБАВЛЯЕМ ТАЙМАУТ
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        # 3. Выполняем быструю проверку через Win32 API
+        is_running = is_service_running("BFE")
         
-        if result.returncode != 0:
-            startup_cache.cache_result("bfe_check", False)
-            return False
-        
-        # Проверяем запущена ли служба
-        if "RUNNING" not in result.stdout:
+        if not is_running:
             log("Служба BFE остановлена, пытаемся запустить", "⚠ WARNING")
             
-            start_result = subprocess.run(
-                ["sc", "start", "BFE"],
-                capture_output=True,
-                text=True,
-                timeout=10,  # ← ТАЙМАУТ ДЛЯ ЗАПУСКА
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            # Показываем UI если требуется
+            if show_ui:
+                _native_msg("Служба BFE", 
+                           "Служба Base Filtering Engine остановлена.\n"
+                           "Выполняется попытка запуска...", 0x40)
             
-            if start_result.returncode != 0 and "уже запущена" not in start_result.stderr:
-                startup_cache.cache_result("bfe_check", False)
-                return False
+            # Пытаемся запустить службу
+            is_running = start_service("BFE", timeout=5)
+            
+            if not is_running:
+                log("Не удалось запустить службу BFE", "❌ ERROR")
+                if show_ui:
+                    _native_msg("Ошибка", 
+                               "Не удалось запустить службу Base Filtering Engine.\n"
+                               "Брандмауэр Windows может работать некорректно.", 0x10)
         
-        startup_cache.cache_result("bfe_check", True)
-        return True
+        # 4. Сохраняем результат в кэши
+        service_cache.set("BFE", is_running)
+        startup_cache.cache_result("bfe_check", is_running)
         
-    except subprocess.TimeoutExpired:
-        log("Таймаут при проверке службы BFE", "❌ ERROR")
-        startup_cache.cache_result("bfe_check", False)
-        return False
+        # 5. Запускаем периодическую фоновую проверку
+        if is_running:
+            schedule_periodic_check("BFE", interval=300)  # каждые 5 минут
+        
+        return is_running
+        
     except Exception as e:
         log(f"Ошибка при проверке службы BFE: {e}", "❌ ERROR")
+        service_cache.set("BFE", False, ttl=30)  # кэшируем ошибку на 30 секунд
         startup_cache.cache_result("bfe_check", False)
         return False
+
+# Хранилище для периодических проверок
+_periodic_checks = {}
+_periodic_lock = threading.Lock()
+
+
+def schedule_periodic_check(service_name: str, interval: int = 300):
+    """Запланировать периодическую проверку службы."""
+    def periodic_check():
+        while True:
+            with _periodic_lock:
+                if service_name not in _periodic_checks:
+                    break
+                    
+            time.sleep(interval)
+            async_checker.check_async(service_name)
+    
+    with _periodic_lock:
+        if service_name not in _periodic_checks:
+            thread = threading.Thread(target=periodic_check, daemon=True)
+            thread.start()
+            _periodic_checks[service_name] = thread
+
+
+def stop_periodic_check(service_name: str):
+    """Остановить периодическую проверку службы."""
+    with _periodic_lock:
+        _periodic_checks.pop(service_name, None)
+
+
+# Функция для быстрой предварительной проверки при старте
+def preload_service_status(service_name: str = "BFE"):
+    """Предзагрузить состояние службы в фоне."""
+    async_checker.check_async(service_name)
+
+
+# Очистка при выходе
+def cleanup():
+    """Очистить ресурсы при завершении программы."""
+    async_checker.stop()
+    with _periodic_lock:
+        _periodic_checks.clear()
+
+
+# Регистрируем очистку
+import atexit
+atexit.register(cleanup)

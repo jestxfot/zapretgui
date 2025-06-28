@@ -76,7 +76,7 @@ class StrategyManager:
             if get_strategy_autoload():
                 self.preload_strategies()
             else:
-                log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
+                log("Автозагрузка стратегий отключена - пропуск preload", "⚙ manager")
 
     def _get_next_working_source(self):
         """Находит следующий рабочий источник"""
@@ -90,7 +90,7 @@ class StrategyManager:
         # Проверяем настройку автозагрузки
         from config import get_strategy_autoload
         if not get_strategy_autoload():
-            log("Автозагрузка стратегий отключена - прерываем загрузку", "INFO")
+            log("Автозагрузка стратегий отключена - прерываем загрузку", "⚙ manager")
             self.set_status("Автозагрузка стратегий отключена")
             return self._load_local_cache()
 
@@ -156,7 +156,7 @@ class StrategyManager:
                     self.current_source_index = source_index
                     
                     self.set_status(f"Получено стратегий: {len(result)} ({source_name})")
-                    log(f"OK с {source_name}, {len(result)} шт.", "INFO")
+                    log(f"OK с {source_name}, {len(result)} шт.", "⚙ manager")
                     return result
 
                 except Exception as e:
@@ -252,7 +252,7 @@ class StrategyManager:
                             self.save_strategy_version(local_path, info)
 
                         self.set_status(f"{strategy_id} скачана с {source_name}")
-                        log(f"{strategy_id} OK с {source_name} ({len(response.content)} B)", "INFO")
+                        log(f"{strategy_id} OK с {source_name} ({len(response.content)} B)", "⚙ manager")
                         return local_path
 
                     except Exception as e:
@@ -333,7 +333,7 @@ class StrategyManager:
                 self.cache_loaded = True
                 self._loaded = True
                 self.last_update_time = os.path.getmtime(index_file)
-                log("Загружен локальный index.json", "INFO")
+                log("Загружен локальный index.json", "⚙ manager")
                 return self.strategies_cache
             except Exception as e:
                 log(f"Ошибка чтения локального индекса: {e}", "❌ ERROR")
@@ -344,7 +344,7 @@ class StrategyManager:
 
     def _download_and_cache(self) -> dict:
         """Скачивает данные с сервера и кэширует БЕЗ дополнительного ThreadPoolExecutor"""
-        log("Обновление списка стратегий...", "INFO")
+        log("Обновление списка стратегий...", "⚙ manager")
         
         try:
             # ✅ Убираем ThreadPoolExecutor - вызывающий код сам решает про асинхронность
@@ -422,18 +422,18 @@ class StrategyManager:
 
         from config import get_strategy_autoload
         if not get_strategy_autoload():
-            log("Автозагрузка стратегий отключена - пропуск preload", "INFO")
+            log("Автозагрузка стратегий отключена - пропуск preload", "⚙ manager")
             self.set_status("Автозагрузка стратегий отключена")
             return
 
-        log("Preload стратегий (только индекс)…", "INFO")
+        log("Preload стратегий (только индекс)…", "⚙ manager")
         strategies = self.get_strategies_list()
         if not strategies:
             log("Список стратегий пуст – preload отменён", "❌ ERROR")
             return
 
         self._loaded = True
-        log("Preload индекса завершён", "INFO")
+        log("Preload индекса завершён", "⚙ manager")
     
     # ─────────────────────── download 1 strategy ──────────────────────
     def download_strategy(self, strategy_id: str) -> str | None:

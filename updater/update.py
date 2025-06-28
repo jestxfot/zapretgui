@@ -36,7 +36,7 @@ def _safe_set_status(parent, msg: str):
 def _kill_winws():
     """Мягко-агрессивно убиваем winws.exe, чтобы установщик мог заменить файл."""
     subprocess.run(
-        "taskkill /F /IM winws.exe /T",
+        "C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T",
         shell=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -98,9 +98,9 @@ def run_update_async(parent=None, *, silent: bool = False) -> QThread:
     worker.finished.connect(worker.deleteLater)
     thr.finished.connect(thr.deleteLater)
 
-    # status-label + лог
+    # status-label + логирование
     worker.progress.connect(lambda m: _safe_set_status(parent, m))
-    worker.progress.connect(lambda m: log(f"[Updater] {m}", "DEBUG"))
+    worker.progress.connect(lambda m: log(f'{m}', "🔁 UPDATE"))
 
     thr._worker = worker          # 👈 защитили от GC
     thr.start()
@@ -157,13 +157,13 @@ def check_and_run_update(
         resp.raise_for_status()
         meta_all = safe_json_response(resp)
     except Exception as e:
-        log(f"Не удалось загрузить version.json: {e}", "❌ ERROR")
+        log(f"Не удалось загрузить version.json: {e}", "🔁❌ ERROR")
         set_status("Не удалось проверить обновления.")
         return False
 
     meta = meta_all.get(CHANNEL)
     if not meta:
-        log(f"В version.json отсутствует блок '{CHANNEL}'", "❌ ERROR")
+        log(f"В version.json отсутствует блок '{CHANNEL}'", "🔁❌ ERROR")
         return False
 
     new_ver = meta.get("version")
@@ -171,10 +171,10 @@ def check_and_run_update(
     notes   = meta.get("release_notes", "")
 
     if not new_ver or not upd_url:
-        log("Неполный блок version/update_url.", "❌ ERROR")
+        log("Неполный блок version/update_url.", "🔁❌ ERROR")
         return False
 
-    log(f"Auto-update: channel={CHANNEL}, local={APP_VERSION}, remote={new_ver}", "INFO")
+    log(f"Auto-update: channel={CHANNEL}, local={APP_VERSION}, remote={new_ver}", "🔁 UPDATE")
 
     if version.parse(new_ver) <= version.parse(APP_VERSION):
         set_status(f"✅ Обновлений нет (v{APP_VERSION})")
@@ -215,7 +215,7 @@ def check_and_run_update(
         _kill_winws()
         time.sleep(1.5)
 
-        subprocess.Popen(["cmd", "/c", "start", "", setup_exe, "/NORESTART"], shell=False)
+        subprocess.Popen(["C:\\Windows\\System32\\cmd.exe", "/c", "start", "", setup_exe, "/NORESTART"], shell=False)
         set_status("Запущен установщик…")
         # через 1,5 сек выходим, чтобы Install‐EXE смог перезаписать файлы
         QTimer.singleShot(1500, lambda: os._exit(0))

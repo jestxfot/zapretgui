@@ -48,9 +48,9 @@ class DPIStarter:
             
             try:
                 result = subprocess.run(
-                    'tasklist /FI "IMAGENAME eq winws.exe" /FO CSV /NH',  ##########
-                    shell=True, 
-                    capture_output=True, 
+                    'C:\\Windows\\System32\\tasklist.exe /FI "IMAGENAME eq winws.exe" /FO CSV /NH',
+                    shell=True,
+                    capture_output=True,
                     text=True,
                     timeout=5  # Добавляем таймаут
                 )
@@ -459,7 +459,7 @@ class DPIStarter:
                     log("[DPIStarter] Процесс winws.exe уже запущен, останавливаем перед перезапуском", level="INFO")
                     # Останавливаем существующие процессы
                     try:
-                        subprocess.run('C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe', shell=True, capture_output=True)
+                        subprocess.run('C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T', shell=True, capture_output=True)
                         time.sleep(2)  # Увеличиваем время ожидания
                         
                         # Дополнительная проверка, что процесс действительно остановлен

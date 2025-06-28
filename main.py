@@ -6,7 +6,7 @@ pip install pyinstaller packaging PyQt6 requests pywin32 python-telegram-bot psu
 
 import sys, os, subprocess, webbrowser, time
 
-from PyQt6.QtCore    import QTimer, QThread
+from PyQt6.QtCore    import QThread
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
 
 from ui.theme import ThemeManager, BUTTON_STYLE, COMMON_STYLE
@@ -566,6 +566,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self._check_local_files()
             
             # Сразу переходим к финальной инициализации
+            from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, lambda: self._on_heavy_done(True, ""))
 
     def _start_heavy_init(self):
@@ -743,6 +744,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # combobox-фикс
         for d in (0, 100, 200):
+            from PyQt6.QtCore import QTimer
             QTimer.singleShot(d, self.force_enable_combos)
 
         # ---------- АВТО-ОБНОВЛЕНИЕ ---------------------------------
@@ -889,95 +891,118 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.update_ui(running=True)
 
     def __init__(self):
-        self.process_monitor = None  # Будет инициализирован позже
+        QWidget.__init__(self)  # Явно инициализируем QWidget
+        
+        # Показываем минимальное окно СРАЗУ
+        self.setWindowTitle("Zapret - загрузка...")
+        self.resize(WIDTH, HEIGHT)
+        
+        # Создаем только загрузочный индикатор
+        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtCore import Qt, QTimer
+        loading_label = QLabel("Загрузка приложения...")
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # ВСЁ остальное - асинхронно
+        QTimer.singleShot(0, self._build_full_ui)
 
-        super().__init__()
-
-        # УБИРАЕМ блокирующую инициализацию DonateChecker
-        # self._init_donate_checker_async()
-
-        self.dpi_starter = DPIStarter(
-            winws_exe   = WINWS_EXE,
-            status_callback = self.set_status,
-            ui_callback     = self.update_ui
-        )
-
-        #self.setWindowTitle(f'Zapret v{APP_VERSION}')  # Добавляем версию в заголовок
-
-        self.first_start = True  # Флаг для отслеживания первого запуска
-
-        # Устанавливаем иконку приложения
+    def _build_full_ui(self):        
+        # ---- Быстрая инициализация UI ----
+        self.process_monitor = None
+        self.first_start = True
+        
+        # Инициализируем атрибуты для работы со стратегиями
+        self.current_strategy_id = None
+        self.current_strategy_name = None
+        
+        # Создаем минимальный UI сразу
+        self.build_ui(width=WIDTH, height=HEIGHT)
+        self._init_dummy_donate_checker()
+        self.update_title_with_subscription_status(False, None, 0)
+        
+        # Устанавливаем иконку
         icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
-
         if os.path.exists(icon_path):
             from PyQt6.QtGui import QIcon
-
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
-        
         else:
             log(f"Иконка приложения не найдена: {icon_path}", "❌ ERROR")
-
-        # Инициализируем интерфейс БЕЗ подписки
-        self.build_ui(width=WIDTH, height=HEIGHT)
-
-        # Временная заглушка для DonateChecker
-        self._init_dummy_donate_checker()
-
-        # Устанавливаем базовый заголовок (без статуса подписки)
-        self.update_title_with_subscription_status(False, None, 0)
-
-        # 1. Создаём объект меню, передаём self как parent,
-        #    чтобы внутри можно было обращаться к методам LupiDPIApp
-        self.menu_bar = AppMenuBar(self)
-
-        # 2. Вставляем строку меню в самый верхний layout
-        root_layout = self.layout()
-        root_layout.setMenuBar(self.menu_bar)
-
-        QTimer.singleShot(0, self.initialize_managers_and_services)
         
-        # подключаем логику к новым кнопкам
+        # ---- Все тяжелые операции - асинхронно ----
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._async_init)
+
+    def _async_init(self):
+        """Асинхронная инициализация всех компонентов"""
+        try:
+            # DPI Starter
+            self.dpi_starter = DPIStarter(
+                winws_exe=WINWS_EXE,
+                status_callback=self.set_status,
+                ui_callback=self.update_ui
+            )
+            
+            # Меню
+            self.menu_bar = AppMenuBar(self)
+            self.layout().setMenuBar(self.menu_bar)
+            
+            # Подключаем сигналы
+            self._connect_signals()
+            
+            # Инициализация менеджеров
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self.initialize_managers_and_services)
+            
+            # Инициализация трея
+            QTimer.singleShot(200, self._init_tray)
+            
+            # Инициализация логгера
+            QTimer.singleShot(300, self._init_logger)
+            
+            # Проверка подписки
+            QTimer.singleShot(1000, self._init_donate_checker_async)
+            
+        except Exception as e:
+            log(f"Ошибка асинхронной инициализации: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка инициализации: {e}")
+
+
+    def _connect_signals(self):
+        """Подключение всех сигналов"""
         self.select_strategy_clicked.connect(self.select_strategy)
         self.start_clicked.connect(self.start_dpi_async)
         self.stop_clicked.connect(self.show_stop_menu)
         self.autostart_enable_clicked.connect(self.show_autostart_options)
         self.autostart_disable_clicked.connect(self.remove_autostart)
         self.theme_changed.connect(self.change_theme)
-
-        # дополнительные кнопки
+        
         self.open_folder_btn.clicked.connect(self.open_folder)
         self.test_connection_btn.clicked.connect(self.open_connection_test)
         self.subscription_btn.clicked.connect(self.show_subscription_dialog)
         self.dns_settings_btn.clicked.connect(self.open_dns_settings)
         self.proxy_button.clicked.connect(self.toggle_proxy_domains)
         self.update_check_btn.clicked.connect(self.manual_update_check)
-        
-        # Инициализируем атрибуты для работы со стратегиями
-        self.current_strategy_id = None
-        self.current_strategy_name = None
-        
-        # Инициализируем системный трей после создания всех элементов интерфейса
+
+    def _init_tray(self):
+        """Инициализация системного трея"""
         self.tray_manager = SystemTrayManager(
             parent=self,
             icon_path=os.path.abspath(ICON_PATH),
             app_version=APP_VERSION
         )
-        
-        from log import Logger
-        self.logger = Logger()  # создаём экземпляр Logger
-        
-        # используем путь из Logger
-        from tgram import FullLogDaemon
-        self.log_sender = FullLogDaemon(
-            log_path = self.logger.log_file,  # ← берём путь из Logger
-            interval = 120,
-            parent   = self
-        )
 
-        # ЗАПУСКАЕМ асинхронную инициализацию подписки ПОСЛЕ создания UI
-        QTimer.singleShot(1000, self._init_donate_checker_async)
+    def _init_logger(self):
+        """Инициализация логгера"""
+        from log import LOG_FILE  # импортируем путь к лог-файлу
+        from tgram import FullLogDaemon
+        
+        self.log_sender = FullLogDaemon(
+            log_path=LOG_FILE,  # используем глобальный путь
+            interval=120,
+            parent=self
+        )
 
     def _init_dummy_donate_checker(self):
         """Создает временную заглушку для DonateChecker"""
@@ -1094,6 +1119,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def _start_subscription_timer(self):
         """Запускает таймер периодической проверки подписки"""
         if not hasattr(self, 'subscription_timer'):
+            from PyQt6.QtCore import QTimer
             self.subscription_timer = QTimer()
             self.subscription_timer.timeout.connect(self.periodic_subscription_check)
         
@@ -1625,6 +1651,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 
                 # Дополнительно обновляем статус подписки с новой темой
                 # через небольшую задержку, чтобы тема успела примениться
+                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(100, self.update_subscription_status_in_title)
             else:
                 log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
@@ -1786,6 +1813,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.set_status("Разблокировка отключена. Перезапустите браузер.")
                 
                 # Обновляем состояние кнопки с небольшой задержкой
+                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(100, self.update_proxy_button_state)
             else:
                 self.set_status("Не удалось отключить разблокировку.")
@@ -1821,6 +1849,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.set_status("Разблокировка включена. Перезапустите браузер.")
                 
                 # Обновляем состояние кнопки с небольшой задержкой
+                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(100, self.update_proxy_button_state)
             else:
                 self.set_status("Не удалось включить разблокировку.")
@@ -1834,6 +1863,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Обрабатывает выбор доменов для разблокировки"""
         if self.hosts_manager.show_hosts_selector_dialog(self):
             # Обновляем состояние кнопки после изменений
+            from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, self.update_proxy_button_state)
             
     def show_hosts_selector_dialog(self):
@@ -1866,11 +1896,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self._connection_test_dialog.raise_()
             self._connection_test_dialog.activateWindow()
             
-            from log import log
             log("Открыто окно тестирования соединения (неблокирующее)", "INFO")
             
         except Exception as e:
-            from log import log
             log(f"Ошибка при открытии окна тестирования: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
@@ -1892,39 +1920,23 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Ошибка при открытии настроек DNS: {str(e)}", level="❌ ERROR")
             self.set_status(error_msg)
 
-    def init_tray_if_needed(self):
-        """Инициализирует системный трей, если он еще не был инициализирован"""
-        if not hasattr(self, 'tray_manager') or self.tray_manager is None:
-            
-            log("Инициализация менеджера системного трея", level="INFO")
-            
-            # Проверяем наличие пути к иконке
-            icon_path = os.path.abspath(ICON_PATH)
-            if not os.path.exists(icon_path):
-                log(f"Предупреждение: иконка {icon_path} не найдена", level="⚠ WARNING")
-                
-            # Инициализируем трей
-            from tray import SystemTrayManager
-            self.tray_manager = SystemTrayManager(
-                parent=self,
-                icon_path=icon_path,
-                app_version=APP_VERSION
-            )
-            
-            # Проверяем, запущены ли мы с аргументом --tray
-            if len(sys.argv) > 1 and sys.argv[1] == "--tray":
-                log("Программа запущена с аргументом --tray, скрываем окно", level="INFO")
-                # Гарантируем, что окно скрыто
-                self.hide()
-
 def set_batfile_association():
     """
     Устанавливает ассоциацию типа файла для .bat файлов
     """
     try:
-        from log import log
         # Выполняем команду через subprocess
-        result = subprocess.run(['cmd', '/c', 'ftype', 'batfile="%SystemRoot%\\System32\\cmd.exe" /c "%1" %*'], shell=False, capture_output=True)
+        # Формируем команду
+        command = 'ftype batfile="%SystemRoot%\\System32\\cmd.exe" /c "%1" %*'
+        
+        # Выполняем команду через subprocess
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding='utf-8'
+        )
 
         # Проверяем результат
         if result.returncode == 0:
@@ -1940,140 +1952,125 @@ def set_batfile_association():
         return False
 
 def main():
-    # Add sys.excepthook to catch unhandled exceptions
-    import sys, ctypes
-    def global_exception_handler(exctype, value, traceback):
-        from log import log
-        import traceback as tb
-        error_msg = ''.join(tb.format_exception(exctype, value, traceback))
-        log(f"UNCAUGHT EXCEPTION: {error_msg}", level="❌ CRITICAL global_exception_handler")
-        # Не вызываем sys.__excepthook__ чтобы избежать дополнительных диалогов
-        # sys.__excepthook__(exctype, value, traceback)
-
-    sys.excepthook = global_exception_handler
-    
-    # ---------------- разбор аргументов CLI -----
-    start_in_tray = "--tray" in sys.argv
+    import sys, ctypes, os, atexit
+    log("=== ЗАПУСК ПРИЛОЖЕНИЯ ===", "🔹 main")
+    # ---------------- Быстрая обработка специальных аргументов ----------------
     if "--version" in sys.argv:
-        ctypes.windll.user32.MessageBoxW(None, APP_VERSION,
-                                        "Zapret – версия", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, APP_VERSION, "Zapret – версия", 0x40)
         sys.exit(0)
 
     if "--update" in sys.argv and len(sys.argv) > 3:
         _handle_update_mode()
         sys.exit(0)
     
-    # ---- admin elevation (после предупреждений, до создания окна) ----
+    start_in_tray = "--tray" in sys.argv
+    
+    # ---------------- Проверка прав администратора ----------------
     if not is_admin():
-        # формируем строку параметров для нового процесса
         params = " ".join(sys.argv[1:])
-        
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable,
-            params,
-            None, 1
-        )
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
         sys.exit(0)
 
-    # ---------------- одно-экземплярный mutex -------------------------
+    # ---------------- Проверка single instance ----------------
     from startup.single_instance import create_mutex, release_mutex
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
     if already_running:
-        ctypes.windll.user32.MessageBoxW(
-            None, "Экземпляр Zapret уже запущен и/или работает в трее!",
-            "Zapret", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, 
+            "Экземпляр Zapret уже запущен и/или работает в трее!", "Zapret", 0x40)
         sys.exit(0)
-    import atexit;  atexit.register(lambda: release_mutex(mutex_handle))
+    atexit.register(lambda: release_mutex(mutex_handle))
 
-    # ---------------- быстрые проверки (без Qt) -----------------------
-    from startup.check_cache import startup_cache
-    has_bfe_cache, bfe_cached = startup_cache.is_cached_and_valid("bfe_check")
-
-    if has_bfe_cache and bfe_cached:
-        log("BFE: используем кэшированный результат (OK)", "is_cached_and_valid")
-
-    elif has_bfe_cache and not bfe_cached:
-        log("BFE: кэшированный результат - ОШИБКА", "❌ ERROR")
-
-        # СООБЩЕНИЕ ДЛЯ ПОЛЬЗОВАТЕЛЯ
-        ctypes.windll.user32.MessageBoxW(
-            None,
-            "Служба Base Filtering Engine (BFE) отключена или не запускается.\n"
-            "Без неё Zapret работать не может.\n\n"
-            "1. Откройте «services.msc» и запустите службу "
-            "«Base Filtering Engine» (тип запуска – Автоматически).\n"
-            "2. Если не запускается, выполните в PowerShell от имени администратора:\n"
-            "   sc config bfe start= auto\n"
-            "   net start bfe\n"
-            "3. После исправления удалите кэш (zapret --clear-cache bfe_check) "
-            "или подождите 2 часа и запустите Zapret снова.",
-            "Zapret – ошибка запуска",
-            0x30  # MB_ICONWARNING
-        )
-        sys.exit(1)
-
-    else:
-        # Нет кэша → выполняем реальную проверку
-        from startup.bfe_util import ensure_bfe_running
-        if not ensure_bfe_running(show_ui=True):     # эта функция сама покажет MessageBox
-            sys.exit(1)
-
-    # ---------------- создаём QApplication РАНЬШЕ QMessageBox-ов ------
+    # ---------------- Создаём QApplication СРАЗУ ----------------
     try:
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
         _set_attr_if_exists("AA_EnableHighDpiScaling")
         _set_attr_if_exists("AA_UseHighDpiPixmaps")
 
         app = QApplication(sys.argv)
-
-        app.setQuitOnLastWindowClosed(False)   #  ← добавьте эту строку
-
-        import qt_material                     # импорт после Qt
-        qt_material.apply_stylesheet(app, 'dark_blue.xml',)
+        app.setQuitOnLastWindowClosed(False)
+        
+        import qt_material
+        qt_material.apply_stylesheet(app, 'dark_blue.xml')
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
         sys.exit(1)
 
-    # ---------------- предупреждения с кэшем -----------------------
-    from startup.check_start import check_startup_conditions
-    
-    # Используем кэшированную функцию вместо display_startup_warnings
-    conditions_ok, error_msg = check_startup_conditions()
-    if not conditions_ok and not start_in_tray:
-        if error_msg:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(None, "Ошибка запуска", error_msg)
-        sys.exit(1)
-
-    # ---------------- предупреждения, требующие Qt --------------------
-    from startup.check_start import display_startup_warnings
-
-    warnings_ok = display_startup_warnings()
-    if not warnings_ok and not start_in_tray:      # <── ключевое отличие
-        sys.exit(1)
-
-    from startup.remove_terminal import remove_windows_terminal_if_win11
-    remove_windows_terminal_if_win11()
-    
-    # ---------------- основное окно ----------------------------------
+    # ---------------- СОЗДАЁМ И ПОКАЗЫВАЕМ ОКНО СРАЗУ ----------------
     window = LupiDPIApp()
-    window.init_tray_if_needed()
-
-    if start_in_tray:
-        log("Запуск приложения скрыто в трее", "TRAY")
-        # окно не показываем
-    else:
-        log("Запуск приложения в обычном режиме", "TRAY")
+    
+    if not start_in_tray:
         window.show()
+        log("Запуск приложения в обычном режиме", "TRAY")
+    else:
+        log("Запуск приложения скрыто в трее", "TRAY")
+        if hasattr(window, 'tray_manager'):
+            window.tray_manager.show_notification(
+                "Zapret работает в трее", 
+                "Приложение запущено в фоновом режиме"
+            )
     
-    # Если запуск в трее, уведомляем пользователя
-    if start_in_tray and hasattr(window, 'tray_manager'):
-        window.tray_manager.show_notification("Zapret работает в трее", "Приложение запущено в фоновом режиме")
+    # ---------------- АСИНХРОННЫЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА ----------------
+    def async_startup_checks():
+        """Выполняет все стартовые проверки асинхронно"""
+        try:
+            # 1. Предзагрузка службы BFE
+            from startup.bfe_util import preload_service_status, ensure_bfe_running
+            preload_service_status("BFE")
+            
+            # 2. Проверка BFE
+            if not ensure_bfe_running(show_ui=True):
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(3000, lambda: QApplication.quit())
+                return
+            
+            # 3. Проверка условий запуска
+            from startup.check_start import check_startup_conditions
+            conditions_ok, error_msg = check_startup_conditions()
+            if not conditions_ok and not start_in_tray:
+                if error_msg:
+                    QMessageBox.critical(window, "Ошибка запуска", error_msg)
+                QTimer.singleShot(3000, lambda: QApplication.quit())
+                return
+            
+            # 4. Показ предупреждений
+            from startup.check_start import display_startup_warnings
+            warnings_ok = display_startup_warnings()
+            if not warnings_ok and not start_in_tray:
+                QTimer.singleShot(3000, lambda: QApplication.quit())
+                return
+            
+            # 5. Дополнительные проверки
+            from startup.remove_terminal import remove_windows_terminal_if_win11
+            remove_windows_terminal_if_win11()
+            
+            from startup.admin_check_debug import debug_admin_status
+            debug_admin_status()
+            
+            set_batfile_association()
+            
+            # 6. Регистрация очистки ресурсов
+            from startup.bfe_util import cleanup as bfe_cleanup
+            atexit.register(bfe_cleanup)
+            
+            log("✅ Все проверки пройдены", "🔹 main - async_startup_checks")
+            
+        except Exception as e:
+            log(f"Ошибка при асинхронных проверках: {e}", "❌ ERROR")
+            window.set_status(f"Ошибка проверок: {e}")
     
-    from startup.admin_check_debug import debug_admin_status
-    debug_admin_status()  # Проверка UAC и прав администратора
-    set_batfile_association()  # Устанавливаем ассоциацию для .bat файлов
+    # Запускаем проверки через 100ms после показа окна
+    from PyQt6.QtCore import QTimer
+    QTimer.singleShot(100, async_startup_checks)
+    
+    # Exception handler
+    def global_exception_handler(exctype, value, traceback):
+        import traceback as tb
+        error_msg = ''.join(tb.format_exception(exctype, value, traceback))
+        log(f"UNCAUGHT EXCEPTION: {error_msg}", level="❌ CRITICAL")
+
+    sys.excepthook = global_exception_handler
+    
     sys.exit(app.exec())
 
 if __name__ == "__main__":
