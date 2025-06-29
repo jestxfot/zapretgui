@@ -363,8 +363,43 @@ class StrategySelector(QDialog):
         
         self.init_ui()
         
-        # ✅ АСИНХРОННАЯ загрузка стратегий при инициализации
-        self.load_strategies_async()
+        # ✅ ЗАГРУЖАЕМ ТОЛЬКО ЛОКАЛЬНЫЕ СТРАТЕГИИ
+        self.load_local_strategies_only()
+
+    def load_local_strategies_only(self):
+        """✅ НОВЫЙ МЕТОД: Загружает только локальные стратегии без интернета"""
+        # Обновляем UI
+        self.status_label.setText("📂 Загрузка локальных стратегий...")
+        self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
+        
+        try:
+            # Загружаем только локальные стратегии
+            strategies = self.strategy_manager.get_local_strategies_only()
+            
+            if strategies:
+                self.status_label.setText(f"✅ Загружено {len(strategies)} локальных стратегий")
+                self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50; padding: 5px;")
+                self.populate_strategies_table(strategies)
+                self.strategies_table.setEnabled(True)
+                self.refresh_button.setEnabled(True)
+                self.download_all_button.setEnabled(True)
+                
+                # Выбираем текущую стратегию
+                if self.current_strategy_name:
+                    self.select_strategy_by_name(self.current_strategy_name)
+            else:
+                self.status_label.setText("⚠️ Локальные стратегии не найдены. Нажмите 'Обновить' для загрузки из интернета")
+                self.status_label.setStyleSheet("font-weight: bold; color: #ff9800; padding: 5px;")
+                self.refresh_button.setEnabled(True)
+                
+        except Exception as e:
+            log(f"Ошибка загрузки локальных стратегий: {e}", "❌ ERROR")
+            self.status_label.setText(f"❌ Ошибка: {e}")
+            self.status_label.setStyleSheet("font-weight: bold; color: #f44336; padding: 5px;")
+            self.refresh_button.setEnabled(True)
+        
+        finally:
+            self.progress_bar.setVisible(False)
 
     def _on_toggle_description(self, checked: bool):
         self.desc_widget.setVisible(checked)
@@ -473,7 +508,7 @@ class StrategySelector(QDialog):
         
         # Подключаем сигналы
         self.strategies_table.currentItemChanged.connect(self.on_strategy_selected)
-        self.strategies_table.itemDoubleClicked.connect(self.show_strategy_info)
+        self.strategies_table.itemDoubleClicked.connect(self.on_strategy_double_clicked)
         
         # Изначально отключаем таблицу
         self.strategies_table.setEnabled(False)
@@ -483,14 +518,13 @@ class StrategySelector(QDialog):
         # Кнопки управления
         buttons_row = QHBoxLayout()
         
-        self.refresh_button = QPushButton("🔄 Обновить стратегии")
+        self.refresh_button = QPushButton("🌐 Обновить список из интернета")
         self.refresh_button.clicked.connect(self.refresh_strategies_async)
-        self.refresh_button.setEnabled(False)  # Отключено во время загрузки
+        self.refresh_button.setToolTip("Загрузить актуальный список стратегий с сервера")
         buttons_row.addWidget(self.refresh_button)
         
         self.download_all_button = QPushButton("⬇️ Скачать все стратегии")
         self.download_all_button.clicked.connect(self.download_all_strategies_async)
-        self.download_all_button.setEnabled(False)  # Отключено во время загрузки
         buttons_row.addWidget(self.download_all_button)
         
         self.info_button = QPushButton("ℹ️ Подробная информация")
@@ -516,6 +550,24 @@ class StrategySelector(QDialog):
         buttons_layout.addWidget(cancel_button)
         
         layout.addLayout(buttons_layout)
+
+    def on_strategy_double_clicked(self, item):
+        """Обрабатывает двойной клик на стратегии - сразу выбирает её."""
+        if not item:
+            return
+            
+        row = item.row()
+        
+        # Проверяем, что выбрана не строка провайдера
+        if row < 0 or row not in self.strategies_map:
+            return
+        
+        # Получаем ID выбранной стратегии
+        self.selected_strategy_id = self.strategies_map[row]['id']
+        self.selected_strategy_name = self.strategies_map[row]['name']
+        
+        # Сразу применяем выбор
+        self.accept()
 
     def load_strategies_async(self, force_update=False):
         """✅ Асинхронно загружает список стратегий."""
@@ -697,12 +749,13 @@ class StrategySelector(QDialog):
                     'name': strategy_info.get('name', strategy_id)
                 }
                 
-                # Заполняем строку таблицы
-                self.populate_strategy_row(current_row, strategy_id, strategy_info)
+                # Заполняем строку таблицы, передавая кэш стратегий
+                self.populate_strategy_row(current_row, strategy_id, strategy_info, strategies)
                 current_row += 1
 
-    def populate_strategy_row(self, row, strategy_id, strategy_info):
+    def populate_strategy_row(self, row, strategy_id, strategy_info, strategies_cache=None):
         """Заполняет одну строку таблицы данными стратегии."""
+
         # Название стратегии
         strategy_name = strategy_info.get('name', strategy_id)
         sort_order = strategy_info.get('sort_order', 0)
@@ -719,7 +772,7 @@ class StrategySelector(QDialog):
         # Статус версии
         version_status = None
         if self.strategy_manager:
-            version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
+            version_status = self.strategy_manager.check_strategy_version_status(strategy_id, strategies_cache)
         
         status_text = "✓"
         status_style = "color: #00C800; font-weight: bold;"
@@ -767,38 +820,75 @@ class StrategySelector(QDialog):
             self.strategies_table.setCellWidget(row, 3, empty_widget)
 
     def refresh_strategies_async(self):
-        """✅ Асинхронно ПРИНУДИТЕЛЬНО обновляет список стратегий."""
+        """✅ ОБНОВЛЕННЫЙ МЕТОД: Загружает стратегии из интернета"""
         if self.is_loading_strategies:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Обновление в процессе", 
                                 "Обновление уже выполняется, подождите...")
             return
         
-        # Проверяем настройку автозагрузки
-        try:
-            from config import get_strategy_autoload
-            if not get_strategy_autoload():
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.information(
-                    self, 
-                    "Автозагрузка отключена",
-                    "Автозагрузка стратегий отключена в настройках.\n"
-                    "Включите её в меню 'Настройки' для автоматического обновления."
-                )
-                return
-        except Exception as e:
-            from log import log
-            log(f"Ошибка проверки настроек автозагрузки: {e}", "❌ ERROR")
+        self.is_loading_strategies = True
         
-        # ✅ Запускаем с force_update=True
-        self.load_strategies_async(force_update=True)
+        # Обновляем UI
+        self.status_label.setText("🌐 Загрузка стратегий из интернета...")
+        self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
+        self.strategies_table.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.download_all_button.setEnabled(False)
+        
+        from PyQt6.QtCore import QObject, QThread, pyqtSignal
+        
+        class InternetStrategyLoader(QObject):
+            finished = pyqtSignal(dict, str)  # strategies_dict, error_message
+            progress = pyqtSignal(str)        # status_message
+            
+            def __init__(self, strategy_manager):
+                super().__init__()
+                self.strategy_manager = strategy_manager
+            
+            def run(self):
+                try:
+                    self.progress.emit("Подключение к серверу...")
+                    
+                    # Используем новый метод для загрузки из интернета
+                    strategies = self.strategy_manager.download_strategies_index_from_internet()
+                    
+                    if strategies:
+                        self.finished.emit(strategies, "")
+                    else:
+                        self.finished.emit({}, "Не удалось загрузить стратегии")
+                        
+                except Exception as e:
+                    error_msg = f"Ошибка загрузки: {str(e)}"
+                    log(error_msg, "❌ ERROR")
+                    self.finished.emit({}, error_msg)
+        
+        # Создаем отдельный поток
+        self.loader_thread = QThread()
+        self.loader_worker = InternetStrategyLoader(self.strategy_manager)
+        self.loader_worker.moveToThread(self.loader_thread)
+        
+        # Подключаем сигналы
+        self.loader_thread.started.connect(self.loader_worker.run)
+        self.loader_worker.progress.connect(self.update_loading_status)
+        self.loader_worker.finished.connect(self.on_strategies_loaded)
+        self.loader_worker.finished.connect(self.loader_thread.quit)
+        self.loader_worker.finished.connect(self.loader_worker.deleteLater)
+        self.loader_thread.finished.connect(self.loader_thread.deleteLater)
+        
+        # Запускаем поток
+        self.loader_thread.start()
+        
+        log("Запуск загрузки стратегий из интернета", "INFO")
 
     def download_all_strategies_async(self):
-        """✅ Асинхронно скачивает все стратегии."""
+        """✅ ОБНОВЛЕННЫЙ МЕТОД: Скачивает .bat файлы стратегий"""
         if self.is_downloading:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Скачивание в процессе", 
-                                  "Скачивание уже выполняется, подождите...")
+                                "Скачивание уже выполняется, подождите...")
             return
         
         if not self.strategy_manager:
@@ -806,19 +896,27 @@ class StrategySelector(QDialog):
             QMessageBox.warning(self, "Ошибка", "Менеджер стратегий не инициализирован")
             return
         
+        # Проверяем, есть ли стратегии для скачивания
+        strategies = self.strategy_manager.get_local_strategies_only()
+        if not strategies:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Нет стратегий", 
+                                "Сначала обновите список стратегий из интернета")
+            return
+        
         self.is_downloading = True
         
         # Обновляем UI
-        self.status_label.setText("⬇️ Скачивание стратегий...")
+        self.status_label.setText("⬇️ Скачивание файлов стратегий...")
         self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)  # Определенный прогресс
+        self.progress_bar.setRange(0, 100)
         self.download_all_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
         
         from PyQt6.QtCore import QObject, QThread, pyqtSignal
-        # Создаем worker для скачивания
-        class StrategyDownloader(QObject):
+        
+        class StrategyFilesDownloader(QObject):
             finished = pyqtSignal(int, int, str)  # downloaded_count, total_count, error_message
             progress = pyqtSignal(int, str)       # progress_percent, current_strategy
             
@@ -828,7 +926,7 @@ class StrategySelector(QDialog):
             
             def run(self):
                 try:
-                    strategies = self.strategy_manager.get_strategies_list()
+                    strategies = self.strategy_manager.get_local_strategies_only()
                     if not strategies:
                         self.finished.emit(0, 0, "Список стратегий пуст")
                         return
@@ -836,13 +934,16 @@ class StrategySelector(QDialog):
                     downloaded_count = 0
                     total_count = 0
                     
-                    # Подсчитываем общее количество файлов для скачивания
+                    # Подсчитываем файлы для скачивания
                     for strategy_id, strategy_info in strategies.items():
                         if strategy_info.get('file_path'):
-                            total_count += 1
+                            # Проверяем, нужно ли скачивать
+                            version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
+                            if version_status in ['not_downloaded', 'outdated']:
+                                total_count += 1
                     
                     if total_count == 0:
-                        self.finished.emit(0, 0, "Нет файлов для скачивания")
+                        self.finished.emit(0, 0, "Все файлы актуальны")
                         return
                     
                     current_file = 0
@@ -850,22 +951,25 @@ class StrategySelector(QDialog):
                     for strategy_id, strategy_info in strategies.items():
                         file_path = strategy_info.get('file_path')
                         if file_path:
-                            current_file += 1
-                            strategy_name = strategy_info.get('name', strategy_id)
-                            
-                            # Обновляем прогресс
-                            progress_percent = int((current_file / total_count) * 100)
-                            self.progress.emit(progress_percent, strategy_name)
-                            
-                            try:
-                                local_path = self.strategy_manager.download_strategy(strategy_id)
-                                if local_path:
-                                    downloaded_count += 1
-                                    log(f"Скачан файл стратегии: {file_path}", "INFO")
-                                else:
-                                    log(f"Не удалось скачать файл: {file_path}", "⚠ WARNING")
-                            except Exception as e:
-                                log(f"Ошибка при скачивании {file_path}: {e}", "⚠ WARNING")
+                            version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
+                            if version_status in ['not_downloaded', 'outdated']:
+                                current_file += 1
+                                strategy_name = strategy_info.get('name', strategy_id)
+                                
+                                # Обновляем прогресс
+                                progress_percent = int((current_file / total_count) * 100)
+                                self.progress.emit(progress_percent, strategy_name)
+                                
+                                try:
+                                    # Используем новый метод для скачивания
+                                    local_path = self.strategy_manager.download_single_strategy_bat(strategy_id)
+                                    if local_path:
+                                        downloaded_count += 1
+                                        log(f"Скачан файл стратегии: {file_path}", "INFO")
+                                    else:
+                                        log(f"Не удалось скачать файл: {file_path}", "⚠ WARNING")
+                                except Exception as e:
+                                    log(f"Ошибка при скачивании {file_path}: {e}", "⚠ WARNING")
                     
                     self.finished.emit(downloaded_count, total_count, "")
                     
@@ -874,9 +978,9 @@ class StrategySelector(QDialog):
                     log(error_msg, "❌ ERROR")
                     self.finished.emit(0, 0, error_msg)
         
-        # ✅ Создаем отдельный поток
+        # Создаем отдельный поток
         self.download_thread = QThread()
-        self.download_worker = StrategyDownloader(self.strategy_manager)
+        self.download_worker = StrategyFilesDownloader(self.strategy_manager)
         self.download_worker.moveToThread(self.download_thread)
         
         # Подключаем сигналы
@@ -890,8 +994,7 @@ class StrategySelector(QDialog):
         # Запускаем поток
         self.download_thread.start()
         
-        from log import log
-        log("Запуск асинхронного скачивания всех стратегий", "INFO")
+        log("Запуск скачивания файлов стратегий", "INFO")
 
     def update_download_progress(self, progress_percent, current_strategy):
         """Обновляет прогресс скачивания."""

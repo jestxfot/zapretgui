@@ -203,39 +203,37 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
         
     def select_strategy(self):
-        """Открывает диалог выбора стратегии с асинхронной загрузкой"""
+        """Открывает диалог выбора стратегии БЕЗ загрузки из интернета"""
         try:
             if not hasattr(self, 'strategy_manager') or not self.strategy_manager:
                 log("Ошибка: менеджер стратегий не инициализирован", "❌ ERROR")
                 self.set_status("Ошибка: менеджер стратегий не инициализирован")
                 return
 
-            # Если стратегии еще не загружены И автозагрузка включена
-            if not self.strategy_manager.already_loaded:
-                from config import get_strategy_autoload
-                if get_strategy_autoload():
-                    # ✅ АСИНХРОННАЯ ЗАГРУЗКА
-                    self._load_strategies_async_then_show_dialog()
-                    return
-                else:
-                    log("Автозагрузка стратегий отключена (реестр)", "INFO")
-                    # Просто читаем локальный index.json (если есть)
-                    self.update_strategies_list(force_update=False)
+            # ✅ НОВОЕ: Всегда используем только локальные стратегии
+            local_strategies = self.strategy_manager.get_local_strategies_only()
+            
+            if not local_strategies:
+                # Если локальных стратегий нет, показываем сообщение
+                QMessageBox.information(self, "Стратегии не найдены", 
+                                    "Локальный список стратегий не найден.\n\n"
+                                    "Нажмите кнопку обновления для загрузки стратегий из интернета.")
+                return
 
-            # Если стратегии уже загружены - сразу показываем диалог
+            # Показываем диалог с локальными стратегиями
             self._show_strategy_dialog()
 
         except Exception as e:
             log(f"Ошибка при открытии диалога выбора стратегии: {e}", "❌ ERROR")
             self.set_status(f"Ошибка при выборе стратегии: {e}")
 
-    def _load_strategies_async_then_show_dialog(self):
-        """Асинхронно загружает стратегии, затем показывает диалог"""
+    def download_strategies_list(self):
+        """НОВЫЙ МЕТОД: Явно загружает список стратегий из интернета"""
         from PyQt6.QtCore import QThread, QObject, pyqtSignal
         
-        class StrategyLoader(QObject):
-            finished = pyqtSignal(bool, str)  # success, error_message
-            progress = pyqtSignal(str)        # status_message
+        class StrategyListDownloader(QObject):
+            finished = pyqtSignal(bool, str, int)  # success, error_msg, count
+            progress = pyqtSignal(str)
             
             def __init__(self, strategy_manager):
                 super().__init__()
@@ -243,65 +241,50 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
             def run(self):
                 try:
-                    self.progress.emit("Загрузка списка стратегий...")
+                    self.progress.emit("Загрузка списка стратегий из интернета...")
                     
-                    # Вызываем preload_strategies (который внутри уже асинхронный)
-                    self.strategy_manager.preload_strategies()
+                    strategies = self.strategy_manager.download_strategies_index_from_internet()
                     
-                    self.progress.emit("Список стратегий загружен")
-                    self.finished.emit(True, "")
-                    
+                    if strategies:
+                        self.finished.emit(True, "", len(strategies))
+                    else:
+                        self.finished.emit(False, "Не удалось загрузить стратегии", 0)
+                        
                 except Exception as e:
-                    error_msg = f"Ошибка загрузки стратегий: {str(e)}"
-                    log(error_msg, "❌ ERROR")
-                    self.finished.emit(False, error_msg)
+                    self.finished.emit(False, str(e), 0)
         
-        # Показываем состояние загрузки
-        self.set_status("Загружаю список стратегий…")
+        # Создаем и запускаем поток
+        self._download_thread = QThread()
+        self._download_worker = StrategyListDownloader(self.strategy_manager)
+        self._download_worker.moveToThread(self._download_thread)
         
-        # Предотвращаем повторный запуск
-        if hasattr(self, '_strategy_loader_thread') and self._strategy_loader_thread.isRunning():
-            log("Загрузка стратегий уже выполняется", "DEBUG")
-            return
+        self._download_thread.started.connect(self._download_worker.run)
+        self._download_worker.progress.connect(self.set_status)
+        self._download_worker.finished.connect(self._on_strategies_download_finished)
+        self._download_worker.finished.connect(self._download_thread.quit)
+        self._download_worker.finished.connect(self._download_worker.deleteLater)
+        self._download_thread.finished.connect(self._download_thread.deleteLater)
         
-        self._strategy_loader_thread = QThread()
-        self._strategy_loader_worker = StrategyLoader(self.strategy_manager)
-        self._strategy_loader_worker.moveToThread(self._strategy_loader_thread)
-        
-        # Подключаем сигналы
-        self._strategy_loader_thread.started.connect(self._strategy_loader_worker.run)
-        self._strategy_loader_worker.progress.connect(self.set_status)
-        self._strategy_loader_worker.finished.connect(self._on_strategies_loaded)
-        self._strategy_loader_worker.finished.connect(self._strategy_loader_thread.quit)
-        self._strategy_loader_worker.finished.connect(self._strategy_loader_worker.deleteLater)
-        self._strategy_loader_thread.finished.connect(self._strategy_loader_thread.deleteLater)
-        
-        # Запускаем
-        self._strategy_loader_thread.start()
+        self._download_thread.start()
 
-    def _on_strategies_loaded(self, success, error_message):
-        """Обрабатывает результат асинхронной загрузки стратегий"""
-        try:
-            if success:
-                log("Стратегии загружены асинхронно", "INFO")
-                
-                # Обновляем список стратегий в UI
-                self.update_strategies_list(force_update=True)
-                
-                # Теперь показываем диалог
-                self._show_strategy_dialog()
-                
-            else:
-                log(f"Ошибка асинхронной загрузки стратегий: {error_message}", "❌ ERROR")
-                self.set_status(f"Ошибка загрузки: {error_message}")
-                
-                # Показываем диалог с локальными стратегиями (если есть)
-                self.update_strategies_list(force_update=False)
-                self._show_strategy_dialog()
-                
-        except Exception as e:
-            log(f"Ошибка при обработке результата загрузки стратегий: {e}", "❌ ERROR")
-            self.set_status(f"Ошибка: {e}")
+    def _on_strategies_download_finished(self, success, error_msg, count):
+        """Обработчик завершения загрузки списка стратегий"""
+        if success:
+            self.set_status(f"✅ Загружено {count} стратегий")
+            QMessageBox.information(self, "Успех", 
+                                f"Список стратегий успешно обновлен.\n"
+                                f"Загружено стратегий: {count}")
+        else:
+            self.set_status(f"❌ Ошибка загрузки: {error_msg}")
+            QMessageBox.critical(self, "Ошибка", 
+                            f"Не удалось загрузить список стратегий.\n\n"
+                            f"Ошибка: {error_msg}")
+
+    def download_strategy_files(self):
+        """НОВЫЙ МЕТОД: Загружает .bat файлы выбранных стратегий"""
+        # Здесь можно добавить диалог выбора стратегий для загрузки
+        # или загружать все стратегии из списка
+        pass
 
     def _show_strategy_dialog(self):
         """Показывает диалог выбора стратегии"""
@@ -516,11 +499,19 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from config import (STRATEGIES_FOLDER)
         os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
 
+        # Создаем StrategyManager в локальном режиме
         self.strategy_manager = StrategyManager(
             local_dir       = STRATEGIES_FOLDER,
             json_dir        = INDEXJSON_FOLDER,
             status_callback = self.set_status,
-            preload         = False)           # ← ключ
+            preload         = False
+        )
+
+        # Убеждаемся что включен локальный режим
+        self.strategy_manager.local_only_mode = True
+
+        # Загружаем только локальные стратегии
+        self.strategy_manager.get_local_strategies_only()
 
         # ThemeManager с передачей donate_checker
         self.theme_manager = ThemeManager(

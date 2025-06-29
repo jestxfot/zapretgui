@@ -109,7 +109,7 @@ class DPIStarter:
                 log("Метод 3: Проверка через wmic", level="START")
                 try:
                     wmic_result = subprocess.run(
-                        'wmic process where "name=\'winws.exe\'" get processid',##############
+                        'C:\\Windows\\System32\\wbem\\wmic.exe process where "name=\'winws.exe\'" get processid',
                         shell=True,
                         capture_output=True,
                         text=True,
@@ -130,7 +130,7 @@ class DPIStarter:
                 log("Метод 4: Проверка через tasklist и findstr", level="START")
                 try:
                     findstr_result = subprocess.run(
-                        'tasklist | findstr "winws"',
+                        'C:\\Windows\\System32\\tasklist.exe | C:\\Windows\\System32\\findstr.exe "winws"',
                         shell=True,
                         capture_output=True,
                         text=True,
@@ -182,10 +182,11 @@ class DPIStarter:
             )
             
             if "SERVICE_NAME: windivert" not in check_result.stdout:
-                log("Служба windivert не найдена", level="INFO")
+                log("Служба windivert не найдена в списке служб", level="INFO")
+                # Если службы нет, просто выходим - не нужно делать агрессивную очистку
                 return True
-                
-            # Шаг 2: Принудительная остановка службы
+            
+            # Шаг 2: Останавливаем службу
             log("Останавливаем службу windivert...", level="INFO")
             stop_result = subprocess.run(
                 'C:\\Windows\\System32\\sc.exe stop windivert',
@@ -196,8 +197,8 @@ class DPIStarter:
             )
             
             # Ждем остановки службы
-            for i in range(10):  # Максимум 10 секунд
-                time.sleep(1)
+            for i in range(10):
+                time.sleep(0.5)
                 query_result = subprocess.run(
                     'C:\\Windows\\System32\\sc.exe query windivert',
                     shell=True,
@@ -206,10 +207,8 @@ class DPIStarter:
                     encoding='cp866'
                 )
                 if "STOPPED" in query_result.stdout:
-                    log("Служба успешно остановлена", level="INFO")
+                    log(f"Служба остановлена (попытка {i+1})", level="INFO")
                     break
-                elif i == 9:
-                    log("Не удалось дождаться остановки службы", level="⚠ WARNING")
             
             # Шаг 3: Удаление службы
             log("Удаляем службу windivert...", level="INFO")
@@ -221,42 +220,103 @@ class DPIStarter:
                 encoding='cp866'
             )
             
-            if delete_result.returncode == 0:
+            if delete_result.returncode == 0 or "1060" in delete_result.stderr:
+                log("Служба windivert удалена", level="✅ SUCCESS")
+            else:
+                log(f"Ошибка удаления службы: {delete_result.stderr}", level="⚠ WARNING")
+            
+            # Небольшая пауза для завершения операций
+            time.sleep(1)
+            
+            # Финальная проверка
+            final_check = subprocess.run(
+                'C:\\Windows\\System32\\sc.exe query windivert',
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='cp866'
+            )
+            
+            if "SERVICE_NAME: windivert" not in final_check.stdout:
                 log("Служба windivert успешно удалена", level="✅ SUCCESS")
                 return True
             else:
-                error_msg = delete_result.stderr.strip() if delete_result.stderr else delete_result.stdout.strip()
-                log(f"Ошибка при удалении службы: {error_msg}", level="❌ ERROR")
-                
-                # Альтернативный метод через PowerShell
-                log("Пробуем удалить через PowerShell...", level="INFO")
-                ps_result = subprocess.run(
-                    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command "Remove-Service -Name windivert -Force -ErrorAction SilentlyContinue""',
-                    shell=True,
-                    capture_output=True,
-                    text=True
-                )
-                
-                # Проверяем, удалилась ли служба
-                final_check = subprocess.run(
-                    'C:\\Windows\\System32\\sc.exe query windivert',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                
-                if "SERVICE_NAME: windivert" not in final_check.stdout:
-                    log("Служба успешно удалена через PowerShell", level="✅ SUCCESS")
-                    return True
-                else:
-                    log("Не удалось удалить службу", level="❌ ERROR")
-                    return False
-                    
+                log("Служба все еще присутствует, но продолжаем", level="⚠ WARNING")
+                return True
+                        
         except Exception as e:
-            log(f"Критическая ошибка при удалении службы windivert: {e}", level="❌ ERROR")
+            log(f"Ошибка при очистке службы windivert: {e}", level="⚠ WARNING")
+            return True  # Продолжаем работу даже при ошибке
+
+    def stop_all_processes(self):
+        """Останавливает все процессы DPI через stop.bat"""
+        try:
+            log("=================== stop_all_processes ==========================", level="START")
+            
+            # Путь к stop.bat
+            stop_bat_path = os.path.join(os.path.dirname(self.winws_exe), "stop.bat")
+            
+            # Проверяем существование файла
+            if not os.path.exists(stop_bat_path):
+                log(f"Файл stop.bat не найден: {stop_bat_path}", level="⚠ WARNING")
+                # Создаем файл stop.bat если его нет
+                log("Создаем stop.bat...", level="INFO")
+                with open(stop_bat_path, 'w') as f:
+                    f.write("""@echo off
+    net session >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo Requesting administrator privileges...
+        echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\getadmin.vbs"
+        echo UAC.ShellExecute "%~f0", "", "", "runas", 1 >> "%temp%\getadmin.vbs"
+        "%temp%\getadmin.vbs"
+        del "%temp%\getadmin.vbs"
+        exit /b
+    )                  
+    taskkill /F /IM winws.exe /T
+    sc stop windivert
+    sc delete windivert
+    exit /b 0
+    """)
+            
+            # Запускаем stop.bat
+            log(f"Запускаем {stop_bat_path}...", level="INFO")
+            
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            
+            result = subprocess.run(
+                [stop_bat_path],
+                shell=True,
+                startupinfo=startupinfo,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                log("stop.bat выполнен успешно", level="✅ SUCCESS")
+            else:
+                log(f"stop.bat вернул код: {result.returncode}", level="⚠ WARNING")
+                
+            # Небольшая пауза для завершения всех операций
+            time.sleep(1)
+            
+            # Проверяем, что процесс действительно остановлен
+            if not self.check_process_running(silent=True):
+                log("Все процессы успешно остановлены", level="✅ SUCCESS")
+                return True
+            else:
+                log("Процесс winws.exe все еще работает", level="⚠ WARNING")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            log("Таймаут при выполнении stop.bat", level="❌ ERROR")
             return False
-    
+        except Exception as e:
+            log(f"Ошибка при выполнении stop.bat: {e}", level="❌ ERROR")
+            return False
+        
     def start_dpi(self, selected_mode: str | None = None, delay_ms: int = 0) -> bool:
         """
         Запускает выбранный .bat скрыто.
@@ -450,31 +510,12 @@ class DPIStarter:
             
             # Основная логика запуска в блоке try-finally
             try:
-                # НОВОЕ: Очистка службы windivert перед запуском
-                log("[DPIStarter] Проверяем и очищаем службу windivert...", level="INFO")
-                self.cleanup_windivert_service()
-
-                # Сначала проверяем, не запущен ли уже процесс
-                if self.check_process_running(silent=True):
-                    log("[DPIStarter] Процесс winws.exe уже запущен, останавливаем перед перезапуском", level="INFO")
-                    # Останавливаем существующие процессы
-                    try:
-                        subprocess.run('C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T', shell=True, capture_output=True)
-                        time.sleep(2)  # Увеличиваем время ожидания
-                        
-                        # Дополнительная проверка, что процесс действительно остановлен
-                        for i in range(5):
-                            if not self.check_process_running(silent=True):
-                                log(f"[DPIStarter] Процесс успешно остановлен (попытка {i+1})", level="INFO")
-                                break
-                            time.sleep(0.5)
-                        else:
-                            log("[DPIStarter] Не удалось остановить процесс после 5 попыток", level="❌ ERROR")
-                            return False
-                            
-                    except Exception as stop_error:
-                        log(f"[DPIStarter] Ошибка при остановке процесса: {stop_error}", level="❌ ERROR")
-                        return False
+                # УПРОЩЕННАЯ ЛОГИКА: Используем stop.bat для остановки всего
+                log("[DPIStarter] Останавливаем все процессы через stop.bat...", level="INFO")
+                self.stop_all_processes()
+                
+                # Дополнительная пауза для гарантии
+                time.sleep(1)
                 
                 abs_bat = os.path.abspath(bat_path)
                 
