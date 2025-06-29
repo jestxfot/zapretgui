@@ -1,196 +1,154 @@
 # stop.py
-import subprocess, time
+import os
+import subprocess
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from main import LupiDPIApp
 
-def stop_dpi(app: "LupiDPIApp"):
-    """
-    Останавливает процесс winws.exe и обновляет UI.
-    'app' – это экземпляр LupiDPIApp, откуда берём dpi_starter,
-           set_status(), update_ui() и т.д.
-    """
-    try:
-        from log import log
-
-        log("Остановка Zapret", "INFO")
-        process_stopped = False
-
-        # --------- 1. taskkill ----------------------------------------
-        log("taskkill /F /IM winws.exe /T", "INFO")
-        subprocess.run("C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T",
-                       shell=True, check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1)
-        if not app.dpi_starter.check_process_running():
-            process_stopped = True
-            log("Процесс остановлен через taskkill", "INFO")
-
-        # --------- 2. PowerShell --------------------------------------
-        if not process_stopped:
-            log("Пробуем PowerShell", "INFO")
-            subprocess.run(
-                'powershell -Command "Get-Process winws -EA SilentlyContinue | Stop-Process -Force"',
-                shell=True, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            time.sleep(1)
-            if not app.dpi_starter.check_process_running():
-                process_stopped = True
-                log("Процесс остановлен через PowerShell", "INFO")
-
-        # --------- 3. WMIC -------------------------------------------
-        if not process_stopped:
-            log("Пробуем wmic", "INFO")
-            subprocess.run(
-                "wmic process where name='winws.exe' call terminate",
-                shell=True, check=False,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            time.sleep(1)
-            if not app.dpi_starter.check_process_running():
-                process_stopped = True
-                log("Процесс остановлен через wmic", "INFO")
-
-        # --------- 4. WinDivert service ------------------------------
-        log("Останавливаем/удаляем службу WinDivert", "INFO")
-        subprocess.run("C:\\Windows\\System32\\sc.exe stop windivert", shell=True, check=False)
-        subprocess.run("C:\\Windows\\System32\\sc.exe delete windivert", shell=True, check=False)
-
-        # --------- 5. итог -------------------------------------------
-        if app.dpi_starter.check_process_running():
-            log("Не удалось остановить winws.exe", "⚠ WARNING")
-            app.set_status("Не удалось полностью остановить Zapret")
-        else:
-            app.update_ui(running=False)
-            app.set_status("Zapret успешно остановлен")
-            log("Zapret успешно остановлен", "INFO")
-
-        app.on_process_status_changed(app.dpi_starter.check_process_running(silent=True))
-
-    except Exception as e:
-        from log import log
-        log(f"stop_dpi: {e}", "❌ ERROR")
-        app.set_status(f"Ошибка остановки: {e}")
-
-##############################
-
-import os, subprocess, time
 from log import log
 
-def stop_dpi2(self):
+
+def stop_dpi(app: "LupiDPIApp"):
     """
-    Останавливает процесс DPI.
-    
-    Returns:
-        bool: True при успешной остановке, False при ошибке
+    Останавливает процесс winws.exe через stop.bat и обновляет UI.
     """
     try:
         log("======================== Stop DPI ========================", level="START")
         
-        # Проверяем наличие службы
-        service_exists = False
-        try:
-            from autostart.service import ServiceManager
-            service_manager = ServiceManager(
-                winws_exe=self.winws_exe,
-                status_callback=self.set_status
-            )
-            service_exists = service_manager.check_service_exists()
-        except Exception as e:
-            log(f"Ошибка при проверке службы: {str(e)}", level="❌ ERROR")
-            
-        if service_exists:
-            log("Обнаружена активная служба ZapretCensorliber", level="START")
-            self.set_status("Невозможно остановить Zapret, пока установлена служба")
-            return False
-        else:
-            log("Служба ZapretCensorliber не найдена, продолжаем остановку DPI.", level="START")
-        
         # Проверяем, запущен ли процесс
-        if not self.check_process_running():
-            log("Процесс winws.exe не запущен, нет необходимости в остановке", level="START")
-            self.set_status("Zapret уже остановлен")
+        if not app.dpi_starter.check_process_running(silent=True):
+            log("Процесс winws.exe не запущен, нет необходимости в остановке", level="INFO")
+            app.set_status("Zapret уже остановлен")
+            app.update_ui(running=False)
             return True
         
-        # Используем только stop.bat для остановки процесса
-        from config import EXE_FOLDER
-        stop_bat_path = os.path.join(EXE_FOLDER, "stop.bat")
-        if os.path.exists(stop_bat_path):
-            self.set_status("Останавливаю winws.exe через stop.bat...")
-            log("Использую stop.bat для остановки процесса", level="START")
-            
-            # Создаем startupinfo для скрытия окна командной строки
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            # Запускаем stop.bat
-            process = subprocess.Popen(
-                stop_bat_path,
+        # Получаем абсолютные пути
+        winws_dir = os.path.dirname(os.path.abspath(app.dpi_starter.winws_exe))
+        stop_bat_path = os.path.join(winws_dir, "stop.bat")
+        
+        # Для отладки
+        log(f"Абсолютный путь к winws.exe: {os.path.abspath(app.dpi_starter.winws_exe)}", level="DEBUG")
+        log(f"Рабочая директория: {winws_dir}", level="DEBUG")
+        log(f"Абсолютный путь к stop.bat: {stop_bat_path}", level="DEBUG")
+        log(f"stop.bat существует: {os.path.exists(stop_bat_path)}", level="DEBUG")
+        
+        # Если stop.bat не существует, создаем его
+        if not os.path.exists(stop_bat_path):
+            log("stop.bat не найден, создаем...", level="INFO")
+            if not create_stop_bat(app.dpi_starter.winws_exe):
+                log("Не удалось создать stop.bat", level="❌ ERROR")
+                app.set_status("Ошибка: не удалось создать stop.bat")
+                return False
+        
+        # Запускаем stop.bat
+        app.set_status("Останавливаю Zapret...")
+        log(f"Запускаем {stop_bat_path}...", level="INFO")
+        
+        # Настройки для скрытого запуска
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        
+        try:
+            # Вариант 1: Запускаем напрямую через subprocess
+            result = subprocess.run(
+                [stop_bat_path],
+                shell=True,
                 startupinfo=startupinfo,
-                cwd=EXE_FOLDER,
-                shell=True
+                capture_output=True,
+                text=True,
+                encoding='cp866',
+                timeout=10,
+                cwd=winws_dir  # Устанавливаем рабочую директорию
             )
             
-            # Ждем завершения процесса с таймаутом 5 секунд
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                log("Таймаут ожидания stop.bat", level="⚠ WARNING")
-                # Продолжаем выполнение, не ждем полного завершения
-            
-            # Даем время на завершение процессов
-            time.sleep(1)
-            
-            # Проверяем, остановлен ли процесс
-            if not self.check_process_running():
-                self.set_status("Zapret успешно остановлен")
-                return True
+            if result.returncode == 0:
+                log("stop.bat выполнен успешно", level="✅ SUCCESS")
             else:
-                log("Процесс winws.exe не был остановлен через stop.bat, но мы не будем использовать другие методы", level="⚠ WARNING")
-                self.set_status("Zapret не удалось остановить через stop.bat")
-                return False
-        else:
-            # Если stop.bat не найден, создаем его
-            log("stop.bat не найден, создаем...", level="START")
-            self.create_stop_bat()
-            return self.stop_dpi()  # Рекурсивно вызываем метод после создания файла
-            
-        return True
-    except Exception as e:
-        error_msg = f"Ошибка при остановке DPI: {str(e)}"
-        log(error_msg, level="❌ ERROR")
-        self.set_status(error_msg)
-        return False
-    
-
-def create_stop_bat(self):
-    """Создает файл stop.bat, если он не существует"""
-    try:
-        from config import EXE_FOLDER
-        stop_bat_path = os.path.join(EXE_FOLDER, "stop.bat")
+                log(f"stop.bat вернул код: {result.returncode}", level="⚠ WARNING")
+                if result.stdout:
+                    log(f"Вывод: {result.stdout}", level="DEBUG")
+                if result.stderr:
+                    log(f"Ошибки: {result.stderr}", level="⚠ WARNING")
+                
+                # Если stop.bat не сработал, пробуем выполнить команды напрямую
+                log("Пробуем выполнить команды остановки напрямую...", level="INFO")
+                
+                # Останавливаем процесс
+                subprocess.run(
+                    ['C:\\Windows\\System32\\taskkill.exe', '/F', '/IM', 'winws.exe', '/T'],
+                    shell=False,
+                    capture_output=True,
+                    timeout=5
+                )
+                
+                # Останавливаем службу
+                subprocess.run(
+                    ['C:\\Windows\\System32\\sc.exe', 'stop', 'windivert'],
+                    shell=False,
+                    capture_output=True,
+                    timeout=5
+                )
+                
+                # Удаляем службу
+                subprocess.run(
+                    ['C:\\Windows\\System32\\sc.exe', 'delete', 'windivert'],
+                    shell=False,
+                    capture_output=True,
+                    timeout=5
+                )
+                    
+        except subprocess.TimeoutExpired:
+            log("Таймаут при выполнении stop.bat", level="⚠ WARNING")
+        except Exception as e:
+            log(f"Ошибка при выполнении stop.bat: {e}", level="❌ ERROR")
         
-        # Содержимое stop.bat
+        # Даем время на завершение процессов
+        time.sleep(1)
+        
+        # Проверяем результат
+        if app.dpi_starter.check_process_running(silent=True):
+            log("Процесс winws.exe все еще работает", level="⚠ WARNING")
+            app.set_status("Не удалось полностью остановить Zapret")
+            app.on_process_status_changed(True)
+            return False
+        else:
+            log("Zapret успешно остановлен", level="✅ SUCCESS")
+            app.update_ui(running=False)
+            app.set_status("Zapret успешно остановлен")
+            app.on_process_status_changed(False)
+            return True
+            
+    except Exception as e:
+        log(f"Критическая ошибка в stop_dpi: {e}", level="❌ ERROR")
+        app.set_status(f"Ошибка остановки: {e}")
+        return False
+
+
+def create_stop_bat(winws_exe_path):
+    """Создает файл stop.bat с абсолютными путями"""
+    try:
+        # Используем абсолютные пути
+        stop_bat_path = os.path.join(os.path.dirname(os.path.abspath(winws_exe_path)), "stop.bat")
+        
+        # Содержимое stop.bat с полными путями к системным утилитам
         stop_bat_content = """@echo off
-REM stop.bat - останавливает все экземпляры winws.exe
-REM VERSION: 1.0
-REM Дата обновления: 2025-04-22
+REM stop.bat - останавливает winws.exe и очищает службу windivert
+echo Остановка Zapret...
 
-echo Остановка всех процессов winws.exe...
+REM Останавливаем все процессы winws.exe
+C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T >nul 2>&1
 
-REM Метод 1: taskkill
-taskkill /F /IM winws.exe /T
+REM Останавливаем и удаляем службу windivert
+C:\\Windows\\System32\\sc.exe stop windivert >nul 2>&1
+C:\\Windows\\System32\\sc.exe delete windivert >nul 2>&1
 
-REM Метод 2: через PowerShell
-powershell -Command "Get-Process winws -ErrorAction SilentlyContinue | Stop-Process -Force"
+REM Короткая пауза для завершения операций
+C:\\Windows\\System32\\timeout.exe /t 1 /nobreak >nul
 
-REM Метод 3: через wmic
-wmic process where name='winws.exe' call terminate
-
-REM Добавляем паузу для стабильности
-timeout /t 1 /nobreak >nul
-
-echo Остановка процессов завершена.
+echo Остановка завершена.
 exit /b 0
 """
         
@@ -201,8 +159,9 @@ exit /b 0
         with open(stop_bat_path, 'w', encoding='utf-8') as f:
             f.write(stop_bat_content)
             
-        log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="START")
+        log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="✅ SUCCESS")
         return True
+        
     except Exception as e:
         log(f"Ошибка при создании stop.bat: {str(e)}", level="❌ ERROR")
         return False

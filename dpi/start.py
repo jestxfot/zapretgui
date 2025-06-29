@@ -285,12 +285,16 @@ class DPIStarter:
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
             
+            # Используем полный путь до cmd.exe
+            cmd_path = r'C:\Windows\System32\cmd.exe'
+            
             result = subprocess.run(
-                [stop_bat_path],
-                shell=True,
+                [cmd_path, '/c', stop_bat_path],
+                shell=False,  # Изменяем на False, так как используем прямой вызов
                 startupinfo=startupinfo,
                 capture_output=True,
                 text=True,
+                encoding='cp866',  # Добавляем кодировку для корректного вывода
                 timeout=10
             )
             
@@ -298,9 +302,13 @@ class DPIStarter:
                 log("stop.bat выполнен успешно", level="✅ SUCCESS")
             else:
                 log(f"stop.bat вернул код: {result.returncode}", level="⚠ WARNING")
+                if result.stdout:
+                    log(f"Вывод: {result.stdout}", level="DEBUG")
+                if result.stderr:
+                    log(f"Ошибки: {result.stderr}", level="⚠ WARNING")
                 
             # Небольшая пауза для завершения всех операций
-            time.sleep(1)
+            time.sleep(0.3)
             
             # Проверяем, что процесс действительно остановлен
             if not self.check_process_running(silent=True):
@@ -515,7 +523,7 @@ class DPIStarter:
                 self.stop_all_processes()
                 
                 # Дополнительная пауза для гарантии
-                time.sleep(1)
+                time.sleep(0.3)
                 
                 abs_bat = os.path.abspath(bat_path)
                 
@@ -546,7 +554,7 @@ class DPIStarter:
                     )
 
                     # Ждем немного
-                    time.sleep(1)
+                    time.sleep(0.3)
                     
                     # Проверяем, не завершился ли процесс с ошибкой
                     if process.poll() is not None and process.returncode != 0:
@@ -558,7 +566,7 @@ class DPIStarter:
                                 log(f"[DPIStarter] ✅ Успех! Запущена стратегия: {selected_mode} (основной метод, попытка {i+1})", level="INFO")
                                 self._update_ui(True)
                                 return True
-                            time.sleep(0.5)
+                            time.sleep(0.3)
                         
                         # Если процесс все еще работает, но winws.exe не найден
                         if process.poll() is None:
@@ -600,7 +608,7 @@ class DPIStarter:
                         log(f"[DPIStarter] start вернул код {result.returncode}: {result.stderr}", level="⚠ WARNING")
                     
                     # Даем время на запуск
-                    time.sleep(1)
+                    time.sleep(0.3)
                     
                     # Проверяем несколько раз
                     for i in range(5):
@@ -608,8 +616,8 @@ class DPIStarter:
                             log(f"[DPIStarter] ✅ Успех! Запуск через start (попытка {i+1})", level="INFO")
                             self._update_ui(True)
                             return True
-                        time.sleep(0.5)
-                        
+                        time.sleep(0.3)
+
                 except Exception as alt_error:
                     log(f"[DPIStarter] start не сработал: {alt_error}", level="⚠ WARNING")
                 
