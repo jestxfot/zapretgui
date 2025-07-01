@@ -5,6 +5,7 @@ from log import log
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from config.backup_urls import URL_SOURCES
+from config import INDEXJSON_FOLDER
 SW_HIDE          = 0
 CREATE_NO_WINDOW = 0x08000000
 
@@ -67,7 +68,7 @@ class StrategyManager:
             return self.strategies_cache
             
         # Загружаем ТОЛЬКО из локального файла
-        index_file = os.path.join(self.local_dir, "index.json")
+        index_file = os.path.join(INDEXJSON_FOLDER, "index.json")
         if os.path.isfile(index_file):
             try:
                 with open(index_file, encoding="utf-8-sig") as f:
@@ -99,9 +100,7 @@ class StrategyManager:
             # Сбрасываем флаги кэша чтобы форсировать загрузку
             self._loaded = False
             self.cache_loaded = False
-            
-            # Загружаем с force_update
-            result = self.get_strategies_list(force_update=True)
+            result = self._download_strategies_index()
             
             self.set_status(f"Загружено {len(result)} стратегий")
             return result
@@ -393,8 +392,7 @@ class StrategyManager:
             if (now - self.last_update_time) <= self.update_interval:
                 return self.strategies_cache
 
-        # ТОЛЬКО ЗДЕСЬ загружаем с сервера
-        return self._download_and_cache()
+        return self._load_local_cache()
     
     def _load_local_cache(self) -> dict:
         """Загружает локальный кэш index.json ОДИН РАЗ."""
@@ -418,18 +416,6 @@ class StrategyManager:
         self.strategies_cache = {}
         self.cache_loaded = True
         return self.strategies_cache
-
-    def _download_and_cache(self) -> dict:
-        """Скачивает данные с сервера и кэширует БЕЗ дополнительного ThreadPoolExecutor"""
-        log("Обновление списка стратегий...", "⚙ manager")
-        
-        try:
-            # ✅ Убираем ThreadPoolExecutor - вызывающий код сам решает про асинхронность
-            result = self._download_strategies_index()
-            return result
-        except Exception as e:
-            log(f"Ошибка загрузки: {e}", "❌ ERROR")
-            return self._load_local_cache()
 
     def check_strategy_version_status(self, strategy_id: str, strategies_cache: dict = None) -> str:
         """

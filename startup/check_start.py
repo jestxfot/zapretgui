@@ -116,7 +116,7 @@ def check_system_commands() -> tuple[bool, str]:
         error_message = ""
         try:
             from log import log
-            log("Все системные команды доступны", level="INFO")
+            log("Все системные команды доступны", level="☑ INFO")
         except ImportError:
             print("INFO: Все системные команды доступны")
     
@@ -132,6 +132,17 @@ def check_startup_conditions():
     warnings = []       # <- собираем все non-critical
 
     try:
+        # Проверка Win 10 Tweaker - самая критичная, проверяем первой
+        has_tweaker, tweaker_msg = check_win10_tweaker()
+        if has_tweaker:
+            # Для Win 10 Tweaker всегда возвращаем критическую ошибку
+            try:
+                from log import log
+                log("CRITICAL: Win 10 Tweaker обнаружен - останавливаем запуск", level="❌ CRITICAL")
+            except ImportError:
+                print("CRITICAL: Win 10 Tweaker обнаружен - останавливаем запуск")
+            return False, tweaker_msg
+        
         # Все проверки теперь используют кэш автоматически
         has_cmd_issues, cmd_msg = check_system_commands()
         if has_cmd_issues:
@@ -173,7 +184,7 @@ def check_startup_conditions():
         except ImportError:
             print(f"ERROR: {error_message}")
         return False, error_message
-        
+   
 def check_mitmproxy() -> tuple[bool, str]:
     """
     Проверяет, запущен ли mitmproxy с кэшированием (короткое время).
@@ -396,7 +407,120 @@ def check_path_for_special_chars():
     startup_cache.cache_result("special_chars", False, paths_context)
     return False, ""
 
-# Изменяем функцию для работы с уже созданным QApplication
+def check_win10_tweaker() -> tuple[bool, str]:
+    """
+    Проверяет наличие Win 10 Tweaker в реестре с кэшированием.
+    Отказ в доступе также считается признаком наличия твикера.
+    """
+
+    has_cache, cached_found = startup_cache.is_cached_and_valid("win10_tweaker_check")
+    if has_cache:
+        # если твикер найден – восстановим текст ошибки
+        return cached_found, (_get_tweaker_error_message() if cached_found else "")
+    
+    try:
+        # Проверяем наличие ключа Win 10 Tweaker в реестре
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Win 10 Tweaker",
+            )
+            winreg.CloseKey(key)
+            
+            # Ключ найден - система модифицирована
+            try:
+                from log import log
+                log("CRITICAL ERROR: Обнаружен Win 10 Tweaker в системе!", level="❌ ERROR")
+            except ImportError:
+                print("CRITICAL ERROR: Обнаружен Win 10 Tweaker в системе!")
+            
+            # Кэшируем отрицательный результат (система заражена)
+            startup_cache.cache_result("win10_tweaker_check", True)
+            return True, _get_tweaker_error_message()
+            
+        except PermissionError as e:
+            # Отказ в доступе - твикер блокирует доступ к своему ключу!
+            try:
+                from log import log
+                log(f"CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру! Error: {e}", level="❌ ERROR")
+            except ImportError:
+                print(f"CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру! Error: {e}")
+            
+            # Кэшируем отрицательный результат (система заражена)
+            startup_cache.cache_result("win10_tweaker_check", True)
+            return True, _get_tweaker_error_message(access_denied=True)
+            
+        except OSError as e:
+            # WinError 5 - Access is denied
+            if e.winerror == 5:
+                try:
+                    from log import log
+                    log("CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру (WinError 5)!", level="❌ ERROR")
+                except ImportError:
+                    print("CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру (WinError 5)!")
+                
+                # Кэшируем отрицательный результат (система заражена)
+                startup_cache.cache_result("win10_tweaker_check", True)
+                return True, _get_tweaker_error_message(access_denied=True)
+            else:
+                # Другая OSError - не связана с твикером
+                raise
+                
+        except FileNotFoundError:
+            # Ключ не найден - система чистая, это нормально
+            try:
+                from log import log
+                log("Win 10 Tweaker не обнаружен", level="☑ INFO")
+            except ImportError:
+                print("INFO: Win 10 Tweaker не обнаружен")
+            
+            # Кэшируем положительный результат
+            startup_cache.cache_result("win10_tweaker_check", False)
+            return False, ""
+            
+    except Exception as e:
+        # При любой другой ошибке считаем, что твикера нет
+        try:
+            from log import log
+            log(f"Ошибка при проверке Win 10 Tweaker: {e}", level="DEBUG")
+        except ImportError:
+            print(f"DEBUG: Ошибка при проверке Win 10 Tweaker: {e}")
+        
+        # При неизвестной ошибке не кэшируем
+        return False, ""
+
+def _get_tweaker_error_message(access_denied=False) -> str:
+    """
+    Возвращает сообщение об ошибке для Win 10 Tweaker.
+    """
+    if access_denied:
+        header = (
+            "КРИТИЧЕСКАЯ ОШИБКА: Win 10 Tweaker блокирует доступ к реестру!\n\n"
+            "Программа Win 10 Tweaker активно защищает себя от обнаружения, "
+            "что является признаком вредоносного ПО.\n\n"
+        )
+    else:
+        header = (
+            "КРИТИЧЕСКАЯ ОШИБКА: Обнаружен Win 10 Tweaker!\n\n"
+            "Ваша система была модифицирована программой Win 10 Tweaker.\n\n"
+        )
+    
+    return header + (
+        "Win 10 Tweaker - это опасная программа, которая:\n"
+        "• Часто распространяется вместе с вирусами\n"
+        "• Вносит критические изменения в систему\n"
+        "• Нарушает работу сетевых компонентов Windows\n"
+        "• Отключает критически важные службы\n"
+        "• Изменяет политики безопасности\n"
+        "• Может содержать скрытый вредоносный код\n\n"
+        "Zapret НЕ МОЖЕТ работать в системе, где применялись твикеры!\n\n"
+        "ЕДИНСТВЕННОЕ РЕШЕНИЕ:\n"
+        "1. Сохраните важные данные\n"
+        "2. Переустановите Windows начисто с официального образа\n"
+        "3. НИКОГДА не используйте твикеры и подобные программы!\n\n"
+    )
+
+
 def display_startup_warnings():
     """
     Выполняет проверки запуска и отображает предупреждения если необходимо
@@ -404,45 +528,91 @@ def display_startup_warnings():
     Возвращает:
     - bool: True если запуск можно продолжать, False если запуск следует прервать
     """
-    success, message = check_startup_conditions()
-    
-    if not success:
-        # Определяем, является ли ошибка критической
-        is_critical = (
-            "специальные символы" in message or 
-            "системными командами" in message or
-            "GoodbyeDPI" in message or
-            "mitmproxy" in message
-        )
+    try:
+        success, message = check_startup_conditions()
+        
+        if not success:
+            # Определяем, является ли ошибка критической
+            is_critical = (
+                "специальные символы" in message or 
+                "системными командами" in message or
+                "GoodbyeDPI" in message or
+                "mitmproxy" in message or
+                "Win 10 Tweaker" in message
+            )
+            
+            # Специальная обработка для Win 10 Tweaker - всегда критическая ошибка
+            is_tweaker = "Win 10 Tweaker" in message
 
-        app_exists = QApplication.instance() is not None
+            app_exists = QApplication.instance() is not None
 
-        if is_critical:
-            if app_exists:
-                QMessageBox.critical(None, "Критическая ошибка", message)
+            if is_critical or is_tweaker:
+                if app_exists:
+                    try:
+                        QMessageBox.critical(None, "Критическая ошибка", message)
+                    except Exception as e:
+                        try:
+                            from log import log
+                            log(f"Ошибка показа QMessageBox: {e}", level="❌ ERROR")
+                        except ImportError:
+                            print(f"ERROR: Ошибка показа QMessageBox: {e}")
+                        _native_message("Критическая ошибка", message, 0x10)
+                else:
+                    _native_message("Критическая ошибка", message, 0x10)
+                
+                # Для критических ошибок (включая Win 10 Tweaker) возвращаем False
+                return False
             else:
-                _native_message("Критическая ошибка", message, 0x10)
-            return False
-        else:
-            if message:                        # только предупреждения
-                QMessageBox.information(None,
-                    "Предупреждение при запуске", message)
-    
-            if app_exists:
-                result = QMessageBox.warning(
-                    None, "Предупреждение",
-                    message + "\n\nПродолжить работу?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No
-                )
-                return result == QMessageBox.StandardButton.Yes
+                # Некритичные предупреждения
+                if message:
+                    if app_exists:
+                        try:
+                            result = QMessageBox.warning(
+                                None, "Предупреждение",
+                                message + "\n\nПродолжить работу?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No
+                            )
+                            return result == QMessageBox.StandardButton.Yes
+                        except Exception as e:
+                            try:
+                                from log import log
+                                log(f"Ошибка показа предупреждения: {e}", level="❌ ERROR")
+                            except ImportError:
+                                print(f"ERROR: Ошибка показа предупреждения: {e}")
+                            # Fallback к native сообщению
+                            btn = _native_message("Предупреждение",
+                                                message + "\n\nНажмите «Да» для продолжения.",
+                                                0x30)
+                            return btn == 6  # IDYES
+                    else:
+                        btn = _native_message("Предупреждение",
+                                            message + "\n\nНажмите «Да» для продолжения.",
+                                            0x30)  # MB_ICONWARNING | MB_YESNO
+                        return btn == 6  # IDYES
+        
+        return True
+        
+    except Exception as e:
+        error_msg = f"Критическая ошибка при проверке условий запуска: {str(e)}"
+        try:
+            from log import log
+            log(error_msg, level="❌ CRITICAL")
+        except ImportError:
+            print(f"CRITICAL: {error_msg}")
+        
+        # При критической ошибке показываем сообщение и закрываем программу
+        try:
+            if QApplication.instance() is not None:
+                QMessageBox.critical(None, "Критическая ошибка", error_msg)
             else:
-                btn = _native_message("Предупреждение",
-                                    message + "\n\nНажмите «Да» для продолжения.",
-                                    0x30)  # MB_ICONWARNING | MB_YESNO
-                return btn == 6  # IDYES
-    return True
-
+                _native_message("Критическая ошибка", error_msg, 0x10)
+        except:
+            # Если даже нативное сообщение не показывается
+            pass
+        
+        return False
+        
 def _service_exists_reg(name: str) -> bool:
     """
     Проверка через реестр: быстрее и не зависит от локали.

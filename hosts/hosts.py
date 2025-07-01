@@ -1,6 +1,6 @@
-# hosts.py
-
 import ctypes
+import stat
+import os
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox
 from .proxy_domains import PROXY_DOMAINS
@@ -34,6 +34,28 @@ def check_hosts_file_name():
     # Если ни того, ни другого нет
     return False, "Файл hosts не найден"
 
+def is_file_readonly(filepath):
+    """Проверяет, установлен ли атрибут 'только для чтения' у файла"""
+    try:
+        file_stat = os.stat(filepath)
+        return not (file_stat.st_mode & stat.S_IWRITE)
+    except Exception as e:
+        log(f"Ошибка при проверке атрибутов файла: {e}")
+        return False
+
+def remove_readonly_attribute(filepath):
+    """Снимает атрибут 'только для чтения' с файла"""
+    try:
+        # Получаем текущие атрибуты файла
+        file_stat = os.stat(filepath)
+        # Добавляем право на запись
+        os.chmod(filepath, file_stat.st_mode | stat.S_IWRITE)
+        log(f"Атрибут 'только для чтения' снят с файла: {filepath}")
+        return True
+    except Exception as e:
+        log(f"Ошибка при снятии атрибута 'только для чтения': {e}")
+        return False
+
 def safe_read_hosts_file():
     """Безопасно читает файл hosts с обработкой различных кодировок"""
     hosts_path = HOSTS_PATH
@@ -64,8 +86,18 @@ def safe_read_hosts_file():
 def safe_write_hosts_file(content):
     """Безопасно записывает файл hosts с правильной кодировкой"""
     try:
+        # Проверяем атрибут "только для чтения" перед записью
+        if is_file_readonly(HOSTS_PATH):
+            log("Файл hosts имеет атрибут 'только для чтения', пытаемся снять...")
+            if not remove_readonly_attribute(HOSTS_PATH):
+                log("Не удалось снять атрибут 'только для чтения'")
+                return False
+        
         HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
         return True
+    except PermissionError:
+        log("Ошибка доступа при записи файла hosts (возможно, нет прав администратора)")
+        return False
     except Exception as e:
         log(f"Ошибка при записи файла hosts: {e}")
         return False
@@ -211,9 +243,31 @@ class HostsManager:
             if content is None:
                 return False
             
+            # Проверяем атрибут "только для чтения"
+            if is_file_readonly(HOSTS_PATH):
+                log("Файл hosts имеет атрибут 'только для чтения'")
+                # Показываем предупреждение пользователю
+                warning_msg = (
+                    f"Файл hosts имеет атрибут 'только для чтения'.\n\n"
+                    f"Программа попытается автоматически снять этот атрибут\n"
+                    f"при сохранении изменений.\n\n"
+                    f"Если это не поможет, снимите атрибут вручную:\n"
+                    f"1. Откройте свойства файла hosts\n"
+                    f"2. Снимите галочку 'Только для чтения'"
+                )
+                self.show_popup_message("Файл только для чтения", warning_msg, "warning")
+            
             # Проверяем возможность записи (пробуем открыть в режиме добавления)
-            with HOSTS_PATH.open("a", encoding="utf-8-sig") as f:
-                pass
+            try:
+                with HOSTS_PATH.open("a", encoding="utf-8-sig") as f:
+                    pass
+            except PermissionError:
+                # Если не можем открыть для записи, но файл НЕ readonly, 
+                # значит действительно нет прав администратора
+                if not is_file_readonly(HOSTS_PATH):
+                    raise
+                # Если файл readonly, попробуем снять атрибут
+                log("Не удается открыть файл для записи из-за атрибута 'только для чтения'")
             
             return True
             
@@ -232,6 +286,23 @@ class HostsManager:
             log(f"Ошибка при проверке доступности hosts: {e}")
             self.show_popup_message("Ошибка", error_msg, "critical")
             return False
+
+    def _no_perm(self):
+        """Обработка ошибки прав доступа"""
+        error_msg = (
+            f"Нет прав для изменения файла hosts.\n\n"
+            f"Возможные причины:\n"
+            f"• Программа запущена без прав администратора\n"
+            f"• Файл hosts имеет атрибут 'только для чтения'\n"
+            f"• Антивирус блокирует доступ к файлу\n\n"
+            f"Решения:\n"
+            f"1. Запустите программу от имени администратора\n"
+            f"2. Проверьте свойства файла hosts и снимите галочку 'Только для чтения'\n"
+            f"3. Временно отключите антивирус"
+        )
+        self.set_status("Нет прав для изменения файла hosts")
+        self.show_popup_message("Ошибка доступа", error_msg, "warning")
+        log("Нет прав для изменения файла hosts")
 
     def add_proxy_domains(self) -> bool:
         """

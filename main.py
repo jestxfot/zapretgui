@@ -89,6 +89,28 @@ def _handle_update_mode():
             pass
     # ничего не возвращаем — вызывающая сторона сделает sys.exit(0)
 
+from PyQt6.QtCore import QThread, pyqtSignal
+
+class DNSWorker(QThread):
+    """Worker для применения DNS в отдельном потоке"""
+    status_update = pyqtSignal(str)
+    
+    def run(self):
+        try:
+            from dns_force import apply_force_dns_if_enabled, ensure_default_force_dns
+            
+            # 0) создаём ключ ForceDNS=1, если его нет
+            ensure_default_force_dns()
+            
+            # 1) применяем принудительный DNS с thread-safe callback
+            def safe_status_callback(msg):
+                self.status_update.emit(msg)
+            
+            apply_force_dns_if_enabled(status_callback=safe_status_callback)
+            
+        except Exception as e:
+            log(f"Ошибка в DNS worker: {e}", "❌ ERROR")
+            
 class LupiDPIApp(QWidget, MainWindowUI):
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
@@ -127,18 +149,19 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.status_label.setText(text)
 
     def update_ui(self, running):
-        """Обновляет состояние кнопок и элементов интерфейса в зависимости от статуса запуска"""
-        # Проверяем, активен ли автозапуск
+        """Обновляет состояние кнопок в зависимости от статуса запуска"""
         autostart_active = False
         if hasattr(self, 'service_manager'):
             autostart_active = self.service_manager.check_autostart_exists()
         
-        # Если автозапуск активен, не обновляем кнопки запуска/остановки
-        # так как они должны управляться методом update_autostart_ui
+        # Если автозапуск НЕ активен, управляем кнопками запуска/остановки
         if not autostart_active:
-            # Обновляем кнопки запуска/остановки только если нет автозапуска
-            self.start_btn.setVisible(not running)
-            self.stop_btn.setVisible(running)
+            if running:
+                # Показываем кнопку остановки
+                self.start_stop_stack.setCurrentWidget(self.stop_btn)
+            else:
+                # Показываем кнопку запуска
+                self.start_stop_stack.setCurrentWidget(self.start_btn)
         
     def check_if_process_started_correctly(self):
         """Проверяет, что процесс успешно запустился и продолжает работать"""
@@ -380,64 +403,60 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
 
     def update_autostart_ui(self, service_running: bool | None):
-        """
-        Обновляет интерфейс при включении / выключении автозапуска.
-        • start_btn, stop_btn скрываются если автозапуск активен
-        • autostart_enable_btn скрывается если автозапуск активен
-        • autostart_disable_btn растягивается на 2-колонки
-        """
+        """Обновляет интерфейс при включении/выключении автозапуска"""
         if service_running is None and hasattr(self, 'service_manager'):
             service_running = self.service_manager.check_autostart_exists()
 
-        enable_btn  = self.autostart_enable_btn
-        disable_btn = self.autostart_disable_btn
-        start_btn   = getattr(self, 'start_btn',  None)
-        stop_btn    = getattr(self, 'stop_btn',   None)
-
-        # --- если автозапуск активен -----------------------------------------
         if service_running:
-            if start_btn:  start_btn.setVisible(False)
-            if stop_btn:   stop_btn.setVisible(False)
-            enable_btn.setVisible(False)
-
-            # Сначала удаляем кнопку отключения из сетки, чтобы не было дублирования
-            self.button_grid.removeWidget(disable_btn)
+            # ✅ АВТОЗАПУСК АКТИВЕН
+            # Скрываем левую колонку (кнопки запуска/остановки)
+            self.start_stop_stack.setVisible(False)
             
-            # Затем добавляем её снова, но растянутую на 2 колонки
-            self.button_grid.addWidget(disable_btn, 0, 0, 1, 2)
+            # Показываем кнопку отключения автозапуска и растягиваем на 2 колонки
+            self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
             
-            # Показываем кнопку отключения автозапуска
-            disable_btn.setVisible(True)
-            disable_btn.setText('Выкл. автозапуск')  # Гарантируем правильный текст
-
-            # Удаляем предупреждение о смене стратегии
-            if hasattr(self, 'service_info_label'):
-                self.service_info_label.setVisible(False)
-                self.layout().removeWidget(self.service_info_label)
-                self.service_info_label.deleteLater()
-                self.service_info_label = None
-
-        # --- автозапуск выключен ---------------------------------------------
+            # Удаляем стек автозапуска из текущей позиции
+            self.button_grid.removeWidget(self.autostart_stack)
+            
+            # Добавляем его обратно, но на 2 колонки
+            self.button_grid.addWidget(self.autostart_stack, 0, 0, 1, 2)
+            
         else:
-            # Сначала удаляем кнопку отключения из сетки
-            self.button_grid.removeWidget(disable_btn)
+            # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
+            # Показываем левую колонку обратно
+            self.start_stop_stack.setVisible(True)
             
             # Возвращаем стандартную раскладку
-            if start_btn:  
-                start_btn.setVisible(True)
-                self.button_grid.addWidget(start_btn, 0, 0)
-                    
-            if stop_btn:   
-                stop_btn.setVisible(False)
-                self.button_grid.addWidget(stop_btn, 0, 0)
-                    
-            enable_btn.setVisible(True)
-            self.button_grid.addWidget(enable_btn, 0, 1)
+            self.button_grid.removeWidget(self.autostart_stack)
+            self.button_grid.addWidget(self.start_stop_stack, 0, 0)
+            self.button_grid.addWidget(self.autostart_stack, 0, 1)
             
-            # Добавляем кнопку отключения автозапуска на правильное место
-            self.button_grid.addWidget(disable_btn, 0, 1)
-            disable_btn.setVisible(False)  # Но скрываем её, так как автозапуск выключен
+            # Показываем кнопку включения автозапуска
+            self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
             
+            # Обновляем состояние кнопок запуска/остановки
+            process_running = self.dpi_starter.check_process_running(silent=True) if hasattr(self, 'dpi_starter') else False
+            if process_running:
+                self.start_stop_stack.setCurrentWidget(self.stop_btn)
+            else:
+                self.start_stop_stack.setCurrentWidget(self.start_btn)
+
+    def show_start_button(self):
+        """Показывает кнопку запуска"""
+        self.start_stop_stack.setCurrentWidget(self.start_btn)
+
+    def show_stop_button(self):
+        """Показывает кнопку остановки"""
+        self.start_stop_stack.setCurrentWidget(self.stop_btn)
+
+    def show_autostart_enable_button(self):
+        """Показывает кнопку включения автозапуска"""
+        self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
+
+    def show_autostart_disable_button(self):
+        """Показывает кнопку отключения автозапуска"""
+        self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
+
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
         try:
@@ -480,8 +499,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def initialize_managers_and_services(self):
         """
         Быстрая (лёгкая) инициализация и запуск HeavyInitWorker.
-        Теперь StrategyManager создаётся «ленивым» – ничего не качает,
-        пока пользователь не откроет Меню стратегий.
         """
         
         log("initialize_managers_and_services: quick part", "INFO")
@@ -493,6 +510,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from discord.discord import DiscordManager
         self.discord_manager = DiscordManager(status_callback=self.set_status)
         self.hosts_manager   = HostsManager   (status_callback=self.set_status)
+
+        # ✅ НОВОЕ: DNS worker в отдельном QThread
+        self.dns_worker = DNSWorker()
+        self.dns_worker.status_update.connect(self.set_status)
+        self.dns_worker.finished.connect(self._on_dns_worker_finished)
+        self.dns_worker.start()
 
         # StrategyManager  (preload=False  ⇒  ничего не скачивает)
         from strategy_menu.manager import StrategyManager
@@ -559,6 +582,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Сразу переходим к финальной инициализации
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, lambda: self._on_heavy_done(True, ""))
+
+    def _on_dns_worker_finished(self):
+        """Обработчик завершения DNS worker"""
+        log("DNS worker завершен", "DNS")
+        if hasattr(self, 'dns_worker'):
+            self.dns_worker.deleteLater()
+            self.dns_worker = None
 
     def _start_heavy_init(self):
         """Запускает тяжелую инициализацию"""
@@ -2000,7 +2030,7 @@ def main():
                 "Zapret работает в трее", 
                 "Приложение запущено в фоновом режиме"
             )
-    
+    from PyQt6.QtCore import QTimer
     # ---------------- АСИНХРОННЫЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА ----------------
     def async_startup_checks():
         """Выполняет все стартовые проверки асинхронно"""
@@ -2011,8 +2041,6 @@ def main():
             
             # 2. Проверка BFE
             if not ensure_bfe_running(show_ui=True):
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(3000, lambda: QApplication.quit())
                 return
             
             # 3. Проверка условий запуска
@@ -2021,14 +2049,12 @@ def main():
             if not conditions_ok and not start_in_tray:
                 if error_msg:
                     QMessageBox.critical(window, "Ошибка запуска", error_msg)
-                QTimer.singleShot(3000, lambda: QApplication.quit())
                 return
             
             # 4. Показ предупреждений
             from startup.check_start import display_startup_warnings
             warnings_ok = display_startup_warnings()
             if not warnings_ok and not start_in_tray:
-                QTimer.singleShot(3000, lambda: QApplication.quit())
                 return
             
             # 5. Дополнительные проверки
@@ -2051,7 +2077,6 @@ def main():
             window.set_status(f"Ошибка проверок: {e}")
     
     # Запускаем проверки через 100ms после показа окна
-    from PyQt6.QtCore import QTimer
     QTimer.singleShot(100, async_startup_checks)
     
     # Exception handler

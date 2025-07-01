@@ -49,6 +49,11 @@ class AppMenuBar(QMenuBar):
         self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
         file_menu.addAction(self.auto_strat_act)
 
+        self.force_dns_act = QAction("Принудительный DNS 9.9.9.9", self, checkable=True)
+        self.force_dns_act.setChecked(self._get_force_dns_enabled())
+        self.force_dns_act.toggled.connect(self.toggle_force_dns)
+        file_menu.addAction(self.force_dns_act)
+
         # Чек-бокс «Удалять Windows Terminal»
         self.remove_wt_act = QAction("Удалять Windows Terminal", self, checkable=True)
         self.remove_wt_act.setChecked(get_remove_windows_terminal())
@@ -131,6 +136,177 @@ class AppMenuBar(QMenuBar):
         act_byedpi_telegram = QAction("Telegram группа", self)
         act_byedpi_telegram.triggered.connect(self.open_byedpi_telegram)
         android_menu.addAction(act_byedpi_telegram)
+
+    def _get_force_dns_enabled(self) -> bool:
+        """Получает текущее состояние принудительного DNS"""
+        try:
+            from dns_force import DNSForceManager
+            manager = DNSForceManager()
+            return manager.is_force_dns_enabled()
+        except Exception as e:
+            from log import log
+            log(f"Ошибка при проверке состояния Force DNS: {e}", "❌ ERROR")
+            return False
+
+    def toggle_force_dns(self, enabled: bool):
+        """
+        Включает/выключает принудительную установку DNS 9.9.9.9
+        """
+        from log import log
+        from dns_force import DNSForceManager
+        
+        try:
+            manager = DNSForceManager(status_callback=self._set_status)
+            
+            if enabled:
+                # Показываем предупреждение перед включением
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Принудительный DNS")
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setText(
+                    "Включить принудительную установку DNS 9.9.9.9?\n\n"
+                    "Это действие изменит DNS-серверы на всех активных "
+                    "сетевых адаптерах (Ethernet и Wi-Fi)."
+                )
+                msg_box.setInformativeText(
+                    "DNS-сервер 9.9.9.9 (Quad9) обеспечивает:\n"
+                    "• Защиту от вредоносных сайтов\n"
+                    "• Конфиденциальность запросов\n"
+                    "• Обход некоторых блокировок\n\n"
+                    "Текущие настройки DNS будут сохранены для восстановления."
+                )
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    # Пользователь отменил - откатываем галочку
+                    self.force_dns_act.blockSignals(True)
+                    self.force_dns_act.setChecked(False)
+                    self.force_dns_act.blockSignals(False)
+                    return
+                
+                # Создаем резервную копию текущих DNS
+                self._set_status("Создание резервной копии DNS...")
+                manager.backup_current_dns()
+                
+                # Включаем опцию в реестре
+                manager.set_force_dns_enabled(True)
+                
+                # Применяем DNS
+                self._set_status("Применение DNS 9.9.9.9...")
+                success, total = manager.force_dns_on_all_adapters()
+                
+                if success > 0:
+                    QMessageBox.information(
+                        self._pw, 
+                        "DNS установлен",
+                        f"DNS 9.9.9.9 успешно установлен на {success} из {total} адаптеров.\n\n"
+                        "Изменения вступят в силу немедленно."
+                    )
+                    log(f"Принудительный DNS включен: {success}/{total} адаптеров", "INFO")
+                else:
+                    QMessageBox.warning(
+                        self._pw,
+                        "Ошибка",
+                        "Не удалось установить DNS ни на одном адаптере.\n"
+                        "Возможно, требуются права администратора."
+                    )
+                    # Откатываем настройку
+                    manager.set_force_dns_enabled(False)
+                    self.force_dns_act.blockSignals(True)
+                    self.force_dns_act.setChecked(False)
+                    self.force_dns_act.blockSignals(False)
+                    
+            else:
+                # Отключение принудительного DNS
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Отключение принудительного DNS")
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText("Как отключить принудительный DNS?")
+                
+                restore_btn = msg_box.addButton("Восстановить из резервной копии", QMessageBox.ButtonRole.AcceptRole)
+                auto_btn = msg_box.addButton("Переключить на автоматический", QMessageBox.ButtonRole.AcceptRole)
+                cancel_btn = msg_box.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
+                
+                msg_box.setDefaultButton(restore_btn)
+                msg_box.exec()
+                
+                clicked_btn = msg_box.clickedButton()
+                
+                if clicked_btn == cancel_btn:
+                    # Отмена - возвращаем галочку
+                    self.force_dns_act.blockSignals(True)
+                    self.force_dns_act.setChecked(True)
+                    self.force_dns_act.blockSignals(False)
+                    return
+                
+                # Отключаем опцию в реестре
+                manager.set_force_dns_enabled(False)
+                
+                if clicked_btn == restore_btn:
+                    # Восстанавливаем из резервной копии
+                    self._set_status("Восстановление DNS из резервной копии...")
+                    if manager.restore_dns_from_backup():
+                        QMessageBox.information(
+                            self._pw,
+                            "DNS восстановлен",
+                            "DNS-настройки успешно восстановлены из резервной копии."
+                        )
+                        log("DNS восстановлен из резервной копии", "INFO")
+                    else:
+                        QMessageBox.warning(
+                            self._pw,
+                            "Ошибка",
+                            "Не удалось восстановить DNS из резервной копии.\n"
+                            "Настройки будут сброшены на автоматические."
+                        )
+                        # Fallback - сбрасываем на автоматические
+                        self._reset_all_dns_to_auto(manager)
+                        
+                elif clicked_btn == auto_btn:
+                    # Сбрасываем на автоматическое получение
+                    self._reset_all_dns_to_auto(manager)
+                    
+            self._set_status("Готово")
+            
+        except Exception as e:
+            log(f"Ошибка при переключении Force DNS: {e}", "❌ ERROR")
+            QMessageBox.critical(
+                self._pw,
+                "Ошибка",
+                f"Произошла ошибка при изменении настроек DNS:\n{e}"
+            )
+            # В случае ошибки откатываем галочку
+            self.force_dns_act.blockSignals(True)
+            self.force_dns_act.setChecked(not enabled)
+            self.force_dns_act.blockSignals(False)
+
+    def _reset_all_dns_to_auto(self, manager):
+        """Сбрасывает DNS на всех адаптерах на автоматическое получение"""
+        self._set_status("Сброс DNS на автоматическое получение...")
+        adapters = manager.get_network_adapters()
+        success_count = 0
+        
+        for adapter in adapters:
+            if manager.reset_dns_to_auto(adapter):
+                success_count += 1
+        
+        if success_count > 0:
+            QMessageBox.information(
+                self._pw,
+                "DNS сброшен",
+                f"DNS сброшен на автоматическое получение на {success_count} из {len(adapters)} адаптеров."
+            )
+            from log import log
+            log(f"DNS сброшен на авто: {success_count}/{len(adapters)} адаптеров", "INFO")
+        else:
+            QMessageBox.warning(
+                self._pw,
+                "Ошибка",
+                "Не удалось сбросить DNS ни на одном адаптере."
+            )
 
     def toggle_auto_download(self, checked):
         """Переключает автозагрузку при старте"""

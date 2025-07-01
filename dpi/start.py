@@ -52,6 +52,7 @@ class DPIStarter:
                     shell=True,
                     capture_output=True,
                     text=True,
+                    encoding='cp866',  # Используем cp866 для корректного вывода на русском
                     timeout=5  # Добавляем таймаут
                 )
                 
@@ -601,6 +602,7 @@ class DPIStarter:
                         shell=True,
                         cwd=os.path.dirname(abs_bat),
                         capture_output=True,
+                        encoding='cp866',  # Используем cp866 для корректного вывода на русском
                         text=True
                     )
                     

@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QComboBox, QSpacerItem, QSizePolicy, QFrame
+    QComboBox, QSpacerItem, QSizePolicy, QFrame, QStackedWidget
 )
 from PyQt6.QtGui import QIcon, QFont
 from PyQt6.QtCore import QSize
@@ -43,11 +43,6 @@ class MainWindowUI:
         kaspersky_warning = self._create_kaspersky_warning()
         if kaspersky_warning:
             root.addWidget(kaspersky_warning)
-
-        # ---------- Предупреждение о файле hosts ----------------------
-        hosts_warning = self._create_hosts_warning()
-        if hosts_warning:
-            root.addWidget(hosts_warning)
 
         # ---------- Статус программы -----------------------------------
         proc_lbl = QLabel("Статус программы:")
@@ -118,15 +113,25 @@ class MainWindowUI:
                      (self.autostart_disable_btn, "255, 93, 174")):
             b.setStyleSheet(BUTTON_STYLE.format(c))
 
-        grid.addWidget(self.start_btn, 0, 0)
-        grid.addWidget(self.autostart_enable_btn, 0, 1)
-        grid.addWidget(self.stop_btn, 0, 0)
-        grid.addWidget(self.autostart_disable_btn, 0, 1)
+        # ✅ НОВОЕ: Создаем стеки для переключения кнопок
+        # Стек для кнопок запуска/остановки (левая колонка)
+        self.start_stop_stack = QStackedWidget()
+        self.start_stop_stack.addWidget(self.start_btn)      # индекс 0
+        self.start_stop_stack.addWidget(self.stop_btn)       # индекс 1
+        self.start_stop_stack.setCurrentIndex(0)  # По умолчанию показываем кнопку запуска
 
-        # ---- служебные/прочие кнопки ---------------------------------
+        # Стек для кнопок автозапуска (правая колонка)
+        self.autostart_stack = QStackedWidget()
+        self.autostart_stack.addWidget(self.autostart_enable_btn)   # индекс 0
+        self.autostart_stack.addWidget(self.autostart_disable_btn)  # индекс 1
+        self.autostart_stack.setCurrentIndex(0)  # По умолчанию показываем кнопку включения
 
+        # ✅ НОВОЕ: Добавляем стеки в сетку вместо отдельных кнопок
+        grid.addWidget(self.start_stop_stack, 0, 0)    # Левая колонка
+        grid.addWidget(self.autostart_stack, 0, 1)     # Правая колонка
+
+        # Остальные кнопки добавляем как обычно
         self.open_folder_btn = RippleButton(" Открыть папку Zapret", self, "0, 119, 255")
-        self.open_folder_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
         self.open_folder_btn.setIconSize(QSize(16, 16))
         
         self.test_connection_btn = RippleButton(" Тест соединения", self, "0, 119, 255")
@@ -727,201 +732,3 @@ class MainWindowUI:
 
         # 3. Фолбэк на C:\Windows (маловероятно, но пусть будет)
         return Path(r"C:\Windows\System32\drivers\etc\hosts")
-
-    def _check_hosts_file(self):
-        """
-        Проверяет наличие и доступность файла hosts.
-        
-        Returns:
-            dict: {
-                "exists": bool,
-                "readable": bool, 
-                "writable": bool,
-                "path": str,
-                "error": str or None
-            }
-        """
-        import os
-        import platform
-        from log import log
-        
-        try:
-            # Определяем путь к файлу hosts в зависимости от ОС
-            if platform.system().lower() == 'windows':
-                hosts_path = MainWindowUI.get_hosts_path()
-                log(f"Проверка файла hosts для Windows: {hosts_path}", "DEBUG")
-            else:
-                hosts_path = '/etc/hosts'
-            
-            result = {
-                "exists": False,
-                "readable": False,
-                "writable": False,
-                "path": hosts_path,
-                "error": None
-            }
-            
-            # Проверяем существование файла hosts (только в нижнем регистре)
-            if not os.path.exists(hosts_path):
-                result["error"] = f"Файл hosts не найден: {hosts_path}"
-                return result
-            
-            result["exists"] = True
-            
-            # Проверяем права на чтение
-            try:
-                with open(hosts_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    f.read(1)  # Читаем один символ для проверки
-                result["readable"] = True
-            except (PermissionError, OSError) as e:
-                result["error"] = f"Нет прав на чтение файла hosts: {e}"
-            
-            # Проверяем права на запись
-            try:
-                if os.access(hosts_path, os.W_OK):
-                    result["writable"] = True
-                else:
-                    if not result["error"]:
-                        result["error"] = "Нет прав на запись в файл hosts. Запустите от администратора."
-            except Exception as e:
-                if not result["error"]:
-                    result["error"] = f"Ошибка проверки прав записи: {e}"
-            
-            return result
-            
-        except Exception as e:
-            return {
-                "exists": False,
-                "readable": False,
-                "writable": False,
-                "path": "unknown",
-                "error": f"Ошибка проверки файла hosts: {e}"
-            }
-
-    def _create_hosts_warning(self):
-        """
-        Создает предупреждение о проблемах с файлом hosts.
-        
-        Returns:
-            QWidget: Виджет с предупреждением или None если проблем нет
-        """
-        hosts_info = self._check_hosts_file()
-        
-        # Если файл существует и доступен для чтения/записи - предупреждение не нужно
-        if hosts_info["exists"] and hosts_info["readable"] and hosts_info["writable"]:
-            return None
-        #    pass
-        
-        from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
-        from PyQt6.QtCore import Qt
-        
-        # Создаем основной фрейм
-        warning_frame = QFrame()
-        warning_frame.setFrameStyle(QFrame.Shape.Box)
-        
-        # Определяем тип предупреждения
-        if not hosts_info["exists"]:
-            # Критическая ошибка - файл не найден
-            bg_color = "#F8D7DA"
-            border_color = "#F5C6CB"
-            text_color = "#721C24"
-            icon_color = "#DC3545"
-            icon = "❌"
-            message = f"Файл hosts не найден: {hosts_info['path']}"
-        elif not hosts_info["readable"]:
-            # Ошибка - нет прав на чтение
-            bg_color = "#F8D7DA"
-            border_color = "#F5C6CB"
-            text_color = "#721C24"
-            icon_color = "#DC3545"
-            icon = "🔒"
-            message = "Нет прав на чтение файла hosts. Запустите от имени администратора."
-        elif not hosts_info["writable"]:
-            # Предупреждение - нет прав на запись
-            bg_color = "#FFF3CD"
-            border_color = "#FFEAA7"
-            text_color = "#856404"
-            icon_color = "#F39C12"
-            icon = "⚠"
-            message = "Нет прав на запись в файл hosts. Запустите от имени администратора."
-        else:
-            # Общая ошибка
-            bg_color = "#F8D7DA"
-            border_color = "#F5C6CB"
-            text_color = "#721C24"
-            icon_color = "#DC3545"
-            icon = "❌"
-            message = f"Проблема с файлом hosts: {hosts_info.get('error', 'Неизвестная ошибка')}"
-        
-        warning_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: 4px;
-                padding: 2px;
-                margin: 0px;
-            }}
-        """)
-        
-        layout = QHBoxLayout(warning_frame)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
-        
-        # Иконка предупреждения
-        warning_icon = QLabel()
-        warning_icon.setText(icon)
-        warning_icon.setStyleSheet(f"font-size: 14px; color: {icon_color};")
-        layout.addWidget(warning_icon)
-        
-        # Текст предупреждения
-        warning_text = QLabel()
-        warning_text.setText(message)
-        warning_text.setStyleSheet(f"""
-            QLabel {{
-                color: {text_color};
-                font-size: 9pt;
-                background: transparent;
-                border: none;
-            }}
-        """)
-        warning_text.setWordWrap(True)
-        layout.addWidget(warning_text, 1)
-        
-        # Кнопка закрытия
-        dismiss_btn = QPushButton("✕")
-        dismiss_btn.setFixedSize(16, 16)
-        dismiss_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: transparent;
-                border: none;
-                color: {text_color};
-                font-size: 10pt;
-                padding: 0px;
-            }}
-            QPushButton:hover {{
-                color: {icon_color};
-            }}
-        """)
-        dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        def close_warning():
-            """Закрывает предупреждение и удаляет его из layout"""
-            if warning_frame.parent():
-                parent_layout = warning_frame.parent().layout()
-                if parent_layout:
-                    parent_layout.removeWidget(warning_frame)
-                
-                # Находим главное окно и обновляем размеры
-                parent_widget = warning_frame.parent()
-                while parent_widget:
-                    if hasattr(parent_widget, 'adjustSize'):
-                        parent_widget.adjustSize()
-                        break
-                    parent_widget = parent_widget.parent()
-            
-            warning_frame.deleteLater()
-        
-        dismiss_btn.clicked.connect(close_warning)
-        layout.addWidget(dismiss_btn)
-        
-        return warning_frame
