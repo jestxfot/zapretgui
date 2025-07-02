@@ -1,11 +1,19 @@
 # dns_force.py
-
+"""
+Менеджер принудительной установки DNS.
+Теперь тянет DNSManager из dns_core, так что никаких колец.
+"""
+from __future__ import annotations
 import subprocess
 import winreg
-from typing import List, Tuple, Optional, Dict
-from log import log
 import re
+import time
+from typing import List, Tuple, Optional
 
+from log import log
+from dns_core import DNSManager, DEFAULT_EXCLUSIONS               # ← главное изменение!
+
+# PyQt сигналы нужны только если вы запускаете из GUI потока
 from PyQt6.QtCore import QThread, pyqtSignal
 
 # Добавьте эту константу после импортов
@@ -28,49 +36,6 @@ class DNSForceManager:
     DNS_PRIMARY_V6 = "2620:fe::fe"
     DNS_SECONDARY_V6 = "2620:fe::9"
 
-    # Список исключений - ТОЛЬКО из кода, реестр не используется
-    DEFAULT_EXCLUSIONS = [
-        # Виртуальные адаптеры
-        "vmware",
-        "outline-tap0",
-        "outline-tap1", 
-        "outline-tap2",
-        "outline-tap3",
-        "outline-tap4",
-        "outline-tap5",
-        "outline-tap6", 
-        "outline-tap7",
-        "outline-tap8",
-        "outline-tap9",
-        "openvpn",
-        "virtualbox",
-        "hyper-v",
-        "vmnet",
-        
-        # VPN адаптеры
-        "radmin vpn",
-        "hamachi",
-        "openvpn",
-        "nordvpn",
-        "expressvpn",
-        "surfshark",
-        "pritunl",
-        "zerotier",
-        "tailscale",
-        
-        # Системные/служебные
-        "loopback",
-        "teredo",
-        "isatap",
-        "6to4",
-        "сетевые подключения bluetooth",
-        
-        # Другие виртуальные
-        "docker",
-        "wsl",
-        "vethernet"
-    ]
-
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
         self._adapter_cache = None
@@ -83,7 +48,7 @@ class DNSForceManager:
         """Проверяет доступность IPv6 подключения"""
         try:
             result = subprocess.run(
-                ['ping', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
+                ['C:\\Windows\\System32\\ping.exe', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
                 capture_output=True, 
                 text=True, 
                 timeout=2,
@@ -101,7 +66,7 @@ class DNSForceManager:
         Возвращает список подстрок-фильтров только из DEFAULT_EXCLUSIONS.
         Реестр больше не используется.
         """
-        return [x.lower() for x in self.DEFAULT_EXCLUSIONS]
+        return [x.lower() for x in DEFAULT_EXCLUSIONS]
     
     def is_adapter_excluded(self, adapter_name: str) -> bool:
         """Проверяет, находится ли адаптер в списке исключений"""
@@ -147,76 +112,40 @@ class DNSForceManager:
             log(f"ForceDNS установлен в {enabled}", "DNS")
         except Exception as e:
             log(f"Ошибка записи настройки ForceDNS: {e}", "❌ ERROR")
-    
-    def get_network_adapters(self, include_disconnected: bool = False, apply_exclusions: bool = True, use_cache: bool = True) -> List[str]:
+
+    # ------------------------------------------------------------------ #
+    #  Новый вариант: используем DNSManager.get_network_adapters_fast
+    # ------------------------------------------------------------------ #
+    def get_network_adapters(
+        self,
+        include_disconnected: bool = False,
+        apply_exclusions: bool = True,
+        use_cache: bool = True
+    ) -> List[str]:
         """
-        Возвращает список сетевых интерфейсов.
-        
-        Args:
-            include_disconnected: Если True, включает также отключенные адаптеры
-            apply_exclusions: Если True, применяет список исключений
-        
-        Returns:
-            List[str]: Список имен адаптеров
+        Возвращает список интерфейсов, используя универсальный метод из dns.py.
+        Дополнительно применяет собственный список исключений (по желанию).
         """
-        # Используем кеш, если он свежий (менее 6000 секунд)
         import time
         if use_cache and self._adapter_cache and (time.time() - self._cache_timestamp < 6000):
             return self._adapter_cache
-        
+
+        # Берём (name, description) через DNSManager
+        pairs: list[tuple[str, str]] = DNSManager.get_network_adapters_fast(
+            include_ignored=False,                # не включаем системные/виртуальные
+            include_disconnected=include_disconnected
+        )
+
         adapters: list[str] = []
-
-        try:
-            res = subprocess.run(
-                ['netsh', 'interface', 'show', 'interface'],
-                capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW
-            )
-            if res.returncode != 0:
-                log(f"netsh error: {res.stderr}", "❌ ERROR")
-                return adapters
-
-            for line in res.stdout.splitlines()[3:]:
-                line = line.rstrip()
-                if not line:
-                    continue
-
-                parts = re.split(r'\s{2,}', line)
-                if len(parts) < 4:
-                    continue
-
-                admin_state, conn_state, _type, iface_name = parts[:4]
-
-                # Проверяем административное состояние
-                admin_state = admin_state.lower()
-                if admin_state not in ('enabled', 'разрешен'):
-                    log(f"Пропускаем отключенный администратором интерфейс: {iface_name}", "DEBUG")
-                    continue
-
-                # Проверяем состояние подключения
-                conn_state = conn_state.lower()
-                
-                # Если include_disconnected=False, пропускаем отключенные
-                if not include_disconnected and conn_state not in ('connected', 'подключен'):
-                    log(f"Пропускаем отключенный интерфейс: {iface_name} (состояние: {conn_state})", "DEBUG")
-                    continue
-
-                # Применяем список исключений
-                if apply_exclusions and self.is_adapter_excluded(iface_name):
-                    log(f"Пропускаем исключенный интерфейс: {iface_name}", "DNS")
-                    continue
-
-                adapters.append(iface_name)
-                
-                # Логируем с указанием состояния
-                status = "активный" if conn_state in ('connected', 'подключен') else "отключенный"
-                log(f"Найден {status} интерфейс: {iface_name}", "DNS")
-
-        except Exception as e:
-            log(f"get_network_adapters error: {e}", "❌ ERROR")
+        for name, desc in pairs:
+            if apply_exclusions and self.is_adapter_excluded(name):
+                log(f"Пропускаем исключенный интерфейс: {name}", "DNS")
+                continue
+            adapters.append(name)
+            log(f"Найден интерфейс: {name}", "DNS")
 
         self._adapter_cache = adapters
         self._cache_timestamp = time.time()
-
         return adapters
 
     def set_dns_for_adapter(self, adapter_name: str, primary_dns: str, secondary_dns: Optional[str] = None, ip_version: str = 'ipv4') -> bool:

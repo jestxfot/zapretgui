@@ -54,7 +54,9 @@ class AppMenuBar(QMenuBar):
         self.force_dns_act.toggled.connect(self.toggle_force_dns)
         file_menu.addAction(self.force_dns_act)
 
-        # Чек-бокс «Удалять Windows Terminal»
+        self.clear_cache = file_menu.addAction("Сбросить программу")
+        self.clear_cache.triggered.connect(self.clear_startup_cache)
+
         self.remove_wt_act = QAction("Удалять Windows Terminal", self, checkable=True)
         self.remove_wt_act.setChecked(get_remove_windows_terminal())
         self.remove_wt_act.toggled.connect(self.toggle_remove_windows_terminal)
@@ -115,10 +117,6 @@ class AppMenuBar(QMenuBar):
 
         act_help = QAction("Что это такое? (Руководство)", self)
         act_help.triggered.connect(self.open_info)
-
-        # Добавляем пункт очистки кэша в меню "Справка"
-        clear_cache_action = help_menu.addAction("Очистить кэш проверок")
-        clear_cache_action.triggered.connect(self.clear_startup_cache)
 
         help_menu.addAction(act_help)
 
@@ -331,8 +329,8 @@ class AppMenuBar(QMenuBar):
         from log import log
         try:
             startup_cache.invalidate_cache()
-            QMessageBox.information(self._pw, "Кэш очищен", 
-                                  "Кэш проверок запуска успешно очищен.\n"
+            QMessageBox.information(self._pw, "Настройки программы сброшены", 
+                                  "Кэш проверок запуска и настройки программы успешно очищены.\n"
                                   "При следующем запуске все проверки будут выполнены заново.")
             log("Кэш проверок запуска очищен пользователем", "INFO")
         except Exception as e:

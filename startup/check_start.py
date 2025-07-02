@@ -479,12 +479,12 @@ def check_win10_tweaker() -> tuple[bool, str]:
             return False, ""
             
     except Exception as e:
-        # При любой другой ошибке считаем, что твикера нет
+        # При любой другой ошибке считаем, что твикера нет (это нормально)
         try:
             from log import log
-            log(f"Ошибка при проверке Win 10 Tweaker: {e}", level="DEBUG")
+            log(f"Проверка Win 10 Tweaker: {e}", level="DEBUG")
         except ImportError:
-            print(f"DEBUG: Ошибка при проверке Win 10 Tweaker: {e}")
+            print(f"DEBUG: Проверка Win 10 Tweaker: {e}")
         
         # При неизвестной ошибке не кэшируем
         return False, ""

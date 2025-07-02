@@ -14,7 +14,6 @@ def _check_kaspersky_antivirus(self):
     Returns:
         bool: True если Касперский обнаружен, False если нет
     """
-    return True # Заглушка для тестирования
     try:
         import subprocess
         import os
