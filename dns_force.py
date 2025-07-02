@@ -19,27 +19,26 @@ class DNSForceManager:
     
     REGISTRY_PATH = r"Software\Zapret"
     FORCE_DNS_KEY = "ForceDNS"
-    EXCLUDED_ADAPTERS_KEY = "ExcludedAdapters"
     
     # DNS серверы для IPv4
     DNS_PRIMARY = "9.9.9.9"
-    DNS_SECONDARY = "149.112.112.112"  # Запасной DNS от Quad9
+    DNS_SECONDARY = "149.112.112.112"
     
     # DNS серверы для IPv6
     DNS_PRIMARY_V6 = "2620:fe::fe"
-    DNS_SECONDARY_V6 = "2620:fe::9"  # Запасной DNS от Quad9 для IPv6
+    DNS_SECONDARY_V6 = "2620:fe::9"
 
-    # Список исключений по умолчанию
+    # Список исключений - ТОЛЬКО из кода, реестр не используется
     DEFAULT_EXCLUSIONS = [
         # Виртуальные адаптеры
         "vmware",
         "outline-tap0",
-        "outline-tap1",
+        "outline-tap1", 
         "outline-tap2",
         "outline-tap3",
         "outline-tap4",
         "outline-tap5",
-        "outline-tap6",
+        "outline-tap6", 
         "outline-tap7",
         "outline-tap8",
         "outline-tap9",
@@ -64,7 +63,7 @@ class DNSForceManager:
         "teredo",
         "isatap",
         "6to4",
-        "Сетевые подключения Bluetooth",
+        "сетевые подключения bluetooth",
         
         # Другие виртуальные
         "docker",
@@ -76,94 +75,43 @@ class DNSForceManager:
         self.status_callback = status_callback
         self._adapter_cache = None
         self._cache_timestamp = 0
-        self._ensure_default_exclusions()
+        # Проверяем IPv6 при инициализации
+        self.ipv6_available = self.check_ipv6_connectivity()
 
-    def _ensure_default_exclusions(self):
-        """Создает список исключений по умолчанию, если его нет"""
+    @staticmethod
+    def check_ipv6_connectivity():
+        """Проверяет доступность IPv6 подключения"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
-                winreg.QueryValueEx(key, self.EXCLUDED_ADAPTERS_KEY)
-        except FileNotFoundError:
-            # Ключ не существует, создаем с настройками по умолчанию
-            self.set_excluded_adapters(self.DEFAULT_EXCLUSIONS)
-        except Exception:
-            pass
+            result = subprocess.run(
+                ['ping', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
+                capture_output=True, 
+                text=True, 
+                timeout=2,
+                creationflags=CREATE_NO_WINDOW
+            )
+            is_available = (result.returncode == 0)
+            log(f"DEBUG: IPv6 connectivity check: {'available' if is_available else 'unavailable'}", "DEBUG")
+            return is_available
+        except:
+            log("DEBUG: IPv6 connectivity check failed", "DEBUG")
+            return False
 
     def get_excluded_adapters(self) -> list[str]:
         """
-        Возвращает список подстрок-фильтров.
-        • Сначала DEFAULT_EXCLUSIONS
-        • Затем + то, что в реестре HKCU\Software\Zapret\ExcludedAdapters
-          (через «;» либо переносы строк)
+        Возвращает список подстрок-фильтров только из DEFAULT_EXCLUSIONS.
+        Реестр больше не используется.
         """
-        exclusions: set[str] = set(x.lower() for x in self.DEFAULT_EXCLUSIONS)
-
-        try:
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                fr"{self.REGISTRY_PATH}",
-                0, winreg.KEY_READ
-            ) as key:
-                raw, _ = winreg.QueryValueEx(key, self.EXCLUDED_ADAPTERS_KEY)
-                # «outline;myvpn;test» или с переводами строк
-                extra = [part.strip().lower() for part in raw.replace('\n', ';').split(';')]
-                exclusions.update(filter(None, extra))
-        except FileNotFoundError:
-            # ключ или параметр отсутствуют – просто используем дефолт
-            pass
-        except Exception as e:
-            log(f"DNSForce: не удалось прочитать список исключений: {e}", "DEBUG")
-
-        final = sorted(exclusions)
-        return final
-
-    def set_excluded_adapters(self, exclusions: List[str]):
-        """Сохраняет список исключенных адаптеров в реестр"""
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
-                import json
-                value = json.dumps([e.lower() for e in exclusions], ensure_ascii=False)
-                winreg.SetValueEx(key, self.EXCLUDED_ADAPTERS_KEY, 0, winreg.REG_SZ, value)
-            log(f"Список исключений обновлен: {len(exclusions)} записей", "DNS")
-        except Exception as e:
-            log(f"Ошибка сохранения списка исключений: {e}", "❌ ERROR")
-
-    def add_adapter_to_exclusions(self, adapter_name: str):
-        """Добавляет адаптер в список исключений"""
-        exclusions = self.get_excluded_adapters()
-        adapter_lower = adapter_name.lower()
-        
-        if adapter_lower not in exclusions:
-            exclusions.append(adapter_lower)
-            self.set_excluded_adapters(exclusions)
-            log(f"Адаптер '{adapter_name}' добавлен в исключения", "DNS")
-            return True
-        return False
-
-    def remove_adapter_from_exclusions(self, adapter_name: str):
-        """Удаляет адаптер из списка исключений"""
-        exclusions = self.get_excluded_adapters()
-        adapter_lower = adapter_name.lower()
-        
-        if adapter_lower in exclusions:
-            exclusions.remove(adapter_lower)
-            self.set_excluded_adapters(exclusions)
-            log(f"Адаптер '{adapter_name}' удален из исключений", "DNS")
-            return True
-        return False
+        return [x.lower() for x in self.DEFAULT_EXCLUSIONS]
     
     def is_adapter_excluded(self, adapter_name: str) -> bool:
         """Проверяет, находится ли адаптер в списке исключений"""
         exclusions = self.get_excluded_adapters()
         adapter_lower = adapter_name.lower()
         
-        # Проверяем точное совпадение
-        if adapter_lower in exclusions:
-            return True
-        
-        # Проверяем частичное совпадение (для паттернов типа "vmware", "vpn")
+        # Проверяем частичное совпадение
         for exclusion in exclusions:
             if exclusion in adapter_lower:
+                log(f"Адаптер '{adapter_name}' исключен по паттерну '{exclusion}'", "DEBUG")
                 return True
         
         return False
@@ -184,23 +132,13 @@ class DNSForceManager:
                 value, _ = winreg.QueryValueEx(key, self.FORCE_DNS_KEY)
                 return bool(value)
         except FileNotFoundError:
-            return True          # ← Новое поведение: «включено» по умолчанию
+            return True
         except OSError:
             return True
         except Exception as e:
             log(f"Ошибка чтения ForceDNS: {e}", "❌ ERROR")
             return True
     
-    def ensure_default_force_dns():
-        """Создаёт ключ ForceDNS=1, если он отсутствует."""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DNSForceManager.REGISTRY_PATH):
-                pass       # ключ уже есть
-        except FileNotFoundError:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DNSForceManager.REGISTRY_PATH) as key:
-                winreg.SetValueEx(key, DNSForceManager.FORCE_DNS_KEY, 0,
-                                winreg.REG_DWORD, 1)
-            
     def set_force_dns_enabled(self, enabled: bool):
         """Устанавливает значение опции принудительного DNS в реестре"""
         try:
@@ -237,12 +175,11 @@ class DNSForceManager:
                 log(f"netsh error: {res.stderr}", "❌ ERROR")
                 return adapters
 
-            for line in res.stdout.splitlines()[3:]:          # пропускаем шапку
+            for line in res.stdout.splitlines()[3:]:
                 line = line.rstrip()
                 if not line:
                     continue
 
-                # режем по «≥2 пробела»
                 parts = re.split(r'\s{2,}', line)
                 if len(parts) < 4:
                     continue
@@ -282,6 +219,148 @@ class DNSForceManager:
 
         return adapters
 
+    def set_dns_for_adapter(self, adapter_name: str, primary_dns: str, secondary_dns: Optional[str] = None, ip_version: str = 'ipv4') -> bool:
+        """Упрощенная установка DNS серверов для конкретного адаптера"""
+        try:
+            interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
+            
+            # Простая команда установки DNS
+            cmd = f'netsh interface {interface_type} set dnsservers "{adapter_name}" static {primary_dns} primary'
+            log(f"DEBUG: Устанавливаем {ip_version} DNS: {cmd}", "DEBUG")
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+            
+            if result.returncode != 0:
+                log(f"Ошибка установки первичного {ip_version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
+                return False
+            
+            # Устанавливаем вторичный DNS, если указан
+            if secondary_dns:
+                cmd2 = f'netsh interface {interface_type} add dnsservers "{adapter_name}" {secondary_dns} index=2'
+                log(f"DEBUG: Добавляем вторичный {ip_version} DNS: {cmd2}", "DEBUG")
+                
+                result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                if result2.returncode != 0:
+                    log(f"Предупреждение: не удалось добавить вторичный {ip_version} DNS: {result2.stderr}", "⚠ WARNING")
+            
+            log(f"{ip_version.upper()} DNS успешно установлен для {adapter_name}: {primary_dns}", "DNS")
+            return True
+            
+        except Exception as e:
+            log(f"Ошибка при установке {ip_version} DNS для {adapter_name}: {e}", "❌ ERROR")
+            return False
+    
+    def get_dns_for_adapter(self, adapter_name: str, ip_version: str = 'ipv4') -> List[str]:
+        """Получает текущие DNS серверы для адаптера (поддерживает IPv4 и IPv6)"""
+        dns_servers = []
+        try:
+            interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
+            
+            cmd = f'netsh interface {interface_type} show dnsservers "{adapter_name}"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=5)
+            
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and any(char.isdigit() for char in line):
+                        # Извлекаем IP адрес
+                        parts = line.split()
+                        for part in parts:
+                            if ip_version == 'ipv4' and '.' in part and all(c.isdigit() or c == '.' for c in part):
+                                dns_servers.append(part)
+                            elif ip_version == 'ipv6' and ':' in part:
+                                dns_servers.append(part)
+            
+            return dns_servers
+            
+        except Exception as e:
+            log(f"Ошибка при получении {ip_version} DNS для {adapter_name}: {e}", "❌ ERROR")
+            return dns_servers
+
+    def reset_dns_to_auto(self, adapter_name: str, ip_version: Optional[str] = None) -> bool:
+        """Сбрасывает DNS адаптера на автоматическое получение"""
+        try:
+            if ip_version:
+                # Сброс для конкретной версии IP
+                interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
+                cmd = f'netsh interface {interface_type} set dnsservers "{adapter_name}" dhcp'
+                
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                if result.returncode == 0:
+                    log(f"{ip_version.upper()} DNS для {adapter_name} сброшен на автоматический", "DNS")
+                    return True
+                else:
+                    log(f"Ошибка сброса {ip_version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
+                    return False
+            else:
+                # Сброс для обеих версий IP
+                success = True
+                for version in ['ipv4', 'ipv6']:
+                    cmd = f'netsh interface {version} set dnsservers "{adapter_name}" dhcp'
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                    if result.returncode != 0:
+                        log(f"Ошибка сброса {version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
+                        success = False
+                
+                if success:
+                    log(f"DNS для {adapter_name} сброшен на автоматический (IPv4 и IPv6)", "DNS")
+                return success
+                
+        except Exception as e:
+            log(f"Ошибка при сбросе DNS для {adapter_name}: {e}", "❌ ERROR")
+            return False
+    
+    def force_dns_on_all_adapters(self, include_disconnected: bool = True, enable_ipv6: bool = True) -> Tuple[int, int]:
+        """Принудительно устанавливает DNS на всех подходящих адаптерах с проверкой IPv6"""
+        if not self.is_force_dns_enabled():
+            log("Принудительная установка DNS отключена в настройках", "DNS")
+            return (0, 0)
+        
+        self._set_status("Получение списка сетевых адаптеров...")
+        adapters = self.get_network_adapters(include_disconnected=include_disconnected)
+        
+        log(f"DEBUG: Найдено адаптеров для принудительного DNS: {adapters}", "DEBUG")
+        
+        if not adapters:
+            self._set_status("Не найдено сетевых адаптеров")
+            return (0, 0)
+        
+        # Проверяем IPv6 если нужно устанавливать IPv6 DNS
+        if enable_ipv6 and not self.ipv6_available:
+            log("DEBUG: IPv6 DNS пропущены - IPv6 подключение недоступно", "DEBUG")
+            enable_ipv6 = False
+        
+        success_count = 0
+        
+        for adapter in adapters:
+            log(f"DEBUG: Принудительная установка DNS для '{adapter}'", "DEBUG")
+            self._set_status(f"Установка DNS для {adapter}...")
+            
+            # Устанавливаем IPv4 DNS
+            ipv4_success = self.set_dns_for_adapter(adapter, self.DNS_PRIMARY, self.DNS_SECONDARY, 'ipv4')
+            log(f"DEBUG: Результат установки IPv4 для {adapter}: {ipv4_success}", "DEBUG")
+            
+            # Устанавливаем IPv6 DNS, если включено и доступно
+            ipv6_success = True
+            if enable_ipv6:
+                ipv6_success = self.set_dns_for_adapter(adapter, self.DNS_PRIMARY_V6, self.DNS_SECONDARY_V6, 'ipv6')
+                log(f"DEBUG: Результат установки IPv6 для {adapter}: {ipv6_success}", "DEBUG")
+            else:
+                log(f"DEBUG: IPv6 DNS пропущены для {adapter} (IPv6 недоступен)", "DEBUG")
+            
+            if ipv4_success and ipv6_success:
+                success_count += 1
+            else:
+                log(f"Не удалось полностью установить DNS для {adapter}", "⚠ WARNING")
+        
+        status_msg = f"DNS установлен на {success_count} из {len(adapters)} адаптеров"
+        if not self.ipv6_available:
+            status_msg += " (IPv6 пропущен)"
+        
+        self._set_status(status_msg)
+        return (success_count, len(adapters))
+
     def get_all_adapters_with_status(self) -> List[dict]:
         """Возвращает все адаптеры с их статусом и информацией об исключениях"""
         all_adapters = []
@@ -312,7 +391,7 @@ class DNSForceManager:
                     'type': _type,
                     'excluded': self.is_adapter_excluded(iface_name),
                     'current_dns_v4': self.get_dns_for_adapter(iface_name, 'ipv4'),
-                    'current_dns_v6': self.get_dns_for_adapter(iface_name, 'ipv6')
+                    'current_dns_v6': self.get_dns_for_adapter(iface_name, 'ipv6') if self.ipv6_available else []
                 }
                 
                 all_adapters.append(adapter_info)
@@ -321,181 +400,6 @@ class DNSForceManager:
             log(f"Ошибка получения списка адаптеров: {e}", "❌ ERROR")
         
         return all_adapters
-        
-    def set_dns_for_adapter(self, adapter_name: str, primary_dns: str, secondary_dns: Optional[str] = None, ip_version: str = 'ipv4') -> bool:
-        """Устанавливает DNS серверы для конкретного адаптера (поддерживает IPv4 и IPv6)"""
-        try:
-            # Определяем команду в зависимости от версии IP
-            interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
-            
-            # Вариант 1: Использовать name= без дополнительных кавычек
-            cmd_primary = [
-                'netsh', 'interface', interface_type, 'set', 'dnsservers',
-                f'name={adapter_name}',  # БЕЗ дополнительных кавычек!
-                'static', primary_dns, 'primary'
-            ]
-            
-            result = subprocess.run(cmd_primary, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-            
-            if result.returncode != 0:
-                # Вариант 2: Если не сработало, пробуем с экранированием
-                log(f"Первая попытка не удалась для {ip_version}, пробуем альтернативный метод", "DNS")
-                
-                # Используем shell=True для корректной обработки пробелов
-                cmd_str = f'netsh interface {interface_type} set dnsservers "{adapter_name}" static {primary_dns} primary'
-                result = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-                
-                if result.returncode != 0:
-                    log(f"Ошибка установки первичного {ip_version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
-                    return False
-            
-            # Устанавливаем вторичный DNS, если указан
-            if secondary_dns:
-                cmd_secondary = [
-                    'netsh', 'interface', interface_type, 'add', 'dnsservers',
-                    f'name={adapter_name}',  # Также без дополнительных кавычек
-                    secondary_dns, 'index=2'
-                ]
-                
-                result = subprocess.run(cmd_secondary, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-                if result.returncode != 0:
-                    # Альтернативный метод для вторичного DNS
-                    cmd_str = f'netsh interface {interface_type} add dnsservers "{adapter_name}" {secondary_dns} index=2'
-                    result = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-                    
-                    if result.returncode != 0:
-                        log(f"Ошибка установки вторичного {ip_version} DNS для {adapter_name}: {result.stderr}", "⚠ WARNING")
-            
-            log(f"{ip_version.upper()} DNS успешно установлен для {adapter_name}: {primary_dns}", "DNS")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка при установке {ip_version} DNS для {adapter_name}: {e}", "❌ ERROR")
-            return False
-    
-    def get_dns_for_adapter(self, adapter_name: str, ip_version: str = 'ipv4') -> List[str]:
-        """Получает текущие DNS серверы для адаптера (поддерживает IPv4 и IPv6)"""
-        dns_servers = []
-        try:
-            interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
-            
-            # Используем shell=True для корректной обработки пробелов
-            cmd = f'netsh interface {interface_type} show dnsservers "{adapter_name}"'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-            
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if line and any(char.isdigit() for char in line):
-                        # Извлекаем IP адрес
-                        parts = line.split()
-                        for part in parts:
-                            if ip_version == 'ipv4' and '.' in part and all(c.isdigit() or c == '.' for c in part):
-                                dns_servers.append(part)
-                            elif ip_version == 'ipv6' and ':' in part:
-                                # Для IPv6 адресов
-                                dns_servers.append(part)
-            
-            return dns_servers
-            
-        except Exception as e:
-            log(f"Ошибка при получении {ip_version} DNS для {adapter_name}: {e}", "❌ ERROR")
-            return dns_servers
-
-    def reset_dns_to_auto(self, adapter_name: str, ip_version: Optional[str] = None) -> bool:
-        """
-        Сбрасывает DNS адаптера на автоматическое получение.
-        Если ip_version не указан, сбрасывает и IPv4, и IPv6
-        """
-        try:
-            if ip_version:
-                # Сброс для конкретной версии IP
-                interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
-                cmd = f'netsh interface {interface_type} set dnsservers "{adapter_name}" dhcp'
-                
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-                if result.returncode == 0:
-                    log(f"{ip_version.upper()} DNS для {adapter_name} сброшен на автоматический", "DNS")
-                    return True
-                else:
-                    log(f"Ошибка сброса {ip_version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
-                    return False
-            else:
-                # Сброс для обеих версий IP
-                success = True
-                for version in ['ipv4', 'ipv6']:
-                    cmd = f'netsh interface {version} set dnsservers "{adapter_name}" dhcp'
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
-                    if result.returncode != 0:
-                        log(f"Ошибка сброса {version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
-                        success = False
-                
-                if success:
-                    log(f"DNS для {adapter_name} сброшен на автоматический (IPv4 и IPv6)", "DNS")
-                return success
-                
-        except Exception as e:
-            log(f"Ошибка при сбросе DNS для {adapter_name}: {e}", "❌ ERROR")
-            return False
-    
-    def force_dns_on_all_adapters(self, include_disconnected: bool = True, enable_ipv6: bool = True) -> Tuple[int, int]:
-        """
-        Принудительно устанавливает DNS на всех подходящих адаптерах.
-        Поддерживает установку как IPv4, так и IPv6 DNS.
-        
-        Args:
-            include_disconnected: Если True, устанавливает DNS также на отключенных адаптерах
-            enable_ipv6: Если True, также устанавливает IPv6 DNS серверы
-            
-        Returns:
-            Tuple[int, int]: (успешно_изменено, всего_адаптеров)
-        """
-        if not self.is_force_dns_enabled():
-            log("Принудительная установка DNS отключена в настройках", "DNS")
-            return (0, 0)
-        
-        self._set_status("Получение списка сетевых адаптеров...")
-        adapters = self.get_network_adapters(include_disconnected=include_disconnected)
-        
-        if not adapters:
-            self._set_status("Не найдено сетевых адаптеров")
-            return (0, 0)
-        
-        success_count = 0
-        
-        for adapter in adapters:
-            self._set_status(f"Установка DNS для {adapter}...")
-            
-            # Проверяем текущие DNS
-            current_dns_v4 = self.get_dns_for_adapter(adapter, 'ipv4')
-            log(f"Текущие IPv4 DNS для {adapter}: {current_dns_v4}", "DNS")
-            
-            # Устанавливаем IPv4 DNS
-            ipv4_success = self.set_dns_for_adapter(adapter, self.DNS_PRIMARY, self.DNS_SECONDARY, 'ipv4')
-            
-            # Устанавливаем IPv6 DNS, если включено
-            ipv6_success = True
-            if enable_ipv6:
-                current_dns_v6 = self.get_dns_for_adapter(adapter, 'ipv6')
-                log(f"Текущие IPv6 DNS для {adapter}: {current_dns_v6}", "DNS")
-                ipv6_success = self.set_dns_for_adapter(adapter, self.DNS_PRIMARY_V6, self.DNS_SECONDARY_V6, 'ipv6')
-            
-            if ipv4_success and ipv6_success:
-                success_count += 1
-                
-                # Проверяем, что DNS действительно изменился
-                new_dns_v4 = self.get_dns_for_adapter(adapter, 'ipv4')
-                log(f"Новые IPv4 DNS для {adapter}: {new_dns_v4}", "DNS")
-                
-                if enable_ipv6:
-                    new_dns_v6 = self.get_dns_for_adapter(adapter, 'ipv6')
-                    log(f"Новые IPv6 DNS для {adapter}: {new_dns_v6}", "DNS")
-            else:
-                log(f"Не удалось полностью установить DNS для {adapter}", "⚠ WARNING")
-        
-        self._set_status(f"DNS установлен на {success_count} из {len(adapters)} адаптеров")
-        return (success_count, len(adapters))
 
     def get_adapter_info(self, adapter_name: str) -> dict:
         """Получает подробную информацию об адаптере включая IPv6"""
@@ -532,7 +436,10 @@ class DNSForceManager:
             
             # Получаем текущие DNS для IPv4 и IPv6
             info['dns_v4'] = self.get_dns_for_adapter(adapter_name, 'ipv4')
-            info['dns_v6'] = self.get_dns_for_adapter(adapter_name, 'ipv6')
+            if self.ipv6_available:
+                info['dns_v6'] = self.get_dns_for_adapter(adapter_name, 'ipv6')
+            else:
+                info['dns_v6'] = []
             
         except Exception as e:
             log(f"Ошибка получения информации об адаптере {adapter_name}: {e}", "❌ ERROR")
@@ -546,7 +453,7 @@ class DNSForceManager:
         
         for adapter in adapters:
             dns_servers_v4 = self.get_dns_for_adapter(adapter, 'ipv4')
-            dns_servers_v6 = self.get_dns_for_adapter(adapter, 'ipv6')
+            dns_servers_v6 = self.get_dns_for_adapter(adapter, 'ipv6') if self.ipv6_available else []
             
             if dns_servers_v4 or dns_servers_v6:
                 backup[adapter] = {
@@ -589,7 +496,8 @@ class DNSForceManager:
                                                        ipv4_servers[1] if len(ipv4_servers) > 1 else None, 'ipv4'):
                             success = False
                     
-                    if ipv6_servers:
+                    # Восстанавливаем IPv6 только если доступен
+                    if ipv6_servers and self.ipv6_available:
                         if not self.set_dns_for_adapter(adapter, ipv6_servers[0], 
                                                        ipv6_servers[1] if len(ipv6_servers) > 1 else None, 'ipv6'):
                             success = False
@@ -612,11 +520,12 @@ def apply_force_dns_if_enabled(status_callback=None, enable_ipv6=True):
     
     Args:
         status_callback: Функция обратного вызова для обновления статуса
-        enable_ipv6: Если True, также устанавливает IPv6 DNS
+        enable_ipv6: Если True, также устанавливает IPv6 DNS (если доступен)
     """
     manager = DNSForceManager(status_callback)
     if manager.is_force_dns_enabled():
         log("Применяем принудительные DNS настройки...", "DNS")
+        # IPv6 будет автоматически пропущен если недоступен
         success, total = manager.force_dns_on_all_adapters(enable_ipv6=enable_ipv6)
         log(f"Принудительный DNS применен: {success}/{total} адаптеров", "DNS")
         return success > 0

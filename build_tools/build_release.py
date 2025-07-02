@@ -81,7 +81,7 @@ def _taskkill(exe: str):
 
 def stop_running_zapret():
     """
-    Аккуратно гасит все Zapret.exe / winws.exe:
+    Аккуратно гасит все Zapret.exe:
       • terminate()  – мягко
       • wait 3 с
       • kill()       – если ещё живы

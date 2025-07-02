@@ -5,7 +5,7 @@ import os, subprocess, sys
 WIN_OEM = "cp866"
 DEFAULT  = "utf-8"
 
-def run(cmd: list[str] | str,
+def run_app(cmd: list[str] | str,
         timeout: int = 15,
         **kw):
     """

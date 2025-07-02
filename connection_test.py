@@ -261,15 +261,15 @@ class ConnectionTestWorker(QObject):
             self.log_message(f"Тест реального endpoint: {domain}{path}")
             
             command = [
-                "curl", "-I",
+                "C:\\Windows\\System32\\curl.exe", "-I",
                 "--connect-timeout", "5",
                 "--max-time", "10", 
                 "--silent", "--show-error",
                 url
             ]
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
-            
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 status_line = lines[0] if lines else ""
@@ -373,9 +373,9 @@ class ConnectionTestWorker(QObject):
         try:
             # Проверяем процесс winws.exe
             command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
-            
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
             if "winws.exe" in result.stdout:
                 self.log_message("✅ Процесс winws.exe запущен")
                 
@@ -513,10 +513,10 @@ class ConnectionTestWorker(QObject):
             command = [
                 "schtasks", "/query", "/tn", "ZapretAutoStart", "/fo", "csv"
             ]
-            
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
-            
+
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
             if result.returncode == 0 and "ZapretAutoStart" in result.stdout:
                 self.log_message("   Системный автозапуск: ✅ Активен (планировщик задач)")
             else:
@@ -576,7 +576,7 @@ class ConnectionTestWorker(QObject):
             
             # 2. Затем делаем полноценный HTTPS запрос
             command = [
-                "curl", 
+                "C:\\Windows\\System32\\curl.exe",
                 "-I",  # Только заголовки
                 "--connect-timeout", "3",  # Уменьшаем таймауты
                 "--max-time", "8", 
@@ -587,10 +587,10 @@ class ConnectionTestWorker(QObject):
             
             if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
                 subprocess.CREATE_NO_WINDOW = 0x08000000
-            
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
-            
+
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
             if self.is_stop_requested():
                 return
             
@@ -697,16 +697,16 @@ class ConnectionTestWorker(QObject):
             self.check_port_80(domain)
             
             command = [
-                "curl", "-I", 
+                "C:\\Windows\\System32\\curl.exe", "-I",
                 "--connect-timeout", "5",
                 "--max-time", "10",
                 "--silent", "--show-error",
                 f"http://{domain}/"
             ]
-            
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=10)     # ← заменили subprocess.run
-            
+
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 status_line = lines[0] if lines else ""
@@ -781,17 +781,17 @@ class ConnectionTestWorker(QObject):
         for version_name, tls_flag in tls_versions:
             try:
                 command = [
-                    "curl", "-I", "-k",  # -k игнорирует SSL ошибки
+                    "C:\\Windows\\System32\\curl.exe", "-I", "-k",  # -k игнорирует SSL ошибки
                     "--connect-timeout", "3",
                     "--max-time", "8",
                     "--silent", "--show-error",
                     tls_flag,
                     f"https://{domain}/"
                 ]
-                
-                from utils.subproc import run   # импортируем наш обёрточный run
-                result  = run(command, timeout=10)     # ← заменили subprocess.run
-                
+
+                from utils.subproc import run_app   # импортируем наш обёрточный run
+                result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
                     status_line = lines[0] if lines else ""
@@ -810,16 +810,16 @@ class ConnectionTestWorker(QObject):
         """Проверка HTTPS с игнорированием SSL ошибок."""
         try:
             command = [
-                "curl", "-I", "-k",  # -k игнорирует SSL ошибки
+                "C:\\Windows\\System32\\curl.exe", "-I", "-k",  # -k игнорирует SSL ошибки
                 "--connect-timeout", "5", 
                 "--max-time", "10",
                 "--silent", "--show-error",
                 f"https://{domain}/"
             ]
-            
-            from utils.subproc import run   # импортируем наш обёрточный run
-            result  = run(command, timeout=15)     # ← заменили subprocess.run
-            
+
+            from utils.subproc import run_app   # импортируем наш обёрточный run
+            result  = run_app(command, timeout=15)     # ← заменили subprocess.run
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 status_line = lines[0] if lines else ""
@@ -838,14 +838,24 @@ class ConnectionTestWorker(QObject):
     def is_curl_available(self):
         """Проверяет доступность curl в системе."""
         try:
-            # Кэшируем результат проверки
             if not hasattr(self, '_curl_available'):
                 if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
                     subprocess.CREATE_NO_WINDOW = 0x08000000
                     
                 command = ["curl", "--version"]
-                from utils.subproc import run   # импортируем наш обёрточный run
-                result  = run(command, timeout=5)     # ← заменили subprocess.run
+                
+                try:
+                    from utils.subproc import run_app
+                    result = run_app(command, timeout=5, capture_output=True)
+                except ImportError:
+                    # Fallback на прямой вызов subprocess если импорт не удался
+                    result = subprocess.run(
+                        command, 
+                        timeout=5, 
+                        capture_output=True,
+                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                    )
+                
                 self._curl_available = result.returncode == 0
                 
                 if self._curl_available:
@@ -854,7 +864,9 @@ class ConnectionTestWorker(QObject):
                 
             return self._curl_available
             
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            if hasattr(self, 'log_message'):
+                self.log_message(f"Ошибка проверки curl: {e}")
             self._curl_available = False
             return False
     
@@ -1064,6 +1076,13 @@ class ConnectionTestDialog(QDialog):
         def check_thread_stopped():
             self.stop_check_attempts += 1
             
+            # ✅ ДОБАВЛЯЕМ ПРОВЕРКУ НА None
+            if not self.worker_thread:
+                # Поток уже очищен
+                self.stop_check_timer.stop()
+                self.result_text.append("✅ Тест уже остановлен")
+                return
+            
             if not self.worker_thread.isRunning():
                 # Поток остановился
                 self.stop_check_timer.stop()
@@ -1074,10 +1093,13 @@ class ConnectionTestDialog(QDialog):
                 # Принудительная остановка
                 self.stop_check_timer.stop()
                 self.result_text.append("⚠️ Принудительная остановка теста...")
-                self.worker_thread.terminate()
-                
-                # Даем еще немного времени на terminate
-                QTimer.singleShot(1000, lambda: self._finalize_stop())
+                if self.worker_thread:  # ✅ Дополнительная проверка
+                    self.worker_thread.terminate()
+                    
+                    # Даем еще немного времени на terminate
+                    QTimer.singleShot(1000, lambda: self._finalize_stop())
+                else:
+                    self._finalize_stop()
         
         self.stop_check_timer.timeout.connect(check_thread_stopped)
         self.stop_check_timer.start(100)  # Проверяем каждые 100мс
@@ -1087,7 +1109,7 @@ class ConnectionTestDialog(QDialog):
         if self.worker_thread and self.worker_thread.isRunning():
             self.result_text.append("❌ Не удалось остановить тест")
         else:
-            self.result_text.append("✅ Тест остановлен принудительно")
+            self.result_text.append("✅ Тест остановлен")
         
         self.on_test_finished_async()
     
@@ -1167,6 +1189,11 @@ class ConnectionTestDialog(QDialog):
     
     def closeEvent(self, event):
         """Переопределяем событие закрытия окна с улучшенной обработкой."""
+        # ✅ Останавливаем таймер если он существует
+        if hasattr(self, 'stop_check_timer') and self.stop_check_timer:
+            self.stop_check_timer.stop()
+            self.stop_check_timer.deleteLater()
+        
         if self.is_testing:
             reply = QMessageBox.question(
                 self, 

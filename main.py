@@ -1994,6 +1994,7 @@ def main():
 
     # ---------------- Проверка single instance ----------------
     from startup.single_instance import create_mutex, release_mutex
+    from startup.kaspersky import _check_kaspersky_antivirus, show_kaspersky_warning
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
     if already_running:
         ctypes.windll.user32.MessageBoxW(None, 
@@ -2016,6 +2017,21 @@ def main():
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
         sys.exit(1)
+
+    # ---------- проверяем Касперского + показываем диалог -----------------
+    try:
+        kaspersky_detected = _check_kaspersky_antivirus(None)   # self не нужен
+    except Exception:
+        kaspersky_detected = False
+
+    if kaspersky_detected:
+        log("Обнаружен антивирус Kaspersky", "⚠️ KASPERSKY")
+        try:
+            from startup.kaspersky import show_kaspersky_warning
+            show_kaspersky_warning()          # QApplication уже создан
+        except Exception as e:
+            log(f"Не удалось показать предупреждение Kaspersky: {e}",
+                "⚠️ KASPERSKY")
 
     # ---------------- СОЗДАЁМ И ПОКАЗЫВАЕМ ОКНО СРАЗУ ----------------
     window = LupiDPIApp()

@@ -74,14 +74,19 @@ def _normalize_alias(alias: str) -> str:
 @lru_cache(maxsize=1)
 def _get_dynamic_exclusions() -> list[str]:
     """
-    Берёт список исключаемых адаптеров из DNSForceManager.
-    Если не удаётся – возвращает пустой список.
+    Возвращает список исключаемых адаптеров из DNSForceManager.
+    Теперь только из DEFAULT_EXCLUSIONS, без реестра.
     """
     try:
         mgr = DNSForceManager()
         return mgr.get_excluded_adapters()
     except Exception:
-        return []
+        # Fallback - возвращаем базовые исключения
+        return [
+            "vmware", "openvpn", "virtualbox", "hyper-v", "vmnet",
+            "radmin vpn", "hamachi", "loopback", "teredo", "isatap",
+            "docker", "wsl", "vethernet", "outline-tap"
+        ]
 
 def refresh_exclusion_cache() -> None:
     """
@@ -210,7 +215,7 @@ class DNSManager:
 
         adapter_list = "','".join(adapter_names)
 
-        ps_script = fr'''
+        ps_script = r'''
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
         $adapters = @('{adapter_list}')
@@ -246,14 +251,14 @@ class DNSManager:
                     Select -ExpandProperty ServerAddresses
             }}
 
-            if ($dnsv4) {{ $adapterInfo["ipv4"] = $dnsv4 }}
-            if ($dnsv6) {{ $adapterInfo["ipv6"] = $dnsv6 }}
+            if ($dnsv4) {{ $adapterInfo["ipv4"] = @($dnsv4 | ForEach-Object {{ $_.ToString() }}) }}
+            if ($dnsv6) {{ $adapterInfo["ipv6"] = @($dnsv6 | ForEach-Object {{ $_.ToString() }}) }}
 
             $result[$a] = $adapterInfo
         }}
 
         $result | ConvertTo-Json -Depth 3
-        '''
+        '''.format(adapter_list=adapter_list)
 
         try:
             run = subprocess.run(
@@ -368,39 +373,197 @@ class DNSManager:
         except Exception as e:
             log(f"Ошибка при получении DNS-серверов для '{adapter_name}': {str(e)}", "DNS")
             return []
-
     @staticmethod
     def set_custom_dns(adapter_name, primary_dns, secondary_dns=None, address_family="IPv4"):
-        """Устанавливает пользовательские DNS-серверы для указанного адаптера и семейства адресов"""
+        """Упрощенная установка DNS"""
+        
+        log(f"DEBUG: Начинаем установку {address_family} DNS для '{adapter_name}': {primary_dns}, {secondary_dns}", "DEBUG")
+        
+        if address_family == "IPv4":
+            # ========== IPv4: netsh (основной) + PowerShell (fallback) ==========
+            log(f"DEBUG: Пробуем установить IPv4 DNS через netsh (основной метод)...", "DEBUG")
+            success, msg = DNSManager._set_ipv4_via_netsh(adapter_name, primary_dns, secondary_dns)
+            
+            if success:
+                return True, msg
+            
+            # Fallback к PowerShell
+            log(f"DEBUG: Пробуем установить IPv4 DNS через PowerShell (fallback)...", "DEBUG")
+            return DNSManager._set_ipv4_via_powershell(adapter_name, primary_dns, secondary_dns)
+        
+        else:  # IPv6
+            # ========== IPv6: только PowerShell (простой) ==========
+            log(f"DEBUG: Устанавливаем IPv6 DNS через PowerShell...", "DEBUG")
+            return DNSManager._set_ipv6_via_powershell(adapter_name, primary_dns, secondary_dns)
+
+    @staticmethod
+    def _set_ipv4_via_netsh(adapter_name, primary_dns, secondary_dns=None):
+        """Простая установка IPv4 через netsh"""
         try:
-            dns_servers = f'"{primary_dns}"'
+            cmd = f'netsh interface ipv4 set dnsservers "{adapter_name}" static {primary_dns} primary'
+            log(f"DEBUG: netsh команда IPv4: {cmd}", "DEBUG")
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', timeout=10)
+            log(f"DEBUG: netsh IPv4 первичный - код: {result.returncode}, stderr: '{result.stderr.strip()}'", "DEBUG")
+            
+            if result.returncode != 0:
+                return False, f"netsh IPv4 ошибка: {result.stderr}"
+            
             if secondary_dns:
-                dns_servers = f'"{primary_dns}","{secondary_dns}"'
+                cmd2 = f'netsh interface ipv4 add dnsservers "{adapter_name}" {secondary_dns} index=2'
+                log(f"DEBUG: netsh команда IPv4 (вторичный): {cmd2}", "DEBUG")
+                result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, encoding='cp866', timeout=10)
+                log(f"DEBUG: netsh IPv4 вторичный - код: {result2.returncode}", "DEBUG")
             
-            adapter_name_escaped = adapter_name.replace("'", "''")
+            return True, "netsh: IPv4 DNS установлены"
             
-            # Если устанавливаем IPv6, нужно убедиться что адаптер поддерживает IPv6
-            command = f'''powershell -ExecutionPolicy Bypass -Command "
-                $ErrorActionPreference = 'Stop'; 
-                try {{ 
-                    Set-DnsClientServerAddress -InterfaceAlias '{adapter_name_escaped}' -ServerAddresses {dns_servers}
-                }} catch {{ 
-                    $_.Exception.Message 
-                }}"'''
-            
-            result = subprocess.run(command, capture_output=True, text=True, shell=True, encoding='utf-8')
-            
-            if result.returncode != 0 or result.stderr or (result.stdout and "Exception" in result.stdout):
-                error_msg = result.stderr if result.stderr else result.stdout
-                log(f"Ошибка установки {address_family} DNS-серверов: {error_msg}", level="DNS")
-                return False, f"Ошибка установки {address_family} DNS-серверов: {error_msg}"
-            
-            return True, f"{address_family} DNS-серверы успешно установлены для {adapter_name}"
         except Exception as e:
-            error_msg = str(e)
-            log(f"Исключение при установке {address_family} DNS-серверов: {error_msg}", level="DNS")
-            return False, f"Ошибка при установке {address_family} DNS-серверов: {error_msg}"
+            return False, f"netsh IPv4 ошибка: {e}"
+
+    @staticmethod
+    def _set_ipv4_via_powershell(adapter_name, primary_dns, secondary_dns=None):
+        """Простая установка IPv4 через PowerShell"""
+        try:
+            if secondary_dns:
+                dns_array = f"@('{primary_dns}','{secondary_dns}')"
+            else:
+                dns_array = f"@('{primary_dns}')"
+            
+            command = f'''powershell -ExecutionPolicy Bypass -NoProfile -Command "
+                Set-DnsClientServerAddress -InterfaceAlias '{adapter_name}' -AddressFamily IPv4 -ServerAddresses {dns_array}"'''
+            
+            result = subprocess.run(command, capture_output=True, text=True, shell=True, encoding='utf-8', timeout=15)
+            
+            if result.returncode == 0:
+                return True, "PowerShell: IPv4 DNS установлены"
+            else:
+                return False, f"PowerShell IPv4 ошибка: {result.stderr}"
+                
+        except Exception as e:
+            return False, f"PowerShell IPv4 ошибка: {e}"
     
+    @staticmethod
+    def _set_ipv6_dns_with_no_validate(adapter_name, primary_dns, secondary_dns=None):
+        """Установка IPv6 DNS с отключенной валидацией"""
+        try:
+            cmd = f'netsh interface ipv6 set dnsservers "{adapter_name}" static {primary_dns} primary validate=no'
+            log(f"DEBUG: netsh IPv6 (validate=no): {cmd}", "DEBUG")
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+            log(f"DEBUG: netsh IPv6 результат - код: {result.returncode}, stdout: '{result.stdout.strip()}', stderr: '{result.stderr.strip()}'", "DEBUG")
+            
+            if result.returncode != 0:
+                return False, f"netsh IPv6 ошибка: {result.stderr}"
+            
+            # Добавляем вторичный DNS
+            if secondary_dns:
+                cmd2 = f'netsh interface ipv6 add dnsservers "{adapter_name}" {secondary_dns} index=2 validate=no'
+                log(f"DEBUG: netsh IPv6 вторичный: {cmd2}", "DEBUG")
+                
+                result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+                log(f"DEBUG: netsh IPv6 вторичный результат - код: {result2.returncode}, stderr: '{result2.stderr.strip()}'", "DEBUG")
+            
+            return True, "IPv6 DNS установлены через netsh (validate=no)"
+            
+        except subprocess.TimeoutExpired:
+            return False, "Таймаут netsh IPv6 команды (validate=no)"
+        except Exception as e:
+            return False, f"netsh IPv6 исключение: {e}"
+
+    @staticmethod
+    def _set_ipv6_dns_force(adapter_name, primary_dns, secondary_dns=None):
+        """Принудительная установка IPv6 DNS через очистку и добавление"""
+        try:
+            # Метод 1: Сначала очищаем все DNS
+            cmd_clear = f'netsh interface ipv6 delete dnsservers "{adapter_name}" all'
+            log(f"DEBUG: netsh IPv6 очистка: {cmd_clear}", "DEBUG")
+            
+            result_clear = subprocess.run(cmd_clear, shell=True, capture_output=True, text=True, encoding='cp866', timeout=10)
+            log(f"DEBUG: netsh IPv6 очистка - код: {result_clear.returncode}", "DEBUG")
+            
+            # Добавляем первый DNS
+            cmd_add1 = f'netsh interface ipv6 add dnsservers "{adapter_name}" {primary_dns} index=1 validate=no'
+            log(f"DEBUG: netsh IPv6 добавление primary: {cmd_add1}", "DEBUG")
+            
+            result1 = subprocess.run(cmd_add1, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+            log(f"DEBUG: netsh IPv6 primary результат - код: {result1.returncode}, stderr: '{result1.stderr.strip()}'", "DEBUG")
+            
+            if result1.returncode != 0:
+                return False, f"Ошибка добавления первичного IPv6 DNS: {result1.stderr}"
+            
+            # Добавляем второй DNS
+            if secondary_dns:
+                cmd_add2 = f'netsh interface ipv6 add dnsservers "{adapter_name}" {secondary_dns} index=2 validate=no'
+                log(f"DEBUG: netsh IPv6 добавление secondary: {cmd_add2}", "DEBUG")
+                
+                result2 = subprocess.run(cmd_add2, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+                log(f"DEBUG: netsh IPv6 secondary результат - код: {result2.returncode}, stderr: '{result2.stderr.strip()}'", "DEBUG")
+            
+            return True, "IPv6 DNS установлены принудительно (clear + add)"
+            
+        except subprocess.TimeoutExpired:
+            return False, "Таймаут netsh IPv6 принудительной команды"
+        except Exception as e:
+            return False, f"Принудительная установка IPv6 ошибка: {e}"
+
+    @staticmethod
+    def _set_ipv6_dns_via_add(adapter_name, primary_dns, secondary_dns=None):
+        """Установка IPv6 DNS только через add команды (без set)"""
+        try:
+            # Сначала пробуем удалить существующие (игнорируем ошибки)
+            try:
+                cmd_remove = f'netsh interface ipv6 delete dnsservers "{adapter_name}" all'
+                subprocess.run(cmd_remove, shell=True, capture_output=True, text=True, encoding='cp866', timeout=5)
+            except:
+                pass
+            
+            # Добавляем DNS только через add команды
+            cmd_add1 = f'netsh interface ipv6 add dnsservers "{adapter_name}" {primary_dns} index=1'
+            log(f"DEBUG: netsh IPv6 add (без validate): {cmd_add1}", "DEBUG")
+            
+            result1 = subprocess.run(cmd_add1, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+            log(f"DEBUG: netsh IPv6 add primary - код: {result1.returncode}, stderr: '{result1.stderr.strip()}'", "DEBUG")
+            
+            if result1.returncode != 0:
+                return False, f"Ошибка добавления IPv6 DNS через add: {result1.stderr}"
+            
+            # Добавляем вторичный
+            if secondary_dns:
+                cmd_add2 = f'netsh interface ipv6 add dnsservers "{adapter_name}" {secondary_dns} index=2'
+                log(f"DEBUG: netsh IPv6 add secondary: {cmd_add2}", "DEBUG")
+                
+                result2 = subprocess.run(cmd_add2, shell=True, capture_output=True, text=True, encoding='cp866', timeout=15)
+                log(f"DEBUG: netsh IPv6 add secondary - код: {result2.returncode}", "DEBUG")
+            
+            return True, "IPv6 DNS установлены через add команды"
+            
+        except subprocess.TimeoutExpired:
+            return False, "Таймаут netsh IPv6 add команд"
+        except Exception as e:
+            return False, f"IPv6 add команды ошибка: {e}"
+
+    @staticmethod
+    def _set_ipv6_via_powershell(adapter_name, primary_dns, secondary_dns=None):
+        """Простая установка IPv6 через PowerShell"""
+        try:
+            if secondary_dns:
+                dns_array = f"@('{primary_dns}','{secondary_dns}')"
+            else:
+                dns_array = f"@('{primary_dns}')"
+            
+            command = f'''powershell -ExecutionPolicy Bypass -NoProfile -Command "
+                Set-DnsClientServerAddress -InterfaceAlias '{adapter_name}' -AddressFamily IPv6 -ServerAddresses {dns_array}"'''
+            
+            result = subprocess.run(command, capture_output=True, text=True, shell=True, encoding='utf-8', timeout=15)
+            
+            if result.returncode == 0:
+                return True, "PowerShell: IPv6 DNS установлены"
+            else:
+                return False, f"PowerShell IPv6 ошибка: {result.stderr}"
+                
+        except Exception as e:
+            return False, f"PowerShell IPv6 ошибка: {e}"
+
     @staticmethod
     def set_auto_dns(adapter_name, address_family=None):
         """
@@ -458,7 +621,9 @@ class DNSManager:
         except Exception as e:
             log(f"Ошибка при очистке кэша DNS: {str(e)}", level="DNS")
             return False, f"Ошибка при очистке кэша DNS: {str(e)}"
-    
+
+
+
 class DNSSettingsDialog(QDialog):
     # Добавляем сигналы для уведомления о завершении загрузки
     adapters_loaded = pyqtSignal(list)
@@ -473,6 +638,10 @@ class DNSSettingsDialog(QDialog):
         # Сохраняем переданный стиль или используем стандартный
         self.common_style = common_style or "color: #333;"
         
+        # Проверяем IPv6 подключение СРАЗУ
+        self.ipv6_available = self.check_ipv6_connectivity()
+        log(f"DEBUG: IPv6 подключение: {'доступно' if self.ipv6_available else 'недоступно'}", "DEBUG")
+        
         # Сначала создаем базовый интерфейс с индикатором загрузки
         self.init_loading_ui()
         
@@ -480,7 +649,39 @@ class DNSSettingsDialog(QDialog):
         self.load_data_thread = threading.Thread(target=self.load_data_in_background)
         self.load_data_thread.daemon = True
         self.load_data_thread.start()
-    
+
+    @staticmethod
+    def check_ipv6_connectivity():
+        """Быстрая проверка доступности IPv6 подключения"""
+        try:
+            result = subprocess.run(
+                ['ping', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
+                capture_output=True, 
+                text=True, 
+                timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            return result.returncode == 0
+        except:
+            return False
+        
+    def check_ipv6_in_background(self):
+        """Проверяем IPv6 подключение в фоне"""
+        try:
+            # Быстрая проверка IPv6
+            result = subprocess.run(
+                ['ping', '-6', '-n', '1', '-w', '2000', '2001:4860:4860::8888'],
+                capture_output=True, 
+                text=True, 
+                timeout=3,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            self.ipv6_available = (result.returncode == 0)
+            log(f"DEBUG: IPv6 подключение: {'доступно' if self.ipv6_available else 'недоступно'}", "DEBUG")
+        except:
+            self.ipv6_available = False
+            log("DEBUG: IPv6 подключение: недоступно (ошибка проверки)", "DEBUG")
+
     def init_loading_ui(self):
         """Инициализация интерфейса с индикатором загрузки"""
         layout = QVBoxLayout()
@@ -546,8 +747,9 @@ class DNSSettingsDialog(QDialog):
             # DNS по одному адаптеру (медленно)
             dns_info = {}
             for name, _ in all_adapters:
-                dns_servers_v4 = DNSManager().get_current_dns(name, "IPv4")
-                dns_servers_v6 = DNSManager().get_current_dns(name, "IPv6")
+                # ИСПРАВЛЕНО: убрали создание экземпляра
+                dns_servers_v4 = DNSManager.get_current_dns(name, "IPv4")
+                dns_servers_v6 = DNSManager.get_current_dns(name, "IPv6")
                 dns_info[name] = {
                     "ipv4": dns_servers_v4,
                     "ipv6": dns_servers_v6
@@ -598,24 +800,44 @@ class DNSSettingsDialog(QDialog):
         self.adapter_group.setLayout(adapter_layout)
         layout.addWidget(self.adapter_group)
         
-        # Флажок для применения ко всем адаптерам - устанавливаем True по умолчанию
+        # Флажок для применения ко всем адаптерам
         self.apply_all_check = QCheckBox("Применить настройки ко всем сетевым адаптерам")
         self.apply_all_check.setChecked(True)
         self.apply_all_check.stateChanged.connect(self.toggle_adapter_visibility)
         layout.addWidget(self.apply_all_check)
         
-        # Создаем вкладки для IPv4 и IPv6
+        # Создаем вкладки
         self.tabs = QTabWidget()
         
-        # Вкладка IPv4
+        # Вкладка IPv4 (всегда есть)
         self.ipv4_tab = QWidget()
         self.init_ipv4_tab()
         self.tabs.addTab(self.ipv4_tab, "IPv4")
         
-        # Вкладка IPv6
-        self.ipv6_tab = QWidget()
-        self.init_ipv6_tab()
-        self.tabs.addTab(self.ipv6_tab, "IPv6")
+        # Вкладка IPv6 (только если IPv6 доступен)
+        if self.ipv6_available:
+            self.ipv6_tab = QWidget()
+            self.init_ipv6_tab()
+            self.tabs.addTab(self.ipv6_tab, "IPv6")
+            log("DEBUG: IPv6 вкладка добавлена (IPv6 доступен)", "DEBUG")
+        else:
+            # Создаем заглушку для IPv6 (чтобы код не ломался)
+            self.ipv6_tab = None
+            self.auto_dns_v6_radio = None
+            self.predefined_dns_v6_radio = None
+            self.custom_dns_v6_radio = None
+            
+            # Добавляем информационное сообщение
+            ipv6_info = QLabel(
+                "ℹ️ IPv6 подключение недоступно - настройки IPv6 скрыты.\n"
+                "Для IPv6 DNS будет использоваться автоматический режим."
+            )
+            ipv6_info.setStyleSheet(
+                "color: #856404; background-color: #fff3cd; padding: 10px; "
+                "border: 1px solid #ffeaa7; border-radius: 5px; margin: 5px;"
+            )
+            layout.addWidget(ipv6_info)
+            log("DEBUG: IPv6 вкладка скрыта (IPv6 недоступен)", "DEBUG")
         
         layout.addWidget(self.tabs)
         
@@ -716,8 +938,19 @@ class DNSSettingsDialog(QDialog):
 
     def init_ipv6_tab(self):
         """Инициализация вкладки IPv6"""
+        if not self.ipv6_available:
+            return  # Не создаем вкладку если IPv6 недоступен
+    
         layout = QVBoxLayout()
+
+        # Информационная панель (заполняется после проверки IPv6)
+        self.ipv6_info_label = QLabel("Проверка IPv6 подключения...")
+        self.ipv6_info_label.setStyleSheet("padding: 5px; border-radius: 3px;")
+        layout.addWidget(self.ipv6_info_label)
         
+        # Обновляем информацию когда проверка завершится
+        QTimer.singleShot(3000, self.update_ipv6_info)  # Через 3 сек обновляем
+                
         # Радиокнопка для автоматических DNS
         self.auto_dns_v6_radio = QRadioButton("Получать адреса DNS-серверов автоматически")
         layout.addWidget(self.auto_dns_v6_radio)
@@ -732,6 +965,7 @@ class DNSSettingsDialog(QDialog):
         for name, dns_data in PREDEFINED_DNS.items():
             if dns_data["ipv6"]:  # Добавляем только если есть IPv6 адреса
                 self.predefined_dns_v6_combo.addItem(name)
+                log(f"DEBUG: Добавлен IPv6 DNS: {name} -> {dns_data['ipv6']}", "DEBUG")
         layout.addWidget(self.predefined_dns_v6_combo)
         
         # Радиокнопка для пользовательских DNS
@@ -771,6 +1005,18 @@ class DNSSettingsDialog(QDialog):
         
         layout.addStretch()
         self.ipv6_tab.setLayout(layout)
+
+    def update_ipv6_info(self):
+        """Обновляет информацию об IPv6 состоянии"""
+        if self.ipv6_available is True:
+            self.ipv6_info_label.setText("✅ IPv6 подключение доступно")
+            self.ipv6_info_label.setStyleSheet("color: green; background-color: #d4edda; padding: 5px; border-radius: 3px;")
+        elif self.ipv6_available is False:
+            self.ipv6_info_label.setText("⚠ IPv6 подключение недоступно (IPv6 DNS могут не работать)")
+            self.ipv6_info_label.setStyleSheet("color: #856404; background-color: #fff3cd; padding: 5px; border-radius: 3px;")
+        else:
+            self.ipv6_info_label.setText("⏳ Проверка IPv6 подключения...")
+            self.ipv6_info_label.setStyleSheet("color: #6c757d; background-color: #f8f9fa; padding: 5px; border-radius: 3px;")
 
     def toggle_adapter_visibility(self):
         if hasattr(self, 'dns_info'):
@@ -872,13 +1118,14 @@ class DNSSettingsDialog(QDialog):
 
         if need_refresh:
             dns_v4 = self.dns_manager.get_current_dns(raw_name, "IPv4")
-            dns_v6 = self.dns_manager.get_current_dns(raw_name, "IPv6")
+            if self.ipv6_available:
+                dns_v6 = self.dns_manager.get_current_dns(raw_name, "IPv6")
+            else:
+                dns_v6 = []
             
             if not hasattr(self, 'dns_info'):
                 self.dns_info = {}
             self.dns_info[clean_name] = {"ipv4": dns_v4, "ipv6": dns_v6}
-        else:
-            dns_data = self.dns_info.get(clean_name, {"ipv4": [], "ipv6": []})
 
         # Форматируем вывод
         dns_data = self.dns_info.get(clean_name, {"ipv4": [], "ipv6": []})
@@ -889,19 +1136,183 @@ class DNSSettingsDialog(QDialog):
         else:
             lines.append("IPv4: Автоматически (DHCP)")
             
-        if dns_data["ipv6"]:
-            lines.append(f"IPv6: {', '.join(dns_data['ipv6'])}")
+        if self.ipv6_available:
+            if dns_data["ipv6"]:
+                lines.append(f"IPv6: {', '.join(dns_data['ipv6'])}")
+            else:
+                lines.append("IPv6: Автоматически (DHCP)")
         else:
-            lines.append("IPv6: Автоматически (DHCP)")
+            lines.append("IPv6: Недоступен")
             
         self.current_dns_value.setText("\n".join(lines))
 
     def apply_dns_settings(self):
+        """Упрощенная логика применения DNS"""
+        
+        # Отключаем принудительный DNS
+        try:
+            from dns_force import DNSForceManager
+            force_mgr = DNSForceManager()
+            if force_mgr.is_force_dns_enabled():
+                force_mgr.set_force_dns_enabled(False)
+                log("⚠ Принудительный DNS отключен на время изменения настроек", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка отключения принудительного DNS: {e}", "DEBUG")
+        
+        # Получаем адаптеры
+        adapters = []
+        if self.apply_all_check.isChecked():
+            adapters = [name for name, desc in self.adapters]
+            log(f"DEBUG: Применяем ко всем адаптерам: {adapters}", "DEBUG")
+        else:
+            if self.adapter_combo.count() == 0:
+                QMessageBox.warning(self, "Ошибка", "Нет доступных сетевых адаптеров.")
+                return
+            adapter_name = self.adapter_combo.currentData()
+            if not adapter_name:
+                QMessageBox.warning(self, "Ошибка", "Выберите сетевой адаптер.")
+                return
+            adapters.append(adapter_name)
+            log(f"DEBUG: Применяем к адаптеру: {adapter_name}", "DEBUG")
+        
+        success_count = 0
+        error_messages = []
+        
+        for adapter_name in adapters:
+            log(f"DEBUG: Обрабатываем адаптер '{adapter_name}'", "DEBUG")
+            
+            # Логируем текущие DNS
+            current_v4 = DNSManager.get_current_dns(adapter_name, "IPv4")
+            if self.ipv6_available:
+                current_v6 = DNSManager.get_current_dns(adapter_name, "IPv6")
+                log(f"DEBUG: Текущие DNS для '{adapter_name}' - IPv4: {current_v4}, IPv6: {current_v6}", "DEBUG")
+            else:
+                log(f"DEBUG: Текущие DNS для '{adapter_name}' - IPv4: {current_v4}, IPv6: пропущено (недоступно)", "DEBUG")
+            
+            ipv4_success = True
+            ipv6_success = True
+            
+            # ========== IPv4 ==========
+            if self.auto_dns_v4_radio.isChecked():
+                log(f"DEBUG: Устанавливаем автоматический IPv4 DNS для '{adapter_name}'", "DEBUG")
+                success, message = DNSManager.set_auto_dns(adapter_name, "IPv4")
+                ipv4_success = success
+                log(f"DEBUG: Результат автоматического IPv4: {success}, {message}", "DEBUG")
+            elif self.predefined_dns_v4_radio.isChecked():
+                predefined_name = self.predefined_dns_v4_combo.currentText()
+                log(f"DEBUG: Устанавливаем предустановленный IPv4 DNS '{predefined_name}' для '{adapter_name}'", "DEBUG")
+                dns_servers = PREDEFINED_DNS[predefined_name]["ipv4"]
+                log(f"DEBUG: IPv4 серверы: {dns_servers}", "DEBUG")
+                
+                primary = dns_servers[0] if len(dns_servers) > 0 else None
+                secondary = dns_servers[1] if len(dns_servers) > 1 else None
+                
+                if primary:
+                    success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary, "IPv4")
+                    ipv4_success = success
+                    log(f"DEBUG: Результат предустановленного IPv4: {success}, {message}", "DEBUG")
+            elif self.custom_dns_v4_radio.isChecked():
+                primary = self.primary_dns_v4_edit.text().strip()
+                secondary = self.secondary_dns_v4_edit.text().strip() or None
+                log(f"DEBUG: Устанавливаем пользовательский IPv4 DNS для '{adapter_name}': {primary}, {secondary}", "DEBUG")
+                
+                if not primary:
+                    error_messages.append(f"{adapter_name}: Необходимо указать основной IPv4 DNS-сервер.")
+                    continue
+                
+                success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary, "IPv4")
+                ipv4_success = success
+                log(f"DEBUG: Результат пользовательского IPv4: {success}, {message}", "DEBUG")
+            
+            # ========== IPv6 (только если доступен) ==========
+            if self.ipv6_available:
+                if self.auto_dns_v6_radio.isChecked():
+                    log(f"DEBUG: Устанавливаем автоматический IPv6 DNS для '{adapter_name}'", "DEBUG")
+                    success, message = DNSManager.set_auto_dns(adapter_name, "IPv6")
+                    ipv6_success = success
+                    log(f"DEBUG: Результат автоматического IPv6: {success}, {message}", "DEBUG")
+                elif self.predefined_dns_v6_radio.isChecked():
+                    predefined_name = self.predefined_dns_v6_combo.currentText()
+                    log(f"DEBUG: Устанавливаем предустановленный IPv6 DNS '{predefined_name}' для '{adapter_name}'", "DEBUG")
+                    dns_servers = PREDEFINED_DNS[predefined_name]["ipv6"]
+                    log(f"DEBUG: IPv6 серверы: {dns_servers}", "DEBUG")
+                    
+                    primary = dns_servers[0] if len(dns_servers) > 0 else None
+                    secondary = dns_servers[1] if len(dns_servers) > 1 else None
+                    
+                    if primary:
+                        success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary, "IPv6")
+                        ipv6_success = success
+                        log(f"DEBUG: Результат предустановленного IPv6: {success}, {message}", "DEBUG")
+                elif self.custom_dns_v6_radio.isChecked():
+                    primary = self.primary_dns_v6_edit.text().strip()
+                    secondary = self.secondary_dns_v6_edit.text().strip() or None
+                    log(f"DEBUG: Устанавливаем пользовательский IPv6 DNS для '{adapter_name}': {primary}, {secondary}", "DEBUG")
+                    
+                    if primary:
+                        success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary, "IPv6")
+                        ipv6_success = success
+                        log(f"DEBUG: Результат пользовательского IPv6: {success}, {message}", "DEBUG")
+            else:
+                log(f"DEBUG: IPv6 настройки пропущены для '{adapter_name}' (IPv6 недоступен)", "DEBUG")
+            
+            # Подсчет успехов
+            if ipv4_success and ipv6_success:
+                success_count += 1
+            else:
+                if not ipv4_success:
+                    error_messages.append(f"{adapter_name}: Ошибка IPv4 - {message}")
+                if not ipv6_success and self.ipv6_available:
+                    error_messages.append(f"{adapter_name}: Ошибка IPv6 - {message}")
+        
+        # Обновляем интерфейс
+        if success_count > 0:
+            DNSManager.flush_dns_cache()
+            QApplication.processEvents()
+            
+            # Обновляем кэш
+            all_adapter_names = [_normalize_alias(name) for name, _ in self.all_adapters]
+            self.dns_info = self.dns_manager.get_all_dns_info_fast(all_adapter_names)
+            
+            if self.apply_all_check.isChecked():
+                self.toggle_adapter_visibility()
+            else:
+                self.update_current_dns(force_refresh=True)
+        
+        # Результат
+        if success_count == len(adapters):
+            message = f"Настройки DNS успешно применены для {success_count} адаптера(ов)."
+            if not self.ipv6_available:
+                message += "\n(IPv6 настройки пропущены - IPv6 недоступен)"
+            QMessageBox.information(self, "Успех", message)
+            self.accept()
+        elif success_count > 0:
+            QMessageBox.warning(self, "Частичный успех", 
+                            f"Настройки применены для {success_count} из {len(adapters)} адаптера(ов).\n\n"
+                            f"Ошибки:\n{chr(10).join(error_messages)}")
+        else:
+            QMessageBox.critical(self, "Ошибка", 
+                            f"Не удалось применить настройки DNS ни к одному из адаптеров.\n\n"
+                            f"Ошибки:\n{chr(10).join(error_messages)}")
+
+    def _apply_dns_settings_internal(self):
         """Применяет выбранные настройки DNS для IPv4 и IPv6"""
+        
+        # Проверяем и отключаем принудительный DNS
+        try:
+            from dns_force import DNSForceManager
+            force_mgr = DNSForceManager()
+            if force_mgr.is_force_dns_enabled():
+                force_mgr.set_force_dns_enabled(False)
+                log("⚠ Принудительный DNS отключен на время изменения настроек", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка отключения принудительного DNS: {e}", "DEBUG")
+        
         # Получаем выбранные адаптеры
         adapters = []
         if self.apply_all_check.isChecked():
             adapters = [name for name, desc in self.adapters]
+            log(f"DEBUG: Применяем ко всем адаптерам: {adapters}", "DEBUG")
         else:
             if self.adapter_combo.count() == 0:
                 QMessageBox.warning(self, "Ошибка", "Нет доступных сетевых адаптеров.")
@@ -913,64 +1324,125 @@ class DNSSettingsDialog(QDialog):
                 return
                 
             adapters.append(adapter_name)
+            log(f"DEBUG: Применяем к адаптеру: {adapter_name}", "DEBUG")
         
         success_count = 0
         error_messages = []
         
         for adapter_name in adapters:
+            log(f"DEBUG: Обрабатываем адаптер '{adapter_name}'", "DEBUG")
+            
+            # Проверяем текущие DNS ПЕРЕД изменением
+            current_v4 = DNSManager.get_current_dns(adapter_name, "IPv4")
+            current_v6 = DNSManager.get_current_dns(adapter_name, "IPv6")
+            log(f"DEBUG: Текущие DNS для '{adapter_name}' - IPv4: {current_v4}, IPv6: {current_v6}", "DEBUG")
+            
             ipv4_success = True
             ipv6_success = True
             
-            # Применяем настройки IPv4
+            # ========== ПРИМЕНЯЕМ НАСТРОЙКИ IPv4 ==========
             if self.auto_dns_v4_radio.isChecked():
-                success, message = self.dns_manager.set_auto_dns(adapter_name, "IPv4")
+                log(f"DEBUG: Устанавливаем автоматический IPv4 DNS для '{adapter_name}'", "DEBUG")
+                success, message = DNSManager.set_auto_dns(adapter_name, "IPv4")
                 ipv4_success = success
+                log(f"DEBUG: Результат автоматического IPv4: {success}, {message}", "DEBUG")
             elif self.predefined_dns_v4_radio.isChecked():
                 predefined_name = self.predefined_dns_v4_combo.currentText()
+                log(f"DEBUG: Устанавливаем предустановленный IPv4 DNS '{predefined_name}' для '{adapter_name}'", "DEBUG")
                 if predefined_name in PREDEFINED_DNS:
                     dns_servers = PREDEFINED_DNS[predefined_name]["ipv4"]
+                    log(f"DEBUG: IPv4 серверы: {dns_servers}", "DEBUG")
                     if len(dns_servers) >= 2:
-                        success, message = self.dns_manager.set_custom_dns(adapter_name, dns_servers[0], dns_servers[1], "IPv4")
+                        success, message = DNSManager.set_custom_dns(adapter_name, dns_servers[0], dns_servers[1], "IPv4")
                     elif len(dns_servers) == 1:
-                        success, message = self.dns_manager.set_custom_dns(adapter_name, dns_servers[0], None, "IPv4")
+                        success, message = DNSManager.set_custom_dns(adapter_name, dns_servers[0], None, "IPv4")
                     else:
                         success = False
                         message = "Нет IPv4 адресов для выбранного DNS сервера"
                     ipv4_success = success
+                    log(f"DEBUG: Результат предустановленного IPv4: {success}, {message}", "DEBUG")
             elif self.custom_dns_v4_radio.isChecked():
                 primary = self.primary_dns_v4_edit.text().strip()
                 secondary = self.secondary_dns_v4_edit.text().strip()
+                log(f"DEBUG: Устанавливаем пользовательский IPv4 DNS для '{adapter_name}': {primary}, {secondary}", "DEBUG")
                 
                 if not primary:
                     error_messages.append(f"{adapter_name}: Необходимо указать основной IPv4 DNS-сервер.")
                     continue
                 
-                success, message = self.dns_manager.set_custom_dns(adapter_name, primary, secondary if secondary else None, "IPv4")
+                success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary if secondary else None, "IPv4")
                 ipv4_success = success
+                log(f"DEBUG: Результат пользовательского IPv4: {success}, {message}", "DEBUG")
             
-            # Применяем настройки IPv6
+            # ========== ПРИМЕНЯЕМ НАСТРОЙКИ IPv6 ==========
+            log(f"DEBUG: Проверяем состояние IPv6 радиокнопок:", "DEBUG")
+            log(f"DEBUG: auto_dns_v6_radio.isChecked() = {self.auto_dns_v6_radio.isChecked()}", "DEBUG")
+            log(f"DEBUG: predefined_dns_v6_radio.isChecked() = {self.predefined_dns_v6_radio.isChecked()}", "DEBUG")
+            log(f"DEBUG: custom_dns_v6_radio.isChecked() = {self.custom_dns_v6_radio.isChecked()}", "DEBUG")
+
             if self.auto_dns_v6_radio.isChecked():
-                success, message = self.dns_manager.set_auto_dns(adapter_name, "IPv6")
+                log(f"DEBUG: Устанавливаем автоматический IPv6 DNS для '{adapter_name}'", "DEBUG")
+                success, message = DNSManager.set_auto_dns(adapter_name, "IPv6")
                 ipv6_success = success
+                log(f"DEBUG: Результат автоматического IPv6: {success}, {message}", "DEBUG")
             elif self.predefined_dns_v6_radio.isChecked():
                 predefined_name = self.predefined_dns_v6_combo.currentText()
+                log(f"DEBUG: Устанавливаем предустановленный IPv6 DNS '{predefined_name}' для '{adapter_name}'", "DEBUG")
                 if predefined_name in PREDEFINED_DNS:
                     dns_servers = PREDEFINED_DNS[predefined_name]["ipv6"]
+                    log(f"DEBUG: IPv6 серверы: {dns_servers}", "DEBUG")
                     if len(dns_servers) >= 2:
-                        success, message = self.dns_manager.set_custom_dns(adapter_name, dns_servers[0], dns_servers[1], "IPv6")
+                        success, message = DNSManager.set_custom_dns(adapter_name, dns_servers[0], dns_servers[1], "IPv6")
                     elif len(dns_servers) == 1:
-                        success, message = self.dns_manager.set_custom_dns(adapter_name, dns_servers[0], None, "IPv6")
+                        success, message = DNSManager.set_custom_dns(adapter_name, dns_servers[0], None, "IPv6")
                     else:
                         success = False
                         message = "Нет IPv6 адресов для выбранного DNS сервера"
                     ipv6_success = success
+                    log(f"DEBUG: Результат предустановленного IPv6: {success}, {message}", "DEBUG")
             elif self.custom_dns_v6_radio.isChecked():
                 primary = self.primary_dns_v6_edit.text().strip()
                 secondary = self.secondary_dns_v6_edit.text().strip()
+                log(f"DEBUG: Устанавливаем пользовательский IPv6 DNS для '{adapter_name}': {primary}, {secondary}", "DEBUG")
                 
                 if primary:  # IPv6 может быть не настроен, поэтому не требуем обязательно
-                    success, message = self.dns_manager.set_custom_dns(adapter_name, primary, secondary if secondary else None, "IPv6")
+                    success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary if secondary else None, "IPv6")
                     ipv6_success = success
+                    log(f"DEBUG: Результат пользовательского IPv6: {success}, {message}", "DEBUG")
+            elif self.custom_dns_v6_radio.isChecked():
+                primary = self.primary_dns_v6_edit.text().strip()
+                secondary = self.secondary_dns_v6_edit.text().strip()
+                log(f"DEBUG: Устанавливаем пользовательский IPv6 DNS для '{adapter_name}': {primary}, {secondary}", "DEBUG")
+                
+                if primary:  # IPv6 может быть не настроен, поэтому не требуем обязательно
+                    success, message = DNSManager.set_custom_dns(adapter_name, primary, secondary if secondary else None, "IPv6")
+                    ipv6_success = success
+                    log(f"DEBUG: Результат пользовательского IPv6: {success}, {message}", "DEBUG")
+            
+            # ========== ПРОВЕРКА РЕЗУЛЬТАТОВ ==========
+            import time
+            time.sleep(1)
+            
+            # Проверяем IPv4
+            immediate_v4 = DNSManager.get_current_dns(adapter_name, "IPv4")
+            log(f"DEBUG: НЕМЕДЛЕННАЯ проверка IPv4 для '{adapter_name}': {immediate_v4}", "DEBUG")
+            
+            # Проверяем IPv6
+            immediate_v6 = DNSManager.get_current_dns(adapter_name, "IPv6")
+            log(f"DEBUG: НЕМЕДЛЕННАЯ проверка IPv6 для '{adapter_name}': {immediate_v6}", "DEBUG")
+            
+            time.sleep(2)
+            
+            delayed_v4 = DNSManager.get_current_dns(adapter_name, "IPv4")
+            delayed_v6 = DNSManager.get_current_dns(adapter_name, "IPv6")
+            log(f"DEBUG: ОТЛОЖЕННАЯ проверка IPv4 для '{adapter_name}': {delayed_v4}", "DEBUG")
+            log(f"DEBUG: ОТЛОЖЕННАЯ проверка IPv6 для '{adapter_name}': {delayed_v6}", "DEBUG")
+            
+            if immediate_v4 != delayed_v4:
+                log(f"⚠ WARNING: IPv4 DNS были изменены внешним процессом! Было: {immediate_v4}, стало: {delayed_v4}", "WARNING")
+            
+            if immediate_v6 != delayed_v6:
+                log(f"⚠ WARNING: IPv6 DNS были изменены внешним процессом! Было: {immediate_v6}, стало: {delayed_v6}", "WARNING")
             
             if ipv4_success and ipv6_success:
                 success_count += 1
@@ -980,10 +1452,10 @@ class DNSSettingsDialog(QDialog):
                 if not ipv6_success:
                     error_messages.append(f"{adapter_name}: Ошибка IPv6 - {message}")
 
-        # Обновляем кэш DNS информации после применения настроек
+        # ========== ОБНОВЛЯЕМ ИНТЕРФЕЙС ==========
         if success_count > 0:
             # Очищаем DNS кэш системы
-            dns_flush_success, dns_flush_message = self.dns_manager.flush_dns_cache()
+            dns_flush_success, dns_flush_message = DNSManager.flush_dns_cache()
             if not dns_flush_success:
                 log(f"Предупреждение: {dns_flush_message}", level="DNS")
             
@@ -1002,7 +1474,7 @@ class DNSSettingsDialog(QDialog):
             else:
                 self.update_current_dns(force_refresh=True)
         
-        # Выводим результат
+        # ========== ВЫВОДИМ РЕЗУЛЬТАТ ==========
         if success_count == len(adapters):
             message = f"Настройки DNS успешно применены для {success_count} адаптера(ов)."
             if success_count > 0:
@@ -1018,6 +1490,7 @@ class DNSSettingsDialog(QDialog):
             QMessageBox.critical(self, "Ошибка", 
                             f"Не удалось применить настройки DNS ни к одному из адаптеров.\n\n"
                             f"Ошибки:\n{chr(10).join(error_messages)}")
+
             
 def refresh_exclusion_cache():
     _get_dynamic_exclusions.cache_clear()
