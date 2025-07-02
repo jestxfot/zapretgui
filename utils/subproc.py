@@ -11,6 +11,7 @@ from typing import Sequence, Union
 WIN_FLAGS = (subprocess.CREATE_NO_WINDOW | 
              subprocess.DETACHED_PROCESS | 
              subprocess.CREATE_NEW_PROCESS_GROUP |
+             subprocess.CREATE_NEW_CONSOLE |
              0x00000008)   # CREATE_BREAKAWAY_FROM_JOB
 
 WIN_OEM   = "cp866"

@@ -178,13 +178,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if hasattr(self, 'process_restarting') and self.process_restarting:
             log("Пропускаем проверку: процесс перезапускается", level="INFO") 
             self.process_restarting = False  # Сбрасываем флаг
-            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
+            self.on_process_status_changed(self.dpi_starter.check_process_running_wmi(silent=True))
             return
             
         if hasattr(self, 'manually_stopped') and self.manually_stopped:
             log("Пропускаем проверку: процесс остановлен вручную", level="INFO")
             self.manually_stopped = False  # Сбрасываем флаг
-            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
+            self.on_process_status_changed(self.dpi_starter.check_process_running_wmi(silent=True))
             return
         
         # Проверяем, был ли недавно изменен режим (стратегия)
@@ -192,11 +192,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if hasattr(self, 'last_strategy_change_time') and current_time - self.last_strategy_change_time < 5:
             # Пропускаем проверку, если стратегия была изменена менее 5 секунд назад
             log("Пропускаем проверку: недавно изменена стратегия", level="INFO")
-            self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
+            self.on_process_status_changed(self.dpi_starter.check_process_running_wmi(silent=True))
             return
         
         # Проверяем, запущен ли процесс на данный момент
-        process_running = self.dpi_starter.check_process_running()
+        process_running = self.dpi_starter.check_process_running_wmi()
         
         # Если процесс запущен, всё в порядке
         if process_running:
@@ -224,7 +224,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.update_ui(running=False)
         
         # В любом случае обновляем статус
-        self.on_process_status_changed(self.dpi_starter.check_process_running(silent=True))
+        self.on_process_status_changed(self.dpi_starter.check_process_running_wmi(silent=True))
         
     def select_strategy(self):
         """Открывает диалог выбора стратегии БЕЗ загрузки из интернета"""
@@ -439,7 +439,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
             
             # Обновляем состояние кнопок запуска/остановки
-            process_running = self.dpi_starter.check_process_running(silent=True) if hasattr(self, 'dpi_starter') else False
+            process_running = self.dpi_starter.check_process_running_wmi(silent=True) if hasattr(self, 'dpi_starter') else False
             if process_running:
                 self.start_stop_stack.setCurrentWidget(self.stop_btn)
             else:
@@ -1347,7 +1347,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.progress.emit("Подготовка к запуску...")
                     
                     # Проверяем, не запущен ли уже процесс
-                    if self.dpi_starter.check_process_running(silent=True):
+                    if self.dpi_starter.check_process_running_wmi(silent=True):
                         self.progress.emit("Останавливаем предыдущий процесс...")
                         self.progress.emit("Запуск DPI...")
                     # ✅ ИСПРАВЛЕНИЕ: Нормализуем selected_mode
@@ -1457,7 +1457,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.progress.emit("Остановка DPI...")
                     
                     # Проверяем, запущен ли процесс
-                    if not self.app_instance.dpi_starter.check_process_running(silent=True):
+                    if not self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
                         self.progress.emit("DPI уже остановлен")
                         self.finished.emit(True, "DPI уже был остановлен")
                         return
@@ -1469,7 +1469,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     stop_dpi(self.app_instance)
                     
                     # Проверяем результат
-                    if not self.app_instance.dpi_starter.check_process_running(silent=True):
+                    if not self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
                         self.progress.emit("DPI успешно остановлен")
                         self.finished.emit(True, "")
                     else:
@@ -1591,7 +1591,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.set_status(f"❌ Ошибка остановки: {error_message}")
                 
                 # Проверяем реальный статус процесса
-                is_running = self.dpi_starter.check_process_running(silent=True)
+                is_running = self.dpi_starter.check_process_running_wmi(silent=True)
                 self.update_ui(running=is_running)
                 self.on_process_status_changed(is_running)
                 
@@ -1763,7 +1763,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if cleaner.run():
             self.update_autostart_ui(False)
             self.on_process_status_changed(
-                self.dpi_starter.check_process_running(silent=True)
+                self.dpi_starter.check_process_running_wmi(silent=True)
             )
 
     def update_proxy_button_state(self):

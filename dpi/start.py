@@ -36,6 +36,20 @@ class DPIStarter:
             self.status_callback(text)
         else:
             print(text)
+
+    def check_process_running_wmi(self, silent=False) -> bool:
+        """Проверка через WMI - без окон консоли"""
+        try:
+            import win32com.client
+            wmi = win32com.client.GetObject("winmgmts:")
+            processes = wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name = 'winws.exe'")
+            found = len(list(processes)) > 0
+            if not silent:
+                log(f"winws.exe state → {found}", "DEBUG")
+            return found
+        except:
+            # Fallback на tasklist если WMI недоступен
+            return self.check_process_running_tasklist(silent)
     
     def check_process_running(self, silent=False) -> bool:
         """
@@ -59,86 +73,25 @@ class DPIStarter:
     #  ЕДИНЫЙ ЗАПУСК Стратегии (.bat)   → self.start(...)
     # ==================================================================
     def cleanup_windivert_service(self):
-        """Принудительно останавливает и удаляет службу windivert"""
+        """Очистка службы через PowerShell - без окон"""
+        ps_script = """
+        $service = Get-Service -Name windivert -ErrorAction SilentlyContinue
+        if ($service) {
+            Stop-Service -Name windivert -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            sc.exe delete windivert | Out-Null
+        }
+        """
+        
         try:
-            log("=================== cleanup_windivert_service ==========================", level="START")
-            
-            # Шаг 1: Проверяем состояние службы
-            log("Проверяем состояние службы windivert...", level="INFO")
-            check_result = run_hidden(
-                'C:\\Windows\\System32\\sc.exe query windivert',
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding='cp866'
+            run_hidden(
+                ['С:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '-WindowStyle', 'Hidden', '-NoProfile', '-Command', ps_script],
+                wait=True
             )
-            
-            if "SERVICE_NAME: windivert" not in check_result.stdout:
-                log("Служба windivert не найдена в списке служб", level="INFO")
-                # Если службы нет, просто выходим - не нужно делать агрессивную очистку
-                return True
-            
-            # Шаг 2: Останавливаем службу
-            log("Останавливаем службу windivert...", level="INFO")
-            stop_result = run_hidden(
-                'C:\\Windows\\System32\\sc.exe stop windivert',
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding='cp866'
-            )
-            
-            # Ждем остановки службы
-            for i in range(10):
-                time.sleep(0.5)
-                query_result = run_hidden(
-                    'C:\\Windows\\System32\\sc.exe query windivert',
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='cp866'
-                )
-                if "STOPPED" in query_result.stdout:
-                    log(f"Служба остановлена (попытка {i+1})", level="INFO")
-                    break
-            
-            # Шаг 3: Удаление службы
-            log("Удаляем службу windivert...", level="INFO")
-            delete_result = run_hidden(
-                'C:\\Windows\\System32\\sc.exe delete windivert',
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding='cp866'
-            )
-            
-            if delete_result.returncode == 0 or "1060" in delete_result.stderr:
-                log("Служба windivert удалена", level="✅ SUCCESS")
-            else:
-                log(f"Ошибка удаления службы: {delete_result.stderr}", level="⚠ WARNING")
-            
-            # Небольшая пауза для завершения операций
-            time.sleep(1)
-            
-            # Финальная проверка
-            final_check = run_hidden(
-                'C:\\Windows\\System32\\sc.exe query windivert',
-                shell=True,
-                capture_output=True,
-                text=True,
-                encoding='cp866'
-            )
-            
-            if "SERVICE_NAME: windivert" not in final_check.stdout:
-                log("Служба windivert успешно удалена", level="✅ SUCCESS")
-                return True
-            else:
-                log("Служба все еще присутствует, но продолжаем", level="⚠ WARNING")
-                return True
-                        
+            return True
         except Exception as e:
-            log(f"Ошибка при очистке службы windivert: {e}", level="⚠ WARNING")
-            return True  # Продолжаем работу даже при ошибке
+            log(f"Ошибка очистки службы: {e}", "⚠ WARNING")
+            return True
 
     def stop_all_processes(self) -> bool:
         stop_bat = os.path.join(os.path.dirname(self.winws_exe), 'stop.bat')
@@ -153,7 +106,7 @@ class DPIStarter:
             log(f"Ошибка stop.bat: {e}", "⚠ WARNING")
 
         time.sleep(0.5)
-        ok = not self.check_process_running(silent=True)
+        ok = not self.check_process_running_wmi(silent=True)
         log("Все процессы остановлены" if ok else "winws.exe ещё работает",
             "✅ SUCCESS" if ok else "⚠ WARNING")
         return ok
@@ -218,11 +171,11 @@ class DPIStarter:
 
             log(f"RUN BAT → {bat_path}", "INFO")
             try:
-                # ✅ ИСПОЛЬЗУЕМ VBS для максимального скрытия
+                # Передаем команду как список
                 run_hidden(
-                    bat_path,  # Просто передаем путь к bat файлу
+                    ['C:\\Windows\\System32\\cmd.exe', '/c', bat_path],  # Правильный формат команды
                     cwd=BAT_FOLDER,
-                    use_vbs_for_bat=True  # Явно включаем VBS режим
+                    use_vbs_for_bat=True
                 )
             except Exception as e:
                 log(f"Ошибка запуска bat: {e}", "❌ ERROR")
@@ -231,7 +184,7 @@ class DPIStarter:
 
             # ждём пару секунд и проверяем
             for _ in range(10):
-                if self.check_process_running(silent=True):
+                if self.check_process_running_wmi(silent=True):
                     self._update_ui(True)
                     self._set_status("DPI запущен")
                     return True
