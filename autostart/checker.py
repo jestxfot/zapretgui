@@ -1,7 +1,7 @@
 import subprocess
 import winreg
 
-class ServiceManager:
+class CheckerManager:
     def __init__(self, winws_exe, status_callback=None, ui_callback=None, service_name="ZapretCensorliber"):
         """
         Инициализирует менеджер служб.
@@ -90,20 +90,30 @@ class ServiceManager:
             log("check_autostart_exists: необработанная ошибка", level="❌ ERROR")
             return False
     
-    def check_scheduler_task_exists(self):
+    def check_scheduler_task_exists(self) -> bool:
         """
-        Проверяет наличие задачи в планировщике задач Windows
-        
-        Returns:
-            bool: True если задача существует, иначе False
+        True, если в Планировщике есть хотя бы одна
+        из «наших» задач автозапуска.
         """
-        try:
-            task_name = "ZapretCensorliber"
-            check_cmd = f'schtasks /Query /TN "{task_name}" 2>nul'
-            result = subprocess.run(check_cmd, shell=True, capture_output=True)
-            return result.returncode == 0
-        except:
-            return False
+        task_names = ("ZapretCensorliber",  # старая
+                      "ZapretStrategy")     # новая
+
+        for tn in task_names:
+            try:
+                # shell=False безопаснее, код короче
+                res = subprocess.run(
+                    ["С:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", tn],
+                    capture_output=True,
+                    text=True,
+                    encoding="cp866",
+                    errors="ignore",
+                )
+                if res.returncode == 0:
+                    return True
+            except Exception:
+                pass  # игнорируем и пробуем следующий task_name
+
+        return False
             
     def check_windows_service_exists(self):
         """
@@ -114,7 +124,7 @@ class ServiceManager:
         """
         try:
             service_result = subprocess.run(
-                f'sc query {self.service_name}',
+                f'C:\\Windows\\System32\\sc.exe query {self.service_name}',
                 shell=True,
                 capture_output=True,
                 text=True,

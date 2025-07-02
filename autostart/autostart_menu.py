@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from .autostart_exe      import setup_autostart_for_exe
 from .autostart_strategy import setup_autostart_for_strategy
+from .autostart_service  import setup_service_for_strategy
 from log                 import log
 
 
@@ -83,13 +84,16 @@ class AutoStartMenu(QDialog):
         layout.addWidget(info)
 
         self.exe_btn = QPushButton("Автозапуск GUI-приложения")
-        self.bat_btn = QPushButton("Автозапуск выбранной стратегии (.bat)")
+        self.bat_btn = QPushButton("Автозапуск выбранной стратегии (планировщик .bat)")
+        self.svc_btn = QPushButton("Автозапуск выбранной стратегии (служка .bat)")
 
         layout.addWidget(self.exe_btn)
         layout.addWidget(self.bat_btn)
+        layout.addWidget(self.svc_btn)
 
         self.exe_btn.clicked.connect(self.enable_exe_autostart)
         self.bat_btn.clicked.connect(self.enable_strategy_autostart)
+        self.svc_btn.clicked.connect(self.enable_strategy_service)
 
     # ==========================================================
     # 1. Автозапуск главного приложения
@@ -156,3 +160,34 @@ class AutoStartMenu(QDialog):
             )
             self.accept()
         # Если ok == False, подробное окно уже показано в _show_error
+
+
+    # ==========================================================
+    # 3. Стратегия в виде службы Windows
+    # ==========================================================
+    def enable_strategy_service(self):
+        log("Создаём/обновляем службу для стратегии", "INFO")
+
+        def _show_error(msg: str):
+            QMessageBox.critical(self, "Служба стратегии", msg)
+
+        index_json_path = (Path(self.json_folder) / "index.json").resolve()
+        log(f"[DEBUG] Service: index_path = {index_json_path}", "DEBUG")
+
+        ok = setup_service_for_strategy(
+            selected_mode=self.strategy_name,
+            bat_folder=self.bat_folder,
+            index_path=str(index_json_path),
+            ui_error_cb=_show_error,
+        )
+
+        if ok:
+            self.status("Служба стратегии настроена")
+            self.update_ui(True)
+            QMessageBox.information(
+                self,
+                "Успех",
+                f"Стратегия «{self.strategy_name}» будет "
+                f"запускаться как служба Windows",
+            )
+            self.accept()

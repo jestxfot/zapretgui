@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from log import log
 from functools import lru_cache
-from dns_core import DNSManager, _normalize_alias, refresh_exclusion_cache
-from dns_force import DNSForceManager    
+from dns import DNSManager, DNSForceManager, _normalize_alias, refresh_exclusion_cache
 from typing import List, Tuple, Dict
 import json
 
@@ -753,7 +752,6 @@ class DNSSettingsDialog(QDialog):
         
         # Проверяем и отключаем принудительный DNS
         try:
-            from dns_force import DNSForceManager
             force_mgr = DNSForceManager()
             if force_mgr.is_force_dns_enabled():
                 force_mgr.set_force_dns_enabled(False)

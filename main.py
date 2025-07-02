@@ -24,7 +24,7 @@ from config import APP_VERSION # build_info moved to config/__init__.py
 
 from hosts.hosts import HostsManager
 
-from autostart.service import ServiceManager
+from autostart.checker import CheckerManager
 from autostart.autostart_remove import AutoStartCleaner
 
 from dpi.start import DPIStarter
@@ -97,7 +97,7 @@ class DNSWorker(QThread):
     
     def run(self):
         try:
-            from dns_force import apply_force_dns_if_enabled, ensure_default_force_dns
+            from dns import apply_force_dns_if_enabled, ensure_default_force_dns
             
             # 0) создаём ключ ForceDNS=1, если его нет
             ensure_default_force_dns()
@@ -552,8 +552,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_manager.apply_theme()
 
-        # ServiceManager
-        self.service_manager = ServiceManager(
+        # CheckerManager
+        self.service_manager = CheckerManager(
             winws_exe    = WINWS_EXE,
             status_callback = self.set_status,
             ui_callback     = self.update_ui)

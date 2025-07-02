@@ -11,7 +11,7 @@ import time
 from typing import List, Tuple, Optional
 
 from log import log
-from dns_core import DNSManager, DEFAULT_EXCLUSIONS               # ← главное изменение!
+from dns import DNSManager, DEFAULT_EXCLUSIONS               # ← главное изменение!
 
 # PyQt сигналы нужны только если вы запускаете из GUI потока
 from PyQt6.QtCore import QThread, pyqtSignal

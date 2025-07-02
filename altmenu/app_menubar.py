@@ -138,7 +138,7 @@ class AppMenuBar(QMenuBar):
     def _get_force_dns_enabled(self) -> bool:
         """Получает текущее состояние принудительного DNS"""
         try:
-            from dns_force import DNSForceManager
+            from dns import DNSForceManager
             manager = DNSForceManager()
             return manager.is_force_dns_enabled()
         except Exception as e:
@@ -151,7 +151,7 @@ class AppMenuBar(QMenuBar):
         Включает/выключает принудительную установку DNS 9.9.9.9
         """
         from log import log
-        from dns_force import DNSForceManager
+        from dns import DNSForceManager
         
         try:
             manager = DNSForceManager(status_callback=self._set_status)

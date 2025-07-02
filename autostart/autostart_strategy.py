@@ -105,9 +105,6 @@ def _create_task_scheduler_job(
         True  – задача успешно создана/обновлена
         False – ошибка (уже залогирована, ui_error_cb вызван)
     """
-    # Команда запуска: прячем окно через "start \"\""
-    tr_cmd = f'cmd /c start "" "{bat_path}"'
-
     cmd = [
         "schtasks", "/Create",
         "/TN", task_name,
@@ -124,7 +121,7 @@ def _create_task_scheduler_job(
             cmd,
             capture_output=True,
             text=True,
-            encoding="cp1251"  # Changed from "utf-8" to "cp1251"
+            encoding="cp866",  # Используем cp866 для совместимости с русским языком
         )
         if res.returncode == 0:
             log(f'Задача "{task_name}" создана/обновлена', "INFO")
@@ -146,13 +143,12 @@ def _create_task_scheduler_job(
             ui_error_cb(err_msg)
         return False
     except UnicodeDecodeError:
-        # Fallback: try with errors='ignore' if cp1251 fails
         try:
             res = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                encoding="cp1251",
+                encoding="cp866",
                 errors="ignore"
             )
             if res.returncode == 0:
