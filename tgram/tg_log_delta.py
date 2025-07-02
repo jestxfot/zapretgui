@@ -28,7 +28,7 @@ TOKEN   = DEV_TOKEN   if IS_DEV_BUILD else PROD_TOKEN
 CHAT_ID = DEV_CHAT_ID if IS_DEV_BUILD else PROD_CHAT_ID
 
 # интервалы / лимиты
-INTERVAL  = 10
+INTERVAL  = 120 # сек между отправками
 MAX_CHUNK = 3500
 
 # ---------- Client-ID (как было) ------------------------------------

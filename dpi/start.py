@@ -170,6 +170,8 @@ class DPIStarter:
                 return False
 
             log(f"RUN BAT → {bat_path}", "INFO")
+            # ВАЖНО: Передаем команду как список ['cmd', '/c', bat_path]
+            # Это предотвращает появление окон консоли
             try:
                 # Передаем команду как список
                 run_hidden(

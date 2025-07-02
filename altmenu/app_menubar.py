@@ -559,7 +559,8 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        run_hidden(f'"{editor}" "{NETROGAT2_PATH}"', shell=True)
+                        # Используем subprocess.Popen вместо run_hidden для видимого запуска
+                        subprocess.Popen([editor, NETROGAT2_PATH])
                         editor_name = os.path.basename(editor)
                         self._pw.set_status(f"Открыт файл исключений в {editor_name}")
                         success = True
@@ -570,6 +571,7 @@ class AppMenuBar(QMenuBar):
             if not success:
                 # Если ни один редактор не найден - открываем через ассоциацию Windows
                 try:
+                    os.startfile(NETROGAT2_PATH)
                     self._pw.set_status("Открыт файл исключений в системном редакторе")
                 except Exception as fallback_error:
                     # Последний вариант - показываем путь к файлу
@@ -612,7 +614,8 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        run_hidden(f'"{editor}" "{OTHER2_PATH}"', shell=True)
+                        # Используем subprocess.Popen вместо run_hidden для видимого запуска
+                        subprocess.Popen([editor, OTHER2_PATH])
                         editor_name = os.path.basename(editor)
                         self._pw.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
                         success = True
@@ -623,6 +626,7 @@ class AppMenuBar(QMenuBar):
             if not success:
                 # Если ни один редактор не найден - открываем через ассоциацию Windows
                 try:
+                    os.startfile(OTHER2_PATH)
                     self._pw.set_status("Открыт файл кастомных сайтов в системном редакторе")
                 except Exception as fallback_error:
                     # Последний вариант - показываем путь к файлу

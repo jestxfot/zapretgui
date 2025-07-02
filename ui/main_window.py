@@ -127,6 +127,7 @@ class MainWindowUI:
 
         # Остальные кнопки добавляем как обычно
         self.open_folder_btn = RippleButton(" Открыть папку Zapret", self, "0, 119, 255")
+        self.open_folder_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
         self.open_folder_btn.setIconSize(QSize(16, 16))
         
         self.test_connection_btn = RippleButton(" Тест соединения", self, "0, 119, 255")

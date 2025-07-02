@@ -42,12 +42,12 @@ def _prepare_cmd(cmd, use_shell: bool):
 
     if use_shell:
         if isinstance(cmd, str):
-            return ['cmd', '/Q', '/C', cmd], False
+            return ['C:\\Windows\\System32\\cmd.exe', '/Q', '/C', cmd], False
         else:               # список + shell=True
-            return ['cmd', '/Q', '/C', *cmd], False
+            return ['C:\\Windows\\System32\\cmd.exe', '/Q', '/C', *cmd], False
 
     if isinstance(cmd, str):       # shell=False, но строка → тоже оборачиваем
-        return ['cmd', '/Q', '/C', cmd], False
+        return ['C:\\Windows\\System32\\cmd.exe', '/Q', '/C', cmd], False
 
     return cmd, use_shell
 

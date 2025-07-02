@@ -80,7 +80,7 @@ class FullLogDaemon(QObject):
       • в caption – доп. инфо + последние ERROR-строки.
     """
 
-    def __init__(self, log_path: str, interval: int = 120, parent=None):
+    def __init__(self, log_path: str, interval: int = 600, parent=None):
         super().__init__(parent)
 
         self.log_path = Path(log_path).absolute()
