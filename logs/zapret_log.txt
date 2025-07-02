@@ -1,4 +1,2 @@
-﻿=== Zapret GUI Log - Started 2025-07-02 20:58:15 ===
+﻿=== Zapret GUI Log - Started 2025-07-02 22:53:27 ===
 
-[20:58:15] D:\Privacy\zapretgui\dns\dns_force.py:465: SyntaxWarning: invalid escape sequence '\S'
-  Создаёт ключ HKCU\Software\Zapret\ForceDNS = 1,

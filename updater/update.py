@@ -17,6 +17,7 @@ from typing import Callable
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QMessageBox
+from utils import run_hidden
 
 # ──────────────────────────── конфиг программы ────────────────────────────
 from config import CHANNEL, APP_VERSION            # build_info moved to config/__init__.py
@@ -35,7 +36,7 @@ def _safe_set_status(parent, msg: str):
 
 def _kill_winws():
     """Мягко-агрессивно убиваем winws.exe, чтобы установщик мог заменить файл."""
-    subprocess.run(
+    run_hidden(
         "C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T",
         shell=True,
         stdout=subprocess.DEVNULL,
@@ -215,7 +216,7 @@ def check_and_run_update(
         _kill_winws()
         time.sleep(1.5)
 
-        subprocess.Popen(["C:\\Windows\\System32\\cmd.exe", "/c", "start", "", setup_exe, "/NORESTART"], shell=False)
+        run_hidden(["C:\\Windows\\System32\\cmd.exe", "/c", "start", "", setup_exe, "/NORESTART"], shell=False)
         set_status("Запущен установщик…")
         # через 1,5 сек выходим, чтобы Install‐EXE смог перезаписать файлы
         QTimer.singleShot(1500, lambda: os._exit(0))

@@ -10,8 +10,9 @@ from typing import Callable, Optional
 
 from log import log
 from .autostart_strategy import _resolve_bat_folder     # переиспользуем
+from utils import run_hidden # обёртка для subprocess.run
 
-SERVICE_NAME = "ZapretStrategyService"
+SERVICE_NAME = "ZapretCensorliber"
 
 def setup_service_for_strategy(
     selected_mode: str,
@@ -96,7 +97,7 @@ def _run_sc(args: list[str], ignore_errors: bool = False) -> bool:
     Returns True, если returncode == 0.
     """
     cmd = ["C:\\Windows\\System32\\sc.exe"] + args
-    res = subprocess.run(
+    res = run_hidden(
         cmd,
         capture_output=True,
         text=True,

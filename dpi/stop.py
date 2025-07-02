@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from main import LupiDPIApp
 
 from log import log
-
+from utils import run_hidden
 
 def stop_dpi(app: "LupiDPIApp"):
     """
@@ -53,7 +53,7 @@ def stop_dpi(app: "LupiDPIApp"):
         
         try:
             # Вариант 1: Запускаем напрямую через subprocess
-            result = subprocess.run(
+            result = run_hidden(
                 [stop_bat_path],
                 shell=True,
                 startupinfo=startupinfo,
@@ -77,7 +77,7 @@ def stop_dpi(app: "LupiDPIApp"):
                 log("Пробуем выполнить команды остановки напрямую...", level="INFO")
                 
                 # Останавливаем процесс
-                subprocess.run(
+                run_hidden(
                     ['C:\\Windows\\System32\\taskkill.exe', '/F', '/IM', 'winws.exe', '/T'],
                     shell=False,
                     capture_output=True,
@@ -85,7 +85,7 @@ def stop_dpi(app: "LupiDPIApp"):
                 )
                 
                 # Останавливаем службу
-                subprocess.run(
+                run_hidden(
                     ['C:\\Windows\\System32\\sc.exe', 'stop', 'windivert'],
                     shell=False,
                     capture_output=True,
@@ -93,7 +93,7 @@ def stop_dpi(app: "LupiDPIApp"):
                 )
                 
                 # Удаляем службу
-                subprocess.run(
+                run_hidden(
                     ['C:\\Windows\\System32\\sc.exe', 'delete', 'windivert'],
                     shell=False,
                     capture_output=True,

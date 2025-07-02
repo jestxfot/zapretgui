@@ -7,6 +7,7 @@ import requests, webbrowser
 from datetime import datetime
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from utils import run_hidden # Импортируем нашу обертку для subprocess
 
 class ConnectionTestWorker(QObject):
     """Рабочий поток для выполнения тестов соединения."""
@@ -63,7 +64,7 @@ class ConnectionTestWorker(QObject):
             command = ["ping", "-n", str(count), host]
             
             # Запускаем процесс
-            process = subprocess.Popen(
+            process = run_hidden(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -267,8 +268,7 @@ class ConnectionTestWorker(QObject):
                 "--silent", "--show-error",
                 url
             ]
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -373,8 +373,7 @@ class ConnectionTestWorker(QObject):
         try:
             # Проверяем процесс winws.exe
             command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
             if "winws.exe" in result.stdout:
                 self.log_message("✅ Процесс winws.exe запущен")
@@ -514,8 +513,7 @@ class ConnectionTestWorker(QObject):
                 "schtasks", "/query", "/tn", "ZapretAutoStart", "/fo", "csv"
             ]
 
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
             if result.returncode == 0 and "ZapretAutoStart" in result.stdout:
                 self.log_message("   Системный автозапуск: ✅ Активен (планировщик задач)")
@@ -588,8 +586,7 @@ class ConnectionTestWorker(QObject):
             if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
                 subprocess.CREATE_NO_WINDOW = 0x08000000
 
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
             if self.is_stop_requested():
                 return
@@ -704,8 +701,7 @@ class ConnectionTestWorker(QObject):
                 f"http://{domain}/"
             ]
 
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -789,8 +785,7 @@ class ConnectionTestWorker(QObject):
                     f"https://{domain}/"
                 ]
 
-                from utils.subproc import run_app   # импортируем наш обёрточный run
-                result  = run_app(command, timeout=10)     # ← заменили subprocess.run
+                result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
 
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
@@ -817,8 +812,7 @@ class ConnectionTestWorker(QObject):
                 f"https://{domain}/"
             ]
 
-            from utils.subproc import run_app   # импортируем наш обёрточный run
-            result  = run_app(command, timeout=15)     # ← заменили subprocess.run
+            result  = run_hidden(command, timeout=15)     # ← заменили subprocess.run
 
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -845,11 +839,10 @@ class ConnectionTestWorker(QObject):
                 command = ["curl", "--version"]
                 
                 try:
-                    from utils.subproc import run_app
-                    result = run_app(command, timeout=5, capture_output=True)
+                    result = run_hidden(command, timeout=5, capture_output=True)
                 except ImportError:
                     # Fallback на прямой вызов subprocess если импорт не удался
-                    result = subprocess.run(
+                    result = run_hidden(
                         command, 
                         timeout=5, 
                         capture_output=True,
@@ -1246,7 +1239,7 @@ class ConnectionTestDialog(QDialog):
             
             # Открываем папку с файлом
             import subprocess
-            subprocess.Popen(f'explorer /select,"{save_path}"')
+            run_hidden(f'explorer /select,"{save_path}"')
             
         except Exception as e:
             QMessageBox.critical(

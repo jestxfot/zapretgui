@@ -11,7 +11,7 @@ import subprocess
 import os
 from functools import lru_cache
 from typing import List, Tuple, Dict
-
+from utils import run_hidden
 from log import log
 
 
@@ -155,7 +155,7 @@ class DNSManager:
                 f'Get-NetAdapter{status_filter} | '
                 'Select-Object Name,InterfaceDescription | ConvertTo-Json'
             ]
-            res = subprocess.run(
+            res = run_hidden(
                 command, capture_output=True, text=True, timeout=5,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
@@ -232,7 +232,7 @@ class DNSManager:
     '''
 
         try:
-            run = subprocess.run(
+            run = run_hidden(
                 ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
                 '-Command', ps],
                 capture_output=True, text=True, timeout=10,
@@ -271,7 +271,7 @@ class DNSManager:
             }} catch {{}}
             '''
         ]
-        res = subprocess.run(
+        res = run_hidden(
             cmd, capture_output=True, text=True, timeout=5,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
@@ -310,7 +310,7 @@ class DNSManager:
             'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
             f"Set-DnsClientServerAddress -InterfaceAlias '{adapter_name}' {fam_flag} -ResetServerAddresses"
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, shell=False)
+        res = run_hidden(cmd, capture_output=True, text=True, shell=False)
         if res.returncode:
             return False, res.stderr
         return True, "OK"
@@ -318,7 +318,7 @@ class DNSManager:
     # ---- утилита ----------------------------------------------------------
     @staticmethod
     def flush_dns_cache() -> tuple[bool, str]:
-        run = subprocess.run(
+        run = run_hidden(
             ['ipconfig', '/flushdns'],
             capture_output=True, text=True, shell=False
         )
@@ -331,12 +331,12 @@ class DNSManager:
     def _set_ipv4_via_netsh(adapter, primary, secondary=None):
         try:
             cmd1 = f'netsh interface ipv4 set dnsservers "{adapter}" static {primary} primary'
-            r1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, encoding='cp866')
+            r1 = run_hidden(cmd1, shell=True, capture_output=True, text=True, encoding='cp866')
             if r1.returncode:
                 return False, r1.stderr
             if secondary:
                 cmd2 = f'netsh interface ipv4 add dnsservers "{adapter}" {secondary} index=2'
-                subprocess.run(cmd2, shell=True, capture_output=True, text=True, encoding='cp866')
+                run_hidden(cmd2, shell=True, capture_output=True, text=True, encoding='cp866')
             return True, "netsh OK"
         except Exception as e:
             return False, str(e)
@@ -348,7 +348,7 @@ class DNSManager:
             'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
             f"Set-DnsClientServerAddress -InterfaceAlias '{adapter}' -AddressFamily IPv4 -ServerAddresses {arr}"
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = run_hidden(cmd, capture_output=True, text=True)
         return (r.returncode == 0, r.stderr if r.returncode else "PS OK")
 
     @staticmethod
@@ -358,5 +358,5 @@ class DNSManager:
             'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
             f"Set-DnsClientServerAddress -InterfaceAlias '{adapter}' -AddressFamily IPv6 -ServerAddresses {arr}"
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = run_hidden(cmd, capture_output=True, text=True)
         return (r.returncode == 0, r.stderr if r.returncode else "PS OK")

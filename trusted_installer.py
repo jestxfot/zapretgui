@@ -11,6 +11,7 @@ import win32security
 import win32service
 import psutil
 from log import log
+from utils import run_hidden
 
 def is_trusted_installer():
     """Проверяет, запущен ли процесс от имени TrustedInstaller"""
@@ -47,7 +48,7 @@ def ensure_trustedinstaller_service():
         
         if status != win32service.SERVICE_RUNNING:
             log("Запуск службы TrustedInstaller...", "INFO")
-            subprocess.run('sc start TrustedInstaller', shell=True, capture_output=True)
+            run_hidden('sc start TrustedInstaller', shell=True, capture_output=True)
             time.sleep(3)  # Даем время на запуск
             
         return True
@@ -108,7 +109,7 @@ def run_as_trustedinstaller():
             
             # Запускаем через NSudo
             cmd = [nsudo_path, "-U:T", "-P:E", exe_path] + args
-            subprocess.Popen(cmd)
+            run_hidden(cmd)
             return False  # Завершаем текущий процесс
     
     # Способ 2: Через создание службы
@@ -134,14 +135,14 @@ def run_as_trustedinstaller():
 sc create {service_name} binPath= "cmd /c \\"{bat_path}\\"" type= own start= demand
 sc config {service_name} obj= "NT SERVICE\\TrustedInstaller"
 '''
-        subprocess.run(create_service_cmd, shell=True, capture_output=True)
+        run_hidden(create_service_cmd, shell=True, capture_output=True)
         
         # Запускаем службу
-        subprocess.run(f'sc start {service_name}', shell=True)
+        run_hidden(f'sc start {service_name}', shell=True)
         
         # Удаляем службу через некоторое время
         time.sleep(2)
-        subprocess.run(f'sc delete {service_name}', shell=True, capture_output=True)
+        run_hidden(f'sc delete {service_name}', shell=True, capture_output=True)
         
         return False  # Завершаем текущий процесс
         
@@ -181,9 +182,9 @@ sc config {service_name} obj= "NT SERVICE\\TrustedInstaller"
     
     try:
         # Создаем и запускаем задачу
-        subprocess.run(f'schtasks /create /tn "{task_name}" /xml "{xml_path}" /f', shell=True)
-        subprocess.run(f'schtasks /run /tn "{task_name}"', shell=True)
-        subprocess.run(f'schtasks /delete /tn "{task_name}" /f', shell=True)
+        run_hidden(f'schtasks /create /tn "{task_name}" /xml "{xml_path}" /f', shell=True)
+        run_hidden(f'schtasks /run /tn "{task_name}"', shell=True)
+        run_hidden(f'schtasks /delete /tn "{task_name}" /f', shell=True)
         
         return False
         

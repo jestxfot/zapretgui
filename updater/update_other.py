@@ -25,7 +25,7 @@ def update_other_list(parent=None, status_callback=None):
         except ImportError:
             if status_callback:
                 status_callback("Установка зависимостей...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "requests"], 
+            run_hidden([sys.executable, "-m", "pip", "install", "requests"], 
                         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             import requests
         

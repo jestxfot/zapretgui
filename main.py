@@ -21,6 +21,7 @@ from downloader import DOWNLOAD_URLS
 from config import THEME_FOLDER, BAT_FOLDER, INDEXJSON_FOLDER, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
 from config import get_last_strategy, set_last_strategy
 from config import APP_VERSION # build_info moved to config/__init__.py
+from utils import run_hidden
 
 from hosts.hosts import HostsManager
 
@@ -78,7 +79,7 @@ def _handle_update_mode():
 
     try:
         shutil.copy2(new_exe, old_exe)
-        subprocess.Popen([old_exe])          # запускаем новую версию
+        run_hidden([old_exe])          # запускаем новую версию
         log("Файл обновления применён", "INFO")
     except Exception as e:
         log(f"Ошибка в режиме --update: {e}", "❌ ERROR")
@@ -412,22 +413,25 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Скрываем левую колонку (кнопки запуска/остановки)
             self.start_stop_stack.setVisible(False)
             
-            # Показываем кнопку отключения автозапуска и растягиваем на 2 колонки
+            # Показываем кнопку отключения автозапуска
             self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
             
             # Удаляем стек автозапуска из текущей позиции
             self.button_grid.removeWidget(self.autostart_stack)
             
-            # Добавляем его обратно, но на 2 колонки
+            # Добавляем его обратно на 2 колонки
             self.button_grid.addWidget(self.autostart_stack, 0, 0, 1, 2)
             
         else:
             # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
-            # Показываем левую колонку обратно
+            # Сначала удаляем все виджеты из первой строки
+            self.button_grid.removeWidget(self.autostart_stack)
+            self.button_grid.removeWidget(self.start_stop_stack)
+            
+            # Показываем левую колонку
             self.start_stop_stack.setVisible(True)
             
-            # Возвращаем стандартную раскладку
-            self.button_grid.removeWidget(self.autostart_stack)
+            # Добавляем виджеты в правильном порядке
             self.button_grid.addWidget(self.start_stop_stack, 0, 0)
             self.button_grid.addWidget(self.autostart_stack, 0, 1)
             
@@ -440,6 +444,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.start_stop_stack.setCurrentWidget(self.stop_btn)
             else:
                 self.start_stop_stack.setCurrentWidget(self.start_btn)
+            
+        # Принудительное обновление layout
+        self.button_grid.update()
+        QApplication.processEvents()
 
     def show_start_button(self):
         """Показывает кнопку запуска"""
@@ -1685,7 +1693,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def open_folder(self):
         """Opens the DPI folder."""
         try:
-            subprocess.Popen('explorer.exe .', shell=True)
+            run_hidden('explorer.exe .', shell=True)
         except Exception as e:
             self.set_status(f"Ошибка при открытии папки: {str(e)}")
 
@@ -1748,6 +1756,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self._stop_and_exit_async()
 
     def remove_autostart(self):
+        """Удаляет автозапуск ВЕСЬ вообще и обновляет UI"""
         cleaner = AutoStartCleaner(
             status_cb=self.set_status      # передаём вашу строку статуса
         )
@@ -1946,30 +1955,27 @@ def set_batfile_association():
     Устанавливает ассоциацию типа файла для .bat файлов
     """
     try:
-        # Выполняем команду через subprocess
-        # Формируем команду
+        # Используем максимально скрытый режим
         command = 'ftype batfile="%SystemRoot%\\System32\\cmd.exe" /c "%1" %*'
         
-        # Выполняем команду через subprocess
-        result = subprocess.run(
+        result = run_hidden(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            encoding='utf-8'
+            encoding='utf-8',
+            use_vbs_for_bat=False  # Для команд ftype не используем VBS
         )
 
-        # Проверяем результат
         if result.returncode == 0:
-            log("Ассоциация успешно установлена", level="set_batfile_association")
-            log(f"Вывод: {result.stdout}", level="set_batfile_association")
+            log("Ассоциация успешно установлена", level="INFO")
             return True
         else:
-            log(f"Ошибка при выполнении команды: {result.stderr}", level="❌ ERROR set_batfile_association")
+            log(f"Ошибка при выполнении команды: {result.stderr}", level="❌ ERROR")
             return False
             
     except Exception as e:
-        log(f"Произошла ошибка: {e}", level="❌ ERROR set_batfile_association")
+        log(f"Произошла ошибка: {e}", level="❌ ERROR")
         return False
 
 def main():

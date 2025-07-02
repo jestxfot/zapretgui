@@ -4,6 +4,7 @@ from pathlib import Path
 import json, sys, subprocess, traceback
 from log import log
 from typing import Callable, Optional
+from utils import run_hidden # обёртка для subprocess.run
 
 
 def _resolve_bat_folder(bat_folder: str) -> Path:
@@ -117,7 +118,7 @@ def _create_task_scheduler_job(
     ]
 
     try:
-        res = subprocess.run(
+        res = run_hidden(
             cmd,
             capture_output=True,
             text=True,
@@ -144,7 +145,7 @@ def _create_task_scheduler_job(
         return False
     except UnicodeDecodeError:
         try:
-            res = subprocess.run(
+            res = run_hidden(
                 cmd,
                 capture_output=True,
                 text=True,

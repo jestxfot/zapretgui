@@ -9,7 +9,7 @@ from config import BIN_FOLDER
 
 # Добавляем импорт кэша
 from startup.check_cache import startup_cache
-
+from utils import run_hidden
 import psutil
 
 def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
@@ -42,7 +42,7 @@ def check_system_commands() -> tuple[bool, str]:
     
     for cmd_name, test_command in required_commands:
         try:
-            result = subprocess.run(
+            result = run_hidden(
                 test_command,
                 shell=True,
                 capture_output=True,
@@ -632,7 +632,7 @@ def _service_exists_sc(name: str) -> bool:
     Проверка через `sc query`.  Работает без прав администратора.
     """
     exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe")
-    proc = subprocess.run(
+    proc = run_hidden(
         [exe, "query", name],
         capture_output=True,
         text=True,

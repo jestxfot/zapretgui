@@ -4,6 +4,7 @@ import time
 import threading
 import glob
 import psutil
+from utils import run_hidden # Импортируем нашу обертку для subprocess
 
 class DiscordManager:
     """Класс для управления процессом Discord"""
@@ -104,7 +105,7 @@ class DiscordManager:
                 discord_path = self.find_discord_path()
                 if discord_path:
                     self.set_status(f"Запускаем Discord снова...")
-                    subprocess.Popen(discord_path)
+                    run_hidden(discord_path)
                     self.set_status("Discord был успешно перезапущен")
                 else:
                     self.set_status("Не удалось найти путь к Discord для перезапуска")

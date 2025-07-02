@@ -26,7 +26,7 @@ def _check_kaspersky_antivirus(self):
         
         # Получаем список запущенных процессов
         try:
-            result = subprocess.run(['C:\\Windows\\System32\\tasklist.exe'], capture_output=True, text=True, shell=True)
+            result = run_hidden(['C:\\Windows\\System32\\tasklist.exe'], capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 running_processes = result.stdout.lower()
                 

@@ -12,6 +12,7 @@ from typing import List, Tuple, Optional
 
 from log import log
 from dns import DNSManager, DEFAULT_EXCLUSIONS               # ← главное изменение!
+from utils import run_hidden
 
 # PyQt сигналы нужны только если вы запускаете из GUI потока
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -47,7 +48,7 @@ class DNSForceManager:
     def check_ipv6_connectivity():
         """Проверяет доступность IPv6 подключения"""
         try:
-            result = subprocess.run(
+            result = run_hidden(
                 ['C:\\Windows\\System32\\ping.exe', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
                 capture_output=True, 
                 text=True, 
@@ -157,7 +158,7 @@ class DNSForceManager:
             cmd = f'netsh interface {interface_type} set dnsservers "{adapter_name}" static {primary_dns} primary'
             log(f"DEBUG: Устанавливаем {ip_version} DNS: {cmd}", "DEBUG")
             
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+            result = run_hidden(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
             
             if result.returncode != 0:
                 log(f"Ошибка установки первичного {ip_version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
@@ -168,7 +169,7 @@ class DNSForceManager:
                 cmd2 = f'netsh interface {interface_type} add dnsservers "{adapter_name}" {secondary_dns} index=2'
                 log(f"DEBUG: Добавляем вторичный {ip_version} DNS: {cmd2}", "DEBUG")
                 
-                result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                result2 = run_hidden(cmd2, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
                 if result2.returncode != 0:
                     log(f"Предупреждение: не удалось добавить вторичный {ip_version} DNS: {result2.stderr}", "⚠ WARNING")
             
@@ -186,7 +187,7 @@ class DNSForceManager:
             interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
             
             cmd = f'netsh interface {interface_type} show dnsservers "{adapter_name}"'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=5)
+            result = run_hidden(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=5)
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -215,7 +216,7 @@ class DNSForceManager:
                 interface_type = 'ipv4' if ip_version == 'ipv4' else 'ipv6'
                 cmd = f'netsh interface {interface_type} set dnsservers "{adapter_name}" dhcp'
                 
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                result = run_hidden(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
                 if result.returncode == 0:
                     log(f"{ip_version.upper()} DNS для {adapter_name} сброшен на автоматический", "DNS")
                     return True
@@ -227,7 +228,7 @@ class DNSForceManager:
                 success = True
                 for version in ['ipv4', 'ipv6']:
                     cmd = f'netsh interface {version} set dnsservers "{adapter_name}" dhcp'
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
+                    result = run_hidden(cmd, shell=True, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW, timeout=10)
                     if result.returncode != 0:
                         log(f"Ошибка сброса {version} DNS для {adapter_name}: {result.stderr}", "❌ ERROR")
                         success = False
@@ -295,7 +296,7 @@ class DNSForceManager:
         all_adapters = []
         
         try:
-            res = subprocess.run(
+            res = run_hidden(
                 ['netsh', 'interface', 'show', 'interface'],
                 capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW
             )
@@ -343,7 +344,7 @@ class DNSForceManager:
         try:
             # Получаем состояние интерфейса
             cmd = ['netsh', 'interface', 'show', 'interface']
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
+            result = run_hidden(cmd, capture_output=True, text=True, encoding='cp866', creationflags=CREATE_NO_WINDOW)
             
             if result.returncode == 0:
                 for line in result.stdout.splitlines():

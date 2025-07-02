@@ -1,5 +1,5 @@
-from .subproc import run_app
+from .subproc import run_hidden
 
 __all__ = [
-    "run_app"
+    "run_hidden"
 ]

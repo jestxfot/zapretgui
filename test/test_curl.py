@@ -16,7 +16,7 @@ class CurlChecker:
                     
                 command = ["curl", "--version"]
                 # Временно используем subprocess.run напрямую
-                result = subprocess.run(
+                result = run_hidden(
                     command, 
                     timeout=5, 
                     capture_output=True,
@@ -50,7 +50,7 @@ print(f"Curl доступен: {checker.is_curl_available()}")
 # Дополнительная проверка
 print("\nПрямая проверка curl:")
 try:
-    result = subprocess.run(["curl", "--version"], capture_output=True, text=True)
+    result = run_hidden(["curl", "--version"], capture_output=True, text=True)
     print(f"Return code: {result.returncode}")
     print(f"Output: {result.stdout[:100]}...")
 except Exception as e:

@@ -10,7 +10,7 @@ import argparse, json, subprocess, sys, tempfile, pathlib, datetime, shlex
 
 def run(cmd: list[str] | str):
     print(">", cmd if isinstance(cmd, str) else " ".join(shlex.quote(c) for c in cmd))
-    res = subprocess.run(cmd, shell=isinstance(cmd, str))
+    res = run_hidden(cmd, shell=isinstance(cmd, str))
     if res.returncode:
         sys.exit(res.returncode)
 

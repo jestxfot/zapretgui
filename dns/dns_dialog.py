@@ -12,6 +12,7 @@ from functools import lru_cache
 from dns import DNSManager, DNSForceManager, _normalize_alias, refresh_exclusion_cache
 from typing import List, Tuple, Dict
 import json
+from utils import run_hidden
 
 # Предопределенные DNS-серверы с поддержкой IPv6
 PREDEFINED_DNS = {
@@ -89,7 +90,7 @@ class DNSSettingsDialog(QDialog):
     def check_ipv6_connectivity():
         """Быстрая проверка доступности IPv6 подключения"""
         try:
-            result = subprocess.run(
+            result = run_hidden(
                 ['ping', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
                 capture_output=True, 
                 text=True, 
@@ -104,7 +105,7 @@ class DNSSettingsDialog(QDialog):
         """Проверяем IPv6 подключение в фоне"""
         try:
             # Быстрая проверка IPv6
-            result = subprocess.run(
+            result = run_hidden(
                 ['ping', '-6', '-n', '1', '-w', '2000', '2001:4860:4860::8888'],
                 capture_output=True, 
                 text=True, 

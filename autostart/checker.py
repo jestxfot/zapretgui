@@ -1,5 +1,6 @@
 import subprocess
 import winreg
+from utils import run_hidden # обёртка для subprocess.run
 
 class CheckerManager:
     def __init__(self, winws_exe, status_callback=None, ui_callback=None, service_name="ZapretCensorliber"):
@@ -101,8 +102,8 @@ class CheckerManager:
         for tn in task_names:
             try:
                 # shell=False безопаснее, код короче
-                res = subprocess.run(
-                    ["С:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", tn],
+                res = run_hidden(
+                    ["C:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", tn],
                     capture_output=True,
                     text=True,
                     encoding="cp866",
@@ -123,7 +124,7 @@ class CheckerManager:
             bool: True если служба существует, иначе False
         """
         try:
-            service_result = subprocess.run(
+            service_result = run_hidden(
                 f'C:\\Windows\\System32\\sc.exe query {self.service_name}',
                 shell=True,
                 capture_output=True,

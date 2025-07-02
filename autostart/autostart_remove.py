@@ -5,7 +5,7 @@
 #   • ярлыки в %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 #   • ветка HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
 #   • задачи Планировщика  (ZapretStrategy / ZapretCensorliber)
-#   • службы Windows       (ZapretCensorliber – старая; ZapretStrategyService – новая)
+#   • службы Windows       (ZapretCensorliber)
 #
 # Если появляется ещё одна служба/задача/ярлык — просто добавьте имя в
 # соответствующий список/кортеж ниже, и чистильщик автоматически удалит её.
@@ -15,6 +15,7 @@ from __future__ import annotations
 import os, subprocess, time, winreg
 from pathlib import Path
 from typing import Callable, Iterable
+from utils import run_hidden # обёртка для subprocess.run
 
 from log import log         # тот же логгер, что и в проекте
 
@@ -27,7 +28,7 @@ class AutoStartCleaner:
     # что именно ищем/удаляем — вынесено в «константы» для наглядности
     STARTUP_SHORTCUTS: tuple[str, ...] = ("ZapretGUI.lnk", "ZapretStrategy.lnk")
     SCHEDULER_TASKS:   tuple[str, ...] = ("ZapretStrategy", "ZapretCensorliber")
-    SERVICE_NAMES:     tuple[str, ...] = ("ZapretCensorliber", "ZapretStrategyService")
+    SERVICE_NAMES:     tuple[str, ...] = ("ZapretCensorliber", "ZapretCensorliber")
 
     def __init__(
         self,
@@ -94,7 +95,7 @@ class AutoStartCleaner:
     def _remove_scheduler_tasks(cls) -> bool:
         removed_any = False
         for task in cls.SCHEDULER_TASKS:
-            check = subprocess.run(
+            check = run_hidden(
                 ["C:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", task],
                 capture_output=True,
                 text=True,
@@ -103,7 +104,7 @@ class AutoStartCleaner:
             )
             if check.returncode == 0:
                 log(f"Найдена задача {task}, удаляем…", "INFO")
-                subprocess.run(
+                run_hidden(
                     ["C:\\Windows\\System32\\schtasks.exe", "/Delete", "/TN", task, "/F"],
                     capture_output=True,
                     text=True,
@@ -120,7 +121,7 @@ class AutoStartCleaner:
         Return True, если служба была удалена (или попробовали удалить)  
         False – служба не найдена.
         """
-        query = subprocess.run(
+        query = run_hidden(
             ["sc", "query", svc_name],
             capture_output=True,
             text=True,
@@ -132,13 +133,13 @@ class AutoStartCleaner:
 
         self._status(f"Остановка службы «{svc_name}»…")
         log(f"Останавливаем службу {svc_name}", "INFO")
-        subprocess.run(["C:\\Windows\\System32\\sc.exe", "stop", svc_name], capture_output=True)
+        run_hidden(["C:\\Windows\\System32\\sc.exe", "stop", svc_name], capture_output=True)
 
         time.sleep(1)  # даём службе погаснуть
 
         self._status(f"Удаление службы «{svc_name}»…")
         log(f"Удаляем службу {svc_name}", "INFO")
-        delete = subprocess.run(
+        delete = run_hidden(
             ["C:\\Windows\\System32\\sc.exe", "delete", svc_name],
             capture_output=True,
             text=True,

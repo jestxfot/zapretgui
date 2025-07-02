@@ -9,6 +9,7 @@ from config import APP_VERSION # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
 from config import get_auto_download_enabled, set_auto_download_enabled
+from utils import run_hidden
 
 # ─── работа с реестром ──────────────────────────
 from config import (
@@ -558,7 +559,7 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        subprocess.Popen(f'"{editor}" "{NETROGAT2_PATH}"', shell=True)
+                        run_hidden(f'"{editor}" "{NETROGAT2_PATH}"', shell=True)
                         editor_name = os.path.basename(editor)
                         self._pw.set_status(f"Открыт файл исключений в {editor_name}")
                         success = True
@@ -611,7 +612,7 @@ class AppMenuBar(QMenuBar):
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        subprocess.Popen(f'"{editor}" "{OTHER2_PATH}"', shell=True)
+                        run_hidden(f'"{editor}" "{OTHER2_PATH}"', shell=True)
                         editor_name = os.path.basename(editor)
                         self._pw.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
                         success = True
