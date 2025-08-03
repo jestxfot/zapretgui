@@ -96,8 +96,7 @@ class CheckerManager:
         True, если в Планировщике есть хотя бы одна
         из «наших» задач автозапуска.
         """
-        task_names = ("ZapretCensorliber",  # старая
-                      "ZapretStrategy")     # новая
+        task_names = ("ZapretCensorliber", "ZapretStrategy", "ZapretGUI_AutoStart")
 
         for tn in task_names:
             try:

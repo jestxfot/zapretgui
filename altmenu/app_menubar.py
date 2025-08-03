@@ -1,4 +1,4 @@
-# app_menubar.py
+# altmenu/app_menubar.py
 
 from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox, QApplication
 from PyQt6.QtGui     import QKeySequence, QAction
@@ -8,8 +8,10 @@ import webbrowser
 from config import APP_VERSION # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
+from .defender_manager import WindowsDefenderManager
 from config import get_auto_download_enabled, set_auto_download_enabled
 from utils import run_hidden
+from log import log, LogViewerDialog, global_logger
 
 # ─── работа с реестром ──────────────────────────
 from config import (
@@ -38,14 +40,14 @@ class AppMenuBar(QMenuBar):
         auto_download_action.setChecked(get_auto_download_enabled())
         auto_download_action.triggered.connect(self.toggle_auto_download)
 
-        # Чек-бокс «Автозапуск DPI»
-        self.auto_dpi_act = QAction("Автозапуск DPI", self, checkable=True)
+        # Чек-бокс Автозагрузка DPI»
+        self.auto_dpi_act = QAction("Автозагрузка DPI", self, checkable=True)
         self.auto_dpi_act.setChecked(get_dpi_autostart())
         self.auto_dpi_act.toggled.connect(self.toggle_dpi_autostart)
         file_menu.addAction(self.auto_dpi_act)
 
-        # 2Чек-бокс «Автозагрузка стратегий» (раз уж из трея убран)
-        self.auto_strat_act = QAction("Автозагрузка стратегий", self, checkable=True)
+        # 2Чек-бокс Автообновление стратегий» (раз уж из трея убран)
+        self.auto_strat_act = QAction("Автообновление стратегий", self, checkable=True)
         self.auto_strat_act.setChecked(get_strategy_autoload())
         self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
         file_menu.addAction(self.auto_strat_act)
@@ -57,6 +59,15 @@ class AppMenuBar(QMenuBar):
 
         self.clear_cache = file_menu.addAction("Сбросить программу")
         self.clear_cache.triggered.connect(self.clear_startup_cache)
+
+        file_menu.addSeparator()
+
+        # Windows Defender
+        file_menu.addSeparator()
+        self.defender_act = QAction("Отключить Windows Defender", self, checkable=True)
+        self.defender_act.setChecked(self._get_defender_disabled())
+        self.defender_act.toggled.connect(self.toggle_windows_defender)
+        file_menu.addAction(self.defender_act)
 
         self.remove_wt_act = QAction("Удалять Windows Terminal", self, checkable=True)
         self.remove_wt_act.setChecked(get_remove_windows_terminal())
@@ -135,6 +146,7 @@ class AppMenuBar(QMenuBar):
         act_byedpi_telegram = QAction("Telegram группа", self)
         act_byedpi_telegram.triggered.connect(self.open_byedpi_telegram)
         android_menu.addAction(act_byedpi_telegram)
+        
 
     def _get_force_dns_enabled(self) -> bool:
         """Получает текущее состояние принудительного DNS"""
@@ -143,7 +155,6 @@ class AppMenuBar(QMenuBar):
             manager = DNSForceManager()
             return manager.is_force_dns_enabled()
         except Exception as e:
-            from log import log
             log(f"Ошибка при проверке состояния Force DNS: {e}", "❌ ERROR")
             return False
 
@@ -151,7 +162,7 @@ class AppMenuBar(QMenuBar):
         """
         Включает/выключает принудительную установку DNS 9.9.9.9
         """
-        from log import log
+
         from dns import DNSForceManager
         
         try:
@@ -298,7 +309,6 @@ class AppMenuBar(QMenuBar):
                 "DNS сброшен",
                 f"DNS сброшен на автоматическое получение на {success_count} из {len(adapters)} адаптеров."
             )
-            from log import log
             log(f"DNS сброшен на авто: {success_count}/{len(adapters)} адаптеров", "INFO")
         else:
             QMessageBox.warning(
@@ -309,7 +319,6 @@ class AppMenuBar(QMenuBar):
 
     def toggle_auto_download(self, checked):
         """Переключает автозагрузку при старте"""
-        from log import log
         try:
             set_auto_download_enabled(checked)
             
@@ -327,7 +336,6 @@ class AppMenuBar(QMenuBar):
     def clear_startup_cache(self):
         """Очищает кэш проверок запуска"""
         from startup.check_cache import startup_cache
-        from log import log
         try:
             startup_cache.invalidate_cache()
             QMessageBox.information(self._pw, "Настройки программы сброшены", 
@@ -391,25 +399,18 @@ class AppMenuBar(QMenuBar):
             QMessageBox.information(self._pw, "Удаление Windows Terminal", msg)
 
     def toggle_dpi_autostart(self, enabled: bool):
-        """
-        Включает / выключает автозапуск DPI и показывает диалог-уведомление.
-        """
         set_dpi_autostart(enabled)
 
-        msg = ("DPI будет запускаться автоматически при старте программы"
+        msg = ("DPI будет включаться автоматически при старте программы"
                if enabled
-               else "Автоматический запуск DPI отключён")
+               else "Автозагрузка DPI отключена")
         self._set_status(msg)
-        QMessageBox.information(self._pw, "Автозапуск DPI", msg)
+        QMessageBox.information(self._pw, "Автозагрузка DPI", msg)
 
     def toggle_strategy_autoload(self, enabled: bool):
-        """
-        Повторяет логику, которая раньше была в трее: при отключении
-        спрашивает подтверждение.
-        """
         if not enabled:
             warn = (
-                "<b>Вы действительно хотите ОТКЛЮЧИТЬ автозагрузку "
+                "<b>Вы действительно хотите ОТКЛЮЧИТЬ автообновления "
                 "стратегий?</b><br><br>"
                 "⚠️  Это <span style='color:red;font-weight:bold;'>сломает</span> "
                 "быстрое и удобное обновление стратегий без переустановки "
@@ -417,7 +418,7 @@ class AppMenuBar(QMenuBar):
             )
             resp = QMessageBox.question(
                 self._pw,
-                "Отключить автозагрузку стратегий?",
+                "Отключить автообновление стратегий?",
                 warn,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No
@@ -433,9 +434,9 @@ class AppMenuBar(QMenuBar):
         set_strategy_autoload(enabled)
         msg = ("Стратегии будут скачиваться автоматически"
                if enabled
-               else "Автозагрузка стратегий отключена")
+               else "Автообновлений стратегий отключена")
         self._set_status(msg)
-        QMessageBox.information(self._pw, "Автозагрузка стратегий", msg)
+        QMessageBox.information(self._pw, "Автообновление стратегий", msg)
 
     # ==================================================================
     #  Полный выход (убираем трей +, при желании, останавливаем DPI)
@@ -503,7 +504,24 @@ class AppMenuBar(QMenuBar):
     # === ОБРАБОТЧИКИ ДЛЯ ХОСТЛИСТОВ ===
     def _update_exclusions(self):
         """Обновляет список исключений"""
-        from log import log
+        # Добавляем диалог подтверждения
+        msg_box = QMessageBox(self._pw)
+        msg_box.setWindowTitle("Подтверждение обновления")
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        msg_box.setText("Вы точно хотите обновить исключения с сервера?")
+        msg_box.setInformativeText(
+            "Это действие загрузит новый список исключений с сервера и "
+            "перезапишет текущий список.\n\n"
+            "Ваши пользовательские исключения сохранятся."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        
+        if msg_box.exec() != QMessageBox.StandardButton.Yes:
+            return  # Пользователь отменил
+        
         from updater import update_netrogat_list
         try:
             if hasattr(self._pw, 'hosts_manager'):
@@ -518,7 +536,24 @@ class AppMenuBar(QMenuBar):
 
     def _update_custom_sites(self):
         """Обновляет список пользовательских сайтов"""
-        from log import log
+        # Добавляем диалог подтверждения
+        msg_box = QMessageBox(self._pw)
+        msg_box.setWindowTitle("Подтверждение обновления")
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        msg_box.setText("Вы точно хотите обновить кастомные сайты с сервера?")
+        msg_box.setInformativeText(
+            "Это действие загрузит новый список кастомных сайтов с сервера и "
+            "перезапишет текущий список.\n\n"
+            "Ваши пользовательские кастомные сайты сохранятся."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        
+        if msg_box.exec() != QMessageBox.StandardButton.Yes:
+            return  # Пользователь отменил
+
         from updater import update_other_list
         try:
             if hasattr(self._pw, 'hosts_manager'):
@@ -533,7 +568,6 @@ class AppMenuBar(QMenuBar):
 
     def _exclude_custom_sites(self):
         """Открывает файл для исключения пользовательских сайтов"""
-        from log import log
         try:
             import subprocess
             import os
@@ -589,7 +623,6 @@ class AppMenuBar(QMenuBar):
 
     def _add_custom_sites(self):
         """Открывает файл для добавления пользовательских сайтов"""
-        from log import log
         try:
             import subprocess
             import os
@@ -661,7 +694,6 @@ class AppMenuBar(QMenuBar):
         Держим ссылку на объект, чтобы его не удалил сборщик мусора.
         """
         try:
-            from log import LogViewerDialog, global_logger
             # если окно уже открыто ‑ просто поднимаем его
             if getattr(self, "_log_dlg", None) and self._log_dlg.isVisible():
                 self._log_dlg.raise_()
@@ -723,17 +755,24 @@ class AppMenuBar(QMenuBar):
         worker.moveToThread(thr)
         thr.started.connect(worker.run)
 
-        def _on_done(ok: bool, extra_wait: float):
+        def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
             if ok:
                 QMessageBox.information(wnd, "Отправка", "Лог успешно отправлен.")
                 if hasattr(wnd, "set_status"):
                     wnd.set_status("Полный лог отправлен в Telegram")
             else:
-                QMessageBox.warning(wnd, "Отправка",
-                    "Не удалось отправить лог (flood-wait).\n"
-                    "Повторите позже.")
+                if extra_wait > 0:
+                    QMessageBox.warning(wnd, "Отправка",
+                        f"Слишком частые запросы (flood-wait).\n"
+                        f"Повторите через {int(extra_wait/60)} минут.")
+                else:
+                    QMessageBox.warning(wnd, "Отправка",
+                        f"Не удалось отправить лог.\n"
+                        f"Ошибка: {error_msg}")
+                
                 if hasattr(wnd, "set_status"):
                     wnd.set_status("Не удалось отправить лог")
+            
             # чистим
             worker.deleteLater()
             thr.quit(); thr.wait()
@@ -800,3 +839,149 @@ class AppMenuBar(QMenuBar):
             err = f"Ошибка при открытии Telegram: {e}"
             self._set_status(err)
             QMessageBox.warning(self._pw, "Ошибка", err)
+
+    def _get_defender_disabled(self) -> bool:
+        """Проверяет, отключен ли Windows Defender"""
+        try:
+            manager = WindowsDefenderManager()
+            return manager.is_defender_disabled()
+        except Exception as e:
+            log(f"Ошибка при проверке состояния Windows Defender: {e}", "❌ ERROR")
+            return False
+
+    def toggle_windows_defender(self, disable: bool):
+        """Включает/выключает Windows Defender"""
+        import ctypes
+        
+        # Проверяем права администратора
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            QMessageBox.critical(
+                self._pw,
+                "Требуются права администратора",
+                "Для управления Windows Defender требуются права администратора.\n\n"
+                "Перезапустите программу от имени администратора."
+            )
+            # Откатываем галочку
+            self.defender_act.blockSignals(True)
+            self.defender_act.setChecked(not disable)
+            self.defender_act.blockSignals(False)
+            return
+        
+        try:
+            manager = WindowsDefenderManager(status_callback=self._set_status)
+            
+            if disable:
+                # Показываем предупреждение перед отключением
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Отключение Windows Defender")
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setText(
+                    "Вы действительно хотите отключить Windows Defender?\n\n"
+                )
+                msg_box.setInformativeText(
+                    "Отключение Windows Defender:\n"
+                    "• Отключит защиту в реальном времени\n"
+                    "• Отключит облачную защиту\n"
+                    "• Отключит автоматическую отправку образцов\n"
+                    "• Может потребовать перезагрузки для полного применения\n\n"
+                )
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    # Пользователь отменил - откатываем галочку
+                    self.defender_act.blockSignals(True)
+                    self.defender_act.setChecked(False)
+                    self.defender_act.blockSignals(False)
+                    return
+                
+                # Отключаем Defender
+                self._set_status("Отключение Windows Defender...")
+                success, count = manager.disable_defender()
+                
+                if success:
+                    # Сохраняем настройку
+                    from .defender_manager import set_defender_disabled
+                    set_defender_disabled(True)
+                    
+                    QMessageBox.information(
+                        self._pw,
+                        "Windows Defender отключен",
+                        f"Windows Defender успешно отключен.\n"
+                        f"Применено {count} настроек.\n\n"
+                        "Для полного применения изменений может потребоваться перезагрузка."
+                    )
+                    log(f"Windows Defender отключен пользователем", "⚠️ WARNING")
+                else:
+                    QMessageBox.critical(
+                        self._pw,
+                        "Ошибка",
+                        "Не удалось отключить Windows Defender.\n"
+                        "Возможно, некоторые настройки заблокированы системой."
+                    )
+                    # Откатываем настройку
+                    self.defender_act.blockSignals(True)
+                    self.defender_act.setChecked(False)
+                    self.defender_act.blockSignals(False)
+                    
+            else:
+                # Включение Windows Defender
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Включение Windows Defender")
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText(
+                    "Включить Windows Defender обратно?\n\n"
+                    "Это восстановит защиту вашего компьютера."
+                )
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    # Пользователь отменил - возвращаем галочку
+                    self.defender_act.blockSignals(True)
+                    self.defender_act.setChecked(True)
+                    self.defender_act.blockSignals(False)
+                    return
+                
+                # Включаем Defender
+                self._set_status("Включение Windows Defender...")
+                success, count = manager.enable_defender()
+                
+                if success:
+                    # Сохраняем настройку
+                    from .defender_manager import set_defender_disabled
+                    set_defender_disabled(False)
+                    
+                    QMessageBox.information(
+                        self._pw,
+                        "Windows Defender включен",
+                        f"Windows Defender успешно включен.\n"
+                        f"Выполнено {count} операций.\n\n"
+                        "Защита вашего компьютера восстановлена."
+                    )
+                    log("Windows Defender включен пользователем", "✅ INFO")
+                else:
+                    QMessageBox.warning(
+                        self._pw,
+                        "Частичный успех",
+                        "Windows Defender включен частично.\n"
+                        "Для полного восстановления может потребоваться перезагрузка."
+                    )
+                    
+            self._set_status("Готово")
+            
+        except Exception as e:
+            log(f"Ошибка при переключении Windows Defender: {e}", "❌ ERROR")
+            QMessageBox.critical(
+                self._pw,
+                "Ошибка",
+                f"Произошла ошибка при изменении настроек Windows Defender:\n{e}"
+            )
+            # В случае ошибки откатываем галочку
+            self.defender_act.blockSignals(True)
+            self.defender_act.setChecked(not disable)
+            self.defender_act.blockSignals(False)

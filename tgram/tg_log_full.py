@@ -49,7 +49,7 @@ def _file_hash(path: str) -> str:
 # ──────────────────────────────────────────────────────────────────
 class TgSendWorker(QObject):
     """Воркер, работающий в отдельном потоке: отправляет один файл."""
-    finished = pyqtSignal(bool, float)      # ok, extra_wait_seconds
+    finished = pyqtSignal(bool, float, str)  # ok, extra_wait_seconds, error_msg
 
     def __init__(self, path: str, caption: str):
         super().__init__()
@@ -60,15 +60,18 @@ class TgSendWorker(QObject):
         from tgram import send_file_to_tg
         try:
             ok = send_file_to_tg(self._path, self._cap)
-            # Преобразуем None в False
-            if ok is None:
-                ok = False
-            self.finished.emit(ok, 0.0)
+            if ok:
+                self.finished.emit(True, 0.0, "")
+            else:
+                self.finished.emit(False, 0.0, "Ошибка отправки")
         except Exception as e:
-            # send_file_to_tg уже залогировал; если это flood-wait,
-            # функция внутри сама ждала, но мы дадим ещё 60 с запаса
-            log(f"[FullLogDaemon] worker error: {e}", "❌ ERROR")
-            self.finished.emit(False, 60.0)
+            error_msg = str(e)
+            # Проверяем, это flood-wait или другая ошибка
+            is_flood_wait = "429" in error_msg or "Too Many Requests" in error_msg
+            extra_wait = 60.0 if is_flood_wait else 0.0
+            
+            log(f"[FullLogDaemon] worker error: {error_msg}", "❌ ERROR")
+            self.finished.emit(False, extra_wait, error_msg)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -145,9 +148,16 @@ class FullLogDaemon(QObject):
 
         thread.started.connect(worker.run)
 
-        def _on_done(ok: bool, extra_wait: float):
-            if not ok:
-                self._suspend_until = time.time() + extra_wait
+        def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
+            if ok:
+                log("[FullLogDaemon] Лог успешно отправлен в Telegram", "✅ INFO")
+            else:
+                if extra_wait > 0:
+                    log(f"[FullLogDaemon] Flood-wait, пауза {extra_wait}s", "⚠ WARNING")
+                    self._suspend_until = time.time() + extra_wait
+                else:
+                    log(f"[FullLogDaemon] Ошибка отправки: {error_msg}", "❌ ERROR")
+            
             worker.deleteLater()
             thread.quit()
             thread.wait()

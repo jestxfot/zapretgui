@@ -266,7 +266,7 @@ class ProviderHeaderItem(QListWidgetItem):
 
 class StrategyItem(QWidget):
     """Виджет для отображения элемента стратегии с цветной меткой и статусом версии"""
-    def __init__(self, display_name, label=None, sort_order=None, version_status=None, parent=None):
+    def __init__(self, display_name, label=None, strategy_number=None, version_status=None, parent=None):
         super().__init__(parent)
         
         # Создаем горизонтальный layout с увеличенными вертикальными отступами
@@ -276,8 +276,8 @@ class StrategyItem(QWidget):
         
         # Основной текст стратегии
         text = ""
-        if sort_order is not None and sort_order != 999:
-            text = f"{sort_order}. "
+        if strategy_number is not None:
+            text = f"{strategy_number}. "
         text += display_name
         
         # Создаем основную метку и задаем ей стиль
@@ -712,10 +712,10 @@ class StrategySelector(QDialog):
                 providers[provider] = []
             providers[provider].append((strategy_id, strategy_info))
         
-        # Сортируем провайдеров и стратегии внутри каждого провайдера
+        # ✅ ИЗМЕНЕНО: убираем сортировку, оставляем порядок как в JSON
         sorted_providers = sorted(providers.items())
-        for provider, strategies_list in sorted_providers:
-            strategies_list.sort(key=lambda x: (x[1].get('sort_order', 999), x[1].get('name', '')))
+        # Убрано: for provider, strategies_list in sorted_providers:
+        #             strategies_list.sort(key=lambda x: x[1].get('name', ''))
         
         # Подсчитываем общее количество строк
         total_rows = sum(1 + len(strategies_list) for provider, strategies_list in sorted_providers)
@@ -741,7 +741,9 @@ class StrategySelector(QDialog):
             self.strategies_table.setSpan(current_row, 0, 1, 4)
             current_row += 1
             
-            # Добавляем стратегии для этого провайдера
+            # ✅ ИЗМЕНЕНО: добавляем нумерацию стратегий начиная с 1 для каждого провайдера
+            # Оставляем порядок как в JSON
+            strategy_number = 1
             for strategy_id, strategy_info in strategies_list:
                 # Сохраняем соответствие строки и стратегии
                 self.strategies_map[current_row] = {
@@ -749,17 +751,21 @@ class StrategySelector(QDialog):
                     'name': strategy_info.get('name', strategy_id)
                 }
                 
-                # Заполняем строку таблицы, передавая кэш стратегий
-                self.populate_strategy_row(current_row, strategy_id, strategy_info, strategies)
+                # Заполняем строку таблицы, передавая номер стратегии
+                self.populate_strategy_row(current_row, strategy_id, strategy_info, strategies, strategy_number)
                 current_row += 1
+                strategy_number += 1
 
-    def populate_strategy_row(self, row, strategy_id, strategy_info, strategies_cache=None):
+    def populate_strategy_row(self, row, strategy_id, strategy_info, strategies_cache=None, strategy_number=None):
         """Заполняет одну строку таблицы данными стратегии."""
 
-        # Название стратегии
+        # ✅ ИЗМЕНЕНО: используем переданный номер стратегии вместо sort_order
         strategy_name = strategy_info.get('name', strategy_id)
-        sort_order = strategy_info.get('sort_order', 0)
-        display_name = f"   {sort_order}. {strategy_name}"
+        if strategy_number is not None:
+            display_name = f"   {strategy_number}. {strategy_name}"
+        else:
+            display_name = f"   {strategy_name}"
+        
         name_item = QTableWidgetItem(display_name)
         self.strategies_table.setItem(row, 0, name_item)
         

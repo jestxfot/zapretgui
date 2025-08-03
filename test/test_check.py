@@ -6,7 +6,7 @@ def test_download_speed():
     print("\n📋 Тест 8: Проверка скорости скачивания")
     
     # URL большого файла для тестирования
-    download_url = "https://zapretdpi.ru/ZapretSetup.exe"
+    download_url = "https://nozapret.ru/ZapretSetup.exe"
     
     headers = {
         'User-Agent': 'Zapret-App/1.0',

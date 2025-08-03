@@ -20,7 +20,7 @@ PROD_TOKEN   = "7541112559:AAHS8aqz-Jq_MqbtNGpH9DHq_UfO-jCJtRM"
 PROD_CHAT_ID = 6483277608
 
 #  dev-бот  (создайте своего и вставьте данные)
-DEV_TOKEN    = "7508331220:AAFNbBAXKQGwmfbi1ecQ8IBNZv-b1z2W3Kk"
+DEV_TOKEN    = "7372970253:AAGacs1p_YtbGCisOrH_99o70sr_DBLlW0c"
 DEV_CHAT_ID  = 6483277608
 
 #  выбираем
@@ -28,7 +28,7 @@ TOKEN   = DEV_TOKEN   if IS_DEV_BUILD else PROD_TOKEN
 CHAT_ID = DEV_CHAT_ID if IS_DEV_BUILD else PROD_CHAT_ID
 
 # интервалы / лимиты
-INTERVAL  = 120 # сек между отправками
+INTERVAL  = 200 # сек между отправками
 MAX_CHUNK = 3500
 
 # ---------- Client-ID (как было) ------------------------------------

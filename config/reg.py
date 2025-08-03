@@ -175,3 +175,16 @@ def set_subscription_check_interval(minutes: int):
             winreg.SetValueEx(key, "SubscriptionCheckInterval", 0, winreg.REG_DWORD, int(minutes))
     except Exception as e:
         log(f"Ошибка записи интервала проверки подписки: {e}", "❌ ERROR")
+
+# ───────────── Удаление GitHub API из hosts ─────────────
+_GITHUB_API_KEY  = r"Software\Zapret"
+_GITHUB_API_NAME = "RemoveGitHubAPI"     # REG_DWORD (1/0)
+
+def get_remove_github_api() -> bool:
+    """True – удалять api.github.com из hosts при запуске, False – не удалять."""
+    val = reg(_GITHUB_API_KEY, _GITHUB_API_NAME)
+    return bool(val) if val is not None else True
+
+def set_remove_github_api(enabled: bool) -> bool:
+    """Включает/выключает удаление api.github.com из hosts при запуске."""
+    return reg(_GITHUB_API_KEY, _GITHUB_API_NAME, 1 if enabled else 0)

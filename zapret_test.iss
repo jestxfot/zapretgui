@@ -3,7 +3,7 @@
 ;---------------------------------------------------
 [Setup]
 AppName= Zapret Dev
-AppVersion= 16.3.0.3
+AppVersion= 16.4.2.0.0
 AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
@@ -17,7 +17,7 @@ OutputDir= "D:\Privacy\zapretgui"
 OutputBaseFilename= ZapretSetup_TEST
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile= ZapretDevLogo.ico
+SetupIconFile= ZapretDevLogo3.ico
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes

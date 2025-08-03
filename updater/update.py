@@ -1,9 +1,10 @@
+# updater/update.py
 """
 updater/update.py
 ────────────────────────────────────────────────────────────────
-Проверяет https://zapretdpi.ru/version.json и, если в своём
-канале (stable / test) есть более свежая версия, тихо
-скачивает установщик, запускает его и закрывает программу.
+Проверяет GitHub releases и, если в своём канале (stable / dev) 
+есть более свежая версия, тихо скачивает установщик, запускает 
+его и закрывает программу.
 
 API 100-% совместим со старым кодом:
     • run_update_async(parent, silent=False)        – создаёт поток
@@ -12,19 +13,20 @@ API 100-% совместим со старым кодом:
 """
 from __future__ import annotations
 
-import os, sys, tempfile, subprocess, shutil, time, json
+import os, sys, tempfile, subprocess, shutil, time, requests
 from typing import Callable
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QMessageBox
+from packaging import version
 from utils import run_hidden
 
-# ──────────────────────────── конфиг программы ────────────────────────────
-from config import CHANNEL, APP_VERSION            # build_info moved to config/__init__.py
-from log                import log
+from .release_manager import get_latest_release
+from .github_release import normalize_version
+from config import CHANNEL, APP_VERSION
+from log import log
 
-META_URL = "https://zapretdpi.ru/version.json"                # единый JSON
-TIMEOUT  = 10                                                 # сек.
+TIMEOUT = 10  # сек.
 
 # ──────────────────────────── вспомогательные утилиты ─────────────────────
 def _safe_set_status(parent, msg: str):
@@ -43,19 +45,58 @@ def _kill_winws():
         stderr=subprocess.DEVNULL,
     )
 
-def _download(url: str, dest: str, on_progress: Callable[[int, int], None] | None):
+def _download(url: str, dest: str, on_progress: Callable[[int, int], None] | None, verify_ssl: bool = True):
     import requests
+    
+    # Создаем сессию с настройками SSL
+    session = requests.Session()
+    if not verify_ssl:
+        # Отключаем проверку SSL для самоподписанных сертификатов
+        session.verify = False
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    with requests.get(url, stream=True, timeout=TIMEOUT) as resp:
+    with session.get(url, stream=True, timeout=TIMEOUT, verify=verify_ssl) as resp:
         resp.raise_for_status()
         total = int(resp.headers.get("content-length", 0))
-        done  = 0
+        done = 0
         with open(dest, "wb") as fp:
             for chunk in resp.iter_content(8192):
                 fp.write(chunk)
                 if on_progress and total:
                     done += len(chunk)
                     on_progress(done, total)
+
+def compare_versions(v1: str, v2: str) -> int:
+    """
+    Сравнивает две версии.
+    Возвращает:
+        -1 если v1 < v2
+         0 если v1 == v2
+         1 если v1 > v2
+    """
+    from packaging import version
+    
+    try:
+        # Нормализуем версии
+        v1_norm = normalize_version(v1)
+        v2_norm = normalize_version(v2)
+        
+        # Парсим через packaging.version
+        ver1 = version.parse(v1_norm)
+        ver2 = version.parse(v2_norm)
+        
+        if ver1 < ver2:
+            return -1
+        elif ver1 > ver2:
+            return 1
+        else:
+            return 0
+            
+    except Exception as e:
+        log(f"Error comparing versions '{v1}' and '{v2}': {e}", "🔁❌ ERROR")
+        # Fallback на строковое сравнение
+        return -1 if v1 < v2 else (1 if v1 > v2 else 0)
 
 # ──────────────────────────── фоновой воркер ──────────────────────────────
 class UpdateWorker(QObject):
@@ -67,11 +108,9 @@ class UpdateWorker(QObject):
         self._parent = parent
         self._silent = silent
 
-    # ----------------------------------------------------------
     def _emit(self, msg: str):
         self.progress.emit(msg)
 
-    # ----------------------------------------------------------
     def run(self):
         try:
             ok = check_and_run_update(
@@ -90,11 +129,11 @@ def run_update_async(parent=None, *, silent: bool = False) -> QThread:
     Создаёт QThread + UpdateWorker.
     Возвращает ссылку на thread (в нём есть ._worker).
     """
-    thr   = QThread(parent)
+    thr = QThread(parent)
     worker = UpdateWorker(parent, silent)
     worker.moveToThread(thr)
 
-    thr.started .connect(worker.run)
+    thr.started.connect(worker.run)
     worker.finished.connect(thr.quit)
     worker.finished.connect(worker.deleteLater)
     thr.finished.connect(thr.deleteLater)
@@ -103,7 +142,7 @@ def run_update_async(parent=None, *, silent: bool = False) -> QThread:
     worker.progress.connect(lambda m: _safe_set_status(parent, m))
     worker.progress.connect(lambda m: log(f'{m}', "🔁 UPDATE"))
 
-    thr._worker = worker          # 👈 защитили от GC
+    thr._worker = worker  # 👈 защитили от GC
     thr.start()
 
     # держим thread в parent-окне, чтобы GC не убил раньше времени
@@ -114,19 +153,6 @@ def run_update_async(parent=None, *, silent: bool = False) -> QThread:
         thr.finished.connect(lambda *, l=lst, t=thr: l.remove(t))
 
     return thr
-
-# ──────────────────────────── основная логика ─────────────────────────────
-def safe_json_response(response):
-    """Безопасно парсит JSON из response, обрабатывая BOM"""
-    try:
-        # Сначала пробуем стандартный способ
-        return response.json()
-    except json.JSONDecodeError:
-        # Если не получилось, пробуем с обработкой BOM
-        content = response.content
-        if content.startswith(b'\xef\xbb\xbf'):
-            content = content[3:]
-        return json.loads(content.decode('utf-8'))
     
 def check_and_run_update(
     *,
@@ -135,7 +161,7 @@ def check_and_run_update(
     silent   : bool = False,
 ) -> bool:
     """
-    1) Скачивает META_URL и берёт узел CHANNEL (stable / test).
+    1) Получает последний релиз с GitHub в зависимости от канала.
     2) Если версия новее – (optionally) спрашивает пользователя,
        затем качает .exe → TEMP, останавливает winws.exe
        и запускает установщик.
@@ -148,44 +174,45 @@ def check_and_run_update(
         else:
             _safe_set_status(parent, msg)
 
-    from packaging import version
-    import requests
-
-    # — 1. meta-файл --------------------------------------------------------
+    # — 1. Получаем информацию о последнем релизе --------------------------
     set_status("Проверка обновлений…")
-    try:
-        resp = requests.get(META_URL, timeout=TIMEOUT)
-        resp.raise_for_status()
-        meta_all = safe_json_response(resp)
-    except Exception as e:
-        log(f"Не удалось загрузить version.json: {e}", "🔁❌ ERROR")
+    
+    release_info = get_latest_release(CHANNEL)
+    if not release_info:
         set_status("Не удалось проверить обновления.")
         return False
 
-    meta = meta_all.get(CHANNEL)
-    if not meta:
-        log(f"В version.json отсутствует блок '{CHANNEL}'", "🔁❌ ERROR")
+    new_ver = release_info["version"]
+    upd_url = release_info["update_url"]
+    notes   = release_info["release_notes"]
+    is_pre  = release_info["prerelease"]
+    
+    # Нормализуем текущую версию для корректного сравнения
+    try:
+        app_ver_norm = normalize_version(APP_VERSION)
+    except ValueError:
+        log(f"Invalid APP_VERSION format: {APP_VERSION}", "🔁❌ ERROR")
+        set_status("Ошибка версии приложения.")
         return False
+    
+    log(f"Auto-update: channel={CHANNEL}, local={app_ver_norm}, remote={new_ver}, prerelease={is_pre}", "🔁 UPDATE")
 
-    new_ver = meta.get("version")
-    upd_url = meta.get("update_url")
-    notes   = meta.get("release_notes", "")
-
-    if not new_ver or not upd_url:
-        log("Неполный блок version/update_url.", "🔁❌ ERROR")
-        return False
-
-    log(f"Auto-update: channel={CHANNEL}, local={APP_VERSION}, remote={new_ver}", "🔁 UPDATE")
-
-    if version.parse(new_ver) <= version.parse(APP_VERSION):
-        set_status(f"✅ Обновлений нет (v{APP_VERSION})")
+    # Сравниваем версии
+    cmp_result = compare_versions(app_ver_norm, new_ver)
+    
+    # Для отладки
+    log(f"Version comparison: {app_ver_norm} vs {new_ver} = {cmp_result}", "🔁 UPDATE")
+    
+    if cmp_result >= 0:  # Текущая версия >= новой
+        set_status(f"✅ Обновлений нет (v{app_ver_norm})")
         if not silent:
-            QMessageBox.information(parent, "Обновление", f"У вас последняя версия ({APP_VERSION}).")
+            QMessageBox.information(parent, "Обновление", f"У вас последняя версия ({app_ver_norm}).")
         return False
 
     # — 2. спрашиваем пользователя -----------------------------------------
     if not silent:
-        txt = (f"Доступна новая версия {new_ver} (у вас {APP_VERSION}).\n\n"
+        version_type = " (предварительная версия)" if is_pre else ""
+        txt = (f"Доступна новая версия {new_ver}{version_type} (у вас {app_ver_norm}).\n\n"
                f"{notes}\n\nУстановить сейчас?")
         btn = QMessageBox.question(
             parent, "Доступно обновление",
@@ -199,11 +226,50 @@ def check_and_run_update(
     tmp_dir   = tempfile.mkdtemp(prefix="zapret_upd_")
     setup_exe = os.path.join(tmp_dir, "ZapretSetup.exe")
 
-    def _prog(done, total): set_status(f"Скачивание… {done*100//total}%")
-    try:
-        _download(upd_url, setup_exe, _prog if not silent else None)
-    except Exception as e:
-        set_status(f"Ошибка загрузки: {e}")
+    def _prog(done, total): 
+        set_status(f"Скачивание… {done*100//total}%")
+    
+    # Список URL для попытки скачивания
+    download_urls = [upd_url]
+    
+    # Если это HTTPS URL с нашего сервера, добавляем HTTP вариант как fallback
+    if upd_url.startswith("https://"):
+        # Заменяем https на http и порт если это наш сервер
+        if "88.210.21.236:888" in upd_url:
+            http_url = upd_url.replace("https://", "http://").replace(":888", ":887")
+            download_urls.append(http_url)
+    
+    # Пытаемся скачать
+    download_error = None
+    for idx, url in enumerate(download_urls):
+        try:
+            # Определяем нужно ли проверять SSL
+            verify_ssl = not (url.startswith("https://88.210.21.236") or 
+                            url.startswith("https://127.0.0.1") or 
+                            url.startswith("https://localhost"))
+            
+            log(f"Попытка скачивания с {url} (verify_ssl={verify_ssl})", "🔁 UPDATE")
+            _download(url, setup_exe, _prog if not silent else None, verify_ssl=verify_ssl)
+            
+            # Успешно скачали
+            download_error = None
+            break
+        
+        except requests.exceptions.SSLError as e:
+            download_error = e
+            log(f"SSL ошибка при скачивании с {url}: {e}", "🔁❌ ERROR")
+            if idx < len(download_urls) - 1:
+                set_status("SSL ошибка, пробуем альтернативный сервер...")
+                time.sleep(0.5)
+        except Exception as e:
+            download_error = e
+            log(f"Ошибка при скачивании с {url}: {e}", "🔁❌ ERROR")
+            if idx < len(download_urls) - 1:
+                set_status("Ошибка загрузки, пробуем альтернативный сервер...")
+                time.sleep(0.5)
+    
+    if download_error:
+        set_status(f"Ошибка загрузки: {download_error}")
         shutil.rmtree(tmp_dir, True)
         return False
 

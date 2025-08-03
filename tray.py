@@ -139,6 +139,7 @@ class SystemTrayManager:
     def show_console(self):
         from PyQt6.QtWidgets import QInputDialog, QLineEdit
         from discord.discord_restart import toggle_discord_restart
+        from github_api_toggle import toggle_github_api_removal
 
         cmd, ok = QInputDialog.getText(
             self.parent, "Консоль", "Введите команду:",
@@ -147,6 +148,11 @@ class SystemTrayManager:
         if ok and cmd:
             if cmd.lower() == "ркн":
                 toggle_discord_restart(
+                    self.parent,
+                    status_callback=lambda m: self.show_notification("Консоль", m)
+                )
+            elif cmd.lower() == "апигитхаб":
+                toggle_github_api_removal(
                     self.parent,
                     status_callback=lambda m: self.show_notification("Консоль", m)
                 )

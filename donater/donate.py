@@ -1,306 +1,477 @@
-#donate/donate.py
-import csv
-import datetime as dt
-import io
-import re
+# donate_handler.py - упрощенное клиентское приложение для HTTP API
+
 import requests
-from requests.adapters import HTTPAdapter, Retry
+import json
 import winreg
-from typing import Optional, Dict, Any, Tuple
-from log import log
+import hashlib
+import platform
 import time
-from net_helpers import HTTP
+from datetime import datetime
+from typing import Optional, Dict, Any, Tuple
+from dataclasses import dataclass
+import logging
 
-RAW_CSV_URL = (
-    "https://zapretdpi.ru/"
-    "/subscriptions.csv"
-)
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
+# Константы
 REGISTRY_KEY = r"SOFTWARE\ZapretGUI"
-EMAIL_VALUE_NAME = "UserEmail2"
+DEVICE_ID_VALUE = "DeviceID"
+KEY_VALUE = "ActivationKey"
+LAST_CHECK_VALUE = "LastCheck"
 
-class DonateChecker:
-    # --- новый "глобальный" кэш на процесс -----------------------------
-    _CSV_CACHE_TTL = 15 * 60            # 15 минут
-    _csv_cache: tuple[float, str] | None = None
-    # -------------------------------------------------------------------
+# API сервер
+API_BASE_URL = "http://88.210.21.236:6666/api"
+DEFAULT_TIMEOUT = 30
+CACHE_DURATION = 300  # 5 минут
 
-    def __init__(self):
-        # один Session на весь объект
-        retries = Retry(
-            total          = 3,             # 3 попытки
-            backoff_factor = 1,             # 1-2-4 c
-            status_forcelist = (502, 503, 504, 522, 524)
-        )
-        self._ses = requests.Session()
-        self._ses.mount("https://", HTTPAdapter(max_retries=retries))
 
-    def _pick_key(self, keys, *variants):
-        """Находит ключ в словаре по вариантам названий"""
-        for v in variants:
-            for k in keys:
-                if v in k.lower():
-                    return k
-        return None
-
-    # -------------------------------------------------------------------
-    def fetch_csv(self) -> str:
-        try:
-            resp = HTTP.get(RAW_CSV_URL, timeout=(5, 30))
-            resp.raise_for_status()
-            return resp.text
-        except Exception as e:
-            raise RuntimeError(f"Сетевой сбой: {e}") from e
-
-    def find_row(self, csv_text: str, identifier: str) -> Optional[Dict[str, Any]]:
-        """Находит ПОСЛЕДНЮЮ по времени строку пользователя по email или имени"""
-        rdr = csv.DictReader(io.StringIO(csv_text), delimiter=';')
-        mode = "email" if EMAIL_RE.match(identifier) else "nick"
+@dataclass
+class ActivationStatus:
+    """Статус активации"""
+    is_activated: bool
+    days_remaining: Optional[int]
+    expires_at: Optional[str]
+    status_message: str
+    subscription_level: str = "–"
+    is_auto_renewal: bool = False
+    source: str = "unknown"
+    
+    def get_formatted_expiry(self) -> str:
+        """Получить отформатированную информацию об истечении"""
+        if not self.is_activated:
+            return "Не активировано"
         
-        found_rows = []
-        for row in rdr:
-            if mode == "email":
-                k = self._pick_key(row.keys(), "email")
+        if self.is_auto_renewal:
+            return "Автопродление ⚡"
+        
+        if self.days_remaining is not None:
+            if self.days_remaining == 0:
+                return "Истекает сегодня"
+            elif self.days_remaining == 1:
+                return "1 день"
             else:
-                k = self._pick_key(row.keys(), "имя пользователя", "name")
-            if k and row[k].strip().lower() == identifier.lower():
-                found_rows.append(row)
+                return f"{self.days_remaining} дн."
         
-        if not found_rows:
-            return None
-        
-        def get_sort_key(row):
-            # Сначала по end_date (активные подписки без end_date - в конец)
-            end_date = self.parse_end_date(row)
-            start_date = self.parse_start_date(row)
-            
-            if end_date is None:  # Активная подписка
-                return (dt.date.max, start_date or dt.date.min)
-            else:  # Завершенная подписка
-                return (end_date, start_date or dt.date.min)
-        
-        found_rows.sort(key=get_sort_key)
-        
-        # Возвращаем самую свежую запись
-        return found_rows[-1]
+        return "Активировано"
 
-    def parse_start_date(self, row: dict) -> Optional[dt.date]:
-        """Парсит дату начала подписки"""
-        k = self._pick_key(row.keys(), "start_date", "дата начала")
-        if not k: 
-            return None
-        val = row[k].strip()
-        for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
-            try:
-                return dt.datetime.strptime(val, fmt).date()
-            except ValueError:
-                continue
-        return None
-
-    def parse_end_date(self, row: dict) -> Optional[dt.date]:
-        """Парсит дату окончания подписки"""
-        k = self._pick_key(row.keys(), "end_date", "дата окончания")
-        if not k:
-            return None
-        val = row[k].strip()
-        if val == "-" or not val:
-            return None
-        for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
-            try:
-                return dt.datetime.strptime(val, fmt).date()
-            except ValueError:
-                continue
-        return None
-
-    def get_subscription_period(self, row: dict) -> int:
-        """Определяет период подписки в днях на основе цены"""
-        price_key = self._pick_key(row.keys(), "user_price", "цена пользователя", "цена")
-        if not price_key:
-            return 30
-        
-        try:
-            user_price = float(row[price_key].replace(',', '.'))
-            if user_price >= 570:  # год
-                return 365
-            elif user_price >= 290:  # полгода
-                return 180
-            elif user_price >= 147:  # 3 месяца
-                return 90
-            elif user_price >= 95:   # 2 месяца
-                return 60
-            else:
-                return 30  # месяц
-        except (ValueError, AttributeError):
-            return 30
-
-    def get_level(self, row: dict) -> str:
-        """Получает уровень подписки"""
-        k = self._pick_key(row.keys(), "level_name", "уровень", "название уровня")
-        return row.get(k, "").strip() or "–"
-
-    def save_email_to_registry(self, email: str) -> bool:
-        """Сохраняет email в реестр Windows"""
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                winreg.SetValueEx(key, EMAIL_VALUE_NAME, 0, winreg.REG_SZ, email)
-            log(f"Email сохранен в реестр: {email}", level="INFO")
-            return True
-        except Exception as e:
-            log(f"Ошибка сохранения email в реестр: {e}", level="❌ ERROR")
-            return False
-
-    def get_email_from_registry(self) -> Optional[str]:
-        """Получает email из реестра Windows"""
+class RegistryManager:
+    """Менеджер для работы с реестром Windows"""
+    
+    @staticmethod
+    def get_device_id() -> str:
+        """Получить или создать уникальный ID устройства"""
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                email, _ = winreg.QueryValueEx(key, EMAIL_VALUE_NAME)
-                log(f"Email загружен из реестра: {email}", level="INFO")
-                return email
-        except (FileNotFoundError, OSError):
-            log("Email не найден в реестре", level="INFO")
-            return None
-        except Exception as e:
-            log(f"Ошибка чтения email из реестра: {e}", level="❌ ERROR")
-            return None
-
-    def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
-        """
-        Проверяет статус подписки пользователя.
-        Совместимая версия для старого интерфейса.
+                device_id, _ = winreg.QueryValueEx(key, DEVICE_ID_VALUE)
+                logger.debug(f"Device ID из реестра: {device_id[:8]}...")
+                return device_id
+        except:
+            pass
         
-        Args:
-            use_cache: Использовать ли кэш
-            
-        Returns:
-            Tuple[bool, str, Optional[int]]: (premium статус, сообщение, дни до окончания)
-        """
-        try:
-            email = self.get_email_from_registry()
-            if not email:
-                return False, "Email не найден в реестре", None
-            
-            result = self.check_user_subscription(email)
-            
-            is_premium = (result['found'] and 
-                         result['days_remaining'] is not None and 
-                         result['days_remaining'] > 0) or \
-                        (result['found'] and "включен" in result['status'].lower())
-            
-            return is_premium, result['status'], result['days_remaining']
-            
-        except Exception as e:
-            log(f"Ошибка при проверке статуса подписки: {e}", level="❌ ERROR")
-            return False, f"Ошибка проверки: {str(e)}", None
-
-    def check_user_subscription(self, email: str) -> Dict[str, Any]:
-        """
-        Проверяет статус подписки пользователя по email
+        # Генерируем новый ID
+        machine_info = f"{platform.machine()}-{platform.processor()}-{platform.node()}"
+        device_id = hashlib.md5(machine_info.encode()).hexdigest()
         
-        Returns:
-            Dict с информацией о подписке:
-            - found: bool - найден ли пользователь
-            - level: str - уровень подписки
-            - days_remaining: int|None - дней осталось
-            - status: str - текстовый статус
-            - auto_payment: bool - включен ли автоплатеж
-        """
         try:
-            csv_text = self.fetch_csv()
-            row = self.find_row(csv_text, email)
-            
-            if not row:
-                return {
-                    'found': False,
-                    'level': '–',
-                    'days_remaining': None,
-                    'status': 'Пользователь не найден',
-                    'auto_payment': False
-                }
-            
-            level = self.get_level(row)
-            end_date = self.parse_end_date(row)
-            start_date = self.parse_start_date(row)
-            
-            type_key = self._pick_key(row.keys(), "type", "тип")
-            sub_type = row.get(type_key, "").strip().lower() if type_key else ""
-            
-            today = dt.date.today()
-            
-            if end_date:
-                # Пользователь отписался
-                days = (end_date - today).days
-                if days < 0:
-                    status = "Подписка истекла"
-                    days_remaining = 0
-                else:
-                    status = f"Осталось {days} дн. (автоплатеж отключен 😢)"
-                    days_remaining = days
-                auto_payment = False
-            elif sub_type == "subscription" and start_date:
-                # Активная подписка
-                period_days = self.get_subscription_period(row)
-                due = start_date + dt.timedelta(days=period_days)
-                days = (due - today).days
-                if days >= 0:
-                    status = f"Осталось {days} дн. (автоплатеж включен 😊)"
-                    days_remaining = days
-                else:
-                    status = "Подписка истекла"
-                    days_remaining = 0
-                auto_payment = True
-            else:
-                # Не подписан или другой тип
-                status = "Не подписан"
-                days_remaining = None
-                auto_payment = False
-            
-            return {
-                'found': True,
-                'level': level,
-                'days_remaining': days_remaining,
-                'status': status,
-                'auto_payment': auto_payment
-            }
-            
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+                winreg.SetValueEx(key, DEVICE_ID_VALUE, 0, winreg.REG_SZ, device_id)
+            logger.info(f"Создан новый Device ID: {device_id[:8]}...")
         except Exception as e:
-            log(f"Ошибка при проверке подписки: {e}", level="❌ ERROR")
-            return {
-                'found': False,
-                'level': '–',
-                'days_remaining': None,
-                'status': f'Ошибка проверки: {str(e)}',
-                'auto_payment': False
-            }
-
-def check_premium_access(email: str = None) -> Tuple[bool, Optional[int]]:
-    """
-    Упрощенная функция для быстрой проверки премиум доступа.
+            logger.error(f"Ошибка сохранения device_id: {e}")
+        
+        return device_id
     
-    Args:
-        email: Email пользователя (если None, берется из реестра)
+    @staticmethod
+    def save_key(activation_key: str) -> bool:
+        """Сохранить ключ активации"""
+        try:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+                winreg.SetValueEx(key, KEY_VALUE, 0, winreg.REG_SZ, activation_key)
+            logger.info(f"Ключ сохранен: {activation_key[:4]}****")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка сохранения ключа: {e}")
+            return False
+    
+    @staticmethod
+    def get_key() -> Optional[str]:
+        """Получить сохраненный ключ"""
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+                activation_key, _ = winreg.QueryValueEx(key, KEY_VALUE)
+                return activation_key
+        except:
+            return None
+    
+    @staticmethod
+    def delete_key() -> bool:
+        """Удалить сохраненный ключ"""
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, KEY_VALUE)
+            logger.info("Ключ удален из реестра")
+            return True
+        except:
+            return True
+    
+    @staticmethod
+    def save_last_check(timestamp: datetime):
+        """Сохранить время последней проверки"""
+        try:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+                winreg.SetValueEx(key, LAST_CHECK_VALUE, 0, winreg.REG_SZ, timestamp.isoformat())
+        except:
+            pass
+    
+    @staticmethod
+    def get_last_check() -> Optional[datetime]:
+        """Получить время последней проверки"""
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+                value, _ = winreg.QueryValueEx(key, LAST_CHECK_VALUE)
+                return datetime.fromisoformat(value)
+        except:
+            return None
+
+class APIClient:
+    """Клиент для работы с API сервером"""
+    
+    def __init__(self, base_url: str = API_BASE_URL, timeout: int = DEFAULT_TIMEOUT):
+        self.base_url = base_url
+        self.timeout = timeout
+        self.device_id = RegistryManager.get_device_id()
+        self._cache = {}
+        self._cache_time = {}
         
+    def _make_request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
+        """Выполнить запрос к API"""
+        url = f"{self.base_url}/{endpoint}"
+        
+        try:
+            if method == "POST":
+                response = requests.post(url, json=data, timeout=self.timeout)
+            else:
+                response = requests.get(url, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"API ошибка {endpoint}: HTTP {response.status_code}")
+                try:
+                    error_data = response.json()
+                    logger.error(f"Ответ сервера: {error_data}")
+                except:
+                    pass
+                return None
+                
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Ошибка соединения с {url}: {e}")
+        except requests.exceptions.Timeout:
+            logger.error(f"Таймаут запроса к {url}")
+        except Exception as e:
+            logger.error(f"Ошибка запроса {endpoint}: {e}")
+        
+        return None
+    
+    def test_connection(self) -> Tuple[bool, str]:
+        """Проверить соединение с сервером"""
+        result = self._make_request("status")
+        
+        if result and result.get('success'):
+            version = result.get('version', 'unknown')
+            message = f"API сервер доступен (v{version})"
+            return True, message
+        
+        return False, "Сервер недоступен"
+
+    def activate_key(self, key: str) -> Tuple[bool, str]:
+        """Активировать ключ с повторными попытками"""
+        max_attempts = 3
+        retry_delay = 2
+        
+        for attempt in range(max_attempts):
+            try:
+                success, message = self._activate_key_attempt(key)
+                if success:
+                    return success, message
+                
+                # Если не последняя попытка, ждем перед повтором
+                if attempt < max_attempts - 1:
+                    logger.info(f"Попытка {attempt + 1} неудачна, повтор через {retry_delay}с...")
+                    time.sleep(retry_delay)
+                    
+            except Exception as e:
+                logger.error(f"Ошибка при попытке {attempt + 1}: {e}")
+                if attempt < max_attempts - 1:
+                    time.sleep(retry_delay)
+        
+        return False, f"Не удалось активировать ключ после {max_attempts} попыток"
+    
+    def _activate_key_attempt(self, key: str) -> Tuple[bool, str]:
+        """Активировать ключ"""
+        device_info = {
+            "platform": platform.system(),
+            "node": platform.node(),
+            "machine": platform.machine(),
+            "version": platform.version()
+        }
+        
+        logger.info(f"Активация ключа {key[:4]}****")
+        
+        result = self._make_request("activate_key", "POST", {
+            "key": key,
+            "device_id": self.device_id,
+            "device_info": device_info
+        })
+        
+        if result and result.get('success'):
+            # Сохраняем ключ локально
+            RegistryManager.save_key(key)
+            # Очищаем весь кеш после активации
+            self.clear_cache()
+
+            # Также очистите кеш валидности ключа
+            cache_key = f"key_{key}"
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+                del self._cache_time[cache_key]
+
+            message = result.get('message', 'Ключ успешно активирован')
+            logger.info(f"Успешная активация: {message}")
+            return True, message
+        
+        error_msg = result.get('error', 'Ошибка активации') if result else 'Сервер недоступен'
+        logger.error(f"Ошибка активации: {error_msg}")
+        return False, error_msg
+    
+    def check_key_validity(self, key: str) -> Tuple[bool, Dict]:
+        """Проверить валидность ключа"""
+        # Проверяем кеш
+        cache_key = f"key_{key}"
+        if cache_key in self._cache:
+            cache_age = time.time() - self._cache_time[cache_key]
+            if cache_age < CACHE_DURATION:
+                logger.debug("Используем кешированный результат проверки ключа")
+                return self._cache[cache_key]
+        
+        result = self._make_request("check_key", "POST", {"key": key})
+        
+        if result and result.get('success'):
+            data = result.get('data', {})
+            is_valid = data.get('valid', False)
+            
+            # Кешируем результат
+            cache_result = (is_valid, data)
+            self._cache[cache_key] = cache_result
+            self._cache_time[cache_key] = time.time()
+            
+            return is_valid, data
+        
+        return False, {'error': 'Ошибка проверки ключа'}
+    
+    def check_device_status(self, use_cache: bool = True) -> ActivationStatus:
+        """Проверить статус устройства"""
+        # Проверяем кеш
+        cache_key = f"device_{self.device_id}"
+        if use_cache and cache_key in self._cache:
+            cache_age = time.time() - self._cache_time[cache_key]
+            if cache_age < CACHE_DURATION:
+                logger.debug("Используем кешированный статус устройства")
+                return self._cache[cache_key]
+        
+        logger.info("Проверка статуса устройства")
+        
+        result = self._make_request("check_device", "POST", {"device_id": self.device_id})
+        
+        if result and result.get('success'):
+            is_activated = result.get('activated', False)
+            
+            if is_activated:
+                days_remaining = result.get('days_remaining')
+                
+                # Проверяем автопродление: None или 99999 дней
+                is_auto_renewal = days_remaining is None or days_remaining == 99999
+                
+                # Если автопродление, не показываем количество дней
+                display_days = None if is_auto_renewal else days_remaining
+                
+                status = ActivationStatus(
+                    is_activated=True,
+                    days_remaining=display_days,  # None для автопродления
+                    expires_at=result.get('expires_at'),
+                    status_message=result.get('message', 'Активировано'),
+                    subscription_level=result.get('subscription_level', 'zapretik'),
+                    is_auto_renewal=is_auto_renewal,
+                    source='api'
+                )
+                
+                # Обновляем сообщение статуса для автопродления
+                if is_auto_renewal:
+                    status.status_message = 'Активировано (автопродление)'
+                
+                logger.info(f"Устройство активировано: {status.status_message}")
+            else:
+                status = ActivationStatus(
+                    is_activated=False,
+                    days_remaining=None,
+                    expires_at=None,
+                    status_message=result.get('message', 'Не активировано'),
+                    subscription_level='–',
+                    is_auto_renewal=False,
+                    source='api'
+                )
+                
+                logger.info(f"Устройство не активировано: {status.status_message}")
+            
+            # Кешируем результат
+            self._cache[cache_key] = status
+            self._cache_time[cache_key] = time.time()
+            
+            # Сохраняем время проверки
+            RegistryManager.save_last_check(datetime.now())
+            
+            return status
+        
+        # Offline режим - проверяем локально сохраненный ключ
+        logger.warning("API недоступен, проверяем локальный ключ")
+        
+        saved_key = RegistryManager.get_key()
+        if saved_key:
+            return ActivationStatus(
+                is_activated=True,
+                days_remaining=None,
+                expires_at=None,
+                status_message='Активировано (offline режим)',
+                subscription_level='zapretik',
+                is_auto_renewal=False,
+                source='offline'
+            )
+        
+        return ActivationStatus(
+            is_activated=False,
+            days_remaining=None,
+            expires_at=None,
+            status_message='Не активировано',
+            subscription_level='–',
+            is_auto_renewal=False,
+            source='offline'
+        )
+    
+    def get_statistics(self) -> Optional[Dict]:
+        """Получить статистику с сервера"""
+        result = self._make_request("stats")
+        if result and result.get('success'):
+            return result.get('stats')
+        return None
+    
+    def clear_cache(self):
+        """Очистить кеш"""
+        self._cache.clear()
+        self._cache_time.clear()
+        logger.debug("Кеш очищен")
+
+class SimpleDonateChecker:
+    """Основной класс для проверки подписки (совместимость со старым кодом)"""
+    
+    def __init__(self):
+        self.api_client = APIClient()
+        self.device_id = RegistryManager.get_device_id()
+        logger.info(f"Using device_id: {self.device_id[:8]}...")
+        self.timeout = self.api_client.timeout
+    
+    def activate(self, key: str) -> Tuple[bool, str]:
+        """Активировать ключ"""
+        return self.api_client.activate_key(key)
+    
+    def check_device_activation(self) -> Dict[str, Any]:
+        """Проверить активацию устройства"""
+        status = self.api_client.check_device_status()
+        
+        # Преобразуем в старый формат для совместимости
+        return {
+            'found': status.is_activated or RegistryManager.get_key() is not None,
+            'activated': status.is_activated,
+            'days_remaining': status.days_remaining,
+            'status': status.status_message,
+            'expires_at': status.expires_at,
+            'level': 'Premium' if status.subscription_level != '–' else '–',
+            'auto_payment': status.is_auto_renewal,
+            'subscription_level': status.subscription_level,
+            'source': status.source
+        }
+    
+    def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
+        """Проверить статус подписки"""
+        status = self.api_client.check_device_status(use_cache)
+        return status.is_activated, status.status_message, status.days_remaining
+    
+    def test_connection(self) -> Tuple[bool, str]:
+        """Проверить соединение"""
+        return self.api_client.test_connection()
+    
+    def save_key_to_registry(self, key: str) -> bool:
+        """Сохранить ключ в реестр"""
+        return RegistryManager.save_key(key)
+    
+    def get_key_from_registry(self) -> Optional[str]:
+        """Получить ключ из реестра"""
+        return RegistryManager.get_key()
+    
+    def clear_saved_key(self) -> bool:
+        """Удалить сохраненный ключ"""
+        self.api_client.clear_cache()
+        return RegistryManager.delete_key()
+    
+    def clear_cache(self):
+        """Очистить кеш"""
+        self.api_client.clear_cache()
+
+# Алиас для совместимости
+DonateChecker = SimpleDonateChecker
+
+# Функция для быстрой проверки
+def check_premium_access(email: str = None) -> Tuple[bool, Optional[int]]:
+    """Быстрая проверка премиум доступа"""
+    try:
+        checker = SimpleDonateChecker()
+        result = checker.check_device_activation()
+        return result['activated'], result['days_remaining']
+    except Exception as e:
+        logger.error(f"Ошибка проверки премиум: {e}")
+        return False, None
+    
+def get_full_subscription_info(self):
+    """
+    Получает полную информацию о подписке включая автопродление.
+    
     Returns:
-        Tuple[bool, Optional[int]]: (True если активная подписка, дни до окончания)
+        dict: {
+            'is_premium': bool,
+            'status_msg': str,
+            'days_remaining': int или None,
+            'is_auto_renewal': bool,
+            'subscription_level': str
+        }
     """
     try:
-        checker = DonateChecker()
+        device_info = self.check_device_activation()
         
-        if not email:
-            email = checker.get_email_from_registry()
-            if not email:
-                return False, None
-        
-        result = checker.check_user_subscription(email)
-        
-        # Считаем подписку активной если найден пользователь и есть дни или статус не "истекла"/"не подписан"
-        is_active = (result['found'] and 
-                    result['days_remaining'] is not None and 
-                    result['days_remaining'] > 0) or \
-                   (result['found'] and "включен" in result['status'].lower())
-        
-        return is_active, result['days_remaining']
-        
+        return {
+            'is_premium': device_info.get('activated', False),
+            'status_msg': device_info.get('status', 'Неизвестно'),
+            'days_remaining': device_info.get('days_remaining'),
+            'is_auto_renewal': device_info.get('auto_payment', False),
+            'subscription_level': device_info.get('subscription_level', '–')
+        }
     except Exception as e:
-        log(f"Ошибка при проверке премиум доступа: {e}", level="❌ ERROR")
-        return False, None
+        from log import log
+        log(f"Ошибка получения информации о подписке: {e}", "❌ ERROR")
+        return {
+            'is_premium': False,
+            'status_msg': 'Ошибка проверки',
+            'days_remaining': None,
+            'is_auto_renewal': False,
+            'subscription_level': '–'
+        }

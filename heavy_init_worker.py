@@ -122,11 +122,10 @@ class HeavyInitWorker(QObject):
             # Не критично, продолжаем
 
     def _quick_connectivity_check(self) -> bool:
-        """Быстрая проверка доступности интернета"""
+        """Быстрая проверка доступности интернета через urllib"""
         try:
-            import socket
-            socket.setdefaulttimeout(2)
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
+            import urllib.request
+            urllib.request.urlopen('https://www.google.com', timeout=3)
             log("Интернет-соединение доступно", "DEBUG")
             return True
         except Exception as e:

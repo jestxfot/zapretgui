@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, sys, ctypes, subprocess
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui  import QDesktopServices
+from  utils import run_hidden
 
 def _open_url(url: str):
     QDesktopServices.openUrl(QUrl(url))
@@ -14,6 +15,7 @@ def _check_kaspersky_antivirus(self):
     Returns:
         bool: True если Касперский обнаружен, False если нет
     """
+    #return True # для тестирования
     try:
         import subprocess
         import os
@@ -66,11 +68,66 @@ def _check_kaspersky_antivirus(self):
         # В случае ошибки считаем, что Касперского нет
         return False
 
+def _check_kaspersky_warning_disabled():
+    """
+    Проверяет, отключено ли предупреждение о Kaspersky в реестре.
+    
+    Returns:
+        bool: True если предупреждение отключено, False если нет
+    """
+    try:
+        import winreg
+        
+        # Путь к ключу реестра
+        key_path = r"SOFTWARE\Zapret"
+        value_name = "DisableKasperskyWarning"
+        
+        # Пытаемся открыть ключ
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
+                value, _ = winreg.QueryValueEx(key, value_name)
+                return value == 1
+        except (FileNotFoundError, OSError):
+            return False
+            
+    except ImportError:
+        # Если winreg недоступен (не Windows), возвращаем False
+        return False
+
+def _set_kaspersky_warning_disabled(disabled: bool):
+    """
+    Сохраняет в реестре настройку отключения предупреждения о Kaspersky.
+    
+    Args:
+        disabled: True для отключения предупреждения, False для включения
+    """
+    try:
+        import winreg
+        
+        # Путь к ключу реестра
+        key_path = r"SOFTWARE\Zapret"
+        value_name = "DisableKasperskyWarning"
+        
+        # Создаем или открываем ключ
+        try:
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE) as key:
+                winreg.SetValueEx(key, value_name, 0, winreg.REG_DWORD, 1 if disabled else 0)
+        except Exception as e:
+            print(f"Ошибка при записи в реестр: {e}")
+            
+    except ImportError:
+        # Если winreg недоступен (не Windows), ничего не делаем
+        pass
+
 def show_kaspersky_warning(parent=None) -> None:
     """
     Показывает Qt-диалог с предупреждением, «кликабельными» путями и
     кнопками копирования.  Требует уже созданный QApplication.
     """
+    # Проверяем, не отключено ли предупреждение
+    if _check_kaspersky_warning_disabled():
+        return
+    
     # -- корректно определяем пути -------------------------------------------------
     if getattr(sys, "frozen", False):          # .exe, собранный PyInstaller-ом
         exe_path = os.path.abspath(sys.executable)
@@ -82,7 +139,7 @@ def show_kaspersky_warning(parent=None) -> None:
         base_dir = os.path.dirname(exe_path)
 
     # -- сам QMessageBox -----------------------------------------------------------
-    from PyQt6.QtWidgets import QMessageBox, QPushButton, QApplication
+    from PyQt6.QtWidgets import QMessageBox, QPushButton, QApplication, QCheckBox
     from PyQt6.QtCore    import Qt, QUrl
     from PyQt6.QtGui     import QDesktopServices, QIcon
 
@@ -104,9 +161,12 @@ def show_kaspersky_warning(parent=None) -> None:
         f"&nbsp;&nbsp;• Файл:&nbsp;"
         f"<a href='file:///{exe_path.replace(os.sep, '/')}'>{exe_path}</a><br>"
         "4. Сохраните и перезапустите Zapret.<br><br>"
-        "Без добавления в исключения программа может работать некорректно.<br><br>"
-        "Нажмите <b>OK</b> для продолжения запуска."
+        "Без добавления в исключения программа может работать некорректно."
     )
+
+    # -- добавляем чекбокс "Больше не показывать" ---------------------------------
+    dont_show_checkbox = QCheckBox("Больше никогда не показывать это предупреждение")
+    mb.setCheckBox(dont_show_checkbox)
 
     # -- добавляем 2 кастомных «копирующих» кнопки --------------------------------
     copy_dir_btn  = QPushButton("📋 Копировать папку")
@@ -140,4 +200,9 @@ def show_kaspersky_warning(parent=None) -> None:
             lbl.setOpenExternalLinks(False)
             lbl.linkActivated.connect(_open_url)
 
+    # Показываем диалог
     mb.exec()
+    
+    # Сохраняем настройку в реестр, если пользователь поставил галочку
+    if dont_show_checkbox.isChecked():
+        _set_kaspersky_warning_disabled(True)

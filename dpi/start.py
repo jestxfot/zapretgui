@@ -49,7 +49,7 @@ class DPIStarter:
             return found
         except:
             # Fallback на tasklist если WMI недоступен
-            return self.check_process_running_tasklist(silent)
+            return self.check_process_running(silent)
     
     def check_process_running(self, silent=False) -> bool:
         """

@@ -1,2 +1,1 @@
-ssh root@37.233.85.174
-pause
+D:\bin\cmder_mini\Cmder.exe /task ssh-root

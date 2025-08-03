@@ -1,4 +1,4 @@
-# stop.py
+# dpi/stop.py
 import os
 import subprocess
 import time

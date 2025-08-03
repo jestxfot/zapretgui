@@ -70,12 +70,20 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
     _safe_call_tg_api("sendMessage", data=data)
 
 
-def send_file_to_tg(file_path: str | Path, caption: str = "") -> None:
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"{path} not found")
+def send_file_to_tg(file_path: str | Path, caption: str = "") -> bool:
+    """Возвращает True при успешной отправке, False при ошибке"""
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"{path} not found")
 
-    with path.open("rb") as fh:
-        files = {"document": fh}
-        data = {"chat_id": CHAT_ID, "caption": caption or path.name}
-        _safe_call_tg_api("sendDocument", data=data, files=files)
+        with path.open("rb") as fh:
+            files = {"document": fh}
+            data = {"chat_id": CHAT_ID, "caption": caption or path.name}
+            _safe_call_tg_api("sendDocument", data=data, files=files)
+        
+        return True  # успех
+    except Exception as e:
+        from log import log
+        log(f"[TG] Ошибка отправки файла: {e}", "❌ ERROR")
+        return False  # ошибка

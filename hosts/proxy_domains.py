@@ -19,7 +19,7 @@ PROXY_DOMAINS = {
     "auth0.openai.com": "134.0.118.88",
     "platform.openai.com": "134.0.118.88",
     "cdn.oaistatic.com": "134.0.118.88",
-    "files.oaiusercontent.com": "134.0.118.88",
+    "files.oaiusercontent.com": "204.12.192.222",
     "cdn.auth0.com": "134.0.118.88",
     "tcr9i.chat.openai.com": "134.0.118.88",
     "webrtc.chatgpt.com": "134.0.118.88",
@@ -61,8 +61,9 @@ PROXY_DOMAINS = {
     "encore.scdn.co": "138.201.204.218",
     "accounts.scdn.co": "204.12.192.222",
     "ap-gew1.spotify.com": "138.201.204.218",
-    "www.notion.so": "158.255.0.188", # 94.131.119.85, 204.12.192.222
-    "notion.so": "208.103.161.1",
+    "www.notion.so": "204.12.192.222", # 94.131.119.85, 204.12.192.222 158.255.0.188
+    "notion.so": "204.12.192.222", # 208.103.161.1
+    "calendar.notion.so" : "204.12.192.222",
     "www.canva.com": "50.7.85.222",
     "www.intel.com": "204.12.192.222",
     "www.dell.com": "204.12.192.219",
@@ -70,8 +71,8 @@ PROXY_DOMAINS = {
     "codeium.com": "50.7.87.85",
     "inference.codeium.com": "50.7.85.219",
     "www.tiktok.com": "204.12.192.222",
-    "api.individual.githubcopilot.com": "89.108.98.20",
-    "proxy.individual.githubcopilot.com": "89.108.98.20",
+    #"api.individual.githubcopilot.com": "89.108.98.20",
+    #"proxy.individual.githubcopilot.com": "89.108.98.20",
     "datalore.jetbrains.com": "50.7.85.221",
     "plugins.jetbrains.com": "107.150.34.100",
     "elevenlabs.io": "204.12.192.222",
@@ -95,6 +96,7 @@ PROXY_DOMAINS = {
     "a-v2.sndcdn.com": "3.164.206.34",
     "secure.sndcdn.com": "18.165.140.56",
     "anilib.me": "172.67.192.246",
+    "usher.ttvnw.net": "45.95.233.23",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"

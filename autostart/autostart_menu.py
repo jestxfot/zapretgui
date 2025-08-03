@@ -83,9 +83,9 @@ class AutoStartMenu(QDialog):
         )
         layout.addWidget(info)
 
-        self.exe_btn = QPushButton("Автозапуск GUI-приложения")
-        self.bat_btn = QPushButton("Автозапуск выбранной стратегии (планировщик .bat)")
-        self.svc_btn = QPushButton("Автозапуск выбранной стратегии (служка .bat)")
+        self.exe_btn = QPushButton("Автозапуск GUI-приложения (.exe)")
+        self.bat_btn = QPushButton("Автозапуск стратегии (планировщик .bat)")
+        self.svc_btn = QPushButton("Тихий автозапуск (служба .bat)")
 
         layout.addWidget(self.exe_btn)
         layout.addWidget(self.bat_btn)

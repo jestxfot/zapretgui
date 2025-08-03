@@ -172,6 +172,8 @@ class StrategyManager:
 
         self.set_status("Получение списка стратегий…")
         
+        last_error = None  # Инициализируем переменную ДО циклов
+        
         # Пробуем все доступные источники
         for source_index, source in enumerate(self.url_sources):
             if source_index in self.failed_sources:
@@ -183,7 +185,6 @@ class StrategyManager:
             log(f"Пробуем источник {source_name}: {index_url}", "DEBUG")
             self.set_status(f"Подключение к {source_name}...")
 
-            last_error = None
             for attempt in range(self.max_retries):
                 try:
                     session = requests.Session()
@@ -205,7 +206,7 @@ class StrategyManager:
                     if len(response.content) == 0:
                         raise ValueError("Получен пустой ответ")
                     
-                    # ИСПРАВЛЕНИЕ: Декодируем контент с учетом BOM
+                    # Декодируем контент с учетом BOM
                     content = response.content
                     
                     # Удаляем BOM если он есть
@@ -216,9 +217,6 @@ class StrategyManager:
                     import json
                     text = content.decode('utf-8')
                     result = json.loads(text)
-                    
-                    # Альтернативный вариант - использовать utf-8-sig
-                    # result = json.loads(response.content.decode('utf-8-sig'))
                     
                     self.strategies_cache = result
                     self.cache_loaded = True
@@ -255,7 +253,10 @@ class StrategyManager:
 
         # Все источники исчерпаны
         log("Все источники недоступны", "❌ ERROR")
-        raise last_error or Exception("Все резервные источники недоступны")
+        if last_error:
+            raise last_error
+        else:
+            raise Exception("Все резервные источники недоступны")
 
     def _download_strategy_sync(self, strategy_id: str) -> str | None:
         """Синхронная версия скачивания стратегии с поддержкой резервных источников."""
@@ -289,6 +290,8 @@ class StrategyManager:
             # Скачивание с резервных источников
             self.set_status(f"Скачивание {strategy_id}…")
             
+            last_error = None  # Инициализируем переменную ДО циклов
+            
             # Пробуем источники в порядке приоритета
             for source_index, source in enumerate(self.url_sources):
                 if source_index in self.failed_sources:
@@ -299,7 +302,6 @@ class StrategyManager:
                 
                 log(f"Скачиваем {strategy_id} с {source_name}", "DEBUG")
                 
-                last_error = None
                 for attempt in range(self.max_retries):
                     try:
                         session = requests.Session()
@@ -319,16 +321,18 @@ class StrategyManager:
                         if not response.content:
                             raise RuntimeError("Получен пустой файл")
 
+                        total_size = 0
                         with open(local_path, "wb") as f:
                             for chunk in response.iter_content(chunk_size=8192):
                                 if chunk:
                                     f.write(chunk)
+                                    total_size += len(chunk)
 
                         if "version" in info:
                             self.save_strategy_version(local_path, info)
 
                         self.set_status(f"{strategy_id} скачана с {source_name}")
-                        log(f"{strategy_id} OK с {source_name} ({len(response.content)} B)", "⚙ manager")
+                        log(f"{strategy_id} OK с {source_name} ({total_size} B)", "⚙ manager")
                         return local_path
 
                     except Exception as e:
@@ -346,7 +350,10 @@ class StrategyManager:
                 log(f"Не удалось скачать {strategy_id} с {source_name}: {last_error}", "⚠ WARNING")
 
             # Все источники исчерпаны
-            raise Exception(f"Не удалось скачать {strategy_id} ни с одного источника")
+            if last_error:
+                raise Exception(f"Не удалось скачать {strategy_id} ни с одного источника: {last_error}")
+            else:
+                raise Exception(f"Не удалось скачать {strategy_id} ни с одного источника")
 
         except Exception as e:
             log(f"{strategy_id} DL error: {e}", "❌ ERROR")

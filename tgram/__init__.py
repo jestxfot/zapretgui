@@ -1,16 +1,5 @@
 """
 tgram ─ Telegram helpers for Zapret GUI
-======================================
-
-Удобная «точка входа» в подпакет:
-
->>> from tgram import send_file_to_tg, FullLogDaemon
->>> send_file_to_tg("zapret_log.txt", "Лог за сегодня")
-
-или
-
->>> from tgram import start_log_daemon
->>> daemon = start_log_daemon("zapret_log.txt", interval=120)
 
 Содержимое подпакета
 --------------------
@@ -47,13 +36,10 @@ __author__  = "Zapret GUI Team"
 #  Утилита-обёртка: быстро запустить демон отправки лога
 # ────────────────────────────────────────────────────────────────────
 def start_log_daemon(log_path: str,
-                     interval: int = 120,
+                     interval: int = 200,
                      parent=None) -> FullLogDaemon:
     """
     Создаёт и возвращает FullLogDaemon.
-
-    Пример:
-        from tgram import start_log_daemon
-        daemon = start_log_daemon("zapret_log.txt", 120, parent=self)
     """
+    
     return FullLogDaemon(log_path, interval, parent=parent)

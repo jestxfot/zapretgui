@@ -8,6 +8,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from utils import run_hidden # Импортируем нашу обертку для subprocess
+from config import LOGS_FOLDER  # Добавляем импорт
 
 class ConnectionTestWorker(QObject):
     """Рабочий поток для выполнения тестов соединения."""
@@ -17,7 +18,10 @@ class ConnectionTestWorker(QObject):
     def __init__(self, test_type="all"):
         super().__init__()
         self.test_type = test_type
-        self.log_filename = "connection_test.log"
+        
+        # ✅ ИСПРАВЛЕНИЕ: Создаем лог-файл в папке logs
+        os.makedirs(LOGS_FOLDER, exist_ok=True)
+        self.log_filename = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
         
         # ✅ ДОБАВЛЯЕМ ФЛАГ ДЛЯ МЯГКОЙ ОСТАНОВКИ
         self._stop_requested = False
@@ -1213,23 +1217,33 @@ class ConnectionTestDialog(QDialog):
             event.accept()
     
     def save_log(self):
-        """Сохраняет лог в текстовый файл."""
-        if not os.path.exists("connection_test.log"):
+        """Сохраняет лог в текстовый файл в папку logs."""
+        # ✅ ИСПРАВЛЕНИЕ: Ищем временный лог-файл в папке logs
+        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
+        
+        if not os.path.exists(temp_log_path):
             QMessageBox.warning(self, "Ошибка", "Файл журнала не найден.")
             return
         
         try:
             from datetime import datetime
+            
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), 
+                LOGS_FOLDER, 
                 f"connection_test_{timestamp}.log"
             )
             
             # Чтение и запись с явным указанием кодировки UTF-8
-            with open("connection_test.log", "r", encoding="utf-8-sig") as src, \
-                 open(save_path, "w", encoding="utf-8-sig") as dest:
+            with open(temp_log_path, "r", encoding="utf-8-sig") as src, \
+                open(save_path, "w", encoding="utf-8-sig") as dest:
                 dest.write(src.read())
+            
+            # Удаляем временный файл после сохранения
+            try:
+                os.remove(temp_log_path)
+            except:
+                pass
             
             QMessageBox.information(
                 self, 

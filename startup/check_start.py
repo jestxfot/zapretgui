@@ -34,29 +34,53 @@ def check_system_commands() -> tuple[bool, str]:
     except ImportError:
         print("DEBUG: Проверка системных команд")
     
+    # Определяем команды для проверки
     required_commands = [
         ("tasklist", "tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV /NH"),
+        ("sc", "sc query"),
+        ("netsh", "netsh /?"),
     ]
     
     failed_commands = []
     
+    # Определяем параметры для разных систем
+    run_params = {
+        "shell": True,
+        "capture_output": True,
+        "text": True,
+        "timeout": 10,
+        "errors": "ignore"
+    }
+    
+    # Добавляем Windows-специфичные параметры
+    if sys.platform == "win32":
+        # Определяем кодировку консоли
+        try:
+            import locale
+            console_encoding = locale.getpreferredencoding() or "utf-8"
+        except:
+            console_encoding = "utf-8"
+        
+        run_params["encoding"] = console_encoding
+        
+        # CREATE_NO_WINDOW доступен только на Windows
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            run_params["creationflags"] = subprocess.CREATE_NO_WINDOW
+    
     for cmd_name, test_command in required_commands:
         try:
-            result = run_hidden(
-                test_command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                encoding="cp866",
-                errors="ignore",
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            result = run_hidden(test_command, **run_params)
             
             if cmd_name == "tasklist":
                 if result.returncode != 0:
                     stderr_text = result.stderr.strip().lower()
-                    if "не является" in stderr_text or "not recognized" in stderr_text:
+                    # Проверяем на разных языках
+                    error_indicators = [
+                        "не является", "not recognized", "not found",
+                        "command not found", "nicht gefunden", "introuvable",
+                        "no se reconoce", "não é reconhecido"
+                    ]
+                    if any(indicator in stderr_text for indicator in error_indicators):
                         failed_commands.append(f"{cmd_name} (команда недоступна)")
                         try:
                             from log import log
@@ -64,8 +88,15 @@ def check_system_commands() -> tuple[bool, str]:
                         except ImportError:
                             print(f"ERROR: Команда {cmd_name} недоступна")
                         continue
-                        
-            if result.returncode not in [0, 1]:
+            
+            # Для разных команд разные допустимые коды возврата
+            acceptable_codes = {
+                "tasklist": [0, 1],  # 1 = процесс не найден
+                "sc": [0, 1, 2],     # 1,2 = сервис не найден/остановлен
+                "netsh": [0, 1]      # 1 = помощь показана
+            }
+            
+            if result.returncode not in acceptable_codes.get(cmd_name, [0, 1]):
                 failed_commands.append(f"{cmd_name} (код ошибки: {result.returncode})")
                 try:
                     from log import log
@@ -106,11 +137,13 @@ def check_system_commands() -> tuple[bool, str]:
             "\n\nЭто может быть вызвано:\n"
             "• Блокировкой антивирусом (особенно Касперский)\n"
             "• Политиками безопасности системы\n"
-            "• Повреждением системных файлов\n\n"
+            "• Повреждением системных файлов\n"
+            "• Нестандартной конфигурацией Windows\n\n"
             "Рекомендации:\n"
             "1. Добавьте программу в исключения антивируса\n"
-            "2. Проверьте целостность файлов командой: sfc /scannow\n"
-            "Программа может работать нестабильно или не запуститься. Лучше всего переустановить Windows!"
+            "2. Запустите от имени администратора\n"
+            "3. Проверьте целостность файлов: sfc /scannow\n\n"
+            "Программа может работать с ограничениями."
         )
     else:
         error_message = ""

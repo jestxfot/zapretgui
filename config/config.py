@@ -11,8 +11,8 @@ LISTS_FOLDER = "lists"
 THEME_FOLDER = "themes"
 LOGS_FOLDER = "logs"
 WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")
-ICON_PATH = os.path.join(ICO_FOLDER, "zapret.ico")
-ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo.ico")
+ICON_PATH = os.path.join(ICO_FOLDER, "Zapret1.ico")
+ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo3.ico")
 
 OTHER_PATH = os.path.join(LISTS_FOLDER, "other.txt")
 OTHER2_PATH = os.path.join(LISTS_FOLDER, "other2.txt")
@@ -25,7 +25,7 @@ REG_LATEST_STRATEGY = "LastStrategy2"
 STRATEGIES_FOLDER = BAT_FOLDER
 
 WIDTH = 450
-HEIGHT = 710
+HEIGHT = 730
 
 # Discord TCP конфигурации
 

@@ -105,6 +105,119 @@ def safe_write_hosts_file(content):
 class HostsManager:
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
+        # 🆕 При инициализации проверяем и удаляем api.github.com
+        self.check_and_remove_github_api()
+
+    # 🆕 НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С api.github.com
+    def check_github_api_in_hosts(self):
+        """Проверяет, есть ли запись api.github.com в hosts файле"""
+        try:
+            content = safe_read_hosts_file()
+            if content is None:
+                return False
+                
+            lines = content.splitlines()
+            
+            for line in lines:
+                line = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Разбиваем строку на части (IP домен)
+                parts = line.split()
+                if len(parts) >= 2:
+                    domain = parts[1]  # Второй элемент - это домен
+                    if domain.lower() == "api.github.com":
+                        return True
+                        
+            return False
+        except Exception as e:
+            log(f"Ошибка при проверке api.github.com в hosts: {e}")
+            return False
+
+    def remove_github_api_from_hosts(self):
+        """Принудительно удаляет запись api.github.com из hosts файла"""
+        try:
+            content = safe_read_hosts_file()
+            if content is None:
+                log("Не удалось прочитать файл hosts для удаления api.github.com")
+                return False
+                
+            lines = content.splitlines(keepends=True)
+            new_lines = []
+            removed_lines = []
+            
+            for line in lines:
+                line_stripped = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if not line_stripped or line_stripped.startswith('#'):
+                    new_lines.append(line)
+                    continue
+                    
+                # Разбиваем строку на части (IP домен)
+                parts = line_stripped.split()
+                if len(parts) >= 2:
+                    domain = parts[1]  # Второй элемент - это домен
+                    if domain.lower() == "api.github.com":
+                        # Нашли запись api.github.com - не добавляем её в новый файл
+                        removed_lines.append(line_stripped)
+                        log(f"Удаляем из hosts: {line_stripped}")
+                        continue
+                
+                # Добавляем все остальные строки
+                new_lines.append(line)
+            
+            if removed_lines:
+                # Убираем лишние пустые строки в конце файла
+                while new_lines and new_lines[-1].strip() == "":
+                    new_lines.pop()
+                
+                # Оставляем одну пустую строку в конце, если файл не пустой
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    new_lines[-1] += '\n'
+                elif new_lines:
+                    new_lines.append('\n')
+
+                if not safe_write_hosts_file("".join(new_lines)):
+                    log("Не удалось записать файл hosts после удаления api.github.com")
+                    return False
+                
+                log(f"✅ Удалена запись api.github.com из hosts файла: {removed_lines}")
+                self.set_status("Запись api.github.com удалена из hosts файла")
+                return True
+            else:
+                log("Запись api.github.com не найдена в hosts файле")
+                return True  # Не ошибка, просто нет записи
+                
+        except PermissionError:
+            log("Нет прав для удаления api.github.com из hosts файла")
+            return False
+        except Exception as e:
+            log(f"Ошибка при удалении api.github.com из hosts: {e}")
+            return False
+
+    def check_and_remove_github_api(self):
+        """Проверяет и при необходимости удаляет api.github.com из hosts"""
+        try:
+            # Импортируем функцию для проверки настройки реестра
+            from config import get_remove_github_api
+            
+            # Проверяем, разрешено ли удаление GitHub API
+            if not get_remove_github_api():
+                log("⚙️ Удаление api.github.com отключено в настройках")
+                return
+                
+            if self.check_github_api_in_hosts():
+                log("🔍 Обнаружена запись api.github.com в hosts файле - принудительно удаляем...")
+                if self.remove_github_api_from_hosts():
+                    log("✅ Запись api.github.com успешно удалена из hosts")
+                else:
+                    log("❌ Не удалось удалить api.github.com из hosts")
+            else:
+                log("✅ Запись api.github.com не найдена в hosts файле")
+        except Exception as e:
+            log(f"Ошибка при проверке/удалении api.github.com: {e}")
 
     # ------------------------- HostsSelectorDialog -------------------------
     def show_hosts_selector_dialog(self, parent=None):
@@ -307,12 +420,16 @@ class HostsManager:
     def add_proxy_domains(self) -> bool:
         """
         1. Удаляем старые записи (если были).
-        2. Добавляем свежие в конец hosts.
+        2. Проверяем и удаляем api.github.com (если есть).
+        3. Добавляем свежие в конец hosts.
         """
         # Проверяем доступность файла hosts перед операцией
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
             return False
+        
+        # 🆕 Проверяем и удаляем api.github.com перед добавлением доменов
+        self.check_and_remove_github_api()
             
         if not self.remove_proxy_domains():     # не смогли удалить → дальше смысла нет
             return False
@@ -357,6 +474,9 @@ class HostsManager:
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
             return False
+        
+        # 🆕 Проверяем и удаляем api.github.com перед применением доменов
+        self.check_and_remove_github_api()
         
         # Создаем временный словарь только с выбранными доменами
         selected_proxy_domains = {
@@ -422,6 +542,9 @@ class HostsManager:
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
             return False
+        
+        # 🆕 Проверяем и удаляем api.github.com перед удалением доменов
+        self.check_and_remove_github_api()
             
         try:
             content = safe_read_hosts_file()
