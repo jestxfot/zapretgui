@@ -5,3 +5,6 @@ main.spec
 *.exe
 /dist/lists
 bin/
+build_zapret/
+build_zapret
+build_zapret/build_release_gui.py

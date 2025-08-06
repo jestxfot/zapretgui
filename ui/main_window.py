@@ -442,7 +442,7 @@ class MainWindowUI:
         if is_premium:
             # Формируем текст премиум статуса для заголовка окна
             if is_auto_renewal:
-                premium_text = " [PREMIUM - автопродление]"
+                premium_text = " [PREMIUM ∞]"
                 log("Отображаем автопродление в заголовке окна", "DEBUG")
             elif days_remaining is not None:
                 if days_remaining > 0:
@@ -595,7 +595,7 @@ class MainWindowUI:
         
         if is_premium:
             if is_auto_renewal:
-                button_text = " Premium ∞ (автопродление)"
+                button_text = " Premium и VPN"
                 log("Кнопка подписки: отображаем автопродление", "DEBUG")
             elif days_remaining is not None:
                 if days_remaining > 0:

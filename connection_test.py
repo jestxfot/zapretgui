@@ -447,19 +447,21 @@ class ConnectionTestWorker(QObject):
     def _find_strategy_file(self, strategy_name):
         """Ищет файл стратегии в папке bat"""
         try:
+            from config import BAT_FOLDER  # ✅ ДОБАВЛЯЕМ ИМПОРТ
+            
             # Возможные расширения файлов стратегий
             possible_extensions = ['.bat', '.cmd']
 
-            bat_folder = "bat"
-            if not os.path.exists(bat_folder):
+            # ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЙ ПУТЬ
+            if not os.path.exists(BAT_FOLDER):
                 return None
             
             # Ищем файлы, содержащие ключевые слова из названия стратегии
             strategy_keywords = strategy_name.lower().replace(" ", "_").replace("-", "_")
             
-            for file in os.listdir(bat_folder):
+            for file in os.listdir(BAT_FOLDER):
                 if any(file.lower().endswith(ext) for ext in possible_extensions):
-                    file_path = os.path.join(bat_folder, file)
+                    file_path = os.path.join(BAT_FOLDER, file)
                     
                     # Простое сопоставление по ключевым словам
                     file_lower = file.lower()
@@ -471,9 +473,9 @@ class ConnectionTestWorker(QObject):
                         return file_path
             
             # Если точное совпадение не найдено, возвращаем первый .bat файл
-            for file in os.listdir(bat_folder):
+            for file in os.listdir(BAT_FOLDER):
                 if file.lower().endswith('.bat'):
-                    return os.path.join(bat_folder, file)
+                    return os.path.join(BAT_FOLDER, file)
                     
             return None
             

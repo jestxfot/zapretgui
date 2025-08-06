@@ -1,7 +1,10 @@
+# strategy_menu/selector.py
+
 import sys
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
                           QPushButton, QTextBrowser, QGroupBox, QSplitter, QListWidgetItem, QWidget, QApplication,
-                          QTableWidget, QTableWidgetItem, QToolButton, QSizePolicy, QProgressBar, QHeaderView, QCheckBox, QAbstractItemView)
+                          QTableWidget, QTableWidgetItem, QToolButton, QSizePolicy, QProgressBar, QHeaderView, QCheckBox, QAbstractItemView,
+                          QTabWidget, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
@@ -343,7 +346,7 @@ class StrategySelector(QDialog):
         self.current_strategy_name = current_strategy_name
         self.selected_strategy_id = None
         self.selected_strategy_name = None
-        self.info_dialog = None  # Окно с информацией о стратегии
+        self.info_dialog = None
         
         # Флаги для предотвращения множественных операций
         self.is_loading_strategies = False
@@ -355,23 +358,92 @@ class StrategySelector(QDialog):
         self.download_thread = None
         self.download_worker = None
         
+        # ✅ НОВОЕ: Определяем источник данных
+        from config import get_strategy_launch_method
+        self.launch_method = get_strategy_launch_method()
+        self.is_direct_mode = (self.launch_method == "direct")
+        
         self.setWindowTitle("Выбор стратегии обхода блокировок")
         self.resize(MINIMUM_WIDTH, MINIMIM_HEIGHT)
-
-        # ✅ ДЕЛАЕМ ОКНО НЕБЛОКИРУЮЩИМ
-        self.setModal(False)  # ← КЛЮЧЕВОЕ ИЗМЕНЕНИЕ!
+        self.setModal(False)
         
         self.init_ui()
         
-        # ✅ ЗАГРУЖАЕМ ТОЛЬКО ЛОКАЛЬНЫЕ СТРАТЕГИИ
-        self.load_local_strategies_only()
+        # ✅ ЗАГРУЖАЕМ СТРАТЕГИИ В ЗАВИСИМОСТИ ОТ РЕЖИМА
+        if self.is_direct_mode:
+            self.load_builtin_strategies()
+        else:
+            self.load_local_strategies_only()
+
+    def load_builtin_strategies(self):
+        """✅ ОБНОВЛЕННЫЙ: Загружает встроенные стратегии из strategy_definitions.py"""
+        try:
+            self.status_label.setText("📦 Переключение на встроенные стратегии...")
+            self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
+            
+            # Небольшая задержка для плавности UI
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self._load_builtin_strategies_impl)
+            
+        except Exception as e:
+            log(f"Ошибка загрузки встроенных стратегий: {e}", "❌ ERROR")
+            self.status_label.setText(f"❌ Ошибка: {e}")
+            self.status_label.setStyleSheet("font-weight: bold; color: #f44336; padding: 5px;")
+            self.progress_bar.setVisible(False)
+
+    def _load_builtin_strategies_impl(self):
+        """✅ НОВЫЙ: Внутренний метод для загрузки встроенных стратегий"""
+        try:
+            # Импортируем встроенные стратегии
+            from strategy_menu.strategy_definitions import get_all_strategies
+            strategies = get_all_strategies()
+            
+            if strategies:
+                self.status_label.setText(f"✅ Загружено {len(strategies)} встроенных стратегий")
+                self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50; padding: 5px;")
+                
+                # Конвертируем формат для совместимости
+                converted_strategies = self.convert_builtin_to_index_format(strategies)
+                self.populate_strategies_table(converted_strategies)
+                
+                self.strategies_table.setEnabled(True)
+                self.refresh_button.setEnabled(True)
+                # Скрываем кнопку скачивания для встроенных стратегий
+                self.download_all_button.setVisible(False)
+                
+                # Выбираем текущую стратегию
+                if self.current_strategy_name:
+                    self.select_strategy_by_name(self.current_strategy_name)
+                    
+                log(f"Встроенные стратегии загружены: {len(strategies)} элементов", "INFO")
+            else:
+                self.status_label.setText("⚠️ Встроенные стратегии не найдены")
+                self.status_label.setStyleSheet("font-weight: bold; color: #ff9800; padding: 5px;")
+                
+        except Exception as e:
+            log(f"Ошибка загрузки встроенных стратегий: {e}", "❌ ERROR")
+            self.status_label.setText(f"❌ Ошибка: {e}")
+            self.status_label.setStyleSheet("font-weight: bold; color: #f44336; padding: 5px;")
+        
+        finally:
+            self.progress_bar.setVisible(False)
 
     def load_local_strategies_only(self):
-        """✅ НОВЫЙ МЕТОД: Загружает только локальные стратегии без интернета"""
+        """✅ ОБНОВЛЕННЫЙ: Загружает только локальные стратегии без интернета"""
         # Обновляем UI
-        self.status_label.setText("📂 Загрузка локальных стратегий...")
+        self.status_label.setText("📂 Переключение на .bat стратегии...")
         self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
         
+        # Небольшая задержка для плавности UI
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self._load_local_strategies_impl)
+
+    def _load_local_strategies_impl(self):
+        """✅ НОВЫЙ: Внутренний метод для загрузки локальных стратегий"""
         try:
             # Загружаем только локальные стратегии
             strategies = self.strategy_manager.get_local_strategies_only()
@@ -383,31 +455,142 @@ class StrategySelector(QDialog):
                 self.strategies_table.setEnabled(True)
                 self.refresh_button.setEnabled(True)
                 self.download_all_button.setEnabled(True)
+                self.download_all_button.setVisible(True)
                 
                 # Выбираем текущую стратегию
                 if self.current_strategy_name:
                     self.select_strategy_by_name(self.current_strategy_name)
+                    
+                log(f"Локальные .bat стратегии загружены: {len(strategies)} элементов", "INFO")
             else:
                 self.status_label.setText("⚠️ Локальные стратегии не найдены. Нажмите 'Обновить' для загрузки из интернета")
                 self.status_label.setStyleSheet("font-weight: bold; color: #ff9800; padding: 5px;")
                 self.refresh_button.setEnabled(True)
+                self.download_all_button.setVisible(True)
                 
         except Exception as e:
             log(f"Ошибка загрузки локальных стратегий: {e}", "❌ ERROR")
             self.status_label.setText(f"❌ Ошибка: {e}")
             self.status_label.setStyleSheet("font-weight: bold; color: #f44336; padding: 5px;")
             self.refresh_button.setEnabled(True)
+            self.download_all_button.setVisible(True)
         
         finally:
             self.progress_bar.setVisible(False)
+
+    def convert_builtin_to_index_format(self, builtin_strategies):
+        """Конвертирует формат встроенных стратегий в формат index.json для совместимости"""
+        converted = {}
+        
+        for strategy_id, strategy_data in builtin_strategies.items():
+            converted[strategy_id] = {
+                'name': strategy_data.get('name', strategy_id),
+                'description': strategy_data.get('description', ''),
+                'version': strategy_data.get('version', '1.0'),
+                'provider': strategy_data.get('provider', 'universal'),
+                'author': strategy_data.get('author', 'Unknown'),
+                'updated': strategy_data.get('updated', '2024'),
+                'label': strategy_data.get('label', 'stable'),
+                'ports': strategy_data.get('ports', [80, 443]),
+                'host_lists': self.extract_host_lists_from_builtin(strategy_data),
+                'fragments': strategy_data.get('fragments', False),
+                'use_https': strategy_data.get('use_https', True),
+                'all_sites': strategy_data.get('all_sites', False),
+                # Специальное поле для встроенных стратегий
+                '_is_builtin': True,
+                '_args': strategy_data.get('args', [])
+            }
+        
+        return converted
+
+    def extract_host_lists_from_builtin(self, strategy_data):
+        """Извлекает список хостлистов из аргументов встроенной стратегии"""
+        args = strategy_data.get('args', [])
+        host_lists = []
+        
+        for arg in args:
+            if arg.startswith('--hostlist='):
+                filename = arg.split('=', 1)[1]
+                if filename not in host_lists:
+                    host_lists.append(filename)
+            elif arg.startswith('--ipset='):
+                filename = arg.split('=', 1)[1]
+                if filename not in host_lists:
+                    host_lists.append(filename)
+        
+        # Если нет хостлистов, считаем что для всех сайтов
+        if not host_lists:
+            return ['ВСЕ САЙТЫ']
+        
+        return host_lists
 
     def _on_toggle_description(self, checked: bool):
         self.desc_widget.setVisible(checked)
         self.toggle_btn.setArrowType(
             Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-        
+
     def init_ui(self):
         layout = QVBoxLayout(self)
+        
+        # Создаем виджет с вкладками
+        self.tab_widget = QTabWidget()
+        layout.addWidget(self.tab_widget)
+        
+        # Вкладка 1: Список стратегий
+        self.strategies_tab = QWidget()
+        self._init_strategies_tab()
+        self.tab_widget.addTab(self.strategies_tab, "Стратегии")
+        
+        # Вкладка 2: Настройки
+        self.settings_tab = QWidget()
+        self._init_settings_tab()
+        self.tab_widget.addTab(self.settings_tab, "Настройки запуска")
+        
+        # ✅ СОЗДАЕМ КНОПКИ СНАЧАЛА
+        self.buttons_layout = QHBoxLayout()
+        
+        self.select_button = QPushButton("✅ Выбрать стратегию")
+        self.select_button.clicked.connect(self.accept)
+        self.select_button.setEnabled(False)
+        self.buttons_layout.addWidget(self.select_button)
+        
+        self.cancel_button = QPushButton("❌ Отмена")
+        self.cancel_button.clicked.connect(self.reject)
+        self.buttons_layout.addWidget(self.cancel_button)
+        
+        # ✅ СОЗДАЕМ КОНТЕЙНЕР ДЛЯ КНОПОК
+        self.buttons_widget = QWidget()
+        self.buttons_widget.setLayout(self.buttons_layout)
+        layout.addWidget(self.buttons_widget)
+        
+        # ✅ ПОДКЛЮЧАЕМ ОБРАБОТЧИК ТОЛЬКО ПОСЛЕ СОЗДАНИЯ ВСЕХ ЭЛЕМЕНТОВ
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+    def _on_tab_changed(self, index):
+        """✅ МАКСИМАЛЬНО БЕЗОПАСНЫЙ: Обработчик смены вкладок"""
+        # Проверяем все необходимые атрибуты
+        required_attrs = ['buttons_widget', 'select_button', 'cancel_button']
+        for attr in required_attrs:
+            if not hasattr(self, attr) or getattr(self, attr) is None:
+                log(f"Атрибут {attr} еще не создан, пропускаем обработку", "DEBUG")
+                return
+        
+        try:
+            if index == 0:  # Вкладка "Стратегии"
+                self.buttons_widget.setVisible(True)
+                log("Переключение на вкладку 'Стратегии' - показываем кнопки", "DEBUG")
+            elif index == 1:  # Вкладка "Настройки запуска"
+                self.buttons_widget.setVisible(False)
+                log("Переключение на вкладку 'Настройки' - скрываем кнопки", "DEBUG")
+            else:
+                log(f"Неизвестная вкладка с индексом {index}", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка в _on_tab_changed: {e}", "❌ ERROR")
+            # Не пробрасываем исключение дальше, чтобы не крашить приложение
+
+    def _init_strategies_tab(self):
+        """Инициализирует вкладку со списком стратегий"""
+        layout = QVBoxLayout(self.strategies_tab)
 
         # ────────── Заголовок + мини-кнопка ──────────
         header = QWidget()
@@ -536,20 +719,118 @@ class StrategySelector(QDialog):
         strategies_layout.addLayout(buttons_row)
         
         layout.addWidget(strategies_group)
+
+    def _init_settings_tab(self):
+        """✅ ОБНОВЛЕННЫЙ: Инициализирует вкладку настроек"""
+        layout = QVBoxLayout(self.settings_tab)
         
-        # Кнопки внизу
-        buttons_layout = QHBoxLayout()
+        # ✅ ДОБАВЛЯЕМ ЗАГОЛОВОК
+        title_label = QLabel("Выберите метод запуска стратегий")
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_font.setPointSize(12)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("margin: 10px; color: #2196F3;")
+        layout.addWidget(title_label)
         
-        self.select_button = QPushButton("✅ Выбрать стратегию")
-        self.select_button.clicked.connect(self.accept)
-        self.select_button.setEnabled(False)
-        buttons_layout.addWidget(self.select_button)
+        # Группа выбора метода запуска
+        method_group = QGroupBox("Метод запуска стратегий")
+        method_layout = QVBoxLayout(method_group)
         
-        cancel_button = QPushButton("❌ Отмена")
-        cancel_button.clicked.connect(self.reject)
-        buttons_layout.addWidget(cancel_button)
+        self.method_button_group = QButtonGroup()
         
-        layout.addLayout(buttons_layout)
+        # Радиокнопка для старого метода
+        self.bat_method_radio = QRadioButton("Классический метод (через .bat файлы)")
+        self.bat_method_radio.setToolTip(
+            "Использует .bat файлы для запуска стратегий.\n"
+            "Загружает стратегии из интернета.\n"
+            "Может показывать окна консоли при запуске."
+        )
+        self.method_button_group.addButton(self.bat_method_radio, 0)
+        method_layout.addWidget(self.bat_method_radio)
+        
+        # Радиокнопка для нового метода
+        self.direct_method_radio = QRadioButton("Прямой запуск (рекомендуется)")
+        self.direct_method_radio.setToolTip(
+            "Запускает встроенные стратегии напрямую из Python.\n"
+            "Не требует интернета, все стратегии включены в программу.\n"
+            "Полностью скрытый запуск без окон консоли."
+        )
+        self.method_button_group.addButton(self.direct_method_radio, 1)
+        method_layout.addWidget(self.direct_method_radio)
+        
+        # Загружаем сохраненную настройку
+        from config import get_strategy_launch_method
+        current_method = get_strategy_launch_method()
+        if current_method == "direct":
+            self.direct_method_radio.setChecked(True)
+        else:
+            self.bat_method_radio.setChecked(True)
+        
+        # ✅ ОБРАБОТЧИК ИЗМЕНЕНИЯ МЕТОДА - АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ
+        self.method_button_group.buttonClicked.connect(self._on_method_changed)
+        
+        layout.addWidget(method_group)
+        
+        # ✅ ОБНОВЛЕННАЯ информация о методах
+        info_text = QLabel(
+            "• Прямой запуск: использует встроенные стратегии, не требует интернета\n"
+            "• Классический метод: загружает стратегии из интернета в виде .bat файлов\n"
+            "• При смене метода список стратегий обновится автоматически"
+        )
+        info_text.setWordWrap(True)
+        info_text.setStyleSheet("padding: 15px; background: #3a3a3a; border-radius: 5px; margin: 10px;")
+        layout.addWidget(info_text)
+        
+        # ✅ ДОБАВЛЯЕМ УВЕДОМЛЕНИЕ ОБ АВТОМАТИЧЕСКОМ ОБНОВЛЕНИИ
+        auto_update_note = QLabel(
+            "💡 Изменения применяются мгновенно без подтверждения"
+        )
+        auto_update_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        auto_update_note.setStyleSheet(
+            "padding: 10px; background: #2196F3; color: white; "
+            "border-radius: 5px; font-weight: bold; margin: 10px;"
+        )
+        layout.addWidget(auto_update_note)
+        
+        layout.addStretch()
+
+    def _on_method_changed(self, button):
+        """✅ ОБНОВЛЕННЫЙ: Обработчик изменения метода запуска с автоматическим обновлением списка"""
+        from config import set_strategy_launch_method
+        
+        old_method = self.launch_method
+        
+        if button == self.direct_method_radio:
+            set_strategy_launch_method("direct")
+            self.launch_method = "direct"
+            self.is_direct_mode = True
+            log("Выбран прямой метод запуска стратегий", "INFO")
+            
+            # ✅ АВТОМАТИЧЕСКИ ПЕРЕЗАГРУЖАЕМ СПИСОК СТРАТЕГИЙ
+            if old_method != "direct":
+                log("Переключение на встроенные стратегии...", "INFO")
+                self.download_all_button.setVisible(False)
+                self.load_builtin_strategies()
+                
+                # Автоматически переключаемся на вкладку стратегий для просмотра изменений
+                self.tab_widget.setCurrentIndex(0)
+            
+        else:
+            set_strategy_launch_method("bat")
+            self.launch_method = "bat"
+            self.is_direct_mode = False
+            log("Выбран классический метод запуска через .bat", "INFO")
+            
+            # ✅ АВТОМАТИЧЕСКИ ПЕРЕЗАГРУЖАЕМ СПИСОК СТРАТЕГИЙ
+            if old_method != "bat":
+                log("Переключение на .bat стратегии...", "INFO")
+                self.download_all_button.setVisible(True)
+                self.load_local_strategies_only()
+                
+                # Автоматически переключаемся на вкладку стратегий для просмотра изменений
+                self.tab_widget.setCurrentIndex(0)
 
     def on_strategy_double_clicked(self, item):
         """Обрабатывает двойной клик на стратегии - сразу выбирает её."""
@@ -757,9 +1038,8 @@ class StrategySelector(QDialog):
                 strategy_number += 1
 
     def populate_strategy_row(self, row, strategy_id, strategy_info, strategies_cache=None, strategy_number=None):
-        """Заполняет одну строку таблицы данными стратегии."""
-
-        # ✅ ИЗМЕНЕНО: используем переданный номер стратегии вместо sort_order
+        """✅ ОБНОВЛЕННЫЙ: Заполняет одну строку таблицы данными стратегии."""
+        
         strategy_name = strategy_info.get('name', strategy_id)
         if strategy_number is not None:
             display_name = f"   {strategy_number}. {strategy_name}"
@@ -775,23 +1055,28 @@ class StrategySelector(QDialog):
         all_sites_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         self.strategies_table.setItem(row, 1, all_sites_item)
         
-        # Статус версии
-        version_status = None
-        if self.strategy_manager:
-            version_status = self.strategy_manager.check_strategy_version_status(strategy_id, strategies_cache)
-        
-        status_text = "✓"
-        status_style = "color: #00C800; font-weight: bold;"
-        
-        if version_status == 'outdated':
-            status_text = "ОБНОВИТЬ"
-            status_style = "color: #FF6600; font-weight: bold;"
-        elif version_status == 'not_downloaded':
-            status_text = "НЕ СКАЧАНА"
-            status_style = "color: #CC0000; font-weight: bold;"
-        elif version_status == 'unknown':
-            status_text = "?"
-            status_style = "color: #888888; font-weight: bold;"
+        # ✅ СТАТУС - для встроенных стратегий всегда OK
+        if strategy_info.get('_is_builtin', False):
+            status_text = "✓ ОК"
+            status_style = "color: #00C800; font-weight: bold;"
+        else:
+            # Оригинальная логика для BAT стратегий
+            version_status = None
+            if self.strategy_manager:
+                version_status = self.strategy_manager.check_strategy_version_status(strategy_id, strategies_cache)
+            
+            status_text = "✓"
+            status_style = "color: #00C800; font-weight: bold;"
+            
+            if version_status == 'outdated':
+                status_text = "ОБНОВИТЬ"
+                status_style = "color: #FF6600; font-weight: bold;"
+            elif version_status == 'not_downloaded':
+                status_text = "НЕ СКАЧАНА"
+                status_style = "color: #CC0000; font-weight: bold;"
+            elif version_status == 'unknown':
+                status_text = "?"
+                status_style = "color: #888888; font-weight: bold;"
         
         # Создаем виджет для статуса
         status_widget = QWidget()
@@ -805,7 +1090,7 @@ class StrategySelector(QDialog):
         
         self.strategies_table.setCellWidget(row, 2, status_widget)
         
-        # Метка стратегии
+        # Метка стратегии (остается без изменений)
         label = strategy_info.get('label', None)
         if label and label in LABEL_TEXTS:
             label_color_hex = LABEL_COLORS[label]
@@ -826,29 +1111,46 @@ class StrategySelector(QDialog):
             self.strategies_table.setCellWidget(row, 3, empty_widget)
 
     def refresh_strategies_async(self):
-        """✅ ОБНОВЛЕННЫЙ МЕТОД: Загружает стратегии из интернета"""
+        """✅ ОБНОВЛЕННЫЙ МЕТОД: Загружает стратегии в зависимости от режима"""
         if self.is_loading_strategies:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Обновление в процессе", 
                                 "Обновление уже выполняется, подождите...")
             return
         
+        # ✅ ПРОВЕРЯЕМ РЕЖИМ ЗАПУСКА
+        from config import get_strategy_launch_method
+        current_method = get_strategy_launch_method()
+        
+        if current_method == "direct":
+            # Для прямого режима просто перезагружаем встроенные
+            self.is_direct_mode = True
+            self.download_all_button.setVisible(False)
+            self.load_builtin_strategies()
+            return
+        else:
+            # Для BAT режима загружаем из интернета
+            self.is_direct_mode = False
+            self.download_all_button.setVisible(True)
+        
+        # Оригинальная логика для BAT режима
         self.is_loading_strategies = True
         
         # Обновляем UI
         self.status_label.setText("🌐 Загрузка стратегий из интернета...")
         self.status_label.setStyleSheet("font-weight: bold; color: #2196F3; padding: 5px;")
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
+        self.progress_bar.setRange(0, 0)
         self.strategies_table.setEnabled(False)
         self.refresh_button.setEnabled(False)
         self.download_all_button.setEnabled(False)
         
+        # Остальная логика как раньше...
         from PyQt6.QtCore import QObject, QThread, pyqtSignal
         
         class InternetStrategyLoader(QObject):
-            finished = pyqtSignal(dict, str)  # strategies_dict, error_message
-            progress = pyqtSignal(str)        # status_message
+            finished = pyqtSignal(dict, str)
+            progress = pyqtSignal(str)
             
             def __init__(self, strategy_manager):
                 super().__init__()
@@ -857,8 +1159,6 @@ class StrategySelector(QDialog):
             def run(self):
                 try:
                     self.progress.emit("Подключение к серверу...")
-                    
-                    # Используем новый метод для загрузки из интернета
                     strategies = self.strategy_manager.download_strategies_index_from_internet()
                     
                     if strategies:
@@ -871,12 +1171,11 @@ class StrategySelector(QDialog):
                     log(error_msg, "❌ ERROR")
                     self.finished.emit({}, error_msg)
         
-        # Создаем отдельный поток
+        # Остальная логика создания потока...
         self.loader_thread = QThread()
         self.loader_worker = InternetStrategyLoader(self.strategy_manager)
         self.loader_worker.moveToThread(self.loader_thread)
         
-        # Подключаем сигналы
         self.loader_thread.started.connect(self.loader_worker.run)
         self.loader_worker.progress.connect(self.update_loading_status)
         self.loader_worker.finished.connect(self.on_strategies_loaded)
@@ -884,9 +1183,7 @@ class StrategySelector(QDialog):
         self.loader_worker.finished.connect(self.loader_worker.deleteLater)
         self.loader_thread.finished.connect(self.loader_thread.deleteLater)
         
-        # Запускаем поток
         self.loader_thread.start()
-        
         log("Запуск загрузки стратегий из интернета", "INFO")
 
     def download_all_strategies_async(self):
@@ -1063,8 +1360,13 @@ class StrategySelector(QDialog):
             event.accept()
     
     def is_strategy_for_all_sites(self, strategy_info):
-        """Проверяет, предназначена ли стратегия для всех сайтов."""
-        # Проверяем по списку хостов
+        """✅ ОБНОВЛЕННЫЙ: Проверяет, предназначена ли стратегия для всех сайтов."""
+        
+        # ✅ Для встроенных стратегий используем специальное поле
+        if strategy_info.get('_is_builtin', False):
+            return strategy_info.get('all_sites', False)
+        
+        # Оригинальная логика для BAT стратегий
         host_lists = strategy_info.get('host_lists', [])
         if isinstance(host_lists, list):
             for host_list in host_lists:
@@ -1084,7 +1386,6 @@ class StrategySelector(QDialog):
         if 'все сайты' in name or 'всех сайтов' in name or 'all sites' in name:
             return True
             
-        # Проверяем специальное поле (если добавится в будущем)
         return strategy_info.get('all_sites', False)
     
     def get_provider_display_name(self, provider):

@@ -401,7 +401,51 @@ class SimpleDonateChecker:
             'subscription_level': status.subscription_level,
             'source': status.source
         }
-    
+
+    # Функция для быстрой проверки (не используется вообще)
+    def check_premium_access(self, email: str = None) -> Tuple[bool, Optional[int]]:
+        """Быстрая проверка премиум доступа"""
+        try:
+            result = self.check_device_activation()
+            return result['activated'], result['days_remaining']
+        except Exception as e:
+            logger.error(f"Ошибка проверки премиум: {e}")
+            return False, None
+        
+    def get_full_subscription_info(self):
+        """
+        Получает полную информацию о подписке включая автопродление.
+        
+        Returns:
+            dict: {
+                'is_premium': bool,
+                'status_msg': str,
+                'days_remaining': int или None,
+                'is_auto_renewal': bool,
+                'subscription_level': str
+            }
+        """
+        try:
+            device_info = self.check_device_activation()
+            
+            return {
+                'is_premium': device_info.get('activated', False),
+                'status_msg': device_info.get('status', 'Неизвестно'),
+                'days_remaining': device_info.get('days_remaining'),
+                'is_auto_renewal': device_info.get('auto_payment', False),
+                'subscription_level': device_info.get('subscription_level', '–')
+            }
+        except Exception as e:
+            from log import log
+            log(f"Ошибка получения информации о подписке: {e}", "❌ ERROR")
+            return {
+                'is_premium': False,
+                'status_msg': 'Ошибка проверки',
+                'days_remaining': None,
+                'is_auto_renewal': False,
+                'subscription_level': '–'
+            }
+        
     def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
         """Проверить статус подписки"""
         status = self.api_client.check_device_status(use_cache)
@@ -430,48 +474,3 @@ class SimpleDonateChecker:
 
 # Алиас для совместимости
 DonateChecker = SimpleDonateChecker
-
-# Функция для быстрой проверки
-def check_premium_access(email: str = None) -> Tuple[bool, Optional[int]]:
-    """Быстрая проверка премиум доступа"""
-    try:
-        checker = SimpleDonateChecker()
-        result = checker.check_device_activation()
-        return result['activated'], result['days_remaining']
-    except Exception as e:
-        logger.error(f"Ошибка проверки премиум: {e}")
-        return False, None
-    
-def get_full_subscription_info(self):
-    """
-    Получает полную информацию о подписке включая автопродление.
-    
-    Returns:
-        dict: {
-            'is_premium': bool,
-            'status_msg': str,
-            'days_remaining': int или None,
-            'is_auto_renewal': bool,
-            'subscription_level': str
-        }
-    """
-    try:
-        device_info = self.check_device_activation()
-        
-        return {
-            'is_premium': device_info.get('activated', False),
-            'status_msg': device_info.get('status', 'Неизвестно'),
-            'days_remaining': device_info.get('days_remaining'),
-            'is_auto_renewal': device_info.get('auto_payment', False),
-            'subscription_level': device_info.get('subscription_level', '–')
-        }
-    except Exception as e:
-        from log import log
-        log(f"Ошибка получения информации о подписке: {e}", "❌ ERROR")
-        return {
-            'is_premium': False,
-            'status_msg': 'Ошибка проверки',
-            'days_remaining': None,
-            'is_auto_renewal': False,
-            'subscription_level': '–'
-        }

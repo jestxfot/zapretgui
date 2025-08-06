@@ -478,11 +478,6 @@ class SubscriptionDialog(QDialog):
         buttons_layout.setSpacing(8)
         buttons_layout.setContentsMargins(0, 10, 0, 0)
         
-        refresh_btn = QPushButton("🔄 Обновить статус")
-        refresh_btn.setProperty("class", "secondary")
-        refresh_btn.clicked.connect(self._refresh_status)
-        buttons_layout.addWidget(refresh_btn)
-        
         change_key_btn = QPushButton("🔑 Изменить ключ")
         change_key_btn.setProperty("class", "secondary")
         change_key_btn.clicked.connect(self._change_key)
@@ -498,15 +493,10 @@ class SubscriptionDialog(QDialog):
         test_btn.clicked.connect(self._test_connection)
         buttons_layout.addWidget(test_btn)
         
-        close_btn = QPushButton("✅ Готово")
-        close_btn.clicked.connect(self.accept)
-        buttons_layout.addWidget(close_btn)
-        
         layout.addLayout(buttons_layout)
         layout.addStretch()
         
         # Сохраняем ссылки
-        self.refresh_btn = refresh_btn
         self.test_btn = test_btn
         
         return page
@@ -622,13 +612,6 @@ class SubscriptionDialog(QDialog):
         self.status_icon.setText("⚠️")
         self.status_text.setText("Ошибка проверки")
         self.status_details.setText(error)
-    
-    def _refresh_status(self):
-        """Обновить статус"""
-        self.refresh_btn.setEnabled(False)
-        self.checker.clear_cache()
-        self._check_status()
-        QTimer.singleShot(1000, lambda: self.refresh_btn.setEnabled(True))
     
     def _test_connection(self):
         """Проверить соединение"""

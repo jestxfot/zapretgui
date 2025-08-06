@@ -2,42 +2,54 @@
 import os
 import time
 import subprocess
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from strategy_menu.manager import StrategyManager
+    from main import LupiDPIApp
 
 from log import log
-from utils import run_hidden # Импортируем нашу обертку для subprocess
+from utils import run_hidden
 
 class DPIStarter:
     """Класс для запуска и управления процессами DPI."""
 
-    def _set_status(self, text: str):
-        if self.status_callback:
-            self.status_callback(text)
-
-    def _update_ui(self, running: bool):
-        if self.ui_callback:
-            self.ui_callback(running)
-
-    def __init__(self, winws_exe, status_callback=None, ui_callback=None):
+    def __init__(self, winws_exe: str, status_callback: Optional[Callable[[str], None]] = None, 
+                 ui_callback: Optional[Callable[[bool], None]] = None, 
+                 app_instance: Optional['LupiDPIApp'] = None):
         """
         Инициализирует DPIStarter.
         
         Args:
-            winws_exe (str): Путь к исполняемому файлу winws.exe
-            status_callback (callable): Функция обратного вызова для отображения статуса
+            winws_exe: Путь к исполняемому файлу winws.exe
+            status_callback: Функция обратного вызова для отображения статуса
+            ui_callback: Функция обратного вызова для обновления UI
+            app_instance: Ссылка на главное приложение
         """
         self.winws_exe = winws_exe
         self.status_callback = status_callback
         self.ui_callback = ui_callback
-        self._idx = None  # Кэш для index.json
+        self.app_instance = app_instance
+        self._idx: Optional[Dict[str, Any]] = None  # Кэш для index.json
+
+    def _set_status(self, text: str) -> None:
+        """Внутренний метод для установки статуса"""
+        if self.status_callback:
+            self.status_callback(text)
+
+    def _update_ui(self, running: bool) -> None:
+        """Внутренний метод для обновления UI"""
+        if self.ui_callback:
+            self.ui_callback(running)
     
-    def set_status(self, text):
+    def set_status(self, text: str) -> None:
         """Отображает статусное сообщение."""
         if self.status_callback:
             self.status_callback(text)
         else:
             print(text)
 
-    def check_process_running_wmi(self, silent=False) -> bool:
+    def check_process_running_wmi(self, silent: bool = False) -> bool:
         """Проверка через WMI - без окон консоли"""
         try:
             import win32com.client
@@ -47,11 +59,11 @@ class DPIStarter:
             if not silent:
                 log(f"winws.exe state → {found}", "DEBUG")
             return found
-        except:
+        except Exception:
             # Fallback на tasklist если WMI недоступен
             return self.check_process_running(silent)
     
-    def check_process_running(self, silent=False) -> bool:
+    def check_process_running(self, silent: bool = False) -> bool:
         """
         Мини-версия: только tasklist (хватает в 99% случаев).
         Никаких дополнительных окон не появляется.
@@ -69,10 +81,7 @@ class DPIStarter:
                 log(f"tasklist error: {e}", "⚠ WARNING")
             return False
 
-    # ==================================================================
-    #  ЕДИНЫЙ ЗАПУСК Стратегии (.bat)   → self.start(...)
-    # ==================================================================
-    def cleanup_windivert_service(self):
+    def cleanup_windivert_service(self) -> bool:
         """Очистка службы через PowerShell - без окон"""
         ps_script = """
         $service = Get-Service -Name windivert -ErrorAction SilentlyContinue
@@ -85,7 +94,8 @@ class DPIStarter:
         
         try:
             run_hidden(
-                ['С:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '-WindowStyle', 'Hidden', '-NoProfile', '-Command', ps_script],
+                ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 
+                 '-WindowStyle', 'Hidden', '-NoProfile', '-Command', ps_script],
                 wait=True
             )
             return True
@@ -94,6 +104,7 @@ class DPIStarter:
             return True
 
     def stop_all_processes(self) -> bool:
+        """Останавливает все процессы DPI"""
         stop_bat = os.path.join(os.path.dirname(self.winws_exe), 'stop.bat')
         if not os.path.isfile(stop_bat):
             log(f"stop.bat not found: {stop_bat}", "⚠ WARNING")
@@ -111,8 +122,8 @@ class DPIStarter:
             "✅ SUCCESS" if ok else "⚠ WARNING")
         return ok
 
-    # -------------------------------------------------- запуск стратегии
-    def _load_index(self, idx_path: str) -> dict:
+    def _load_index(self, idx_path: str) -> Dict[str, Any]:
+        """Загружает index.json с кэшированием"""
         if self._idx:
             return self._idx
 
@@ -120,83 +131,346 @@ class DPIStarter:
             import json
             self._idx = json.load(f)
         return self._idx
-            
-    def start_dpi(self, selected_mode: str | None = None,
-                delay_ms: int = 0) -> bool:
-        """
-        • выбирает .bat по имени/ID;  
-        • останавливает предыдущий winws;  
-        • запускает bat скрытно через VBS.
-        """
-        from config import BAT_FOLDER, INDEXJSON_FOLDER, DEFAULT_STRAT, get_last_strategy
 
-        # ------------------------------------------------ выбор стратегии
-        if not selected_mode:
-            selected_mode = get_last_strategy() or DEFAULT_STRAT
-
-        idx_file = os.path.join(INDEXJSON_FOLDER, 'index.json')
-        try:
-            strategies = self._load_index(idx_file)
-        except Exception as e:
-            log(f"index.json error: {e}", "⚠ WARNING")
-            self._set_status("index.json повреждён")
-            return False
-
-        def resolve_bat(name: str) -> str | None:
-            if name in strategies:
-                return strategies[name].get('file_path')
-            for info in strategies.values():
-                if info.get('name', '').lower() == name.lower():
-                    return info.get('file_path')
-            if name.lower().endswith('.bat'):
-                return name
+    def _get_strategy_manager(self) -> Optional['StrategyManager']:
+        """Получает strategy_manager с правильной типизацией"""
+        if not self.app_instance:
             return None
+        
+        if hasattr(self.app_instance, 'strategy_manager'):
+            return self.app_instance.strategy_manager
+        
+        return None
 
-        rel_bat = resolve_bat(selected_mode)
-        if not rel_bat:
-            self._set_status("Стратегия не найдена")
-            return False
+    def start_dpi(self, selected_mode: Optional[Any] = None) -> bool:
+        """Запускает DPI с учетом выбранного метода"""
+        from config import get_strategy_launch_method
+        
+        launch_method = get_strategy_launch_method()
+        log(f"Используется метод запуска: {launch_method}", "INFO")
+        
+        if launch_method == "direct":
+            return self._start_dpi_direct(selected_mode)
+        else:
+            return self._start_dpi_bat(selected_mode)
 
-        bat_path = os.path.abspath(os.path.join(BAT_FOLDER, rel_bat))
-        if not os.path.isfile(bat_path):
-            self._set_status("Файл стратегии не найден")
-            return False
-
-        # ------------------------------------------------ запускаем (с задержкой?)
-        def _do_start() -> bool:
-            self._set_status("Запуск DPI…")
-            if not self.stop_all_processes():
-                self._set_status("Не удалось остановить старый процесс")
-                return False
-
-            log(f"RUN BAT → {bat_path}", "INFO")
-            # ВАЖНО: Передаем команду как список ['cmd', '/c', bat_path]
-            # Это предотвращает появление окон консоли
-            try:
-                # Передаем команду как список
-                run_hidden(
-                    ['C:\\Windows\\System32\\cmd.exe', '/c', bat_path],  # Правильный формат команды
-                    cwd=BAT_FOLDER,
-                    use_vbs_for_bat=True
-                )
-            except Exception as e:
-                log(f"Ошибка запуска bat: {e}", "❌ ERROR")
-                self._set_status(f"Ошибка запуска: {e}")
-                return False
-
-            # ждём пару секунд и проверяем
-            for _ in range(10):
-                if self.check_process_running_wmi(silent=True):
+    def _start_dpi_direct(self, selected_mode: Optional[Any]) -> bool:
+        """Запускает DPI напрямую через StrategyRunner"""
+        try:
+            from strategy_menu.strategy_runner import get_strategy_runner, get_recommended_strategy_id
+            
+            runner = get_strategy_runner(self.winws_exe)
+            
+            # Если передан кортеж (strategy_id, strategy_name)
+            if isinstance(selected_mode, tuple) and len(selected_mode) == 2:
+                strategy_id, strategy_name = selected_mode
+                log(f"Запуск встроенной стратегии: {strategy_name} (ID: {strategy_id})", "INFO")
+                success = runner.start_strategy(strategy_id)
+                if success:
                     self._update_ui(True)
-                    self._set_status("DPI запущен")
-                    return True
-                time.sleep(0.3)
+                    self.set_status(f"DPI запущен: {strategy_name}")
+                return success
+                    
+            elif isinstance(selected_mode, str):
+                # Ищем по имени в встроенных стратегиях
+                from strategy_menu.strategy_runner import find_strategy_by_name
+                strategy_id = find_strategy_by_name(selected_mode)
+                if strategy_id:
+                    log(f"Запуск встроенной стратегии: {selected_mode} (ID: {strategy_id})", "INFO")
+                    success = runner.start_strategy(strategy_id)
+                    if success:
+                        self._update_ui(True)
+                        self.set_status(f"DPI запущен: {selected_mode}")
+                    return success
+                else:
+                    log(f"Встроенная стратегия не найдена: {selected_mode}", "⚠ WARNING")
+            
+            # По умолчанию используем первую рекомендуемую
+            default_id = get_recommended_strategy_id()
+            if default_id:
+                from strategy_menu.strategy_definitions import get_strategy_by_id
+                default_strategy = get_strategy_by_id(default_id)
+                strategy_name = default_strategy.get('name', default_id) if default_strategy else default_id
+                
+                log(f"Запуск рекомендуемой стратегии по умолчанию: {strategy_name}", "INFO")
+                success = runner.start_strategy(default_id)
+                if success:
+                    self._update_ui(True)
+                    self.set_status(f"DPI запущен: {strategy_name}")
+                return success
+            
+            log("Не удалось определить стратегию для прямого запуска", "❌ ERROR")
+            self.set_status("Ошибка: не удалось определить стратегию")
+            return False
+            
+        except Exception as e:
+            log(f"Ошибка прямого запуска DPI: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка прямого запуска: {e}")
+            return False
+    
+    def _start_dpi_bat(self, selected_mode: Optional[Any]) -> bool:
+        """Старый метод запуска через .bat файлы"""
+        try:
+            log("======================== Start DPI (BAT) ========================", level="START")
+            # Диагностика: выводим что передано в selected_mode
+            log(f"selected_mode значение: {selected_mode}", "DEBUG")
+            
+            # Проверяем наличие BAT файлов
+            from config import BAT_FOLDER
+            bat_dir = BAT_FOLDER
 
-            self._set_status("Не удалось запустить DPI")
+            if os.path.exists(bat_dir):
+                bat_files = [f for f in os.listdir(bat_dir) if f.endswith('.bat')]
+                log(f"Найдено .bat файлов: {len(bat_files)}", "DEBUG")
+                if len(bat_files) < 10:  # Если мало файлов, выведем список
+                    log(f"Список .bat файлов: {bat_files}", "DEBUG")
+            else:
+                log(f"Папка bat не найдена: {bat_dir}", "⚠ WARNING")
+            
+            # Проверяем, запущен ли уже процесс
+            if self.check_process_running_wmi(silent=True):
+                log("Процесс winws.exe уже запущен, перезапускаем...", level="⚠ WARNING")
+                if self.app_instance:
+                    from dpi.stop import stop_dpi
+                    stop_dpi(self.app_instance)
+                time.sleep(2)
+            
+            # Определяем путь к .bat файлу
+            bat_file: Optional[str] = None
+            strategy_name = "Неизвестная стратегия"
+            
+            if selected_mode:
+                if isinstance(selected_mode, dict):
+                    # Передан словарь с информацией о стратегии из index.json
+                    file_path = selected_mode.get('file_path')
+                    strategy_name = selected_mode.get('name', 'Неизвестная стратегия')
+                    
+                    if file_path:
+                        bat_file = os.path.join(BAT_FOLDER, file_path)
+                        log(f"Используем file_path из словаря: {file_path}", "DEBUG")
+                    else:
+                        log("В словаре стратегии отсутствует file_path", "⚠ WARNING")
+                        self.set_status("Ошибка: отсутствует file_path в информации о стратегии")
+                        return False
+                        
+                elif isinstance(selected_mode, str):
+                    # Передано имя стратегии - нужно найти file_path в index.json
+                    strategy_name = selected_mode
+                    log(f"Поиск file_path для стратегии: {strategy_name}", "DEBUG")
+                    
+                    # Получаем strategy_manager с правильной типизацией
+                    strategy_manager = self._get_strategy_manager()
+                    
+                    if strategy_manager:
+                        try:
+                            strategies: Dict[str, Dict[str, Any]] = strategy_manager.get_strategies_list()
+                            
+                            # Ищем стратегию по имени
+                            for sid, sinfo in strategies.items():
+                                if sinfo.get('name') == strategy_name:
+                                    file_path = sinfo.get('file_path')
+                                    if file_path:
+                                        bat_file = os.path.join(BAT_FOLDER, file_path)
+                                        log(f"Найден file_path для '{strategy_name}': {file_path}", "DEBUG")
+                                        break
+                            
+                            if not bat_file:
+                                log(f"Не найден file_path для стратегии '{strategy_name}' в index.json", "❌ ERROR")
+                                self.set_status(f"Стратегия '{strategy_name}' не найдена в списке")
+                                return False
+                                
+                        except Exception as e:
+                            log(f"Ошибка при получении списка стратегий: {e}", "❌ ERROR")
+                            self.set_status("Ошибка доступа к списку стратегий")
+                            return False
+                    else:
+                        log("strategy_manager недоступен", "❌ ERROR")
+                        self.set_status("Ошибка: менеджер стратегий недоступен")
+                        return False
+            else:
+                # Используем стратегию по умолчанию
+                log("Используем стратегию по умолчанию", "DEBUG")
+                
+                # Получаем strategy_manager для поиска дефолтной стратегии
+                strategy_manager = self._get_strategy_manager()
+                
+                if strategy_manager:
+                    try:
+                        strategies: Dict[str, Dict[str, Any]] = strategy_manager.get_strategies_list()
+                        
+                        # Ищем первую рекомендуемую стратегию
+                        for sid, sinfo in strategies.items():
+                            if sinfo.get('label') == 'recommended':
+                                file_path = sinfo.get('file_path')
+                                strategy_name = sinfo.get('name', 'Рекомендуемая стратегия')
+                                if file_path:
+                                    bat_file = os.path.join(BAT_FOLDER, file_path)
+                                    log(f"Используем рекомендуемую стратегию: {strategy_name}", "INFO")
+                                    break
+                        
+                        # Если не нашли рекомендуемую, берем первую доступную
+                        if not bat_file and strategies:
+                            first_strategy = next(iter(strategies.values()))
+                            file_path = first_strategy.get('file_path')
+                            strategy_name = first_strategy.get('name', 'Первая доступная')
+                            if file_path:
+                                bat_file = os.path.join(BAT_FOLDER, file_path)
+                                log(f"Используем первую доступную стратегию: {strategy_name}", "INFO")
+                    
+                    except Exception as e:
+                        log(f"Ошибка при поиске дефолтной стратегии: {e}", "❌ ERROR")
+                
+                # Fallback на хардкод
+                if not bat_file:
+                    bat_file = os.path.join(BAT_FOLDER, "original_bolvan_v2_badsum.bat")
+                    strategy_name = "Fallback стратегия"
+                    log(f"Используем fallback: {bat_file}", "⚠ WARNING")
+            
+            if not bat_file:
+                log("Не удалось определить BAT файл для запуска", "❌ ERROR")
+                self.set_status("Ошибка: не удалось определить файл стратегии")
+                return False
+            
+            # Проверяем существование .bat файла
+            log(f"Проверяем существование файла: {bat_file}", "DEBUG")
+            if not os.path.exists(bat_file):
+                log(f"BAT файл не найден: {bat_file}", level="❌ ERROR")
+                self.set_status(f"Файл стратегии не найден: {os.path.basename(bat_file)}")
+                
+                # Пробуем скачать стратегию
+                if self._try_download_strategy(bat_file, strategy_name):
+                    log(f"Стратегия успешно скачана: {bat_file}", "✅ SUCCESS")
+                else:
+                    return False
+            
+            # Финальная проверка существования файла
+            if not os.path.exists(bat_file):
+                log(f"BAT файл все еще не существует: {bat_file}", "❌ ERROR")
+                self.set_status("Критическая ошибка: файл стратегии недоступен")
+                return False
+            
+            # Запускаем .bat файл
+            return self._execute_bat_file(bat_file, strategy_name)
+                
+        except Exception as e:
+            log(f"Критическая ошибка в _start_dpi_bat: {e}", level="❌ ERROR")
+            self.set_status(f"Критическая ошибка: {e}")
             return False
 
-        if delay_ms:
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(delay_ms, _do_start)
-            return True
-        return _do_start()
+    def _try_download_strategy(self, bat_file: str, strategy_name: str) -> bool:
+        """Пытается скачать отсутствующую стратегию"""
+        strategy_manager = self._get_strategy_manager()
+        
+        if not strategy_manager:
+            log("strategy_manager недоступен для скачивания", "❌ ERROR")
+            self.set_status("Не удалось получить доступ к менеджеру стратегий")
+            return False
+        
+        try:
+            self.set_status("Попытка скачать отсутствующую стратегию...")
+            log("Пытаемся скачать отсутствующий BAT файл", "INFO")
+            
+            strategies: Dict[str, Dict[str, Any]] = strategy_manager.get_strategies_list()
+            strategy_id: Optional[str] = None
+            
+            # Находим ID стратегии по file_path или имени
+            target_filename = os.path.basename(bat_file)
+            for sid, sinfo in strategies.items():
+                if (sinfo.get('file_path') == target_filename or 
+                    sinfo.get('name') == strategy_name):
+                    strategy_id = sid
+                    break
+            
+            if strategy_id:
+                log(f"Найден ID стратегии для скачивания: {strategy_id}", "DEBUG")
+                downloaded_path = strategy_manager.download_strategy(strategy_id)
+                if downloaded_path and os.path.exists(downloaded_path):
+                    return True
+                else:
+                    log("Скачивание стратегии не удалось", "❌ ERROR")
+                    self.set_status("Не удалось скачать стратегию")
+                    return False
+            else:
+                log(f"ID стратегии не найден для файла: {target_filename}", "❌ ERROR")
+                self.set_status("Стратегия не найдена в списке для скачивания")
+                return False
+                
+        except Exception as e:
+            log(f"Ошибка при попытке скачать стратегию: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка скачивания: {e}")
+            return False
+
+    def _execute_bat_file(self, bat_file: str, strategy_name: str) -> bool:
+        """Запуск через ShellExecuteEx"""
+        self.set_status(f"Запуск стратегии: {strategy_name}")
+        log(f"Запускаем BAT файл: {bat_file}", level="INFO")
+        
+        try:
+            import ctypes
+            from ctypes import wintypes, byref
+            
+            # Получаем абсолютный путь
+            abs_bat_file = os.path.abspath(bat_file)
+            
+            # Структура SHELLEXECUTEINFO
+            class SHELLEXECUTEINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD),
+                    ("fMask", wintypes.ULONG),
+                    ("hwnd", wintypes.HWND),
+                    ("lpVerb", wintypes.LPCWSTR),
+                    ("lpFile", wintypes.LPCWSTR),
+                    ("lpParameters", wintypes.LPCWSTR),
+                    ("lpDirectory", wintypes.LPCWSTR),
+                    ("nShow", ctypes.c_int),
+                    ("hInstApp", wintypes.HINSTANCE),
+                    ("lpIDList", ctypes.c_void_p),
+                    ("lpClass", wintypes.LPCWSTR),
+                    ("hkeyClass", wintypes.HKEY),
+                    ("dwHotKey", wintypes.DWORD),
+                    ("hIcon", wintypes.HANDLE),
+                    ("hProcess", wintypes.HANDLE)
+                ]
+            
+            # Константы
+            SEE_MASK_NOCLOSEPROCESS = 0x00000040
+            SW_HIDE = 0
+            
+            # Заполняем структуру
+            sei = SHELLEXECUTEINFO()
+            sei.cbSize = ctypes.sizeof(SHELLEXECUTEINFO)
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS
+            sei.hwnd = None
+            sei.lpVerb = "open"
+            sei.lpFile = abs_bat_file
+            sei.lpParameters = None
+            sei.lpDirectory = None
+            sei.nShow = SW_HIDE
+            
+            # Запускаем
+            shell32 = ctypes.windll.shell32
+            result = shell32.ShellExecuteExW(byref(sei))
+            
+            if result:
+                # Закрываем хэндл процесса
+                if sei.hProcess:
+                    ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+                log("BAT запущен через ShellExecuteEx", "DEBUG")
+            else:
+                log("Ошибка ShellExecuteEx", "ERROR")
+                return False
+            
+            time.sleep(3)
+            
+            if self.check_process_running_wmi():
+                log("DPI успешно запущен", level="✅ SUCCESS")
+                self.set_status(f"DPI запущен: {strategy_name}")
+                self._update_ui(True)
+                return True
+            else:
+                log("Процесс winws.exe не запустился", level="❌ ERROR")
+                return False
+                
+        except Exception as e:
+            log(f"Ошибка при запуске: {e}", level="❌ ERROR")
+            return False

@@ -372,7 +372,7 @@ class StrategyManager:
         else:
             print(text)
 
-    # ─────────────────────── index.json (GET) ─────────────────────────
+    # ─────────────────────── index.jфson (GET) ─────────────────────────
     def get_strategies_list(self, *, force_update: bool = False) -> dict:
         """
         Возвращает словарь стратегий с ПРАВИЛЬНЫМ кэшированием.
