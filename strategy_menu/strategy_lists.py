@@ -1,10 +1,18 @@
 # strategy_menu/strategy_lists.py
 
-from .strategy_definitions import LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_RECOMMENDED, LABEL_STABLE, LABEL_WARP 
+from .constants import LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_RECOMMENDED, LABEL_STABLE, LABEL_WARP
 
 AMAZON_GAMES = "--filter-tcp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"
 
 TCP_CLOUDFLARE_AMAZON_GAMES = "--filter-tcp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"
+
+TCP_80_YTDISBYSTRO = "--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3"
+
+TCP_BOLVAN_V2 = "--dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq"
+
+TCP_DISCORD_YTDISBYSTRO = "--dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid "
+
+UDP_AMAZON = "--dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7"
 
 BUILTIN_STRATEGIES = {
     "original_bolvan_v2_badsum": {
@@ -21,13 +29,13 @@ BUILTIN_STRATEGIES = {
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50100,1024-65535
---filter-tcp=80 --hostlist=other.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new
---filter-tcp=443 --hostlist-domains=roskomsvoboda.org,rublacklist.net,onlinesim.io,android.com,ntc.party,proton.me,moscowtimes.ru,dw.com,z-library.sk --hostlist=youtube.txt --hostlist=faceinsta.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-tcp=443 --hostlist-domains=static.rutracker.cc --hostlist=discord.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=badseq --dpi-desync-autottl --dup=2 --dup-fooling=badseq --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=443,1024-65535 --ipset=ipset-all.txt --hostlist=other.txt --hostlist=russia-blacklist.txt --hostlist-exclude=faceinsta.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
+--filter-tcp=443 --hostlist-domains=roskomsvoboda.org,rublacklist.net,onlinesim.io,android.com,ntc.party,proton.me,moscowtimes.ru,dw.com,z-library.sk --hostlist=youtube.txt --hostlist=faceinsta.txt {TCP_BOLVAN_V2} --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
+--filter-tcp=443 --hostlist-domains=static.rutracker.cc --hostlist=discord.txt {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=badseq --dpi-desync-autottl --dup=2 --dup-fooling=badseq --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443,1024-65535 --ipset=ipset-all.txt --hostlist=other.txt --hostlist=russia-blacklist.txt --hostlist-exclude=faceinsta.txt {TCP_BOLVAN_V2} --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
+--filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
+--filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
 --filter-udp=443 --ipset=ipset-all.txt --hostlist=youtube.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
     },
@@ -47,7 +55,7 @@ BUILTIN_STRATEGIES = {
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443,4950-4955,6695-6705 --wf-udp=443,50000-50099
 --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig  --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+--filter-tcp=443 --hostlist-exclude=netrogat.txt {TCP_BOLVAN_V2},md5sig --new
 --filter-tcp=4950-4955 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig,badseq --new
 --filter-tcp=6695-6705 --dpi-desync=fake,split2 --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig --dpi-desync-autottl=2 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
 --filter-udp=443 --hostlist=youtube.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
@@ -69,9 +77,9 @@ BUILTIN_STRATEGIES = {
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50100
 --filter-tcp=443 --hostlist=youtube.txt --hostlist-domains=xvideos.com,xnxx.com --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=4 --dpi-desync-fake-tls=tls_clienthello_18.bin --dpi-desync-fooling=badseq --new
---filter-tcp=443 --hostlist=discord.txt --hostlist-domains=ntc.party --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=badseq --dpi-desync-autottl --dup=2 --dup-fooling=badseq --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=443 --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=443 --hostlist=other.txt --hostlist-exclude=faceinsta.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --new
+--filter-tcp=443 --hostlist=discord.txt --hostlist-domains=ntc.party {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=badseq --dpi-desync-autottl --dup=2 --dup-fooling=badseq --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist=faceinsta.txt {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist=other.txt --hostlist-exclude=faceinsta.txt {TCP_BOLVAN_V2} --new
 --filter-udp=443 --hostlist=youtube.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
 --filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new"""
@@ -444,8 +452,8 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist-domains=ntc.party --hostlist=russia-discord.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
 --filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
+--filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
+--filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
 --filter-l3=ipv6 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl6 --dup=2 --dup-autottl6 --dup-cutoff=n3 --new
 --filter-l3=ipv4 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3"""
     },
@@ -464,12 +472,12 @@ BUILTIN_STRATEGIES = {
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443,444-65535 --wf-udp=443,444-65535
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_7.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
---filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 --filter-tcp=443 --hostlist-domains=ntc.party --hostlist=russia-discord.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
 --filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
+--filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
+--filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
 --filter-l3=ipv6 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl6 --dup=2 --dup-autottl6 --dup-cutoff=n3 --new
 --filter-l3=ipv4 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3"""
     },
@@ -492,8 +500,8 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist-domains=ntc.party --hostlist=russia-discord.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
 --filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
+--filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
+--filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
 --filter-l3=ipv6 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl6 --dup=2 --dup-autottl6 --dup-cutoff=n3 --new
 --filter-l3=ipv4 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3"""
     },
@@ -541,7 +549,7 @@ BUILTIN_STRATEGIES = {
         "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50090
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
---filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --hostlist=other.txt --hostlist=faceinsta.txt --hostlist-domains=www.xvideos.com,xvideos-cdn.com --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --hostlist=other.txt --hostlist=faceinsta.txt --hostlist-domains=www.xvideos.com,xvideos-cdn.com {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 --filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --hostlist=mycdnlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=2,midsld --dpi-desync-fake-tls=tls_clienthello_17.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 --filter-tcp=443 --hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com --dpi-desync=multisplit --dpi-desync-split-seqovl=293 --dpi-desync-split-seqovl-pattern=tls_clienthello_12.bin --new
 --filter-tcp=443 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new
@@ -996,10 +1004,10 @@ BUILTIN_STRATEGIES = {
         "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50100
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --dpi-desync-autottl --new
---filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
---filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=other.txt --hostlist=mycdnlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
+--filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=other.txt --hostlist=mycdnlist.txt {TCP_DISCORD_YTDISBYSTRO} --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=syndata,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fake-syndata=tls_clienthello_16.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new
 --filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
@@ -1022,7 +1030,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_1.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
 --filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=other.txt --hostlist=mycdnlist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fakedsplit --dpi-desync-split-pos=7 --dpi-desync-fakedsplit-pattern=tls_clienthello_5.bin --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
@@ -1047,7 +1055,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --ipcache-hostname --dpi-desync=syndata,fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-syndata=tls_clienthello_7.bin --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
 --filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --hostlist=mycdnlist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
@@ -1072,7 +1080,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0xFEA82025 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n4 --dpi-desync-repeats=2 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=7,sld+1 --dpi-desync-fake-tls=0x0F0F0F0F --dpi-desync-fake-tls=tls_clienthello_4.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=calendar.google.com --dpi-desync-fooling=badseq --dpi-desync-autottl --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
 --filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --hostlist=mycdnlist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
@@ -1097,7 +1105,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n3 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --hostlist=russia-youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=7,sld+1 --dpi-desync-fake-tls=0x0F0F0F0F --dpi-desync-fake-tls=tls_clienthello_4.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=calendar.google.com --dpi-desync-fooling=badseq --dpi-desync-autottl --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
 --filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --hostlist=mycdnlist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
@@ -1107,7 +1115,7 @@ BUILTIN_STRATEGIES = {
     },
     "bystro292_1": {
         "name": "YTDisBystro 2.9.2 v1",
-        "description": "Универсальная стратегия с fakeddisorder и wssize",
+        "description": "Универсальная стратегия с fakeddisorder",
         "version": "1.3",
         "provider": "universal",
         "author": "KDS",
@@ -1128,7 +1136,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakedsplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=2,midsld-1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --new
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=5 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_2.bin --dpi-desync-repeats=7 --dpi-desync-cutoff=n2 --new
 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --new
---filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --wssize=1:6 --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
+--filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-split-seqovl-pattern=tls_clienthello_7.bin"""
     },
     "bystro292_2": {
@@ -1154,7 +1162,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld+1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=5 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_2.bin --dpi-desync-repeats=7 --dpi-desync-cutoff=n2 --new
 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --new
---filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --wssize=1:6 --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
+--filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-split-seqovl-pattern=tls_clienthello_7.bin"""
     },
     "bystro292_3": {
@@ -1180,7 +1188,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakedsplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=2,midsld-1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --new
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_1.bin --new
 --filter-udp=50000-50090 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --new
---filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --wssize=1:6 --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
+--filter-tcp=443 --ipset-ip=XXX.XXX.XXX.XXX/XX,XXX.XXX.XXX.XXX/XX --hostlist-domains=googlevideo.com --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2 --new
 --filter-tcp=443 --hostlist-domains=googlevideo.com --dpi-desync=fakeddisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-fakedsplit-pattern=tls_clienthello_7.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
     },
     "warp1": {
@@ -1218,7 +1226,7 @@ BUILTIN_STRATEGIES = {
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50099
 --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=youtube.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
+--filter-tcp=443 {TCP_BOLVAN_V2},md5sig --new
 --filter-udp=443 --hostlist=youtube.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
 --filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake"""
@@ -1392,9 +1400,9 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-tcp=443 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
     },
-    "multisplitmd5sigpadencapwssize": {
-        "name": "multisplit 1,md5sig padencap wssize (discord)",
-        "description": "Использует multisplit midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
+    "multisplitmd5sigpadencap": {
+        "name": "multisplit 1,md5sig padencap (discord)",
+        "description": "Использует multisplit midsld и уникальный флаг rnd,rndsni,padencap",
         "version": "1.2",
         "provider": "Билайн",
         "author": "Unknown",
@@ -1409,11 +1417,11 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake --dpi-desync-udplen-increment=10 --dpi-desync-repeats=6 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=50000-59000 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize=1:6"""
+--filter-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
     },
-    "md5sigpadencapwssize": {
-        "name": "md5sig padencap wssize (20.03.2025)",
-        "description": "Использует midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
+    "md5sigpadencap": {
+        "name": "md5sig padencap (20.03.2025)",
+        "description": "Использует midsld и уникальный флаг rnd,rndsni,padencap",
         "version": "1.2",
         "provider": "Билайн",
         "author": "Unknown",
@@ -1428,11 +1436,11 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake --dpi-desync-udplen-increment=10 --dpi-desync-repeats=6 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=50000-59000 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=md5sig --wssize=1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
+--filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
     },
-    "badsumpadencapwssize": {
-        "name": "badsum padencap wssize (06.08.2025)",
-        "description": "Использует badsum, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
+    "badsumpadencap": {
+        "name": "badsum padencap (06.08.2025)",
+        "description": "Использует badsum и уникальный флаг rnd,rndsni,padencap",
         "version": "1.2",
         "provider": "Билайн",
         "author": "Unknown",
@@ -1447,11 +1455,11 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake --dpi-desync-udplen-increment=10 --dpi-desync-repeats=6 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=50000-59000 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --wssize=1:6 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
+--filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
     },
-    "datanoackpadencapmidsldwssize": {
-        "name": "datanoack padencap midsld wssize (20.03.2025)",
-        "description": "Использует datanoack, midsld, размер окна wssize и уникальный флаг rnd,rndsni,padencap",
+    "datanoackpadencapmidsld": {
+        "name": "datanoack padencap midsld (20.03.2025)",
+        "description": "Использует datanoack, midsld и уникальный флаг rnd,rndsni,padencap",
         "version": "1.2",
         "provider": "Билайн",
         "author": "Unknown",
@@ -1466,7 +1474,7 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=discord.txt --dpi-desync=fake --dpi-desync-udplen-increment=10 --dpi-desync-repeats=6 --dpi-desync-udplen-pattern=0xDEADBEEF --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=50000-59000 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --wssize=1:6"""
+--filter-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,rndsni,padencap"""
     },
     "discordtcp80": {
         "name": "Discord TCP 80",

@@ -7,13 +7,7 @@
 
 from datetime import datetime
 from .strategy_lists import BUILTIN_STRATEGIES
-
-# Метки для стратегий
-LABEL_RECOMMENDED = "recommended"
-LABEL_CAUTION = "caution"
-LABEL_EXPERIMENTAL = "experimental"
-LABEL_STABLE = "stable"
-LABEL_WARP = "warp"
+from .constants import LABEL_RECOMMENDED, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE, LABEL_WARP
 
 # Функции для работы со стратегиями
 def get_strategy_by_id(strategy_id: str) -> dict | None:

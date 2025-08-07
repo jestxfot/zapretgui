@@ -24,6 +24,126 @@ SW_HIDE = 0
 CREATE_NO_WINDOW = 0x08000000
 STARTF_USESHOWWINDOW = 0x00000001
 
+def apply_wssize_parameter(args: list) -> list:
+    """
+    Применяет параметр --wssize=1:6 к аргументам стратегии если включено в настройках
+    
+    Args:
+        args: Список аргументов командной строки
+        
+    Returns:
+        Модифицированный список аргументов с добавленным --wssize=1:6
+    """
+    from config import get_wssize_enabled
+    
+    # Если wssize выключен, возвращаем аргументы без изменений
+    if not get_wssize_enabled():
+        return args
+    
+    # Создаем новый список аргументов
+    new_args = []
+    wssize_added = False
+    wssize_positions = []  # Запоминаем где добавили wssize
+    
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        new_args.append(arg)
+        
+        # Проверяем, является ли это --filter-tcp с портом 443
+        if arg.startswith("--filter-tcp="):
+            # Извлекаем порты из аргумента
+            ports_part = arg.split("=", 1)[1]
+            ports = []
+            
+            # Парсим порты (могут быть: 443 или 80,443 или 443,444-65535)
+            for port_spec in ports_part.split(","):
+                if "-" in port_spec:
+                    # Диапазон портов
+                    start, end = port_spec.split("-")
+                    if int(start) <= 443 <= int(end):
+                        ports.append("443")
+                else:
+                    # Одиночный порт
+                    if port_spec.strip() == "443":
+                        ports.append("443")
+            
+            # Если среди портов есть 443
+            if "443" in ports:
+                # Проверяем, не добавлен ли уже wssize после этого фильтра
+                next_arg = args[i + 1] if i + 1 < len(args) else None
+                if next_arg != "--wssize=1:6":
+                    new_args.append("--wssize=1:6")
+                    wssize_positions.append(len(new_args) - 1)
+                    wssize_added = True
+                    log(f"Добавлен параметр --wssize=1:6 после {arg}", "DEBUG")
+        
+        i += 1
+    
+    # Если в стратегии нет явного filter-tcp с портом 443, добавляем глобальное правило
+    if not wssize_added:
+        # Ищем подходящее место для вставки
+        insert_index = _find_wssize_insert_position(new_args)
+        
+        # Вставляем правило для tcp 443
+        new_args.insert(insert_index, "--filter-tcp=443")
+        new_args.insert(insert_index + 1, "--wssize=1:6")
+        
+        # Если после места вставки нет --new, добавляем его
+        if insert_index + 2 >= len(new_args) or new_args[insert_index + 2] != "--new":
+            new_args.insert(insert_index + 2, "--new")
+        
+        log("Добавлено глобальное правило --filter-tcp=443 --wssize=1:6 --new", "DEBUG")
+    
+    # Логируем итоговое количество добавлений
+    if wssize_positions:
+        log(f"Параметр --wssize=1:6 добавлен в {len(wssize_positions)} мест(а)", "INFO")
+    
+    return new_args
+
+def _find_wssize_insert_position(args: list) -> int:
+    """
+    Находит оптимальную позицию для вставки глобального правила wssize
+    
+    Args:
+        args: Список аргументов
+        
+    Returns:
+        Индекс для вставки
+    """
+    # Приоритеты для вставки:
+    # 1. После последнего --wf-tcp (фильтр на уровне WinDivert)
+    # 2. После последнего --wf-udp
+    # 3. Перед первым --filter-tcp
+    # 4. Перед первым --new
+    # 5. В конец списка
+    
+    last_wf_index = -1
+    first_filter_index = -1
+    first_new_index = -1
+    
+    for i, arg in enumerate(args):
+        if arg.startswith("--wf-tcp=") or arg.startswith("--wf-udp="):
+            last_wf_index = i
+        elif arg.startswith("--filter-tcp=") and first_filter_index == -1:
+            first_filter_index = i
+        elif arg == "--new" and first_new_index == -1:
+            first_new_index = i
+    
+    # Определяем позицию вставки
+    if last_wf_index != -1:
+        # После последнего --wf-*
+        return last_wf_index + 1
+    elif first_filter_index != -1:
+        # Перед первым --filter-tcp
+        return first_filter_index
+    elif first_new_index != -1:
+        # Перед первым --new
+        return first_new_index
+    else:
+        # В конец
+        return len(args)
+        
 class StrategyRunner:
     """Класс для запуска стратегий напрямую через subprocess"""
     
@@ -156,7 +276,7 @@ class StrategyRunner:
             
         except Exception as e:
             log(f"Ошибка при принудительной очистке WinDivert: {e}", "DEBUG")
-
+    
     def start_strategy(self, strategy_id: str, custom_args: Optional[List[str]] = None) -> bool:
         """
         Запускает стратегию по ID или с кастомными аргументами
@@ -208,19 +328,19 @@ class StrategyRunner:
             
             # Разрешаем пути к файлам
             resolved_args = self._resolve_file_paths(args)
-            
+
+            # Применяем параметр wssize если включен
+            resolved_args = apply_wssize_parameter(resolved_args)
+
             # Формируем полную команду
             cmd = [self.winws_exe] + resolved_args
             
             log(f"Запуск стратегии '{strategy_name}' (ID: {strategy_id})", "INFO")
             log(f"Количество аргументов: {len(resolved_args)}", "DEBUG")
             
-            # Логируем команду для отладки (первые 400 символов)
+            # Логируем команду для отладки
             cmd_str = ' '.join(cmd)
-            if len(cmd_str) > 400:
-                log(f"Команда: {cmd_str[:400]}...", "DEBUG")
-            else:
-                log(f"Команда: {cmd_str}", "DEBUG")
+            log(f"Команда: {cmd_str}", "DEBUG")
             
             # Запускаем процесс полностью скрыто
             self.running_process = subprocess.Popen(

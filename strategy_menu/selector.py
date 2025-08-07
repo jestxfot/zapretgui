@@ -13,33 +13,14 @@ from log import log
 import os
 import re
 
-# Константы для меток стратегий
-LABEL_RECOMMENDED = "recommended"
-LABEL_CAUTION = "caution"
-LABEL_EXPERIMENTAL = "experimental"
-LABEL_STABLE = "stable"
-LABEL_WARP = "warp"
-
-# Настройки отображения меток
-LABEL_COLORS = {
-    LABEL_RECOMMENDED: "#00B900",  # Зеленый для рекомендуемых
-    LABEL_CAUTION: "#FF6600",      # Оранжевый для стратегий с осторожностью
-    LABEL_EXPERIMENTAL: "#CC0000", # Красный для экспериментальных
-    LABEL_STABLE: "#006DDA",       # Синий для стабильных
-    LABEL_WARP: "#EE850C"          # Оранжевый для WARP
-}
-
-LABEL_TEXTS = {
-    LABEL_RECOMMENDED: "РЕКОМЕНДУЕМ",
-    LABEL_CAUTION: "С ОСТОРОЖНОСТЬЮ",
-    LABEL_EXPERIMENTAL: "ЭКСПЕРИМЕНТАЛЬНАЯ",
-    LABEL_STABLE: "СТАБИЛЬНАЯ",
-    LABEL_WARP: "WARP"
-}
+from .constants import (
+    LABEL_RECOMMENDED, LABEL_CAUTION, LABEL_EXPERIMENTAL, 
+    LABEL_STABLE, LABEL_WARP, LABEL_COLORS, LABEL_TEXTS
+)
 
 MINIMUM_WIDTH_STRAG = 800  # Увеличиваем ширину для таблицы
 MINIMUM_WIDTH = 900  # Уменьшаем минимальную ширину основного окна
-MINIMIM_HEIGHT = 700  # Минимальная высота окна
+MINIMIM_HEIGHT = 650  # Минимальная высота окна
 
 class StrategyInfoDialog(QDialog):
     """Отдельное окно для отображения подробной информации о стратегии."""
@@ -773,6 +754,50 @@ class StrategySelector(QDialog):
         
         layout.addWidget(method_group)
         
+        # ✅ НОВОЕ: ГРУППА ПАРАМЕТРОВ ЗАПУСКА
+        params_group = QGroupBox("Параметры запуска (перезапустите стратегию для применения)")
+        params_layout = QVBoxLayout(params_group)
+        
+        # Чекбокс для wssize
+        self.wssize_checkbox = QCheckBox("Добавить --wssize=1:6 для TCP 443")
+        self.wssize_checkbox.setToolTip(
+            "Включает параметр --wssize=1:6 для всех TCP соединений на порту 443.\n"
+            "Может улучшить обход блокировок на некоторых провайдерах.\n"
+            "Влияет на размер окна TCP сегментов."
+        )
+        
+        # Загружаем сохраненную настройку wssize
+        from config import get_wssize_enabled
+        self.wssize_checkbox.setChecked(get_wssize_enabled())
+        
+        # Подключаем обработчик изменения
+        self.wssize_checkbox.stateChanged.connect(self._on_wssize_changed)
+        
+        params_layout.addWidget(self.wssize_checkbox)
+        
+        # Добавляем информацию о параметре
+        wssize_info = QLabel(
+            "💡 Параметр --wssize=1:6 изменяет размер TCP окна для порта 443,\n"
+            "что может помочь обойти некоторые виды DPI фильтрации."
+        )
+        wssize_info.setWordWrap(True)
+        wssize_info.setStyleSheet(
+            "padding: 10px; background: #3a3a3a; border-radius: 5px; "
+            "margin-top: 5px; font-size: 9pt; color: #ccc;"
+        )
+        params_layout.addWidget(wssize_info)
+        
+        # Добавляем разделитель для будущих параметров
+        params_layout.addSpacing(10)
+        
+        # Место для будущих параметров
+        future_params_label = QLabel("Другие параметры будут добавлены в следующих версиях")
+        future_params_label.setStyleSheet("color: #888; font-style: italic; padding: 5px;")
+        future_params_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        params_layout.addWidget(future_params_label)
+        
+        layout.addWidget(params_group)
+        
         # ✅ ОБНОВЛЕННАЯ информация о методах
         info_text = QLabel(
             "• Прямой запуск: использует встроенные стратегии, не требует интернета\n"
@@ -795,6 +820,13 @@ class StrategySelector(QDialog):
         layout.addWidget(auto_update_note)
         
         layout.addStretch()
+
+    def _on_wssize_changed(self, state):
+        """✅ НОВЫЙ: Обработчик изменения настройки wssize"""
+        from config import set_wssize_enabled
+        enabled = (state == Qt.CheckState.Checked.value)
+        set_wssize_enabled(enabled)
+        log(f"Параметр --wssize=1:6 {'включен' if enabled else 'выключен'}", "INFO")
 
     def _on_method_changed(self, button):
         """✅ ОБНОВЛЕННЫЙ: Обработчик изменения метода запуска с автоматическим обновлением списка"""
