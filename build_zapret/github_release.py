@@ -21,7 +21,7 @@ import time
 # ────────────────────────────────────────────────────────────────
 GITHUB_CONFIG = {
     "enabled": True,  # True - включить GitHub releases, False - отключить
-    "token": "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",  # Fine-grained токен
+    "token": "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",  # Fine-grained токен
     "repo_owner": "youtubediscord",   # Владелец репозитория
     "repo_name": "zapret",           # Имя репозитория
     "release_settings": {
@@ -570,7 +570,7 @@ def create_github_release(channel: str, version: str, file_path: Path,
                 log_queue.put(f"ℹ️ GitHub CLI недоступен: {manager.cli_status}")
         
         # Настройки release
-        tag_name = f"v{version}"
+        tag_name = version
         release_name = f"Zapret {version}"
         if channel == "test":
             release_name += " (Test)"

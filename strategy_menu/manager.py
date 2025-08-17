@@ -380,7 +380,6 @@ class StrategyManager:
 
         # После первой успешной загрузки index.json — возвращаем только из памяти
         if self._loaded and self.strategies_cache and not force_update:
-            log("get_strategies_list: уже загружено, возвращаю из кеша", "DEBUG")
             return self.strategies_cache
 
         # ПЕРВЫЙ ПРИОРИТЕТ: Если кэш уже загружен и не нужно принудительное обновление

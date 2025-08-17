@@ -352,13 +352,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def _show_strategy_dialog(self):
         """Показывает диалог выбора стратегии"""
         try:
-            # Проверяем, не открыт ли уже диалог
+            # ✅ ЗАКРЫВАЕМ ПРЕДЫДУЩИЙ ДИАЛОГ ЕСЛИ ОН ЕСТЬ
             if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog:
                 if self._strategy_selector_dialog.isVisible():
-                    # Поднимаем существующее окно на передний план
-                    self._strategy_selector_dialog.raise_()
-                    self._strategy_selector_dialog.activateWindow()
-                    return
+                    # Если диалог видим, но мы пытаемся открыть новый - закрываем старый
+                    log("Закрытие предыдущего диалога стратегий", "DEBUG")
+                    self._strategy_selector_dialog.close()
+                    self._strategy_selector_dialog = None
 
             # Определяем текущую стратегию
             current_strategy = self.current_strategy_label.text()
@@ -388,7 +388,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при показе диалога стратегий: {e}", "❌ ERROR")
             self.set_status(f"Ошибка диалога: {e}")
-        
+
     def on_strategy_selected_from_dialog(self, strategy_id, strategy_name):
         """Обрабатывает выбор стратегии из диалога."""
         try:
@@ -398,22 +398,88 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.current_strategy_id = strategy_id
             self.current_strategy_name = strategy_name
             
+            # ✅ ДЛЯ КОМБИНИРОВАННЫХ СТРАТЕГИЙ ИСПОЛЬЗУЕМ ПРОСТОЕ НАЗВАНИЕ
+            if strategy_id == "COMBINED_DIRECT":
+                # Просто устанавливаем "Прямой запуск" без деталей
+                display_name = "Прямой запуск"
+                self.current_strategy_name = display_name
+                strategy_name = display_name
+                
+                # ✅ ВАЖНО: Сохраняем специальный маркер "COMBINED_DIRECT" в реестр
+                set_last_strategy("COMBINED_DIRECT")  # <-- Сохраняем ID, а не название!
+                
+                log(f"Установлено простое название для комбинированной стратегии: {display_name}", "DEBUG")
+            else:
+                # Для обычных стратегий сохраняем имя как раньше
+                set_last_strategy(strategy_name)
+            
             # Обновляем метку с текущей стратегией
             self.current_strategy_label.setText(strategy_name)
-            
-            # Сохраняем выбранную стратегию в реестр
-            set_last_strategy(strategy_name)
-            
+    
             # Записываем время изменения стратегии
             self.last_strategy_change_time = time.time()
             
-            # ✅ ИСПРАВЛЕНИЕ: Для прямого метода передаем кортеж (ID, имя)
+            # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки комбинированных стратегий
             from config import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
             if launch_method == "direct":
-                # Для встроенных стратегий передаем кортеж
-                self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name))
+                # Проверяем, является ли это комбинированной стратегией
+                if strategy_id == "COMBINED_DIRECT":
+                    # ✅ ИСПРАВЛЕНИЕ: Используем правильное имя атрибута
+                    combined_data = {
+                        'id': strategy_id,
+                        'name': strategy_name,
+                        'is_combined': True
+                    }
+                    
+                    # Пытаемся получить данные из диалога
+                    combined_args = None
+                    category_selections = None
+                    
+                    # ✅ ПРАВИЛЬНОЕ ОБРАЩЕНИЕ К ДИАЛОГУ
+                    if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog is not None:
+                        if hasattr(self._strategy_selector_dialog, '_combined_args'):
+                            combined_args = self._strategy_selector_dialog._combined_args
+                            log(f"Получены аргументы из диалога: {len(combined_args)} символов", "DEBUG")
+                        
+                        if hasattr(self._strategy_selector_dialog, 'category_selections'):
+                            category_selections = self._strategy_selector_dialog.category_selections
+                            log(f"Получены выборы категорий: {category_selections}", "DEBUG")
+                    
+                    # Если данные не получены из диалога, создаем заново
+                    if not combined_args or not category_selections:
+                        log("Создаем комбинированную стратегию заново из значений по умолчанию", "⚠ WARNING")
+                        from strategy_menu.strategy_lists_separated import combine_strategies, get_default_selections
+                        
+                        default_selections = get_default_selections()
+                        combined_strategy = combine_strategies(
+                            default_selections.get('youtube'),
+                            default_selections.get('discord'), 
+                            default_selections.get('other')
+                        )
+                        
+                        combined_args = combined_strategy['args']
+                        category_selections = default_selections
+                    
+                    # Добавляем данные в объект
+                    if combined_args:
+                        combined_data['args'] = combined_args
+                        log(f"Добавлены аргументы: {len(combined_args)} символов", "DEBUG")
+                    if category_selections:
+                        combined_data['selections'] = category_selections
+                        log(f"Добавлены выборы: {category_selections}", "DEBUG")
+                    
+                    # Сохраняем для следующего раза
+                    self._last_combined_args = combined_args
+                    self._last_category_selections = category_selections
+                    
+                    # Запускаем DPI контроллер
+                    self.dpi_controller.start_dpi_async(selected_mode=combined_data)
+                    
+                else:
+                    # Обычная встроенная стратегия
+                    self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name))
             else:
                 # Для BAT метода получаем полную информацию
                 try:
@@ -550,6 +616,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def initialize_managers_and_services(self):
         """Быстрая (лёгкая) инициализация и запуск HeavyInitWorker."""
         log("initialize_managers_and_services: quick part", "INFO")
+
+        # ✅ НОВОЕ: Создаем отсутствующие файлы
+        from utils.file_manager import ensure_required_files
+        ensure_required_files()
 
         # --- лёгкие вещи ---
         self.init_process_monitor()
@@ -1026,7 +1096,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.process_status_value.setStyleSheet("color: red; font-weight: bold;")
         except Exception as e:
             log(f"Ошибка в on_process_status_changed: {e}", level="❌ ERROR")
-            
+     
     def delayed_dpi_start(self):
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         from config import get_dpi_autostart
@@ -1037,36 +1107,57 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.update_ui(running=False)
             return
 
-        # 3. Определяем, какую стратегию запускать ---------------------- ☆ NEW
-        strategy_name = None
-
-        # 3.1 Сначала смотрим, есть ли уже выбранная стратегия
-        if getattr(self, "current_strategy_name", None):
-            strategy_name = self.current_strategy_name
+        # 3. Определяем, какую стратегию запускать
+        strategy_name = get_last_strategy()  # Получаем из реестра сразу
+        
+        # ✅ НОВОЕ: Проверяем, является ли это комбинированной стратегией
+        if strategy_name == "COMBINED_DIRECT":
+            from config import get_strategy_launch_method
+            
+            # Проверяем, что мы в режиме прямого запуска
+            if get_strategy_launch_method() == "direct":
+                from config import get_direct_strategy_selections
+                from strategy_menu.strategy_lists_separated import combine_strategies
+                
+                selections = get_direct_strategy_selections()
+                combined = combine_strategies(
+                    selections.get('youtube'),
+                    selections.get('discord'),
+                    selections.get('other')
+                )
+                
+                # Создаем объект комбинированной стратегии
+                combined_data = {
+                    'id': 'COMBINED_DIRECT',
+                    'name': 'Прямой запуск',
+                    'is_combined': True,
+                    'args': combined['args'],
+                    'selections': selections
+                }
+                
+                log(f"Автозапуск комбинированной стратегии с выборами: {selections}", level="INFO")
+                
+                # Обновляем UI
+                self.current_strategy_label.setText("Прямой запуск")
+                self.current_strategy_name = "Прямой запуск"
+                
+                # Запускаем с комбинированными данными
+                self.dpi_controller.start_dpi_async(selected_mode=combined_data)
+            else:
+                # Если не в режиме прямого запуска, используем fallback
+                log("Комбинированная стратегия недоступна в классическом режиме", level="⚠ WARNING")
+                # Используем стратегию по умолчанию
+                self.dpi_controller.start_dpi_async(selected_mode="default")
         else:
-            label_text = self.current_strategy_label.text()
-            if label_text and label_text != "Автостарт DPI отключен":
-                strategy_name = label_text
-
-        # 3.2 Если до сих пор None – берём последнюю из реестра
-        if not strategy_name:
-            strategy_name = get_last_strategy()
-
-            # Обновляем UI, чтобы пользователь видел, какой режим запущен
+            # Обычная стратегия
+            log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
+            
+            # Обновляем UI
             self.current_strategy_label.setText(strategy_name)
             self.current_strategy_name = strategy_name
-
-            # Если у вас есть комбобокс со стратегиями – тоже поставим его
-            if hasattr(self, "strategy_manager") and self.strategy_manager:
-                try:
-                    self.strategy_manager.set_current_in_combobox(strategy_name)
-                except AttributeError:
-                    pass  # метод не обязательный
-
-        log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
-
-        # 4. Запускаем DPI
-        self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+            
+            # Запускаем обычную стратегию
+            self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
 
         # 5. Обновляем интерфейс
         self.update_ui(running=True)
@@ -1453,8 +1544,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Записываем время изменения стратегии
         self.last_strategy_change_time = time.time()
         
-        # Сохраняем выбранную стратегию в реестр
-        set_last_strategy(selected_mode)
+        # ✅ ПРОВЕРЯЕМ, не является ли это комбинированной стратегией
+        if selected_mode == "Прямой запуск" or selected_mode == "COMBINED_DIRECT":
+            # Для комбинированной стратегии сохраняем специальный маркер
+            set_last_strategy("COMBINED_DIRECT")
+        else:
+            # Для обычных стратегий сохраняем имя
+            set_last_strategy(selected_mode)
         
         self.dpi_controller.start_dpi_async(selected_mode=selected_mode)
         

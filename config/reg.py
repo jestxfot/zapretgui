@@ -188,3 +188,102 @@ def get_remove_github_api() -> bool:
 def set_remove_github_api(enabled: bool) -> bool:
     """Включает/выключает удаление api.github.com из hosts при запуске."""
     return reg(_GITHUB_API_KEY, _GITHUB_API_NAME, 1 if enabled else 0)
+
+# ───────────── Выбранные стратегии для прямого запуска ─────────────
+_DIRECT_STRATEGY_KEY = r"Software\Zapret"
+_DIRECT_YOUTUBE_NAME = "DirectStrategyYoutube"
+_DIRECT_DISCORD_NAME = "DirectStrategyDiscord" 
+_DIRECT_OTHER_NAME = "DirectStrategyOther"
+
+def get_direct_strategy_selections() -> dict:
+    """Возвращает сохраненные выборы стратегий для прямого запуска"""
+    try:
+        youtube = reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_NAME)
+        discord = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME)
+        other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
+        
+        # Возвращаем значения по умолчанию если что-то не найдено
+        from strategy_menu.strategy_lists_separated import get_default_selections
+        default_selections = get_default_selections()
+        
+        selections = {
+            'youtube': youtube if youtube else default_selections.get('youtube'),
+            'discord': discord if discord else default_selections.get('discord'),
+            'other': other if other else default_selections.get('other')
+        }
+        
+        log(f"Загружены выборы стратегий из реестра: {selections}", "DEBUG")
+        return selections
+        
+    except Exception as e:
+        log(f"Ошибка загрузки выборов стратегий: {e}", "❌ ERROR")
+        # Возвращаем значения по умолчанию
+        from strategy_menu.strategy_lists_separated import get_default_selections
+        return get_default_selections()
+
+def set_direct_strategy_selections(selections: dict) -> bool:
+    """Сохраняет выборы стратегий для прямого запуска в реестр"""
+    try:
+        success = True
+        
+        if 'youtube' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_NAME, selections['youtube'])
+        
+        if 'discord' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME, selections['discord'])
+            
+        if 'other' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, selections['other'])
+        
+        if success:
+            log(f"Сохранены выборы стратегий в реестр: {selections}", "DEBUG")
+        else:
+            log("Ошибка при сохранении некоторых выборов стратегий", "⚠ WARNING")
+            
+        return success
+        
+    except Exception as e:
+        log(f"Ошибка сохранения выборов стратегий: {e}", "❌ ERROR")
+        return False
+
+def get_direct_strategy_youtube() -> str:
+    """Возвращает сохраненную YouTube стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('youtube', 'original_bolvan_v2_badsum')
+
+def set_direct_strategy_youtube(strategy_id: str) -> bool:
+    """Сохраняет выбранную YouTube стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_NAME, strategy_id)
+
+def get_direct_strategy_discord() -> str:
+    """Возвращает сохраненную Discord стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('discord', 'multisplit_fake_tls_badseq')
+
+def set_direct_strategy_discord(strategy_id: str) -> bool:
+    """Сохраняет выбранную Discord стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME, strategy_id)
+
+def get_direct_strategy_other() -> str:
+    """Возвращает сохраненную стратегию для остальных сайтов"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('other', 'other_multidisorder')
+
+def set_direct_strategy_other(strategy_id: str) -> bool:
+    """Сохраняет выбранную стратегию для остальных сайтов"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, strategy_id)

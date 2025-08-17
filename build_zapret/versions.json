@@ -1,20 +1,20 @@
 {
   "stable": {
-    "version": "16.2.3.1",
+    "version": "16.2.4.2",
     "description": "Стабильная версия",
-    "release_date": "2025-08-02"
+    "release_date": "2025-08-16"
   },
   "test": {
-    "version": "16.4.2.0.0",
+    "version": "16.4.4.9",
     "description": "Тестовая версия",
-    "release_date": "2025-08-02"
+    "release_date": "2025-08-17"
   },
   "next_suggested": {
-    "stable": "16.2.3.2",
-    "test": "16.4.2.0.1"
+    "stable": "16.2.4.3",
+    "test": "16.4.4.10"
   },
   "metadata": {
-    "last_updated": "2025-08-02 20:49:23",
+    "last_updated": "2025-08-17 15:36:12",
     "updated_by": "build_system"
   }
 }

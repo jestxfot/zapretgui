@@ -601,7 +601,7 @@ class MainWindowUI:
                 if days_remaining > 0:
                     button_text = f" Premium ({days_remaining} дн.)"
                 elif days_remaining == 0:
-                    button_text = " Premium (истекает сегодня)"
+                    button_text = " Истекает сегодня!"
                 else:
                     button_text = " Premium истёк"
             else:

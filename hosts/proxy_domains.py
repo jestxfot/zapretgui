@@ -96,7 +96,7 @@ PROXY_DOMAINS = {
     "a-v2.sndcdn.com": "3.164.206.34",
     "secure.sndcdn.com": "18.165.140.56",
     "anilib.me": "172.67.192.246",
-    "usher.ttvnw.net": "45.95.233.23",
+    #"usher.ttvnw.net": "45.95.233.23",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"

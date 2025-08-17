@@ -5,8 +5,10 @@ from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
 from PyQt6.QtWidgets import QPushButton, QMessageBox, QApplication, QMenu
 from config import reg, HKCU
 from log import log
+from typing import Optional, Tuple
+import time
 
-# Константы
+# Константы (без изменений)
 THEMES = {
     "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "0, 125, 242"},
     "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "14, 152, 211"},
@@ -16,13 +18,13 @@ THEMES = {
     "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "0, 172, 193"},
     "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "63, 85, 182"},
     
-    # 🆕 Новые премиум темы
+    # Новые премиум темы
     "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "0, 150, 255", "amoled": True},
     "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "0, 255, 127", "amoled": True},
     "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "187, 134, 252", "amoled": True},
     "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "255, 82, 82", "amoled": True},
     
-    # 🆕 Полностью черная тема (премиум)
+    # Полностью черная тема (премиум)
     "Полностью черная": {
         "file": "dark_blue.xml", 
         "status_color": "#ffffff", 
@@ -72,12 +74,13 @@ QMainWindow {
 
 QFrame {
     background-color: #000000;
-    border: 1px solid #333333;
+    border: none;  /* Убираем рамку */
 }
 
 QLabel {
     background-color: transparent;
     color: #ffffff;
+    border: none;  /* Убираем рамку у меток */
 }
 
 QComboBox {
@@ -102,10 +105,22 @@ QComboBox QAbstractItemView {
 
 QStackedWidget {
     background-color: #000000;
+    border: none;  /* Убираем рамку */
+}
+
+/* Убираем рамки у кнопок в стеках */
+QStackedWidget > QPushButton {
+    border: none;
+}
+
+/* Убираем рамки у разделителей */
+QFrame[frameShape="4"] {
+    color: #333333;
+    max-height: 1px;
 }
 """
 
-# 🆕 Стили для полностью черной темы
+# Стили для полностью черной темы
 PURE_BLACK_OVERRIDE_STYLE = """
 QWidget {
     background-color: #000000;
@@ -118,7 +133,7 @@ QMainWindow {
 
 QFrame {
     background-color: #000000;
-    border: 1px solid #1a1a1a;
+    border: none;  /* Убираем рамку */
 }
 
 QLabel {
@@ -128,7 +143,7 @@ QLabel {
 
 QComboBox {
     background-color: #000000;
-    border: 1px solid #1a1a1a;
+    border: none;  /* Убираем рамку */
     color: #ffffff;
     padding: 5px;
     border-radius: 4px;
@@ -141,7 +156,7 @@ QComboBox::drop-down {
 
 QComboBox QAbstractItemView {
     background-color: #000000;
-    border: 1px solid #1a1a1a;
+    border: none;  /* Убираем рамку */
     selection-background-color: #1a1a1a;
     color: #ffffff;
 }
@@ -158,7 +173,7 @@ QPushButton {
 
 QPushButton:hover {
     background-color: #333333;
-    border: 1px solid #555555;
+    border: none;  /* Убираем рамку */
 }
 
 QPushButton:pressed {
@@ -186,6 +201,47 @@ def get_windows_theme() -> str:
         root=HKCU
     )
     return "light" if val == 1 else "dark"
+
+
+class PremiumCheckWorker(QObject):
+    """Воркер для асинхронной проверки премиум статуса"""
+    
+    finished = pyqtSignal(bool, str, object)  # is_premium, message, days
+    error = pyqtSignal(str)
+    
+    def __init__(self, donate_checker):
+        super().__init__()
+        self.donate_checker = donate_checker
+    
+    def run(self):
+        """Выполнить проверку подписки"""
+        try:
+            log("Начало асинхронной проверки подписки", "DEBUG")
+            start_time = time.time()
+            
+            if not self.donate_checker:
+                self.finished.emit(False, "Checker не доступен", None)
+                return
+            
+            # Проверяем тип checker'а
+            checker_type = self.donate_checker.__class__.__name__
+            if checker_type == 'DummyChecker':
+                self.finished.emit(False, "Dummy checker", None)
+                return
+            
+            # Выполняем проверку
+            is_premium, message, days = self.donate_checker.check_subscription_status()
+            
+            elapsed = time.time() - start_time
+            log(f"Асинхронная проверка завершена за {elapsed:.2f}с: premium={is_premium}", "DEBUG")
+            
+            self.finished.emit(is_premium, message, days)
+            
+        except Exception as e:
+            log(f"Ошибка в PremiumCheckWorker: {e}", "❌ ERROR")
+            self.error.emit(str(e))
+            self.finished.emit(False, f"Ошибка: {e}", None)
+
 
 class RippleButton(QPushButton):
     def __init__(self, text, parent=None, color=""):
@@ -261,6 +317,7 @@ class RippleButton(QPushButton):
             )
             painter.end()
 
+
 class ThemeManager:
     """Класс для управления темами приложения"""
 
@@ -271,6 +328,15 @@ class ThemeManager:
         self.theme_folder = theme_folder
         self.donate_checker = donate_checker
         self._fallback_due_to_premium: str | None = None
+        
+        # Кеш для премиум статуса
+        self._premium_cache: Optional[Tuple[bool, str, Optional[int]]] = None
+        self._cache_time: Optional[float] = None
+        self._cache_duration = 60  # 60 секунд кеша
+        
+        # Потоки для асинхронных проверок
+        self._check_thread: Optional[QThread] = None
+        self._check_worker: Optional[PremiumCheckWorker] = None
 
         # список тем с премиум-статусом
         self.themes = []
@@ -285,10 +351,11 @@ class ThemeManager:
         # выбираем стартовую тему
         saved = get_selected_theme()
         if saved and saved in THEMES:
-            if self._is_premium_theme(saved) and not self._is_premium_available():
-                log("Премиум недоступен; временно «Тёмная синяя»", "INFO")
+            if self._is_premium_theme(saved):
+                # Используем кешированный результат или считаем что нет премиума при старте
                 self.current_theme = "Темная синяя"
                 self._fallback_due_to_premium = saved
+                log(f"Премиум тема {saved} отложена до проверки подписки", "INFO")
             else:
                 self.current_theme = saved
         else:
@@ -299,6 +366,51 @@ class ThemeManager:
 
         # применяем тему, НО БЕЗ записи в настройки
         self.apply_theme(self.current_theme, persist=False)
+        
+        # Запускаем асинхронную проверку премиума после инициализации
+        QTimer.singleShot(100, self._start_async_premium_check)
+
+    def __del__(self):
+        """Деструктор для очистки ресурсов"""
+        try:
+            # Останавливаем поток если он запущен
+            if hasattr(self, '_check_thread') and self._check_thread is not None:
+                try:
+                    if self._check_thread.isRunning():
+                        self._check_thread.quit()
+                        self._check_thread.wait(500)  # Ждем максимум 0.5 секунды
+                except RuntimeError:
+                    pass
+        except Exception:
+            pass
+
+    def cleanup(self):
+        """Безопасная очистка всех ресурсов"""
+        try:
+            # Очищаем кеш
+            self._premium_cache = None
+            self._cache_time = None
+            
+            # Останавливаем поток проверки
+            if hasattr(self, '_check_thread') and self._check_thread is not None:
+                try:
+                    if self._check_thread.isRunning():
+                        log("Останавливаем поток проверки премиума", "DEBUG")
+                        self._check_thread.quit()
+                        if not self._check_thread.wait(1000):
+                            log("Принудительное завершение потока", "WARNING")
+                            self._check_thread.terminate()
+                            self._check_thread.wait()
+                except RuntimeError:
+                    pass
+                finally:
+                    self._check_thread = None
+                    self._check_worker = None
+                    
+            log("ThemeManager очищен", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка при очистке ThemeManager: {e}", "ERROR")
 
     def _is_premium_theme(self, theme_name: str) -> bool:
         """Проверяет, является ли тема премиум"""
@@ -310,54 +422,142 @@ class ThemeManager:
                 theme_info.get("pure_black", False))
 
     def _is_premium_available(self) -> bool:
+        """Проверяет доступность премиума (использует кеш)"""
         if not self.donate_checker:
             return False
+        
+        # Проверяем кеш
+        if self._premium_cache and self._cache_time:
+            cache_age = time.time() - self._cache_time
+            if cache_age < self._cache_duration:
+                log(f"Используем кешированный премиум статус: {self._premium_cache[0]}", "DEBUG")
+                return self._premium_cache[0]
+        
+        # Если кеша нет, возвращаем False и запускаем асинхронную проверку
+        log("Кеш премиума отсутствует, запускаем асинхронную проверку", "DEBUG")
+        self._start_async_premium_check()
+        return False
+
+    def _start_async_premium_check(self):
+        """Запускает асинхронную проверку премиум статуса"""
+        if not self.donate_checker:
+            return
+        
+        # Проверяем тип checker'а
+        checker_type = self.donate_checker.__class__.__name__
+        if checker_type == 'DummyChecker':
+            log("DummyChecker обнаружен, пропускаем асинхронную проверку", "DEBUG")
+            return
+        
+        # Проверяем существование потока перед проверкой isRunning
+        if self._check_thread is not None:
+            try:
+                if self._check_thread.isRunning():
+                    log("Асинхронная проверка уже выполняется", "DEBUG")
+                    return
+            except RuntimeError:
+                # Поток был удален, сбрасываем ссылку
+                log("Предыдущий поток был удален, создаем новый", "DEBUG")
+                self._check_thread = None
+                self._check_worker = None
+        
+        log("Запуск асинхронной проверки премиум статуса", "DEBUG")
+        
+        # Очищаем старые ссылки перед созданием новых
+        if self._check_thread is not None:
+            try:
+                if self._check_thread.isRunning():
+                    self._check_thread.quit()
+                    self._check_thread.wait(1000)  # Ждем максимум 1 секунду
+            except RuntimeError:
+                pass
+            self._check_thread = None
+            self._check_worker = None
+        
+        # Создаем воркер и поток
+        self._check_thread = QThread()
+        self._check_worker = PremiumCheckWorker(self.donate_checker)
+        self._check_worker.moveToThread(self._check_thread)
+        
+        # Подключаем сигналы
+        self._check_thread.started.connect(self._check_worker.run)
+        self._check_worker.finished.connect(self._on_premium_check_finished)
+        self._check_worker.error.connect(self._on_premium_check_error)
+        
+        # Правильная очистка потока после завершения
+        def cleanup_thread():
+            try:
+                if self._check_worker:
+                    self._check_worker.deleteLater()
+                    self._check_worker = None
+                if self._check_thread:
+                    self._check_thread.deleteLater()
+                    self._check_thread = None
+            except RuntimeError:
+                # Объекты уже удалены
+                self._check_worker = None
+                self._check_thread = None
+        
+        self._check_worker.finished.connect(self._check_thread.quit)
+        self._check_thread.finished.connect(cleanup_thread)
+        
+        # Запускаем поток
         try:
-            is_prem, *_ = self.donate_checker.check_subscription_status()
-            return is_prem
-        except Exception as e:
-            log(f"Ошибка проверки подписки: {e}", "❌ ERROR")
-            return False
+            self._check_thread.start()
+        except RuntimeError as e:
+            log(f"Ошибка запуска потока проверки премиума: {e}", "❌ ERROR")
+            self._check_thread = None
+            self._check_worker = None
 
-    def _is_amoled_theme(self, theme_name: str) -> bool:
-        """Проверяет, является ли тема AMOLED"""
-        clean_name = self.get_clean_theme_name(theme_name)
-        theme_info = THEMES.get(clean_name, {})
-        return (clean_name.startswith("AMOLED") or 
-                theme_info.get("amoled", False))
+    def _on_premium_check_finished(self, is_premium: bool, message: str, days: Optional[int]):
+        """Обработчик завершения асинхронной проверки"""
+        log(f"Асинхронная проверка завершена: premium={is_premium}, msg='{message}', days={days}", "DEBUG")
+        
+        # Обновляем кеш
+        self._premium_cache = (is_premium, message, days)
+        self._cache_time = time.time()
+        
+        # Обновляем заголовок окна
+        if hasattr(self.widget, "update_title_with_subscription_status"):
+            try:
+                self.widget.update_title_with_subscription_status(is_premium, self.current_theme, days)
+            except Exception as e:
+                log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
+        
+        # Если есть отложенная премиум тема и премиум доступен, применяем её
+        if self._fallback_due_to_premium and is_premium:
+            log(f"Восстанавливаем отложенную премиум тему: {self._fallback_due_to_premium}", "INFO")
+            self.apply_theme(self._fallback_due_to_premium, persist=True)
+            self._fallback_due_to_premium = None
+        
+        # Обновляем список доступных тем в UI
+        if hasattr(self.widget, 'theme_handler'):
+            try:
+                self.widget.theme_handler.update_available_themes()
+            except Exception as e:
+                log(f"Ошибка обновления списка тем: {e}", "DEBUG")
 
-    def _is_pure_black_theme(self, theme_name: str) -> bool:
-        """Проверяет, является ли тема полностью черной"""
-        clean_name = self.get_clean_theme_name(theme_name)
-        theme_info = THEMES.get(clean_name, {})
-        return (clean_name == "Полностью черная" or 
-                theme_info.get("pure_black", False))
+    def _on_premium_check_error(self, error: str):
+        """Обработчик ошибки асинхронной проверки"""
+        log(f"Ошибка асинхронной проверки премиума: {error}", "❌ ERROR")
+        
+        # Устанавливаем кеш с негативным результатом
+        self._premium_cache = (False, f"Ошибка: {error}", None)
+        self._cache_time = time.time()
 
     def reapply_saved_theme_if_premium(self):
         """Восстанавливает премиум-тему после инициализации DonateChecker"""
-        if (not self._fallback_due_to_premium or 
-                not self._is_premium_available()):
-            return
-
-        ok, msg = self.apply_theme(self._fallback_due_to_premium, persist=True)
-        if ok:
-            log(f"Премиум-тема «{self._fallback_due_to_premium}» восстановлена", "INFO")
-            self._fallback_due_to_premium = None
-        else:
-            log(f"Не удалось восстановить тему: {msg}", "⚠ WARNING")
+        # Запускаем асинхронную проверку
+        self._start_async_premium_check()
 
     def get_available_themes(self):
         """Возвращает список доступных тем с учетом статуса подписки"""
         themes = []
         
+        # Используем кешированный результат
         is_premium = False
-        try:
-            if (self.donate_checker and 
-                hasattr(self.donate_checker, '__class__') and 
-                self.donate_checker.__class__.__name__ != 'DummyChecker'):
-                is_premium, _, _ = self.donate_checker.check_subscription_status()
-        except Exception as e:
-            log(f"Ошибка проверки подписки в ThemeManager: {e}", "DEBUG")
+        if self._premium_cache:
+            is_premium = self._premium_cache[0]
         
         for theme_info in self.themes:
             theme_name = theme_info['name']
@@ -383,9 +583,118 @@ class ThemeManager:
             clean_name = clean_name.replace(suffix, "")
         return clean_name
 
+    def _is_amoled_theme(self, theme_name: str) -> bool:
+        """Проверяет, является ли тема AMOLED"""
+        clean_name = self.get_clean_theme_name(theme_name)
+        theme_info = THEMES.get(clean_name, {})
+        return (clean_name.startswith("AMOLED") or 
+                theme_info.get("amoled", False))
 
+    def _is_pure_black_theme(self, theme_name: str) -> bool:
+        """Проверяет, является ли тема полностью черной"""
+        clean_name = self.get_clean_theme_name(theme_name)
+        theme_info = THEMES.get(clean_name, {})
+        return (clean_name == "Полностью черная" or 
+                theme_info.get("pure_black", False))
+
+    def apply_theme(self, theme_name: str | None = None, *, persist: bool = True) -> tuple[bool, str]:
+        """Применяет тему с поддержкой всех специальных тем"""
+        import qt_material
+
+        if theme_name is None:
+            theme_name = self.current_theme
+
+        clean = self.get_clean_theme_name(theme_name)
+
+        # проверка премиум для всех премиум тем (используем кеш)
+        if self._is_premium_theme(clean):
+            # Проверяем кешированный результат
+            is_available = False
+            if self._premium_cache:
+                is_available = self._premium_cache[0]
+            
+            if not is_available:
+                theme_type = self._get_theme_type_name(clean)
+                QMessageBox.information(
+                    self.widget, f"{theme_type}",
+                    f"{theme_type} «{clean}» доступна только для подписчиков Zapret Premium."
+                )
+                # Запускаем асинхронную проверку на случай если кеш устарел
+                self._start_async_premium_check()
+                return False, "need premium"
+
+        try:
+            info = THEMES[clean]
+            
+            # Применяем базовую тему
+            qt_material.apply_stylesheet(self.app, theme=info["file"])
+            
+            # Применяем специальные стили в зависимости от типа темы
+            if self._is_pure_black_theme(clean):
+                current_style = self.app.styleSheet()
+                pure_black_style = current_style + "\n" + PURE_BLACK_OVERRIDE_STYLE
+                self.app.setStyleSheet(pure_black_style)
+                self.apply_pure_black_enhancements()
+                log(f"Применена полностью черная тема: {clean}", "INFO")
+                
+            elif self._is_amoled_theme(clean):
+                current_style = self.app.styleSheet()
+                amoled_style = current_style + "\n" + AMOLED_OVERRIDE_STYLE
+                self.app.setStyleSheet(amoled_style)
+                self.apply_amoled_enhancements()
+                log(f"Применена AMOLED тема: {clean}", "INFO")
+
+            # остальная логика применения темы...
+            self.status_label.setStyleSheet(
+                f"color: {info['status_color']}; font-size: 9pt;"
+            )
+
+            # Переопределяем ВСЕ кнопки для полностью черной темы
+            if self._is_pure_black_theme(clean):
+                self._apply_pure_black_button_colors()
+                self._apply_pure_black_label_colors()
+            else:
+                self._apply_normal_button_colors(info)
+                self._apply_normal_label_colors(info)
+
+            # Обновление заголовка (асинхронно если нужно)
+            self._update_title_async(clean)
+
+            # Специальный фон только для РКН Тян
+            if clean == "РКН Тян":
+                QTimer.singleShot(500, self.apply_rkn_background)
+            else:
+                self.widget.setAutoFillBackground(False)
+
+            if persist:
+                set_selected_theme(clean)
+            self.current_theme = clean
+            return True, "ok"
+
+        except Exception as e:
+            log(f"Theme error: {e}", "❌ ERROR")
+            return False, str(e)
+
+    def _update_title_async(self, current_theme):
+        """Асинхронно обновляет заголовок окна"""
+        try:
+            # Используем кешированный результат если есть
+            if self._premium_cache and hasattr(self.widget, "update_title_with_subscription_status"):
+                is_premium, message, days = self._premium_cache
+                self.widget.update_title_with_subscription_status(is_premium, current_theme, days)
+            else:
+                # Показываем FREE статус и запускаем асинхронную проверку
+                if hasattr(self.widget, "update_title_with_subscription_status"):
+                    self.widget.update_title_with_subscription_status(False, current_theme, None)
+                # Запускаем асинхронную проверку
+                self._start_async_premium_check()
+                
+        except Exception as e:
+            log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
+
+    # Остальные методы остаются без изменений...
     def _apply_pure_black_button_colors(self):
-        """🆕 Применяет цвета кнопок для полностью черной темы"""
+        """Применяет цвета кнопок для полностью черной темы"""
         try:
             # Для полностью черной темы все кнопки становятся темно-серыми с белым текстом
             pure_black_button_color = "32, 32, 32"  # Очень темно-серый
@@ -464,7 +773,7 @@ class ThemeManager:
             log(f"Ошибка при применении цветов полностью черной темы: {e}", "❌ ERROR")
 
     def _apply_normal_button_colors(self, theme_info):
-        """🆕 Применяет обычные цвета кнопок для всех тем кроме полностью черной"""
+        """Применяет обычные цвета кнопок для всех тем кроме полностью черной"""
         try:
             # Обычные themed кнопки
             if hasattr(self.widget, "themed_buttons"):
@@ -485,7 +794,6 @@ class ThemeManager:
                 'autostart_disable_btn': "255, 93, 174",
                 'subscription_btn': "224, 132, 0",
                 'update_check_btn': "38, 38, 38"
-                # proxy_button цвет устанавливается динамически в update_proxy_button_state
             }
             
             for btn_name, color in special_button_colors.items():
@@ -501,119 +809,14 @@ class ThemeManager:
         except Exception as e:
             log(f"Ошибка при применении обычных цветов кнопок: {e}", "❌ ERROR")
 
-    def apply_theme(self, theme_name: str | None = None, *, persist: bool = True) -> tuple[bool, str]:
-        """Применяет тему с поддержкой всех специальных тем"""
-        import qt_material
-
-        if theme_name is None:
-            theme_name = self.current_theme
-
-        clean = self.get_clean_theme_name(theme_name)
-
-        # проверка премиум для всех премиум тем
-        if self._is_premium_theme(clean) and not self._is_premium_available():
-            theme_type = self._get_theme_type_name(clean)
-            QMessageBox.information(
-                self.widget, f"{theme_type}",
-                f"{theme_type} «{clean}» доступна только для подписчиков Zapret Premium."
-            )
-            return False, "need premium"
-
-        try:
-            info = THEMES[clean]
-            
-            # Применяем базовую тему
-            qt_material.apply_stylesheet(self.app, theme=info["file"])
-            
-            # Применяем специальные стили в зависимости от типа темы
-            if self._is_pure_black_theme(clean):
-                current_style = self.app.styleSheet()
-                pure_black_style = current_style + "\n" + PURE_BLACK_OVERRIDE_STYLE
-                self.app.setStyleSheet(pure_black_style)
-                self.apply_pure_black_enhancements()
-                log(f"Применена полностью черная тема: {clean}", "INFO")
-                
-            elif self._is_amoled_theme(clean):
-                current_style = self.app.styleSheet()
-                amoled_style = current_style + "\n" + AMOLED_OVERRIDE_STYLE
-                self.app.setStyleSheet(amoled_style)
-                self.apply_amoled_enhancements()
-                log(f"Применена AMOLED тема: {clean}", "INFO")
-
-            # остальная логика применения темы...
-            self.status_label.setStyleSheet(
-                f"color: {info['status_color']}; font-size: 9pt;"
-            )
-
-            # Переопределяем ВСЕ кнопки для полностью черной темы
-            if self._is_pure_black_theme(clean):
-                self._apply_pure_black_button_colors()
-                self._apply_pure_black_label_colors()
-            else:
-                self._apply_normal_button_colors(info)
-                self._apply_normal_label_colors(info)
-
-            # 🆕 ИСПРАВЛЕНИЕ: Обновление заголовка с отладкой
-            self._update_title_with_debug(clean)
-
-            # Специальный фон только для РКН Тян
-            if clean == "РКН Тян":
-                QTimer.singleShot(500, self.apply_rkn_background)
-            else:
-                self.widget.setAutoFillBackground(False)
-
-            if persist:
-                set_selected_theme(clean)
-            self.current_theme = clean
-            return True, "ok"
-
-        except Exception as e:
-            log(f"Theme error: {e}", "❌ ERROR")
-            return False, str(e)
-
-    def _update_title_with_debug(self, current_theme):
-        """🆕 Обновляет заголовок с подробной отладкой"""
-        try:
-            # Проверяем тип donate_checker
-            checker_type = "None"
-            if self.donate_checker:
-                checker_type = self.donate_checker.__class__.__name__
-            
-            log(f"DonateChecker тип: {checker_type}", "DEBUG")
-            
-            # Получаем статус подписки
-            if (hasattr(self.widget, "update_title_with_subscription_status") and 
-                self.donate_checker and
-                checker_type != 'DummyChecker'):
-                
-                is_prem, msg, days = self.donate_checker.check_subscription_status()
-                log(f"Статус подписки получен: премиум={is_prem}, сообщение='{msg}', дни={days}", "DEBUG")
-                
-                self.widget.update_title_with_subscription_status(is_prem, current_theme, days)
-                
-            else:
-                log(f"Используем fallback обновление заголовка (DummyChecker или отсутствует)", "DEBUG")
-                # Fallback - показываем FREE статус
-                self.widget.update_title_with_subscription_status(False, current_theme, None)
-                
-        except Exception as e:
-            log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
-            # В случае ошибки показываем FREE
-            try:
-                self.widget.update_title_with_subscription_status(False, current_theme, None)
-            except Exception as inner_e:
-                log(f"Критическая ошибка обновления заголовка: {inner_e}", "❌ ERROR")
-                
     def _apply_pure_black_label_colors(self):
-        """🆕 Применяет белые цвета для текстовых меток в полностью черной теме"""
+        """Применяет белые цвета для текстовых меток в полностью черной теме"""
         try:
-            # Для полностью черной темы все текстовые метки должны быть белыми
             white_color = "#ffffff"
             
             if hasattr(self.widget, "themed_labels"):
                 for lbl in self.widget.themed_labels:
                     current_style = lbl.styleSheet()
-                    # Заменяем или добавляем белый цвет
                     new_style = self._update_color_in_style(current_style, white_color)
                     lbl.setStyleSheet(new_style)
                     
@@ -623,7 +826,7 @@ class ThemeManager:
             log(f"Ошибка при применении белых цветов меток: {e}", "❌ ERROR")
 
     def _apply_normal_label_colors(self, theme_info):
-        """🆕 Применяет обычные цвета для текстовых меток"""
+        """Применяет обычные цвета для текстовых меток"""
         try:
             if hasattr(self.widget, "themed_labels"):
                 lbl_color = theme_info.get("button_color", "0, 119, 255")
@@ -700,28 +903,47 @@ class ThemeManager:
         except Exception as e:
             log(f"Ошибка при применении Pure Black улучшений: {e}", "DEBUG")
 
+
     def apply_amoled_enhancements(self):
         """Применяет дополнительные улучшения для AMOLED тем"""
         try:
             additional_style = """
-            QFrame[frameShape="4"] {
-                color: #333333;
+            /* Убираем все лишние рамки */
+            QFrame {
+                border: none;
             }
             
+            /* Рамка только при наведении на кнопки */
             QPushButton:hover {
                 border: 1px solid rgba(255, 255, 255, 0.1);
             }
             
-            QLabel[objectName="title_label"] {
-                text-shadow: 0px 0px 10px rgba(255, 255, 255, 0.3);
+            /* Убираем text-shadow который создает размытие */
+            QLabel {
+                text-shadow: none;
             }
             
+            /* Фокус на комбобоксе */
             QComboBox:focus {
-                border: 2px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.3);
             }
             
-            QFrame {
-                border-color: #222222;
+            /* Только горизонтальные линии оставляем видимыми */
+            QFrame[frameShape="4"] {
+                color: #222222;
+                max-height: 1px;
+                border: none;
+            }
+            
+            /* Убираем отступы где возможно */
+            QWidget {
+                outline: none;
+            }
+            
+            /* Компактные отступы для контейнеров */
+            QStackedWidget {
+                margin: 0;
+                padding: 0;
             }
             """
             
@@ -755,7 +977,7 @@ class ThemeManager:
             if not os.path.exists(img_path):
                 try:
                     self._set_status("Загрузка фонового изображения...")
-                    img_url = "https://nozapret.ru/rkn_background.jpg"
+                    img_url = "https://github.com/youtubediscord/src/releases/download/files/rkn_background.jpg"
                     
                     response = requests.get(img_url, stream=True, timeout=10)
                     if response.status_code == 200:
@@ -790,6 +1012,7 @@ class ThemeManager:
         """Устанавливает текст статуса"""
         if self.status_label:
             self.status_label.setText(text)
+
 
 class ThemeHandler:
     """Обработчик событий связанных с темами"""
@@ -826,10 +1049,10 @@ class ThemeHandler:
                 log(f"Тема изменена на: {theme_name}", level="INFO")
                 self.app_window.set_status(f"Тема изменена: {theme_name}")
                 
-                # 🆕 Обновляем стили комбо-бокса после смены темы
+                # Обновляем стили комбо-бокса после смены темы
                 QTimer.singleShot(50, self.update_theme_combo_styles)
                 
-                # Обновляем статус подписки с новой темой
+                # Обновляем статус подписки с новой темой (асинхронно)
                 QTimer.singleShot(100, self.app_window.update_subscription_status_in_title)
             else:
                 log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
@@ -839,14 +1062,13 @@ class ThemeHandler:
             log(f"Ошибка при обработке изменения темы: {e}", level="❌ ERROR")
             self.app_window.set_status(f"Ошибка: {e}")
 
-
     def update_theme_combo_styles(self):
         """Применяет стили к комбо-боксу тем для выделения заблокированных элементов"""
         if not hasattr(self.app_window, 'theme_combo'):
             log("theme_combo не найден в app_window", "DEBUG")
             return
         
-        # 🆕 Проверяем, используется ли полностью черная тема
+        # Проверяем, используется ли полностью черная тема
         is_pure_black = False
         if hasattr(self.theme_manager, '_is_pure_black_theme'):
             current_theme = getattr(self.theme_manager, 'current_theme', '')

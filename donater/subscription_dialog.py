@@ -79,15 +79,15 @@ class SubscriptionDialog(QDialog):
         # Определяем начальную страницу
         self._setup_initial_page()
 
-        self.setFixedSize(550, 850)
+        self.setFixedSize(550, 700)
 
     def sizeHint(self):
         """Фиксированный размер окна"""
-        return QSize(550, 850)
+        return QSize(550, 700)
 
     def minimumSizeHint(self):
         """Минимальный размер окна"""
-        return QSize(550, 850)
+        return QSize(550, 700)
     
     def _init_ui(self):
         """Инициализация интерфейса"""
@@ -656,7 +656,7 @@ class SubscriptionDialog(QDialog):
     def _open_telegram(self):
         """Открыть Telegram бот"""
         try:
-            webbrowser.open("https://t.me/zapretest_bot")
+            webbrowser.open("https://t.me/zapretvpns_bot")
         except Exception as e:
             self._show_error(f"Не удалось открыть браузер: {e}")
     

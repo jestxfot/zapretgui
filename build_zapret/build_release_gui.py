@@ -190,21 +190,6 @@ def elevate_as_admin():
     )
     sys.exit(0)
 
-
-def parse_version(version_string: str) -> tuple:
-    """Парсит версию в кортеж чисел для правильного сравнения"""
-    try:
-        # Убираем префикс 'v' если есть
-        version = version_string.lstrip('v')
-        # Разбиваем на части и конвертируем в числа
-        parts = [int(x) for x in version.split('.')]
-        # Дополняем до 5 частей нулями если нужно
-        while len(parts) < 5:
-            parts.append(0)
-        return tuple(parts)
-    except (ValueError, AttributeError):
-        return (0, 0, 0, 0, 0)
-
 def fetch_local_versions() -> dict[str, str]:
     """Получает текущие версии из локального JSON файла"""
     try:
@@ -296,21 +281,85 @@ def update_versions_file(channel: str, new_version: str):
         if hasattr(run, 'log_queue'):
             run.log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
 
+def parse_version(version_string: str) -> tuple:
+    """Парсит версию в кортеж чисел для правильного сравнения"""
+    try:
+        # Убираем префикс 'v' если есть
+        version = version_string.lstrip('v')
+        # Разбиваем на части и конвертируем в числа
+        parts = [int(x) for x in version.split('.')]
+        # Дополняем до 4 частей нулями если нужно
+        while len(parts) < 4:
+            parts.append(0)
+        return tuple(parts[:4])  # Берем только первые 4 части
+    except (ValueError, AttributeError):
+        return (0, 0, 0, 0)
+
 def suggest_next(ver: str) -> str:
-    """Предлагает следующую версию"""
+    """Предлагает следующую версию (4 цифры, без ограничения на 9)"""
     try:
         # Парсим текущую версию
         current_parts = parse_version(ver)
-        # Увеличиваем последнюю часть
-        new_parts = list(current_parts[:5])  # Берем только первые 5 частей
-        new_parts[-1] += 1
+        new_parts = list(current_parts[:4])  # Берем только первые 4 части
+        
+        # Просто увеличиваем последнюю часть на 1
+        if len(new_parts) > 0:
+            new_parts[-1] += 1
         
         return ".".join(map(str, new_parts))
     except:
-        # Fallback к старому методу
-        nums = [int(x) for x in (ver.split(".") + ["0"] * 5)[:5]]
-        nums[-1] += 1
+        # Fallback
+        nums = [int(x) for x in (ver.split(".") + ["0"] * 4)[:4]]
+        if nums:
+            nums[-1] += 1
         return ".".join(map(str, nums))
+
+def fetch_local_versions() -> dict[str, str]:
+    """Получает текущие версии из локального JSON файла"""
+    try:
+        # Путь к файлу версий
+        versions_file = Path(__file__).parent / "versions.json"
+        
+        if not versions_file.exists():
+            # Создаем файл с дефолтными версиями если его нет
+            default_versions = {
+                "stable": {
+                    "version": "16.2.1.3",
+                    "description": "Стабильная версия",
+                    "release_date": "2025-07-15"
+                },
+                "test": {
+                    "version": "16.4.1.9", 
+                    "description": "Тестовая версия",
+                    "release_date": "2025-07-28"
+                },
+                "next_suggested": {
+                    "stable": "16.2.1.4",
+                    "test": "16.4.1.10"
+                },
+                "metadata": {
+                    "last_updated": "2025-07-30",
+                    "updated_by": "build_system"
+                }
+            }
+            
+            with open(versions_file, 'w', encoding='utf-8') as f:
+                json.dump(default_versions, f, indent=2, ensure_ascii=False)
+        
+        # Читаем файл
+        with open(versions_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        versions = {
+            "stable": data.get("stable", {}).get("version", "16.2.1.3"),
+            "test": data.get("test", {}).get("version", "16.4.1.9")
+        }
+        
+        return versions
+        
+    except Exception as e:
+        # Fallback версии
+        return {"stable": "16.2.1.3", "test": "16.4.1.9"}
 
 def get_suggested_version(channel: str) -> str:
     """Получает предложенную версию из файла"""
@@ -327,11 +376,11 @@ def get_suggested_version(channel: str) -> str:
         
         # Fallback - вычисляем из текущей версии
         versions = fetch_local_versions()
-        current = versions.get(channel, "0.0.0.0.0")
+        current = versions.get(channel, "0.0.0.0")
         return suggest_next(current)
         
     except Exception:
-        return "1.0.0.0.0"
+        return "1.0.0.0"
 
 def _taskkill(exe: str):
     run(f'taskkill /F /T /IM "{exe}" >nul 2>&1', check=False)
@@ -390,22 +439,66 @@ def _ensure_uninstall_delete(text: str, path: str) -> str:
     return text
 
 def prepare_iss(channel: str, version: str) -> Path:
-    """Создаёт zapret_<channel>.iss с нужными полями."""
+    """Создаёт zapret_<channel>.iss с проверкой путей"""
     src = ROOT / "zapret.iss"
     if not src.exists():
-        raise FileNotFoundError("zapret.iss not found")
+        raise FileNotFoundError(f"zapret.iss не найден в {ROOT}")
 
     txt = src.read_text(encoding="utf-8-sig")
 
     if not version.strip():
-        import re
         m = re.search(r"^AppVersion\s*=\s*([0-9\.]+)", txt, re.MULTILINE)
-        current = m.group(1) if m else "0.0.0.0.0"
+        current = m.group(1) if m else "0.0.0.0"
         version = suggest_next(current)
 
     txt = _sub("AppVersion", version, txt)
 
     base_guid = "5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0"
+
+    # Определяем путь к exe файлу
+    # PyInstaller создает в D:\Privacy\zapret
+    dist_path = ROOT.parent / "zapret"
+    exe_path = dist_path / "Zapret.exe"
+    
+    # Проверяем где находится exe после сборки
+    possible_exe_paths = [
+        dist_path / "Zapret.exe",  # D:\Privacy\zapret\Zapret.exe
+        ROOT / "Zapret.exe",  # D:\Privacy\zapretgui\Zapret.exe
+        ROOT / "zapret" / "Zapret.exe",  # D:\Privacy\zapretgui\zapret\Zapret.exe
+    ]
+    
+    exe_found = False
+    for check_path in possible_exe_paths:
+        if check_path.exists():
+            exe_found = True
+            exe_path = check_path
+            break
+    
+    if exe_found:
+        # Обновляем путь к исходным файлам в ISS
+        # Используем относительный или абсолютный путь
+        source_dir = str(exe_path.parent).replace("\\", "\\\\")
+        
+        # Заменяем строку Source для Zapret.exe
+        txt = re.sub(
+            r'Source:\s*"[^"]*Zapret\.exe"',
+            f'Source: "{source_dir}\\\\Zapret.exe"',
+            txt
+        )
+        
+        # Также обновляем все остальные Source директивы если они указывают на неправильную папку
+        txt = re.sub(
+            r'Source:\s*"\.\\'  # Заменяем относительные пути
+            r'Source:\s*"\.\\',
+            f'Source: "{source_dir}\\\\',
+            txt
+        )
+        
+        if hasattr(run, 'log_queue'):
+            run.log_queue.put(f"✓ Обновлен путь к exe в ISS: {exe_path}")
+    else:
+        if hasattr(run, 'log_queue'):
+            run.log_queue.put(f"⚠️ Zapret.exe еще не найден, ISCC попробует найти его сам")
 
     if channel == "test":
         txt = _sub("AppName",            "Zapret Dev",           txt)
@@ -426,11 +519,15 @@ def prepare_iss(channel: str, version: str) -> Path:
                           r"{commonappdata}\Zapret")
         txt = _sub("SetupIconFile",      "Zapret1.ico",           txt)
 
-    outdir_line = f'OutputDir="{ROOT}"'
-    txt = _sub("OutputDir", outdir_line.split("=", 1)[1].lstrip(), txt)
+    # Устанавливаем OutputDir в корень проекта
+    txt = _sub("OutputDir", str(ROOT).replace("\\", "\\\\"), txt)
 
     patched = ROOT / f"zapret_{channel}.iss"
     patched.write_text(txt, encoding="utf-8-sig")
+    
+    if hasattr(run, 'log_queue'):
+        run.log_queue.put(f"✓ Создан ISS файл: {patched}")
+    
     return patched
 
 def write_build_info(channel: str, version: str):
@@ -788,10 +885,10 @@ class BuildReleaseGUI:
             messagebox.showerror("Ошибка", "Укажите версию!")
             return
             
-        VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+(?:\.\d+)?$")
+        VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")  # Ровно 4 части
         if not VERSION_RE.fullmatch(version):
             messagebox.showerror("Ошибка", f"Неверный формат версии: {version}\n"
-                                          "Используйте формат X.X.X.X.X")
+                                        "Используйте формат X.X.X.X (4 цифры)")
             return
             
         notes = self.notes_text.get('1.0', 'end').strip()
@@ -905,12 +1002,98 @@ class BuildReleaseGUI:
             raise Exception(f"SSH деплой не удался: {message}")
             
         self.log_queue.put(f"🚀 {message}")
-                
+
     def run_inno_setup(self, channel, version):
-        """Запуск Inno Setup"""
+        """Запуск Inno Setup с улучшенной диагностикой"""
         iss_file = prepare_iss(channel, version)
-        run([INNO_ISCC, str(iss_file)])
         
+        # Проверяем существование iss файла
+        if not iss_file.exists():
+            raise FileNotFoundError(f"ISS файл не найден: {iss_file}")
+        
+        # Проверяем существование ISCC
+        if not Path(INNO_ISCC).exists():
+            raise FileNotFoundError(f"Inno Setup не найден: {INNO_ISCC}")
+        
+        # Проверяем существование скомпилированного exe
+        # PyInstaller создает exe в D:\Privacy\zapret (родительская папка от ROOT)
+        dist_path = ROOT.parent / "zapret"  # D:\Privacy\zapret
+        exe_path = dist_path / "Zapret.exe"
+        
+        if not exe_path.exists():
+            # Проверяем альтернативные пути
+            alt_paths = [
+                ROOT / "Zapret.exe",  # D:\Privacy\zapretgui\Zapret.exe
+                ROOT / "zapret" / "Zapret.exe",  # D:\Privacy\zapretgui\zapret\Zapret.exe
+                dist_path / "Zapret.exe",  # D:\Privacy\zapret\Zapret.exe
+            ]
+            
+            found = False
+            for alt_exe in alt_paths:
+                if alt_exe.exists():
+                    self.log_queue.put(f"✓ Найден exe: {alt_exe}")
+                    exe_path = alt_exe
+                    found = True
+                    break
+            
+            if not found:
+                self.log_queue.put(f"❌ Поиск Zapret.exe:")
+                for alt_exe in alt_paths:
+                    self.log_queue.put(f"   • {alt_exe}: {'✓' if alt_exe.exists() else '✗'}")
+                raise FileNotFoundError(f"Zapret.exe не найден. Проверены пути: {', '.join(str(p) for p in alt_paths)}")
+        else:
+            self.log_queue.put(f"✓ Найден exe: {exe_path}")
+        
+        # Логируем детали перед запуском
+        self.log_queue.put(f"📄 ISS файл: {iss_file}")
+        self.log_queue.put(f"📂 Рабочая папка: {ROOT}")
+        
+        # Запускаем ISCC с захватом вывода для диагностики
+        try:
+            startupinfo = None
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+            
+            # Запускаем с захватом stdout и stderr
+            result = subprocess.run(
+                [INNO_ISCC, str(iss_file)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                startupinfo=startupinfo
+            )
+            
+            # Выводим stdout в лог
+            if result.stdout:
+                for line in result.stdout.splitlines():
+                    if line.strip():
+                        self.log_queue.put(line)
+            
+            # Если есть ошибка, выводим stderr
+            if result.returncode != 0:
+                self.log_queue.put(f"❌ ISCC вернул код ошибки: {result.returncode}")
+                if result.stderr:
+                    self.log_queue.put("STDERR:")
+                    for line in result.stderr.splitlines():
+                        if line.strip():
+                            self.log_queue.put(f"  {line}")
+                
+                # Показываем содержимое ISS для отладки
+                self.log_queue.put("\n📋 Первые строки ISS файла:")
+                iss_content = iss_file.read_text(encoding="utf-8-sig")
+                for i, line in enumerate(iss_content.splitlines()[:20], 1):
+                    self.log_queue.put(f"  {i:3}: {line}")
+                
+                raise RuntimeError(f"Inno Setup failed with code {result.returncode}")
+            
+            self.log_queue.put("✅ Inno Setup завершен успешно")
+            
+        except Exception as e:
+            self.log_queue.put(f"❌ Ошибка запуска ISCC: {e}")
+            raise                
+  
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
         produced = ROOT / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"

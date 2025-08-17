@@ -70,25 +70,60 @@ class DPIStartWorker(QObject):
             strategy_name = None
             strategy_id = None
             
-            # Обработка кортежа
-            if isinstance(mode_param, tuple) and len(mode_param) == 2:
+            # ✅ НОВОЕ: Обработка комбинированных стратегий
+            if isinstance(mode_param, dict) and mode_param.get('is_combined'):
+                # Комбинированная стратегия
+                strategy_name = mode_param.get('name', 'Комбинированная стратегия')
+                args_str = mode_param.get('args', '')
+                
+                log(f"Запуск комбинированной стратегии: {strategy_name}", "INFO")
+                
+                if not args_str:
+                    log("Отсутствуют аргументы для комбинированной стратегии", "❌ ERROR")
+                    return False
+                
+                # Парсим аргументы
+                import shlex
+                try:
+                    custom_args = shlex.split(args_str)
+                    log(f"Аргументы комбинированной стратегии ({len(custom_args)} шт.): {args_str}", "DEBUG")
+                    
+                    # Запускаем с кастомными аргументами
+                    success = runner.start_strategy("custom", custom_args=custom_args)
+                    
+                    if success:
+                        log("Комбинированная стратегия успешно запущена", "✅ SUCCESS")
+                        return True
+                    else:
+                        log("Не удалось запустить комбинированную стратегию", "❌ ERROR")
+                        return False
+                        
+                except Exception as parse_error:
+                    log(f"Ошибка парсинга аргументов комбинированной стратегии: {parse_error}", "❌ ERROR")
+                    return False
+            
+            # Обработка кортежа (встроенная стратегия)
+            elif isinstance(mode_param, tuple) and len(mode_param) == 2:
                 # Это кортеж (strategy_id, strategy_name)
                 strategy_id, strategy_name = mode_param
                 log(f"Получен кортеж: ID={strategy_id}, name={strategy_name}", "DEBUG")
                 
             elif isinstance(mode_param, dict):
-                # Это полная информация о стратегии из index.json
+                # Это полная информация о стратегии из index.json (BAT стратегия)
                 strategy_info = mode_param
                 strategy_name = mode_param.get('name', 'unknown')
                 strategy_id = mode_param.get('id', 'custom')
+                log(f"Получена BAT стратегия: {strategy_name}", "DEBUG")
                 
             elif isinstance(mode_param, str):
                 # Это имя стратегии
                 strategy_name = mode_param
+                log(f"Получено имя стратегии: {strategy_name}", "DEBUG")
                 
             else:
                 # По умолчанию
                 strategy_name = "Если стратегия не работает смени её!"
+                log("Используется стратегия по умолчанию", "DEBUG")
             
             log(f"Прямой запуск стратегии: {strategy_name} (ID: {strategy_id})", "INFO")
             
@@ -280,9 +315,41 @@ class DPIController:
         launch_method = get_strategy_launch_method()
         log(f"Используется метод запуска: {launch_method}", "INFO")
         
+        # ✅ ОБНОВЛЕННОЕ: Обрабатываем все типы стратегий
+        mode_name = "Неизвестная стратегия"
+        
+        if isinstance(selected_mode, dict) and selected_mode.get('is_combined'):
+            # Комбинированная стратегия
+            mode_name = selected_mode.get('name', 'Комбинированная стратегия')
+            log(f"Обработка комбинированной стратегии: {mode_name}", "DEBUG")
+            
+            # Логируем выбранные категории
+            if 'selections' in selected_mode:
+                selections = selected_mode['selections']
+                log(f"Выбранные стратегии - YouTube: {selections.get('youtube')}, Discord: {selections.get('discord')}, Остальные: {selections.get('other')}", "DEBUG")
+            
+            # Логируем аргументы
+            args = selected_mode.get('args', '')
+            
+        elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
+            # Встроенная стратегия (ID, название)
+            strategy_id, strategy_name = selected_mode
+            mode_name = strategy_name
+            log(f"Обработка встроенной стратегии: {strategy_name} (ID: {strategy_id})", "DEBUG")
+            
+        elif isinstance(selected_mode, dict):
+            # BAT стратегия
+            mode_name = selected_mode.get('name', str(selected_mode))
+            log(f"Обработка BAT стратегии: {mode_name}", "DEBUG")
+            
+        elif isinstance(selected_mode, str):
+            # Строковое название
+            mode_name = selected_mode
+            log(f"Обработка стратегии по имени: {mode_name}", "DEBUG")
+        
         # Показываем состояние запуска
         method_name = "прямой" if launch_method == "direct" else "классический"
-        self.app.set_status(f"🚀 Запуск DPI ({method_name} метод)...")
+        self.app.set_status(f"🚀 Запуск DPI ({method_name} метод): {mode_name}")
         
         # Блокируем кнопки во время операции
         if hasattr(self.app, 'start_btn'):
@@ -318,12 +385,6 @@ class DPIController:
         
         # Запускаем поток
         self._dpi_start_thread.start()
-        
-        mode_name = selected_mode
-        if isinstance(selected_mode, dict):
-            mode_name = selected_mode.get('name', str(selected_mode))
-        elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
-            mode_name = selected_mode[1]
         
         log(f"Запуск асинхронного старта DPI: {mode_name} (метод: {method_name})", "INFO")
     

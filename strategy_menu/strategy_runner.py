@@ -8,7 +8,7 @@ from typing import Dict, Optional, Any, List
 from log import log
 
 # Импортируем стратегии из отдельного файла
-from strategy_menu.strategy_definitions import (
+from .strategy_definitions import (
     get_strategy_by_id,
     get_all_strategies,
     get_strategy_args,
@@ -19,10 +19,8 @@ from strategy_menu.strategy_definitions import (
     validate_strategy
 )
 
-# Константы для скрытого запуска
-SW_HIDE = 0
-CREATE_NO_WINDOW = 0x08000000
-STARTF_USESHOWWINDOW = 0x00000001
+from .constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
+
 
 def apply_wssize_parameter(args: list) -> list:
     """
@@ -182,44 +180,45 @@ class StrategyRunner:
         return startupinfo
     
     def _resolve_file_paths(self, args: List[str]) -> List[str]:
-        """
-        Разрешает пути к файлам в аргументах, заменяя относительные пути на абсолютные
-        
-        Args:
-            args: Список аргументов командной строки
-            
-        Returns:
-            Список аргументов с разрешенными путями
-        """
         resolved_args = []
         
         for arg in args:
             if any(arg.startswith(prefix) for prefix in [
                 "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
             ]):
-                # Обрабатываем пути к хостлистам
                 prefix, filename = arg.split("=", 1)
+                
+                # Убираем кавычки если они уже есть
+                filename = filename.strip('"')
+                
                 if not os.path.isabs(filename):
                     full_path = os.path.join(self.lists_dir, filename)
-                    resolved_args.append(f"{prefix}={full_path}")
+                    # БЕЗ КАВЫЧЕК!
+                    resolved_args.append(f'{prefix}={full_path}')
                 else:
-                    resolved_args.append(arg)
+                    # БЕЗ КАВЫЧЕК!
+                    resolved_args.append(f'{prefix}={filename}')
                     
+            # То же самое для бинарных файлов
             elif any(arg.startswith(prefix) for prefix in [
                 "--dpi-desync-fake-tls=", "--dpi-desync-fake-syndata=", 
                 "--dpi-desync-fake-quic=", "--dpi-desync-fake-unknown-udp=",
                 "--dpi-desync-split-seqovl-pattern="
             ]):
-                # Обрабатываем пути к бинарным файлам
                 prefix, filename = arg.split("=", 1)
+                
                 if filename.startswith("0x"):
-                    # Это hex-значение, не путь к файлу
                     resolved_args.append(arg)
-                elif not os.path.isabs(filename):
-                    full_path = os.path.join(self.bin_dir, filename)
-                    resolved_args.append(f"{prefix}={full_path}")
                 else:
-                    resolved_args.append(arg)
+                    filename = filename.strip('"')
+                    
+                    if not os.path.isabs(filename):
+                        full_path = os.path.join(self.bin_dir, filename)
+                        # БЕЗ КАВЫЧЕК!
+                        resolved_args.append(f'{prefix}={full_path}')
+                    else:
+                        # БЕЗ КАВЫЧЕК!
+                        resolved_args.append(f'{prefix}={filename}')
             else:
                 resolved_args.append(arg)
         
@@ -294,8 +293,14 @@ class StrategyRunner:
             import time
             time.sleep(0.5)
 
-            # Получаем аргументы
-            if strategy_id == "custom" and custom_args:
+            # Обработка комбинированных стратегий
+            if strategy_id == "custom_combined" and hasattr(self, '_combined_args_str'):
+                # Используем сохраненную строку аргументов
+                args_str = self._combined_args_str
+                args = shlex.split(args_str)
+                strategy_name = "Комбинированная стратегия"
+                log(f"Запуск комбинированной стратегии с {len(args)} аргументами", "INFO")
+            elif strategy_id == "custom" and custom_args:
                 args = custom_args
                 strategy_name = "Пользовательская стратегия"
                 log(f"Запуск кастомной стратегии с {len(args)} аргументами", "INFO")
@@ -329,6 +334,12 @@ class StrategyRunner:
             # Разрешаем пути к файлам
             resolved_args = self._resolve_file_paths(args)
 
+            # Применяем Game Filter (расширение портов)
+            resolved_args = apply_game_filter_parameter(resolved_args, self.lists_dir)
+
+            # Применяем IPset списки (добавление ipset-all.txt)
+            resolved_args = apply_ipset_lists_parameter(resolved_args, self.lists_dir)
+
             # Применяем параметр wssize если включен
             resolved_args = apply_wssize_parameter(resolved_args)
 
@@ -344,13 +355,14 @@ class StrategyRunner:
             
             # Запускаем процесс полностью скрыто
             self.running_process = subprocess.Popen(
-                cmd,
+                cmd,  # Передаем список напрямую
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 startupinfo=self._create_startup_info(),
                 creationflags=CREATE_NO_WINDOW,
                 cwd=self.work_dir
+                # НЕ используем shell=True
             )
             
             # Сохраняем информацию о текущей стратегии
@@ -807,3 +819,154 @@ if __name__ == "__main__":
             
     except Exception as e:
         print(f"Ошибка тестирования: {e}")
+
+def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
+    """
+    Применяет Game Filter - добавляет порты 1024-65535 для стратегий с other.txt
+    
+    Args:
+        args: Список аргументов командной строки
+        lists_dir: Путь к директории с файлами списков
+        
+    Returns:
+        Модифицированный список аргументов с расширенными портами
+    """
+    from config import get_game_filter_enabled
+    
+    # Если Game Filter выключен, возвращаем аргументы без изменений
+    if not get_game_filter_enabled():
+        return args
+    
+    new_args = []
+    i = 0
+    ports_modified = False
+    
+    while i < len(args):
+        arg = args[i]
+        new_args.append(arg)
+        
+        # Проверяем, является ли это --filter-tcp
+        if arg.startswith("--filter-tcp="):
+            # Проверяем, есть ли после него хостлисты other
+            has_other_hostlist = False
+            j = i + 1
+            
+            # Ищем хостлисты в следующих аргументах до --new
+            while j < len(args) and args[j] != "--new":
+                if "--hostlist=" in args[j]:
+                    hostlist_value = args[j].split("=", 1)[1].strip('"')
+                    hostlist_filename = os.path.basename(hostlist_value)
+                    if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
+                        has_other_hostlist = True
+                        break
+                j += 1
+            
+            # Если нашли хостлисты other, расширяем порты
+            if has_other_hostlist:
+                ports_part = arg.split("=", 1)[1]
+                ports_list = ports_part.split(",")
+                
+                # Добавляем диапазон портов для игр если его еще нет
+                if "1024-65535" not in ports_list:
+                    ports_list.append("1024-65535")
+                    new_args[-1] = f"--filter-tcp={','.join(ports_list)}"
+                    ports_modified = True
+                    log(f"Game Filter: расширен диапазон портов до {','.join(ports_list)}", "INFO")
+        
+        i += 1
+    
+    if ports_modified:
+        log("Game Filter применен (добавлены порты 1024-65535)", "✅ SUCCESS")
+    
+    return new_args
+
+def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
+    """
+    Добавляет --ipset=ipset-all.txt после хостлистов other.txt, other2.txt, russia-blacklist.txt
+    ТОЛЬКО если они идут вместе в одном блоке
+    
+    Args:
+        args: Список аргументов командной строки
+        lists_dir: Путь к директории с файлами списков
+        
+    Returns:
+        Модифицированный список аргументов с добавленным --ipset=ipset-all.txt
+    """
+    from config import get_ipset_lists_enabled
+    
+    # Если функция выключена, возвращаем аргументы без изменений
+    if not get_ipset_lists_enabled():
+        return args
+    
+    ipset_all_path = os.path.join(lists_dir, "ipset-all.txt")
+    
+    if not os.path.exists(ipset_all_path):
+        log(f"Файл ipset-all.txt не найден: {ipset_all_path}", "⚠ WARNING")
+        return args
+    
+    new_args = []
+    i = 0
+    ipset_added_count = 0
+    
+    while i < len(args):
+        arg = args[i]
+        new_args.append(arg)
+        
+        # Проверяем, является ли это хостлистом other/russia
+        if arg.startswith("--hostlist="):
+            hostlist_value = arg.split("=", 1)[1].strip('"')
+            hostlist_filename = os.path.basename(hostlist_value)
+            
+            # Если это один из целевых хостлистов
+            if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
+                # Собираем все последовательные хостлисты из нашего набора
+                j = i + 1
+                collected_hostlists = [hostlist_filename]
+                last_hostlist_index = i
+                
+                while j < len(args):
+                    next_arg = args[j]
+                    
+                    if next_arg.startswith("--hostlist="):
+                        next_hostlist = next_arg.split("=", 1)[1].strip('"')
+                        next_filename = os.path.basename(next_hostlist)
+                        
+                        if next_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
+                            # Добавляем этот хостлист
+                            new_args.append(next_arg)
+                            collected_hostlists.append(next_filename)
+                            last_hostlist_index = j
+                            j += 1
+                            i = j - 1  # Обновляем i
+                        else:
+                            # Это другой хостлист, прерываем
+                            break
+                    else:
+                        # Не хостлист, прерываем
+                        break
+                
+                # Добавляем ipset только если собрали БОЛЕЕ ОДНОГО хостлиста из нашего набора
+                # ИЛИ если есть хотя бы russia-blacklist.txt (он обычно идет с other.txt)
+                if len(collected_hostlists) > 1 or "russia-blacklist.txt" in collected_hostlists:
+                    # Проверяем следующий аргумент после последнего хостлиста
+                    next_idx = last_hostlist_index + 1 - len(new_args) + len(args)
+                    
+                    # Проверяем не добавлен ли уже ipset-all.txt
+                    ipset_already_exists = False
+                    if next_idx < len(args) and args[next_idx].startswith("--ipset="):
+                        ipset_value = args[next_idx].split("=", 1)[1].strip('"')
+                        if os.path.basename(ipset_value) == "ipset-all.txt":
+                            ipset_already_exists = True
+                    
+                    if not ipset_already_exists:
+                        # Добавляем ipset
+                        new_args.append(f'--ipset={ipset_all_path}')
+                        ipset_added_count += 1
+                        log(f"Добавлен --ipset=ipset-all.txt после группы хостлистов: {', '.join(collected_hostlists)}", "DEBUG")
+        
+        i += 1
+    
+    if ipset_added_count > 0:
+        log(f"IPset списки применены (добавлен ipset-all.txt в {ipset_added_count} место(а))", "✅ SUCCESS")
+    
+    return new_args
