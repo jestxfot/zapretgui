@@ -6,7 +6,7 @@ from .constants import LABEL_RECOMMENDED, LABEL_CAUTION, LABEL_EXPERIMENTAL, LAB
 
 UDP_YOUTUBE2 = "--filter-udp=443,50000-65535 --hostlist-domains=youtube.com,youtu.be,ytimg.com,googlevideo.com,googleapis.com,gvt1.com,video.google.com --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-fake-quic=fake_quic.bin --new"
 
-UDP_YOUTUBE = f"--filter-udp=443 --hostlist=youtube.txt --ipset=ipset-all.txt --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"
+UDP_YOUTUBE = f"--filter-udp=443 --hostlist=youtube.txt --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"
 
 # YouTube стратегии
 YOUTUBE_STRATEGIES = {
@@ -456,7 +456,7 @@ OTHER_STRATEGIES = {
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
+        "args": f"""--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
     },
     "multisplit_286_pattern": {
         "name": "multisplit seqovl 286 с парттерном 11",

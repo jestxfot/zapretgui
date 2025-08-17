@@ -882,8 +882,9 @@ def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
 
 def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
     """
-    Добавляет --ipset=ipset-all.txt после хостлистов other.txt, other2.txt, russia-blacklist.txt
-    ТОЛЬКО если они идут вместе в одном блоке
+    Добавляет --ipset=ipset-all.txt после определенных групп хостлистов:
+    1. После хостлистов other.txt, other2.txt, russia-blacklist.txt
+    2. После --filter-udp=443 --hostlist=youtube.txt --hostlist=list-general.txt
     
     Args:
         args: Список аргументов командной строки
@@ -904,6 +905,10 @@ def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
         log(f"Файл ipset-all.txt не найден: {ipset_all_path}", "⚠ WARNING")
         return args
     
+    # Группы хостлистов для обработки
+    GROUP_1 = ["other.txt", "other2.txt", "russia-blacklist.txt"]
+    GROUP_2 = ["youtube.txt", "list-general.txt"]
+    
     new_args = []
     i = 0
     ipset_added_count = 0
@@ -912,16 +917,15 @@ def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
         arg = args[i]
         new_args.append(arg)
         
-        # Проверяем, является ли это хостлистом other/russia
+        # Проверяем группу 1: хостлисты other/russia
         if arg.startswith("--hostlist="):
             hostlist_value = arg.split("=", 1)[1].strip('"')
             hostlist_filename = os.path.basename(hostlist_value)
             
-            # Если это один из целевых хостлистов
-            if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
-                # Собираем все последовательные хостлисты из нашего набора
+            # Если это хостлист из первой группы
+            if hostlist_filename in GROUP_1:
+                # Собираем все последовательные хостлисты из первой группы
                 j = i + 1
-                collected_hostlists = [hostlist_filename]
                 last_hostlist_index = i
                 
                 while j < len(args):
@@ -931,42 +935,79 @@ def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
                         next_hostlist = next_arg.split("=", 1)[1].strip('"')
                         next_filename = os.path.basename(next_hostlist)
                         
-                        if next_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
-                            # Добавляем этот хостлист
+                        if next_filename in GROUP_1:
                             new_args.append(next_arg)
-                            collected_hostlists.append(next_filename)
                             last_hostlist_index = j
                             j += 1
-                            i = j - 1  # Обновляем i
+                            i = j - 1
                         else:
-                            # Это другой хостлист, прерываем
                             break
                     else:
-                        # Не хостлист, прерываем
                         break
                 
-                # Добавляем ipset только если собрали БОЛЕЕ ОДНОГО хостлиста из нашего набора
-                # ИЛИ если есть хотя бы russia-blacklist.txt (он обычно идет с other.txt)
-                if len(collected_hostlists) > 1 or "russia-blacklist.txt" in collected_hostlists:
-                    # Проверяем следующий аргумент после последнего хостлиста
-                    next_idx = last_hostlist_index + 1 - len(new_args) + len(args)
+                # После всех хостлистов первой группы добавляем ipset
+                if not _check_and_add_ipset(args, new_args, last_hostlist_index, ipset_all_path):
+                    new_args.append(f'--ipset={ipset_all_path}')
+                    ipset_added_count += 1
+                    log("Добавлен --ipset=ipset-all.txt после группы other/russia", "INFO")
+        
+        # Проверяем группу 2: после --filter-udp=443
+        elif arg == "--filter-udp=443":
+            # Проверяем, идут ли далее хостлисты из второй группы
+            j = i + 1
+            found_group2 = False
+            last_hostlist_index = i
+            
+            while j < len(args):
+                next_arg = args[j]
+                
+                if next_arg.startswith("--hostlist="):
+                    next_hostlist = next_arg.split("=", 1)[1].strip('"')
+                    next_filename = os.path.basename(next_hostlist)
                     
-                    # Проверяем не добавлен ли уже ipset-all.txt
-                    ipset_already_exists = False
-                    if next_idx < len(args) and args[next_idx].startswith("--ipset="):
-                        ipset_value = args[next_idx].split("=", 1)[1].strip('"')
-                        if os.path.basename(ipset_value) == "ipset-all.txt":
-                            ipset_already_exists = True
-                    
-                    if not ipset_already_exists:
-                        # Добавляем ipset
-                        new_args.append(f'--ipset={ipset_all_path}')
-                        ipset_added_count += 1
-                        log(f"Добавлен --ipset=ipset-all.txt после группы хостлистов: {', '.join(collected_hostlists)}", "DEBUG")
+                    if next_filename in GROUP_2:
+                        found_group2 = True
+                        new_args.append(next_arg)
+                        last_hostlist_index = j
+                        j += 1
+                        i = j - 1
+                    else:
+                        break
+                else:
+                    break
+            
+            # Если нашли хостлисты из второй группы, добавляем ipset
+            if found_group2:
+                if not _check_and_add_ipset(args, new_args, last_hostlist_index, ipset_all_path):
+                    new_args.append(f'--ipset={ipset_all_path}')
+                    ipset_added_count += 1
+                    log("Добавлен --ipset=ipset-all.txt после группы youtube/list-general", "INFO")
         
         i += 1
     
     if ipset_added_count > 0:
-        log(f"IPset списки применены (добавлен ipset-all.txt в {ipset_added_count} место(а))", "✅ SUCCESS")
+        log(f"IPset списки применены (добавлено {ipset_added_count} ipset-all.txt)", "✅ SUCCESS")
     
     return new_args
+
+
+def _check_and_add_ipset(original_args: list, new_args: list, last_index: int, ipset_path: str) -> bool:
+    """
+    Проверяет, есть ли уже ipset-all.txt после указанной позиции
+    
+    Args:
+        original_args: Оригинальный список аргументов
+        new_args: Новый список аргументов (не используется в текущей версии)
+        last_index: Индекс последнего обработанного элемента в original_args
+        ipset_path: Путь к файлу ipset-all.txt
+        
+    Returns:
+        True если ipset уже присутствует, False если нужно добавить
+    """
+    next_idx = last_index + 1
+    if next_idx < len(original_args) and original_args[next_idx].startswith("--ipset="):
+        ipset_value = original_args[next_idx].split("=", 1)[1].strip('"')
+        if os.path.basename(ipset_value) == "ipset-all.txt":
+            log("--ipset=ipset-all.txt уже присутствует", "DEBUG")
+            return True
+    return False
