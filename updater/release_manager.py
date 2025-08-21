@@ -1,34 +1,39 @@
-# updater/release_manager.py
 """
 release_manager.py
 ────────────────────────────────────────────────────────────────
 Менеджер получения релизов с поддержкой fallback на собственный сервер.
 При любых ошибках GitHub (403, rate limit и др.) автоматически 
 переключается на запасной HTTP/HTTPS сервер.
+
+С умной приоритизацией источников на основе истории успешных запросов.
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import requests
 import os
+import json
+import time
 import urllib3
 from urllib.parse import urljoin
+from datetime import datetime
 
 from .github_release import get_latest_release as github_get_latest_release
-from .github_release import normalize_version
+from .github_release import normalize_version, is_rate_limited
 from log import log
 from config import CHANNEL
 
 # Отключаем предупреждения о самоподписанных сертификатах
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Конфигурация fallback серверов через переменные окружения или дефолтные значения
+# Файл для сохранения статистики серверов
+STATS_FILE = os.path.join(os.path.dirname(__file__), '.server_stats.json')
+
 def get_fallback_servers():
     """Получает список fallback серверов из переменных окружения или использует дефолтные"""
     servers = []
     
     # Читаем из переменных окружения ZAPRET_FALLBACK_SERVER_1, ZAPRET_FALLBACK_SERVER_2, etc.
-    # Формат: https://example.com или http://example.com
     for i in range(1, 10):  # До 9 серверов
         server_url = os.getenv(f"ZAPRET_FALLBACK_SERVER_{i}")
         if server_url:
@@ -54,7 +59,7 @@ def get_fallback_servers():
                 "url": "https://88.210.21.236:888",
                 "verify_ssl": False,
                 "priority": 1,
-                "name": "Local HTTPS"
+                "name": "Private Server"  
             })
         
         # Резервный HTTP сервер
@@ -70,13 +75,87 @@ def get_fallback_servers():
                 "url": "http://88.210.21.236:887",
                 "verify_ssl": True,
                 "priority": 2,
-                "name": "Local HTTP"
+                "name": "Private HTTP Server"
             })
     
     return servers
 
 # Таймаут для запросов
 TIMEOUT = 10
+
+class ServerStats:
+    """Класс для хранения статистики серверов"""
+    
+    def __init__(self):
+        self.stats = self._load_stats()
+    
+    def _load_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Загружает статистику из файла"""
+        try:
+            if os.path.exists(STATS_FILE):
+                with open(STATS_FILE, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+    
+    def _save_stats(self):
+        """Сохраняет статистику в файл"""
+        try:
+            with open(STATS_FILE, 'w') as f:
+                json.dump(self.stats, f)
+        except:
+            pass
+    
+    def record_success(self, server_name: str, response_time: float):
+        """Записывает успешный запрос"""
+        if server_name not in self.stats:
+            self.stats[server_name] = {
+                'successes': 0,
+                'failures': 0,
+                'avg_response_time': 0,
+                'last_success': None,
+                'last_failure': None
+            }
+        
+        stats = self.stats[server_name]
+        stats['successes'] += 1
+        stats['last_success'] = time.time()
+        
+        # Обновляем среднее время ответа
+        if stats['avg_response_time'] == 0:
+            stats['avg_response_time'] = response_time
+        else:
+            stats['avg_response_time'] = (stats['avg_response_time'] + response_time) / 2
+        
+        self._save_stats()
+    
+    def record_failure(self, server_name: str):
+        """Записывает неудачный запрос"""
+        if server_name not in self.stats:
+            self.stats[server_name] = {
+                'successes': 0,
+                'failures': 0,
+                'avg_response_time': 0,
+                'last_success': None,
+                'last_failure': None
+            }
+        
+        self.stats[server_name]['failures'] += 1
+        self.stats[server_name]['last_failure'] = time.time()
+        self._save_stats()
+    
+    def get_success_rate(self, server_name: str) -> float:
+        """Возвращает процент успешных запросов"""
+        if server_name not in self.stats:
+            return 0.5  # По умолчанию 50%
+        
+        stats = self.stats[server_name]
+        total = stats['successes'] + stats['failures']
+        if total == 0:
+            return 0.5
+        
+        return stats['successes'] / total
 
 class ReleaseManager:
     """Менеджер для получения информации о релизах с поддержкой fallback"""
@@ -85,11 +164,12 @@ class ReleaseManager:
         self.last_error: Optional[str] = None
         self.last_source: Optional[str] = None
         self.fallback_servers = get_fallback_servers()
+        self.server_stats = ServerStats()
         
     def get_latest_release(self, channel: str) -> Optional[Dict[str, Any]]:
         """
         Получает информацию о последнем релизе.
-        Сначала пытается GitHub, при ошибке переключается на fallback серверы.
+        Умная приоритизация источников на основе истории и текущего состояния.
         
         Args:
             channel: "stable" или "dev"
@@ -97,33 +177,85 @@ class ReleaseManager:
         Returns:
             Dict с информацией о релизе или None
         """
-        # 1. Сначала пробуем GitHub
-        log("🔍 Проверка обновлений через GitHub...", "🔄 RELEASE")
-        github_result = self._try_github(channel)
+        # Определяем порядок источников на основе текущего состояния
+        sources = self._get_prioritized_sources()
         
-        if github_result:
-            self.last_source = "GitHub"
-            self.last_error = None
-            return github_result
+        for source in sources:
+            log(f"🔍 Проверка обновлений через {source['name']}...", "🔄 RELEASE")
             
-        # 2. GitHub не сработал, пробуем fallback серверы
-        log(f"⚠️ GitHub недоступен: {self.last_error}. Пробуем резервные серверы...", "🔄 RELEASE")
-        
-        # Сортируем серверы по приоритету
-        servers = sorted(self.fallback_servers, key=lambda x: x["priority"])
-        
-        for server in servers:
-            log(f"🔗 Попытка подключения к супер секретному серверу если РКН забанит GitHub...", "🔄 RELEASE")
+            start_time = time.time()
             
-            fallback_result = self._try_fallback_server(server, channel)
-            if fallback_result:
-                self.last_source = server['name']
+            if source['type'] == 'github':
+                result = self._try_github(channel)
+            else:
+                result = self._try_fallback_server(source, channel)
+            
+            response_time = time.time() - start_time
+            
+            if result:
+                self.last_source = source['name']
                 self.last_error = None
-                return fallback_result
-                
-        # 3. Ничего не сработало
+                self.server_stats.record_success(source['name'], response_time)
+                log(f"✅ {source['name']}: найден релиз {result['version']} (время: {response_time:.2f}с)", "🔄 RELEASE")
+                return result
+            else:
+                self.server_stats.record_failure(source['name'])
+                log(f"⚠️ {source['name']} недоступен: {self.last_error}", "🔄 RELEASE")
+        
+        # Ничего не сработало
         log(f"❌ Не удалось получить информацию о релизах ни из одного источника", "🔄 RELEASE")
         return None
+    
+    def _get_prioritized_sources(self) -> List[Dict[str, Any]]:
+        """Возвращает список источников в порядке приоритета"""
+        sources = []
+        
+        # Проверяем состояние GitHub rate limit
+        is_limited, reset_dt = is_rate_limited()
+        
+        if not is_limited:
+            # GitHub доступен
+            sources.append({
+                'name': 'GitHub',
+                'type': 'github',
+                'priority': 0
+            })
+        else:
+            log(f"⏳ GitHub rate limit до {reset_dt}, пропускаем", "🔄 RELEASE")
+        
+        # Добавляем fallback серверы
+        for server in self.fallback_servers:
+            sources.append({
+                'name': server['name'],
+                'type': 'fallback',
+                'priority': server['priority'],
+                'url': server['url'],
+                'verify_ssl': server['verify_ssl']
+            })
+        
+        # Сортируем по приоритету и успешности
+        def sort_key(source):
+            # Базовый приоритет
+            base_priority = source['priority']
+            
+            # Модификатор на основе статистики
+            success_rate = self.server_stats.get_success_rate(source['name'])
+            stats = self.server_stats.stats.get(source['name'], {})
+            
+            # Если сервер недавно был успешен, повышаем приоритет
+            if stats.get('last_success'):
+                time_since_success = time.time() - stats['last_success']
+                if time_since_success < 300:  # Менее 5 минут назад
+                    base_priority -= 1
+            
+            # Учитываем процент успешности
+            base_priority -= success_rate * 2
+            
+            return base_priority
+        
+        sources.sort(key=sort_key)
+        
+        return sources
         
     def _try_github(self, channel: str) -> Optional[Dict[str, Any]]:
         """Пытается получить релиз с GitHub"""
@@ -182,20 +314,6 @@ class ReleaseManager:
             if api_key:
                 download_url += f"?api_key={api_key}"
             
-            # Создаем список альтернативных URL
-            alt_urls = []
-            
-            # Если основной URL это HTTPS, добавляем HTTP как альтернативу
-            if download_url.startswith("https://") and "88.210.21.236" in download_url:
-                # Находим соответствующий HTTP сервер
-                for alt_server in self.fallback_servers:
-                    if alt_server["url"].startswith("http://") and "88.210.21.236" in alt_server["url"]:
-                        alt_download_url = urljoin(alt_server["url"], f"/download/{download_channel}")
-                        if api_key:
-                            alt_download_url += f"?api_key={api_key}"
-                        alt_urls.append(alt_download_url)
-                        break
-            
             # Преобразуем в формат, совместимый с github_release
             result = {
                 "version": normalize_version(data.get("version", "0.0.0")),
@@ -205,13 +323,9 @@ class ReleaseManager:
                 "prerelease": channel == "dev",
                 "name": data.get("name", f"Zapret {channel}"),
                 "published_at": data.get("date", ""),
-                "source": server['name'],  # Добавляем источник
-                "verify_ssl": verify  # Добавляем флаг проверки SSL
+                "source": server['name'],
+                "verify_ssl": verify
             }
-            
-            # Добавляем альтернативные URL если есть
-            if alt_urls:
-                result["alt_urls"] = alt_urls
                 
             return result
             
@@ -249,6 +363,10 @@ class ReleaseManager:
                 "status": "error",
                 "error": str(e)
             }
+    
+    def get_server_statistics(self) -> Dict[str, Any]:
+        """Возвращает статистику всех серверов"""
+        return self.server_stats.stats
 
 # Глобальный экземпляр менеджера
 _release_manager = ReleaseManager()

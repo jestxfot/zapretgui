@@ -54,25 +54,19 @@ class DPIStartWorker(QObject):
             error_msg = f"Ошибка запуска DPI: {str(e)}"
             log(error_msg, "❌ ERROR")
             self.finished.emit(False, error_msg)
-    
+
     def _start_direct(self):
-        """Запуск через новый метод (StrategyRunner)"""
+        """Запуск через прямой метод (StrategyRunner)"""
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
-            from strategy_menu.strategy_definitions import get_all_strategies
             
-            # Создаем runner
+            # Получаем runner
             runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
             
-            # Нормализуем selected_mode
             mode_param = self.selected_mode
-            strategy_info = None
-            strategy_name = None
-            strategy_id = None
             
-            # ✅ НОВОЕ: Обработка комбинированных стратегий
+            # Обработка комбинированных стратегий
             if isinstance(mode_param, dict) and mode_param.get('is_combined'):
-                # Комбинированная стратегия
                 strategy_name = mode_param.get('name', 'Комбинированная стратегия')
                 args_str = mode_param.get('args', '')
                 
@@ -86,10 +80,10 @@ class DPIStartWorker(QObject):
                 import shlex
                 try:
                     custom_args = shlex.split(args_str)
-                    log(f"Аргументы комбинированной стратегии ({len(custom_args)} шт.): {args_str}", "DEBUG")
+                    log(f"Аргументы комбинированной стратегии ({len(custom_args)} шт.)", "DEBUG")
                     
-                    # Запускаем с кастомными аргументами
-                    success = runner.start_strategy("custom", custom_args=custom_args)
+                    # Запускаем стратегию напрямую через runner
+                    success = runner.start_strategy_custom(custom_args, strategy_name)
                     
                     if success:
                         log("Комбинированная стратегия успешно запущена", "✅ SUCCESS")
@@ -99,68 +93,18 @@ class DPIStartWorker(QObject):
                         return False
                         
                 except Exception as parse_error:
-                    log(f"Ошибка парсинга аргументов комбинированной стратегии: {parse_error}", "❌ ERROR")
+                    log(f"Ошибка парсинга аргументов: {parse_error}", "❌ ERROR")
                     return False
             
-            # Обработка кортежа (встроенная стратегия)
-            elif isinstance(mode_param, tuple) and len(mode_param) == 2:
-                # Это кортеж (strategy_id, strategy_name)
-                strategy_id, strategy_name = mode_param
-                log(f"Получен кортеж: ID={strategy_id}, name={strategy_name}", "DEBUG")
-                
-            elif isinstance(mode_param, dict):
-                # Это полная информация о стратегии из index.json (BAT стратегия)
-                strategy_info = mode_param
-                strategy_name = mode_param.get('name', 'unknown')
-                strategy_id = mode_param.get('id', 'custom')
-                log(f"Получена BAT стратегия: {strategy_name}", "DEBUG")
-                
-            elif isinstance(mode_param, str):
-                # Это имя стратегии
-                strategy_name = mode_param
-                log(f"Получено имя стратегии: {strategy_name}", "DEBUG")
-                
+            # Для Direct режима поддерживаются только комбинированные стратегии
             else:
-                # По умолчанию
-                strategy_name = "Если стратегия не работает смени её!"
-                log("Используется стратегия по умолчанию", "DEBUG")
-            
-            log(f"Прямой запуск стратегии: {strategy_name} (ID: {strategy_id})", "INFO")
-            
-            # Если у нас есть strategy_id, сразу запускаем его
-            if strategy_id:
-                log(f"Запуск стратегии по ID: {strategy_id}", "INFO")
-                return runner.start_strategy(strategy_id)
-            
-            # Проверяем встроенные стратегии
-            builtin_strategies = get_all_strategies()
-            
-            # Ищем среди встроенных стратегий по имени
-            for bid, binfo in builtin_strategies.items():
-                if binfo.get('name') == strategy_name:
-                    log(f"Найдена встроенная стратегия: {bid}", "INFO")
-                    return runner.start_strategy(bid)
-            
-            # Если встроенная стратегия не найдена, используем внешнюю
-            if strategy_info:
-                log("Встроенная стратегия не найдена, парсим внешнюю", "INFO")
-                custom_args = runner.parse_strategy_from_index(strategy_info)
-                if custom_args:
-                    return runner.start_strategy("custom", custom_args)
-            
-            # Fallback - используем первую встроенную стратегию
-            if builtin_strategies:
-                first_strategy_id = next(iter(builtin_strategies.keys()))
-                log(f"Fallback к встроенной стратегии: {first_strategy_id}", "INFO")
-                return runner.start_strategy(first_strategy_id)
-            
-            log("Не найдено подходящих стратегий", "❌ ERROR")
-            return False
-            
+                log(f"Direct режим поддерживает только комбинированные стратегии, получен: {type(mode_param)}", "❌ ERROR")
+                return False
+                
         except Exception as e:
             log(f"Ошибка прямого запуска: {e}", "❌ ERROR")
             return False
-    
+
     def _start_bat(self):
         """Запуск через старый метод (.bat файлы)"""
         try:
@@ -172,13 +116,45 @@ class DPIStartWorker(QObject):
             elif mode_param is None:
                 mode_param = 'default'
             
-            # Вызываем синхронный метод в отдельном потоке
-            return self.dpi_starter.start_dpi(selected_mode=mode_param)
+            log(f"Запуск BAT стратегии: {mode_param}", "DEBUG")
+            
+            # Используем BatDPIStart для BAT режима
+            result = self.app_instance.dpi_starter.start_dpi(selected_mode=mode_param)
+            
+            # Добавляем дополнительную проверку
+            if result:
+                import time
+                time.sleep(1)  # Даем процессу время на инициализацию
+                
+                # Проверяем, действительно ли процесс запущен
+                if self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
+                    log("Процесс winws.exe успешно запущен и работает", "✅ SUCCESS")
+                    return True
+                else:
+                    log("Процесс winws.exe завершился после запуска", "❌ ERROR")
+                    # Пытаемся получить код ошибки
+                    try:
+                        import subprocess
+                        # Проверяем последние события Windows
+                        result = subprocess.run(
+                            ['wevtutil', 'qe', 'Application', '/c:5', '/rd:true', '/f:text'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.stdout and 'winws' in result.stdout.lower():
+                            log(f"События Windows: {result.stdout[:500]}", "DEBUG")
+                    except:
+                        pass
+                    return False
+            
+            return result
             
         except Exception as e:
             log(f"Ошибка запуска через .bat: {e}", "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
             return False
-
 
 class DPIStopWorker(QObject):
     """Worker для асинхронной остановки DPI"""
@@ -300,7 +276,7 @@ class DPIController:
         self._dpi_start_thread = None
         self._dpi_stop_thread = None
         self._stop_exit_thread = None
-    
+
     def start_dpi_async(self, selected_mode=None):
         """Асинхронно запускает DPI без блокировки UI"""
         # Проверка на уже запущенный поток
@@ -315,7 +291,112 @@ class DPIController:
         launch_method = get_strategy_launch_method()
         log(f"Используется метод запуска: {launch_method}", "INFO")
         
-        # ✅ ОБНОВЛЕННОЕ: Обрабатываем все типы стратегий
+        # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана, берем из реестра
+        if selected_mode is None or selected_mode == 'default':
+            if launch_method == "direct":
+                # Для Direct режима берем сохраненные выборы из реестра
+                from config import get_direct_strategy_selections
+                from strategy_menu.strategy_lists_separated import combine_strategies
+                
+                # Получаем сохраненные выборы категорий из реестра
+                saved_selections = get_direct_strategy_selections()
+                log(f"Загружены сохраненные выборы из реестра: {saved_selections}", "DEBUG")
+                
+                # Создаем комбинированную стратегию на основе сохраненных выборов
+                combined = combine_strategies(
+                    saved_selections.get('youtube'),
+                    saved_selections.get('discord'),
+                    saved_selections.get('discord_voice'),
+                    saved_selections.get('other')
+                )
+                
+                selected_mode = {
+                    'is_combined': True,
+                    'name': combined.get('description', 'Сохраненная стратегия'),
+                    'args': combined['args'],
+                    'selections': saved_selections
+                }
+                log(f"Используется сохраненная комбинированная стратегия: {selected_mode['name']}", "INFO")
+                
+            else:  # BAT режим
+                # Для BAT режима берем последнюю выбранную стратегию из реестра
+                from config import get_last_strategy
+                
+                last_strategy_name = get_last_strategy()
+                log(f"Последняя использованная стратегия из реестра: {last_strategy_name}", "DEBUG")
+                
+                if last_strategy_name and hasattr(self.app, 'strategy_manager'):
+                    try:
+                        strategies = self.app.strategy_manager.get_local_strategies_only()
+                        
+                        # Ищем стратегию по имени
+                        found_strategy = None
+                        for sid, sinfo in strategies.items():
+                            if sinfo.get('name') == last_strategy_name:
+                                found_strategy = sinfo
+                                break
+                        
+                        if found_strategy:
+                            selected_mode = found_strategy
+                            log(f"Используется сохраненная стратегия: {found_strategy.get('name')}", "INFO")
+                        else:
+                            # Если сохраненная стратегия не найдена, ищем рекомендуемую
+                            log(f"Стратегия '{last_strategy_name}' не найдена, ищем рекомендуемую", "⚠ WARNING")
+                            
+                            # Ищем рекомендуемую стратегию
+                            for sid, sinfo in strategies.items():
+                                if sinfo.get('label') == 'recommended':
+                                    selected_mode = sinfo
+                                    log(f"Используется рекомендуемая стратегия: {sinfo.get('name')}", "INFO")
+                                    break
+                            
+                            # Если не нашли рекомендуемую, берем первую
+                            if not selected_mode and strategies:
+                                selected_mode = next(iter(strategies.values()))
+                                log(f"Используется первая доступная стратегия: {selected_mode.get('name')}", "INFO")
+                            
+                            if not selected_mode:
+                                log("Нет доступных стратегий в index.json", "❌ ERROR")
+                                self.app.set_status("❌ Нет доступных стратегий")
+                                return
+                                
+                    except Exception as e:
+                        log(f"Ошибка получения стратегии из реестра: {e}", "❌ ERROR")
+                        self.app.set_status(f"❌ Ошибка: {e}")
+                        return
+                else:
+                    # Если в реестре ничего нет, ищем рекомендуемую
+                    if hasattr(self.app, 'strategy_manager'):
+                        try:
+                            strategies = self.app.strategy_manager.get_local_strategies_only()
+                            
+                            # Ищем рекомендуемую стратегию
+                            for sid, sinfo in strategies.items():
+                                if sinfo.get('label') == 'recommended':
+                                    selected_mode = sinfo
+                                    log(f"Используется рекомендуемая стратегия: {sinfo.get('name')}", "INFO")
+                                    break
+                            
+                            # Если не нашли рекомендуемую, берем первую
+                            if not selected_mode and strategies:
+                                selected_mode = next(iter(strategies.values()))
+                                log(f"Используется первая доступная стратегия: {selected_mode.get('name')}", "INFO")
+                            
+                            if not selected_mode:
+                                log("Нет доступных стратегий", "❌ ERROR")
+                                self.app.set_status("❌ Нет доступных стратегий")
+                                return
+                                
+                        except Exception as e:
+                            log(f"Ошибка получения стратегий: {e}", "❌ ERROR")
+                            self.app.set_status(f"❌ Ошибка: {e}")
+                            return
+                    else:
+                        log("strategy_manager недоступен", "❌ ERROR")
+                        self.app.set_status("❌ Менеджер стратегий недоступен")
+                        return
+        
+        # ✅ ОБРАБОТКА всех типов стратегий (остальной код без изменений)
         mode_name = "Неизвестная стратегия"
         
         if isinstance(selected_mode, dict) and selected_mode.get('is_combined'):
@@ -323,13 +404,15 @@ class DPIController:
             mode_name = selected_mode.get('name', 'Комбинированная стратегия')
             log(f"Обработка комбинированной стратегии: {mode_name}", "DEBUG")
             
-            # Логируем выбранные категории
+            # Сохраняем выборы в реестр для будущего использования
             if 'selections' in selected_mode:
+                from config import set_direct_strategy_selections
                 selections = selected_mode['selections']
-                log(f"Выбранные стратегии - YouTube: {selections.get('youtube')}, Discord: {selections.get('discord')}, Остальные: {selections.get('other')}", "DEBUG")
-            
-            # Логируем аргументы
-            args = selected_mode.get('args', '')
+                set_direct_strategy_selections(selections)
+                log(f"Выбранные стратегии - YouTube: {selections.get('youtube')}, "
+                    f"Discord: {selections.get('discord')}, "
+                    f"Discord Voice: {selections.get('discord_voice')}, "
+                    f"Остальные: {selections.get('other')}", "DEBUG")
             
         elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
             # Встроенная стратегия (ID, название)
@@ -342,10 +425,18 @@ class DPIController:
             mode_name = selected_mode.get('name', str(selected_mode))
             log(f"Обработка BAT стратегии: {mode_name}", "DEBUG")
             
+            # Сохраняем имя стратегии в реестр для будущего использования
+            from config import set_last_strategy
+            set_last_strategy(mode_name)
+            
         elif isinstance(selected_mode, str):
             # Строковое название
             mode_name = selected_mode
             log(f"Обработка стратегии по имени: {mode_name}", "DEBUG")
+            
+            # Сохраняем имя стратегии в реестр
+            from config import set_last_strategy
+            set_last_strategy(mode_name)
         
         # Показываем состояние запуска
         method_name = "прямой" if launch_method == "direct" else "классический"
@@ -386,8 +477,8 @@ class DPIController:
         # Запускаем поток
         self._dpi_start_thread.start()
         
-        log(f"Запуск асинхронного старта DPI: {mode_name} (метод: {method_name})", "INFO")
-    
+        log(f"Запуск асинхронного старта DPI: {mode_name} (метод: {method_name})", "INFO")    
+
     def stop_dpi_async(self):
         """Асинхронно останавливает DPI без блокировки UI"""
         # Проверка на уже запущенный поток

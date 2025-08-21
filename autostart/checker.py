@@ -1,6 +1,7 @@
 import subprocess
 import winreg
-from utils import run_hidden # обёртка для subprocess.run
+from utils import run_hidden
+from .autostart_direct import check_direct_autostart_exists
 
 class CheckerManager:
     def __init__(self, winws_exe, status_callback=None, ui_callback=None, service_name="ZapretCensorliber"):
@@ -66,25 +67,33 @@ class CheckerManager:
         try:
             from pathlib import Path
             import os
+            
+            # Проверяем ярлыки
             startup_dir = (
                 Path(os.environ["APPDATA"])
                 / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
             )
-            # ярлыки
             for lnk in ("ZapretGUI.lnk", "ZapretStrategy.lnk"):
                 if (startup_dir / lnk).exists():
                     return True
 
-            # запись в реестре (новый метод)
+            # Проверяем реестр
             if self.check_autostart_registry_exists():
                 return True
 
-            # задачи планировщика (старые / новые)
+            # Проверяем задачи планировщика
             if self.check_scheduler_task_exists():
                 return True
 
-            # старая служба
-            return self.check_windows_service_exists()
+            # Проверяем службы
+            if self.check_windows_service_exists():
+                return True
+            
+            # Проверяем Direct автозапуск
+            if check_direct_autostart_exists():  # НОВОЕ
+                return True
+
+            return False
 
         except Exception:
             from log import log
@@ -93,14 +102,18 @@ class CheckerManager:
     
     def check_scheduler_task_exists(self) -> bool:
         """
-        True, если в Планировщике есть хотя бы одна
-        из «наших» задач автозапуска.
+        True, если в Планировщике есть хотя бы одна из наших задач
         """
-        task_names = ("ZapretCensorliber", "ZapretStrategy", "ZapretGUI_AutoStart")
+        task_names = (
+            "ZapretCensorliber", 
+            "ZapretStrategy", 
+            "ZapretGUI_AutoStart",
+            "ZapretDirect",
+            "ZapretDirect_AutoStart"  # НОВОЕ
+        )
 
         for tn in task_names:
             try:
-                # shell=False безопаснее, код короче
                 res = run_hidden(
                     ["C:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", tn],
                     capture_output=True,
@@ -111,7 +124,7 @@ class CheckerManager:
                 if res.returncode == 0:
                     return True
             except Exception:
-                pass  # игнорируем и пробуем следующий task_name
+                pass
 
         return False
             

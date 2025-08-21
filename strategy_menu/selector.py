@@ -10,7 +10,7 @@ from PyQt6.QtGui import QFont
 from log import log
 from config import (get_strategy_launch_method, set_strategy_launch_method,
                    get_direct_strategy_selections, set_direct_strategy_youtube,
-                   set_direct_strategy_discord, set_direct_strategy_other,
+                   set_direct_strategy_discord, set_direct_strategy_discord_voice, set_direct_strategy_other,
                    get_game_filter_enabled, set_game_filter_enabled,
                    get_wssize_enabled, set_wssize_enabled)
 
@@ -32,6 +32,7 @@ class StrategySelector(QDialog):
         self.selected_strategy_id = None
         self.selected_strategy_name = None
         
+        # Инициализируем атрибуты для комбинированных стратегий
         self._combined_args = None
         self._combined_strategy_data = None
         self.category_selections = {}
@@ -113,12 +114,22 @@ class StrategySelector(QDialog):
         self._init_strategies_tab()
         self.tab_widget.addTab(self.strategies_tab, "📋 Стратегии")
         
+        # Хостлисты
+        from .hostlists_tab import HostlistsTab
+        self.hostlists_tab = HostlistsTab()
+        self.hostlists_tab.hostlists_changed.connect(self._on_hostlists_changed)
+        self.tab_widget.addTab(self.hostlists_tab, "🌐 Хостлисты")
+        
         # Вкладка настроек
         self.settings_tab = QWidget()
         self._init_settings_tab()
         self.tab_widget.addTab(self.settings_tab, "⚙️ Настройки")
         
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+    def _on_hostlists_changed(self):
+        """Обработчик изменения хостлистов"""
+        log("Хостлисты изменены, может потребоваться перезапуск DPI", "INFO")
 
     def _init_strategies_tab(self):
         """Инициализирует вкладку стратегий"""
@@ -147,7 +158,7 @@ class StrategySelector(QDialog):
     def _init_direct_mode_ui(self, layout):
         """Инициализирует интерфейс для прямого режима"""
         from .strategy_lists_separated import (
-            YOUTUBE_STRATEGIES, DISCORD_STRATEGIES, OTHER_STRATEGIES,
+            YOUTUBE_STRATEGIES, DISCORD_STRATEGIES, OTHER_STRATEGIES, DISCORD_VOICE_STRATEGIES,
             get_default_selections
         )
         
@@ -180,6 +191,7 @@ class StrategySelector(QDialog):
         
         self._add_category_tab("🎬 YouTube", YOUTUBE_STRATEGIES, 'youtube')
         self._add_category_tab("💬 Discord", DISCORD_STRATEGIES, 'discord')
+        self._add_category_tab("🔊 Discord Voice", DISCORD_VOICE_STRATEGIES, 'discord_voice')
         self._add_category_tab("🌐 Остальные", OTHER_STRATEGIES, 'other')
         
         layout.addWidget(self.category_tabs, 1)
@@ -548,7 +560,9 @@ class StrategySelector(QDialog):
                 self.buttons_widget.setVisible(True)
                 if self.is_direct_mode:
                     self.select_button.setEnabled(True)
-            elif index == 1:  # Настройки
+            elif index == 1:  # Хостлисты
+                self.buttons_widget.setVisible(False)
+            elif index == 2:  # Настройки
                 self.buttons_widget.setVisible(False)
         except Exception as e:
             log(f"Ошибка в _on_tab_changed: {e}", "❌ ERROR")
@@ -631,6 +645,8 @@ class StrategySelector(QDialog):
                 set_direct_strategy_youtube(strategy_id)
             elif category == 'discord':
                 set_direct_strategy_discord(strategy_id)
+            elif category == 'discord_voice':
+                set_direct_strategy_discord_voice(strategy_id)
             elif category == 'other':
                 set_direct_strategy_other(strategy_id)
             
@@ -650,6 +666,7 @@ class StrategySelector(QDialog):
         combined = combine_strategies(
             self.category_selections.get('youtube'),
             self.category_selections.get('discord'),
+            self.category_selections.get('discord_voice'),  # НОВЫЙ ПАРАМЕТР
             self.category_selections.get('other')
         )
         
@@ -658,6 +675,8 @@ class StrategySelector(QDialog):
             active.append("<span style='color: #ff6666;'>YouTube</span>")
         if self.category_selections.get('discord') != 'discord_none':
             active.append("<span style='color: #7289da;'>Discord</span>")
+        if self.category_selections.get('discord_voice') != 'discord_voice_none':
+            active.append("<span style='color: #9b59b6;'>Discord Voice</span>")
         if self.category_selections.get('other') != 'other_none':
             active.append("<span style='color: #66ff66;'>Остальные</span>")
         
@@ -805,15 +824,25 @@ class StrategySelector(QDialog):
             combined = combine_strategies(
                 self.category_selections.get('youtube'),
                 self.category_selections.get('discord'),
+                self.category_selections.get('discord_voice'),
                 self.category_selections.get('other')
             )
             
+            # ВАЖНО: Сохраняем данные в атрибуты диалога для доступа из main.py
+            self._combined_args = combined['args']
+            self._combined_strategy_data = {
+                'is_combined': True,
+                'name': combined['description'],
+                'args': combined['args'],
+                'selections': self.category_selections
+            }
+            # Устанавливаем ID и имя для сигнала
             self.selected_strategy_id = "COMBINED_DIRECT"
             self.selected_strategy_name = combined['description']
-            self._combined_args = combined['args']
-            self._combined_strategy_data = combined
             
             log(f"Выбрана комбинированная стратегия: {self.selected_strategy_name}", "INFO")
+            log(f"Сохранены аргументы: {len(self._combined_args)} символов", "DEBUG")
+            log(f"Выборы категорий: {self.category_selections}", "DEBUG")
             
         else:
             # BAT режим
@@ -822,10 +851,17 @@ class StrategySelector(QDialog):
                                 "Пожалуйста, выберите стратегию из списка")
                 return
             
+            # Для совместимости создаем пустые атрибуты
+            self._combined_args = None
+            self._combined_strategy_data = None
+            
             log(f"Выбрана стратегия: {self.selected_strategy_name}", "INFO")
         
+        # Эмитим сигнал
         self.strategySelected.emit(self.selected_strategy_id, self.selected_strategy_name)
-        self.close()
+        
+        # НЕ закрываем диалог здесь, так как main.py может еще обращаться к атрибутам
+        # Диалог закроется автоматически после обработки сигнала
 
     def reject(self):
         """Обрабатывает отмену выбора"""
@@ -835,8 +871,15 @@ class StrategySelector(QDialog):
     def closeEvent(self, event):
         """Безопасное закрытие диалога"""
         # Останавливаем потоки если они запущены
-        if self.loader_thread and self.loader_thread.isRunning():
-            self.loader_thread.terminate()
-            self.loader_thread.wait(2000)
+        try:
+            if hasattr(self, 'loader_thread') and self.loader_thread:
+                if self.loader_thread.isRunning():
+                    self.loader_thread.quit()  # Используем quit() вместо terminate()
+                    if not self.loader_thread.wait(2000):
+                        self.loader_thread.terminate()
+                        self.loader_thread.wait(1000)
+        except RuntimeError:
+            # Объект QThread уже удален
+            pass
         
         event.accept()

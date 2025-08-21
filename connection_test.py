@@ -5,10 +5,17 @@ import subprocess
 import logging
 import requests, webbrowser
 from datetime import datetime
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox, QHBoxLayout, QFrame
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from utils import run_hidden # Импортируем нашу обертку для subprocess
-from config import LOGS_FOLDER  # Добавляем импорт
+from config import APP_VERSION, LOGS_FOLDER  # Добавляем импорт
+from strategy_checker import StrategyChecker  # Добавляем импорт
+from dns_checker import DNSChecker
+from dns_check_dialog import DNSCheckDialog
+
+from tgram.tg_log_bot import send_log_file, check_bot_connection
+from tgram.tg_log_delta import get_client_id
+import platform
 
 class ConnectionTestWorker(QObject):
     """Рабочий поток для выполнения тестов соединения."""
@@ -34,7 +41,8 @@ class ConnectionTestWorker(QObject):
             filename=self.log_filename,
             level=logging.INFO,
             format="%(asctime)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S",
+            encoding='utf-8'  # Добавляем явную кодировку
         )
     
         file_handler = logging.FileHandler(self.log_filename, 'w', 'utf-8')
@@ -55,7 +63,48 @@ class ConnectionTestWorker(QObject):
         if not self._stop_requested:  # Не логируем после остановки
             logging.info(message)
             self.update_signal.emit(message)
-    
+
+    def check_dns_poisoning(self):
+        """Проверяет DNS подмену провайдером"""
+        if self.is_stop_requested():
+            return
+        
+        self.log_message("")
+        self.log_message("=" * 40)
+        self.log_message("🔍 ПРОВЕРКА DNS ПОДМЕНЫ ПРОВАЙДЕРОМ")
+        self.log_message("=" * 40)
+        
+        try:
+            dns_checker = DNSChecker()
+            results = dns_checker.check_dns_poisoning(log_callback=self.log_message)
+            
+            # Добавляем итоговые рекомендации
+            if results['summary']['dns_poisoning_detected']:
+                self.log_message("")
+                self.log_message("⚠️ ДЕЙСТВИЯ ДЛЯ ИСПРАВЛЕНИЯ:")
+                self.log_message("1. Смените DNS в настройках сетевого адаптера:")
+                self.log_message("   • Откройте: Панель управления → Сеть и Интернет")
+                self.log_message("   • Измените настройки адаптера → Свойства")
+                self.log_message("   • TCP/IPv4 → Свойства → Использовать следующие DNS:")
+                
+                if results['summary']['recommended_dns']:
+                    dns_ip = dns_checker.dns_servers.get(results['summary']['recommended_dns'])
+                    if dns_ip:
+                        self.log_message(f"   • Предпочитаемый: {dns_ip}")
+                        self.log_message(f"   • Альтернативный: 8.8.4.4")
+                else:
+                    self.log_message("   • Предпочитаемый: 8.8.8.8 (Google)")
+                    self.log_message("   • Альтернативный: 1.1.1.1 (Cloudflare)")
+                
+                self.log_message("")
+                self.log_message("2. После смены DNS перезапустите Zapret")
+                self.log_message("3. Очистите кэш DNS командой: ipconfig /flushdns")
+            
+        except Exception as e:
+            self.log_message(f"❌ Ошибка проверки DNS: {e}")
+        
+        self.log_message("")
+
     def ping(self, host, count=4):
         """Выполняет ping с возможностью прерывания."""
         if self.is_stop_requested():
@@ -64,79 +113,177 @@ class ConnectionTestWorker(QObject):
         try:
             self.log_message(f"Проверка доступности для URL: {host}")
             
-            # Используем Popen для возможности прерывания
+            # Используем run_hidden напрямую
             command = ["ping", "-n", str(count), host]
             
-            # Запускаем процесс
-            process = run_hidden(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-            )
-            
-            # Ждем завершения с проверкой остановки
-            poll_interval = 0.1  # 100мс
-            timeout = 10
-            elapsed = 0
-            
-            while elapsed < timeout:
-                if self.is_stop_requested():
-                    # Прерываем процесс
-                    process.terminate()
-                    try:
-                        process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    return False
-                    
-                # Проверяем, завершился ли процесс
-                if process.poll() is not None:
-                    break
-                    
-                import time
-                time.sleep(poll_interval)
-                elapsed += poll_interval
-            
-            # Если процесс все еще работает - прерываем
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                if not self.is_stop_requested():
-                    self.log_message(f"Таймаут при проверке {host}")
+            # ✅ ИСПРАВЛЕНИЕ: Используем subprocess напрямую для лучшего контроля
+            try:
+                # Для Windows используем shell=False и правильную кодировку
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    timeout=10,
+                    shell=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+            except Exception as e:
+                self.log_message(f"Ошибка выполнения ping: {e}")
                 return False
-            
-            # Получаем результат
-            stdout, stderr = process.communicate(timeout=1)
             
             if self.is_stop_requested():
                 return False
             
-            # Используем полученный stdout (НЕ вызываем run снова!)
-            output = stdout
+            # ✅ ИСПРАВЛЕНИЕ: Пробуем разные кодировки для декодирования
+            output = ""
+            if result and result.stdout:
+                # Пробуем разные кодировки Windows
+                for encoding in ['cp866', 'cp1251', 'utf-8', 'latin-1']:
+                    try:
+                        output = result.stdout.decode(encoding)
+                        break
+                    except:
+                        continue
+                
+                # Если не удалось декодировать, используем ignore
+                if not output:
+                    output = result.stdout.decode('utf-8', errors='ignore')
             
-            # Анализируем результат для Windows
-            if "TTL=" in output:
-                success_count = output.count("TTL=")
+            # ✅ ОТЛАДКА: Логируем первые 200 символов вывода для диагностики
+            if output:
+                debug_output = output[:200].replace('\n', ' ').replace('\r', '')
+                self.log_message(f"[DEBUG] Ping output sample: {debug_output}")
+            
+            # ✅ УЛУЧШЕННЫЙ ПАРСИНГ: Более универсальные паттерны
+            # Английские паттерны
+            en_success_patterns = [
+                "bytes=", "Bytes=", "BYTES=",
+                "time=", "Time=", "TIME=",
+                "TTL=", "ttl=", "Ttl="
+            ]
+            
+            # Русские паттерны
+            ru_success_patterns = [
+                "байт=", "Байт=", "БАЙТ=",
+                "время=", "Время=", "ВРЕМЯ=",
+                "TTL=", "ttl=", "Ttl="
+            ]
+            
+            # Паттерны ошибок
+            fail_patterns = [
+                # Английские
+                "unreachable", "timed out", "could not find", 
+                "100% loss", "Destination host unreachable",
+                "Request timed out", "100% packet loss",
+                "General failure", "Transmit failed",
+                # Русские
+                "недоступен", "превышен", "не удается",
+                "100% потерь", "Заданный узел недоступен",
+                "Превышен интервал", "100% потери",
+                "Общий сбой", "Сбой передачи"
+            ]
+            
+            # Проверяем на успешность - ищем любой из паттернов успеха
+            success_count = 0
+            found_success = False
+            
+            # Сначала проверяем английские паттерны
+            for pattern in en_success_patterns:
+                if pattern in output:
+                    success_count = output.count(pattern)
+                    found_success = True
+                    break
+            
+            # Если не нашли, проверяем русские
+            if not found_success:
+                for pattern in ru_success_patterns:
+                    if pattern in output:
+                        success_count = output.count(pattern)
+                        found_success = True
+                        break
+            
+            # Проверяем на ошибки
+            is_failed = any(pattern.lower() in output.lower() for pattern in fail_patterns)
+            
+            # ✅ ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Ищем статистику пакетов
+            # Английская статистика: "Packets: Sent = 4, Received = 4"
+            # Русская статистика: "Пакетов: отправлено = 4, получено = 4"
+            
+            # Паттерн для английской версии
+            import re
+            en_stats = re.search(r'Packets:\s*Sent\s*=\s*(\d+),\s*Received\s*=\s*(\d+)', output, re.IGNORECASE)
+            ru_stats = re.search(r'Пакетов:\s*отправлено\s*=\s*(\d+),\s*получено\s*=\s*(\d+)', output, re.IGNORECASE)
+            
+            if en_stats:
+                sent = int(en_stats.group(1))
+                received = int(en_stats.group(2))
+                if received > 0:
+                    success_count = received
+                    found_success = True
+                self.log_message(f"{host}: Отправлено: {sent}, Получено: {received}")
+            elif ru_stats:
+                sent = int(ru_stats.group(1))
+                received = int(ru_stats.group(2))
+                if received > 0:
+                    success_count = received
+                    found_success = True
+                self.log_message(f"{host}: Отправлено: {sent}, Получено: {received}")
+            elif found_success and success_count > 0:
                 self.log_message(f"{host}: Отправлено: {count}, Получено: {success_count}")
-                for line in output.splitlines():
-                    if self.is_stop_requested():  # Проверяем на каждой итерации
-                        return False
-                    if "TTL=" in line:
-                        try:
-                            ms = line.split("время=")[1].split("мс")[0].strip()
-                            self.log_message(f"\tДоступен (Latency: {ms}ms)")
-                        except:
-                            self.log_message(f"\tДоступен")
-                    elif "узел недоступен" in line.lower() or "превышен интервал" in line.lower():
-                        self.log_message(f"\tНедоступен")
-            else:
+            elif is_failed:
                 self.log_message(f"{host}: Отправлено: {count}, Получено: 0")
-                self.log_message(f"\tНедоступен")
+            else:
+                # Если ничего не нашли, пытаемся найти хотя бы IP адрес в выводе
+                ip_pattern = re.search(r'?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})?', output)
+                if ip_pattern:
+                    # Если нашли IP, значит хост разрешился
+                    self.log_message(f"{host}: DNS разрешен в {ip_pattern.group(1)}, статус пинга неизвестен")
+                else:
+                    self.log_message(f"{host}: Отправлено: {count}, Статус неизвестен")
+            
+            # Выводим детали если пинг успешен
+            if found_success and success_count > 0:
+                # Парсим время отклика
+                latency_found = False
+                
+                # Пробуем найти время отклика
+                for line in output.splitlines():
+                    # Английские варианты
+                    if "time=" in line or "Time=" in line:
+                        match = re.search(r'time[<=](\d+)ms', line, re.IGNORECASE)
+                        if match:
+                            ms = match.group(1)
+                            self.log_message(f"\tДоступен (Latency: {ms}ms)")
+                            latency_found = True
+                            break
+                        # Альтернативный формат time<1ms
+                        elif "time<" in line:
+                            self.log_message(f"\tДоступен (Latency: <1ms)")
+                            latency_found = True
+                            break
+                    
+                    # Русские варианты
+                    elif "время=" in line or "Время=" in line:
+                        match = re.search(r'время[<=](\d+)', line, re.IGNORECASE)
+                        if match:
+                            ms = match.group(1)
+                            self.log_message(f"\tДоступен (Latency: {ms}ms)")
+                            latency_found = True
+                            break
+                
+                if not latency_found:
+                    self.log_message(f"\tДоступен")
+            elif is_failed:
+                # Определяем тип ошибки
+                if any(x in output.lower() for x in ["could not find", "не удается"]):
+                    self.log_message(f"\tНедоступен (DNS не разрешается)")
+                elif any(x in output.lower() for x in ["unreachable", "недоступен"]):
+                    self.log_message(f"\tНедоступен (узел недоступен)")
+                elif any(x in output.lower() for x in ["timed out", "превышен"]):
+                    self.log_message(f"\tНедоступен (таймаут)")
+                else:
+                    self.log_message(f"\tНедоступен")
+            else:
+                self.log_message(f"\tСтатус неопределен")
                 
             return True
             
@@ -193,7 +340,11 @@ class ConnectionTestWorker(QObject):
         ]
         
         self.log_message("Запуск проверки доступности YouTube:")
-        
+
+        # Добавляем DNS проверку ПЕРЕД основными тестами
+        if not self.is_stop_requested():
+            self.check_dns_poisoning()
+
         if not self.is_stop_requested():
             self.ping("www.youtube.com")
 
@@ -202,7 +353,7 @@ class ConnectionTestWorker(QObject):
             self.log_message("=" * 40)
             self.log_message("Проверка поддоменов googlevideo.com через curl:")
             self.log_message("=" * 40)
-        
+                    
         # Проверка поддоменов через curl
         for domain in curl_test_domains:
             if self.is_stop_requested():
@@ -265,21 +416,50 @@ class ConnectionTestWorker(QObject):
             
             self.log_message(f"Тест реального endpoint: {domain}{path}")
             
+            # ✅ ИСПРАВЛЕНИЕ: Ищем curl в разных местах
+            curl_paths = [
+                "C:\\Windows\\System32\\curl.exe",
+                "C:\\Windows\\SysWOW64\\curl.exe",
+                "curl.exe",
+                "curl"
+            ]
+            
+            curl_exe = None
+            for path in curl_paths:
+                try:
+                    test_cmd = [path, "--version"]
+                    test_result = subprocess.run(test_cmd, capture_output=True, timeout=2, 
+                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                    if test_result.returncode == 0:
+                        curl_exe = path
+                        break
+                except:
+                    continue
+            
+            if not curl_exe:
+                self.log_message(f"  ⚠️ curl не найден, пропускаем тест")
+                return
+            
             command = [
-                "C:\\Windows\\System32\\curl.exe", "-I",
+                curl_exe, "-I",
                 "--connect-timeout", "5",
                 "--max-time", "10", 
                 "--silent", "--show-error",
                 url
             ]
-            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+            
+            result = subprocess.run(command, capture_output=True, timeout=10,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
+            # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем stdout
+            if result and result.returncode == 0:
+                output = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                    
+                lines = output.strip().split('\n') if output else []
                 status_line = lines[0] if lines else ""
                 
                 if "HTTP/" in status_line:
-                    status_code = status_line.split()[1]
+                    status_code = status_line.split()[1] if len(status_line.split()) > 1 else "???"
                     if status_code in ['200', '204']:  # Успешные коды
                         self.log_message(f"  ✅ Реальный YouTube endpoint работает (HTTP {status_code})")
                     elif status_code == '404':
@@ -288,8 +468,11 @@ class ConnectionTestWorker(QObject):
                         self.log_message(f"  🚫 YouTube блокирует запрос (HTTP {status_code})")
                     else:
                         self.log_message(f"  ❓ Неожиданный ответ (HTTP {status_code})")
+                else:
+                    self.log_message(f"  ❌ Не удалось получить HTTP статус")
             else:
-                error_output = result.stderr.strip()
+                error_output = result.stderr.decode('utf-8', errors='ignore') if result and result.stderr else ""
+                        
                 if "could not resolve host" in error_output.lower():
                     self.log_message(f"  ❌ DNS блокировка")
                 elif "connection timed out" in error_output.lower():
@@ -297,7 +480,7 @@ class ConnectionTestWorker(QObject):
                 elif "connection refused" in error_output.lower():
                     self.log_message(f"  ❌ Соединение отклонено - блокировка")
                 else:
-                    self.log_message(f"  ❌ Ошибка: {error_output[:100]}...")
+                    self.log_message(f"  ❌ Ошибка соединения")
                     
         except Exception as e:
             self.log_message(f"  ❌ Ошибка теста: {str(e)}")
@@ -377,23 +560,32 @@ class ConnectionTestWorker(QObject):
         try:
             # Проверяем процесс winws.exe
             command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+            
+            # ✅ ИСПРАВЛЕНИЕ: Используем subprocess напрямую с правильными параметрами
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            if "winws.exe" in result.stdout:
-                self.log_message("✅ Процесс winws.exe запущен")
-                
-                # Извлекаем PID и память
-                lines = result.stdout.strip().split('\n')
-                for line in lines[1:]:  # Пропускаем заголовок
-                    if 'winws.exe' in line:
-                        parts = line.split(',')
-                        if len(parts) >= 2:
-                            pid = parts[1].strip('"')
-                            memory = parts[4].strip('"') if len(parts) > 4 else "N/A"
-                            self.log_message(f"   PID: {pid}, Память: {memory}")
+            # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем stdout
+            if result and result.stdout:
+                output = result.stdout
+                    
+                if "winws.exe" in output:
+                    self.log_message("✅ Процесс winws.exe запущен")
+                    
+                    # Извлекаем PID и память
+                    lines = output.strip().split('\n')
+                    for line in lines[1:]:  # Пропускаем заголовок
+                        if 'winws.exe' in line:
+                            parts = line.split(',')
+                            if len(parts) >= 2:
+                                pid = parts[1].strip('"')
+                                memory = parts[4].strip('"') if len(parts) > 4 else "N/A"
+                                self.log_message(f"   PID: {pid}, Память: {memory}")
+                else:
+                    self.log_message("❌ Процесс winws.exe НЕ запущен")
+                    self.log_message("   Zapret не работает!")
             else:
-                self.log_message("❌ Процесс winws.exe НЕ запущен")
-                self.log_message("   Zapret не работает!")
+                self.log_message("❌ Не удалось проверить процесс winws.exe")
             
             # ДОБАВЛЯЕМ проверку выбранной стратегии
             self.check_current_strategy()
@@ -406,37 +598,14 @@ class ConnectionTestWorker(QObject):
     def check_current_strategy(self):
         """Проверяет и выводит информацию о текущей выбранной стратегии"""
         try:
-            from config import get_last_strategy
+            # Используем новый StrategyChecker
+            checker = StrategyChecker()
+            strategy_info = checker.check_current_strategy()
             
-            self.log_message("📋 ИНФОРМАЦИЯ О СТРАТЕГИИ:")
-            
-            # Получаем выбранную стратегию из реестра
-            current_strategy = get_last_strategy()
-            self.log_message(f"   Выбранная стратегия: {current_strategy}")
-            
-            # Проверяем наличие файла стратегии в папке bin
-            strategy_file = self._find_strategy_file(current_strategy)
-            
-            if strategy_file:
-                self.log_message(f"   ✅ Файл стратегии найден: {strategy_file}")
-                
-                # Проверяем размер файла
-                try:
-                    file_size = os.path.getsize(strategy_file)
-                    self.log_message(f"   📁 Размер файла: {file_size} байт")
-                    
-                    # Проверяем дату модификации
-                    import datetime
-                    mod_time = os.path.getmtime(strategy_file)
-                    mod_date = datetime.datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M:%S")
-                    self.log_message(f"   📅 Дата изменения: {mod_date}")
-                    
-                except Exception as e:
-                    self.log_message(f"   ⚠️ Ошибка получения информации о файле: {e}")
-                    
-            else:
-                self.log_message("   ❌ Файл стратегии НЕ найден")
-                self.log_message("   💡 Возможно нужно загрузить стратегии")
+            # Форматируем и выводим информацию
+            info_lines = checker.format_strategy_info(strategy_info)
+            for line in info_lines:
+                self.log_message(line)
             
             # Дополнительно проверяем настройки автозапуска
             self._check_autostart_settings()
@@ -444,49 +613,10 @@ class ConnectionTestWorker(QObject):
         except Exception as e:
             self.log_message(f"❌ Ошибка при проверке стратегии: {e}")
 
-    def _find_strategy_file(self, strategy_name):
-        """Ищет файл стратегии в папке bat"""
-        try:
-            from config import BAT_FOLDER  # ✅ ДОБАВЛЯЕМ ИМПОРТ
-            
-            # Возможные расширения файлов стратегий
-            possible_extensions = ['.bat', '.cmd']
-
-            # ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЙ ПУТЬ
-            if not os.path.exists(BAT_FOLDER):
-                return None
-            
-            # Ищем файлы, содержащие ключевые слова из названия стратегии
-            strategy_keywords = strategy_name.lower().replace(" ", "_").replace("-", "_")
-            
-            for file in os.listdir(BAT_FOLDER):
-                if any(file.lower().endswith(ext) for ext in possible_extensions):
-                    file_path = os.path.join(BAT_FOLDER, file)
-                    
-                    # Простое сопоставление по ключевым словам
-                    file_lower = file.lower()
-                    if any(keyword in file_lower for keyword in ["original", "bolvan", "bol", "van"] if "original" in strategy_keywords.lower()):
-                        return file_path
-                    elif any(keyword in file_lower for keyword in ["discord"] if "discord" in strategy_keywords.lower()):
-                        return file_path
-                    elif any(keyword in file_lower for keyword in ["youtube"] if "youtube" in strategy_keywords.lower()):
-                        return file_path
-            
-            # Если точное совпадение не найдено, возвращаем первый .bat файл
-            for file in os.listdir(BAT_FOLDER):
-                if file.lower().endswith('.bat'):
-                    return os.path.join(BAT_FOLDER, file)
-                    
-            return None
-            
-        except Exception as e:
-            self.log_message(f"Ошибка поиска файла стратегии: {e}")
-            return None
-
     def _check_autostart_settings(self):
         """Проверяет настройки автозапуска"""
         try:
-            from config import get_dpi_autostart, get_strategy_autoload, get_auto_download_enabled
+            from config import get_dpi_autostart, get_strategy_autoload
             
             self.log_message("⚙️ НАСТРОЙКИ АВТОЗАПУСКА:")
             
@@ -499,11 +629,6 @@ class ConnectionTestWorker(QObject):
             strategy_autoload = get_strategy_autoload()
             status_strategy = "✅ Включена" if strategy_autoload else "❌ Отключена"
             self.log_message(f"   Автозагрузка стратегий: {status_strategy}")
-            
-            # Проверяем автозагрузку при старте
-            auto_download = get_auto_download_enabled()
-            status_download = "✅ Включена" if auto_download else "❌ Отключена"
-            self.log_message(f"   Автозагрузка при старте: {status_download}")
             
             # Проверяем системный автозапуск
             self._check_system_autostart()
@@ -519,40 +644,54 @@ class ConnectionTestWorker(QObject):
                 "schtasks", "/query", "/tn", "ZapretAutoStart", "/fo", "csv"
             ]
 
-            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            if result.returncode == 0 and "ZapretAutoStart" in result.stdout:
-                self.log_message("   Системный автозапуск: ✅ Активен (планировщик задач)")
+            # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем результат
+            if result and result.returncode == 0 and result.stdout:
+                if "ZapretAutoStart" in result.stdout:
+                    self.log_message("   Системный автозапуск: ✅ Активен (планировщик задач)")
+                else:
+                    self._check_registry_autostart()
             else:
-                # Проверяем автозапуск через реестр
-                try:
-                    import winreg
-                    key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-                    
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                        try:
-                            winreg.QueryValueEx(key, "Zapret")
-                            self.log_message("   Системный автозапуск: ✅ Активен (реестр)")
-                        except FileNotFoundError:
-                            self.log_message("   Системный автозапуск: ❌ Не настроен")
-                            
-                except Exception:
-                    self.log_message("   Системный автозапуск: ❓ Статус неизвестен")
+                self._check_registry_autostart()
                     
         except Exception as e:
             self.log_message(f"   Системный автозапуск: ❌ Ошибка проверки ({e})")
+            
+    def _check_registry_autostart(self):
+        """Проверяет автозапуск через реестр"""
+        try:
+            import winreg
+            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+            
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                try:
+                    winreg.QueryValueEx(key, "Zapret")
+                    self.log_message("   Системный автозапуск: ✅ Активен (реестр)")
+                except FileNotFoundError:
+                    self.log_message("   Системный автозапуск: ❌ Не настроен")
+                    
+        except Exception:
+            self.log_message("   Системный автозапуск: ❓ Статус неизвестен")
 
     def get_strategy_info_summary(self):
         """Возвращает краткую сводку о текущей стратегии для основного лога"""
         try:
-            from config import get_last_strategy
-            strategy_name = get_last_strategy()
+            checker = StrategyChecker()
+            strategy_info = checker.check_current_strategy()
             
-            # Проверяем наличие файла
-            strategy_file = self._find_strategy_file(strategy_name)
-            file_status = "найден" if strategy_file else "НЕ найден"
+            status_icon = "✅" if strategy_info['file_status'] in ['found', 'N/A'] else "❌"
             
-            return f"Стратегия: {strategy_name} (файл {file_status})"
+            # Формируем краткую сводку
+            summary = f"Стратегия: {strategy_info['name']} ({strategy_info['type']})"
+            
+            if strategy_info['type'] == 'combined':
+                details = strategy_info.get('details', {})
+                if details.get('active_categories'):
+                    summary += f" [{', '.join(details['active_categories'])}]"
+            
+            return summary
             
         except Exception as e:
             return f"Ошибка получения информации о стратегии: {e}"
@@ -579,8 +718,13 @@ class ConnectionTestWorker(QObject):
                 return
             
             # 2. Затем делаем полноценный HTTPS запрос
+            curl_exe = self._get_curl_path()
+            if not curl_exe:
+                self.log_message("  ⚠️ curl не найден")
+                return
+                
             command = [
-                "C:\\Windows\\System32\\curl.exe",
+                curl_exe,
                 "-I",  # Только заголовки
                 "--connect-timeout", "3",  # Уменьшаем таймауты
                 "--max-time", "8", 
@@ -588,18 +732,18 @@ class ConnectionTestWorker(QObject):
                 "--show-error",
                 f"https://{domain}/"
             ]
-            
-            if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
-                subprocess.CREATE_NO_WINDOW = 0x08000000
 
-            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+            result = subprocess.run(command, capture_output=True, timeout=10,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
             if self.is_stop_requested():
                 return
             
             # Анализируем результат
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
+            if result and result.returncode == 0:
+                output = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                        
+                lines = output.strip().split('\n') if output else []
                 status_line = lines[0] if lines else ""
                 
                 if "HTTP/" in status_line:
@@ -621,7 +765,7 @@ class ConnectionTestWorker(QObject):
                     self.log_message(f"  ✅ HTTPS соединение установлено")
                     
             else:
-                error_output = result.stderr.strip()
+                error_output = result.stderr.decode('utf-8', errors='ignore') if result and result.stderr else ""
                 
                 if "could not resolve host" in error_output.lower():
                     self.log_message(f"  ❌ DNS не разрешается")
@@ -632,7 +776,7 @@ class ConnectionTestWorker(QObject):
                 elif "ssl" in error_output.lower() or "certificate" in error_output.lower():
                     self.log_message(f"  🔒 Проблема с SSL/сертификатом")
                 else:
-                    self.log_message(f"  ❌ HTTPS недоступен (код: {result.returncode})")
+                    self.log_message(f"  ❌ HTTPS недоступен")
             
         except subprocess.TimeoutExpired:
             if not self.is_stop_requested():
@@ -643,6 +787,30 @@ class ConnectionTestWorker(QObject):
         except Exception as e:
             if not self.is_stop_requested():
                 self.log_message(f"  ❌ Ошибка HTTPS curl-теста: {str(e)}")
+
+    def _get_curl_path(self):
+        """Находит путь к curl"""
+        curl_paths = [
+            "C:\\Windows\\System32\\curl.exe",
+            "C:\\Windows\\SysWOW64\\curl.exe",
+            "curl.exe",
+            "curl"
+        ]
+        
+        for path in curl_paths:
+            try:
+                test_result = subprocess.run(
+                    [path, "--version"], 
+                    capture_output=True, 
+                    timeout=2,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+                if test_result.returncode == 0:
+                    return path
+            except:
+                continue
+        
+        return None
 
     def check_port_443(self, domain):
         """Проверяет доступность 443 порта через telnet/nc или Python socket."""
@@ -699,21 +867,29 @@ class ConnectionTestWorker(QObject):
             # Добавляем проверку порта 80
             self.check_port_80(domain)
             
+            curl_exe = self._get_curl_path()
+            if not curl_exe:
+                self.log_message("  ⚠️ curl не найден")
+                return
+            
             command = [
-                "C:\\Windows\\System32\\curl.exe", "-I",
+                curl_exe, "-I",
                 "--connect-timeout", "5",
                 "--max-time", "10",
                 "--silent", "--show-error",
                 f"http://{domain}/"
             ]
 
-            result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+            result = subprocess.run(command, capture_output=True, timeout=10,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
+            if result and result.returncode == 0:
+                output = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                        
+                lines = output.strip().split('\n') if output else []
                 status_line = lines[0] if lines else ""
                 if "HTTP/" in status_line:
-                    status_code = status_line.split()[1]
+                    status_code = status_line.split()[1] if len(status_line.split()) > 1 else "???"
                     self.log_message(f"  ✅ HTTP доступен (код {status_code})")
                 else:
                     self.log_message(f"  ✅ HTTP соединение установлено")
@@ -773,6 +949,11 @@ class ConnectionTestWorker(QObject):
 
     def check_tls_versions(self, domain):
         """Проверяет доступность с различными версиями TLS."""
+        curl_exe = self._get_curl_path()
+        if not curl_exe:
+            self.log_message("  ⚠️ curl не найден")
+            return
+            
         tls_versions = [
             ("TLS 1.2", "--tlsv1.2"),
             ("TLS 1.3", "--tlsv1.3"),
@@ -783,7 +964,7 @@ class ConnectionTestWorker(QObject):
         for version_name, tls_flag in tls_versions:
             try:
                 command = [
-                    "C:\\Windows\\System32\\curl.exe", "-I", "-k",  # -k игнорирует SSL ошибки
+                    curl_exe, "-I", "-k",  # -k игнорирует SSL ошибки
                     "--connect-timeout", "3",
                     "--max-time", "8",
                     "--silent", "--show-error",
@@ -791,13 +972,16 @@ class ConnectionTestWorker(QObject):
                     f"https://{domain}/"
                 ]
 
-                result  = run_hidden(command, timeout=10)     # ← заменили subprocess.run
+                result = subprocess.run(command, capture_output=True, timeout=10,
+                                      creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split('\n')
+                if result and result.returncode == 0:
+                    output = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                            
+                    lines = output.strip().split('\n') if output else []
                     status_line = lines[0] if lines else ""
                     if "HTTP/" in status_line:
-                        status_code = status_line.split()[1]
+                        status_code = status_line.split()[1] if len(status_line.split()) > 1 else "???"
                         self.log_message(f"  ✅ {version_name} работает (код {status_code})")
                     else:
                         self.log_message(f"  ✅ {version_name} соединение установлено")
@@ -810,21 +994,29 @@ class ConnectionTestWorker(QObject):
     def check_curl_insecure(self, domain):
         """Проверка HTTPS с игнорированием SSL ошибок."""
         try:
+            curl_exe = self._get_curl_path()
+            if not curl_exe:
+                self.log_message("  ⚠️ curl не найден")
+                return
+                
             command = [
-                "C:\\Windows\\System32\\curl.exe", "-I", "-k",  # -k игнорирует SSL ошибки
+                curl_exe, "-I", "-k",  # -k игнорирует SSL ошибки
                 "--connect-timeout", "5", 
                 "--max-time", "10",
                 "--silent", "--show-error",
                 f"https://{domain}/"
             ]
 
-            result  = run_hidden(command, timeout=15)     # ← заменили subprocess.run
+            result = subprocess.run(command, capture_output=True, timeout=15,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
+            if result and result.returncode == 0:
+                output = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                        
+                lines = output.strip().split('\n') if output else []
                 status_line = lines[0] if lines else ""
                 if "HTTP/" in status_line:
-                    status_code = status_line.split()[1]
+                    status_code = status_line.split()[1] if len(status_line.split()) > 1 else "???"
                     self.log_message(f"  ✅ HTTPS доступен с -k (код {status_code})")
                 else:
                     self.log_message(f"  ✅ HTTPS соединение установлено с -k")
@@ -834,36 +1026,18 @@ class ConnectionTestWorker(QObject):
         except Exception as e:
             self.log_message(f"  ❌ Ошибка HTTPS -k теста: {str(e)}")
 
-    # даже есть есть curl не работает эта проверка после замены на свой run из utils.subproc
     def is_curl_available(self):
         """Проверяет доступность curl в системе."""
         try:
             if not hasattr(self, '_curl_available'):
-                if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
-                    subprocess.CREATE_NO_WINDOW = 0x08000000
-                    
-                command = ["curl", "--version"]
-                
-                try:
-                    result = run_hidden(command, timeout=5, capture_output=True)
-                except ImportError:
-                    # Fallback на прямой вызов subprocess если импорт не удался
-                    result = run_hidden(
-                        command, 
-                        timeout=5, 
-                        capture_output=True,
-                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                    )
-                
-                self._curl_available = result.returncode == 0
+                self._curl_available = (self._get_curl_path() is not None)
                 
                 if self._curl_available:
-                    version_info = result.stdout.decode('utf-8', errors='ignore').split('\n')[0]
-                    self.log_message(f"Найден curl: {version_info}")
+                    self.log_message(f"Найден curl")
                 
             return self._curl_available
             
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        except Exception as e:
             if hasattr(self, 'log_message'):
                 self.log_message(f"Ошибка проверки curl: {e}")
             self._curl_available = False
@@ -898,6 +1072,25 @@ class ConnectionTestWorker(QObject):
             # ✅ ВСЕГДА эмитируем сигнал завершения
             self.finished_signal.emit()
 
+class LogSendWorker(QObject):
+    """Воркер для отправки лога в Telegram в отдельном потоке"""
+    finished = pyqtSignal(bool, str)  # success, message
+    
+    def __init__(self, log_path: str, caption: str):
+        super().__init__()
+        self.log_path = log_path
+        self.caption = caption
+    
+    def run(self):
+        try:
+            success, error_msg = send_log_file(self.log_path, self.caption)
+            if success:
+                self.finished.emit(True, "Лог успешно отправлен!")
+            else:
+                self.finished.emit(False, error_msg or "Ошибка отправки")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 class ConnectionTestDialog(QDialog):
     """Неблокирующее диалоговое окно для тестирования соединений."""
     
@@ -908,15 +1101,17 @@ class ConnectionTestDialog(QDialog):
         self.setMinimumHeight(500)
         
         # Делаем окно модальным, но НЕ блокирующим основной поток
-        self.setModal(False)  # ← Ключевое изменение!
+        self.setModal(False)
         
         # Флаг для предотвращения множественных запусков
         self.is_testing = False
+        self.is_sending_log = False  # Новый флаг для отправки лога
         
         self.init_ui()
         self.worker = None
         self.worker_thread = None
-    
+        self.log_send_thread = None  # Для отправки лога
+
     def init_ui(self):
         """Инициализация пользовательского интерфейса."""
         layout = QVBoxLayout()
@@ -940,24 +1135,106 @@ class ConnectionTestDialog(QDialog):
         self.test_combo.setStyleSheet("padding: 8px; font-size: 12px;")
         layout.addWidget(self.test_combo)
         
-        # Кнопки
+        # Кнопки управления тестами
         button_layout = QVBoxLayout()
         
-        self.start_button = QPushButton("Начать тестирование", self)
-        self.start_button.clicked.connect(self.start_test_async)
-        button_layout.addWidget(self.start_button)
+        # Основные кнопки в горизонтальном layout
+        main_buttons_layout = QHBoxLayout()
         
-        self.stop_button = QPushButton("Остановить тест", self)
+        self.start_button = QPushButton("▶️ Начать тестирование", self)
+        self.start_button.clicked.connect(self.start_test_async)
+        self.start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        main_buttons_layout.addWidget(self.start_button)
+        
+        self.stop_button = QPushButton("⏹️ Остановить тест", self)
         self.stop_button.clicked.connect(self.stop_test)
         self.stop_button.setEnabled(False)
-        button_layout.addWidget(self.stop_button)
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        main_buttons_layout.addWidget(self.stop_button)
         
-        self.save_log_button = QPushButton("Сохранить лог", self)
-        self.save_log_button.clicked.connect(self.save_log)
-        self.save_log_button.setEnabled(False)
-        button_layout.addWidget(self.save_log_button)
+        button_layout.addLayout(main_buttons_layout)
+        
+        # Дополнительные кнопки
+        extra_buttons_layout = QHBoxLayout()
+        
+        self.dns_check_button = QPushButton("🌐 Проверка DNS подмены", self)
+        self.dns_check_button.clicked.connect(self.show_dns_check)
+        self.dns_check_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+        """)
+        extra_buttons_layout.addWidget(self.dns_check_button)
+        
+        # ИЗМЕНЕНО: Заменяем кнопку "Сохранить лог" на "Отправить лог"
+        self.send_log_button = QPushButton("📤 Отправить лог в поддержку", self)
+        self.send_log_button.clicked.connect(self.send_log_to_telegram)
+        self.send_log_button.setEnabled(False)
+        self.send_log_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        extra_buttons_layout.addWidget(self.send_log_button)
+        
+        button_layout.addLayout(extra_buttons_layout)
         
         layout.addLayout(button_layout)
+        
+        # Разделитель
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("margin: 10px 0;")
+        layout.addWidget(separator)
         
         # Прогресс-бар
         from PyQt6.QtWidgets import QProgressBar
@@ -988,11 +1265,244 @@ class ConnectionTestDialog(QDialog):
         layout.addWidget(self.result_text)
         
         # Кнопка закрытия
-        close_button = QPushButton("Закрыть", self)
+        close_button = QPushButton("❌ Закрыть", self)
         close_button.clicked.connect(self.close_dialog_safely)
+        close_button.setStyleSheet("""
+            QPushButton {
+                background-color: #666;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #555;
+            }
+        """)
         layout.addWidget(close_button)
         
         self.setLayout(layout)
+
+    def send_log_to_telegram(self):
+        """Отправляет лог тестирования в Telegram"""
+        if self.is_sending_log:
+            QMessageBox.information(self, "Отправка в процессе", 
+                                "Лог уже отправляется, подождите...")
+            return
+        
+        # Проверяем наличие лог-файла
+        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
+        
+        if not os.path.exists(temp_log_path):
+            QMessageBox.warning(self, "Ошибка", 
+                            "Файл журнала не найден.\n"
+                            "Сначала выполните тестирование.")
+            return
+        
+        # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем возвращаемое значение
+        try:
+            # Проверяем настройки бота
+            bot_connected = check_bot_connection()
+            
+            if not bot_connected:
+                error_msg = "Не удалось подключиться к Telegram боту"
+            else:
+                error_msg = None
+                
+        except Exception as e:
+            bot_connected = False
+            error_msg = str(e)
+        
+        if not bot_connected:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Бот не настроен")
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setText(
+                f"Не удалось подключиться к боту для отправки логов.\n\n"
+                f"Ошибка: {error_msg or 'Неизвестная ошибка'}\n\n"
+                "Хотите сохранить лог локально?"
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if msg_box.exec() == QMessageBox.StandardButton.Yes:
+                self.save_log_locally()
+            return
+        
+        # Подготавливаем caption с информацией
+        import time
+        test_type = self.test_combo.currentText()
+        caption = (
+            f"📊 <b>Лог тестирования соединений</b>\n"
+            f"Тип: {test_type}\n"
+            f"Zapret v{APP_VERSION}\n"
+            f"ID: <code>{get_client_id()}</code>\n"
+            f"Host: {platform.node()}\n"
+            f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"
+        )
+        
+        # Блокируем кнопку
+        self.send_log_button.setEnabled(False)
+        self.is_sending_log = True
+        
+        # Обновляем статус
+        self.status_label.setText("📤 Отправка лога в Telegram...")
+        self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
+        
+        # Показываем прогресс
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # Бесконечный прогресс
+        
+        # Создаем воркер и поток для отправки
+        self.log_send_thread = QThread(self)
+        self.log_send_worker = LogSendWorker(temp_log_path, caption)
+        self.log_send_worker.moveToThread(self.log_send_thread)
+        
+        # Подключаем сигналы
+        self.log_send_thread.started.connect(self.log_send_worker.run)
+        self.log_send_worker.finished.connect(self.on_log_sent)
+        self.log_send_worker.finished.connect(self.log_send_thread.quit)
+        self.log_send_worker.finished.connect(self.log_send_worker.deleteLater)
+        self.log_send_thread.finished.connect(self.log_send_thread.deleteLater)
+        
+        # Запускаем отправку
+        self.log_send_thread.start()
+        
+        from log import log
+        log(f"Отправка лога тестирования в Telegram", "INFO")
+    
+    def on_log_sent(self, success: bool, message: str):
+        """Обработчик завершения отправки лога"""
+        # Скрываем прогресс
+        self.progress_bar.setVisible(False)
+        
+        # Разблокируем кнопку
+        self.send_log_button.setEnabled(True)
+        self.is_sending_log = False
+        
+        if success:
+            # Обновляем статус
+            self.status_label.setText("✅ Лог успешно отправлен!")
+            self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            
+            # Добавляем сообщение в результаты
+            self.result_text.append("\n" + "=" * 50)
+            self.result_text.append("✅ Лог успешно отправлен в канал поддержки!")
+            self.result_text.append("Спасибо за помощь в улучшении программы!")
+            
+            # Показываем уведомление
+            QMessageBox.information(
+                self,
+                "Успешно",
+                "Лог тестирования успешно отправлен!\n\n"
+                "Техническая поддержка получит ваш отчет и сможет "
+                "проанализировать проблемы с подключением."
+            )
+            
+            # Удаляем временный файл после успешной отправки
+            try:
+                temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
+                if os.path.exists(temp_log_path):
+                    os.remove(temp_log_path)
+            except:
+                pass
+                
+        else:
+            # Обновляем статус об ошибке
+            self.status_label.setText("❌ Ошибка отправки лога")
+            self.status_label.setStyleSheet("color: #f44336; font-weight: bold;")
+            
+            # Предлагаем сохранить локально
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Ошибка отправки")
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setText(
+                f"Не удалось отправить лог:\n{message}\n\n"
+                "Хотите сохранить лог локально?"
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if msg_box.exec() == QMessageBox.StandardButton.Yes:
+                self.save_log_locally()
+        
+        # Очищаем ссылки
+        self.log_send_worker = None
+        self.log_send_thread = None
+    
+    def save_log_locally(self):
+        """Сохраняет лог локально как запасной вариант"""
+        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
+        
+        if not os.path.exists(temp_log_path):
+            QMessageBox.warning(self, "Ошибка", "Файл журнала не найден.")
+            return
+        
+        try:
+            from datetime import datetime
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = os.path.join(
+                LOGS_FOLDER, 
+                f"connection_test_{timestamp}.log"
+            )
+            
+            # Копируем файл
+            with open(temp_log_path, "r", encoding="utf-8-sig") as src, \
+                 open(save_path, "w", encoding="utf-8-sig") as dest:
+                dest.write(src.read())
+            
+            QMessageBox.information(
+                self, 
+                "💾 Сохранено локально", 
+                f"Лог сохранен в файл:\n{save_path}\n\n"
+                "Вы можете отправить этот файл в техподдержку вручную."
+            )
+            
+            # Открываем папку с файлом
+            import subprocess
+            subprocess.run(f'explorer /select,"{save_path}"', shell=True)
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Ошибка при сохранении", 
+                f"Не удалось сохранить файл журнала:\n{str(e)}"
+            )
+    
+    def show_dns_check(self):
+        """Показывает диалог проверки DNS"""
+        try:
+            # Логируем действие
+            from log import log
+            log("Открытие диалога проверки DNS из теста соединений", "INFO")
+            
+            # Если идет тестирование, предупреждаем
+            if self.is_testing:
+                reply = QMessageBox.question(
+                    self,
+                    "Тест выполняется",
+                    "Сетевой тест еще выполняется.\nОткрыть проверку DNS в отдельном окне?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            
+            # Создаем и показываем диалог DNS проверки
+            dns_dialog = DNSCheckDialog(self)
+            dns_dialog.exec()
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка открытия DNS диалога: {e}", "❌ ERROR")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть проверку DNS:\n{str(e)}"
+            )
     
     def start_test_async(self):
         """✅ Асинхронно запускает выбранный тест."""
@@ -1018,9 +1528,9 @@ class ConnectionTestDialog(QDialog):
         # Обновляем состояние кнопок
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.dns_check_button.setEnabled(False)  # Блокируем DNS проверку во время теста
         self.test_combo.setEnabled(False)
-        self.save_log_button.setEnabled(False)
-        
+
         # Показываем прогресс
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -1114,40 +1624,33 @@ class ConnectionTestDialog(QDialog):
     
     def update_result_async(self, message):
         """✅ Асинхронно обновляет текстовое поле с результатами."""
-        if message == "YOUTUBE_ERROR_403":
-            # Специальная обработка для ошибки 403 YouTube
-            reply = QMessageBox.question(
-                self, 
-                "Ошибка YouTube",
-                "Ошибка 403: YouTube требует дополнительной настройки.\n"
-                "Открыть инструкцию?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                import webbrowser
-                webbrowser.open("https://github.com/youtubediscord/youtube_59second")
+        # Специальная обработка для DNS сообщений
+        if "DNS" in message and "подмен" in message:
+            # Добавляем кнопку для быстрого запуска DNS проверки
+            self.result_text.append(message)
+            self.result_text.append("💡 Совет: Используйте кнопку '🌐 Проверка DNS подмены' для детального анализа")
         else:
             # ✅ THREAD-SAFE обновление GUI
             self.result_text.append(message)
-            
-            # Автопрокрутка до конца
-            scrollbar = self.result_text.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
-            
-            # Обновляем статус с последним сообщением
-            if len(message) < 60:
-                clean_message = message.replace("✅", "").replace("❌", "").replace("⚠️", "").strip()
-                if clean_message:
-                    self.status_label.setText(f"🔄 {clean_message}")
+        
+        # Автопрокрутка до конца
+        scrollbar = self.result_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        
+        # Обновляем статус с последним сообщением
+        if len(message) < 60:
+            clean_message = message.replace("✅", "").replace("❌", "").replace("⚠️", "").strip()
+            if clean_message:
+                self.status_label.setText(f"🔄 {clean_message}")
     
     def on_test_finished_async(self):
         """✅ Асинхронно обрабатывает завершение тестов."""
         # Возвращаем состояние кнопок
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.dns_check_button.setEnabled(True)  # Разблокируем DNS проверку
         self.test_combo.setEnabled(True)
-        self.save_log_button.setEnabled(True)
+        self.send_log_button.setEnabled(True)
         
         # Скрываем прогресс
         self.progress_bar.setVisible(False)
@@ -1159,6 +1662,7 @@ class ConnectionTestDialog(QDialog):
         # Добавляем финальное сообщение
         self.result_text.append("\n" + "=" * 50)
         self.result_text.append("🎉 Тестирование завершено! Лог готов для сохранения.")
+        self.result_text.append("💡 Для детальной проверки DNS используйте кнопку '🌐 Проверка DNS подмены'")
         
         # Сбрасываем флаг
         self.is_testing = False
@@ -1217,49 +1721,3 @@ class ConnectionTestDialog(QDialog):
                 event.ignore()
         else:
             event.accept()
-    
-    def save_log(self):
-        """Сохраняет лог в текстовый файл в папку logs."""
-        # ✅ ИСПРАВЛЕНИЕ: Ищем временный лог-файл в папке logs
-        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
-        
-        if not os.path.exists(temp_log_path):
-            QMessageBox.warning(self, "Ошибка", "Файл журнала не найден.")
-            return
-        
-        try:
-            from datetime import datetime
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = os.path.join(
-                LOGS_FOLDER, 
-                f"connection_test_{timestamp}.log"
-            )
-            
-            # Чтение и запись с явным указанием кодировки UTF-8
-            with open(temp_log_path, "r", encoding="utf-8-sig") as src, \
-                open(save_path, "w", encoding="utf-8-sig") as dest:
-                dest.write(src.read())
-            
-            # Удаляем временный файл после сохранения
-            try:
-                os.remove(temp_log_path)
-            except:
-                pass
-            
-            QMessageBox.information(
-                self, 
-                "💾 Сохранение успешно", 
-                f"Лог сохранен в файл:\n{save_path}\n\nВы можете отправить этот файл в техподдержку."
-            )
-            
-            # Открываем папку с файлом
-            import subprocess
-            run_hidden(f'explorer /select,"{save_path}"')
-            
-        except Exception as e:
-            QMessageBox.critical(
-                self, 
-                "Ошибка при сохранении", 
-                f"Не удалось сохранить файл журнала:\n{str(e)}"
-            )

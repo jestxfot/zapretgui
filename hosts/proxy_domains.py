@@ -25,18 +25,18 @@ PROXY_DOMAINS = {
     "webrtc.chatgpt.com": "134.0.118.88",
     "android.chat.openai.com": "134.0.118.88",
     "api.openai.com": "134.0.118.88",
-    "gemini.google.com": "89.108.98.20", # 138.201.204.218
-    "aistudio.google.com": "89.108.98.20",
+    "gemini.google.com": "204.12.192.222", # 204.12.192.222 138.201.204.218     89.108.98.20
+    "aistudio.google.com": "204.12.192.222", # 89.108.98.20
     "generativelanguage.googleapis.com": "204.12.192.222",
-    "alkalimakersuite-pa.clients6.google.com": "89.108.98.20",
+    "alkalimakersuite-pa.clients6.google.com": "204.12.192.222", # 204.12.192.222  89.108.98.20
     "aitestkitchen.withgoogle.com": "204.12.192.222",
     "aisandbox-pa.googleapis.com": "204.12.192.222",
-    "webchannel-alkalimakersuite-pa.clients6.google.com": "204.12.192.222",
+    "webchannel-alkalimakersuite-pa.clients6.google.com": "204.12.192.222", 
     "proactivebackend-pa.googleapis.com": "204.12.192.222",
     "o.pki.goog": "204.12.192.222",
     "labs.google": "204.12.192.222",
-    "notebooklm.google": "89.108.98.20", # 204.12.192.222
-    "notebooklm.google.com": "89.108.98.20", # 204.12.192.222
+    "notebooklm.google": "204.12.192.222", # 89.108.98.20
+    "notebooklm.google.com": "204.12.192.222", # 89.108.98.20
     "copilot.microsoft.com": "204.12.192.222",
     "www.bing.com": "204.12.192.222",
     "sydney.bing.com": "204.12.192.222",
@@ -71,8 +71,8 @@ PROXY_DOMAINS = {
     "codeium.com": "50.7.87.85",
     "inference.codeium.com": "50.7.85.219",
     "www.tiktok.com": "204.12.192.222",
-    #"api.individual.githubcopilot.com": "89.108.98.20",
-    #"proxy.individual.githubcopilot.com": "89.108.98.20",
+    "api.individual.githubcopilot.com": "89.108.98.20",
+    "proxy.individual.githubcopilot.com": "89.108.98.20",
     "datalore.jetbrains.com": "50.7.85.221",
     "plugins.jetbrains.com": "107.150.34.100",
     "elevenlabs.io": "204.12.192.222",
@@ -81,6 +81,7 @@ PROXY_DOMAINS = {
     "truthsocial.com": "204.12.192.221",
     "static-assets-1.truthsocial.com": "204.12.192.221",
     "grok.com": "185.250.151.49", # 50.7.85.221
+    "assets.grok.com": "185.250.151.49",
     "accounts.x.ai": "185.250.151.49", # 50.7.87.85
     "autodesk.com": "94.131.119.85",
     "accounts.autodesk.com": "94.131.119.85",

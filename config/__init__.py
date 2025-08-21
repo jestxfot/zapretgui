@@ -1,11 +1,13 @@
 # config/__init__.py
 from .config import BIN_FOLDER, EXE_FOLDER, THEME_FOLDER, BAT_FOLDER, LISTS_FOLDER, LOGS_FOLDER, WINWS_EXE, ICON_PATH, ICON_TEST_PATH, OTHER_PATH, OTHER2_PATH, NETROGAT_PATH, NETROGAT2_PATH, STRATEGIES_FOLDER, WIDTH, HEIGHT, INDEXJSON_FOLDER, DEFAULT_STRAT, REG_LATEST_STRATEGY
 from .build_info import APP_VERSION, CHANNEL
-from .reg import reg, HKCU, get_last_strategy, set_last_strategy, get_dpi_autostart, set_dpi_autostart, get_strategy_autoload, set_strategy_autoload, get_remove_windows_terminal, set_remove_windows_terminal, set_auto_download_enabled, get_auto_download_enabled, get_subscription_check_interval, get_remove_github_api, set_direct_strategy_youtube, get_direct_strategy_discord, set_direct_strategy_discord, get_direct_strategy_other, set_direct_strategy_other, get_direct_strategy_selections
+from .reg import reg, HKCU, get_last_strategy, set_last_strategy, get_dpi_autostart, set_dpi_autostart, get_strategy_autoload, set_strategy_autoload, get_remove_windows_terminal, set_remove_windows_terminal, get_subscription_check_interval, get_remove_github_api, set_direct_strategy_youtube, get_direct_strategy_discord, set_direct_strategy_discord, get_direct_strategy_discord_voice, set_direct_strategy_discord_voice, get_direct_strategy_other, set_direct_strategy_other, get_direct_strategy_selections, set_direct_strategy_selections
 import winreg
 from log import log
 
 REGISTRY_PATH = r"Software\Zapret"
+
+TOKEN_GITHUB = "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"
 
 __all__ = [
     # build_info.py
@@ -32,7 +34,6 @@ __all__ = [
     'WIDTH',
     'HEIGHT',
     # reg.py
-    'set_auto_download_enabled',
     'get_last_strategy',
     'set_last_strategy',
     'get_dpi_autostart',
@@ -41,7 +42,6 @@ __all__ = [
     'set_strategy_autoload',
     'get_remove_windows_terminal',
     'set_remove_windows_terminal',
-    'get_auto_download_enabled',
     'get_subscription_check_interval',
     'get_remove_github_api',
     'get_strategy_launch_method',
@@ -55,9 +55,12 @@ __all__ = [
     'set_direct_strategy_youtube',
     'get_direct_strategy_discord',
     'set_direct_strategy_discord',
+    'set_direct_strategy_discord_voice',
+    'get_direct_strategy_discord_voice',
     'get_direct_strategy_other',
     'set_direct_strategy_other',
     'get_direct_strategy_selections',
+    'set_direct_strategy_selections',
     'reg',
     'HKCU'
 ]

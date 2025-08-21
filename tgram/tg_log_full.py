@@ -23,6 +23,7 @@ from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from config import APP_VERSION # build_info moved to config/__init__.py
 from log import log
 from tgram import get_client_id            # UUID устройства
+from .tg_log_bot import send_log_file as send_log_via_bot
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -48,31 +49,43 @@ def _file_hash(path: str) -> str:
 
 # ──────────────────────────────────────────────────────────────────
 class TgSendWorker(QObject):
-    """Воркер, работающий в отдельном потоке: отправляет один файл."""
+    """Воркер для отправки лога через отдельного бота."""
     finished = pyqtSignal(bool, float, str)  # ok, extra_wait_seconds, error_msg
 
-    def __init__(self, path: str, caption: str):
+    def __init__(self, path: str, caption: str, use_log_bot: bool = False):
         super().__init__()
         self._path = path
         self._cap = caption
+        self._use_log_bot = use_log_bot  # Флаг для выбора бота
 
     def run(self):
-        from tgram import send_file_to_tg
         try:
-            ok = send_file_to_tg(self._path, self._cap)
-            if ok:
-                self.finished.emit(True, 0.0, "")
+            if self._use_log_bot:
+                # Используем отдельного бота для логов
+                success, error_msg = send_log_via_bot(self._path, self._cap)
+                if success:
+                    self.finished.emit(True, 0.0, "")
+                else:
+                    # Проверяем на flood-wait
+                    is_flood = "wait" in (error_msg or "").lower()
+                    extra_wait = 60.0 if is_flood else 0.0
+                    self.finished.emit(False, extra_wait, error_msg or "Ошибка отправки")
             else:
-                self.finished.emit(False, 0.0, "Ошибка отправки")
+                # Используем обычного бота (для автоматической отправки)
+                from tgram import send_file_to_tg
+                ok = send_file_to_tg(self._path, self._cap)
+                if ok:
+                    self.finished.emit(True, 0.0, "")
+                else:
+                    self.finished.emit(False, 0.0, "Ошибка отправки")
+                    
         except Exception as e:
             error_msg = str(e)
-            # Проверяем, это flood-wait или другая ошибка
             is_flood_wait = "429" in error_msg or "Too Many Requests" in error_msg
             extra_wait = 60.0 if is_flood_wait else 0.0
             
-            log(f"[FullLogDaemon] worker error: {error_msg}", "❌ ERROR")
+            log(f"[TgSendWorker] error: {error_msg}", "❌ ERROR")
             self.finished.emit(False, extra_wait, error_msg)
-
 
 # ──────────────────────────────────────────────────────────────────
 class FullLogDaemon(QObject):

@@ -21,7 +21,7 @@ import time
 # ────────────────────────────────────────────────────────────────
 GITHUB_CONFIG = {
     "enabled": True,  # True - включить GitHub releases, False - отключить
-    "token": "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",  # Fine-grained токен
+    "token": "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",  # Fine-grained токен
     "repo_owner": "youtubediscord",   # Владелец репозитория
     "repo_name": "zapret",           # Имя репозитория
     "release_settings": {

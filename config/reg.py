@@ -131,30 +131,6 @@ def set_strategy_autoload(enabled: bool) -> bool:
     """Включает/выключает автозагрузку стратегий."""
     return reg(_STRAT_KEY, _STRAT_NAME, 1 if enabled else 0)
 
-def get_auto_download_enabled() -> bool:
-    """Проверяет, включена ли автоматическая загрузка при старте"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-            value, _ = winreg.QueryValueEx(key, "AutoDownloadEnabled")
-            return bool(value)
-    except FileNotFoundError:
-        return True  # По умолчанию включено
-    except Exception as e:
-        log(f"Ошибка чтения настройки автозагрузки: {e}", "❌ ERROR")
-        return True
-
-def set_auto_download_enabled(enabled: bool):
-    """Устанавливает состояние автоматической загрузки"""
-    try:
-        # Создаем ключ если его нет
-        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
-        
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, "AutoDownloadEnabled", 0, winreg.REG_DWORD, int(enabled))
-        log(f"Автозагрузка {'включена' if enabled else 'отключена'}", "INFO")
-    except Exception as e:
-        log(f"Ошибка записи настройки автозагрузки: {e}", "❌ ERROR")
-
 
 def get_subscription_check_interval() -> int:
     """Возвращает интервал проверки подписки в минутах (по умолчанию 10)"""
@@ -192,7 +168,8 @@ def set_remove_github_api(enabled: bool) -> bool:
 # ───────────── Выбранные стратегии для прямого запуска ─────────────
 _DIRECT_STRATEGY_KEY = r"Software\Zapret"
 _DIRECT_YOUTUBE_NAME = "DirectStrategyYoutube"
-_DIRECT_DISCORD_NAME = "DirectStrategyDiscord" 
+_DIRECT_DISCORD_NAME = "DirectStrategyDiscord"
+_DIRECT_DISCORD_VOICE_NAME = "DirectStrategyDiscordVoice"
 _DIRECT_OTHER_NAME = "DirectStrategyOther"
 
 def get_direct_strategy_selections() -> dict:
@@ -200,6 +177,7 @@ def get_direct_strategy_selections() -> dict:
     try:
         youtube = reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_NAME)
         discord = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME)
+        discord_voice = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME)
         other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
         
         # Возвращаем значения по умолчанию если что-то не найдено
@@ -209,6 +187,7 @@ def get_direct_strategy_selections() -> dict:
         selections = {
             'youtube': youtube if youtube else default_selections.get('youtube'),
             'discord': discord if discord else default_selections.get('discord'),
+            'discord_voice': discord_voice if discord_voice else default_selections.get('discord_voice'),
             'other': other if other else default_selections.get('other')
         }
         
@@ -231,6 +210,9 @@ def set_direct_strategy_selections(selections: dict) -> bool:
         
         if 'discord' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME, selections['discord'])
+        
+        if 'discord_voice' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, selections['discord_voice'])
             
         if 'other' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, selections['other'])
@@ -254,7 +236,7 @@ def get_direct_strategy_youtube() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('youtube', 'original_bolvan_v2_badsum')
+    return get_default_selections().get('youtube', 'multisplit_seqovl_midsld')
 
 def set_direct_strategy_youtube(strategy_id: str) -> bool:
     """Сохраняет выбранную YouTube стратегию"""
@@ -268,11 +250,25 @@ def get_direct_strategy_discord() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('discord', 'multisplit_fake_tls_badseq')
+    return get_default_selections().get('discord', 'dis4')
 
 def set_direct_strategy_discord(strategy_id: str) -> bool:
     """Сохраняет выбранную Discord стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME, strategy_id)
+
+def get_direct_strategy_discord_voice() -> str:
+    """Возвращает сохраненную Discord Voice стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('discord_voice', 'ipv4_dup2_autottl_cutoff_n3')
+
+def set_direct_strategy_discord_voice(strategy_id: str) -> bool:
+    """Сохраняет выбранную Discord Voice стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, strategy_id)
 
 def get_direct_strategy_other() -> str:
     """Возвращает сохраненную стратегию для остальных сайтов"""
@@ -282,7 +278,7 @@ def get_direct_strategy_other() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('other', 'other_multidisorder')
+    return get_default_selections().get('other', 'other_seqovl')
 
 def set_direct_strategy_other(strategy_id: str) -> bool:
     """Сохраняет выбранную стратегию для остальных сайтов"""

@@ -1,5 +1,7 @@
 # https://github.com/MagilaWEB/unblock-youtube-discord
 # https://github.com/ankddev/zapret-discord-youtube
+
+#config/config.py
 import os
 import sys
 

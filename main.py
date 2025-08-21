@@ -76,7 +76,7 @@ from hosts.hosts import HostsManager
 from autostart.checker import CheckerManager
 from autostart.autostart_remove import AutoStartCleaner
 
-from dpi.start import DPIStarter
+from dpi.bat_start import BatDPIStart
 
 from tray import SystemTrayManager
 from dns import DNSSettingsDialog
@@ -456,6 +456,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         combined_strategy = combine_strategies(
                             default_selections.get('youtube'),
                             default_selections.get('discord'), 
+                            default_selections.get('discord_voice'),
                             default_selections.get('other')
                         )
                         
@@ -517,33 +518,32 @@ class LupiDPIApp(QWidget, MainWindowUI):
         if service_running is None and hasattr(self, 'service_manager'):
             service_running = self.service_manager.check_autostart_exists()
 
+        # Убеждаемся, что оба стека всегда находятся в правильных позициях
+        # и имеют правильные размеры
+        
+        # Сначала удаляем виджеты из сетки (если они там есть)
+        self.button_grid.removeWidget(self.start_stop_stack)
+        self.button_grid.removeWidget(self.autostart_stack)
+        
+        # Добавляем обратно в правильные позиции - ВСЕГДА по одной колонке на каждый
+        self.button_grid.addWidget(self.start_stop_stack, 0, 0, 1, 1)  # строка 0, колонка 0, 1 строка, 1 колонка
+        self.button_grid.addWidget(self.autostart_stack, 0, 1, 1, 1)   # строка 0, колонка 1, 1 строка, 1 колонка
+        
+        # Убеждаемся, что оба стека видимы
+        self.start_stop_stack.setVisible(True)
+        self.autostart_stack.setVisible(True)
+        
         if service_running:
             # ✅ АВТОЗАПУСК АКТИВЕН
-            # Скрываем левую колонку (кнопки запуска/остановки)
-            self.start_stop_stack.setVisible(False)
-            
             # Показываем кнопку отключения автозапуска
             self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
             
-            # Удаляем стек автозапуска из текущей позиции
-            self.button_grid.removeWidget(self.autostart_stack)
-            
-            # Добавляем его обратно на 2 колонки
-            self.button_grid.addWidget(self.autostart_stack, 0, 0, 1, 2)
+            # В левой колонке показываем кнопку остановки
+            # (так как при автозапуске процесс обычно запущен)
+            self.start_stop_stack.setCurrentWidget(self.stop_btn)
             
         else:
             # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
-            # Сначала удаляем все виджеты из первой строки
-            self.button_grid.removeWidget(self.autostart_stack)
-            self.button_grid.removeWidget(self.start_stop_stack)
-            
-            # Показываем левую колонку
-            self.start_stop_stack.setVisible(True)
-            
-            # Добавляем виджеты в правильном порядке
-            self.button_grid.addWidget(self.start_stop_stack, 0, 0)
-            self.button_grid.addWidget(self.autostart_stack, 0, 1)
-            
             # Показываем кнопку включения автозапуска
             self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
             
@@ -553,7 +553,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 self.start_stop_stack.setCurrentWidget(self.stop_btn)
             else:
                 self.start_stop_stack.setCurrentWidget(self.start_btn)
-            
+        
         # Принудительное обновление layout
         self.button_grid.update()
         QApplication.processEvents()
@@ -679,19 +679,9 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.update_autostart_ui(self.service_manager.check_autostart_exists())
         self.update_ui(running=False)
 
-        # Проверяем автозагрузку
-        from config import get_auto_download_enabled
-        
-        if get_auto_download_enabled():
-            self.set_status("Инициализация…")
-            self._start_heavy_init()
-        else:
-            log("Автозагрузка отключена - работаем с локальными файлами", "INFO")
-            self.set_status("Готово (автономный режим)")
-            self._check_local_files()
-            
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, lambda: self._on_heavy_done(True, ""))
+
+        self.set_status("Инициализация…")
+        self._start_heavy_init()
 
     def _on_dns_worker_finished(self):
         """Обработчик завершения DNS worker"""
@@ -999,12 +989,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(d, self.force_enable_combos)
 
-        # ---------- АВТО-ОБНОВЛЕНИЕ ---------------------------------
-        #  Новая логика: проверяем ВСЕГДА, но берём только свой канал
-        QTimer.singleShot(1000, self._start_auto_update)
-
         self.set_status("Инициализация завершена")
-        # подписка проверяется асинхронно – ничего не трогаем
+        
+        # ---------- АВТО-ОБНОВЛЕНИЕ с отложенным запуском ---------
+        # Запускаем проверку обновлений через 2 секунды после инициализации
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, self._start_auto_update)
 
     def _start_auto_update(self):
         """
@@ -1015,7 +1005,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # --- запускаем воркер ---
         try:
-            from updater import run_update_async           # из updater/__init__.py
+            from updater import run_update_async
         except Exception as e:
             log(f"Auto-update: import error {e}", "❌ ERROR")
             self.set_status("Не удалось запустить авто-апдейт")
@@ -1023,7 +1013,14 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         # создаём поток/воркер
         thread = run_update_async(parent=self, silent=True)
-        worker = thread._worker            # ссылка, которую мы сохранили в run_update_async
+        
+        # Проверяем, что worker существует
+        if not hasattr(thread, '_worker'):
+            log("Auto-update: worker not found in thread", "❌ ERROR")
+            self.set_status("Ошибка проверки обновлений")
+            return
+            
+        worker = thread._worker
 
         # --------- обработчик завершения ----------
         def _upd_done(ok: bool):
@@ -1039,7 +1036,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             if hasattr(self, "_auto_upd_worker"):
                 del self._auto_upd_worker
 
-        # подключаемся к сигналу *worker*.finished(bool)
+        # подключаемся к сигналу worker.finished(bool)
         worker.finished.connect(_upd_done)
 
         # храним ссылки, чтобы объекты не удалились преждевременно
@@ -1110,7 +1107,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # 3. Определяем, какую стратегию запускать
         strategy_name = get_last_strategy()  # Получаем из реестра сразу
         
-        # ✅ НОВОЕ: Проверяем, является ли это комбинированной стратегией
+        # Проверяем, является ли это комбинированной стратегией
         if strategy_name == "COMBINED_DIRECT":
             from config import get_strategy_launch_method
             
@@ -1123,6 +1120,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 combined = combine_strategies(
                     selections.get('youtube'),
                     selections.get('discord'),
+                    selections.get('discord_voice'),
                     selections.get('other')
                 )
                 
@@ -1210,14 +1208,18 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Асинхронная инициализация всех компонентов"""
         try:
             # DPI Starter
-            self.dpi_starter = DPIStarter(
+            self.dpi_starter = BatDPIStart(
                 winws_exe=WINWS_EXE,
                 status_callback=self.set_status,
                 ui_callback=self.update_ui,
                 app_instance=self
             )
-            
-            # ✅ НОВОЕ: Создаем DPI контроллер
+
+            # Проверка и восстановление хостлистов
+            from utils.hostlists_manager import startup_hostlists_check
+            startup_hostlists_check()
+                    
+            # Создаем DPI контроллер
             self.dpi_controller = DPIController(self)
             
             # Меню
@@ -1502,14 +1504,53 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 QMessageBox.critical(self, "Ошибка", f"Критическая ошибка системы подписки:\n{fallback_error}")
             
     def manual_update_check(self):
-        """Ручная проверка обновлений (кнопка)"""
-
+        """Ручная проверка обновлений (кнопка) - АСИНХРОННАЯ версия"""
         log("Запуск ручной проверки обновлений...", level="INFO")
-        # работаем синхронно – GUI-поток, появится QMessageBox
-        from updater import check_and_run_update
-        check_and_run_update(parent=self, status_cb=self.set_status, silent=False)
-
         self.set_status("Проверка обновлений…")
+        
+        try:
+            from updater import run_update_async
+            
+            # Создаём асинхронный поток для проверки
+            thread = run_update_async(parent=self, silent=False)
+            
+            # Сохраняем ссылку на поток
+            self._manual_update_thread = thread
+            
+            # Подключаем обработчик завершения
+            if hasattr(thread, '_worker'):
+                worker = thread._worker
+                
+                def _manual_update_done(ok: bool):
+                    if ok:
+                        self.set_status("🔄 Обновление запущено")
+                    else:
+                        # Проверяем, было ли найдено обновление или нет
+                        self.set_status("✅ Проверка завершена")
+                    
+                    # Удаляем ссылки
+                    if hasattr(self, '_manual_update_thread'):
+                        del self._manual_update_thread
+                
+                worker.finished.connect(_manual_update_done)
+                
+                # Блокируем кнопку на время проверки
+                if hasattr(self, 'update_check_btn'):
+                    self.update_check_btn.setEnabled(False)
+                    worker.finished.connect(lambda: self.update_check_btn.setEnabled(True))
+            
+        except Exception as e:
+            log(f"Ошибка при запуске проверки обновлений: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка проверки: {e}")
+            
+            # Разблокируем кнопку в случае ошибки
+            if hasattr(self, 'update_check_btn'):
+                self.update_check_btn.setEnabled(True)
+
+    def update_progress(self, percent: int):
+        """Обновляет прогресс загрузки обновления"""
+        if percent > 0:
+            self.set_status(f"Загрузка обновления... {percent}%")
 
     def force_enable_combos(self):
         """Принудительно включает комбо-боксы тем"""
@@ -1579,20 +1620,47 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status(f"Ошибка при открытии папки: {str(e)}")
 
     def show_autostart_options(self):
-        """Показывает диалог автозапуска (вместо старого подменю)."""
+        """Показывает диалог автозапуска с поддержкой Direct режима"""
         from autostart.autostart_menu import AutoStartMenu
+        from config import get_strategy_launch_method
         
-
         # Если уже есть автозапуск — предупредим и выйдем
         if self.service_manager.check_autostart_exists():
             log("Автозапуск уже активен", "⚠ WARNING")
-            self.set_status("Сначала отключите текущий автозапуск")
+            self.set_status("Сначала отключите текущий автозапуск.<br>Если он уже отключён - перезагрузите ПК.")
             return
 
-        # как называется текущая стратегия
-        strategy_name = self.current_strategy_label.text()
-        if strategy_name == "Автостарт DPI отключен":
-            strategy_name = get_last_strategy()
+        # Определяем режим запуска
+        launch_method = get_strategy_launch_method()
+        is_direct_mode = (launch_method == "direct")
+        
+        # Определяем название стратегии
+        if is_direct_mode:
+            # Для Direct режима получаем название из комбинированной стратегии
+            from config import get_direct_strategy_selections
+            from strategy_menu.strategy_lists_separated import combine_strategies
+            
+            try:
+                selections = get_direct_strategy_selections()
+                combined = combine_strategies(
+                    selections.get('youtube'),
+                    selections.get('discord'),
+                    selections.get('discord_voice'),
+                    selections.get('other')
+                )
+                strategy_name = combined['description']
+            except:
+                # Fallback на текущую метку или последнюю стратегию
+                strategy_name = self.current_strategy_label.text()
+                if strategy_name == "Автостарт DPI отключен":
+                    strategy_name = get_last_strategy()
+        else:
+            # Для BAT режима используем текущую метку
+            strategy_name = self.current_strategy_label.text()
+            if strategy_name == "Автостарт DPI отключен":
+                strategy_name = get_last_strategy()
+        
+        log(f"Открытие диалога автозапуска (режим: {launch_method}, стратегия: {strategy_name})", "INFO")
 
         dlg = AutoStartMenu(
             parent             = self,
@@ -1601,10 +1669,43 @@ class LupiDPIApp(QWidget, MainWindowUI):
             json_folder        = INDEXJSON_FOLDER,
             check_autostart_cb = self.service_manager.check_autostart_exists,
             update_ui_cb       = self.update_autostart_ui,
-            status_cb          = self.set_status
+            status_cb          = self.set_status,
+            app_instance       = self  # НОВОЕ - передаем экземпляр приложения для Direct режима
         )
         dlg.exec()
-        
+
+    def get_winws_exe_path(self):
+        """Возвращает путь к winws.exe для Direct режима"""
+        if hasattr(self, 'dpi_starter') and hasattr(self.dpi_starter, 'winws_exe'):
+            return self.dpi_starter.winws_exe
+        else:
+            # Fallback путь если dpi_starter не инициализирован
+            import os
+            import sys
+            from pathlib import Path
+            
+            # Определяем базовую директорию
+            if getattr(sys, 'frozen', False):
+                # Запущено из exe
+                base_dir = Path(sys.executable).parent
+            else:
+                # Запущено из исходников
+                base_dir = Path(__file__).parent
+            
+            # Ищем winws.exe
+            possible_paths = [
+                base_dir / "bin" / "winws.exe",
+                base_dir / "winws" / "winws.exe",
+                base_dir / "zapret" / "winws" / "winws.exe",
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    return str(path)
+            
+            # Если не нашли, возвращаем стандартный путь
+            return str(base_dir / "bin" / "winws.exe")
+
     def show_stop_menu(self):
         """Показывает меню с вариантами остановки программы"""
         log("Отображение меню остановки Zapret", level="INFO")
@@ -1951,6 +2052,7 @@ def set_batfile_association():
 def main():
     import sys, ctypes, os, atexit
     log("=== ЗАПУСК ПРИЛОЖЕНИЯ ===", "🔹 main")
+    
     # ---------------- Быстрая обработка специальных аргументов ----------------
     if "--version" in sys.argv:
         ctypes.windll.user32.MessageBoxW(None, APP_VERSION, "Zapret – версия", 0x40)
@@ -1971,11 +2073,20 @@ def main():
     # ---------------- Проверка single instance ----------------
     from startup.single_instance import create_mutex, release_mutex
     from startup.kaspersky import _check_kaspersky_antivirus, show_kaspersky_warning
+    from startup.ipc_manager import IPCManager  # ← НОВЫЙ ИМПОРТ
+    
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
     if already_running:
-        ctypes.windll.user32.MessageBoxW(None, 
-            "Экземпляр Zapret уже запущен и/или работает в трее!", "Zapret", 0x40)
+        # ✅ ВМЕСТО СООБЩЕНИЯ - ПОКАЗЫВАЕМ ОКНО ЧЕРЕЗ IPC
+        ipc = IPCManager()
+        if ipc.send_show_command():
+            log("Отправлена команда показать окно запущенному экземпляру", "INFO")
+        else:
+            # Если не удалось отправить команду, показываем сообщение
+            ctypes.windll.user32.MessageBoxW(None, 
+                "Экземпляр Zapret уже запущен, но не удалось показать окно!", "Zapret", 0x40)
         sys.exit(0)
+    
     atexit.register(lambda: release_mutex(mutex_handle))
 
     # ---------------- Создаём QApplication СРАЗУ ----------------
@@ -1996,7 +2107,7 @@ def main():
 
     # ---------- проверяем Касперского + показываем диалог -----------------
     try:
-        kaspersky_detected = _check_kaspersky_antivirus(None)   # self не нужен
+        kaspersky_detected = _check_kaspersky_antivirus(None)
     except Exception:
         kaspersky_detected = False
 
@@ -2004,13 +2115,18 @@ def main():
         log("Обнаружен антивирус Kaspersky", "⚠️ KASPERSKY")
         try:
             from startup.kaspersky import show_kaspersky_warning
-            show_kaspersky_warning()          # QApplication уже создан
+            show_kaspersky_warning()
         except Exception as e:
             log(f"Не удалось показать предупреждение Kaspersky: {e}",
                 "⚠️ KASPERSKY")
 
     # ---------------- СОЗДАЁМ И ПОКАЗЫВАЕМ ОКНО СРАЗУ ----------------
     window = LupiDPIApp()
+    
+    # ✅ ЗАПУСКАЕМ IPC СЕРВЕР ДЛЯ ПРИЕМА КОМАНД
+    ipc_manager = IPCManager()
+    ipc_manager.start_server(window)
+    atexit.register(ipc_manager.stop)  # Останавливаем при выходе
     
     if not start_in_tray:
         window.show()
@@ -2022,6 +2138,7 @@ def main():
                 "Zapret работает в трее", 
                 "Приложение запущено в фоновом режиме"
             )
+    
     from PyQt6.QtCore import QTimer
     # ---------------- АСИНХРОННЫЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА ----------------
     def async_startup_checks():

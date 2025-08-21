@@ -3,7 +3,7 @@
 ;---------------------------------------------------
 [Setup]
 AppName= Zapret
-AppVersion= 16.2.4.2
+AppVersion= 16.3.0.5
 AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
 ; ───────────────────────────────────────────────────────────────
 DefaultDirName={code:GetInstallDir}
@@ -13,7 +13,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired=admin
 DefaultGroupName= Zapret
 AllowNoIcons=yes
-OutputDir= "D:\Privacy\zapretgui"
+OutputDir= D:\\Privacy\\zapretgui
 OutputBaseFilename= ZapretSetup
 Compression=lzma2
 SolidCompression=yes
@@ -28,7 +28,7 @@ RestartApplications=no
 Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
-Source: "..\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
+Source: "D:\Privacy\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
 Source: "..\zapret\bat\*";              DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion
 Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
 Source: "..\zapret\exe\*";              DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion

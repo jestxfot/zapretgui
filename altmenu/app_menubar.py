@@ -9,7 +9,7 @@ from config import APP_VERSION # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
 from .defender_manager import WindowsDefenderManager
-from config import get_auto_download_enabled, set_auto_download_enabled
+
 from utils import run_hidden
 from log import log, LogViewerDialog, global_logger
 
@@ -34,11 +34,6 @@ class AppMenuBar(QMenuBar):
 
         # -------- 1. Настройки -------------------------------------------------
         file_menu = self.addMenu("&Настройки")
-
-        auto_download_action = file_menu.addAction("Автозагрузка при старте")
-        auto_download_action.setCheckable(True)
-        auto_download_action.setChecked(get_auto_download_enabled())
-        auto_download_action.triggered.connect(self.toggle_auto_download)
 
         # Чек-бокс Автозагрузка DPI»
         self.auto_dpi_act = QAction("Автозагрузка DPI", self, checkable=True)
@@ -84,6 +79,7 @@ class AppMenuBar(QMenuBar):
         full_exit_act.triggered.connect(self.full_exit)
         file_menu.addAction(full_exit_act)
 
+        """
         # === ХОСТЛИСТЫ ===
         hostlists_menu = self.addMenu("&Хостлисты")
         
@@ -106,6 +102,7 @@ class AppMenuBar(QMenuBar):
         hostlists_menu.addAction(add_custom_sites_action)
         
         hostlists_menu.addSeparator()
+        """
 
         # -------- 2. «Телеметрия / Настройки» ------------------------------
         telemetry_menu = self.addMenu("&Телеметрия")
@@ -317,22 +314,6 @@ class AppMenuBar(QMenuBar):
                 "Не удалось сбросить DNS ни на одном адаптере."
             )
 
-    def toggle_auto_download(self, checked):
-        """Переключает автозагрузку при старте"""
-        try:
-            set_auto_download_enabled(checked)
-            
-            status_text = "включена" if checked else "отключена"
-            QMessageBox.information(self._pw, "Автозагрузка", 
-                                  f"Автозагрузка при старте {status_text}.\n"
-                                  f"Изменения вступят в силу при следующем запуске программы.")
-            log(f"Пользователь {'включил' if checked else 'отключил'} автозагрузку", "INFO")
-            
-        except Exception as e:
-            QMessageBox.warning(self._pw, "Ошибка", 
-                              f"Не удалось изменить настройку автозагрузки: {e}")
-            log(f"Ошибка изменения автозагрузки: {e}", "❌ ERROR")
-
     def clear_startup_cache(self):
         """Очищает кэш проверок запуска"""
         from startup.check_cache import startup_cache
@@ -501,180 +482,6 @@ class AppMenuBar(QMenuBar):
         self._pw._allow_close = True
         QApplication.quit()
 
-    # === ОБРАБОТЧИКИ ДЛЯ ХОСТЛИСТОВ ===
-    def _update_exclusions(self):
-        """Обновляет список исключений"""
-        # Добавляем диалог подтверждения
-        msg_box = QMessageBox(self._pw)
-        msg_box.setWindowTitle("Подтверждение обновления")
-        msg_box.setIcon(QMessageBox.Icon.Question)
-        msg_box.setText("Вы точно хотите обновить исключения с сервера?")
-        msg_box.setInformativeText(
-            "Это действие загрузит новый список исключений с сервера и "
-            "перезапишет текущий список.\n\n"
-            "Ваши пользовательские исключения сохранятся."
-        )
-        msg_box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        
-        if msg_box.exec() != QMessageBox.StandardButton.Yes:
-            return  # Пользователь отменил
-        
-        from updater import update_netrogat_list
-        try:
-            if hasattr(self._pw, 'hosts_manager'):
-                self._pw.set_status("Обновление списка исключений...")
-                update_netrogat_list(parent=self._pw, status_callback=self._pw.set_status)
-                self._pw.set_status("Готово")
-            else:
-                QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
-        except Exception as e:
-            log(f"Ошибка при обновлении исключений: {e}", level="❌ ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить исключения: {e}")
-
-    def _update_custom_sites(self):
-        """Обновляет список пользовательских сайтов"""
-        # Добавляем диалог подтверждения
-        msg_box = QMessageBox(self._pw)
-        msg_box.setWindowTitle("Подтверждение обновления")
-        msg_box.setIcon(QMessageBox.Icon.Question)
-        msg_box.setText("Вы точно хотите обновить кастомные сайты с сервера?")
-        msg_box.setInformativeText(
-            "Это действие загрузит новый список кастомных сайтов с сервера и "
-            "перезапишет текущий список.\n\n"
-            "Ваши пользовательские кастомные сайты сохранятся."
-        )
-        msg_box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        
-        if msg_box.exec() != QMessageBox.StandardButton.Yes:
-            return  # Пользователь отменил
-
-        from updater import update_other_list
-        try:
-            if hasattr(self._pw, 'hosts_manager'):
-                self._pw.set_status("Обновление списка своих сайтов...")
-                update_other_list(parent=self._pw, status_callback=self._pw.set_status)
-                self._pw.set_status("Готово")
-            else:
-                QMessageBox.warning(self, "Ошибка", "Менеджер хостов не инициализирован")
-        except Exception as e:
-            log(f"Ошибка при обновлении своих сайтов: {e}", level="❌ ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить свои сайты: {e}")
-
-    def _exclude_custom_sites(self):
-        """Открывает файл для исключения пользовательских сайтов"""
-        try:
-            import subprocess
-            import os
-            from config import NETROGAT2_PATH
-
-            if not os.path.exists(NETROGAT2_PATH):
-                with open(NETROGAT2_PATH, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на ОДНУ строку БЕЗ WWW И HTTP ИЛИ HTTPS! Пример: vk.com\n")
-
-            # Пробуем разные редакторы по полным путям
-            editors = [
-                r'C:\Windows\System32\notepad.exe',                    # Стандартный блокнот
-                r'C:\Windows\notepad.exe',                             # Альтернативный путь
-                r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
-                r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
-                r'C:\Program Files\VsCodium\VsCodium.exe',            # VsCodium
-                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
-                r'C:\Program Files\Microsoft VS Code\Code.exe',  # VS Code (другой путь)
-                r'C:\Windows\System32\write.exe',                      # WordPad
-            ]
-            
-            success = False
-            for editor in editors:
-                if os.path.exists(editor):
-                    try:
-                        # Используем subprocess.Popen вместо run_hidden для видимого запуска
-                        subprocess.Popen([editor, NETROGAT2_PATH])
-                        editor_name = os.path.basename(editor)
-                        self._pw.set_status(f"Открыт файл исключений в {editor_name}")
-                        success = True
-                        break
-                    except (FileNotFoundError, OSError):
-                        continue
-            
-            if not success:
-                # Если ни один редактор не найден - открываем через ассоциацию Windows
-                try:
-                    os.startfile(NETROGAT2_PATH)
-                    self._pw.set_status("Открыт файл исключений в системном редакторе")
-                except Exception as fallback_error:
-                    # Последний вариант - показываем путь к файлу
-                    QMessageBox.information(
-                        self, 
-                        "Мы не нашли никакой редактор :(",
-                        f"Откройте файл вручную:\n{NETROGAT2_PATH}\n\n"
-                        "Добавьте туда домены, по одному на строку."
-                    )
-                    self._pw.set_status("Создан файл исключений")
-
-        except Exception as e:
-            log(f"Ошибка при открытии файла исключений: {e}", level="❌ ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
-
-    def _add_custom_sites(self):
-        """Открывает файл для добавления пользовательских сайтов"""
-        try:
-            import subprocess
-            import os
-            from config import OTHER2_PATH
-
-            if not os.path.exists(OTHER2_PATH):
-                with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
-                    f.write("# Добавьте сюда свои домены, по одному на ОДНУ строку БЕЗ WWW И HTTP ИЛИ HTTPS! Пример: vk.com\n")
-
-            # Пробуем разные редакторы по полным путям
-            editors = [
-                r'C:\Windows\System32\notepad.exe',                    # Стандартный блокнот
-                r'C:\Windows\notepad.exe',                             # Альтернативный путь
-                r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
-                r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
-                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
-                r'C:\Program Files\Microsoft VS Code\Code.exe',  # VS Code (другой путь)
-                r'C:\Windows\System32\write.exe',                      # WordPad
-            ]
-            
-            success = False
-            for editor in editors:
-                if os.path.exists(editor):
-                    try:
-                        # Используем subprocess.Popen вместо run_hidden для видимого запуска
-                        subprocess.Popen([editor, OTHER2_PATH])
-                        editor_name = os.path.basename(editor)
-                        self._pw.set_status(f"Открыт файл кастомных сайтов в {editor_name}")
-                        success = True
-                        break
-                    except (FileNotFoundError, OSError):
-                        continue
-            
-            if not success:
-                # Если ни один редактор не найден - открываем через ассоциацию Windows
-                try:
-                    os.startfile(OTHER2_PATH)
-                    self._pw.set_status("Открыт файл кастомных сайтов в системном редакторе")
-                except Exception as fallback_error:
-                    # Последний вариант - показываем путь к файлу
-                    QMessageBox.information(
-                        self, 
-                        "Мы не нашли никакой редактор :(",
-                        f"Откройте файл вручную:\n{OTHER2_PATH}\n\n"
-                        "Добавьте туда домены, по одному на строку."
-                    )
-                    self._pw.set_status("Создан файл кастомных сайтов")
-
-        except Exception as e:
-            log(f"Ошибка при открытии файла кастомных сайтов: {e}", level="❌ ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {e}")
-
     # ==================================================================
     #  Справка
     # ==================================================================
@@ -713,14 +520,14 @@ class AppMenuBar(QMenuBar):
                                 f"Не удалось открыть журнал:\n{e}")
 
     def send_log_to_tg(self):
-        """Асинхронно отправляет полный лог, но не чаще раза в 10 минут даже после перезапуска."""
+        """Отправляет полный лог через отдельного бота для логов."""
         import time
         now = time.time()
-        interval = 10 * 60  # 10 минут
+        interval = 1 * 60  # 1 минута
 
-        # читаем из настроек (реестра)
+        # Проверяем интервал
         last = self._settings.value("last_full_log_send", 0.0, type=float)
-
+        
         if now - last < interval:
             remaining = int((interval - (now - last)) // 60) + 1
             QMessageBox.information(self._pw, "Отправка логов",
@@ -728,60 +535,96 @@ class AppMenuBar(QMenuBar):
                 f"Следующая отправка возможна через {remaining} мин.")
             return
 
-        # запоминаем текущее время
+        # Проверяем настройки бота
+        from tgram.tg_log_bot import check_bot_connection
+        
+        if not check_bot_connection():
+            msg_box = QMessageBox(self._pw)
+            msg_box.setWindowTitle("Бот не настроен")
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setText(
+                "Бот для отправки логов не настроен или недоступен.\n\n"
+                "Для настройки:\n"
+                "1. Создайте бота через @BotFather в Telegram\n"
+                "2. Получите токен бота\n"
+                "3. Создайте канал/чат для логов\n"
+                "4. Добавьте бота в канал как администратора\n"
+                "5. Обновите настройки в файле tg_log_bot.py"
+            )
+            msg_box.exec()
+            return
+
+        # Запоминаем время отправки
         self._settings.setValue("last_full_log_send", now)
 
-        # Обычный асинхронный код отправки…
-        from tgram.tg_log_full  import TgSendWorker
+        # Подготовка к отправке
+        from tgram.tg_log_full import TgSendWorker
         from tgram.tg_log_delta import get_client_id
-
         import os
         from config import LOGS_FOLDER
+        
         LOG_PATH = os.path.join(LOGS_FOLDER, "zapret_log.txt")
-        caption  = f"Zapret log (ID: {get_client_id()}, v{APP_VERSION})"
+        
+        # Проверяем существование файла
+        if not os.path.exists(LOG_PATH):
+            QMessageBox.warning(self._pw, "Ошибка", "Файл лога не найден")
+            return
+        
+        # Формируем подпись с информацией
+        import platform
+        caption = (
+            f"📋 Ручная отправка лога\n"
+            f"Zapret v{APP_VERSION}\n"
+            f"ID: {get_client_id()}\n"
+            f"Host: {platform.node()}\n"
+            f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"
+        )
 
-        action = self.sender()                # QAction, вызвавший слот
+        action = self.sender()
         if action:
             action.setEnabled(False)
 
-        wnd = self._pw             # объект LupiDPIApp
-
+        wnd = self._pw
         if hasattr(wnd, "set_status"):
-            wnd.set_status("Отправка полного лога…")
+            wnd.set_status("Отправка лога...")
 
-        # поток + воркер
-        thr    = QThread(self)
-        worker = TgSendWorker(LOG_PATH, caption)
+        # Создаем воркер с флагом use_log_bot=True
+        thr = QThread(self)
+        worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
         worker.moveToThread(thr)
         thr.started.connect(worker.run)
 
         def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
             if ok:
-                QMessageBox.information(wnd, "Отправка", "Лог успешно отправлен.")
+                QMessageBox.information(wnd, "Успешно", 
+                    "Лог успешно отправлен в канал поддержки.\n"
+                    "Спасибо за помощь в улучшении программы!")
                 if hasattr(wnd, "set_status"):
-                    wnd.set_status("Полный лог отправлен в Telegram")
+                    wnd.set_status("Лог отправлен")
             else:
                 if extra_wait > 0:
-                    QMessageBox.warning(wnd, "Отправка",
-                        f"Слишком частые запросы (flood-wait).\n"
+                    QMessageBox.warning(wnd, "Слишком часто",
+                        f"Слишком частые запросы.\n"
                         f"Повторите через {int(extra_wait/60)} минут.")
                 else:
-                    QMessageBox.warning(wnd, "Отправка",
-                        f"Не удалось отправить лог.\n"
-                        f"Ошибка: {error_msg}")
+                    QMessageBox.warning(wnd, "Ошибка",
+                        f"Не удалось отправить лог.\n\n"
+                        f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
+                        f"Попробуйте позже или обратитесь в поддержку.")
                 
                 if hasattr(wnd, "set_status"):
-                    wnd.set_status("Не удалось отправить лог")
+                    wnd.set_status("Ошибка отправки лога")
             
-            # чистим
+            # Очистка
             worker.deleteLater()
-            thr.quit(); thr.wait()
+            thr.quit()
+            thr.wait()
             if action:
                 action.setEnabled(True)
 
         worker.finished.connect(_on_done)
 
-        # чтобы поток и воркер не были собраны GC
+        # Сохраняем ссылку на поток
         self._log_send_thread = thr
         thr.start()
 

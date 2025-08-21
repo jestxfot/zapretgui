@@ -1,13 +1,8 @@
 # updater/__init__.py
-from .update_netrogat import update_netrogat_list
-from .update_other import update_other_list
-from .update import run_update_async, check_and_run_update
+from .update import run_update_async
 
 __all__ = [
-    'update_netrogat_list',
-    'update_other_list', 
-    'run_update_async',
-    'check_and_run_update'
+    'run_update_async'
 ]
 
 # Version info for the updater module

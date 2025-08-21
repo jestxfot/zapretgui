@@ -15,9 +15,9 @@ from __future__ import annotations
 import os, subprocess, time, winreg
 from pathlib import Path
 from typing import Callable, Iterable
-from utils import run_hidden # обёртка для subprocess.run
-
-from log import log         # тот же логгер, что и в проекте
+from utils import run_hidden
+from log import log
+from .autostart_direct import remove_direct_autostart
 
 
 class AutoStartCleaner:
@@ -25,10 +25,19 @@ class AutoStartCleaner:
     Полностью убирает все механизмы автозапуска, связанные с проектом Zapret.
     """
 
-    # что именно ищем/удаляем — вынесено в «константы» для наглядности
+
     STARTUP_SHORTCUTS: tuple[str, ...] = ("ZapretGUI.lnk", "ZapretStrategy.lnk")
-    SCHEDULER_TASKS:   tuple[str, ...] = ("ZapretStrategy", "ZapretCensorliber")
-    SERVICE_NAMES:     tuple[str, ...] = ("ZapretCensorliber", "ZapretCensorliber")
+    SCHEDULER_TASKS:   tuple[str, ...] = (
+        "ZapretStrategy", 
+        "ZapretCensorliber",
+        "ZapretDirect_AutoStart",
+        "ZapretDirect",
+        "ZapretGUI_AutoStart"
+    )
+    SERVICE_NAMES:     tuple[str, ...] = (
+        "ZapretCensorliber", 
+        "ZapretDirect"
+    )
 
     def __init__(
         self,
@@ -36,22 +45,39 @@ class AutoStartCleaner:
         service_names: Iterable[str] | None = None,
         status_cb: Callable[[str], None] | None = None,
     ):
-        """
-        Parameters
-        ----------
-        service_names : Iterable[str] | None
-            Перечень имён служб, которые нужно удалить.
-            Если None – берутся значения из SERVICE_NAMES класса.
-        status_cb : Callable[[str], None] | None
-            Колбэк для отображения статуса в GUI; можно None.
-        """
         self.service_names = tuple(service_names) if service_names else self.SERVICE_NAMES
         self._status_cb = status_cb
 
-    # ───────────────────────────────────────────────────────────── helpers ──
     def _status(self, msg: str):
         if self._status_cb:
             self._status_cb(msg)
+
+    def run(self) -> bool:
+        """
+        Запускает полное удаление всех механизмов автозапуска
+        """
+        log("Удаление всех механизмов автозапуска…", "INFO")
+
+        shortcuts = self._remove_startup_shortcuts()
+        tasks     = self._remove_scheduler_tasks()
+        registry  = self._remove_autostart_registry()
+
+        services_removed_any = False
+        for svc in self.service_names:
+            if self._remove_service(svc):
+                services_removed_any = True
+
+        # Удаляем Direct автозапуск
+        direct_removed = remove_direct_autostart()  # НОВОЕ
+
+        removed_any = any((shortcuts, tasks, services_removed_any, registry, direct_removed))
+        
+        if removed_any:
+            log("Механизмы автозапуска удалены", "INFO")
+        else:
+            log("Механизмы автозапуска не найдены", "INFO")
+
+        return removed_any
 
     # ======================================================================
     # 1) ЯРЛЫКИ  %APPDATA%\...\Startup
@@ -153,35 +179,3 @@ class AutoStartCleaner:
             err = delete.stderr.strip() or delete.stdout.strip()
             log(f"Ошибка удаления службы {svc_name}: {err}", "❌ ERROR")
             return True    # Служба была, попытались удалить ⇒ считаем «что-то удалили»
-
-    # ======================================================================
-    # 5) ПУБЛИЧНЫЙ МЕТОД
-    # ======================================================================
-    def run(self) -> bool:
-        """
-        Запускает полное «подметание».
-
-        Returns
-        -------
-        bool
-            True  – удалось удалить хотя бы один механизм автозапуска;  
-            False – ничего не найдено.
-        """
-        log("Удаление всех механизмов автозапуска…", "INFO")
-
-        shortcuts = self._remove_startup_shortcuts()
-        tasks     = self._remove_scheduler_tasks()
-        registry  = self._remove_autostart_registry()
-
-        services_removed_any = False
-        for svc in self.service_names:
-            if self._remove_service(svc):
-                services_removed_any = True
-
-        removed_any = any((shortcuts, tasks, services_removed_any, registry))
-        if removed_any:
-            log("Механизмы автозапуска удалены", "INFO")
-        else:
-            log("Механизмы автозапуска не найдены", "INFO")
-
-        return removed_any

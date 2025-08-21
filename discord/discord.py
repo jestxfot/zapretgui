@@ -71,6 +71,7 @@ class DiscordManager:
         return False
     
     def _restart_discord_thread(self):
+        from log import log
         """Фоновый поток для перезапуска Discord"""
         try:
             # Проверяем, запущен ли Discord
@@ -104,15 +105,15 @@ class DiscordManager:
                 # Запускаем Discord снова
                 discord_path = self.find_discord_path()
                 if discord_path:
-                    self.set_status(f"Запускаем Discord снова...")
                     run_hidden(discord_path)
-                    self.set_status("Discord был успешно перезапущен")
+                    log(f"Discord перезапущен: {discord_path}", level="INFO")
                 else:
                     self.set_status("Не удалось найти путь к Discord для перезапуска")
             else:
-                self.set_status("Discord не был запущен, перезапуск не требуется")
+                log("Discord не запущен, перезапуск не требуется", level="INFO")
         
         except Exception as e:
+            log(f"Ошибка при перезапуске Discord: {str(e)}", level="ERROR")
             self.set_status(f"Ошибка при перезапуске Discord: {str(e)}")
     
     def restart_discord_if_running(self):
