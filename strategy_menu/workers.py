@@ -21,14 +21,9 @@ class StrategyListLoader(QObject):
                 self.progress.emit("Принудительное обновление с сервера...")
                 strategies = self.strategy_manager.get_strategies_list(force_update=True)
             else:
-                from config import get_strategy_autoload
-                if get_strategy_autoload():
-                    self.progress.emit("Обновление индекса стратегий...")
-                    strategies = self.strategy_manager.get_strategies_list(force_update=True)
-                else:
-                    self.progress.emit("Загрузка локального кэша...")
-                    strategies = self.strategy_manager.get_strategies_list(force_update=False)
-            
+                self.progress.emit("Загрузка локального кэша...")
+                strategies = self.strategy_manager.get_strategies_list(force_update=False)
+                
             self.progress.emit("Обработка списка стратегий...")
             
             if strategies:

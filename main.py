@@ -737,45 +737,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при периодической проверке подписки: {e}", level="❌ ERROR")
 
-    def _check_subscription_async(self, prev_premium):
-        """Асинхронная проверка подписки"""
-        from PyQt6.QtCore import QThread, QObject, pyqtSignal
-        
-        class SubscriptionCheckWorker(QObject):
-            finished = pyqtSignal(bool, bool, str, int)  # prev_premium, is_premium, status_msg, days_remaining
-            
-            def __init__(self, donate_checker, prev_premium):
-                super().__init__()
-                self.donate_checker = donate_checker
-                self.prev_premium = prev_premium
-                
-            def run(self):
-                try:
-                    # Сетевая проверка в фоне
-                    is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
-                    self.finished.emit(self.prev_premium, is_premium, status_msg, days_remaining)
-                except Exception as e:
-                    log(f"Ошибка фоновой проверки подписки: {e}", "❌ ERROR")
-                    # В случае ошибки возвращаем кэшированные данные
-                    self.finished.emit(self.prev_premium, self.prev_premium, "Ошибка проверки", 0)
-        
-        # Создаем worker только если еще не запущен
-        if hasattr(self, '_subscription_check_thread') and self._subscription_check_thread.isRunning():
-            log("Проверка подписки уже выполняется, пропускаем", "DEBUG")
-            return
-        
-        self._subscription_check_thread = QThread()
-        self._subscription_check_worker = SubscriptionCheckWorker(self.donate_checker, prev_premium)
-        self._subscription_check_worker.moveToThread(self._subscription_check_thread)
-        
-        self._subscription_check_thread.started.connect(self._subscription_check_worker.run)
-        self._subscription_check_worker.finished.connect(self._on_subscription_check_done)
-        self._subscription_check_worker.finished.connect(self._subscription_check_thread.quit)
-        self._subscription_check_worker.finished.connect(self._subscription_check_worker.deleteLater)
-        self._subscription_check_thread.finished.connect(self._subscription_check_thread.deleteLater)
-        
-        self._subscription_check_thread.start()
-
     def _on_subscription_check_done(self, prev_premium, is_premium, status_msg, days_remaining):
         """Обрабатывает результат фоновой проверки подписки"""
         try:
@@ -1289,14 +1250,20 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def _init_logger(self):
         """Инициализация логгера"""
-        from log import LOG_FILE  # импортируем путь к лог-файлу
+        from log import global_logger  # ИЗМЕНЕНО: используем global_logger
         from tgram import FullLogDaemon
         
-        self.log_sender = FullLogDaemon(
-            log_path=LOG_FILE,  # используем глобальный путь
-            interval=200,
-            parent=self
-        )
+        # ИЗМЕНЕНО: получаем путь из global_logger
+        log_path = global_logger.log_file if hasattr(global_logger, 'log_file') else None
+        
+        if log_path:
+            self.log_sender = FullLogDaemon(
+                log_path=log_path,  # используем динамический путь
+                interval=200,
+                parent=self
+            )
+        else:
+            log("Не удалось инициализировать отправку логов - путь к файлу не найден", "⚠ WARNING")
 
     def _init_real_donate_checker(self):
         """Создает реальный DonateChecker"""

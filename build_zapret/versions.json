@@ -5,16 +5,16 @@
     "release_date": "2025-08-19"
   },
   "test": {
-    "version": "16.4.7.11",
+    "version": "16.4.8.11",
     "description": "Тестовая версия",
-    "release_date": "2025-08-21"
+    "release_date": "2025-08-24"
   },
   "next_suggested": {
     "stable": "16.3.0.6",
-    "test": "16.4.7.12"
+    "test": "16.4.8.12"
   },
   "metadata": {
-    "last_updated": "2025-08-21 22:20:08",
+    "last_updated": "2025-08-24 21:36:03",
     "updated_by": "build_system"
   }
 }

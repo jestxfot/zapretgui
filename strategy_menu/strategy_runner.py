@@ -5,9 +5,101 @@ import subprocess
 import shlex
 from typing import Optional, List, Dict
 from log import log
+from datetime import datetime
 
 from .constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
 
+def log_full_command(cmd_list: List[str], strategy_name: str):
+    """
+    Записывает полную командную строку в отдельный файл для дебага
+    
+    Args:
+        cmd_list: Список аргументов команды
+        strategy_name: Название стратегии
+    """
+    try:
+        from config import LOGS_FOLDER
+        
+        # Создаем папку logs если её нет
+        os.makedirs(LOGS_FOLDER, exist_ok=True)
+        
+        # Путь к файлу командных строк
+        cmd_log_file = os.path.join(LOGS_FOLDER, "commands_full.log")
+        
+        # Формируем полную командную строку правильно
+        full_cmd_parts = []
+        for i, arg in enumerate(cmd_list):
+            if i == 0:  # Это путь к exe
+                full_cmd_parts.append(arg)
+            else:
+                # Проверяем, нужны ли кавычки
+                # Не добавляем кавычки если они уже есть или если это простой аргумент без пробелов
+                if arg.startswith('"') and arg.endswith('"'):
+                    full_cmd_parts.append(arg)
+                elif ' ' in arg or '\t' in arg:
+                    # Если есть пробелы, добавляем кавычки
+                    full_cmd_parts.append(f'"{arg}"')
+                else:
+                    full_cmd_parts.append(arg)
+        
+        full_cmd = ' '.join(full_cmd_parts)
+        
+        # Подготавливаем запись
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        separator = "=" * 80
+        
+        # Записываем в файл (режим 'a' для добавления, не перезаписи)
+        with open(cmd_log_file, 'a', encoding='utf-8') as f:
+            f.write(f"\n{separator}\n")
+            f.write(f"Timestamp: {timestamp}\n")
+            f.write(f"Strategy: {strategy_name}\n")
+            f.write(f"Command length: {len(full_cmd)} characters\n")
+            f.write(f"Arguments count: {len(cmd_list) - 1}\n")  # -1 для исключения exe
+            f.write(f"{separator}\n")
+            f.write(f"FULL COMMAND:\n")
+            f.write(f"{full_cmd}\n")
+            f.write(f"{separator}\n")
+            
+            # Также записываем команду в формате списка для удобства анализа
+            f.write(f"ARGUMENTS LIST:\n")
+            for i, arg in enumerate(cmd_list):
+                f.write(f"[{i:3}]: {arg}\n")
+            f.write(f"{separator}\n\n")
+        
+        # Также создаем файл с последней командой для быстрого доступа
+        last_cmd_file = os.path.join(LOGS_FOLDER, "last_command.txt")
+        with open(last_cmd_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Last command executed at {timestamp}\n")
+            f.write(f"# Strategy: {strategy_name}\n\n")
+            f.write(full_cmd)
+        
+        # Создаем файл с историей последних 10 команд
+        history_file = os.path.join(LOGS_FOLDER, "commands_history.txt")
+        
+        # Читаем существующую историю
+        history_lines = []
+        if os.path.exists(history_file):
+            with open(history_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # Разбиваем по разделителям
+                entries = content.split('\n' + '=' * 60 + '\n')
+                # Берем последние 9 записей
+                if len(entries) > 9:
+                    entries = entries[-9:]
+                history_lines = ('\n' + '=' * 60 + '\n').join(entries)
+        
+        # Добавляем новую запись
+        with open(history_file, 'w', encoding='utf-8') as f:
+            if history_lines:
+                f.write(history_lines)
+                f.write('\n' + '=' * 60 + '\n')
+            f.write(f"[{timestamp}] {strategy_name}\n")
+            f.write(full_cmd)
+        
+        log(f"Команда сохранена в logs/commands_full.log", "DEBUG")
+        
+    except Exception as e:
+        log(f"Ошибка записи команды в лог: {e}", "DEBUG")
 
 def apply_wssize_parameter(args: list) -> list:
     """
@@ -85,7 +177,6 @@ def _find_wssize_insert_position(args: list) -> int:
     else:
         return len(args)
 
-
 class StrategyRunner:
     """Класс для запуска стратегий напрямую через subprocess. Отвечает только за Direct режим"""
     
@@ -121,13 +212,36 @@ class StrategyRunner:
         startupinfo.dwFlags = STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = SW_HIDE
         return startupinfo
-    
+
     def _resolve_file_paths(self, args: List[str]) -> List[str]:
         """Разрешает относительные пути к файлам"""
+        from config import WINDIVERT_FILTER
+        
         resolved_args = []
         
         for arg in args:
-            if any(arg.startswith(prefix) for prefix in [
+            # Обработка --wf-raw
+            if arg.startswith("--wf-raw="):
+                value = arg.split("=", 1)[1]
+                
+                # Если значение начинается с @, это означает файл
+                if value.startswith("@"):
+                    filename = value[1:]  # Убираем @ в начале
+                    filename = filename.strip('"')
+                    
+                    if not os.path.isabs(filename):
+                        # Используем папку WINDIVERT_FILTER для фильтров
+                        windivert_dir = os.path.dirname(WINDIVERT_FILTER) if os.path.isfile(WINDIVERT_FILTER) else WINDIVERT_FILTER
+                        full_path = os.path.join(windivert_dir, filename)
+                        # Кавычки добавляем только вокруг пути, не всего аргумента
+                        resolved_args.append(f'--wf-raw=@{full_path}')
+                    else:
+                        resolved_args.append(f'--wf-raw=@{filename}')
+                else:
+                    # Если не файл, оставляем как есть
+                    resolved_args.append(arg)
+                    
+            elif any(arg.startswith(prefix) for prefix in [
                 "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
             ]):
                 prefix, filename = arg.split("=", 1)
@@ -244,35 +358,38 @@ class StrategyRunner:
             log(f"Запуск стратегии '{strategy_name}'", "INFO")
             log(f"Количество аргументов: {len(resolved_args)}", "DEBUG")
             
-            # ДОБАВЛЯЕМ ЛОГИРОВАНИЕ ПОЛНОЙ КОМАНДНОЙ СТРОКИ
-            # Формируем командную строку для отображения
-            cmd_display = ' '.join([
-                f'"{arg}"' if ' ' in arg or '"' in arg else arg 
-                for arg in cmd
-            ])
+            # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ В ОТДЕЛЬНЫЙ ЛОГ
+            log_full_command(cmd, strategy_name)
             
-            # Если командная строка слишком длинная, сокращаем пути
-            if len(cmd_display) > 500:
-                # Сокращаем длинные пути
-                short_cmd = []
-                for arg in cmd:
-                    if '\\' in arg and len(arg) > 50:
-                        # Сокращаем путь: показываем начало и конец
-                        parts = arg.split('\\')
-                        if len(parts) > 3:
-                            short_arg = f"{parts[0]}\\...\\{parts[-1]}"
-                        else:
-                            short_arg = arg
-                        short_cmd.append(f'"{short_arg}"' if ' ' in short_arg else short_arg)
+            # Формируем командную строку для отображения в основном логе (сокращенная версия)
+            cmd_display_parts = []
+            for arg in cmd:
+                if '\\' in arg and len(arg) > 60:
+                    # Сокращаем длинные пути
+                    parts = arg.split('\\')
+                    if len(parts) > 3:
+                        # Сохраняем начало и конец пути
+                        short_arg = f"{parts[0]}\\...\\{parts[-1]}"
                     else:
-                        short_cmd.append(f'"{arg}"' if ' ' in arg else arg)
-                cmd_display = ' '.join(short_cmd)
+                        short_arg = arg
+                    cmd_display_parts.append(short_arg)
+                else:
+                    cmd_display_parts.append(arg)
             
-            # Выводим полную командную строку в логи
-            log("─" * 60, "INFO")
-            log("📋 КОМАНДНАЯ СТРОКА:", "INFO")
-            log(cmd_display, "INFO")
-            log("─" * 60, "INFO")
+            cmd_display = ' '.join(cmd_display_parts)
+            
+            # Выводим в лог
+            if len(cmd_display) > 500:
+                log("─" * 60, "INFO")
+                log("📋 КОМАНДНАЯ СТРОКА (сокращенная):", "INFO")
+                log(cmd_display, "INFO")
+                log("💡 Полная команда сохранена в logs/commands_full.log", "INFO")
+                log("─" * 60, "INFO")
+            else:
+                log("─" * 60, "INFO")
+                log("📋 КОМАНДНАЯ СТРОКА:", "INFO")
+                log(cmd_display, "INFO")
+                log("─" * 60, "INFO")
             
             # Запускаем процесс
             self.running_process = subprocess.Popen(
@@ -409,7 +526,6 @@ class StrategyRunner:
             'pid': self.running_process.pid if self.running_process else None,
             'args_count': len(self.current_strategy_args) if self.current_strategy_args else 0
         }
-
 
 # Глобальный экземпляр
 _strategy_runner_instance: Optional[StrategyRunner] = None

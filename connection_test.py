@@ -616,7 +616,7 @@ class ConnectionTestWorker(QObject):
     def _check_autostart_settings(self):
         """Проверяет настройки автозапуска"""
         try:
-            from config import get_dpi_autostart, get_strategy_autoload
+            from config import get_dpi_autostart
             
             self.log_message("⚙️ НАСТРОЙКИ АВТОЗАПУСКА:")
             
@@ -624,11 +624,6 @@ class ConnectionTestWorker(QObject):
             dpi_autostart = get_dpi_autostart()
             status_dpi = "✅ Включен" if dpi_autostart else "❌ Отключен"
             self.log_message(f"   DPI автозапуск: {status_dpi}")
-            
-            # Проверяем автозагрузку стратегий
-            strategy_autoload = get_strategy_autoload()
-            status_strategy = "✅ Включена" if strategy_autoload else "❌ Отключена"
-            self.log_message(f"   Автозагрузка стратегий: {status_strategy}")
             
             # Проверяем системный автозапуск
             self._check_system_autostart()

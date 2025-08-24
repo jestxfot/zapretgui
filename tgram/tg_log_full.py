@@ -103,6 +103,11 @@ class FullLogDaemon(QObject):
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_path.touch(exist_ok=True)
 
+        # Проверяем существование файла при инициализации
+        if not os.path.exists(self.log_path):
+            log(f"Лог файл не найден при инициализации FullLogDaemon: {self.log_path}", "⚠ WARNING")
+            return
+        
         # снимок предыдущего состояния
         self.last_hash = None
         self.last_line_count = 0

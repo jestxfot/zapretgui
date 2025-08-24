@@ -16,7 +16,6 @@ from log import log, LogViewerDialog, global_logger
 # ─── работа с реестром ──────────────────────────
 from config import (
     get_dpi_autostart,  set_dpi_autostart,
-    get_strategy_autoload, set_strategy_autoload,
     get_remove_windows_terminal, set_remove_windows_terminal
 )
 
@@ -40,12 +39,6 @@ class AppMenuBar(QMenuBar):
         self.auto_dpi_act.setChecked(get_dpi_autostart())
         self.auto_dpi_act.toggled.connect(self.toggle_dpi_autostart)
         file_menu.addAction(self.auto_dpi_act)
-
-        # 2Чек-бокс Автообновление стратегий» (раз уж из трея убран)
-        self.auto_strat_act = QAction("Автообновление стратегий", self, checkable=True)
-        self.auto_strat_act.setChecked(get_strategy_autoload())
-        self.auto_strat_act.toggled.connect(self.toggle_strategy_autoload)
-        file_menu.addAction(self.auto_strat_act)
 
         self.force_dns_act = QAction("Принудительный DNS 9.9.9.9", self, checkable=True)
         self.force_dns_act.setChecked(self._get_force_dns_enabled())
@@ -116,18 +109,16 @@ class AppMenuBar(QMenuBar):
         act_logs.triggered.connect(self.send_log_to_tg)
         telemetry_menu.addAction(act_logs)
 
-        # 2 «О программе…»
-        act_about = QAction("О программе…", self)
-        act_about.triggered.connect(lambda: AboutDialog(parent).exec())
-        telemetry_menu.addAction(act_about)
-
         # -------- 3. «Справка» ---------------------------------------------
         help_menu = self.addMenu("&Справка")
 
         act_help = QAction("Что это такое? (Руководство)", self)
         act_help.triggered.connect(self.open_info)
-
         help_menu.addAction(act_help)
+
+        act_about = QAction("О программе…", self)
+        act_about.triggered.connect(lambda: AboutDialog(parent).exec())
+        help_menu.addAction(act_about)
 
         # -------- 4. «Андроид» ---------------------------------------------
         android_menu = self.addMenu("&Андроид")
@@ -388,37 +379,6 @@ class AppMenuBar(QMenuBar):
         self._set_status(msg)
         QMessageBox.information(self._pw, "Автозагрузка DPI", msg)
 
-    def toggle_strategy_autoload(self, enabled: bool):
-        if not enabled:
-            warn = (
-                "<b>Вы действительно хотите ОТКЛЮЧИТЬ автообновления "
-                "стратегий?</b><br><br>"
-                "⚠️  Это <span style='color:red;font-weight:bold;'>сломает</span> "
-                "быстрое и удобное обновление стратегий без переустановки "
-                "всей программы!"
-            )
-            resp = QMessageBox.question(
-                self._pw,
-                "Отключить автообновление стратегий?",
-                warn,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-            if resp != QMessageBox.StandardButton.Yes:
-                # пользователь передумал – откатываем галку
-                self.auto_strat_act.blockSignals(True)
-                self.auto_strat_act.setChecked(True)
-                self.auto_strat_act.blockSignals(False)
-                return
-
-        # сохраняем выбор
-        set_strategy_autoload(enabled)
-        msg = ("Стратегии будут скачиваться автоматически"
-               if enabled
-               else "Автообновлений стратегий отключена")
-        self._set_status(msg)
-        QMessageBox.information(self._pw, "Автообновление стратегий", msg)
-
     # ==================================================================
     #  Полный выход (убираем трей +, при желании, останавливаем DPI)
     # ==================================================================
@@ -561,19 +521,21 @@ class AppMenuBar(QMenuBar):
         from tgram.tg_log_full import TgSendWorker
         from tgram.tg_log_delta import get_client_id
         import os
-        from config import LOGS_FOLDER
+
+        # ИЗМЕНЕНО: используем текущий лог файл
+        from log import global_logger
+        LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
         
-        LOG_PATH = os.path.join(LOGS_FOLDER, "zapret_log.txt")
-        
-        # Проверяем существование файла
-        if not os.path.exists(LOG_PATH):
+        if not LOG_PATH or not os.path.exists(LOG_PATH):
             QMessageBox.warning(self._pw, "Ошибка", "Файл лога не найден")
             return
         
-        # Формируем подпись с информацией
+        # Формируем подпись с информацией о файле
         import platform
+        log_filename = os.path.basename(LOG_PATH)
         caption = (
             f"📋 Ручная отправка лога\n"
+            f"📁 Файл: {log_filename}\n"  # Добавляем имя файла
             f"Zapret v{APP_VERSION}\n"
             f"ID: {get_client_id()}\n"
             f"Host: {platform.node()}\n"

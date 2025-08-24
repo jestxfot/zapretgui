@@ -18,18 +18,40 @@ from utils import run_hidden
 DIRECT_TASK_NAME = "ZapretDirect"
 DIRECT_BOOT_TASK_NAME = "ZapretDirectBoot"  # Задача для запуска при загрузке системы
 
-
 def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
     """
     Разрешает относительные пути к файлам
     """
+    from config import WINDIVERT_FILTER
+    
     resolved_args = []
     lists_dir = os.path.join(work_dir, "lists")
     bin_dir = os.path.join(work_dir, "bin")
     
     for arg in args:
+        # Обработка --wf-raw
+        if arg.startswith("--wf-raw="):
+            value = arg.split("=", 1)[1]
+            
+            # Если значение начинается с @, это означает файл
+            if value.startswith("@"):
+                filename = value[1:]  # Убираем @ в начале
+                filename = filename.strip('"')
+                
+                if not os.path.isabs(filename):
+                    # Используем папку WINDIVERT_FILTER для фильтров
+                    windivert_dir = os.path.dirname(WINDIVERT_FILTER) if os.path.isfile(WINDIVERT_FILTER) else WINDIVERT_FILTER
+                    full_path = os.path.join(windivert_dir, filename)
+                    # Для autostart не нужны кавычки - schtasks сам добавит при необходимости
+                    resolved_args.append(f'--wf-raw=@{full_path}')
+                else:
+                    resolved_args.append(f'--wf-raw=@{filename}')
+            else:
+                # Если не файл, оставляем как есть
+                resolved_args.append(arg)
+        
         # Обработка хостлистов
-        if any(arg.startswith(prefix) for prefix in [
+        elif any(arg.startswith(prefix) for prefix in [
             "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
         ]):
             prefix, filename = arg.split("=", 1)
@@ -63,7 +85,6 @@ def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
             resolved_args.append(arg)
     
     return resolved_args
-
 
 def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
     """

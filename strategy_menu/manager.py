@@ -52,16 +52,6 @@ class StrategyManager:
 
         os.makedirs(self.local_dir, exist_ok=True)
 
-        # ленивая загрузка: ничего не качаем, только если явно попросили
-        self._loaded = False
-        if preload:
-            # Проверяем настройку автозагрузки перед preload
-            from config import get_strategy_autoload
-            if get_strategy_autoload():
-                self.preload_strategies()
-            else:
-                log("Автозагрузка стратегий отключена - пропуск preload", "⚙ manager")
-
     def get_local_strategies_only(self) -> dict:
         """НОВЫЙ МЕТОД: Возвращает только локальные стратегии без попыток загрузки"""
         if self.strategies_cache:
@@ -138,13 +128,6 @@ class StrategyManager:
             self.get_local_strategies_only()
             return
 
-        # Остальная логика остается без изменений...
-        from config import get_strategy_autoload
-        if not get_strategy_autoload():
-            log("Автозагрузка стратегий отключена - пропуск preload", "⚙ manager")
-            self.set_status("Автозагрузка стратегий отключена")
-            return
-
         log("Preload стратегий (только индекс)…", "⚙ manager")
         strategies = self.get_strategies_list()
         if not strategies:
@@ -164,11 +147,6 @@ class StrategyManager:
     def _download_strategies_index(self) -> dict:
         """Внутренний метод для скачивания index.json с резервными источниками."""
         # Проверяем настройку автозагрузки
-        from config import get_strategy_autoload
-        if not get_strategy_autoload():
-            log("Автозагрузка стратегий отключена - прерываем загрузку", "⚙ manager")
-            self.set_status("Автозагрузка стратегий отключена")
-            return self._load_local_cache()
 
         self.set_status("Получение списка стратегий…")
         
@@ -382,17 +360,11 @@ class StrategyManager:
         if self._loaded and self.strategies_cache and not force_update:
             return self.strategies_cache
 
-        # ПЕРВЫЙ ПРИОРИТЕТ: Если кэш уже загружен и не нужно принудительное обновление
+        # Если кэш уже загружен и не нужно принудительное обновление
         if self.cache_loaded and self.strategies_cache and not force_update:
             return self.strategies_cache
 
-        # ВТОРОЙ ПРИОРИТЕТ: Проверяем автозагрузку (только если еще не загружены)
-        if not force_update and not self.cache_loaded:
-            from config import get_strategy_autoload
-            if not get_strategy_autoload():
-                return self._load_local_cache()
-
-        # ТРЕТИЙ ПРИОРИТЕТ: Проверяем нужна ли загрузка по времени
+        # Проверяем нужна ли загрузка по времени
         if not force_update and self.cache_loaded:
             now = time.time()
             if (now - self.last_update_time) <= self.update_interval:

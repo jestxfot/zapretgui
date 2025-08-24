@@ -1,0 +1,17 @@
+﻿=== Zapret GUI Log - Started 2025-08-24 21:12:21 ===
+Log file: zapret_log_2025-08-24_21-12-21.txt
+Total log files in folder: 27
+============================================================
+
+[21:17:40] Exception in Tkinter callback[21:17:40] 
+[21:17:40] Traceback (most recent call last):
+[21:17:40] [21:17:40]   File "C:\Program Files\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+[21:17:40] [21:17:40]   File "C:\Program Files\Python312\Lib\tkinter\__init__.py", line 862, in callit
+    func(*args)
+[21:17:40] [21:17:40]   File "D:\Privacy\zapretgui\build_zapret\build_release_gui.py", line 903, in <lambda>
+    self.root.after(0, lambda: self.build_error(str(e)))
+                                                    ^
+[21:17:40] [21:17:40] NameError: cannot access free variable 'e' where it is not associated with a value in enclosing scope
+[21:17:40] 

@@ -439,96 +439,19 @@ def _ensure_uninstall_delete(text: str, path: str) -> str:
     return text
 
 def prepare_iss(channel: str, version: str) -> Path:
-    """Создаёт zapret_<channel>.iss с проверкой путей"""
-    src = ROOT / "zapret.iss"
+    """Просто копирует универсальный ISS файл"""
+    src = ROOT / "zapret_universal.iss"
     if not src.exists():
-        raise FileNotFoundError(f"zapret.iss не найден в {ROOT}")
-
-    txt = src.read_text(encoding="utf-8-sig")
-
-    if not version.strip():
-        m = re.search(r"^AppVersion\s*=\s*([0-9\.]+)", txt, re.MULTILINE)
-        current = m.group(1) if m else "0.0.0.0"
-        version = suggest_next(current)
-
-    txt = _sub("AppVersion", version, txt)
-
-    base_guid = "5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0"
-
-    # Определяем путь к exe файлу
-    # PyInstaller создает в D:\Privacy\zapret
-    dist_path = ROOT.parent / "zapret"
-    exe_path = dist_path / "Zapret.exe"
+        raise FileNotFoundError(f"zapret_universal.iss не найден в {ROOT}")
     
-    # Проверяем где находится exe после сборки
-    possible_exe_paths = [
-        dist_path / "Zapret.exe",  # D:\Privacy\zapret\Zapret.exe
-        ROOT / "Zapret.exe",  # D:\Privacy\zapretgui\Zapret.exe
-        ROOT / "zapret" / "Zapret.exe",  # D:\Privacy\zapretgui\zapret\Zapret.exe
-    ]
-    
-    exe_found = False
-    for check_path in possible_exe_paths:
-        if check_path.exists():
-            exe_found = True
-            exe_path = check_path
-            break
-    
-    if exe_found:
-        # Обновляем путь к исходным файлам в ISS
-        # Используем относительный или абсолютный путь
-        source_dir = str(exe_path.parent).replace("\\", "\\\\")
-        
-        # Заменяем строку Source для Zapret.exe
-        txt = re.sub(
-            r'Source:\s*"[^"]*Zapret\.exe"',
-            f'Source: "{source_dir}\\\\Zapret.exe"',
-            txt
-        )
-        
-        # Также обновляем все остальные Source директивы если они указывают на неправильную папку
-        txt = re.sub(
-            r'Source:\s*"\.\\'  # Заменяем относительные пути
-            r'Source:\s*"\.\\',
-            f'Source: "{source_dir}\\\\',
-            txt
-        )
-        
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"✓ Обновлен путь к exe в ISS: {exe_path}")
-    else:
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"⚠️ Zapret.exe еще не найден, ISCC попробует найти его сам")
-
-    if channel == "test":
-        txt = _sub("AppName",            "Zapret Dev",           txt)
-        txt = _sub("OutputBaseFilename", "ZapretSetup_TEST",     txt)
-        txt = _sub("AppId",              f"{{{{{base_guid}-TEST}}}}", txt)
-        txt = _sub("DefaultGroupName",   "Zapret Dev",           txt)
-        txt = txt.replace(r"{commonappdata}\Zapret",
-                          r"{commonappdata}\ZapretDev")
-        txt = _ensure_uninstall_delete(txt,
-                          r"{commonappdata}\ZapretDev")
-        txt = _sub("SetupIconFile",      "ZapretDevLogo3.ico",    txt)
-    else:
-        txt = _sub("AppName",            "Zapret",               txt)
-        txt = _sub("OutputBaseFilename", "ZapretSetup",          txt)
-        txt = _sub("AppId",              f"{{{{{base_guid}}}}}", txt)
-        txt = _sub("DefaultGroupName",   "Zapret",               txt)
-        txt = _ensure_uninstall_delete(txt,
-                          r"{commonappdata}\Zapret")
-        txt = _sub("SetupIconFile",      "Zapret1.ico",           txt)
-
-    # Устанавливаем OutputDir в корень проекта
-    txt = _sub("OutputDir", str(ROOT).replace("\\", "\\\\"), txt)
-
-    patched = ROOT / f"zapret_{channel}.iss"
-    patched.write_text(txt, encoding="utf-8-sig")
+    # Копируем файл
+    dst = ROOT / f"zapret_{channel}.iss" 
+    shutil.copy(src, dst)
     
     if hasattr(run, 'log_queue'):
-        run.log_queue.put(f"✓ Создан ISS файл: {patched}")
+        run.log_queue.put(f"✓ Скопирован ISS файл: {dst}")
     
-    return patched
+    return dst
 
 def write_build_info(channel: str, version: str):
     dst = ROOT / "config" / "build_info.py"
@@ -932,8 +855,8 @@ class BuildReleaseGUI:
         try:
             # Базовые шаги
             steps = [
-                (10, "Обновление build_info.py", lambda: write_build_info(channel, version)),
-                (20, "Остановка Zapret", stop_running_zapret),
+                (10, "Обновление build_info.py", lambda: write_build_info(channel, version))
+                #(20, "Остановка Zapret", stop_running_zapret),
             ]
             
             # Добавляем шаги в зависимости от метода сборки
@@ -979,17 +902,96 @@ class BuildReleaseGUI:
             self.log_queue.put(traceback.format_exc())
             self.root.after(0, lambda: self.build_error(str(e)))
 
+    def run_inno_setup(self, channel, version):
+        """Запуск Inno Setup с параметрами препроцессора"""
+        # ✅ ИСПРАВЛЕНО: Используем абсолютные пути
+        # Определяем пути
+        project_root = Path("D:/Privacy/zapretgui")  # Папка с исходниками
+        output_dir = Path("D:/Privacy/zapret")       # Папка с собранным exe
+        
+        # Имя ISS файла в зависимости от канала
+        iss_filename = "zapret_test.iss" if channel == "test" else "zapret_stable.iss"
+        
+        # Путь к универсальному ISS файлу
+        universal_iss = project_root / "zapret_universal.iss"
+        
+        # Путь к целевому ISS файлу
+        target_iss = project_root / iss_filename
+        
+        self.log_queue.put(f"📁 Папка проекта: {project_root}")
+        self.log_queue.put(f"📁 Папка сборки: {output_dir}")
+        self.log_queue.put(f"📄 ISS файл: {target_iss}")
+        
+        # Проверяем существование универсального ISS
+        if not universal_iss.exists():
+            raise FileNotFoundError(f"Универсальный ISS не найден: {universal_iss}")
+        
+        # Копируем универсальный ISS в целевой
+        shutil.copy2(universal_iss, target_iss)
+        self.log_queue.put(f"✓ Скопирован ISS файл: {target_iss}")
+        
+        # Проверяем существование Inno Setup
+        iscc_path = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
+        if not iscc_path.exists():
+            # Пробуем альтернативный путь
+            iscc_path = Path(r"C:\Program Files\Inno Setup 6\ISCC.exe")
+            if not iscc_path.exists():
+                raise FileNotFoundError("Inno Setup не найден! Установите Inno Setup 6")
+        
+        # Команда для запуска
+        cmd = [
+            str(iscc_path),
+            f"/DCHANNEL={channel}",
+            f"/DVERSION={version}",
+            str(target_iss)
+        ]
+        
+        self.log_queue.put(f"Запуск: {' '.join(cmd)}")
+        
+        # Запускаем Inno Setup с рабочей директорией = папка проекта
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='cp1251',  # Windows кодировка
+            cwd=str(project_root)  # Важно! Устанавливаем рабочую директорию
+        )
+        
+        # Выводим результат
+        if result.stdout:
+            self.log_queue.put(f"Вывод Inno Setup:\n{result.stdout}")
+        if result.stderr:
+            self.log_queue.put(f"Ошибки Inno Setup:\n{result.stderr}")
+        
+        if result.returncode != 0:
+            error_msg = f"Inno Setup завершился с кодом {result.returncode}"
+            if result.stdout:
+                error_msg += f"\n\nВывод:\n{result.stdout}"
+            if result.stderr:
+                error_msg += f"\n\nОшибки:\n{result.stderr}"
+            raise RuntimeError(error_msg)
+        
+        # Проверяем, что установщик создан
+        output_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        output_file = project_root / output_name
+        
+        if output_file.exists():
+            self.log_queue.put(f"✅ Установщик создан: {output_file}")
+            self.log_queue.put(f"📏 Размер: {output_file.stat().st_size / 1024 / 1024:.1f} MB")
+        else:
+            self.log_queue.put(f"⚠️ Установщик не найден: {output_file}")
+
     def deploy_to_ssh(self, channel):
         """Деплой на VPS через SSH"""
-        produced = ROOT / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        # ✅ Абсолютный путь к установщику
+        produced = Path("D:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
         
-        # Получаем версию и release notes
         version = self.version_var.get().strip()
         notes = self.notes_text.get('1.0', 'end').strip()
         
-        # Выполняем деплой с передачей всех параметров
         success, message = deploy_to_vps(
             file_path=produced,
             channel=channel,
@@ -1002,101 +1004,12 @@ class BuildReleaseGUI:
             raise Exception(f"SSH деплой не удался: {message}")
             
         self.log_queue.put(f"🚀 {message}")
-
-    def run_inno_setup(self, channel, version):
-        """Запуск Inno Setup с улучшенной диагностикой"""
-        iss_file = prepare_iss(channel, version)
-        
-        # Проверяем существование iss файла
-        if not iss_file.exists():
-            raise FileNotFoundError(f"ISS файл не найден: {iss_file}")
-        
-        # Проверяем существование ISCC
-        if not Path(INNO_ISCC).exists():
-            raise FileNotFoundError(f"Inno Setup не найден: {INNO_ISCC}")
-        
-        # Проверяем существование скомпилированного exe
-        # PyInstaller создает exe в D:\Privacy\zapret (родительская папка от ROOT)
-        dist_path = ROOT.parent / "zapret"  # D:\Privacy\zapret
-        exe_path = dist_path / "Zapret.exe"
-        
-        if not exe_path.exists():
-            # Проверяем альтернативные пути
-            alt_paths = [
-                ROOT / "Zapret.exe",  # D:\Privacy\zapretgui\Zapret.exe
-                ROOT / "zapret" / "Zapret.exe",  # D:\Privacy\zapretgui\zapret\Zapret.exe
-                dist_path / "Zapret.exe",  # D:\Privacy\zapret\Zapret.exe
-            ]
-            
-            found = False
-            for alt_exe in alt_paths:
-                if alt_exe.exists():
-                    self.log_queue.put(f"✓ Найден exe: {alt_exe}")
-                    exe_path = alt_exe
-                    found = True
-                    break
-            
-            if not found:
-                self.log_queue.put(f"❌ Поиск Zapret.exe:")
-                for alt_exe in alt_paths:
-                    self.log_queue.put(f"   • {alt_exe}: {'✓' if alt_exe.exists() else '✗'}")
-                raise FileNotFoundError(f"Zapret.exe не найден. Проверены пути: {', '.join(str(p) for p in alt_paths)}")
-        else:
-            self.log_queue.put(f"✓ Найден exe: {exe_path}")
-        
-        # Логируем детали перед запуском
-        self.log_queue.put(f"📄 ISS файл: {iss_file}")
-        self.log_queue.put(f"📂 Рабочая папка: {ROOT}")
-        
-        # Запускаем ISCC с захватом вывода для диагностики
-        try:
-            startupinfo = None
-            if sys.platform == "win32":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-            
-            # Запускаем с захватом stdout и stderr
-            result = subprocess.run(
-                [INNO_ISCC, str(iss_file)],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                startupinfo=startupinfo
-            )
-            
-            # Выводим stdout в лог
-            if result.stdout:
-                for line in result.stdout.splitlines():
-                    if line.strip():
-                        self.log_queue.put(line)
-            
-            # Если есть ошибка, выводим stderr
-            if result.returncode != 0:
-                self.log_queue.put(f"❌ ISCC вернул код ошибки: {result.returncode}")
-                if result.stderr:
-                    self.log_queue.put("STDERR:")
-                    for line in result.stderr.splitlines():
-                        if line.strip():
-                            self.log_queue.put(f"  {line}")
-                
-                # Показываем содержимое ISS для отладки
-                self.log_queue.put("\n📋 Первые строки ISS файла:")
-                iss_content = iss_file.read_text(encoding="utf-8-sig")
-                for i, line in enumerate(iss_content.splitlines()[:20], 1):
-                    self.log_queue.put(f"  {i:3}: {line}")
-                
-                raise RuntimeError(f"Inno Setup failed with code {result.returncode}")
-            
-            self.log_queue.put("✅ Inno Setup завершен успешно")
-            
-        except Exception as e:
-            self.log_queue.put(f"❌ Ошибка запуска ISCC: {e}")
-            raise                
   
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
-        produced = ROOT / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        # ✅ Абсолютный путь к установщику
+        produced = Path("D:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
             

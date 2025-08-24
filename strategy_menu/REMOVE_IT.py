@@ -17,287 +17,50 @@ Censorliber, [08.08.2025 1:02]
 
 from .constants import LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_RECOMMENDED, LABEL_STABLE, LABEL_WARP
 
-AMAZON_GAMES = "--filter-tcp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"
-
-TCP_CLOUDFLARE_AMAZON_GAMES = "--filter-tcp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"
-
-TCP_80_YTDISBYSTRO = "--dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3"
-
-UDP_AMAZON = "--dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7"
-
-UDP_GAMES_ALLPORT = "--dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin"
-
-BUILTIN_STRATEGIES = {
-    "original_bolvan_v2_badsum": {
-        "name": "Если стратегия не работает смени её!",
-        "description": "Универсальная стратегия с расширенной поддержкой сервисов.",
-        "version": "2.1",
-        "provider": "universal",
-        "author": "OrigBolvan",
-        "updated": "2024-12-15",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-tcp=80 --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new
-
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
-
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n2"""
-    },
-    "bolvan3": {
-        "name": "Bolvan v3 (для игр)",
-        "description": "Универсальная стратегия с расширенной поддержкой сервисов.",
-        "version": "2.1",
-        "provider": "universal",
-        "author": "OrigBolvan",
-        "updated": "2024-12-15",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443,4950-4955,6695-6705
+"""
+------ остальные 80 --------------------
+--filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
 --filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+--filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new
+--filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 
+------ добавить параметр который удаляет ipset-all чтобы спамить по всем айпишникам, по умолчанию выключено во вкладке Игры UDP --------------------
+--filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2
+--filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3
+
+--filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2
+--filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=14 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3
+--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
+------ добавить в остьальное tcp по всем портам --------------------
 --filter-tcp=4950-4955 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig,badseq --new
 --filter-tcp=6695-6705 --dpi-desync=fake,split2 --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig --dpi-desync-autottl=2 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
 
+------ иногда тут писал  --ipset=ipset-all.txt, лучше убрать чтобы по всем портам пробивать --------------------
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
-"""
-    },
-    "original_bolvan_v2_badsum_lite": {
-        "name": "OrigBolvan v2 (lite)",
-        "description": "Упрощенная версия универсальной стратегии для базовой разблокировки сайтов с меньшим количеством правил.",
-        "version": "2.0",
-        "provider": "universal",
-        "author": "OrigBolvan",
-        "updated": "2024-12-10",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "use_https": True,
-        "fragments": False,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=
+--filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
-
---filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new
-"""
-    },
-    "2025_01_06": {
-        "name": "Все сайты (06.01.2025)",
-        "description": "Оптимизировано для всех сайтов",
-        "version": "1.5",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-01-06",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6
+------ ВАЖНЫЕ И НЕОБЫЧНЫЕ СТРАТЕГИИ по идее надо писать syndata в конце в порядке исключения для всех доменов--------------------
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new
-
+--filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
+--filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
+--filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
 
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=443 --ipset=ipset-discord.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_3.bin --dpi-desync-autottl --new
 
-
-"""
-    },
-    "ufanet": {
-        "name": "Уфанет (31.03.25)",
-        "description": "Оптимизировано для дискорда",
-        "version": "1.6",
-        "provider": "Уфанет",
-        "author": "censorliber",
-        "updated": "2025-03-31",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "ports": [80, 443, 50000,65535],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443,50000-65535
---filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-
-
-"""
-    },
-    "general_181": {
-        "name": "General 1.8.1 (игры)",
-        "description": "Универсальная стратегия для игр и общего использования",
-        "version": "1.0",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443,1024-65535 --wf-udp=,1024-65535
-
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n3"""
-    },
-    "alt1_181": {
-        "name": "ALT1 1.8.1 (игры)",
-        "description": "Альтернативная стратегия для игр с расширенной поддержкой UDP",
-        "version": "1.1",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443,1024-65535 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
-
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n3"""
-    },
-    "alt2_181": {
-        "name": "ALT2 1.8.1 (игры)",
-        "description": "Альтернативная стратегия с split2 и seqovl",
-        "version": "1.1",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-tcp=80,443,1024-65535 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n2"""
-    },
-    "alt3_181": {
-        "name": "ALT3 1.8.1 (игры)",
-        "description": "Альтернативная стратегия с простым split подходом",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
-    },
-    "alt4_181": {
-        "name": "ALT4 1.8.1 (игры)",
-        "description": "Альтернативная стратегия с fake,split2 для игр",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
-    },
-    "alt5_181": {
-        "name": "ALT5 1.8.1 (игры)",
-        "description": "Альтернативная стратегия с syndata для IPv4",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-l3=ipv4 --filter-tcp=443,1024-65535 --dpi-desync=syndata --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=14 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3"""
-    },
-    "alt6_181": {
-        "name": "ALT6 1.8.1 (игры)",
-        "description": "Альтернативная стратегия с split2 и seqovl=681",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "Unknown",
-        "updated": "2025-06-21",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000,5056, 27002],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
-
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=split2 --dpi-desync-repeats=2 --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq,hopbyhop2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split2 --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq,hopbyhop2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n2"""
-    },
+
+--filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
+--filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
+--filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
+--filter-tcp=443,1024-65535 --dpi-desync=syndata --new
+"""
+
+BUILTIN_STRATEGIES = {
     "faketlsautoalt": {
         "name": "FAKE TLS AUTO ALT 1.8.1",
         "description": "Стратегия с fake TLS и split для общего использования",
@@ -307,7 +70,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -317,7 +80,7 @@ BUILTIN_STRATEGIES = {
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
 --filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
+"""
     },
     "faketlsalt_181": {
         "name": "FAKE TLS ALT 1.8.1",
@@ -328,19 +91,18 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 --filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=443,1024-65535 --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new
---filter-udp=1024-65535 {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n3"""
+--filter-tcp=443,1024-65535 --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,rndsni,padencap --new"""
     },
     "faketlsalt2_181": {
         "name": "FAKE TLS ALT2 1.8.1",
@@ -351,17 +113,17 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
 --filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
+"""
     },
     "faketlsauto_181": {
         "name": "FAKE TLS AUTO",
@@ -372,17 +134,17 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
 --filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
+"""
     },
     "mgts_181": {
         "name": "МГТС 1.8.1",
@@ -393,19 +155,19 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=,1024-65535
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2"""
+"""
     },
     "mgts2_181": {
         "name": "МГТС2 1.8.1",
@@ -416,18 +178,18 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-21",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 1024, 65535, 50000],
+        "ports": [80, 443, 1024, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
+        "args": f"""
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
 --filter-tcp=443 --hostlist=list-general.txt --hostlist=other.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=443 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-tcp=80 --ipset=ipset-all.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
 --filter-tcp=443,1024-65535 --ipset=ipset-all.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=1024-65535 --ipset=ipset-all.txt {UDP_GAMES_ALLPORT} --dpi-desync-cutoff=n3"""
+"""
     },
     "YTDisBystro_34_Amazon1": {
         "name": "YTDisBystro 3.4 Amazon 1",
@@ -438,7 +200,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 444, 65535, 50000],
+        "ports": [80, 443, 444, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -446,9 +208,13 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0E0F0E0F --dpi-desync-fake-quic=quic_7.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
 
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
---filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new"""
+--filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+
+--filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new
+
+--filter-tcp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new 
+
+"""
     },
     "YTDisBystro_34_Amazon2": {
         "name": "YTDisBystro 3.4 Amazon 2",
@@ -459,16 +225,16 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 444, 65535, 50000],
+        "ports": [80, 443, 444, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443,444-65535 --wf-udp=443,444-65535
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_7.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
---filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
+
+
+
 
 
 """
@@ -482,7 +248,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 444, 65535, 50000],
+        "ports": [80, 443, 444, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -490,9 +256,9 @@ BUILTIN_STRATEGIES = {
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
 
 --filter-tcp=80 --hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
---filter-tcp=80 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new {AMAZON_GAMES} {TCP_CLOUDFLARE_AMAZON_GAMES}
---filter-udp=443,444-65535 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com {UDP_AMAZON} --new
---filter-udp=443,444-65535 --ipset=cloudflare-ipset.txt --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19 {UDP_AMAZON} --new
+
+
+
 
 """
     },
@@ -505,16 +271,16 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000
+        "args": f"""--wf-tcp=80,443 --wf-udp=443
 
 
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
+
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
+--filter-tcp=80 --hostlist=other.txt --hostlist=russia-blacklist.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
 
 --filter-tcp=443 --hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com --dpi-desync=multisplit --dpi-desync-split-seqovl=293 --dpi-desync-split-seqovl-pattern=tls_clienthello_12.bin --new
 --filter-tcp=443 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new
@@ -538,7 +304,7 @@ BUILTIN_STRATEGIES = {
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
+
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
 
 --filter-tcp=443 --hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com --dpi-desync=multisplit --dpi-desync-split-seqovl=293 --dpi-desync-split-seqovl-pattern=tls_clienthello_12.bin --new
@@ -559,17 +325,17 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
+
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0xFEA82025 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n4 --dpi-desync-repeats=2 --new
 
 
 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0xFEA82025 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n4 --dpi-desync-repeats=2 --new
+
 
 --filter-tcp=443 --hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com --dpi-desync=multisplit --dpi-desync-split-seqovl=293 --dpi-desync-split-seqovl-pattern=tls_clienthello_12.bin --new
 --filter-tcp=443 --hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new
@@ -589,12 +355,12 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-06-22",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
+
 --filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n3 --new
 
 --filter-tcp=443 --hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com --dpi-desync=multisplit --dpi-desync-split-seqovl=293 --dpi-desync-split-seqovl-pattern=tls_clienthello_12.bin --new
@@ -615,7 +381,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-07-13",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "0",
@@ -635,7 +401,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-07-13",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "0",
@@ -671,7 +437,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-07-13",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "4",
@@ -690,14 +456,14 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
 
 --filter-tcp=80 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-udp=443 --ipset=ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
     },
     "alt2": {
@@ -709,7 +475,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -729,7 +495,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -737,7 +503,7 @@ BUILTIN_STRATEGIES = {
 
 
 --filter-tcp=80 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
 --filter-udp=443 --ipset=ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
     },
@@ -750,17 +516,17 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 444, 50000,5000, 2000, 8400, 5056, 27002],
+        "ports": [80, 443, 444, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443,444-50000 --wf-udp=443,5000
+        "args": f"""
 --filter-udp=443 --hostlist-domains=riotcdn.net,playvalorant.com,riotgames.com,pvp.net,rgpub.io,rdatasrv.net,riotcdn.com,riotgames.es,RiotClientServices.com,LeagueofLegends.com --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
 --filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
 --filter-udp=443-9000 --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-tcp=2000-8400 --dpi-desync=syndata"""
     },
     "alt3_lol11": {
@@ -772,20 +538,20 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 2099, 8393, 8400, 5222, 5223, 5000, 5500, 5056, 27002, 50000],
+        "ports": [80, 443, 2099, 7002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443,2099,8393-8400,5222,5223 --wf-udp=443,5000-5500,50000
+        "args": f"""
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
 --filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
 --filter-tcp=2099,5222,5223,8393-8400 --ipset=ipset-cloudflare.txt --dpi-desync=syndata --new
 --filter-udp=2099,5222,5223,8393-8400 --ipset=ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-udp=5000-5500 --ipset=ipset-lol-ru.txt --dpi-desync=fake --dpi-desync-repeats=6 --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-tcp=2099 --ipset=ipset-lol-ru.txt --dpi-desync=syndata --new
 --filter-tcp=5222,5223 --ipset=ipset-lol-euw.txt --dpi-desync=syndata --new
 --filter-udp=5000-5500 --ipset=ipset-lol-euw.txt --dpi-desync=fake --dpi-desync-repeats=6"""
@@ -799,7 +565,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -808,7 +574,7 @@ BUILTIN_STRATEGIES = {
 
 --filter-tcp=80 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-udp=443 --ipset=ipset-cloudflare.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
     },
     "alt5": {
@@ -820,14 +586,14 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
 
 
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-tcp=80 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 --filter-l3=ipv4 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=syndata"""
     },
@@ -840,15 +606,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new"""
+
+
+"""
     },
     "alt2_161": {
         "name": "Alt v2 1.6.1 (Discord)",
@@ -859,15 +625,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
+
+
 --filter-tcp=443 --hostlist=list-general.txt --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new
 --filter-tcp=443 --hostlist=other.txt --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin"""
     },
@@ -880,15 +646,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
+
+
 --filter-tcp=443 --hostlist=list-general.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
 --filter-tcp=443 --hostlist=other.txt --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8"""
     },
@@ -901,16 +667,16 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
 --filter-tcp=443 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
 --filter-tcp=443 --hostlist=other.txt --dpi-desync=fake,split2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "alt5_161": {
@@ -922,15 +688,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
+
+
 --filter-l3=ipv4 --filter-tcp=443 --dpi-desync=syndata"""
     },
     "altmgts1_161": {
@@ -942,15 +708,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
+
+
 --filter-tcp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "altmgts2_161": {
@@ -962,15 +728,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 5056, 27002, 50000],
+        "ports": [80, 443, 27002],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-udp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
---filter-tcp=80 --hostlist=list-general.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new
+
+
+
 --filter-tcp=443 --hostlist=list-general.txt --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "YTDisBystro_31_1": {
@@ -982,211 +748,52 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-04-27",
         "label": LABEL_RECOMMENDED,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
         "args": f"""--wf-tcp=80,443
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --dpi-desync-autottl --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
---filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
---filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=syndata,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fake-syndata=tls_clienthello_16.bin --dup=2 --dup-cutoff=n3 --new
 
+--filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --dpi-desync-autottl --new
+--filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
+
+--filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
+--filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
 
 --filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=443 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
-    },
-    "YTDisBystro_31_2": {
-        "name": "YTDisBystro 3.1 v2",
-        "description": "Версия с ipfrag2 и fakedsplit для Cloudflare",
-        "version": "1.5",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=other.txt {TCP_80_YTDISBYSTRO} --new
+--filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=badseq --new
+
+---------------- CLOUD -------------------------
+--filter-tcp=80 --hostlist-domains=cloudflareportal.com,cloudflareok.com,cloudflareclient.com,cloudflarecp.com --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=md5sig --dpi-desync-autottl --new
+
+--filter-tcp=443 --hostlist-domains=cloudflareok.com,cloudflareclient.com,cloudflareportal.com,cloudflarecp.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fooling=md5sig,badseq 
+--dpi-desync-fake-tls=tls_clienthello_7.bin --dpi-desync-fake-tls-mod=rnd,padencap --dpi-desync-autottl --new
+
+--filter-udp=8886 --ipset-ip=188.114.96.0/22 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_4.bin --dpi-desync-cutoff=d2 --dpi-desync-autottl --new
+
+--filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld+1 --dpi-desync-fooling=md5sig,badseq --dpi-desync-fake-tls=tls_clienthello_5.bin --dpi-desync-fake-tls-mod=rnd --dpi-desync-autottl
+---------------- CLOUD -------------------------
+
+
+--filter-tcp=80,443 --hostlist=other.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld --dpi-desync-fakedsplit-pattern=tls_clienthello_1.bin --dpi-desync-fooling=badseq --new
+
 --filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
---filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=other.txt --hostlist=mycdnlist.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --dup=2 --dup-cutoff=n3 --new
+
+--filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=syndata,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fake-syndata=tls_clienthello_16.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fakedsplit --dpi-desync-split-pos=7 --dpi-desync-fakedsplit-pattern=tls_clienthello_5.bin --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 
---filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=443 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_7.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
-    },
-    "YTDisBystro_31_3": {
-        "name": "YTDisBystro 3.1 v3",
-        "description": "Версия с ipcache-hostname и syndata",
-        "version": "1.4",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
---filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
-
 --filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 
---filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
-    },
-    "YTDisBystro_31_4": {
-        "name": "YTDisBystro 3.1 v4",
-        "description": "Версия с sni=calendar.google.com",
-        "version": "1.4",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0xFEA82025 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n4 --dpi-desync-repeats=2 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
---filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
+--filter-tcp=443 --hostlist=russia-blacklist.txt --hostlist=other.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --dup=2 --dup-cutoff=n3 --new
 
---filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
 
---filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
-    },
+--filter-tcp=443 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fooling=badseq --dpi-desync-autottl
+--filter-tcp=443 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_7.bin --dpi-desync-fooling=badseq --dpi-desync-autottl
 
-    "YTDisBystro_31_5": {
-        "name": "YTDisBystro 3.1 v5",
-        "description": "Версия с udplen-increment=25",
-        "version": "1.4",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_RECOMMENDED,
-        "all_sites": True,
-        "ports": [80, 443, 50000],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-udp=443 --hostlist=russia-youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n3 --new
---filter-tcp=80 --hostlist=mycdnlist.txt --hostlist=russia-blacklist.txt --hostlist=myhostlist.txt {TCP_80_YTDISBYSTRO} --new
---filter-tcp=443 --hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_15.bin --new
-
---filter-tcp=443 --ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21 --ipset=cloudflare-ipset.txt --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new
-
---filter-tcp=80 --hostlist=other.txt --hostlist-exclude=netrogat.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fake,fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
-    },
-
-    "bystro292_1": {
-        "name": "YTDisBystro 2.9.2 v1",
-        "description": "Универсальная стратегия с fakeddisorder",
-        "version": "1.3",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "ports": [80, 443, 50000,65535],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-65535
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
---filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=80,443 --hostlist=mycdnlist.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld --dpi-desync-fakedsplit-pattern=tls_clienthello_1.bin --dpi-desync-fooling=badseq --new
-
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=badseq --new
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakedsplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=2,midsld-1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --new
-
-
-"""
-    },
-    "bystro292_2": {
-        "name": "YTDisBystro 2.9.2 v2",
-        "description": "Версия с fakeddisorder и улучшенной поддержкой Discord",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "ports": [80, 443, 50000,65535],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-65535
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
-
---filter-tcp=80,443 --hostlist=mycdnlist.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld --dpi-desync-fakedsplit-pattern=tls_clienthello_1.bin --dpi-desync-fooling=badseq --new
-
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=badseq --new
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld+1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
 
-
 """
-    },
-    "bystro292_3": {
-        "name": "YTDisBystro 2.9.2 v3",
-        "description": "Версия с ipfrag2 и fakedsplit",
-        "version": "1.2",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025-04-27",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "ports": [80, 443, 50000,65535],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-65535
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
---filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=80,443 --hostlist=mycdnlist.txt --dpi-desync=fakeddisorder --dpi-desync-split-pos=2,midsld --dpi-desync-fakedsplit-pattern=tls_clienthello_1.bin --dpi-desync-fooling=badseq --new
-
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=badseq --new
---filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=fakedsplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=2,midsld-1 --dpi-desync-fakedsplit-pattern=tls_clienthello_4.bin --new
-
-
-
-"""
-    },
-
-    "warp1": {
-        "name": "CloudFlare WARP",
-        "description": "РАБОТАЕТ ТОЛЬКО С WARP! Оптимизировано для CloudFlare WARP",
-        "version": "1.0",
-        "provider": "universal",
-        "author": "KDS",
-        "updated": "2025",
-        "label": LABEL_WARP,
-        "all_sites": False,
-        "ports": [80, 443, 8886],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,8886
---filter-tcp=80 --hostlist-domains=cloudflareportal.com,cloudflareok.com,cloudflareclient.com,cloudflarecp.com --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=md5sig --dpi-desync-autottl --new
---filter-tcp=443 --hostlist-domains=cloudflareok.com,cloudflareclient.com,cloudflareportal.com,cloudflarecp.com --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fooling=md5sig,badseq --dpi-desync-fake-tls=tls_clienthello_7.bin --dpi-desync-fake-tls-mod=rnd,padencap --dpi-desync-autottl --new
---filter-udp=8886 --ipset-ip=188.114.96.0/22 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_4.bin --dpi-desync-cutoff=d2 --dpi-desync-autottl --new
---filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld+1 --dpi-desync-fooling=md5sig,badseq --dpi-desync-fake-tls=tls_clienthello_5.bin --dpi-desync-fake-tls-mod=rnd --dpi-desync-autottl"""
     },
     "original_bolvan_2": {
         "name": "Оригинальная bol-van v2 (07.04.2025)",
@@ -1201,7 +808,7 @@ BUILTIN_STRATEGIES = {
         "fragments": True,
         "ttl": "auto",
         "args": f"""
---filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
 
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new"""
     },
@@ -1219,7 +826,7 @@ BUILTIN_STRATEGIES = {
         "fragments": True,
         "ttl": "auto",
         "args": f"""
---filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
+
 --filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new"""
     },
@@ -1232,7 +839,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "4",
@@ -1250,7 +857,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1270,11 +877,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_vk_com.bin --dpi-desync-ttl=5 --new
 
 
@@ -1290,11 +897,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-autottl --new
 
 
@@ -1309,11 +916,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-20",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_vk_com.bin --dpi-desync-ttl=5 --new
 
 
@@ -1328,11 +935,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-20",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_vk_com.bin --dpi-desync-ttl=5 --new
 
 
@@ -1348,11 +955,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-25",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "1",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=tls_clienthello_vk_com.bin --dpi-desync-ttl=5 --new
 
 
@@ -1367,11 +974,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-25",
         "label": LABEL_CAUTION,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "1",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 
 
 
@@ -1386,11 +993,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-20",
         "label": LABEL_CAUTION,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 
 
 
@@ -1405,11 +1012,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-20",
         "label": LABEL_CAUTION,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 
 
 
@@ -1424,11 +1031,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2025-03-20",
         "label": LABEL_CAUTION,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=443 --wf-udp=443
 
 
 
@@ -1443,7 +1050,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1463,7 +1070,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1483,7 +1090,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1503,11 +1110,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000,65535],
+        "ports": [80, 443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-65535
+        "args": f"""--wf-tcp=80,443 --wf-udp=443
 
 --filter-tcp=80 --hostlist=discord.txt --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
 
@@ -1523,7 +1130,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1543,7 +1150,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1563,7 +1170,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1581,7 +1188,7 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000],
+        "ports": [80, 443],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
@@ -1600,11 +1207,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443
 
 
 
@@ -1619,11 +1226,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443
 
 """
     },
@@ -1636,34 +1243,15 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [443, 50000,65535],
+        "ports": [443, 65535],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443,50000-65535
+        "args": f"""--wf-l3=ipv4,ipv6 --wf-tcp=443 --wf-udp=443
 
 
 --filter-tcp=443 --hostlist-exclude=netrogat.txt --dpi-desync=syndata,multidisorder --dpi-desync-split-pos=4 --dpi-desync-repeats=10 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_vk_com_kyber.bin --new
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,split2 --dpi-desync-repeats=10 --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
-    },
-    "mgts1": {
-        "name": "МГТС 1",
-        "description": "Оптимизировано для провайдера МГТС",
-        "version": "1.6",
-        "provider": "МГТС",
-        "author": "Unknown",
-        "updated": "2024",
-        "label": LABEL_STABLE,
-        "all_sites": True,
-        "ports": [80, 443, 50000,50010],
-        "use_https": True,
-        "fragments": True,
-        "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50010
-
-
-
-"""
     },
     "mgts2": {
         "name": "МГТС 2",
@@ -1674,11 +1262,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000,50900],
+        "ports": [80, 443, 50900],
         "use_https": True,
         "fragments": True,
         "ttl": "3",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50900
+        "args": f"""--wf-tcp=80,443 --wf-udp=443
 
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
@@ -1693,11 +1281,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000,50900],
+        "ports": [80, 443, 50900],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50900
+        "args": f"""--wf-tcp=80,443 --wf-udp=443
 
 --filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
@@ -1712,11 +1300,11 @@ BUILTIN_STRATEGIES = {
         "updated": "2024",
         "label": LABEL_STABLE,
         "all_sites": True,
-        "ports": [80, 443, 50000,50900],
+        "ports": [80, 443, 50900],
         "use_https": True,
         "fragments": True,
         "ttl": "auto",
-        "args": f"""--wf-tcp=80,443 --wf-udp=443,50000-50900
+        "args": f"""--wf-tcp=80,443 --wf-udp=443
 
 
 --filter-tcp=443 --hostlist=other.txt --hostlist=faceinsta.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,split2 --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=3 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-ttl=3 --new
@@ -1754,10 +1342,8 @@ BUILTIN_STRATEGIES = {
         "fragments": True,
         "ttl": "auto",
         "args": f"""
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new
---filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
---filter-tcp=443 --ipset=ipset-discord.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_3.bin --dpi-desync-autottl --new
 
+--filter-udp=443 --hostlist=youtubeQ.txt --dpi-desync=fake,udplen --dpi-desync-udplen-increment=2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new
 """
     }
 }

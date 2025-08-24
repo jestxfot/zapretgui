@@ -23,7 +23,7 @@ UDP_YOUTUBE = f"--filter-udp=443 --hostlist=youtube.txt --hostlist=list-general.
 YOUTUBE_STRATEGIES = {
     "multisplit_seqovl_midsld": {
         "name": "multisplit seqovl midsld",
-        "description": "Базовая стратегия multidisorder для YouTube",
+        "description": "Базовая стратегия multisplit для YouTube",
         "author": None,
         "label": LABEL_RECOMMENDED,
         "args": f"""--filter-tcp=443 --hostlist=youtube.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld-1 --new"""
@@ -304,6 +304,13 @@ DISCORD_STRATEGIES = {
         "label": None,
         "args": f"""--filter-tcp=443 --hostlist=discord.txt --ipset=ipset-cloudflare.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new"""
     },
+    "multidisorder_ipset_syndata": {
+        "name": "Адреса discord с фуллингом syndata",
+        "description": "Использует адреса дискорда, вместо доменов",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""--filter-tcp=443 --ipset=ipset-discord.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_3.bin --dpi-desync-autottl --new"""
+    },
     "multidisorder_badseq_pos": {
         "name": "multidisorder badseq и сплит",
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 6",
@@ -494,119 +501,119 @@ DISCORD_VOICE_STRATEGIES = {
         "description": "Стратегия для IPv4 с дублированием пакетов, автоматическим TTL и обрезкой n3.",
         "author": "Community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-l3=ipv4 --filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new --filter-l3=ipv6 --filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl6 --dup=2 --dup-autottl6 --dup-cutoff=n3 --new"""
+        "args": f"""--filter-l3=ipv4 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new --filter-l3=ipv6 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl6 --dup=2 --dup-autottl6 --dup-cutoff=n3 --new"""
     },
     "fake_l7": {
         "name": "Fake L7",
         "description": "Базовая стратегия с DPI Desync 'fake' и фильтрацией L7 для Discord и STUN.",
         "author": "Community",
         "label": LABEL_STABLE,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --new"""
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake --new"""
     },
     "fake_tamper_repeats_6": {
         "name": "Fake, Tamper, Repeats 6",
         "description": "Стратегия с подменой и изменением пакетов, 6 повторений.",
         "author": "Community",
-        "label": LABEL_STABLE,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake,tamper --dpi-desync-repeats=6 --dpi-desync-fake-discord=0x00 --new"""
+        "label": None,
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake,tamper --dpi-desync-repeats=6 --dpi-desync-fake-discord=0x00 --new"""
     },
     "fake_any_proto_repeats_6_cutoff_n4": {
         "name": "Fake, Any Proto, Repeats 6, Cutoff n4",
         "description": "Стратегия с Fake Desync для любого протокола, 6 повторениями и обрезкой n4.",
         "author": "Community",
-        "label": LABEL_STABLE,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --new"""
+        "label": None,
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --new"""
     },
     "fake_tamper_any_proto_repeats_11_cutoff_d5": {
         "name": "Fake, Tamper, Repeats 11, Cutoff d5",
         "description": "Комбинированная стратегия с 11 повторениями и обрезкой d5 для любого протокола.",
         "author": "Community",
-        "label": LABEL_STABLE,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=d5 --dpi-desync-repeats=11 --new"""
+        "label": None,
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=d5 --dpi-desync-repeats=11 --new"""
     },
     "fake_any_proto_quic1_cutoff_d2": {
         "name": "Fake, Any Proto, QUIC 1, Cutoff d2",
         "description": "Использование поддельного QUIC-пакета (quic_1.bin) с обрезкой d2.",
         "author": "Community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic=quic_1.bin --new"""
+        "label": None,
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic=quic_1.bin --new"""
     },
     "fake_repeats_6": {
         "name": "Fake Repeats 6",
         "description": "Простая стратегия с 6 повторениями фейкового пакета.",
         "author": "Community",
         "label": None,
-        "args": f"""--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --new"""
+        "args": f"""--filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --new"""
     },
     "ipset_fake_any_proto_cutoff_d3_repeats_6": {
         "name": "IPSet Fake, Any Proto, Cutoff d3, Repeats 6",
         "description": "Стратегия, использующая IPSet, с 6 повторениями и обрезкой d3.",
         "author": "Community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --new"""
     },
     "ipset_fake_any_proto_cutoff_d3_repeats_8": {
         "name": "IPSet Fake, Any Proto, Cutoff d3, Repeats 8",
         "description": "Стратегия, использующая IPSet, с 8 повторениями и обрезкой d3.",
         "author": "Community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=8 --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=8 --new"""
     },
     "ipset_fake_any_proto_cutoff_d4_repeats_8": {
         "name": "IPSet Fake, Any Proto, Cutoff d4, Repeats 8",
         "description": "Стратегия, использующая IPSet, с 8 повторениями и обрезкой d4.",
         "author": "Community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d4 --dpi-desync-repeats=8 --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d4 --dpi-desync-repeats=8 --new"""
     },
     "fake_any_proto_cutoff_n3": {
         "name": "Fake, Any Proto, Cutoff n3",
         "description": "Минималистичная стратегия с обрезкой n3 для любого протокола.",
         "author": "Community",
         "label": None,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=n3 --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=n3 --new"""
     },
     "fake_split2_quic_test_cutoff_d2": {
         "name": "Fake, Split2, QUIC Test, Cutoff d2",
         "description": "Разделение пакета в сочетании с поддельным тестовым QUIC-пакетом.",
         "author": "Community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake,split2 --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
+        "label": None,
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake,split2 --dpi-desync-any-protocol --dpi-desync-cutoff=d2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
     },
     "fake_any_proto_google_quic_cutoff_n2": {
         "name": "Fake, Any Proto, Google QUIC, Cutoff n2",
         "description": "Поддельный QUIC-пакет от Google с обрезкой n2.",
         "author": "Community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_any_proto_google_quic_cutoff_d3_repeats_6": {
         "name": "Fake, Any Proto, Google QUIC, Cutoff d3, Repeats 6",
         "description": "Поддельный QUIC от Google с 6 повторениями и обрезкой d3.",
         "author": "Community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "label": None,
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_tamper_any_proto_google_quic_cutoff_d3_repeats_6": {
         "name": "Fake, Tamper, Google QUIC, Cutoff d3, Repeats 6",
         "description": "Комбинация Fake и Tamper с QUIC от Google, 6 повторениями и обрезкой d3.",
         "author": "Community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "label": None,
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=d3 --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_tamper_any_proto_google_quic_cutoff_n5_repeats_10": {
         "name": "Fake, Tamper, Google QUIC, Cutoff n5, Repeats 10",
         "description": "Агрессивная стратегия с 10 повторениями и обрезкой n5.",
         "author": "Community",
         "label": None,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n5 --dpi-desync-repeats=10 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n5 --dpi-desync-repeats=10 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_tamper_any_proto_google_quic_cutoff_n4": {
         "name": "Fake, Tamper, Google QUIC, Cutoff n4",
         "description": "Комбинация Fake и Tamper с QUIC от Google и обрезкой n4.",
         "author": "Community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=50000-50100 --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
+        "label": None,
+        "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
     },
     "discord_voice_none": {
         "name": "Не применять для Discord Voice",
@@ -735,8 +742,15 @@ OTHER_STRATEGIES = {
         "label": LABEL_RECOMMENDED,
         "args": f"""--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
     },
-    "other_multidisorder_2": {
+    "other_multidisorder": {
         "name": "multidisorder 6 md5sig",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_STABLE,
+        "args": f"""--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --new"""
+    },
+    "other_multidisorder_2": {
+        "name": "multidisorder 6 badseq & md5sig",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_STABLE,
@@ -801,7 +815,7 @@ OTHER_STRATEGIES = {
 }
 
 # Базовые аргументы (применяются всегда)
-BASE_ARGS = "--wf-l3=ipv4,ipv6 --wf-tcp=80,443,1024-65535 --wf-udp=443,1024-65535"
+BASE_ARGS = "--wf-raw=@windivert.all.txt"
 
 def combine_strategies(youtube_id: str, discord_id: str, discord_voice_id: str, other_id: str) -> dict:
     """
