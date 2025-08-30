@@ -29,7 +29,7 @@
   #define OutputName "ZapretSetup"
   #define GroupName "Zapret"
   #define DataFolder "Zapret"
-  #define IconFile "Zapret1.ico"
+  #define IconFile "Zapret2.ico"
 #endif
 
 [Setup]

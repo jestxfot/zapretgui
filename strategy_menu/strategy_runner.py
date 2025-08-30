@@ -105,7 +105,7 @@ def apply_wssize_parameter(args: list) -> list:
     """
     Применяет параметр --wssize=1:6 к аргументам стратегии если включено в настройках
     """
-    from config import get_wssize_enabled
+    from strategy_menu import get_wssize_enabled
     
     if not get_wssize_enabled():
         return args
@@ -152,7 +152,6 @@ def apply_wssize_parameter(args: list) -> list:
         log("Добавлено глобальное правило --filter-tcp=443 --wssize=1:6 --new", "DEBUG")
     
     return new_args
-
 
 def _find_wssize_insert_position(args: list) -> int:
     """Находит оптимальную позицию для вставки глобального правила wssize"""
@@ -348,8 +347,8 @@ class StrategyRunner:
             
             # Разрешаем пути и применяем параметры
             resolved_args = self._resolve_file_paths(custom_args)
+            resolved_args = apply_allzone_replacement(resolved_args)
             resolved_args = apply_game_filter_parameter(resolved_args, self.lists_dir)
-            resolved_args = apply_ipset_lists_parameter(resolved_args, self.lists_dir)
             resolved_args = apply_wssize_parameter(resolved_args)
             
             # Формируем команду
@@ -546,18 +545,10 @@ def reset_strategy_runner():
 
 def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
     """
-    Применяет Game Filter - добавляет порты 1024-65535 для стратегий с other.txt
-    
-    Args:
-        args: Список аргументов командной строки
-        lists_dir: Путь к директории с файлами списков
-        
-    Returns:
-        Модифицированный список аргументов с расширенными портами
+    Применяет Game Filter - добавляет порты 444-65535 для стратегий с other.txt или allzone.txt
     """
-    from config import get_game_filter_enabled
+    from strategy_menu import get_game_filter_enabled
     
-    # Если Game Filter выключен, возвращаем аргументы без изменений
     if not get_game_filter_enabled():
         return args
     
@@ -569,30 +560,25 @@ def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
         arg = args[i]
         new_args.append(arg)
         
-        # Проверяем, является ли это --filter-tcp
         if arg.startswith("--filter-tcp="):
-            # Проверяем, есть ли после него хостлисты other
             has_other_hostlist = False
             j = i + 1
             
-            # Ищем хостлисты в следующих аргументах до --new
             while j < len(args) and args[j] != "--new":
                 if "--hostlist=" in args[j]:
                     hostlist_value = args[j].split("=", 1)[1].strip('"')
                     hostlist_filename = os.path.basename(hostlist_value)
-                    if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt"]:
+                    if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt", "allzone.txt"]:
                         has_other_hostlist = True
                         break
                 j += 1
             
-            # Если нашли хостлисты other, расширяем порты
             if has_other_hostlist:
                 ports_part = arg.split("=", 1)[1]
                 ports_list = ports_part.split(",")
                 
-                # Добавляем диапазон портов для игр если его еще нет
-                if "1024-65535" not in ports_list:
-                    ports_list.append("1024-65535")
+                if "444-65535" not in ports_list:
+                    ports_list.append("444-65535")
                     new_args[-1] = f"--filter-tcp={','.join(ports_list)}"
                     ports_modified = True
                     log(f"Game Filter: расширен диапазон портов до {','.join(ports_list)}", "INFO")
@@ -600,138 +586,46 @@ def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
         i += 1
     
     if ports_modified:
-        log("Game Filter применен (добавлены порты 1024-65535)", "✅ SUCCESS")
+        log("Game Filter применен (добавлены порты 444-65535)", "✅ SUCCESS")
     
     return new_args
 
-def apply_ipset_lists_parameter(args: list, lists_dir: str) -> list:
+def apply_allzone_replacement(args: list) -> list:
     """
-    Добавляет --ipset=ipset-all.txt после определенных групп хостлистов:
-    1. После хостлистов other.txt, other2.txt, russia-blacklist.txt
-    2. После --filter-udp=443 --hostlist=youtube.txt --hostlist=list-general.txt
+    Заменяет other.txt на allzone.txt в хостлистах если включено в настройках
     
     Args:
         args: Список аргументов командной строки
-        lists_dir: Путь к директории с файлами списков
         
     Returns:
-        Модифицированный список аргументов с добавленным --ipset=ipset-all.txt
+        Модифицированный список аргументов с замененными хостлистами
     """
-    from config import get_ipset_lists_enabled
+    from strategy_menu import get_allzone_hostlist_enabled
     
-    # Если функция выключена, возвращаем аргументы без изменений
-    if not get_ipset_lists_enabled():
+    # Если замена выключена, возвращаем аргументы без изменений
+    if not get_allzone_hostlist_enabled():
         return args
-    
-    ipset_all_path = os.path.join(lists_dir, "ipset-all.txt")
-    
-    if not os.path.exists(ipset_all_path):
-        log(f"Файл ipset-all.txt не найден: {ipset_all_path}", "⚠ WARNING")
-        return args
-    
-    # Группы хостлистов для обработки
-    GROUP_1 = ["other.txt", "other2.txt", "russia-blacklist.txt"]
-    GROUP_2 = ["youtube.txt", "list-general.txt"]
     
     new_args = []
-    i = 0
-    ipset_added_count = 0
+    replacements_count = 0
     
-    while i < len(args):
-        arg = args[i]
-        new_args.append(arg)
-        
-        # Проверяем группу 1: хостлисты other/russia
+    for arg in args:
         if arg.startswith("--hostlist="):
-            hostlist_value = arg.split("=", 1)[1].strip('"')
-            hostlist_filename = os.path.basename(hostlist_value)
+            hostlist_value = arg.split("=", 1)[1]
             
-            # Если это хостлист из первой группы
-            if hostlist_filename in GROUP_1:
-                # Собираем все последовательные хостлисты из первой группы
-                j = i + 1
-                last_hostlist_index = i
-                
-                while j < len(args):
-                    next_arg = args[j]
-                    
-                    if next_arg.startswith("--hostlist="):
-                        next_hostlist = next_arg.split("=", 1)[1].strip('"')
-                        next_filename = os.path.basename(next_hostlist)
-                        
-                        if next_filename in GROUP_1:
-                            new_args.append(next_arg)
-                            last_hostlist_index = j
-                            j += 1
-                            i = j - 1
-                        else:
-                            break
-                    else:
-                        break
-                
-                # После всех хостлистов первой группы добавляем ipset
-                if not _check_and_add_ipset(args, new_args, last_hostlist_index, ipset_all_path):
-                    new_args.append(f'--ipset={ipset_all_path}')
-                    ipset_added_count += 1
-                    log("Добавлен --ipset=ipset-all.txt после группы other/russia", "INFO")
-        
-        # Проверяем группу 2: после --filter-udp=443
-        elif arg == "--filter-udp=443":
-            # Проверяем, идут ли далее хостлисты из второй группы
-            j = i + 1
-            found_group2 = False
-            last_hostlist_index = i
-            
-            while j < len(args):
-                next_arg = args[j]
-                
-                if next_arg.startswith("--hostlist="):
-                    next_hostlist = next_arg.split("=", 1)[1].strip('"')
-                    next_filename = os.path.basename(next_hostlist)
-                    
-                    if next_filename in GROUP_2:
-                        found_group2 = True
-                        new_args.append(next_arg)
-                        last_hostlist_index = j
-                        j += 1
-                        i = j - 1
-                    else:
-                        break
-                else:
-                    break
-            
-            # Если нашли хостлисты из второй группы, добавляем ipset
-            if found_group2:
-                if not _check_and_add_ipset(args, new_args, last_hostlist_index, ipset_all_path):
-                    new_args.append(f'--ipset={ipset_all_path}')
-                    ipset_added_count += 1
-                    log("Добавлен --ipset=ipset-all.txt после группы youtube/list-general", "INFO")
-        
-        i += 1
+            # Проверяем, содержит ли путь other.txt
+            if "other.txt" in hostlist_value:
+                # Заменяем other.txt на allzone.txt
+                new_value = hostlist_value.replace("other.txt", "allzone.txt")
+                new_args.append(f"--hostlist={new_value}")
+                replacements_count += 1
+                log(f"Заменен хостлист: other.txt → allzone.txt", "DEBUG")
+            else:
+                new_args.append(arg)
+        else:
+            new_args.append(arg)
     
-    if ipset_added_count > 0:
-        log(f"IPset списки применены (добавлено {ipset_added_count} ipset-all.txt)", "✅ SUCCESS")
+    if replacements_count > 0:
+        log(f"Выполнена замена other.txt на allzone.txt ({replacements_count} замен)", "✅ SUCCESS")
     
     return new_args
-
-
-def _check_and_add_ipset(original_args: list, new_args: list, last_index: int, ipset_path: str) -> bool:
-    """
-    Проверяет, есть ли уже ipset-all.txt после указанной позиции
-    
-    Args:
-        original_args: Оригинальный список аргументов
-        new_args: Новый список аргументов (не используется в текущей версии)
-        last_index: Индекс последнего обработанного элемента в original_args
-        ipset_path: Путь к файлу ipset-all.txt
-        
-    Returns:
-        True если ipset уже присутствует, False если нужно добавить
-    """
-    next_idx = last_index + 1
-    if next_idx < len(original_args) and original_args[next_idx].startswith("--ipset="):
-        ipset_value = original_args[next_idx].split("=", 1)[1].strip('"')
-        if os.path.basename(ipset_value) == "ipset-all.txt":
-            log("--ipset=ipset-all.txt уже присутствует", "DEBUG")
-            return True
-    return False

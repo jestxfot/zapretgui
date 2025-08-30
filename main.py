@@ -129,27 +129,54 @@ def _handle_update_mode():
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-class DNSWorker(QThread):
-    """Worker для применения DNS в отдельном потоке"""
+class ImprovedDNSWorker(QThread):
+    """Улучшенный воркер для DNS операций"""
     status_update = pyqtSignal(str)
+    finished_with_result = pyqtSignal(bool)
     
     def run(self):
         try:
-            from dns import apply_force_dns_if_enabled, ensure_default_force_dns
+            from dns.dns_force import apply_force_dns_if_enabled_async, ensure_default_force_dns, AsyncDNSForceManager
+            from PyQt6.QtCore import QEventLoop
             
-            # 0) создаём ключ ForceDNS=1, если его нет
+            # Создаём ключ если нет
             ensure_default_force_dns()
             
-            # 1) применяем принудительный DNS с thread-safe callback
-            def safe_status_callback(msg):
-                self.status_update.emit(msg)
+            # Создаем event loop для ожидания асинхронного результата
+            loop = QEventLoop()
+            result_received = [False]  # Используем список для изменения в замыкании
             
-            apply_force_dns_if_enabled(status_callback=safe_status_callback)
+            def on_dns_done(success):
+                """Callback когда DNS установка завершена"""
+                result_received[0] = success
+                self.status_update.emit(f"DNS настройка завершена: {'успешно' if success else 'с ошибками'}")
+                loop.quit()  # Завершаем event loop
             
+            # Проверяем, включен ли force DNS
+            manager = AsyncDNSForceManager()
+            if not manager.is_force_dns_enabled():
+                self.status_update.emit("Принудительный DNS отключен в настройках")
+                self.finished_with_result.emit(False)
+                return
+            
+            # Запускаем асинхронную установку DNS
+            self.status_update.emit("Применение DNS настроек...")
+            thread = manager.force_dns_on_all_adapters_async(callback=on_dns_done)
+            
+            if thread:
+                # Ждем завершения в event loop
+                loop.exec()
+                self.finished_with_result.emit(result_received[0])
+            else:
+                self.finished_with_result.emit(False)
+                
         except Exception as e:
             log(f"Ошибка в DNS worker: {e}", "❌ ERROR")
+            self.finished_with_result.emit(False)
             
 class LupiDPIApp(QWidget, MainWindowUI):
+    theme_handler: ThemeHandler
+
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
         self._is_exiting = True
@@ -343,12 +370,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
                             f"Не удалось загрузить список стратегий.\n\n"
                             f"Ошибка: {error_msg}")
 
-    def download_strategy_files(self):
-        """НОВЫЙ МЕТОД: Загружает .bat файлы выбранных стратегий"""
-        # Здесь можно добавить диалог выбора стратегий для загрузки
-        # или загружать все стратегии из списка
-        pass
-
     def _show_strategy_dialog(self):
         """Показывает диалог выбора стратегии"""
         try:
@@ -420,7 +441,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.last_strategy_change_time = time.time()
             
             # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки комбинированных стратегий
-            from config import get_strategy_launch_method
+            from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
             if launch_method == "direct":
@@ -455,9 +476,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         default_selections = get_default_selections()
                         combined_strategy = combine_strategies(
                             default_selections.get('youtube'),
+                            default_selections.get('youtube_udp'),
+                            default_selections.get('googlevideo_tcp'),
                             default_selections.get('discord'), 
                             default_selections.get('discord_voice'),
-                            default_selections.get('other')
+                            default_selections.get('other'),
+                            default_selections.get('ipset'),
+                            default_selections.get('ipset_udp'),
                         )
                         
                         combined_args = combined_strategy['args']
@@ -558,22 +583,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.button_grid.update()
         QApplication.processEvents()
 
-    def show_start_button(self):
-        """Показывает кнопку запуска"""
-        self.start_stop_stack.setCurrentWidget(self.start_btn)
-
-    def show_stop_button(self):
-        """Показывает кнопку остановки"""
-        self.start_stop_stack.setCurrentWidget(self.stop_btn)
-
-    def show_autostart_enable_button(self):
-        """Показывает кнопку включения автозапуска"""
-        self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
-
-    def show_autostart_disable_button(self):
-        """Показывает кнопку отключения автозапуска"""
-        self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
-
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
         try:
@@ -612,76 +621,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
             log(error_msg, level="❌ ERROR")
             self.set_status(error_msg)
-
-    def initialize_managers_and_services(self):
-        """Быстрая (лёгкая) инициализация и запуск HeavyInitWorker."""
-        log("initialize_managers_and_services: quick part", "INFO")
-
-        # ✅ НОВОЕ: Создаем отсутствующие файлы
-        from utils.file_manager import ensure_required_files
-        ensure_required_files()
-
-        # --- лёгкие вещи ---
-        self.init_process_monitor()
-        self.last_strategy_change_time = time.time()
-
-        from discord.discord import DiscordManager
-        self.discord_manager = DiscordManager(status_callback=self.set_status)
-        self.hosts_manager   = HostsManager   (status_callback=self.set_status)
-
-        # DNS worker в отдельном QThread
-        self.dns_worker = DNSWorker()
-        self.dns_worker.status_update.connect(self.set_status)
-        self.dns_worker.finished.connect(self._on_dns_worker_finished)
-        self.dns_worker.start()
-
-        # StrategyManager
-        from strategy_menu.manager import StrategyManager
-        from config import (STRATEGIES_FOLDER)
-        os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
-
-        self.strategy_manager = StrategyManager(
-            local_dir       = STRATEGIES_FOLDER,
-            json_dir        = INDEXJSON_FOLDER,
-            status_callback = self.set_status,
-            preload         = False
-        )
-
-        self.strategy_manager.local_only_mode = True
-        self.strategy_manager.get_local_strategies_only()
-
-        # 🆕 ПРАВИЛЬНЫЙ ПОРЯДОК: Сначала ThemeManager, потом ThemeHandler
-        self.theme_manager = ThemeManager(
-            app           = QApplication.instance(),
-            widget        = self,
-            status_label  = self.status_label,
-            theme_folder  = THEME_FOLDER,
-            donate_checker = self.donate_checker
-        )
-        
-        # 🆕 Создаем обработчик тем ПОСЛЕ theme_manager
-        self.theme_handler = ThemeHandler(self.theme_manager, self)
-
-        # Обновляем доступные темы в комбо-боксе на основе статуса подписки
-        # Теперь это делает ThemeHandler
-        self.theme_handler.update_available_themes()
-
-        self.theme_combo.setCurrentText(self.theme_manager.current_theme)
-        self.theme_manager.apply_theme()
-
-        # CheckerManager
-        self.service_manager = CheckerManager(
-            winws_exe    = WINWS_EXE,
-            status_callback = self.set_status,
-            ui_callback     = self.update_ui)
-
-        # стартовое состояние интерфейса
-        self.update_autostart_ui(self.service_manager.check_autostart_exists())
-        self.update_ui(running=False)
-
-
-        self.set_status("Инициализация…")
-        self._start_heavy_init()
 
     def _on_dns_worker_finished(self):
         """Обработчик завершения DNS worker"""
@@ -737,6 +676,28 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при периодической проверке подписки: {e}", level="❌ ERROR")
 
+    def _check_subscription_async(self, prev_premium):
+        """Асинхронная проверка подписки"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class SubscriptionCheckWorker(QObject):
+            finished = pyqtSignal(bool, bool, str, int)  # prev_premium, is_premium, status_msg, days_remaining
+            
+            def __init__(self, donate_checker, prev_premium):
+                super().__init__()
+                self.donate_checker = donate_checker
+                self.prev_premium = prev_premium
+                
+            def run(self):
+                try:
+                    # Сетевая проверка в фоне
+                    is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status(use_cache=False)
+                    self.finished.emit(self.prev_premium, is_premium, status_msg, days_remaining)
+                except Exception as e:
+                    log(f"Ошибка фоновой проверки подписки: {e}", "❌ ERROR")
+                    # В случае ошибки возвращаем кэшированные данные
+                    self.finished.emit(self.prev_premium, self.prev_premium, "Ошибка проверки", 0)
+                    
     def _on_subscription_check_done(self, prev_premium, is_premium, status_msg, days_remaining):
         """Обрабатывает результат фоновой проверки подписки"""
         try:
@@ -1070,19 +1031,23 @@ class LupiDPIApp(QWidget, MainWindowUI):
         
         # Проверяем, является ли это комбинированной стратегией
         if strategy_name == "COMBINED_DIRECT":
-            from config import get_strategy_launch_method
+            from strategy_menu import get_strategy_launch_method
             
             # Проверяем, что мы в режиме прямого запуска
             if get_strategy_launch_method() == "direct":
-                from config import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
+                from strategy_menu import get_direct_strategy_selections
+                from strategy_menu.strategy_lists_separated import combine_strategies, YOUTUBE_QUIC_STRATEGIES
                 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(
                     selections.get('youtube'),
+                    selections.get('youtube_udp'),
+                    selections.get('googlevideo_tcp'),
                     selections.get('discord'),
                     selections.get('discord_voice'),
-                    selections.get('other')
+                    selections.get('other'),
+                    selections.get('ipset'),
+                    selections.get('ipset_udp'),
                 )
                 
                 # Создаем объект комбинированной стратегии
@@ -1121,35 +1086,222 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # 5. Обновляем интерфейс
         self.update_ui(running=True)
 
-    def __init__(self):
-        QWidget.__init__(self)  # Явно инициализируем QWidget
+    def _init_strategy_manager(self):
+        """Быстрая синхронная инициализация Strategy Manager"""
+        try:
+            from strategy_menu.manager import StrategyManager
+            from config import STRATEGIES_FOLDER
+            
+            os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
+            
+            self.strategy_manager = StrategyManager(
+                local_dir=STRATEGIES_FOLDER,
+                json_dir=INDEXJSON_FOLDER,
+                status_callback=self.set_status,
+                preload=False
+            )
+            self.strategy_manager.local_only_mode = True
+            
+            # НЕ вызываем get_local_strategies_only() здесь - это может быть медленно
+            # Просто помечаем как инициализированный
+            log("Strategy Manager инициализирован (без загрузки кэша)", "INFO")
+            
+        except Exception as e:
+            log(f"Ошибка инициализации Strategy Manager: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка: {e}")
+
+    def _async_init(self):
+        """Полностью асинхронная инициализация"""
+        from PyQt6.QtCore import QTimer
         
-        # Показываем минимальное окно СРАЗУ
-        self.setWindowTitle("Zapret - загрузка...")
+        log("🟡 _async_init начался", "DEBUG")
+        
+        # Показываем начальный статус
+        self.set_status("Инициализация компонентов...")
+        
+        # Все тяжелые операции запускаем с задержкой
+        init_tasks = [
+            (0, self._init_dpi_starter),
+            (10, self._init_hostlists_check),
+            (20, self._init_ipsets_check),
+            (30, self._init_dpi_controller),
+            (40, self._init_menu),
+            (50, self._connect_signals),
+            (100, self.initialize_managers_and_services),  # ← ЭТО ДОЛЖНО ВЫЗВАТЬСЯ
+            (150, self._init_tray),
+            (200, self._init_logger),
+            (500, self._init_donate_checker_async),
+        ]
+        
+        for delay, task in init_tasks:
+            log(f"🟡 Планируем {task.__name__} через {delay}ms", "DEBUG")
+            QTimer.singleShot(delay, task)
+        
+        # Финальная проверка через 2 секунды
+        QTimer.singleShot(2000, self._verify_initialization)
+
+    def _init_dpi_starter(self):
+        """Инициализация DPI стартера"""
+        try:
+            self.dpi_starter = BatDPIStart(
+                winws_exe=WINWS_EXE,
+                status_callback=self.set_status,
+                ui_callback=self.update_ui,
+                app_instance=self
+            )
+            log("DPI Starter инициализирован", "INFO")
+        except Exception as e:
+            log(f"Ошибка инициализации DPI Starter: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка DPI: {e}")
+
+    def _init_hostlists_check(self):
+        """Асинхронная проверка хостлистов"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class HostlistsChecker(QObject):
+            finished = pyqtSignal(bool, str)
+            progress = pyqtSignal(str)
+            
+            def run(self):
+                try:
+                    self.progress.emit("Проверка хостлистов...")
+                    from utils.hostlists_manager import startup_hostlists_check
+                    startup_hostlists_check()
+                    self.finished.emit(True, "Хостлисты проверены")
+                except Exception as e:
+                    self.finished.emit(False, str(e))
+        
+        thread = QThread()
+        worker = HostlistsChecker()
+        worker.moveToThread(thread)
+        
+        thread.started.connect(worker.run)
+        worker.progress.connect(self.set_status)
+        worker.finished.connect(lambda ok, msg: log(f"Hostlists: {msg}", "✅" if ok else "❌"))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        
+        thread.start()
+        self._hostlists_thread = thread  # Сохраняем ссылку
+
+    def _init_ipsets_check(self):
+        """Асинхронная проверка IPsets"""
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        class IPsetsChecker(QObject):
+            finished = pyqtSignal(bool, str)
+            progress = pyqtSignal(str)
+            
+            def run(self):
+                try:
+                    self.progress.emit("Проверка IPsets...")
+                    from utils.ipsets_manager import startup_ipsets_check
+                    startup_ipsets_check()
+                    self.finished.emit(True, "IPsets проверены")
+                except Exception as e:
+                    self.finished.emit(False, str(e))
+        
+        thread = QThread()
+        worker = IPsetsChecker()
+        worker.moveToThread(thread)
+        
+        thread.started.connect(worker.run)
+        worker.progress.connect(self.set_status)
+        worker.finished.connect(lambda ok, msg: log(f"IPsets: {msg}", "✅" if ok else "❌"))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        
+        thread.start()
+        self._ipsets_thread = thread  # Сохраняем ссылку
+
+    def _init_dpi_controller(self):
+        """Инициализация DPI контроллера"""
+        try:
+            self.dpi_controller = DPIController(self)
+            log("DPI Controller инициализирован", "INFO")
+        except Exception as e:
+            log(f"Ошибка инициализации DPI Controller: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка контроллера: {e}")
+
+    def _init_menu(self):
+        """Инициализация меню"""
+        try:
+            self.menu_bar = AppMenuBar(self)
+            self.layout().setMenuBar(self.menu_bar)
+            log("Меню инициализировано", "INFO")
+        except Exception as e:
+            log(f"Ошибка инициализации меню: {e}", "❌ ERROR")
+
+    def _verify_initialization(self):
+        """Проверка успешности инициализации всех компонентов"""
+        components_ok = True
+        missing = []
+        
+        # Проверяем критически важные компоненты
+        if not hasattr(self, 'dpi_starter'):
+            missing.append("DPI Starter")
+            components_ok = False
+        
+        if not hasattr(self, 'dpi_controller'):
+            missing.append("DPI Controller")
+            components_ok = False
+        
+        if not hasattr(self, 'strategy_manager'):
+            missing.append("Strategy Manager")
+            components_ok = False
+        
+        if components_ok:
+            self.set_status("✅ Инициализация завершена")
+            log("Все компоненты успешно инициализированы", "✅ SUCCESS")
+            
+            # Запускаем финальные задачи
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(500, self._post_init_tasks)
+        else:
+            error_msg = f"Не инициализированы: {', '.join(missing)}"
+            self.set_status(f"⚠️ {error_msg}")
+            log(error_msg, "❌ ERROR")
+            
+            # Показываем предупреждение пользователю
+            QMessageBox.warning(self, "Неполная инициализация", 
+                            f"Некоторые компоненты не были инициализированы:\n{', '.join(missing)}\n\n"
+                            "Приложение может работать нестабильно.")
+
+    def _post_init_tasks(self):
+        """Задачи после успешной инициализации"""
+        # Проверка локальных файлов
+        if self._check_local_files():
+            # Отложенный запуск DPI если нужно
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(1000, self.delayed_dpi_start)
+        
+        # Запуск авто-обновления
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, self._start_auto_update)
+
+    def __init__(self):
+        QWidget.__init__(self)
+        
+        # ✅ НОВОЕ: Сразу создаем полный UI без индикатора загрузки
+        self.setWindowTitle(f"Zapret v{APP_VERSION} - загрузка...")
         self.resize(WIDTH, HEIGHT)
         
-        # Создаем только загрузочный индикатор
-        from PyQt6.QtWidgets import QLabel
-        from PyQt6.QtCore import Qt, QTimer
-        loading_label = QLabel("Загрузка приложения...")
-        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # ВСЁ остальное - асинхронно
-        QTimer.singleShot(0, self._build_full_ui)
-
-    def _build_full_ui(self):        
-        # ---- Быстрая инициализация UI ----
+        # Инициализируем атрибуты
         self.process_monitor = None
         self.first_start = True
-        
-        # Инициализируем атрибуты для работы со стратегиями
         self.current_strategy_id = None
         self.current_strategy_name = None
         
-        # Создаем минимальный UI сразу
+        # ✅ СОЗДАЕМ UI СРАЗУ
         self.build_ui(width=WIDTH, height=HEIGHT)
-        self._init_real_donate_checker()
-        self.update_title_with_subscription_status(False, None, 0)
+        
+        # Показываем окно
+        self.show()
+        
+        # Показываем статус загрузки
+        self.set_status("Инициализация Zapret...")
         
         # Устанавливаем иконку
         icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
@@ -1158,54 +1310,118 @@ class LupiDPIApp(QWidget, MainWindowUI):
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
-        else:
-            log(f"Иконка приложения не найдена: {icon_path}", "❌ ERROR")
         
-        # ---- Все тяжелые операции - асинхронно ----
+        # Инициализируем donate checker
+        self._init_real_donate_checker()
+        self.update_title_with_subscription_status(False, None, 0)
+        
+        # ✅ Запускаем асинхронную инициализацию через таймер
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(0, self._async_init)
+        QTimer.singleShot(50, self._async_init)
 
-    def _async_init(self):
-        """Асинхронная инициализация всех компонентов"""
+    def initialize_managers_and_services(self):
+        """
+        Синхронная инициализация менеджеров
+        ВАЖНО: создание менеджеров происходит быстро и не требует отдельного потока.
+        """
+        log("🔴 initialize_managers_and_services ВЫЗВАН (синхронно)", "DEBUG")
+        
         try:
-            # DPI Starter
-            self.dpi_starter = BatDPIStart(
+            # Применяем DNS настройки (асинхронно)
+            self.set_status("Применение настроек DNS...")
+            self.dns_worker = ImprovedDNSWorker()
+            self.dns_worker.status_update.connect(self.set_status)
+            self.dns_worker.finished.connect(self._on_dns_worker_finished)
+            self.dns_worker.start()
+            
+            # Создаем файлы
+            from utils.file_manager import ensure_required_files
+            ensure_required_files()
+            
+            # Process Monitor
+            self.init_process_monitor()
+            self.last_strategy_change_time = time.time()
+            
+            # Discord Manager
+            from discord.discord import DiscordManager
+            self.discord_manager = DiscordManager(status_callback=self.set_status)
+            log("✅ Discord Manager создан", "DEBUG")
+            
+            # Hosts Manager
+            self.hosts_manager = HostsManager(status_callback=self.set_status)
+            log("✅ Hosts Manager создан", "DEBUG")
+            
+            # Strategy Manager (уже должен быть создан в _init_strategy_manager)
+            if not hasattr(self, 'strategy_manager'):
+                self._init_strategy_manager()
+            
+            # Theme Manager
+            self.theme_manager = ThemeManager(
+                app=QApplication.instance(),
+                widget=self,
+                status_label=self.status_label if hasattr(self, 'status_label') else None,
+                theme_folder=THEME_FOLDER,
+                donate_checker=self.donate_checker if hasattr(self, 'donate_checker') else None
+            )
+            
+            self.theme_handler = ThemeHandler(self.theme_manager, self)
+            self.theme_handler.update_available_themes()
+            
+            # Применяем тему
+            if hasattr(self, 'theme_combo'):
+                self.theme_combo.setCurrentText(self.theme_manager.current_theme)
+            self.theme_manager.apply_theme()
+            
+            # Service Manager
+            self.service_manager = CheckerManager(
                 winws_exe=WINWS_EXE,
                 status_callback=self.set_status,
-                ui_callback=self.update_ui,
-                app_instance=self
+                ui_callback=self.update_ui
             )
-
-            # Проверка и восстановление хостлистов
-            from utils.hostlists_manager import startup_hostlists_check
-            startup_hostlists_check()
-                    
-            # Создаем DPI контроллер
-            self.dpi_controller = DPIController(self)
+            log("✅ Service Manager создан", "DEBUG")
             
-            # Меню
-            self.menu_bar = AppMenuBar(self)
-            self.layout().setMenuBar(self.menu_bar)
-            
-            # Подключаем сигналы
-            self._connect_signals()
-            
-            # Инициализация менеджеров
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, self.initialize_managers_and_services)
-            
-            # Инициализация трея
-            QTimer.singleShot(200, self._init_tray)
-            
-            # Инициализация логгера
-            QTimer.singleShot(300, self._init_logger)
-            
-            # Проверка подписки
-            QTimer.singleShot(1000, self._init_donate_checker_async)
+            # ✅ ДОБАВЬТЕ ЛОГИРОВАНИЕ ЗДЕСЬ:
+            try:
+                log("🔴 Начинаем update_autostart_ui", "DEBUG")
+                autostart_exists = self.service_manager.check_autostart_exists()
+                log(f"🔴 autostart_exists = {autostart_exists}", "DEBUG")
+                self.update_autostart_ui(autostart_exists)
+                log("🔴 update_autostart_ui завершен", "DEBUG")
+                
+                log("🔴 Начинаем update_ui", "DEBUG")
+                self.update_ui(running=False)
+                log("🔴 update_ui завершен", "DEBUG")
+                
+            except Exception as e:
+                log(f"❌ КРИТИЧЕСКАЯ ОШИБКА в initialize_managers: {e}", "ERROR")
+                import traceback
+                log(traceback.format_exc(), "ERROR")
+                # Продолжаем выполнение даже при ошибке
+                
+            log("✅ ВСЕ менеджеры инициализированы", "SUCCESS")
+            self._on_managers_init_done()
             
         except Exception as e:
-            log(f"Ошибка асинхронной инициализации: {e}", "❌ ERROR")
-            self.set_status(f"Ошибка инициализации: {e}")
+            log(f"❌ Ошибка инициализации менеджеров: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "ERROR")
+            self._on_managers_init_error(str(e))
+
+    def _on_managers_init_done(self):
+        """Обработчик успешной инициализации менеджеров"""
+        log("Все менеджеры инициализированы", "✅ SUCCESS")
+        self.set_status("Инициализация завершена")
+        
+        # Запускаем тяжелую инициализацию
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self._start_heavy_init)
+
+    def _on_managers_init_error(self, error):
+        """Обработчик ошибки инициализации менеджеров"""
+        log(f"Ошибка инициализации менеджеров: {error}", "❌ ERROR")
+        self.set_status(f"Ошибка: {error}")
+        QMessageBox.critical(self, "Ошибка инициализации", 
+                            f"Не удалось инициализировать компоненты:\n{error}")
 
 
     def _connect_signals(self):
@@ -1398,21 +1614,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.subscription_timer.start(interval_minutes * 60 * 1000)
         log(f"Таймер периодической проверки подписки запущен ({interval_minutes} мин)", "DEBUG")
 
-    def update_subscription_status_in_title(self):
-        """Обновляет статус подписки в title_label"""
-        try:
-            if not self.donate_checker:
-                return
-
-            is_premium, status_msg, days_remaining = self.donate_checker.check_subscription_status()
-            current_theme = self.theme_manager.current_theme if hasattr(self, 'theme_manager') else None
-            self.update_title_with_subscription_status(is_premium, current_theme, days_remaining)
-            
-        except Exception as e:
-            log(f"Ошибка при обновлении статуса подписки: {e}", "❌ ERROR")
-            # Не падаем, просто показываем базовый заголовок
-            self.update_title_with_subscription_status(False)
-
     def show_subscription_dialog(self):
         """Показывает диалог управления подписками"""
         try:  
@@ -1538,44 +1739,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
             log(f"Ошибка при активации комбо-бокса тем: {str(e)}")
             return False
 
-    def on_mode_changed(self, selected_mode):
-        """Обработчик смены режима в combobox"""
-        # Проверяем, активен ли автозапуск
-        if hasattr(self, 'service_manager') and self.service_manager.check_autostart_exists():
-            # Если автозапуск активен, игнорируем смену режима и восстанавливаем предыдущий выбор
-            log("Смена стратегии недоступна при активном автозапуске", level="⚠ WARNING")
-            return
-        
-        # Обновляем отображение текущей стратегии
-        self.current_strategy_label.setText(selected_mode)
-
-        # Записываем время изменения стратегии
-        self.last_strategy_change_time = time.time()
-        
-        # ✅ ПРОВЕРЯЕМ, не является ли это комбинированной стратегией
-        if selected_mode == "Прямой запуск" or selected_mode == "COMBINED_DIRECT":
-            # Для комбинированной стратегии сохраняем специальный маркер
-            set_last_strategy("COMBINED_DIRECT")
-        else:
-            # Для обычных стратегий сохраняем имя
-            set_last_strategy(selected_mode)
-        
-        self.dpi_controller.start_dpi_async(selected_mode=selected_mode)
-        
-        # Перезапускаем Discord только если:
-        # 1. Это не первый запуск
-        # 2. Автоперезапуск включен в настройках
-        from discord.discord_restart import get_discord_restart_setting
-        if not self.first_start and get_discord_restart_setting():
-            self.discord_manager.restart_discord_if_running()
-        else:
-            self.first_start = False  # Сбрасываем флаг первого запуска
-
     def change_theme(self, theme_name):
         """Обработчик изменения темы (делегирует в ThemeHandler)"""
         self.theme_handler.change_theme(theme_name)
         
-        # 🆕 Отладочная информация
+        # Отладочная информация
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(200, self.debug_theme_colors)
 
@@ -1589,7 +1757,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
     def show_autostart_options(self):
         """Показывает диалог автозапуска с поддержкой Direct режима"""
         from autostart.autostart_menu import AutoStartMenu
-        from config import get_strategy_launch_method
+        from strategy_menu import get_strategy_launch_method
         
         # Если уже есть автозапуск — предупредим и выйдем
         if self.service_manager.check_autostart_exists():
@@ -1604,16 +1772,20 @@ class LupiDPIApp(QWidget, MainWindowUI):
         # Определяем название стратегии
         if is_direct_mode:
             # Для Direct режима получаем название из комбинированной стратегии
-            from config import get_direct_strategy_selections
+            from strategy_menu import get_direct_strategy_selections
             from strategy_menu.strategy_lists_separated import combine_strategies
             
             try:
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(
+                    selections.get('youtube_udp'),
                     selections.get('youtube'),
+                    selections.get('googlevideo_tcp'),
                     selections.get('discord'),
                     selections.get('discord_voice'),
-                    selections.get('other')
+                    selections.get('other'),
+                    selections.get('ipset'),
+                    selections.get('ipset_udp'),
                 )
                 strategy_name = combined['description']
             except:
@@ -1725,67 +1897,353 @@ class LupiDPIApp(QWidget, MainWindowUI):
         else:
             self.set_status("Ошибка отключения автозапуска")
 
-    def update_proxy_button_state(self):
-        """Обновляет состояние кнопки разблокировки (вызывает метод UI)"""
-        if hasattr(self, 'hosts_manager'):
-            is_active = self.hosts_manager.is_proxy_domains_active()
-            # Вызываем метод UI с определенным состоянием
-            super().update_proxy_button_state(is_active)
-        else:
-            # Если hosts_manager недоступен, вызываем без параметров
-            super().update_proxy_button_state()
+    def update_proxy_button_state(self, is_active: bool = None):
+        """Обновляет состояние кнопки разблокировки"""
+        try:
+            log(f"🟡 update_proxy_button_state вызван: is_active={is_active}", "DEBUG")
+            
+            if not hasattr(self, 'proxy_button'):
+                log("⚠️ proxy_button не существует", "WARNING")
+                return
+               
+            if hasattr(self, 'hosts_manager'):
+                is_active = self.hosts_manager.is_proxy_domains_active()
+                # Вызываем метод UI с определенным состоянием
+                super().update_proxy_button_state(is_active)
+            else:
+                # Если hosts_manager недоступен, вызываем без параметров
+                super().update_proxy_button_state()
 
+            log(f"🟡 update_proxy_button_state завершен успешно", "DEBUG")
+
+        except Exception as e:
+            log(f"❌ Ошибка в update_proxy_button_state: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "ERROR")
+    
     def toggle_proxy_domains(self):
         """Переключает состояние разблокировки: добавляет или удаляет записи из hosts"""
         if not hasattr(self, 'hosts_manager'):
             self.set_status("Ошибка: менеджер hosts не инициализирован")
             return
-            
+        
+        # Проверяем текущее состояние
         is_active = self.hosts_manager.is_proxy_domains_active()
         
+        # Создаем меню
+        menu = QMenu(self)
+        
         if is_active:
-            # Показываем меню с вариантами отключения
-            menu = QMenu(self)
-            
+            # Меню для активного состояния (отключение)
             disable_all_action = menu.addAction("Отключить всю разблокировку")
             select_domains_action = menu.addAction("Выбрать домены для отключения")
-            menu.addSeparator()  # Добавляем разделитель
-            open_hosts_action = menu.addAction("Открыть файл hosts")  # НОВЫЙ ПУНКТ
-            
-            # Получаем положение кнопки для отображения меню
-            button_pos = self.proxy_button.mapToGlobal(self.proxy_button.rect().bottomLeft())
-            
-            # Показываем меню и получаем выбранное действие
-            action = menu.exec(button_pos)
-            
-            if action == disable_all_action:
-                self._handle_proxy_disable_all()
-            elif action == select_domains_action:
-                self._handle_proxy_select_domains()
-            elif action == open_hosts_action:  # НОВЫЙ ОБРАБОТЧИК
-                self._open_hosts_file()
-                
+            menu.addSeparator()
+            open_hosts_action = menu.addAction("Открыть файл hosts")
         else:
-            # Показываем меню с вариантами включения
-            menu = QMenu(self)
-            
+            # Меню для неактивного состояния (включение)
             enable_all_action = menu.addAction("Включить всю разблокировку")
             select_domains_action = menu.addAction("Выбрать домены для включения")
-            menu.addSeparator()  # Добавляем разделитель
-            open_hosts_action = menu.addAction("Открыть файл hosts")  # НОВЫЙ ПУНКТ
-            
-            # Получаем положение кнопки для отображения меню
-            button_pos = self.proxy_button.mapToGlobal(self.proxy_button.rect().bottomLeft())
-            
-            # Показываем меню и получаем выбранное действие
-            action = menu.exec(button_pos)
-            
-            if action == enable_all_action:
-                self._handle_proxy_enable_all()
-            elif action == select_domains_action:
-                self._handle_proxy_select_domains()
-            elif action == open_hosts_action:  # НОВЫЙ ОБРАБОТЧИК
+            menu.addSeparator()
+            open_hosts_action = menu.addAction("Открыть файл hosts")
+        
+        # Показываем меню
+        button_pos = self.proxy_button.mapToGlobal(self.proxy_button.rect().bottomLeft())
+        action = menu.exec(button_pos)
+        
+        # Обрабатываем выбранное действие - ТОЛЬКО АСИНХРОННО
+        if action:
+            if action.text() == "Открыть файл hosts":
                 self._open_hosts_file()
+            elif action.text() == "Отключить всю разблокировку":
+                self._handle_proxy_disable_all_async()  # используем async версию
+            elif action.text() == "Включить всю разблокировку":  
+                self._handle_proxy_enable_all_async()   # используем async версию
+            elif "Выбрать домены" in action.text():
+                self._handle_proxy_select_domains_async()  # используем async версию
+
+    def _handle_proxy_disable_all_async(self):
+        """Асинхронно обрабатывает отключение всей разблокировки"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Отключение разблокировки")
+        msg.setText("Отключить разблокировку сервисов через hosts-файл?")
+        msg.setInformativeText(
+            "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
+            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            # Запускаем асинхронную операцию
+            self._perform_hosts_operation_async('remove')
+        else:
+            self.set_status("Операция отменена.")
+
+    def _handle_proxy_enable_all_async(self):
+        """Асинхронно обрабатывает включение всей разблокировки"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Разблокировка через hosts-файл")
+        msg.setText("Установка соединения к proxy-серверу через файл hosts")
+        msg.setInformativeText(
+            "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
+            "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
+            "(без участия Роскомнадзора).\n\n"
+            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер "
+            "(не только сайт, а всю программу) и/или приложение Spotify!"
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        
+        if msg.exec() == QMessageBox.StandardButton.Ok:
+            # Запускаем асинхронную операцию
+            self._perform_hosts_operation_async('add')
+        else:
+            self.set_status("Операция отменена.")
+
+    def _handle_proxy_select_domains_async(self):
+        """Асинхронно обрабатывает выбор доменов для разблокировки"""
+        log("🔵 _handle_proxy_select_domains_async начат", "DEBUG")
+        
+        from hosts.menu import HostsSelectorDialog
+        from hosts.proxy_domains import PROXY_DOMAINS
+        
+        # Получаем текущие активные домены
+        current_active = set()
+        if self.hosts_manager.is_proxy_domains_active():
+            try:
+                from pathlib import Path
+                hosts_path = Path(r"C:\Windows\System32\drivers\etc\hosts")
+                content = hosts_path.read_text(encoding="utf-8-sig")
+                for domain in PROXY_DOMAINS.keys():
+                    if domain in content:
+                        current_active.add(domain)
+                log(f"Найдено активных доменов: {len(current_active)}", "DEBUG")
+            except Exception as e:
+                log(f"Ошибка при чтении hosts: {e}", "ERROR")
+        
+        # Показываем диалог выбора
+        dialog = HostsSelectorDialog(self, current_active)
+        from PyQt6.QtWidgets import QDialog
+        
+        result = dialog.exec()
+        log(f"Диалог закрыт с результатом: {result}", "DEBUG")
+        
+        if result == QDialog.DialogCode.Accepted:
+            selected_domains = dialog.get_selected_domains()
+            log(f"Выбрано доменов: {len(selected_domains)}", "DEBUG")
+            # Запускаем асинхронную операцию с выбранными доменами
+            self._perform_hosts_operation_async('select', selected_domains)
+        else:
+            log("Диалог отменен", "DEBUG")
+
+    def _perform_hosts_operation_async(self, operation, domains=None):
+        """Выполняет операцию с hosts файлом асинхронно"""
+        log(f"🔵 _perform_hosts_operation_async начат: operation={operation}, domains={domains}", "DEBUG")
+        
+        from PyQt6.QtCore import QThread, QObject, pyqtSignal
+        
+        # Показываем индикатор загрузки
+        self.set_proxy_button_loading(True, "Обработка...")
+        log("🔵 Кнопка заблокирована, индикатор показан", "DEBUG")
+        
+        # Блокируем кнопку на время операции
+        self.proxy_button.setEnabled(False)
+        
+        class HostsWorker(QObject):
+            finished = pyqtSignal(bool, str)
+            progress = pyqtSignal(str)
+            
+            def __init__(self, hosts_manager, operation, domains=None):
+                super().__init__()
+                self.hosts_manager = hosts_manager
+                self.operation = operation
+                self.domains = domains
+                log(f"🔵 HostsWorker создан: operation={operation}", "DEBUG")
+            
+            def run(self):
+                log(f"🔵 HostsWorker.run() начат: operation={self.operation}", "DEBUG")
+                try:
+                    success = False
+                    message = ""
+                    
+                    if self.operation == 'add':
+                        self.progress.emit("Добавление доменов в hosts...")
+                        log("🔵 Вызываем add_proxy_domains()", "DEBUG")
+                        success = self.hosts_manager.add_proxy_domains()
+                        log(f"🔵 add_proxy_domains завершен: success={success}", "DEBUG")
+                        if success:
+                            message = "Разблокировка включена. Перезапустите браузер."
+                        else:
+                            message = "Не удалось включить разблокировку."
+                            
+                    elif self.operation == 'remove':
+                        self.progress.emit("Удаление доменов из hosts...")
+                        log("🔵 Вызываем remove_proxy_domains()", "DEBUG")
+                        success = self.hosts_manager.remove_proxy_domains()
+                        log(f"🔵 remove_proxy_domains завершен: success={success}", "DEBUG")
+                        if success:
+                            message = "Разблокировка отключена. Перезапустите браузер."
+                        else:
+                            message = "Не удалось отключить разблокировку."
+                            
+                    elif self.operation == 'select' and self.domains:
+                        self.progress.emit(f"Применение {len(self.domains)} доменов...")
+                        log(f"🔵 Вызываем apply_selected_domains({len(self.domains)} доменов)", "DEBUG")
+                        success = self.hosts_manager.apply_selected_domains(self.domains)
+                        log(f"🔵 apply_selected_domains завершен: success={success}", "DEBUG")
+                        if success:
+                            message = f"Применено {len(self.domains)} доменов. Перезапустите браузер."
+                        else:
+                            message = "Не удалось применить выбранные домены."
+                    
+                    log(f"🔵 HostsWorker.run() завершается, испускаем сигнал finished", "DEBUG")
+                    self.finished.emit(success, message)
+                    log(f"🔵 Сигнал finished испущен", "DEBUG")
+                    
+                except Exception as e:
+                    log(f"❌ Исключение в HostsWorker.run(): {e}", "ERROR")
+                    import traceback
+                    log(traceback.format_exc(), "ERROR")
+                    self.finished.emit(False, f"Ошибка: {str(e)}")
+        
+        # Создаем поток и воркер
+        log("🔵 Создаем QThread и HostsWorker", "DEBUG")
+        thread = QThread()
+        worker = HostsWorker(self.hosts_manager, operation, domains)
+        worker.moveToThread(thread)
+
+        # Подключаем сигналы с защитой
+        log("🔵 Подключаем сигналы", "DEBUG")
+        
+        # Защищенное подключение к finished
+        def safe_complete(success, msg):
+            try:
+                log(f"🔵 safe_complete вызван: {success}, {msg}", "DEBUG")
+                self._on_hosts_operation_complete(success, msg)
+            except Exception as e:
+                log(f"❌ Ошибка в safe_complete: {e}", "ERROR")
+                import traceback
+                log(traceback.format_exc(), "ERROR")
+        
+        worker.finished.connect(safe_complete)
+
+        # ✅ ИЗМЕНЁННОЕ подключение сигналов
+        log("🔵 Подключаем сигналы", "DEBUG")
+        
+        # Сначала подключаем основную логику
+        thread.started.connect(worker.run)
+        worker.progress.connect(self.set_status)
+        
+        # Защищенное подключение к finished
+        def safe_complete(success, msg):
+            try:
+                log(f"🔵 safe_complete вызван: {success}, {msg}", "DEBUG")
+                self._on_hosts_operation_complete(success, msg)
+            except Exception as e:
+                log(f"❌ Ошибка в safe_complete: {e}", "ERROR")
+                import traceback
+                log(traceback.format_exc(), "ERROR")
+        
+        worker.finished.connect(safe_complete)
+        
+        # ✅ ВАЖНО: Отложенная очистка объектов
+        def cleanup_thread():
+            try:
+                log("🔵 Очистка потока и воркера", "DEBUG")
+                # Ждем немного перед удалением
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(500, lambda: self._cleanup_hosts_thread())
+            except Exception as e:
+                log(f"Ошибка при планировании очистки: {e}", "DEBUG")
+        
+        # Подключаем очистку
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(cleanup_thread)
+
+        # Сохраняем ссылки
+        self._hosts_operation_thread = thread
+        self._hosts_operation_worker = worker
+        
+        # Запускаем поток
+        log("🔵 Запускаем QThread.start()", "DEBUG")
+        thread.start()
+        log("🔵 QThread.start() вызван", "DEBUG")
+
+    def _cleanup_hosts_thread(self):
+        """Отложенная очистка потока и воркера"""
+        try:
+            log("🔵 Выполняем отложенную очистку потока", "DEBUG")
+            
+            if hasattr(self, '_hosts_operation_worker'):
+                self._hosts_operation_worker.deleteLater()
+                del self._hosts_operation_worker
+                
+            if hasattr(self, '_hosts_operation_thread'):
+                if self._hosts_operation_thread.isRunning():
+                    self._hosts_operation_thread.quit()
+                    self._hosts_operation_thread.wait(1000)
+                self._hosts_operation_thread.deleteLater()
+                del self._hosts_operation_thread
+                
+            log("🔵 Очистка потока завершена", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка при очистке потока: {e}", "DEBUG")
+
+    def _on_hosts_operation_complete(self, success, message):
+        """Обработчик завершения асинхронной операции с hosts"""
+        log(f"🟢 _on_hosts_operation_complete вызван: success={success}, message={message}", "DEBUG")
+        
+        try:
+            # Останавливаем таймер если есть
+            if hasattr(self, '_hosts_timeout_timer'):
+                self._hosts_timeout_timer.stop()
+                del self._hosts_timeout_timer
+            
+            # Убираем индикатор загрузки
+            if hasattr(self, 'set_proxy_button_loading'):
+                self.set_proxy_button_loading(False)
+            
+            # Разблокируем кнопку
+            if hasattr(self, 'proxy_button'):
+                self.proxy_button.setEnabled(True)
+            
+            # Показываем результат
+            self.set_status(message)
+            
+            # ✅ НЕ УДАЛЯЕМ ссылки сразу - пусть Qt сам очистит через deleteLater
+            # Закомментируйте эти строки:
+            # if hasattr(self, '_hosts_operation_thread'):
+            #     del self._hosts_operation_thread
+            # if hasattr(self, '_hosts_operation_worker'):
+            #     del self._hosts_operation_worker
+            
+            # Обновляем состояние кнопки через небольшую задержку
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self.update_proxy_button_state)
+            
+            # Показываем уведомление об успехе/ошибке
+            if success:
+                if hasattr(self, 'tray_manager') and self.tray_manager:
+                    try:
+                        self.tray_manager.show_notification(
+                            "Операция завершена",
+                            message
+                        )
+                    except Exception as e:
+                        log(f"Ошибка показа уведомления в трее: {e}", "DEBUG")
+            else:
+                try:
+                    QMessageBox.warning(self, "Внимание", message)
+                except Exception as e:
+                    log(f"Ошибка показа сообщения: {e}", "DEBUG")
+                
+            log("🟢 _on_hosts_operation_complete завершен", "DEBUG")
+            
+        except Exception as e:
+            log(f"❌ Ошибка в _on_hosts_operation_complete: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "ERROR")
 
     def _open_hosts_file(self):
         """Открывает файл hosts в текстовом редакторе с правами администратора"""
@@ -1800,32 +2258,29 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
             # Пробуем разные редакторы по полным путям
             editors = [
-                r'C:\Program Files\Notepad++\notepad++.exe',           # Notepad++
-                r'C:\Program Files (x86)\Notepad++\notepad++.exe',     # Notepad++ x86
-                r'C:\Program Files\Sublime Text\sublime_text.exe',     # Sublime Text
-                r'C:\Program Files\Sublime Text 3\sublime_text.exe',   # Sublime Text 3
-                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),  # VS Code
-                r'C:\Program Files\Microsoft VS Code\Code.exe',        # VS Code (другой путь)
-                r'C:\Program Files\VsCodium\VsCodium.exe',            # VsCodium
-                r'C:\Windows\System32\notepad.exe',                    # Стандартный блокнот (в конце)
-                r'C:\Windows\notepad.exe',                             # Альтернативный путь
-                r'C:\Windows\System32\write.exe',                      # WordPad
+                r'C:\Program Files\Notepad++\notepad++.exe',
+                r'C:\Program Files (x86)\Notepad++\notepad++.exe',
+                r'C:\Program Files\Sublime Text\sublime_text.exe',
+                r'C:\Program Files\Sublime Text 3\sublime_text.exe',
+                r'C:\Users\{}\AppData\Local\Programs\Microsoft VS Code\Code.exe'.format(os.getenv('USERNAME', '')),
+                r'C:\Program Files\Microsoft VS Code\Code.exe',
+                r'C:\Program Files\VsCodium\VsCodium.exe',
+                r'C:\Windows\System32\notepad.exe',
+                r'C:\Windows\notepad.exe',
+                r'C:\Windows\System32\write.exe',
             ]
             
-            # Флаг успешного открытия
             opened = False
             
-            # Пробуем каждый редактор
             for editor in editors:
                 if os.path.exists(editor):
                     try:
-                        # Запускаем редактор с правами администратора
                         import ctypes
                         ctypes.windll.shell32.ShellExecuteW(
                             None, 
                             "runas",  # Запуск с правами администратора
                             editor, 
-                            hosts_path,  # Передаем путь к файлу как аргумент
+                            hosts_path,
                             None, 
                             1  # SW_SHOWNORMAL
                         )
@@ -1840,7 +2295,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
                         log(f"Не удалось открыть в {editor}: {e}")
                         continue
             
-            # Если ни один редактор не сработал
             if not opened:
                 # Последняя попытка - открыть через ассоциацию системы
                 try:
@@ -1848,11 +2302,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     self.set_status("Файл hosts открыт")
                     log("Файл hosts открыт через системную ассоциацию")
                 except Exception as e:
-                    error_msg = "Не удалось открыть файл hosts. Установите один из поддерживаемых редакторов:\n" \
-                            "• Notepad++\n" \
-                            "• Visual Studio Code\n" \
-                            "• Sublime Text\n" \
-                            "• WordPad"
+                    error_msg = (
+                        "Не удалось открыть файл hosts. Установите один из поддерживаемых редакторов:\n"
+                        "• Notepad++\n"
+                        "• Visual Studio Code\n"
+                        "• Sublime Text\n"
+                        "• WordPad"
+                    )
                     QMessageBox.critical(self, "Ошибка", error_msg)
                     log(f"Не удалось открыть файл hosts ни в одном редакторе: {e}")
                     self.set_status("Ошибка: не найден подходящий редактор")
@@ -1861,84 +2317,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
             error_msg = f"Ошибка при открытии файла hosts: {str(e)}"
             log(error_msg, level="❌ ERROR")
             self.set_status(error_msg)
-            QMessageBox.critical(self, "Ошибка", 
-                            f"Не удалось открыть файл hosts:\n{str(e)}")
-
-    def _handle_proxy_disable_all(self):
-        """Обрабатывает отключение всей разблокировки"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Question)
-        msg.setWindowTitle("Отключение разблокировки")
-        msg.setText("Отключить разблокировку сервисов через hosts-файл?")
-        
-        msg.setInformativeText(
-            "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
-            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
-        )
-        
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        result = msg.exec()
-        
-        if result == QMessageBox.StandardButton.Yes:
-            # Показываем состояние загрузки
-            self.set_proxy_button_loading(True, "Отключение...")
-            
-            if self.hosts_manager.remove_proxy_domains():
-                self.set_status("Разблокировка отключена. Перезапустите браузер.")
-                
-                # Обновляем состояние кнопки с небольшой задержкой
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(100, self.update_proxy_button_state)
-            else:
-                self.set_status("Не удалось отключить разблокировку.")
-                
-            # Отключаем состояние загрузки
-            self.set_proxy_button_loading(False)
-        else:
-            self.set_status("Операция отменена.")
-
-    def _handle_proxy_enable_all(self):
-        """Обрабатывает включение всей разблокировки"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle("Разблокировка через hosts-файл")
-        msg.setText("Установка соединения к proxy-серверу через файл hosts")
-        
-        msg.setInformativeText(
-            "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
-            "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
-            "(без участия Роскомнадзора).\n\n"
-            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер (не только сайт, а всю программу) и/или приложение Spotify!"
-        )
-        
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        result = msg.exec()
-        
-        if result == QMessageBox.StandardButton.Ok:
-            # Показываем состояние загрузки
-
-            self.set_proxy_button_loading(True, "Включение...")
-            
-            if self.hosts_manager.add_proxy_domains():
-                self.set_status("Разблокировка включена. Перезапустите браузер.")
-                
-                # Обновляем состояние кнопки с небольшой задержкой
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(100, self.update_proxy_button_state)
-            else:
-                self.set_status("Не удалось включить разблокировку.")
-                
-            # Отключаем состояние загрузки
-            self.set_proxy_button_loading(False)
-        else:
-            self.set_status("Операция отменена.")
-
-    def _handle_proxy_select_domains(self):
-        """Обрабатывает выбор доменов для разблокировки"""
-        if self.hosts_manager.show_hosts_selector_dialog(self):
-            # Обновляем состояние кнопки после изменений
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, self.update_proxy_button_state)
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл hosts:\n{str(e)}")
             
     def show_hosts_selector_dialog(self):
         """Показывает селектор доменов для hosts файла"""

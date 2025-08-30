@@ -23,9 +23,14 @@ LISTS_FOLDER = os.path.join(MAIN_DIRECTORY, "lists")
 THEME_FOLDER = os.path.join(MAIN_DIRECTORY, "themes")
 LOGS_FOLDER = os.path.join(MAIN_DIRECTORY, "logs")
 
+# Настройка количества сохраняемых лог-файлов (опционально)
+MAX_LOG_FILES = 50  # можно сделать настраиваемым через реестр
+
+WINDIVERT_FILTER = os.path.join(MAIN_DIRECTORY, "windivert.filter")
+
 # Пути к файлам
 WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")
-ICON_PATH = os.path.join(ICO_FOLDER, "Zapret1.ico")
+ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")
 ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo3.ico")
 
 OTHER_PATH = os.path.join(LISTS_FOLDER, "other.txt")

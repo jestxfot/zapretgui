@@ -6,7 +6,7 @@ from PyQt6.QtCore    import Qt
 from PyQt6.QtGui     import QGuiApplication, QIcon
 
 from config import APP_VERSION # build_info moved to config/__init__.py
-from config.urls            import INFO_URL, AUTHOR_URL
+from config.urls            import INFO_URL, BOLVAN_URL
 
 
 from PyQt6.QtWidgets import (
@@ -43,7 +43,7 @@ class AboutDialog(QDialog):
         <br>
         <a href="{INFO_URL}">Руководство пользователя</a><br>
         Автор GUI: <a href="https://t.me/bypassblock">@bypassblock</a><br>
-        Автор Zapret: <a href="{AUTHOR_URL}">bol-van&nbsp;(GitHub)</a><br>
+        Автор Zapret: <a href="{BOLVAN_URL}">bol-van&nbsp;(GitHub)</a><br>
         Поддержка: <a href="https://t.me/youtubenotwork">@youtubenotwork</a>
         """
         lbl_links = QLabel(links_html)

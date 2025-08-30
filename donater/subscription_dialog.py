@@ -332,11 +332,12 @@ class SubscriptionDialog(QDialog):
         instructions_layout.addWidget(instructions_title)
         
         steps = [
-            '1. Откройте <a href="https://boosty.to/censorliber">Boosty</a>',
+            '1. Откройте <a href="https://t.me/zapretvpns_bot">Telegram бота</a>',
             "2. Выберите подходящий тариф",
-            "3. Оплатите подписку",
-            '4. Получите ключ в <a href="https://t.me/zapretvpns_bot">Telegram боте</a>',
-            "5. Введите ключ ниже"
+            "3. Пополните баланс на нужную сумму",
+            "4. Оплатите подписку с внутриботового баланса",
+            '5. Получите ключ в боте',
+            "6. Введите ключ ниже"
         ]
         
         for step in steps:
@@ -485,7 +486,7 @@ class SubscriptionDialog(QDialog):
         
         telegram_btn = QPushButton("💬 Продлить подписку")
         telegram_btn.setProperty("class", "telegram")
-        telegram_btn.clicked.connect(self._open_boosty)
+        telegram_btn.clicked.connect(self._open_telegram)
         buttons_layout.addWidget(telegram_btn)
         
         test_btn = QPushButton("🔗 Проверить соединение")

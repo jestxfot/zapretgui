@@ -2,6 +2,9 @@
 build_tools/__init__.py - Инициализация пакета build_tools
 """
 
+UPDATER_SERVER = "217.114.0.114"
+SSH_PASSWORD = "3AaWx#G_yu2N"
+
 # Пытаемся импортировать GitHub функции
 try:
     from .github_release import (

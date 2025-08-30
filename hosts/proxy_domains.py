@@ -97,7 +97,11 @@ PROXY_DOMAINS = {
     "a-v2.sndcdn.com": "3.164.206.34",
     "secure.sndcdn.com": "18.165.140.56",
     "anilib.me": "172.67.192.246",
-    #"usher.ttvnw.net": "45.95.233.23",
+    "usher.ttvnw.net": "45.95.233.23", # 5.129.213.53
+    "ntc.party": "130.255.77.28",
+    "sora.com": "204.12.192.222",
+    "sora.chatgpt.com": "204.12.192.222",
+    "videos.openai.com": "204.12.192.222",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"

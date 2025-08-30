@@ -17,11 +17,11 @@ class StrategyManager:
 
     # ─────────────────────────────── init ──────────────────────────────
     def __init__(self,
-                 local_dir: str,
-                 json_dir: str,
-                 status_callback=None,
-                 json_url: str | None = None,
-                 preload: bool = False) -> None:
+                local_dir: str,
+                json_dir: str,
+                status_callback=None,
+                json_url: str | None = None,
+                preload: bool = False) -> None:
         """
         local_dir      – куда сохраняем bat-файлы
         json_dir       – куда сохраняем index.json и strategy_versions.json
@@ -37,6 +37,7 @@ class StrategyManager:
 
         self.strategies_cache: dict[str, dict] = {}
         self.cache_loaded = False  # Флаг что кэш уже загружен
+        self._loaded = False  # ✅ ДОБАВИТЬ ЭТУ СТРОКУ
         self.last_update_time = 0
         self.update_interval  = 3600          # 1 ч
 

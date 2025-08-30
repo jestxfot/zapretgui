@@ -96,13 +96,11 @@ def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
     # Применяем дополнительные параметры
     from strategy_menu.strategy_runner import (
         apply_game_filter_parameter,
-        apply_ipset_lists_parameter,
         apply_wssize_parameter
     )
     
     lists_dir = os.path.join(work_dir, "lists")
     resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-    resolved_args = apply_ipset_lists_parameter(resolved_args, lists_dir)
     resolved_args = apply_wssize_parameter(resolved_args)
     
     # Экранируем аргументы для командной строки Windows
@@ -351,13 +349,11 @@ def _create_task_with_bat_fallback(
         # Применяем параметры
         from strategy_menu.strategy_runner import (
             apply_game_filter_parameter,
-            apply_ipset_lists_parameter,
             apply_wssize_parameter
         )
         
         lists_dir = os.path.join(work_dir, "lists")
         resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-        resolved_args = apply_ipset_lists_parameter(resolved_args, lists_dir)
         resolved_args = apply_wssize_parameter(resolved_args)
         
         # Создаем .bat содержимое
@@ -453,7 +449,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     Собирает аргументы для текущей Direct стратегии
     """
     try:
-        from config import get_direct_strategy_selections
+        from strategy_menu import get_direct_strategy_selections
         from strategy_menu.strategy_lists_separated import combine_strategies
         
         # Получаем путь к winws.exe
@@ -468,9 +464,13 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         # Комбинируем стратегии
         combined = combine_strategies(
             selections.get('youtube'),
+            selections.get('youtube_udp'),
+            selections.get('googlevideo_tcp'),
             selections.get('discord'),
             selections.get('discord_voice'),
-            selections.get('other')
+            selections.get('other'),
+            selections.get('ipset'),
+            selections.get('ipset_udp'),
         )
         
         # Парсим аргументы

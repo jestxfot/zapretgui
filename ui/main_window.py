@@ -22,6 +22,17 @@ class MainWindowUI:
     """
 
     def build_ui(self: QWidget, width: int, height: int):
+        # ✅ НОВОЕ: Удаляем старый layout если есть
+        old_layout = self.layout()
+        if old_layout is not None:
+            # Удаляем все виджеты из старого layout
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            # Удаляем сам layout
+            QWidget().setLayout(old_layout)
+        
         self.setStyleSheet(STYLE_SHEET)
         self.setMinimumSize(width, height)
 
@@ -71,7 +82,7 @@ class MainWindowUI:
         self.themed_labels = [self.current_strategy_label]
 
         # ---------- Текущая стратегия ----------------------------------
-        self.select_strategy_btn = RippleButton(" Сменить стратегию обхода блокировок", self, "0, 119, 255")
+        self.select_strategy_btn = RippleButton(" Сменить пресет обхода блокировок", self, "0, 119, 255")
         self.select_strategy_btn.setIcon(qta.icon('fa5s.cog', color='white'))
         self.select_strategy_btn.setIconSize(QSize(16, 16))
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
@@ -332,18 +343,24 @@ class MainWindowUI:
             text: Текст для отображения во время загрузки
         """
         if not hasattr(self, 'proxy_button'):
+            log("⚠️ proxy_button не существует", "WARNING")
             return
             
-        if is_loading:
-            loading_text = text if text else "Обработка..."
-            self.proxy_button.setText(f" {loading_text}")
-            self.proxy_button.setEnabled(False)
-            self.proxy_button.setIcon(qta.icon('fa5s.spinner', color='white'))
-            # Можно добавить анимацию вращения иконки
-        else:
-            self.proxy_button.setEnabled(True)
-            # Восстанавливаем нормальное состояние
-            self.update_proxy_button_state()
+        try:
+            import qtawesome as qta
+            
+            if is_loading:
+                loading_text = text if text else "Обработка..."
+                self.proxy_button.setText(f" {loading_text}")
+                self.proxy_button.setEnabled(False)
+                self.proxy_button.setIcon(qta.icon('fa5s.spinner', color='white'))
+            else:
+                self.proxy_button.setEnabled(True)
+                # Восстанавливаем нормальное состояние
+                self.update_proxy_button_state()
+                
+        except Exception as e:
+            log(f"Ошибка в set_proxy_button_loading: {e}", "ERROR")
 
     def update_theme_combo(self, available_themes):
         """

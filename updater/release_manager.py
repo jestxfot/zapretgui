@@ -18,8 +18,7 @@ import urllib3
 from urllib.parse import urljoin
 from datetime import datetime
 
-from .github_release import get_latest_release as github_get_latest_release
-from .github_release import normalize_version, is_rate_limited
+from .github_release import get_latest_release as github_get_latest_release, normalize_version, is_rate_limited
 from log import log
 from config import CHANNEL
 
@@ -56,7 +55,7 @@ def get_fallback_servers():
             })
         else:
             servers.append({
-                "url": "https://88.210.21.236:888",
+                "url": "https://217.114.0.114:888",
                 "verify_ssl": False,
                 "priority": 1,
                 "name": "Private Server"  
@@ -72,7 +71,7 @@ def get_fallback_servers():
             })
         else:
             servers.append({
-                "url": "http://88.210.21.236:887",
+                "url": "http://217.114.0.114:887",
                 "verify_ssl": True,
                 "priority": 2,
                 "name": "Private HTTP Server"
@@ -210,28 +209,27 @@ class ReleaseManager:
         """Возвращает список источников в порядке приоритета"""
         sources = []
         
-        # Проверяем состояние GitHub rate limit
-        is_limited, reset_dt = is_rate_limited()
-        
-        if not is_limited:
-            # GitHub доступен
-            sources.append({
-                'name': 'GitHub',
-                'type': 'github',
-                'priority': 0
-            })
-        else:
-            log(f"⏳ GitHub rate limit до {reset_dt}, пропускаем", "🔄 RELEASE")
-        
-        # Добавляем fallback серверы
+        # СНАЧАЛА добавляем fallback серверы (Private Servers)
         for server in self.fallback_servers:
             sources.append({
                 'name': server['name'],
                 'type': 'fallback',
-                'priority': server['priority'],
+                'priority': server['priority'] - 10,  # Даем им высший приоритет
                 'url': server['url'],
                 'verify_ssl': server['verify_ssl']
             })
+        
+        # ПОТОМ проверяем GitHub (если доступен)
+        is_limited, reset_dt = is_rate_limited()
+        
+        if not is_limited:
+            sources.append({
+                'name': 'GitHub',
+                'type': 'github',
+                'priority': 10  # Низкий приоритет (больше число = ниже приоритет)
+            })
+        else:
+            log(f"⏳ GitHub rate limit до {reset_dt}, пропускаем", "🔄 RELEASE")
         
         # Сортируем по приоритету и успешности
         def sort_key(source):

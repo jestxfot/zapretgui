@@ -20,7 +20,7 @@ from .autostart_direct   import (
     collect_direct_strategy_args
 )
 from log                 import log
-from config             import get_strategy_launch_method
+from strategy_menu import get_strategy_launch_method
 import os
 
 class AutoStartMenu(QDialog):

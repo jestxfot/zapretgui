@@ -14,7 +14,7 @@ current_dir = Path(__file__).parent
 parent_dir = current_dir.parent
 sys.path.insert(0, str(parent_dir))
 
-from updater.release_manager import get_release_manager, get_latest_release
+from .release_manager import get_release_manager, get_latest_release
 
 def main():
     manager = get_release_manager()

@@ -1,98 +1,274 @@
-﻿;---------------------------------------------------
+;---------------------------------------------------
 ;  Zapret installer / updater (ProgramData by default)
 ;---------------------------------------------------
+
+; Определяем дефолтные значения
+#ifndef CHANNEL
+  #define CHANNEL "stable"
+#endif
+
+#ifndef VERSION
+  #define VERSION "16.1.0.0"
+#endif
+
+; ✅ АБСОЛЮТНЫЕ ПУТИ
+#define SourcePath "D:\Privacy\zapret"
+#define ProjectPath "D:\Privacy\zapretgui"
+
+; Настройки в зависимости от канала
+#if CHANNEL == "test"
+  #define AppName "Zapret Dev"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
+  #define OutputName "ZapretSetup_TEST"
+  #define GroupName "Zapret Dev"
+  #define DataFolder "ZapretDev"
+  #define IconFile "ZapretDevLogo3.ico"
+#else
+  #define AppName "Zapret"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
+  #define OutputName "ZapretSetup"
+  #define GroupName "Zapret"
+  #define DataFolder "Zapret"
+  #define IconFile "Zapret2.ico"
+#endif
+
 [Setup]
-AppName= Zapret
-AppVersion= 16.3.0.5
-AppId= {{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}
-; ───────────────────────────────────────────────────────────────
+AppName={#AppName}
+AppVersion={#VERSION}
+AppId={#AppId}
 DefaultDirName={code:GetInstallDir}
 DisableDirPage=no
 UsePreviousAppDir=yes
-; ───────────────────────────────────────────────────────────────
 PrivilegesRequired=admin
-DefaultGroupName= Zapret
+DefaultGroupName={#GroupName}
 AllowNoIcons=yes
-OutputDir= D:\\Privacy\\zapretgui
-OutputBaseFilename= ZapretSetup
+; ✅ Выходной файл в папке проекта
+OutputDir={#ProjectPath}
+OutputBaseFilename={#OutputName}
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile= Zapret1.ico
+; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
+#ifexist SourcePath + "\ico\" + IconFile
+  ; Иконка в папке сборки
+  SetupIconFile={#SourcePath}\ico\{#IconFile}
+#elif FileExists(ProjectPath + "\ico\" + IconFile)
+  ; Иконка в папке проекта
+  SetupIconFile={#ProjectPath}\ico\{#IconFile}
+#elif FileExists(ProjectPath + "\" + IconFile)
+  ; Иконка в корне проекта
+  SetupIconFile={#ProjectPath}\{#IconFile}
+#else
+  ; Используем стандартную иконку Inno Setup если наша не найдена
+  ; Закомментируйте эту строку, чтобы увидеть ошибку если иконка не найдена
+  ; SetupIconFile=
+#endif
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-;---------------------------------------------------
 
 [Languages]
 Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
-Source: "D:\Privacy\zapret\Zapret.exe";           DestDir: "{app}";      Flags: ignoreversion
-Source: "..\zapret\bat\*";              DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion
-Source: "..\zapret\bin\*";                DestDir: "{app}\bin";  Flags: recursesubdirs ignoreversion
-Source: "..\zapret\exe\*";              DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion
-Source: "..\zapret\json\*";              DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion
-Source: "..\zapret\ico\*";              DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion
-Source: "..\zapret\lists\*";              DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion
-Source: "..\zapret\sos\*";              DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion
+; ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЕ ПУТИ
+Source: "{#SourcePath}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion;
+
+; Копируем папки
+Source: "{#SourcePath}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\Zapret";              Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
-Name: "{group}\Удалить Zapret";      Filename: "{uninstallexe}";   IconFilename: "{app}\Zapret.exe"
-Name: "{commondesktop}\Zapret";      Filename: "{app}\Zapret.exe"; Tasks: desktopicon
+Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
+Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\Zapret.exe"
+Name: "{commondesktop}\{#AppName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: desktopicon; Description: "Создать ярлык на рабочем столе"; Flags: unchecked
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{commonappdata}\Zapret"
+Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
+
+[Run]
+Filename: "{app}\Zapret.exe"; Description: "Запустить {#AppName}"; \
+    Flags: nowait postinstall skipifsilent shellexec; \
+    Check: not IsAutoUpdate
+
 [Code]
-{ 1.  КИЛЛИМ процессы ──────────────────────── }
-procedure KillProcess(const ExeName: string);
-var R: Integer;
+var
+  IsUpdateMode: Boolean;
+  AppToLaunch: string;
+
+{ ✅ Функция проверки режима обновления }
+function IsAutoUpdate: Boolean;
+var
+  I: Integer;
 begin
-  Exec('taskkill.exe', '/IM ' + ExeName + ' /F', '',
-       SW_HIDE, ewWaitUntilTerminated, R);
+  Result := False;
+  
+  // ✅ БЕЗ использования {app} или других констант!
+  for I := 1 to ParamCount do
+  begin
+    if (CompareText(ParamStr(I), '/SILENT') = 0) or 
+       (CompareText(ParamStr(I), '/VERYSILENT') = 0) or
+       (CompareText(ParamStr(I), '/NORESTART') = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
 end;
 
-{ 1a.  ОСТАНОВКА/УДАЛЕНИЕ СЛУЖБЫ WinDivert ─── }
+{ ✅ Функция для завершения процессов }
+function KillProcessWithRetry(const ExeName: string): Boolean;
+var 
+  R: Integer;
+  Attempts: Integer;
+begin
+  Result := True;
+  
+  // Корректное закрытие
+  Exec('powershell.exe', 
+       '-Command "Get-Process | Where-Object {$_.ProcessName -eq ''' + 
+       Copy(ExeName, 1, Length(ExeName) - 4) + 
+       '''} | ForEach-Object { $_.CloseMainWindow() | Out-Null }"',
+       '', SW_HIDE, ewWaitUntilTerminated, R);
+  
+  Sleep(100);
+  
+  // Форсированное завершение
+  for Attempts := 1 to 3 do
+  begin
+    Exec('taskkill.exe', '/IM ' + ExeName + ' /F /T', '',
+         SW_HIDE, ewWaitUntilTerminated, R);
+    
+    if R = 0 then
+    begin
+      Sleep(100);
+      Break;
+    end;
+    
+    if Attempts < 3 then
+      Sleep(100);
+  end;
+end;
+
 procedure StopAndDeleteService(const ServiceName: string);
 var R: Integer;
 begin
-  { Остановить службу }
   Exec('sc.exe', 'stop "' + ServiceName + '"', '',
        SW_HIDE, ewWaitUntilTerminated, R);
-
-  { Удалить службу (если она уже удалена – игнорируем ошибку) }
+  Sleep(100);
   Exec('sc.exe', 'delete "' + ServiceName + '"', '',
        SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): string;
+{ ✅ ИСПРАВЛЕНО: InitializeSetup БЕЗ прогресс-бара }
+function InitializeSetup: Boolean;
 begin
-  { 1) выгружаем ВСЕ драйверы WinDivert }
-  StopAndDeleteService('WinDivert');
-  StopAndDeleteService('WinDivert14'); 
-  StopAndDeleteService('WinDivert1.4');
-  StopAndDeleteService('WinDivert64');
+  Result := True;
   
-  { 2) гасим процессы }
-  KillProcess('winws.exe');
-  KillProcess('Zapret.exe');
-
-  Result := '';
+  // ✅ СРАЗУ ЗАКРЫВАЕМ ZAPRET.EXE БЕЗ GUI (WizardForm еще не создана)
+  KillProcessWithRetry('Zapret.exe');
+  KillProcessWithRetry('winws.exe');
+  
+  // Определяем режим обновления
+  IsUpdateMode := IsAutoUpdate;
+  AppToLaunch := '';
 end;
 
-{ 2.  ДЕФОЛТНЫЙ ПУТЬ ────────────────────────── }
+{ ✅ PrepareToInstall с прогресс-баром (WizardForm уже существует) }
+function PrepareToInstall(var NeedsRestart: Boolean): string;
+var
+  ProgressPage: TOutputProgressWizardPage;
+  StepCount: Integer;
+  CurrentStep: Integer;
+  IsSilent: Boolean;
+begin
+  Result := '';
+  
+  // ✅ ВАЖНО: Проверяем Silent режим
+  IsSilent := IsAutoUpdate() or WizardSilent();
+  
+  // В Silent режиме просто выполняем действия без GUI
+  if IsSilent then
+  begin
+    KillProcessWithRetry('Zapret.exe');
+    KillProcessWithRetry('winws.exe');
+    StopAndDeleteService('WinDivert');
+    StopAndDeleteService('WinDivert14');
+    StopAndDeleteService('WinDivert1.4');
+    StopAndDeleteService('WinDivert64');
+    Sleep(500);
+    Exit;
+  end;
+  
+  // Только для GUI режима показываем прогресс
+  ProgressPage := CreateOutputProgressPage('Подготовка к установке',
+    'Остановка служб и финальная подготовка...');
+  
+  try
+    ProgressPage.Show;
+    
+    StepCount := 8;
+    CurrentStep := 0;
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Проверка процесса Zapret.exe...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    KillProcessWithRetry('Zapret.exe');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Проверка процесса winws.exe...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    KillProcessWithRetry('winws.exe');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Остановка службы WinDivert...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    StopAndDeleteService('WinDivert');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Остановка службы WinDivert14...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    StopAndDeleteService('WinDivert14');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Остановка службы WinDivert1.4...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    StopAndDeleteService('WinDivert1.4');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Остановка службы WinDivert64...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    StopAndDeleteService('WinDivert64');
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Очистка временных файлов...', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    Sleep(500);
+    
+    CurrentStep := CurrentStep + 1;
+    ProgressPage.SetText('Подготовка завершена', '');
+    ProgressPage.SetProgress(CurrentStep, StepCount);
+    Sleep(500);
+    
+  finally
+    ProgressPage.Hide;
+  end;
+end;
+
 function GetInstallDir(Param: string): string;
 begin
-  { если есть предыдущая установка – Inno сам подставит её,
-    иначе кладём в ProgramData }
-  Result := ExpandConstant('{commonappdata}\Zapret');
+  Result := ExpandConstant('{commonappdata}\{#DataFolder}');
 end;
 
-{ 3.  ПРОВЕРКА ПУТИ ──────────────────────────── }
 function IsAsciiLetter(C: Char): Boolean;
 begin
   Result := (C >= 'A') and (C <= 'Z') or (C >= 'a') and (C <= 'z');
@@ -117,9 +293,9 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
-  Result := True;                                { по умолчанию идём дальше }
+  Result := True;
 
-  if CurPageID = wpSelectDir then                { страница выбора папки }
+  if CurPageID = wpSelectDir then
   begin
     if not CheckDirName(WizardDirValue) then
     begin
@@ -127,26 +303,90 @@ begin
              'и символы "\" и ":". ' + #13#10 +
              'Без пробелов, цифр и специальных символов.',
              mbError, MB_OK);
-      Result := False;                           { остаёмся на странице }
+      Result := False;
     end;
   end;
 end;
 
-{───────────────────────────────────────────────────────────
-  4.  УДАЛЕНИЕ: гасим службы / процессы перед RemoveFiles
-───────────────────────────────────────────────────────────}
 procedure CurUninstallStepChanged(CurStep: TUninstallStep);
+var
+  ProgressPage: TOutputProgressWizardPage;
+  IsSilent: Boolean;
 begin
-  if CurStep = usUninstall then   { начинается собственно удаление }
+  if CurStep = usUninstall then
   begin
-    { а) останавливаем / удаляем WinDivert, если вдруг запущена }
-    StopAndDeleteService('WinDivert');
-    StopAndDeleteService('WinDivert14');
-    StopAndDeleteService('WinDivert1.4');
-    StopAndDeleteService('WinDivert64');
+    // ✅ Проверяем Silent режим при удалении
+    IsSilent := UninstallSilent();
+    
+    if IsSilent then
+    begin
+      // В Silent режиме без GUI
+      StopAndDeleteService('WinDivert');
+      StopAndDeleteService('WinDivert14');
+      StopAndDeleteService('WinDivert1.4');
+      StopAndDeleteService('WinDivert64');
+      KillProcessWithRetry('winws.exe');
+      KillProcessWithRetry('Zapret.exe');
+      Sleep(500);
+      Exit;
+    end;
+    
+    // GUI режим с прогресс-баром
+    ProgressPage := CreateOutputProgressPage('Удаление программы',
+      'Пожалуйста, подождите пока программа будет удалена.');
+    
+    try
+      ProgressPage.Show;
+      
+      ProgressPage.SetText('Остановка служб...', '');
+      ProgressPage.SetProgress(1, 6);
+      StopAndDeleteService('WinDivert');
+      StopAndDeleteService('WinDivert14');
+      StopAndDeleteService('WinDivert1.4');
+      StopAndDeleteService('WinDivert64');
+      
+      ProgressPage.SetText('Завершение процессов...', '');
+      ProgressPage.SetProgress(3, 6);
+      KillProcessWithRetry('winws.exe');
+      
+      ProgressPage.SetProgress(5, 6);
+      KillProcessWithRetry('Zapret.exe');
+      
+      ProgressPage.SetText('Завершение удаления...', '');
+      ProgressPage.SetProgress(6, 6);
+      Sleep(500);
+      
+    finally
+      ProgressPage.Hide;
+    end;
+  end;
+end;
 
-    { б) завершаем работающие процессы }
-    KillProcess('winws.exe');
-    KillProcess('Zapret.exe');
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+  LaunchPath: string;
+begin
+  // ✅ Используем {app} только здесь - она уже инициализирована
+  if IsAutoUpdate() or WizardSilent() then
+  begin
+    LaunchPath := ExpandConstant('{app}\Zapret.exe');
+    
+    if FileExists(LaunchPath) then
+    begin
+      Exec('cmd.exe', 
+           '/c "timeout /t 2 >nul && start """" ""' + LaunchPath + '"""',
+           '', SW_HIDE, ewNoWait, ResultCode);
+    end;
+  end;
+end;
+
+// ✅ Убедитесь, что AppToLaunch устанавливается правильно
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) then
+  begin
+    // Убираем проверку IsUpdateMode - устанавливаем всегда
+    AppToLaunch := ExpandConstant('{app}\Zapret.exe');
   end;
 end;

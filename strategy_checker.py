@@ -8,12 +8,11 @@ import os
 import json
 from typing import Dict, Optional, Tuple, List
 from config import (
-    get_last_strategy, 
-    get_strategy_launch_method,
-    get_direct_strategy_selections,
+    get_last_strategy,
     BAT_FOLDER
 )
 from log import log
+from strategy_menu import get_strategy_launch_method
 
 
 class StrategyChecker:
@@ -67,21 +66,28 @@ class StrategyChecker:
         """Проверка стратегии в direct режиме"""
         try:
             # Получаем выборы категорий
+            from strategy_menu import get_direct_strategy_selections
             selections = get_direct_strategy_selections()
             
             # Это комбинированная стратегия
             from strategy_menu.strategy_lists_separated import (
-                YOUTUBE_STRATEGIES, DISCORD_STRATEGIES, 
-                DISCORD_VOICE_STRATEGIES, OTHER_STRATEGIES,
+                YOUTUBE_STRATEGIES, YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES, DISCORD_STRATEGIES, 
+                DISCORD_VOICE_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES,
                 combine_strategies
             )
+
+            from strategy_menu import OTHER_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(
                 selections.get('youtube'),
+                selections.get('youtube_udp'),
+                selections.get('googlevideo_tcp'),
                 selections.get('discord'),
                 selections.get('discord_voice'),
-                selections.get('other')
+                selections.get('other'),
+                selections.get('ipset'),
+                selections.get('ipset_udp'),
             )
             
             # Формируем детали
@@ -94,7 +100,21 @@ class StrategyChecker:
                 yt_strat = YOUTUBE_STRATEGIES.get(selections['youtube'])
                 if yt_strat:
                     strategy_names.append(f"YT: {yt_strat.get('name', selections['youtube'])}")
+
+            # YouTube QUIC
+            if selections.get('youtube_udp') and selections['youtube_udp'] != 'youtube_udp_none':
+                active_categories.append('YouTube QUIC')
+                ytu_strat = YOUTUBE_QUIC_STRATEGIES.get(selections['youtube_udp'])
+                if ytu_strat:
+                    strategy_names.append(f"YTU: {ytu_strat.get('name', selections['youtube_udp'])}")
             
+            # GoogleVideo
+            if selections.get('googlevideo_tcp') and selections['googlevideo_tcp'] != 'googlevideo_none':
+                active_categories.append('GoogleVideo')
+                gv_strat = GOOGLEVIDEO_STRATEGIES.get(selections['googlevideo_tcp'])
+                if gv_strat:
+                    strategy_names.append(f"GV: {gv_strat.get('name', selections['googlevideo_tcp'])}")
+
             # Discord
             if selections.get('discord') and selections['discord'] != 'discord_none':
                 active_categories.append('Discord')
@@ -115,6 +135,20 @@ class StrategyChecker:
                 ot_strat = OTHER_STRATEGIES.get(selections['other'])
                 if ot_strat:
                     strategy_names.append(f"Other: {ot_strat.get('name', selections['other'])}")
+
+            # IPset
+            if selections.get('ipset') and selections['ipset'] != 'ipset_none':
+                active_categories.append('IPset')
+                i_strat = IPSET_TCP_STRATEGIES.get(selections['ipset'])
+                if i_strat:
+                    strategy_names.append(f"IPset: {i_strat.get('name', selections['ipset'])}")
+
+            # IPset UDP
+            if selections.get('ipset_udp') and selections['ipset_udp'] != 'ipset_udp_none':
+                active_categories.append('IPset UDP')
+                iu_strat = IPSET_UDP_STRATEGIES.get(selections['ipset_udp'])
+                if iu_strat:
+                    strategy_names.append(f"IPset UDP: {iu_strat.get('name', selections['ipset_udp'])}")
             
             # Подсчитываем параметры
             args_list = combined['args'].split() if combined['args'] else []

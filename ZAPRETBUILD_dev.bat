@@ -42,7 +42,7 @@ python -m PyInstaller ^
         --onefile ^
         --console ^
         --windowed ^
-        --icon "%ROOT%\Zapret1.ico" ^
+        --icon "%ROOT%\Zapret2.ico" ^
         --name zapret ^
         --version-file "%ROOT%\version_info.txt" ^
         --hidden-import=win32com ^

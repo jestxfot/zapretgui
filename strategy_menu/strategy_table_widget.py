@@ -31,7 +31,6 @@ class SingleDownloadWorker(QObject):
         except Exception as e:
             self.finished.emit(False, f"Ошибка: {str(e)}")
 
-
 class StrategyTableWidget(QWidget):
     """Виджет таблицы стратегий с полным функционалом"""
     

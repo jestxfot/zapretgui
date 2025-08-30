@@ -5,20 +5,16 @@ from PyQt6.QtGui     import QKeySequence, QAction
 from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
 
-from config import APP_VERSION # build_info moved to config/__init__.py
+from config import APP_VERSION, get_dpi_autostart, set_dpi_autostart # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
 from .defender_manager import WindowsDefenderManager
+from .max_blocker import MaxBlockerManager
 
 from utils import run_hidden
 from log import log, LogViewerDialog, global_logger
 
-# ─── работа с реестром ──────────────────────────
-from config import (
-    get_dpi_autostart,  set_dpi_autostart,
-    get_remove_windows_terminal, set_remove_windows_terminal
-)
-
+from startup import get_remove_windows_terminal, set_remove_windows_terminal
 
 class AppMenuBar(QMenuBar):
     """
@@ -61,6 +57,12 @@ class AppMenuBar(QMenuBar):
         self.remove_wt_act.setChecked(get_remove_windows_terminal())
         self.remove_wt_act.toggled.connect(self.toggle_remove_windows_terminal)
         file_menu.addAction(self.remove_wt_act)
+
+        # Блокировка MAX
+        self.block_max_act = QAction("Блокировать установку MAX", self, checkable=True)
+        self.block_max_act.setChecked(self._get_max_blocked())
+        self.block_max_act.toggled.connect(self.toggle_max_blocker)
+        file_menu.addAction(self.block_max_act)
 
         file_menu.addSeparator()
 
@@ -339,9 +341,8 @@ class AppMenuBar(QMenuBar):
 
         premium_menu.addSeparator()
         
-        # Ссылка на Boosty
-        boosty_action = premium_menu.addAction("🌐 Открыть Boosty")
-        boosty_action.triggered.connect(lambda: webbrowser.open("https://boosty.to/censorliber"))
+        telegram_action = premium_menu.addAction("🌐 Открыть Telegram")
+        telegram_action.triggered.connect(lambda: webbrowser.open("https://t.me/zapretvpns_bot"))
         
         return premium_menu
 
@@ -790,3 +791,118 @@ class AppMenuBar(QMenuBar):
             self.defender_act.blockSignals(True)
             self.defender_act.setChecked(not disable)
             self.defender_act.blockSignals(False)
+
+    def _get_max_blocked(self) -> bool:
+        """Проверяет, включена ли блокировка MAX"""
+        try:
+            from .max_blocker import is_max_blocked
+            return is_max_blocked()
+        except Exception as e:
+            log(f"Ошибка при проверке блокировки MAX: {e}", "❌ ERROR")
+            return False
+
+    def toggle_max_blocker(self, enable: bool):
+        """Включает/выключает блокировку программы MAX"""
+        try:
+            manager = MaxBlockerManager(status_callback=self._set_status)
+            
+            if enable:
+                # Показываем предупреждение перед включением
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Блокировка MAX")
+                msg_box.setIcon(QMessageBox.Icon.Information)
+                msg_box.setText(
+                    "Включить блокировку установки и работы программы MAX?\n\n"
+                    "Это действие:"
+                )
+                msg_box.setInformativeText(
+                    "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
+                    "• Создаст файлы-блокировки в папках установки\n"
+                    "• Добавит правила блокировки в Windows Firewall (при наличии прав)\n"
+                    "• Заблокирует домены MAX в файле hosts\n\n"
+                    "В итоге даже если мессенджер Max поставиться будет тёмный экран, в результате чего он будет выглядеть так, будто не может подключиться к своим серверам."
+                )
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    # Пользователь отменил - откатываем галочку
+                    self.block_max_act.blockSignals(True)
+                    self.block_max_act.setChecked(False)
+                    self.block_max_act.blockSignals(False)
+                    return
+                
+                # Включаем блокировку
+                success, message = manager.enable_blocking()
+                
+                if success:
+                    QMessageBox.information(
+                        self._pw,
+                        "Блокировка включена",
+                        message
+                    )
+                    log("Блокировка MAX включена пользователем", "🛡️ INFO")
+                else:
+                    QMessageBox.warning(
+                        self._pw,
+                        "Ошибка",
+                        f"Не удалось полностью включить блокировку:\n{message}"
+                    )
+                    # Откатываем галочку
+                    self.block_max_act.blockSignals(True)
+                    self.block_max_act.setChecked(False)
+                    self.block_max_act.blockSignals(False)
+                    
+            else:
+                # Отключение блокировки
+                msg_box = QMessageBox(self._pw)
+                msg_box.setWindowTitle("Отключение блокировки MAX")
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText(
+                    "Отключить блокировку программы MAX?\n\n"
+                    "Это удалит все созданные блокировки и правила."
+                )
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    # Пользователь отменил - возвращаем галочку
+                    self.block_max_act.blockSignals(True)
+                    self.block_max_act.setChecked(True)
+                    self.block_max_act.blockSignals(False)
+                    return
+                
+                # Отключаем блокировку
+                success, message = manager.disable_blocking()
+                
+                if success:
+                    QMessageBox.information(
+                        self._pw,
+                        "Блокировка отключена",
+                        message
+                    )
+                    log("Блокировка MAX отключена пользователем", "✅ INFO")
+                else:
+                    QMessageBox.warning(
+                        self._pw,
+                        "Ошибка",
+                        f"Не удалось полностью отключить блокировку:\n{message}"
+                    )
+                    
+            self._set_status("Готово")
+            
+        except Exception as e:
+            log(f"Ошибка при переключении блокировки MAX: {e}", "❌ ERROR")
+            QMessageBox.critical(
+                self._pw,
+                "Ошибка",
+                f"Произошла ошибка при изменении блокировки MAX:\n{e}"
+            )
+            # В случае ошибки откатываем галочку
+            self.block_max_act.blockSignals(True)
+            self.block_max_act.setChecked(not enable)
+            self.block_max_act.blockSignals(False)

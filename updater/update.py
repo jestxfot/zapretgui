@@ -33,41 +33,9 @@ def _safe_set_status(parent, msg: str):
     else:
         print(msg)
 
-def _kill_winws():
-    """Мягко-агрессивно убиваем winws.exe, чтобы установщик мог заменить файл."""
-    run_hidden(
-        "C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T",
-        shell=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-def _download(url: str, dest: str, on_progress: Callable[[int, int], None] | None, verify_ssl: bool = True):
-    """Старая функция для совместимости"""
-    import requests
-    
-    # Создаем сессию с настройками SSL
-    session = requests.Session()
-    if not verify_ssl:
-        # Отключаем проверку SSL для самоподписанных сертификатов
-        session.verify = False
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    with session.get(url, stream=True, timeout=TIMEOUT, verify=verify_ssl) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        done = 0
-        with open(dest, "wb") as fp:
-            for chunk in resp.iter_content(8192):
-                fp.write(chunk)
-                if on_progress and total:
-                    done += len(chunk)
-                    on_progress(done, total)
-
 def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], None] | None, 
                          verify_ssl: bool = True, max_retries: int = 3):
-    """Скачивание с автоматическими повторными попытками"""
+    """Скачивание с оптимизацией для GitHub"""
     import requests
     from time import sleep
     
@@ -77,31 +45,66 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
         try:
             # Создаем сессию с настройками
             session = requests.Session()
-            session.mount('https://', requests.adapters.HTTPAdapter(
+            
+            # Оптимизация для GitHub Downloads
+            session.headers.update({
+                'User-Agent': 'Zapret-Updater/1.0',
+                'Accept': 'application/octet-stream',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            })
+            
+            # Увеличиваем pool connections для GitHub
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=10,
+                pool_maxsize=10,
                 max_retries=requests.adapters.Retry(
                     total=3,
                     backoff_factor=0.3,
                     status_forcelist=[500, 502, 503, 504]
                 )
-            ))
+            )
+            session.mount('https://', adapter)
+            session.mount('http://', adapter)
             
             if not verify_ssl:
                 session.verify = False
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
-            # Увеличиваем таймаут для больших файлов
-            timeout = (10, 30)  # (connect timeout, read timeout)
-            
             log(f"Попытка {attempt + 1}/{max_retries} скачивания с {url}", "🔄 DOWNLOAD")
+            
+            # Если это GitHub URL, получаем прямую ссылку на CDN
+            if "github.com" in url and "/releases/download/" in url:
+                log("🔗 GitHub URL обнаружен, получаем прямую ссылку на CDN...", "🔄 DOWNLOAD")
+                
+                # Делаем HEAD запрос чтобы получить финальный URL после редиректа
+                head_resp = session.head(url, allow_redirects=True, timeout=10)
+                final_url = head_resp.url
+                
+                if "githubusercontent.com" in final_url or "release-assets" in final_url:
+                    log(f"✅ Получена прямая CDN ссылка: {final_url[:100]}...", "🔄 DOWNLOAD")
+                    url = final_url  # Используем CDN URL напрямую
+            
+            # Увеличиваем таймаут и chunk_size для больших файлов
+            timeout = (10, 60)  # (connect timeout, read timeout)
+            chunk_size = 65536  # 64KB вместо 8KB для ускорения
             
             with session.get(url, stream=True, timeout=timeout, verify=verify_ssl) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length", 0))
                 done = 0
                 
+                # Логируем информацию о загрузке
+                if total > 0:
+                    log(f"📦 Размер файла: {total / (1024*1024):.1f} MB", "🔄 DOWNLOAD")
+                
+                # Определяем сервер для статистики
+                server_type = "GitHub CDN" if "githubusercontent.com" in resp.url else "GitHub"
+                log(f"⬇️ Загрузка с {server_type}", "🔄 DOWNLOAD")
+                
                 with open(dest, "wb") as fp:
-                    for chunk in resp.iter_content(chunk_size=8192):
+                    for chunk in resp.iter_content(chunk_size=chunk_size):
                         if chunk:
                             fp.write(chunk)
                             if on_progress and total:
@@ -128,13 +131,12 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             last_error = f"Неизвестная ошибка: {e}"
             log(f"❌ Попытка {attempt + 1} не удалась: {last_error}", "🔄 DOWNLOAD")
         
-        # Пауза перед следующей попыткой (увеличивается с каждой попыткой)
+        # Пауза перед следующей попыткой
         if attempt < max_retries - 1:
             wait_time = (attempt + 1) * 2
             log(f"⏳ Ожидание {wait_time} сек перед следующей попыткой...", "🔄 DOWNLOAD")
             sleep(wait_time)
     
-    # Все попытки исчерпаны
     raise Exception(f"Не удалось скачать файл после {max_retries} попыток. Последняя ошибка: {last_error}")
 
 def compare_versions(v1: str, v2: str) -> int:
@@ -261,7 +263,7 @@ class UpdateWorker(QObject):
         
         # Если это HTTPS URL с нашего сервера, добавляем HTTP вариант как fallback
         if upd_url.startswith("https://"):
-            if "88.210.21.236:888" in upd_url:
+            if "217.114.0.114:888" in upd_url:
                 http_url = upd_url.replace("https://", "http://").replace(":888", ":887")
                 urls.append((http_url, True))
         

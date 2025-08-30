@@ -7,14 +7,13 @@ from typing import Optional, Tuple
 import stat
 import json
 from datetime import date
+from build_zapret import UPDATER_SERVER, SSH_PASSWORD
 
 # ════════════════════════════════════════════════════════════════
 # НАСТРОЙКИ SSH - ИЗМЕНИТЕ НА СВОИ
 # ════════════════════════════════════════════════════════════════
 SSH_PORT = 22  # Порт SSH, обычно 22
-SSH_HOST = "88.210.21.236"  # Ваш сервер
 SSH_USERNAME = "root"
-SSH_PASSWORD = "3btNATB94p"  # Или используйте SSH ключ
 SSH_KEY_PATH = ""  # Например: "C:/Users/You/.ssh/id_rsa"
 REMOTE_PATH = "/root/zapretgpt"
 SSH_ENABLED = True  # Включить деплой
@@ -26,15 +25,15 @@ SSH_ENABLED = True  # Включить деплой
 
 def is_ssh_configured() -> bool:
     """Проверяет, настроен ли SSH"""
-    return SSH_ENABLED and SSH_HOST and SSH_USERNAME
+    return SSH_ENABLED and UPDATER_SERVER and SSH_USERNAME
 
 def get_ssh_config_info() -> str:
     """Возвращает информацию о текущей конфигурации SSH"""
     if not SSH_ENABLED:
         return "SSH деплой выключен"
-    if not SSH_HOST:
+    if not UPDATER_SERVER:
         return "SSH не настроен"
-    return f"SSH: {SSH_USERNAME}@{SSH_HOST}:{SSH_PORT}"
+    return f"SSH: {SSH_USERNAME}@{UPDATER_SERVER}:{SSH_PORT}"
 
 def create_version_json(channel: str, version: str, notes: str, existing_data: dict = None) -> str:
     """Создает содержимое version.json"""
@@ -70,26 +69,45 @@ def deploy_to_vps(file_path: Path, channel: str = None, version: str = None,
         import paramiko
     except ImportError:
         return False, "Модуль paramiko не установлен. Выполните: pip install paramiko"
-    
+
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
+    # Создаем Transport с оптимизированными параметрами
+    transport = None
+    
     try:
-        # Логируем
-        if log_queue:
-            log_queue.put(f"📡 Подключение к {SSH_USERNAME}@{SSH_HOST}:{SSH_PORT}")
+        # Создаем transport напрямую для большего контроля
+        transport = paramiko.Transport((UPDATER_SERVER, SSH_PORT))
+        
+        # ОПТИМИЗАЦИЯ 1: Увеличиваем размер окна и пакетов
+        transport.window_size = 2147483647  # Максимальный размер окна (2GB)
+        transport.packetizer.REKEY_BYTES = pow(2, 40)  # Реже пересогласование ключей
+        transport.packetizer.REKEY_PACKETS = pow(2, 40)
+        
+        # ОПТИМИЗАЦИЯ 2: Включаем сжатие (ускоряет на медленных каналах)
+        transport.use_compression(True)
         
         # Подключаемся
         if SSH_KEY_PATH and Path(SSH_KEY_PATH).exists():
-            ssh.connect(SSH_HOST, port=SSH_PORT, username=SSH_USERNAME, 
-                       key_filename=SSH_KEY_PATH, timeout=30)
+            pkey = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
+            transport.connect(username=SSH_USERNAME, pkey=pkey)
         else:
-            ssh.connect(SSH_HOST, port=SSH_PORT, username=SSH_USERNAME, 
-                       password=SSH_PASSWORD, timeout=30)
+            transport.connect(username=SSH_USERNAME, password=SSH_PASSWORD)
         
         if log_queue:
-            log_queue.put("✅ SSH соединение установлено")
+            log_queue.put("✅ SSH соединение установлено (оптимизированное)")
         
+        # Создаем SSH и SFTP клиентов
+        ssh = paramiko.SSHClient()
+        ssh._transport = transport
+        
+        # ОПТИМИЗАЦИЯ 3: Увеличиваем буфер SFTP
+        sftp = transport.open_sftp_client()
+        
+        # Увеличиваем размер буфера чтения/записи
+        sftp.MAX_REQUEST_SIZE = 32768  # 32KB вместо стандартных 32KB
+
         # Создаем директорию если нужно
         if log_queue:
             log_queue.put(f"📁 Создание директории {REMOTE_PATH}")
@@ -102,27 +120,53 @@ def deploy_to_vps(file_path: Path, channel: str = None, version: str = None,
         
         # 1. Копируем основной файл
         remote_file = f"{REMOTE_PATH}/{file_path.name}"
+        file_size = file_path.stat().st_size
         
         if log_queue:
             log_queue.put(f"📤 Отправка {file_path.name} → {remote_file}")
+            log_queue.put(f"📊 Размер: {file_size / (1024*1024):.1f} MB")
+
+        # Открываем файлы с буферизацией
+        import time
+        start_time = time.time()
         
-        # Callback для прогресса
-        file_size = file_path.stat().st_size
-        transferred = 0
-        last_percent = 0
+        # ОПТИМИЗАЦИЯ 5: Используем prefetch для параллельной передачи
+        with open(file_path, 'rb') as local_file:
+            # Открываем удаленный файл для записи
+            remote_file_handle = sftp.open(remote_file, 'wb')
+            
+            # Устанавливаем размер буфера
+            remote_file_handle.MAX_REQUEST_SIZE = 65536  # 64KB chunks
+            
+            # Передаем файл большими блоками
+            chunk_size = 262144  # 256KB блоки
+            transferred = 0
+            last_percent = 0
+            
+            while True:
+                data = local_file.read(chunk_size)
+                if not data:
+                    break
+                
+                remote_file_handle.write(data)
+                transferred += len(data)
+                
+                # Прогресс
+                percent = int((transferred / file_size) * 100)
+                if log_queue and percent >= last_percent + 5:
+                    last_percent = percent
+                    speed = transferred / (time.time() - start_time) / (1024*1024)
+                    log_queue.put(f"    Прогресс: {percent}% | Скорость: {speed:.1f} MB/s")
+            
+            remote_file_handle.close()
         
-        def progress_callback(current, total):
-            nonlocal transferred, last_percent
-            transferred = current
-            percent = int((current / total) * 100)
-            if log_queue and percent >= last_percent + 10:  # Логируем каждые 10%
-                last_percent = percent
-                log_queue.put(f"    Прогресс: {percent}%")
+        # Логируем результат
+        elapsed = time.time() - start_time
+        speed = file_size / elapsed / (1024*1024)
+        if log_queue:
+            log_queue.put(f"✅ Передано за {elapsed:.1f} сек. Средняя скорость: {speed:.1f} MB/s")
         
-        # Отправляем файл
-        sftp.put(str(file_path), remote_file, callback=progress_callback)
-        
-        # Устанавливаем права на выполнение
+        # Устанавливаем права
         sftp.chmod(remote_file, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         
         if log_queue:

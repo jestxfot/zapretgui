@@ -18,7 +18,7 @@ def stop_dpi(app: "LupiDPIApp"):
         log("======================== Stop DPI ========================", level="START")
         
         # Проверяем метод запуска
-        from config import get_strategy_launch_method
+        from strategy_menu import get_strategy_launch_method
         launch_method = get_strategy_launch_method()
         
         if launch_method == "direct":
@@ -139,45 +139,6 @@ def stop_dpi_direct(app: "LupiDPIApp"):
         log(f"Ошибка в stop_dpi_direct: {e}", level="❌ ERROR")
         return False
 
-
-def create_stop_bat(winws_exe_path):
-    """Создает файл stop.bat с абсолютными путями"""
-    try:
-        # Используем абсолютные пути
-        stop_bat_path = os.path.join(os.path.dirname(os.path.abspath(winws_exe_path)), "stop.bat")
-        
-        # Содержимое stop.bat с полными путями к системным утилитам
-        stop_bat_content = """@echo off
-REM stop.bat - останавливает winws.exe и очищает службу windivert
-echo Остановка Zapret...
-
-REM Останавливаем все процессы winws.exe
-C:\\Windows\\System32\\taskkill.exe /F /IM winws.exe /T >nul 2>&1
-
-REM Останавливаем и удаляем службу windivert
-C:\\Windows\\System32\\sc.exe stop windivert >nul 2>&1
-C:\\Windows\\System32\\sc.exe delete windivert >nul 2>&1
-
-REM Короткая пауза для завершения операций
-C:\\Windows\\System32\\timeout.exe /t 1 /nobreak >nul
-
-echo Остановка завершена.
-exit /b 0
-"""
-        
-        # Создаем директорию при необходимости
-        os.makedirs(os.path.dirname(stop_bat_path), exist_ok=True)
-        
-        # Записываем файл
-        with open(stop_bat_path, 'w', encoding='utf-8') as f:
-            f.write(stop_bat_content)
-            
-        log(f"Файл stop.bat успешно создан: {stop_bat_path}", level="✅ SUCCESS")
-        return True
-        
-    except Exception as e:
-        log(f"Ошибка при создании stop.bat: {str(e)}", level="❌ ERROR")
-        return False
     
 def stop_dpi_bat(app: "LupiDPIApp"):
     """Старый метод остановки через .bat"""
@@ -203,11 +164,8 @@ def stop_dpi_bat(app: "LupiDPIApp"):
         
         # Если stop.bat не существует, создаем его
         if not os.path.exists(stop_bat_path):
-            log("stop.bat не найден, создаем...", level="INFO")
-            if not create_stop_bat(app.dpi_starter.winws_exe):
-                log("Не удалось создать stop.bat", level="❌ ERROR")
-                app.set_status("Ошибка: не удалось создать stop.bat")
-                return False
+            log("stop.bat не найден!!!!!!!!!!!!!!!!!!!!!!!!!!!!", level="❌ ERROR")
+            return False
         
         # Запускаем stop.bat
         app.set_status("Останавливаю Zapret...")

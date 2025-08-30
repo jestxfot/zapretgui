@@ -4,7 +4,7 @@
 """
 
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
-from config import get_strategy_launch_method
+from strategy_menu import get_strategy_launch_method
 from log import log
 import time
 
@@ -295,7 +295,7 @@ class DPIController:
         if selected_mode is None or selected_mode == 'default':
             if launch_method == "direct":
                 # Для Direct режима берем сохраненные выборы из реестра
-                from config import get_direct_strategy_selections
+                from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
                 
                 # Получаем сохраненные выборы категорий из реестра
@@ -305,9 +305,13 @@ class DPIController:
                 # Создаем комбинированную стратегию на основе сохраненных выборов
                 combined = combine_strategies(
                     saved_selections.get('youtube'),
+                    saved_selections.get('youtube_udp'),
+                    saved_selections.get('googlevideo_tcp'),
                     saved_selections.get('discord'),
                     saved_selections.get('discord_voice'),
-                    saved_selections.get('other')
+                    saved_selections.get('other'),
+                    saved_selections.get('ipset'),
+                    saved_selections.get('ipset_udp'),
                 )
                 
                 selected_mode = {
@@ -406,7 +410,7 @@ class DPIController:
             
             # Сохраняем выборы в реестр для будущего использования
             if 'selections' in selected_mode:
-                from config import set_direct_strategy_selections
+                from strategy_menu import set_direct_strategy_selections
                 selections = selected_mode['selections']
                 set_direct_strategy_selections(selections)
                 log(f"Выбранные стратегии - YouTube: {selections.get('youtube')}, "

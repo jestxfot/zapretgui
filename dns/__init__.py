@@ -1,6 +1,4 @@
-# ────────────────────────────────────────────────────────────────────
-#  __init__.py   (пакет dns_tools/…)
-# ────────────────────────────────────────────────────────────────────
+# dns/__init__.py
 """
 Единая точка входа в библиотеку.
 
@@ -10,7 +8,6 @@
     refresh_exclusion_cache()  – сброс кэша исключений
 
     DNSForceManager            – менеджер «принудительного» DNS
-    apply_force_dns_if_enabled – вспом. функция быстрого применения
     ensure_default_force_dns   – автосоздание ключа ForceDNS
 
     PREDEFINED_DNS             – словарь с готовыми наборами DNS
@@ -24,9 +21,9 @@ import importlib
 import sys
 from types import ModuleType
 from typing import Any
-from dns.dns_core import DNSManager, DEFAULT_EXCLUSIONS, refresh_exclusion_cache, _normalize_alias
-from dns.dns_force import DNSForceManager, apply_force_dns_if_enabled, ensure_default_force_dns
-from dns.dns_dialog import DNSSettingsDialog, PREDEFINED_DNS
+from .dns_core import DNSManager, DEFAULT_EXCLUSIONS, refresh_exclusion_cache, _normalize_alias
+from .dns_force import DNSForceManager, AsyncDNSForceManager, ensure_default_force_dns, apply_force_dns_if_enabled_async
+from .dns_dialog import DNSSettingsDialog, PREDEFINED_DNS
 
 __all__: tuple[str, ...] = (
     "DNSManager",
@@ -34,8 +31,9 @@ __all__: tuple[str, ...] = (
     "refresh_exclusion_cache",
     "_normalize_alias",
     "DNSForceManager",
-    "apply_force_dns_if_enabled",
+    "AsyncDNSForceManager",
     "ensure_default_force_dns",
+    "apply_force_dns_if_enabled_async",
     "PREDEFINED_DNS",
     "DNSSettingsDialog",
 )

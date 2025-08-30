@@ -368,7 +368,7 @@ class ThemeManager:
         self.apply_theme(self.current_theme, persist=False)
         
         # Запускаем асинхронную проверку премиума после инициализации
-        QTimer.singleShot(100, self._start_async_premium_check)
+        QTimer.singleShot(2000, self._start_async_premium_check)
 
     def __del__(self):
         """Деструктор для очистки ресурсов"""
@@ -1021,6 +1021,52 @@ class ThemeHandler:
         self.theme_manager = theme_manager
         self.app_window = app_window
     
+    def update_subscription_status_in_title(self):
+        """Обновляет статус подписки в title_label"""
+        try:
+            # Проверяем наличие необходимых компонентов
+            if not hasattr(self.app_window, 'donate_checker') or not self.app_window.donate_checker:
+                log("donate_checker не инициализирован", "⚠ WARNING")
+                return
+            
+            if not hasattr(self.app_window, 'theme_manager'):
+                log("theme_manager не инициализирован", "⚠ WARNING")
+                return
+
+            # Используем кэшированные данные для быстрого обновления
+            donate_checker = self.app_window.donate_checker
+            is_premium, status_msg, days_remaining = donate_checker.check_subscription_status(use_cache=True)
+            current_theme = self.theme_manager.current_theme
+            
+            # Получаем полную информацию о подписке
+            sub_info = donate_checker.get_full_subscription_info()
+            
+            # Обновляем заголовок
+            self.app_window.update_title_with_subscription_status(
+                sub_info['is_premium'], 
+                current_theme, 
+                sub_info['days_remaining'],
+                sub_info['is_auto_renewal']
+            )
+            
+            # Также обновляем текст кнопки подписки если нужно
+            if hasattr(self.app_window, 'update_subscription_button_text'):
+                self.app_window.update_subscription_button_text(
+                    sub_info['is_premium'],
+                    sub_info['is_auto_renewal'],
+                    sub_info['days_remaining']
+                )
+            
+            log(f"Заголовок обновлен для темы '{current_theme}'", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка при обновлении статуса подписки: {e}", "❌ ERROR")
+            # В случае ошибки показываем базовый заголовок
+            try:
+                self.app_window.update_title_with_subscription_status(False, None, 0, False)
+            except:
+                pass  # Игнорируем вторичные ошибки
+    
     def change_theme(self, theme_name):
         """Обработчик изменения темы"""
         try:
@@ -1053,7 +1099,7 @@ class ThemeHandler:
                 QTimer.singleShot(50, self.update_theme_combo_styles)
                 
                 # Обновляем статус подписки с новой темой (асинхронно)
-                QTimer.singleShot(100, self.app_window.update_subscription_status_in_title)
+                QTimer.singleShot(100, self.update_subscription_status_in_title)
             else:
                 log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
                 self.app_window.set_status(f"Ошибка изменения темы: {message}")

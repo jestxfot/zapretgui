@@ -19,6 +19,7 @@ BASE_DOMAINS_TEXT = """
 adtidy.org
 amazon.com
 amazonaws.com
+awsstatic.com
 animego.org
 aol.com
 archive.org
@@ -39,6 +40,11 @@ cdninstagram.com
 cdnst.net
 cloudflare-ech.com
 cloudflare.com
+cloudflareportal.com
+cloudflareok.com
+cloudflareclient.com
+cloudflarecp.com
+cloudfront.net
 codenames.game
 coursera.org
 cryptpad.fr
@@ -62,6 +68,7 @@ etahub.com
 exitgames.com
 eyeofgod.bot
 eyezgod.ru
+epicgames.com
 facebook.com
 fbcdn.net
 fbsbx.com
@@ -69,6 +76,7 @@ fburl.com
 flibusta.is
 flibusta.site
 fonts.googleapis.com
+f95zone.to
 gifer.com
 glaznews.com
 googleads.g.doubleclick.net
@@ -113,6 +121,7 @@ papervpn.io
 patreon.com
 phncdn.com
 phpmyadmin.net
+pixiv.net
 play.google.com
 prostovpn.org
 proton.me
@@ -121,6 +130,7 @@ protonvpn.com
 psiphon.ca
 quora.com
 radiofrance.fr
+rapidgator.net
 re-russia.net
 republic.ru
 reutersagency.com
@@ -141,6 +151,12 @@ sms-activate.guru
 sndcdn.com
 soundcloud.cloud
 soundcloud.com
+soundcloud.app.goo.gl
+cdn.cookielaw.org
+ns-1745.awsdns-26.co.uk
+ns-799.awsdns-35.net
+ns-56.awsdns-07.com
+ns-1445.awsdns-52.org
 spankbang.com
 speedtest.net
 static.doubleclick.net
@@ -180,6 +196,19 @@ z-library.sk
 ziffstatic.com
 zlibrary.to
 znanija.com
+#anime
+animego.online
+doramy.club
+animejoy.ru
+getchu.com
+#porno
+porno365.sexy
+porno365.plus
+porno365.team
+rusuchka.com
+porno365.bingo
+24video.porn
+xn--m1abbbg.me
 """
 
 # Предустановленные домены сервисов
@@ -187,7 +216,6 @@ PREDEFINED_DOMAINS = {
     'steam': {
         'name': '🎮 Steam',
         'domains': [
-            'store.steampowered.com',
             'steamcommunity.com',
             'steampowered.com',
             'steam-chat.com',
@@ -196,13 +224,14 @@ PREDEFINED_DOMAINS = {
             'steamcontent.com',
             'steamstatic.com',
             'akamaihd.net',
-            'steamcdn-a.akamaihd.net',
             'steam-api.com',
             'steamserver.net',
-            'valve.net',
-            'valvesoftware.com',
-            'dota2.com',
-            'csgo.com'
+            'playartifact.com',
+            's.team',
+            'steam.tv',
+            'steamdeck.com',
+            'underlords.com',
+            'valvesoftware.com'
         ]
     },
     'telegram': {
@@ -214,15 +243,7 @@ PREDEFINED_DOMAINS = {
             'telegra.ph',
             'telesco.pe',
             'telegram-cdn.org',
-            'core.telegram.org',
-            'desktop.telegram.org',
-            'web.telegram.org',
-            'updates.tdesktop.com',
-            'venus.web.telegram.org',
-            'flora.web.telegram.org',
-            'vesta.web.telegram.org',
-            'aurora.web.telegram.org',
-            'api.telegram.org'
+            'tdesktop.com'
         ]
     },
     'whatsapp': {

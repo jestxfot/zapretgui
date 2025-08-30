@@ -17,6 +17,9 @@ from utils import run_hidden
 # PyQt сигналы нужны только если вы запускаете из GUI потока
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from async_workers import DNSBatchWorker, DNSSetWorker
+from PyQt6.QtCore import QEventLoop
+
 # Добавьте эту константу после импортов
 if hasattr(subprocess, 'CREATE_NO_WINDOW'):
     CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW
@@ -52,7 +55,6 @@ class DNSForceManager:
                 ['C:\\Windows\\System32\\ping.exe', '-6', '-n', '1', '-w', '1500', '2001:4860:4860::8888'],
                 capture_output=True, 
                 text=True, 
-                timeout=2,
                 creationflags=CREATE_NO_WINDOW
             )
             is_available = (result.returncode == 0)
@@ -444,21 +446,58 @@ class DNSForceManager:
             log(f"Ошибка восстановления DNS из резервной копии: {e}", "❌ ERROR")
             return False
 
-def apply_force_dns_if_enabled(status_callback=None, enable_ipv6=True):
-    """
-    Вспомогательная функция для быстрого применения принудительного DNS.
+class AsyncDNSForceManager(DNSForceManager):
+    """Асинхронная версия DNSForceManager"""
     
-    Args:
-        status_callback: Функция обратного вызова для обновления статуса
-        enable_ipv6: Если True, также устанавливает IPv6 DNS (если доступен)
-    """
-    manager = DNSForceManager(status_callback)
+    def force_dns_on_all_adapters_async(self, callback=None):
+        """Асинхронно устанавливает DNS на всех адаптерах"""
+        if not self.is_force_dns_enabled():
+            log("Принудительная установка DNS отключена", "DNS")
+            if callback:
+                callback(0, 0)
+            return
+        
+        adapters = self.get_network_adapters()
+        if not adapters:
+            if callback:
+                callback(0, 0)
+            return
+        
+        # Создаем воркер для пакетной установки
+        from PyQt6.QtCore import QThread
+        thread = QThread()
+        worker = DNSBatchWorker(self, adapters)
+        worker.moveToThread(thread)
+        
+        # Подключаем сигналы
+        thread.started.connect(worker.run)
+        worker.progress.connect(lambda msg: log(msg, "DNS"))
+        
+        if callback:
+            worker.finished.connect(callback)
+        
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        
+        # Запускаем
+        thread.start()
+        return thread
+    
+def apply_force_dns_if_enabled_async(callback=None):
+    """Асинхронная версия применения DNS"""
+    manager = AsyncDNSForceManager()
+    
     if manager.is_force_dns_enabled():
-        log("Применяем принудительные DNS настройки...", "DNS")
-        # IPv6 будет автоматически пропущен если недоступен
-        success, total = manager.force_dns_on_all_adapters(enable_ipv6=enable_ipv6)
-        log(f"Принудительный DNS применен: {success}/{total} адаптеров", "DNS")
-        return success > 0
+        log("Применяем принудительные DNS настройки (асинхронно)...", "DNS")
+        
+        def on_done(success, total):
+            log(f"DNS применен: {success}/{total} адаптеров", "DNS")
+            if callback:
+                callback(success > 0)
+        
+        manager.force_dns_on_all_adapters_async(on_done)
+        return True
     return False
 
 def ensure_default_force_dns():
