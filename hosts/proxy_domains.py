@@ -103,6 +103,7 @@ PROXY_DOMAINS = {
     "sora.com": "204.12.192.222",
     "sora.chatgpt.com": "204.12.192.222",
     "videos.openai.com": "204.12.192.222",
+    "us.posthog.com": "134.0.118.88",
     "only-fans.uk": "0.0.0.0",
     "only-fans.me": "0.0.0.0",
     "only-fans.wtf": "0.0.0.0"
