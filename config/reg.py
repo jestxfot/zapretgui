@@ -3,7 +3,7 @@ import winreg
 
 HKCU = winreg.HKEY_CURRENT_USER
 HKLM = winreg.HKEY_LOCAL_MACHINE
-REGISTRY_KEY = r"SOFTWARE\Zapret"
+REGISTRY_KEY = r"Software\ZapretReg2"
 from log import log
 
 # Специальная константа для обозначения отсутствующего значения
@@ -85,15 +85,15 @@ def reg(subkey: str,
 # ------------------------------------------------------------------
 def get_last_strategy():
     from config import DEFAULT_STRAT, REG_LATEST_STRATEGY
-    return reg(r"Software\Zapret", REG_LATEST_STRATEGY) or DEFAULT_STRAT
+    return reg(r"Software\ZapretReg2", REG_LATEST_STRATEGY) or DEFAULT_STRAT
 
 
 def set_last_strategy(name: str) -> bool:
     from config import REG_LATEST_STRATEGY
-    return reg(r"Software\Zapret", REG_LATEST_STRATEGY, name)
+    return reg(r"Software\ZapretReg2", REG_LATEST_STRATEGY, name)
 
 # ───────────── DPI-автозапуск ─────────────
-_DPI_KEY   = r"Software\Zapret"
+_DPI_KEY   = r"Software\ZapretReg2"
 _DPI_NAME  = "DPIAutoStart"          # REG_DWORD (0/1)
 
 def get_dpi_autostart() -> bool:
@@ -127,7 +127,7 @@ def set_subscription_check_interval(minutes: int):
         log(f"Ошибка записи интервала проверки подписки: {e}", "❌ ERROR")
 
 # ───────────── Удаление GitHub API из hosts ─────────────
-_GITHUB_API_KEY  = r"Software\Zapret"
+_GITHUB_API_KEY  = r"Software\ZapretReg2"
 _GITHUB_API_NAME = "RemoveGitHubAPI"     # REG_DWORD (1/0)
 
 def get_remove_github_api() -> bool:

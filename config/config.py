@@ -5,13 +5,8 @@
 import os
 import sys
 
-# Определяем главную директорию программы
-if getattr(sys, 'frozen', False):
-    # Если программа скомпилирована в exe
-    MAIN_DIRECTORY = os.path.dirname(sys.executable)
-else:
-    # Если запущена как Python скрипт
-    MAIN_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+
+MAIN_DIRECTORY = os.path.dirname(sys.executable)
 
 # Все папки относительно MAIN_DIRECTORY
 BIN_FOLDER = os.path.join(MAIN_DIRECTORY, "bin")
@@ -31,7 +26,7 @@ WINDIVERT_FILTER = os.path.join(MAIN_DIRECTORY, "windivert.filter")
 # Пути к файлам
 WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")
 ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")
-ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo3.ico")
+ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo4.ico")
 
 OTHER_PATH = os.path.join(LISTS_FOLDER, "other.txt")
 OTHER2_PATH = os.path.join(LISTS_FOLDER, "other2.txt")

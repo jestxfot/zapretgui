@@ -9,7 +9,7 @@ from utils import run_hidden
 # 1) Мини-хелперы
 # ---------------------------------------------------------------------------
 # ───────────── Удаление Windows Terminal ─────────────
-_WT_KEY  = r"Software\Zapret"
+_WT_KEY  = r"Software\ZapretReg2"
 _WT_NAME = "RemoveWindowsTerminal"     # REG_DWORD (1/0)
 
 def get_remove_windows_terminal() -> bool:

@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Константы
-REGISTRY_KEY = r"SOFTWARE\ZapretGUI"
+REGISTRY_KEY = r"Software\ZapretReg2GUI"
 DEVICE_ID_VALUE = "DeviceID"
 KEY_VALUE = "ActivationKey"
 LAST_CHECK_VALUE = "LastCheck"
@@ -35,16 +35,13 @@ class ActivationStatus:
     expires_at: Optional[str]
     status_message: str
     subscription_level: str = "–"
-    is_auto_renewal: bool = False
     source: str = "unknown"
     
     def get_formatted_expiry(self) -> str:
         """Получить отформатированную информацию об истечении"""
         if not self.is_activated:
             return "Не активировано"
-        
-        if self.is_auto_renewal:
-            return "Автопродление ⚡"
+    
         
         if self.days_remaining is not None:
             if self.days_remaining == 0:
@@ -291,11 +288,8 @@ class APIClient:
             if is_activated:
                 days_remaining = result.get('days_remaining')
                 
-                # Проверяем автопродление: None или 99999 дней
-                is_auto_renewal = days_remaining is None or days_remaining == 99999
-                
                 # Если автопродление, не показываем количество дней
-                display_days = None if is_auto_renewal else days_remaining
+                display_days = days_remaining
                 
                 status = ActivationStatus(
                     is_activated=True,
@@ -303,13 +297,8 @@ class APIClient:
                     expires_at=result.get('expires_at'),
                     status_message=result.get('message', 'Активировано'),
                     subscription_level=result.get('subscription_level', 'zapretik'),
-                    is_auto_renewal=is_auto_renewal,
                     source='api'
                 )
-                
-                # Обновляем сообщение статуса для автопродления
-                if is_auto_renewal:
-                    status.status_message = 'Активировано (автопродление)'
                 
                 logger.info(f"Устройство активировано: {status.status_message}")
             else:
@@ -319,7 +308,6 @@ class APIClient:
                     expires_at=None,
                     status_message=result.get('message', 'Не активировано'),
                     subscription_level='–',
-                    is_auto_renewal=False,
                     source='api'
                 )
                 
@@ -345,7 +333,6 @@ class APIClient:
                 expires_at=None,
                 status_message='Активировано (offline режим)',
                 subscription_level='zapretik',
-                is_auto_renewal=False,
                 source='offline'
             )
         
@@ -355,7 +342,6 @@ class APIClient:
             expires_at=None,
             status_message='Не активировано',
             subscription_level='–',
-            is_auto_renewal=False,
             source='offline'
         )
     
@@ -397,7 +383,6 @@ class SimpleDonateChecker:
             'status': status.status_message,
             'expires_at': status.expires_at,
             'level': 'Premium' if status.subscription_level != '–' else '–',
-            'auto_payment': status.is_auto_renewal,
             'subscription_level': status.subscription_level,
             'source': status.source
         }
@@ -421,7 +406,6 @@ class SimpleDonateChecker:
                 'is_premium': bool,
                 'status_msg': str,
                 'days_remaining': int или None,
-                'is_auto_renewal': bool,
                 'subscription_level': str
             }
         """
@@ -432,7 +416,6 @@ class SimpleDonateChecker:
                 'is_premium': device_info.get('activated', False),
                 'status_msg': device_info.get('status', 'Неизвестно'),
                 'days_remaining': device_info.get('days_remaining'),
-                'is_auto_renewal': device_info.get('auto_payment', False),
                 'subscription_level': device_info.get('subscription_level', '–')
             }
         except Exception as e:
@@ -442,7 +425,6 @@ class SimpleDonateChecker:
                 'is_premium': False,
                 'status_msg': 'Ошибка проверки',
                 'days_remaining': None,
-                'is_auto_renewal': False,
                 'subscription_level': '–'
             }
         

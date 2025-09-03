@@ -11,7 +11,7 @@ from typing import Optional, Callable, List, Tuple
 from log import log
 
 # Ключ в реестре для хранения настройки
-REGISTRY_PATH = r"SOFTWARE\ZapretGUI"
+REGISTRY_PATH = r"Software\ZapretReg2GUI"
 REGISTRY_KEY_MAX_BLOCKED = "MaxBlocked"
 
 # Путь к политикам Explorer для блокировки запуска

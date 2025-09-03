@@ -189,7 +189,8 @@ class CommandLineDialog(QDialog):
             self.parent_selector.category_selections.get('youtube_udp'),
             self.parent_selector.category_selections.get('googlevideo_tcp'),
             self.parent_selector.category_selections.get('discord'),
-            self.parent_selector.category_selections.get('discord_voice'),
+            self.parent_selector.category_selections.get('discord_voice_udp'),
+            self.parent_selector.category_selections.get('twitch_tcp'),
             self.parent_selector.category_selections.get('other'),
             self.parent_selector.category_selections.get('ipset'),
             self.parent_selector.category_selections.get('ipset_udp')

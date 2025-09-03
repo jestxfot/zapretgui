@@ -4,6 +4,7 @@ PROXY_DOMAINS = {
     "www.facebook.com": "31.13.72.36",
     "static.xx.fbcdn.net": "31.13.72.12",
     "external-hel3-1.xx.fbcdn.net": "31.13.72.12",
+    "scontent-hel3-1.xx.fbcdn.net": "31.13.72.12",
     "www.instagram.com": "157.240.225.174",
     "instagram.com": "157.240.225.174",
     "scontent.cdninstagram.com": "157.240.224.63", # 157.240.247.63

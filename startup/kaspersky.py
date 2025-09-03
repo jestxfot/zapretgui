@@ -79,7 +79,7 @@ def _check_kaspersky_warning_disabled():
         import winreg
         
         # Путь к ключу реестра
-        key_path = r"SOFTWARE\Zapret"
+        key_path = r"Software\ZapretReg2"
         value_name = "DisableKasperskyWarning"
         
         # Пытаемся открыть ключ
@@ -105,7 +105,7 @@ def _set_kaspersky_warning_disabled(disabled: bool):
         import winreg
         
         # Путь к ключу реестра
-        key_path = r"SOFTWARE\Zapret"
+        key_path = r"Software\ZapretReg2"
         value_name = "DisableKasperskyWarning"
         
         # Создаем или открываем ключ

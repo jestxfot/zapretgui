@@ -71,12 +71,12 @@ class StrategyChecker:
             
             # Это комбинированная стратегия
             from strategy_menu.strategy_lists_separated import (
-                YOUTUBE_STRATEGIES, YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES, DISCORD_STRATEGIES, 
+                YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES, DISCORD_STRATEGIES, 
                 DISCORD_VOICE_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES,
                 combine_strategies
             )
 
-            from strategy_menu import OTHER_STRATEGIES
+            from strategy_menu import OTHER_STRATEGIES, TWITCH_TCP_STRATEGIES, YOUTUBE_STRATEGIES, IPSET_TCP_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(
@@ -84,7 +84,8 @@ class StrategyChecker:
                 selections.get('youtube_udp'),
                 selections.get('googlevideo_tcp'),
                 selections.get('discord'),
-                selections.get('discord_voice'),
+                selections.get('discord_voice_udp'),
+                selections.get('twitch_tcp'),
                 selections.get('other'),
                 selections.get('ipset'),
                 selections.get('ipset_udp'),
@@ -95,7 +96,7 @@ class StrategyChecker:
             strategy_names = []
             
             # YouTube
-            if selections.get('youtube') and selections['youtube'] != 'youtube_none':
+            if selections.get('youtube') and selections['youtube'] != 'youtube_tcp_none':
                 active_categories.append('YouTube')
                 yt_strat = YOUTUBE_STRATEGIES.get(selections['youtube'])
                 if yt_strat:
@@ -109,35 +110,42 @@ class StrategyChecker:
                     strategy_names.append(f"YTU: {ytu_strat.get('name', selections['youtube_udp'])}")
             
             # GoogleVideo
-            if selections.get('googlevideo_tcp') and selections['googlevideo_tcp'] != 'googlevideo_none':
+            if selections.get('googlevideo_tcp') and selections['googlevideo_tcp'] != 'googlevideo_tcp_none':
                 active_categories.append('GoogleVideo')
                 gv_strat = GOOGLEVIDEO_STRATEGIES.get(selections['googlevideo_tcp'])
                 if gv_strat:
                     strategy_names.append(f"GV: {gv_strat.get('name', selections['googlevideo_tcp'])}")
 
             # Discord
-            if selections.get('discord') and selections['discord'] != 'discord_none':
+            if selections.get('discord') and selections['discord'] != 'discord_tcp_none':
                 active_categories.append('Discord')
                 dc_strat = DISCORD_STRATEGIES.get(selections['discord'])
                 if dc_strat:
                     strategy_names.append(f"DC: {dc_strat.get('name', selections['discord'])}")
             
             # Discord Voice
-            if selections.get('discord_voice') and selections['discord_voice'] != 'discord_voice_none':
+            if selections.get('discord_voice_udp') and selections['discord_voice_udp'] != 'discord_voice_udp_none':
                 active_categories.append('Discord Voice')
-                dv_strat = DISCORD_VOICE_STRATEGIES.get(selections['discord_voice'])
+                dv_strat = DISCORD_VOICE_STRATEGIES.get(selections['discord_voice_udp'])
                 if dv_strat:
-                    strategy_names.append(f"DV: {dv_strat.get('name', selections['discord_voice'])}")
+                    strategy_names.append(f"DV: {dv_strat.get('name', selections['discord_voice_udp'])}")
+
+            # Twitch TCP
+            if selections.get('twitch_tcp') and selections['twitch_tcp'] != 'twitch_tcp_none':
+                active_categories.append('Twitch TCP')
+                tt_strat = TWITCH_TCP_STRATEGIES.get(selections['twitch_tcp'])
+                if tt_strat:
+                    strategy_names.append(f"Twitch: {tt_strat.get('name', selections['twitch_tcp'])}")
             
             # Other
-            if selections.get('other') and selections['other'] != 'other_none':
+            if selections.get('other') and selections['other'] != 'other_tcp_none':
                 active_categories.append('Остальные')
                 ot_strat = OTHER_STRATEGIES.get(selections['other'])
                 if ot_strat:
                     strategy_names.append(f"Other: {ot_strat.get('name', selections['other'])}")
 
             # IPset
-            if selections.get('ipset') and selections['ipset'] != 'ipset_none':
+            if selections.get('ipset') and selections['ipset'] != 'ipset_tcp_none':
                 active_categories.append('IPset')
                 i_strat = IPSET_TCP_STRATEGIES.get(selections['ipset'])
                 if i_strat:

@@ -2,6 +2,9 @@
 
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
 from .OTHER_STRATEGIES import OTHER_STRATEGIES
+from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
+from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_STRATEGIES
+from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
 
 """
 Censorliber, [08.08.2025 1:02]
@@ -23,14 +26,11 @@ Censorliber, [08.08.2025 1:02]
 """
 ------ добавить в остьальное tcp по всем портам --------------------
 --filter-tcp=4950-4955 --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig,badseq --new
---filter-tcp=6695-6705 --dpi-desync=fake,split2 --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig --dpi-desync-autottl=2 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
 
 --filter-udp=443-9000 --ipset=ipset-all.txt --hostlist-domains=riotcdn.net,playvalorant.com,riotgames.com,pvp.net,rgpub.io,rdatasrv.net,riotcdn.com,riotgames.es,RiotClientServices.com,LeagueofLegends.com --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
 ------ ВАЖНЫЕ И НЕОБЫЧНЫЕ СТРАТЕГИИ по идее надо писать syndata в конце в порядке исключения для всех доменов--------------------
 
---filter-tcp=443 --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
---filter-tcp=443 --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new
 --filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --filter-tcp=443 --dpi-desync=fake --dpi-desync-ttl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --filter-tcp=443 --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
@@ -77,7 +77,6 @@ Censorliber, [08.08.2025 1:02]
 --filter-tcp=443 --dpi-desync=syndata --new
 --filter-tcp=443 --dpi-desync=syndata,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-fake-syndata=tls_clienthello_16.bin --dup=2 --dup-cutoff=n3 --new
 --filter-tcp=443 --dpi-desync=syndata,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-fake-syndata=tls_clienthello_16.bin --dup=2 --dup-cutoff=n3 --new
---filter-tcp=443 --dpi-desync=syndata,multidisorder --dpi-desync-split-pos=4 --dpi-desync-repeats=10 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_vk_com_kyber.bin --new
 
 --filter-tcp=2099,5222,5223,8393-8400 --ipset=ipset-cloudflare.txt --dpi-desync=syndata --new
 
@@ -160,277 +159,12 @@ GOOGLEVIDEO_STRATEGIES = {
         "label": None,
         "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,sld+1 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-fooling=badseq --new"""
     },
-    "googlevideo_none": {
+    "googlevideo_tcp_none": {
         "name": "Не применять для GoogleVideo",
         "description": "Отключить обработку GoogleVideo",
         "author": "System",
         "label": None,
-        "args": ""  # Пустая строка = не добавлять аргументы
-    }
-}
-
-YOUTUBE_BASE_ARG = "--filter-tcp=80,443 --ipcache-hostname --hostlist=youtube.txt"
-
-# YouTube стратегии
-YOUTUBE_STRATEGIES = {
-    "multisplit_seqovl_midsld": {
-        "name": "multisplit seqovl midsld",
-        "description": "Базовая стратегия multisplit для YouTube",
-        "author": None,
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld-1 --new"""
-    },
-    "original_bolvan_v2_badsum": {
-        "name": "Если стратегия не работает смени её!",
-        "description": "Базовая стратегия multidisorder для YouTube",
-        "author": "OrigBolvan",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
-    },
-    "bolvan_md5sig": {
-        "name": "BolVan md5sig 11",
-        "description": "Другой метод фуллинга + большее число повторений",
-        "author": "OrigBolvan",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --new"""
-    },
-    "bolvan_md5sig_2": {
-        "name": "BolVan md5sig 11 + TLS mod Google",
-        "description": "Другой метод фуллинга + большее число повторений + tls от гугла",
-        "author": "Уфанет",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig  --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
-    },
-    "bolvan_fake_tls": {
-        "name": "BolVan fake TLS 4",
-        "description": "Используется фейковый Clienthello",
-        "author": "OrigBolvan",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=4 --dpi-desync-fake-tls=tls_clienthello_18.bin --dpi-desync-fooling=badseq --new"""
-    },
-    "multisplit_seqovl": {
-        "name": "multisplit и seqovl 1",
-        "description": "Используется multisplit и seqovl 1",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld+1 --new"""
-    },
-    "fake_multisplit_seqovl_md5sig": {
-        "name": "fake multisplit и seqovl 1 md5sig",
-        "description": "Используется multisplit и seqovl 1",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld-1 --dpi-desync-fooling=md5sig,badseq --dpi-desync-fake-tls=tls_clienthello_4.bin --dpi-desync-ttl=2 --new"""
-    },
-    "split_pos_md5sig": {
-        "name": "Нестандартная нарезка позиций и md5sig",
-        "description": "method+2,midsld,5 и ttl 0",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=method+2,midsld,5 --dpi-desync-ttl=0 --dpi-desync-fooling=md5sig,badsum,badseq --dpi-desync-repeats=15 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
-    },
-    "multisplit_1": {
-        "name": "Мультисплит и смещение +1",
-        "description": "Базовая стратегия десинхронизации multisplit",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --new"""
-    },
-    "multisplit_2": {
-        "name": "Мультисплит и смещение -1",
-        "description": "Базовая стратегия десинхронизации multisplit",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld-1 --new"""
-    },
-    "multisplit_3": {
-        "name": "Мультисплит и смещение midsld +1",
-        "description": "Базовая стратегия десинхронизации multisplit и смещение midsld",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=midsld+1 --dpi-desync-split-seqovl-pattern=tls_clienthello_7.bin --new"""
-    },
-    "multidisorder_fake_tls_1": {
-        "name": "multidisorder 7 Fake TLS fonts и badseq",
-        "description": "Кастомная и сложная стратегия с фейком fonts",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=7,sld+1 --dpi-desync-fake-tls=0x0F0F0F0F --dpi-desync-fake-tls=tls_clienthello_4.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=fonts.google.com --dpi-desync-fooling=badseq --dpi-desync-autottl --new"""
-    },
-    "multidisorder_fake_tls_2": {
-        "name": "multidisorder 7 Fake TLS calendar и badseq",
-        "description": "Кастомная и сложная стратегия с фейком calendar",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=7,sld+1 --dpi-desync-fake-tls=0x0F0F0F0F --dpi-desync-fake-tls=tls_clienthello_4.bin --dpi-desync-fake-tls-mod=rnd,dupsid,sni=calendar.google.com --dpi-desync-fooling=badseq --dpi-desync-autottl --new"""
-    },
-    "multidisorder_badseq_w3": {
-        "name": "multidisorder badseq w3",
-        "description": "Обратная стратегия с фуллингом badseq и фейком w3",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-fake-tls=dtls_clienthello_w3_org.bin --dpi-desync-split-pos=1,midsld --dpi-desync-fooling=badseq,md5sig --new"""
-    },
-    "multidisorder_rnd_split": {
-        "name": "multidisorder rnd split",
-        "description": "Обратная стратегия с нестандартной стратегией и фейком TLS",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-repeats=3 --dpi-desync-split-pos=100,midsld,sniext+1,endhost-2,-10 --dpi-desync-ttl=4 --new"""
-    },
-    "multisplit_17": {
-        "name": "multisplit 17",
-        "description": "Мульти нарезка с md5sig и фейком TLS",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=2,midsld --dpi-desync-fake-tls=tls_clienthello_17.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "syndata_md5sig": {
-        "name": "multisplit и md5sig",
-        "description": "Экспериментальная стратегия multisplit и md5sig",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_9.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new""" # раньше тут было syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin
-    },
-    "multisplit_fake_tls_md5sig": {
-        "name": "multisplit и md5sig 1",
-        "description": "Стандартный multisplit и md5sig и фейк TLS 1",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_1.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "multisplit_fake_tls_md5sig_2": {
-        "name": "multisplit и md5sig 14",
-        "description": "Стандартный multisplit и md5sig и фейк TLS 14",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "multisplit_seqovl_pos": {
-        "name": "multisplit seqovl с split pos",
-        "description": "Базовый multisplit и seqovl с фейками и нарезкой",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=3 --dpi-desync-fake-tls=tls_clienthello_2.bin --dpi-desync-ttl=3 --new"""
-    },
-    "multisplit_seqovl_pos_2": {
-        "name": "multisplit seqovl с split pos и badseq",
-        "description": "Базовый multisplit и seqovl с фейками, нарезкой и  badseq",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-fooling=badseq --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=2 --dpi-desync-fake-tls=tls_clienthello_2n.bin --dpi-desync-fake-tls-mod=rnd --dpi-desync-autottl --new"""
-    },
-    "multidisorder_repeats_md5sig": {
-        "name": "multidisorder с повторами и md5ig",
-        "description": "multidisorder с fake tls mod",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
-    },
-    "multidisorder_repeats_md5sig_2": {
-        "name": "multidisorder с повторами и md5ig",
-        "description": "multidisorder с fake tls clienthello",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=11 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
-    },
-    "split2_seqovl_vk": {
-        "name": "Устаревший split2 с clienthello от VK",
-        "description": "split2 и 625 seqovl с sniext и vk ttl 2 от конторы пидорасов",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=625 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls=tls_clienthello_vk_com.bin --dpi-desync-ttl=2 --new"""
-    },
-    "split2_seqovl_google": {
-        "name": "Устаревший split2 с clienthello от google",
-        "description": "split2 и 1 seqovl с sniext и google ttl 4",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-ttl=4 --new"""
-    },
-    "split2_split": {
-        "name": "Устаревший split2 split",
-        "description": "Базовый split2 и нарезка",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=3 --new"""
-    },
-    "split2_seqovl_652": {
-        "name": "split2 seqovl 652",
-        "description": "Устаревший split2 с seqovl 652 и паттерном 4",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=3,midsld-1 --dpi-desync-split-seqovl-pattern=tls_clienthello_4.bin --new"""
-    },
-    "split2_split_google": {
-        "name": "Устаревший split2 split seqovl google",
-        "description": "Базовый split2 и нарезка с fake tls google",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=3 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-ttl=3 --new"""
-    },
-    "split2_split_2": {
-        "name": "Устаревший split2 split seqovl 2",
-        "description": "Базовый split2 и нарезка с fake tls 2",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=3 --dpi-desync-fake-tls=tls_clienthello_2.bin --dpi-desync-autottl=2 --new"""
-    },
-    "fake_split2": {
-        "name": "Устаревший fake split2 seqovl 1",
-        "description": "fake и split2, нарезка с fake tls 2",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls=tls_clienthello_3.bin --dpi-desync-ttl=2 --new"""
-    },
-    "split_seqovl": {
-        "name": "Устаревший split и seqovl",
-        "description": "Базовый split и seqovl",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split --dpi-desync-split-seqovl=1 --dpi-desync-split-tls=sniext --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --dpi-desync-ttl=1 --new"""
-    },
-    "split_pos_badseq": {
-        "name": "Устаревший split и badseq",
-        "description": "Базовый split и badseq",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=10 --dpi-desync-autottl=2 --new"""
-    },
-    "split_pos_badseq_10": {
-        "name": "split badseq 10 и cutoff",
-        "description": "split и badseq разрез и 10 повторов",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=10 --dpi-desync-cutoff=d2 --dpi-desync-ttl=3 --new"""
-    },
-    "split_pos_3": {
-        "name": "split pos 3 и повторы",
-        "description": "split разрез в 3 и 4 повтора",
-        "author": "hz",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=3 --dpi-desync-repeats=4 --dpi-desync-autottl=1 --new"""
-    },
-    "general_alt183": {
-        "name": "general (alt) 1.8.3",
-        "description": "Потом опишу подробнее",
-        "author": "Flowseal",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-autottl=5 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
-    },
-    "general_alt2183": {
-        "name": "general (alt2) 1.8.3",
-        "description": "Потом опишу подробнее",
-        "author": "Flowseal",
-        "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
-    },
-    "youtube_none": {
-        "name": "Не применять для YouTube",
-        "description": "Отключить обработку YouTube",
-        "author": "System",
-        "label": None,
-        "args": ""  # Пустая строка = не добавлять аргументы
+        "args": ""
     }
 }
 
@@ -790,14 +524,14 @@ DISCORD_STRATEGIES = {
         "args": f"""--filter-tcp=80,443 --hostlist=discord.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_3.bin --dpi-desync-ttl=5 --new"""
     },
     "dis7": {
-        "name": "split 6 badseq",
+        "name": "Ростелеком & Мегафон",
         "description": "Сплит с повторением 6 и фуллингом badseq и фейком tls от Google",
         "author": "hz",
         "label": None,
         "args": f"""--filter-tcp=80,443 --hostlist=discord.txt --dpi-desync=fake,split --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
     },
     "dis8": {
-        "name": "split2 sniext 4",
+        "name": "Ростелеком & Мегафон v2",
         "description": "Cплит2 с фейком tls 4 и ttl 4 (короче одни четвёрки)",
         "author": "hz",
         "label": None,
@@ -866,7 +600,7 @@ DISCORD_STRATEGIES = {
         "label": None,
         "args": f"""--filter-tcp=80,443 --hostlist=discord.txt --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
     },
-    "discord_none": {
+    "discord_tcp_none": {
         "name": "Не применять для Discord",
         "description": "Отключить обработку Discord",
         "author": "System",
@@ -995,7 +729,7 @@ DISCORD_VOICE_STRATEGIES = {
         "label": None,
         "args": f"""--ipset=ipset-discord.txt --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-cutoff=n4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin"""
     },
-    "discord_voice_none": {
+    "discord_voice_udp_none": {
         "name": "Не применять для Discord Voice",
         "description": "Отключить обработку голосовых чатов Discord.",
         "author": "System",
@@ -1082,161 +816,9 @@ DISCORD_UPD_STRATEGIES = {
         "label": LABEL_RECOMMENDED,
         "args": f"""--filter-udp=443 --hostlist=discord.txt --dpi-desync=fake,split2 --dpi-desync-repeats=11 --dpi-desync-udplen-increment=15 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
-    "discord_voice_none": {
+    "discord_voice_udp_none": {
         "name": "Не применять для Discord",
         "description": "Отключить обработку Discord",
-        "author": "System",
-        "label": None,
-        "args": ""
-    }
-}
-
-IPSET_BASE_ARG = "--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare.txt --ipset=ipset-discord.txt --ipset-exclude=ipset-dns.txt"
-
-"""
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new
---filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new
-"""
-
-IPSET_TCP_STRATEGIES = {
-    "syndata_1": {
-        "name": "syndata 4",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_STABLE,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new"""
-    },
-    "syndata_4_badseq": {
-        "name": "syndata 4 badseq",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new"""
-    },
-    "syndata_7_n3": {
-        "name": "syndata 7 n3",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
-    "syndata_syn_packet_n3": {
-        "name": "syndata syn_packet.bin n3",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
-    "other_seqovl": {
-        "name": "multisplit seqovl 211 & pattern 5",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
-    },
-    "multisplit_286_pattern": {
-        "name": "multisplit seqovl 286 с парттерном 11",
-        "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 11",
-        "author": "hz",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
-    "multisplit_308_pattern": {
-        "name": "multisplit seqovl 308 с парттерном 9",
-        "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 9",
-        "author": "hz",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
-    "original_bolvan_v2_badsum": {
-        "name": "Если стратегия не работает смени её!",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
-    },
-    "other_multidisorder": {
-        "name": "multidisorder 6 md5sig",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_STABLE,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --new"""
-    },
-    "other_multidisorder_2": {
-        "name": "multidisorder 6 badseq & md5sig",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_STABLE,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig --new"""
-    },
-    "other2": {
-        "name": "multidisorder 6 badseq",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --new"""
-    },
-    "multisplit_fake_tls_badseq": {
-        "name": "multisplit 14 badseq",
-        "description": "Хорошая базовая комлектация для старта",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=badseq --dpi-desync-autottl --dup=2 --dup-fooling=badseq --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "multisplit_fake_tls_md5sig": {
-        "name": "multisplit 14 md5sig",
-        "description": "Хорошая базовая комлектация для старта",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fake-tls=0x0F0F0E0F --dpi-desync-fake-tls=tls_clienthello_14.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "multisplit_17": {
-        "name": "multisplit 17",
-        "description": "Мульти нарезка с md5sig и фейком TLS",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-pos=2,midsld --dpi-desync-fake-tls=tls_clienthello_17.bin --dpi-desync-fake-tls-mod=rnd,dupsid --dpi-desync-fooling=md5sig --dpi-desync-autottl --dup=2 --dup-fooling=md5sig --dup-autottl --dup-cutoff=n3 --new"""
-    },
-    "other4": {
-        "name": "fakedsplit badseq 10",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=10 --dpi-desync-autottl --new"""
-    },
-    "other5": {
-        "name": "multidisorder datanoack deepseek",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=tls_clienthello_chat_deepseek_com.bin --new"""
-    },
-    "other6": {
-        "name": "general (alt) 1.8.1",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,split --dpi-desync-autottl=5 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
-    },
-    "general_alt183": {
-        "name": "general (alt) 1.8.3",
-        "description": "Потом опишу подробнее",
-        "author": "Flowseal",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-autottl=5 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
-    },
-    "general_alt2183": {
-        "name": "general (alt2) 1.8.3",
-        "description": "Потом опишу подробнее",
-        "author": "Flowseal",
-        "label": None,
-        "args": f"""{IPSET_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
-    },
-    "ipset_none": {
-        "name": "Не применять для остальных",
-        "description": "Отключить обработку остальных сайтов",
         "author": "System",
         "label": None,
         "args": ""
@@ -1246,26 +828,26 @@ IPSET_TCP_STRATEGIES = {
 IPSET_UDP_BASE_ARG = "--filter-udp=443,444-65535 --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare.txt --ipset-exclude=ipset-dns.txt"
 
 IPSET_UDP_STRATEGIES = {
+    "fake_2_n2_google": {
+        "name": "Apex Legends & Rockstar",
+        "description": "Базовая стратегия для многих игр",
+        "author": "community",
+        "label": LABEL_GAME,
+        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+    },
    "fake_2_n2_test": {
-        "name": "Fake x2 N2 Test",
+        "name": "Rockstar v3",
         "description": "2 повтора с quic_test_00.bin, cutoff n2",
         "author": "community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
-    },
-    "fake_2_n2_google": {
-        "name": "Fake x2 N2 Google",
-        "description": "2 повтора с Google QUIC, cutoff n2",
-        "author": "community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
     },
     "fake_4_google": {
         "name": "Fake x4 Google",
         "description": "4 повтора с Google QUIC",
         "author": "community",
         "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_4_quic1": {
         "name": "Fake x4 QUIC1",
@@ -1275,28 +857,28 @@ IPSET_UDP_STRATEGIES = {
         "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_1.bin --new"""
     },
     "ipset_fake_12_n2": {
-        "name": "IPSET Fake x12 N2",
+        "name": "Apex legends & Rockstar v2",
         "description": "UDP 443+ с ipset-all, 12 повторов, cutoff n2",
         "author": "community",
         "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
+        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=d3 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
     },
     "ipset_fake_12_n3": {
-        "name": "IPSET Fake x12 N3",
+        "name": "IPSET Fake x12 N3 (Apex legends)",
         "description": "UDP 443+ с ipset-all, 12 повторов, cutoff n3",
         "author": "community",
         "label": LABEL_GAME,
         "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3 --new"""
     },
     "ipset_fake_10_n2": {
-        "name": "IPSET Fake x10 N2",
+        "name": "IPSET Fake x10 N2 (Apex legends)",
         "description": "UDP 443+ с ipset-all, 10 повторов, cutoff n2",
         "author": "community",
         "label": LABEL_GAME,
         "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
     },
     "ipset_fake_14_n3": {
-        "name": "IPSET Fake x14 N3",
+        "name": "IPSET Fake x14 N3 (Apex legends)",
         "description": "UDP 443+ с ipset-all, 14 повторов, cutoff n3",
         "author": "community",
         "label": LABEL_GAME,
@@ -1447,7 +1029,7 @@ IPSET_UDP_STRATEGIES = {
         "description": "Полезно исключительно для рокстар лаунчера",
         "author": "community",
         "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new"""
+        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "ipset_udp_none": {
         "name": "Не применять для остальных UDP",
@@ -1462,17 +1044,9 @@ IPSET_UDP_STRATEGIES = {
 # Базовые аргументы (применяются всегда)
 BASE_ARGS = "--wf-raw=@windivert.all.txt"
 
-def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, other_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
+def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, twitch_tcp_id: str, other_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
     """
     Объединяет выбранные стратегии в одну общую
-    
-    Args:
-        youtube_id: ID стратегии для YouTube
-        youtube_quic_id: ID стратегии для YouTube QUIC
-        googlevideo_id: ID стратегии для GoogleVideo
-        discord_id: ID стратегии для Discord
-        discord_voice_id: ID стратегии для Discord Voice
-        other_id: ID стратегии для остальных сайтов
         
     Returns:
         Словарь с объединенной стратегией
@@ -1510,6 +1084,12 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
         if discord_voice_args:
             args_parts.append(discord_voice_args)
 
+    # Добавляем Twitch TCP стратегию
+    if twitch_tcp_id and twitch_tcp_id in TWITCH_TCP_STRATEGIES:
+        twitch_tcp_args = TWITCH_TCP_STRATEGIES[twitch_tcp_id]["args"]
+        if twitch_tcp_args:
+            args_parts.append(twitch_tcp_args)
+
     # Добавляем стратегию для остальных сайтов
     if other_id and other_id in OTHER_STRATEGIES:
         other_args = OTHER_STRATEGIES[other_id]["args"]
@@ -1533,19 +1113,21 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
     
     # Формируем описание
     descriptions = []
-    if youtube_id and youtube_id != "youtube_none":
+    if youtube_id and youtube_id != "youtube_tcp_none":
         descriptions.append(f"YouTube: {YOUTUBE_STRATEGIES[youtube_id]['name']}")
     if youtube_udp_id and youtube_udp_id != "youtube_quic_none":
         descriptions.append(f"YouTube QUIC: {YOUTUBE_QUIC_STRATEGIES[youtube_udp_id]['name']}")
-    if discord_id and discord_id != "discord_none":
+    if discord_id and discord_id != "discord_tcp_none":
         descriptions.append(f"Discord: {DISCORD_STRATEGIES[discord_id]['name']}")
-    if googlevideo_id and googlevideo_id != "googlevideo_none":
+    if googlevideo_id and googlevideo_id != "googlevideo_tcp_none":
         descriptions.append(f"GoogleVideo: {GOOGLEVIDEO_STRATEGIES[googlevideo_id]['name']}")
-    if discord_voice_id and discord_voice_id != "discord_voice_none":
+    if discord_voice_id and discord_voice_id != "discord_voice_udp_none":
         descriptions.append(f"Discord Voice: {DISCORD_VOICE_STRATEGIES[discord_voice_id]['name']}")
-    if other_id and other_id != "other_none":
+    if twitch_tcp_id and twitch_tcp_id != "twitch_tcp_none":
+        descriptions.append(f"Twitch TCP: {TWITCH_TCP_STRATEGIES[twitch_tcp_id]['name']}")
+    if other_id and other_id != "other_tcp_none":
         descriptions.append(f"Остальные: {OTHER_STRATEGIES[other_id]['name']}")
-    if ipset_id and ipset_id != "ipset_none":
+    if ipset_id and ipset_id != "ipset_tcp_none":
         descriptions.append(f"IPset: {IPSET_TCP_STRATEGIES[ipset_id]['name']}")
     if ipset_udp_id and ipset_udp_id != "ipset_udp_none":
         descriptions.append(f"IPset UDP: {IPSET_UDP_STRATEGIES[ipset_udp_id]['name']}")
@@ -1568,6 +1150,7 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
         "_googlevideo_id": googlevideo_id,
         "_discord_id": discord_id,
         "_discord_voice_id": discord_voice_id,
+        "_twitch_tcp_id": twitch_tcp_id,
         "_other_id": other_id,
         "_ipset_id": ipset_id,
         "_ipset_udp_id": ipset_udp_id
@@ -1578,9 +1161,10 @@ def get_default_selections():
     return {
         'youtube': 'multisplit_seqovl_midsld',
         'youtube_udp': 'fake_11',
-        'googlevideo_tcp': 'googlevideo_none',
+        'googlevideo_tcp': 'googlevideo_tcp_none',
         'discord': 'dis4',
-        'discord_voice': 'ipv4_dup2_autottl_cutoff_n3',
+        'discord_voice_udp': 'ipv4_dup2_autottl_cutoff_n3',
+        'twitch_tcp': 'twitch_tcp_none',
         'other': 'other_seqovl',
         'ipset': 'other_seqovl',
         'ipset_udp': 'fake_2_n2_google'

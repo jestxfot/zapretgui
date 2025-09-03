@@ -187,11 +187,11 @@ QFrame[frameShape="4"] {
 
 def get_selected_theme(default: str | None = None) -> str | None:
     """Возвращает сохранённую тему или default"""
-    return reg(r"Software\Zapret", "SelectedTheme") or default
+    return reg(r"Software\ZapretReg2", "SelectedTheme") or default
 
 def set_selected_theme(theme_name: str) -> bool:
     """Записывает строку SelectedTheme"""
-    return reg(r"Software\Zapret", "SelectedTheme", theme_name)
+    return reg(r"Software\ZapretReg2", "SelectedTheme", theme_name)
 
 def get_windows_theme() -> str:
     """Читает системную тему Windows"""
@@ -366,9 +366,6 @@ class ThemeManager:
 
         # применяем тему, НО БЕЗ записи в настройки
         self.apply_theme(self.current_theme, persist=False)
-        
-        # Запускаем асинхронную проверку премиума после инициализации
-        QTimer.singleShot(2000, self._start_async_premium_check)
 
     def __del__(self):
         """Деструктор для очистки ресурсов"""
@@ -443,6 +440,13 @@ class ThemeManager:
         if not self.donate_checker:
             return
         
+        # ✅ ДОБАВИТЬ ЗАЩИТУ
+        if hasattr(self, '_check_in_progress') and self._check_in_progress:
+            log("Проверка премиума уже выполняется, пропускаем", "DEBUG")
+            return
+        
+        self._check_in_progress = True
+            
         # Проверяем тип checker'а
         checker_type = self.donate_checker.__class__.__name__
         if checker_type == 'DummyChecker':
@@ -487,6 +491,7 @@ class ThemeManager:
         # Правильная очистка потока после завершения
         def cleanup_thread():
             try:
+                self._check_in_progress = False
                 if self._check_worker:
                     self._check_worker.deleteLater()
                     self._check_worker = None
@@ -1045,15 +1050,13 @@ class ThemeHandler:
             self.app_window.update_title_with_subscription_status(
                 sub_info['is_premium'], 
                 current_theme, 
-                sub_info['days_remaining'],
-                sub_info['is_auto_renewal']
+                sub_info['days_remaining']
             )
             
             # Также обновляем текст кнопки подписки если нужно
             if hasattr(self.app_window, 'update_subscription_button_text'):
                 self.app_window.update_subscription_button_text(
                     sub_info['is_premium'],
-                    sub_info['is_auto_renewal'],
                     sub_info['days_remaining']
                 )
             

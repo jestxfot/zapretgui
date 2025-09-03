@@ -1,14 +1,12 @@
 # strategy_menu/__init__.py
 
-from .OTHER_STRATEGIES import OTHER_STRATEGIES
-
 import winreg
 import json
 from log import log
 from config import reg
 
-REGISTRY_PATH = r"Software\Zapret"
-DIRECT_PATH = r"Software\Zapret\DirectMethod"
+REGISTRY_PATH = r"Software\ZapretReg2"
+DIRECT_PATH = r"Software\ZapretReg2\DirectMethod"
 
 def get_strategy_launch_method():
     """Получает метод запуска стратегий из реестра bat или direct"""
@@ -29,15 +27,6 @@ def set_strategy_launch_method(method: str):
     except Exception as e:
         log(f"Ошибка сохранения метода запуска: {e}", "❌ ERROR")
         return False
-
-def get_last_category_tab_index():
-    """Получает индекс последней открытой вкладки категории"""
-    result = reg(REGISTRY_PATH, "LastCategoryTabIndex")
-    return int(result) if result is not None else 0
-
-def set_last_category_tab_index(index):
-    """Сохраняет индекс последней открытой вкладки категории"""
-    return reg(REGISTRY_PATH, "LastCategoryTabIndex", int(index))
 
 # ───────────── Избранные стратегии ─────────────
 def get_favorite_strategies():
@@ -106,6 +95,25 @@ def clear_favorite_strategies():
     except Exception as e:
         log(f"Ошибка очистки избранных стратегий: {e}", "ERROR")
         return False
+
+def get_tabs_pinned() -> bool:
+    """Получает состояние закрепления боковой панели табов"""
+    result = reg(DIRECT_PATH, "TabsPinned")
+    if result is not None:
+        try:
+            return bool(int(result))
+        except (ValueError, TypeError):
+            return False
+    return True
+
+def set_tabs_pinned(pinned: bool) -> bool:
+    """Сохраняет состояние закрепления боковой панели табов"""
+    success = reg(DIRECT_PATH, "TabsPinned", int(pinned))
+    if success:
+        log(f"Настройка закрепления табов сохранена: {'закреплено' if pinned else 'не закреплено'}", "INFO")
+    else:
+        log(f"Ошибка сохранения настройки закрепления табов", "❌ ERROR")
+    return success
         
 # ───────────── Настройки прямого метода ─────────────
 def get_allzone_hostlist_enabled() -> bool:
@@ -168,13 +176,15 @@ def set_wssize_enabled(enabled: bool):
         log(f"Ошибка сохранения настройки wssize_enabled: {e}", "❌ ERROR")
         return False
         
+
 # ───────────── Выбранные стратегии для прямого запуска ─────────────
-_DIRECT_STRATEGY_KEY = r"Software\Zapret"
+_DIRECT_STRATEGY_KEY = r"Software\ZapretReg2\DirectStrategy"
 _DIRECT_YOUTUBE_NAME = "DirectStrategyYoutube"
 _DIRECT_YOUTUBE_UDP_NAME = "DirectStrategyYoutubeUDP"
 _DIRECT_GOOGLEVIDEO_NAME = "DirectStrategyGoogleVideo"
 _DIRECT_DISCORD_NAME = "DirectStrategyDiscord"
 _DIRECT_DISCORD_VOICE_NAME = "DirectStrategyDiscordVoice"
+_DIRECT_TWITCH_TCP_NAME = "DirectStrategyTwitchTCP"
 _DIRECT_OTHER_NAME = "DirectStrategyOther"
 _DIRECT_IPSET_NAME = "DirectStrategyIpset"
 _DIRECT_IPSET_UDP_NAME = "DirectStrategyIpsetUdp"
@@ -186,7 +196,8 @@ def get_direct_strategy_selections() -> dict:
         youtube_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_YOUTUBE_UDP_NAME)
         googlevideo_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_GOOGLEVIDEO_NAME)
         discord = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME)
-        discord_voice = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME)
+        discord_voice_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME)
+        twitch_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
         other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
         ipset = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_NAME)
         ipset_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_UDP_NAME)
@@ -200,7 +211,8 @@ def get_direct_strategy_selections() -> dict:
             'youtube_udp': youtube_udp if youtube_udp else default_selections.get('youtube_udp'),
             'googlevideo_tcp': googlevideo_tcp if googlevideo_tcp else default_selections.get('googlevideo_tcp'),
             'discord': discord if discord else default_selections.get('discord'),
-            'discord_voice': discord_voice if discord_voice else default_selections.get('discord_voice'),
+            'discord_voice_udp': discord_voice_udp if discord_voice_udp else default_selections.get('discord_voice_udp'),
+            'twitch_tcp': twitch_tcp if twitch_tcp else default_selections.get('twitch_tcp'),
             'other': other if other else default_selections.get('other'),
             'ipset': ipset if ipset else default_selections.get('ipset'),
             'ipset_udp': ipset_udp if ipset_udp else default_selections.get('ipset_udp'),
@@ -232,8 +244,11 @@ def set_direct_strategy_selections(selections: dict) -> bool:
         if 'discord' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME, selections['discord'])
         
-        if 'discord_voice' in selections:
-            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, selections['discord_voice'])
+        if 'discord_voice_udp' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, selections['discord_voice_udp'])
+
+        if 'twitch_tcp' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME, selections['twitch_tcp'])
             
         if 'other' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, selections['other'])
@@ -291,7 +306,7 @@ def get_direct_strategy_googlevideo() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('googlevideo_tcp', 'googlevideo_none')
+    return get_default_selections().get('googlevideo_tcp', 'googlevideo_tcp_none')
 
 def set_direct_strategy_googlevideo(strategy_id: str) -> bool:
     """Сохраняет выбранную GoogleVideo стратегию"""
@@ -319,11 +334,25 @@ def get_direct_strategy_discord_voice() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('discord_voice', 'ipv4_dup2_autottl_cutoff_n3')
+    return get_default_selections().get('discord_voice_udp', 'ipv4_dup2_autottl_cutoff_n3')
 
 def set_direct_strategy_discord_voice(strategy_id: str) -> bool:
     """Сохраняет выбранную Discord Voice стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, strategy_id)
+
+def get_direct_strategy_twitch_tcp() -> str:
+    """Возвращает сохраненную Twitch TCP стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('twitch_tcp', 'twitch_tcp_none')
+
+def set_direct_strategy_twitch_tcp(strategy_id: str) -> bool:
+    """Сохраняет выбранную Twitch TCP стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME, strategy_id)
 
 def get_direct_strategy_other() -> str:
     """Возвращает сохраненную стратегию для остальных сайтов"""
@@ -370,4 +399,6 @@ def set_direct_strategy_udp_ipset(strategy_id: str) -> bool:
 
 all = [
     'OTHER_STRATEGIES',
+    'get_tabs_pinned',
+    'set_tabs_pinned',
 ]

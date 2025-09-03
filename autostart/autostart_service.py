@@ -1,8 +1,3 @@
-# autostart_service.py
-# -------------------------------------------------------------
-# Создание / обновление Windows-службы, которая запускает
-# выбранную .bat-стратегию при старте системы.
-# -------------------------------------------------------------
 from __future__ import annotations
 from pathlib import Path
 import subprocess, json, sys, traceback
@@ -10,6 +5,7 @@ from typing import Callable, Optional
 
 from log import log
 from .autostart_strategy import _resolve_bat_folder     # переиспользуем
+from .registry_check import set_autostart_enabled
 from utils import run_hidden # обёртка для subprocess.run
 
 SERVICE_NAME = "ZapretCensorliber"
@@ -78,6 +74,10 @@ def setup_service_for_strategy(
             _run_sc(["description", SERVICE_NAME,
                      f"Запуск стратегии {selected_mode}"])
             log(f'Служба "{SERVICE_NAME}" создана/обновлена', "INFO")
+            
+            # Обновляем статус автозапуска в реестре
+            set_autostart_enabled(True, "service")
+            
             return True
         else:
             return _fail("Не удалось создать службу", ui_error_cb)
@@ -85,6 +85,43 @@ def setup_service_for_strategy(
     except Exception as exc:
         msg = f"setup_service_for_strategy: {exc}\n{traceback.format_exc()}"
         return _fail(msg, ui_error_cb)
+
+
+def remove_service() -> bool:
+    """
+    Удаляет службу Windows
+    
+    Returns:
+        True если служба была удалена, False если её не было
+    """
+    try:
+        # Проверяем существование службы
+        query_result = _run_sc(["query", SERVICE_NAME], ignore_errors=True)
+        if not query_result:
+            # Службы нет
+            return False
+        
+        # Останавливаем службу
+        _run_sc(["stop", SERVICE_NAME], ignore_errors=True)
+        
+        # Удаляем службу
+        if _run_sc(["delete", SERVICE_NAME], ignore_errors=True):
+            log(f'Служба "{SERVICE_NAME}" удалена', "INFO")
+            
+            # Проверяем остались ли другие методы автозапуска
+            from .checker import CheckerManager
+            checker = CheckerManager(None)
+            if not checker.check_autostart_exists_full():
+                # Если ничего не осталось - отключаем в реестре
+                set_autostart_enabled(False)
+            
+            return True
+        else:
+            return False
+            
+    except Exception as e:
+        log(f"Ошибка удаления службы: {e}", "❌ ERROR")
+        return False
 
 
 # -------------------------------------------------------------------------

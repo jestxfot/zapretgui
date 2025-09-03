@@ -100,19 +100,30 @@ class MainWindowUI:
         self.start_btn = RippleButton(" Запустить Zapret", self, "54, 153, 70")
         self.start_btn.setIcon(qta.icon('fa5s.play', color='white'))
         self.start_btn.setIconSize(QSize(16, 16))
+        # ✅ ДОБАВИТЬ:
+        self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.start_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.stop_btn = RippleButton(" Остановить Zapret", self, "255, 93, 174")
         self.stop_btn.setIcon(qta.icon('fa5s.stop', color='white'))
         self.stop_btn.setIconSize(QSize(16, 16))
+        # ✅ ДОБАВИТЬ:
+        self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.stop_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.autostart_enable_btn = RippleButton(" Вкл. автозапуск", self, "54, 153, 70")
         self.autostart_enable_btn.setIcon(qta.icon('fa5s.check', color='white'))
         self.autostart_enable_btn.setIconSize(QSize(16, 16))
+        # ✅ ДОБАВИТЬ:
+        self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.autostart_enable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.autostart_disable_btn = RippleButton(" Выкл. автозапуск", self, "255, 93, 174")
         self.autostart_disable_btn.setIcon(qta.icon('fa5s.times', color='white'))
         self.autostart_disable_btn.setIconSize(QSize(16, 16))
-
+        # ✅ ДОБАВИТЬ:
+        self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.autostart_disable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         for b, c in ((self.start_btn, "54, 153, 70"),
                      (self.stop_btn, "255, 93, 174"),
@@ -125,13 +136,19 @@ class MainWindowUI:
         self.start_stop_stack = QStackedWidget()
         self.start_stop_stack.addWidget(self.start_btn)      # индекс 0
         self.start_stop_stack.addWidget(self.stop_btn)       # индекс 1
-        self.start_stop_stack.setCurrentIndex(0)  # По умолчанию показываем кнопку запуска
+        self.start_stop_stack.setCurrentIndex(0)
+        # ✅ ДОБАВИТЬ:
+        self.start_stop_stack.setMinimumHeight(BUTTON_HEIGHT)
+        self.start_stop_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # Стек для кнопок автозапуска (правая колонка)
         self.autostart_stack = QStackedWidget()
         self.autostart_stack.addWidget(self.autostart_enable_btn)   # индекс 0
         self.autostart_stack.addWidget(self.autostart_disable_btn)  # индекс 1
-        self.autostart_stack.setCurrentIndex(0)  # По умолчанию показываем кнопку включения
+        self.autostart_stack.setCurrentIndex(0)
+        # ✅ ДОБАВИТЬ:
+        self.autostart_stack.setMinimumHeight(BUTTON_HEIGHT)
+        self.autostart_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # ✅ НОВОЕ: Добавляем стеки в сетку вместо отдельных кнопок
         grid.addWidget(self.start_stop_stack, 0, 0)    # Левая колонка
@@ -199,7 +216,17 @@ class MainWindowUI:
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-size: 9pt; color: #666;")
         root.addWidget(self.status_label)
-
+        
+        # ✅ НОВОЕ: Добавляем прогресс-бар в layout
+        try:
+            from widgets.progress_bar import AnimatedProgressBar
+            self.init_progress_bar = AnimatedProgressBar(self)
+            root.addWidget(self.init_progress_bar)
+            log("Прогресс-бар добавлен в layout", "DEBUG")
+        except ImportError as e:
+            log(f"Не удалось импортировать AnimatedProgressBar: {e}", "⚠ WARNING")
+            self.init_progress_bar = None
+        
         root.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # ---------- сигналы-прокси (для main.py) ----------------------
@@ -443,7 +470,7 @@ class MainWindowUI:
                 log(f"Ошибка применения fallback стилей: {e}", "❌ ERROR")
 
     def update_title_with_subscription_status(self, is_premium: bool = False, current_theme: str = None, 
-                                            days_remaining: Optional[int] = None, is_auto_renewal: bool = False):
+                                            days_remaining: Optional[int] = None):
         """
         🆕 ОБНОВЛЕННАЯ ВЕРСИЯ: Обновляет заголовок окна с информацией о подписке и автопродлении.
         
@@ -451,17 +478,12 @@ class MainWindowUI:
             is_premium: True если пользователь имеет премиум подписку
             current_theme: Текущая тема интерфейса
             days_remaining: Количество дней до окончания подписки (None для автопродления)
-            is_auto_renewal: True если подписка автопродлевается
         """
         # Обновляем системный заголовок окна с информацией о подписке
         base_title = f'Zapret v{APP_VERSION}'
         
         if is_premium:
-            # Формируем текст премиум статуса для заголовка окна
-            if is_auto_renewal:
-                premium_text = " [PREMIUM ∞]"
-                log("Отображаем автопродление в заголовке окна", "DEBUG")
-            elif days_remaining is not None:
+            if days_remaining is not None:
                 if days_remaining > 0:
                     premium_text = f" [PREMIUM - {days_remaining} дн.]"
                 elif days_remaining == 0:
@@ -488,14 +510,8 @@ class MainWindowUI:
         
         if is_premium:
             # Получаем цвет индикатора с учетом темы и автопродления
-            premium_color = self._get_premium_indicator_color(actual_current_theme, is_auto_renewal)
-            
-            # Формируем индикатор с учетом автопродления
-            if is_auto_renewal:
-                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM ∞]</span>'
-                log("Отображаем символ автопродления в title_label", "DEBUG")
-            else:
-                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
+            premium_color = self._get_premium_indicator_color(actual_current_theme)
+            premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
             
             full_label_title = f"{base_label_title}{premium_indicator}"
             self.title_label.setText(full_label_title)
@@ -539,13 +555,12 @@ class MainWindowUI:
             log(f"Ошибка определения цвета FREE индикатора: {e}", "❌ ERROR")
             return "#000000"
 
-    def _get_premium_indicator_color(self, current_theme: str = None, is_auto_renewal: bool = False):
+    def _get_premium_indicator_color(self, current_theme: str = None):
         """
         🆕 ОБНОВЛЕННАЯ версия: Возвращает цвет для индикатора премиум статуса с учетом автопродления.
         
         Args:
             current_theme: Текущая тема интерфейса
-            is_auto_renewal: True если подписка автопродлевается
         """
         try:
             # Получаем текущую тему
@@ -555,16 +570,12 @@ class MainWindowUI:
             
             if not theme_name:
                 # Для автопродления используем золотой цвет, для обычного - зеленый
-                return "#FFD700" if is_auto_renewal else "#4CAF50"
+                return "#FFD700"
             
             # 🆕 Специальная обработка для полностью черной темы
             if theme_name == "Полностью черная":
-                if is_auto_renewal:
-                    log("Применяем золотой цвет для автопродления в полностью черной теме", "DEBUG")
-                    return "#FFD700"  # Золотой для автопродления
-                else:
-                    log("Применяем белый цвет для обычного PREMIUM в полностью черной теме", "DEBUG")
-                    return "#ffffff"  # Белый цвет для обычного премиума
+                log("Применяем белый цвет для обычного PREMIUM в полностью черной теме", "DEBUG")
+                return "#FFD700"  # Белый цвет для обычного премиума
             
             # Для остальных тем определяем цвет на основе button_color
             try:
@@ -572,11 +583,6 @@ class MainWindowUI:
                 if theme_name in THEMES:
                     theme_info = THEMES[theme_name]
                     button_color = theme_info.get("button_color", "0, 119, 255")
-                    
-                    # Для автопродления всегда используем золотой независимо от темы
-                    if is_auto_renewal:
-                        log(f"Цвет автопродления для темы {theme_name}: #FFD700", "DEBUG")
-                        return "#FFD700"
                     
                     # Преобразуем RGB в hex для обычного премиума
                     if ',' in button_color:
@@ -586,35 +592,31 @@ class MainWindowUI:
                             log(f"Цвет PREMIUM индикатора для темы {theme_name}: {hex_color}", "DEBUG")
                             return hex_color
                         except (ValueError, IndexError):
-                            return "#FFD700" if is_auto_renewal else "#4CAF50"
+                            return "#4CAF50"
             except ImportError:
                 pass
             
             # Fallback цвета
-            return "#FFD700" if is_auto_renewal else "#4CAF50"
+            return "#4CAF50"
             
         except Exception as e:
             log(f"Ошибка определения цвета PREMIUM индикатора: {e}", "❌ ERROR")
-            return "#FFD700" if is_auto_renewal else "#4CAF50"
+            return "#4CAF50"
 
-    def update_subscription_button_text(self, is_premium: bool = False, is_auto_renewal: bool = False, 
+    def update_subscription_button_text(self, is_premium: bool = False,
                                       days_remaining: Optional[int] = None):
         """
         🆕 НОВАЯ ФУНКЦИЯ: Обновляет текст кнопки подписки с учетом статуса автопродления.
         
         Args:
             is_premium: True если пользователь имеет премиум подписку
-            is_auto_renewal: True если подписка автопродлевается
             days_remaining: Количество дней до окончания подписки
         """
         if not hasattr(self, 'subscription_btn'):
             return
         
         if is_premium:
-            if is_auto_renewal:
-                button_text = " Premium и VPN"
-                log("Кнопка подписки: отображаем автопродление", "DEBUG")
-            elif days_remaining is not None:
+            if days_remaining is not None:
                 if days_remaining > 0:
                     button_text = f" Premium ({days_remaining} дн.)"
                 elif days_remaining == 0:
@@ -629,14 +631,13 @@ class MainWindowUI:
         self.subscription_btn.setText(button_text)
         log(f"Текст кнопки подписки обновлен: {button_text.strip()}", "DEBUG")
 
-    def get_subscription_status_text(self, is_premium: bool = False, is_auto_renewal: bool = False, 
+    def get_subscription_status_text(self, is_premium: bool = False,
                                    days_remaining: Optional[int] = None) -> str:
         """
         🆕 НОВАЯ ФУНКЦИЯ: Возвращает форматированный текст статуса подписки.
         
         Args:
             is_premium: True если пользователь имеет премиум подписку
-            is_auto_renewal: True если подписка автопродлевается
             days_remaining: Количество дней до окончания подписки
             
         Returns:
@@ -645,9 +646,7 @@ class MainWindowUI:
         if not is_premium:
             return "Подписка: Бесплатная версия"
         
-        if is_auto_renewal:
-            return "Подписка: Premium (автопродление)"
-        elif days_remaining is not None:
+        if days_remaining is not None:
             if days_remaining > 0:
                 return f"Подписка: Premium (осталось {days_remaining} дн.)"
             elif days_remaining == 0:

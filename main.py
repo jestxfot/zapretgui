@@ -3,6 +3,8 @@ pip install pyinstaller packaging PyQt6 requests pywin32 python-telegram-bot psu
 """
 import sys, os
 
+from autostart.autostart_exe import is_autostart_enabled
+
 # ──────────────────────────────────────────────────────────────
 # Делаем рабочей директорией папку, где лежит exe/скрипт
 # Нужно выполнить до любых других импортов!
@@ -479,7 +481,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
                             default_selections.get('youtube_udp'),
                             default_selections.get('googlevideo_tcp'),
                             default_selections.get('discord'), 
-                            default_selections.get('discord_voice'),
+                            default_selections.get('discord_voice_udp'),
+                            default_selections.get('twitch_tcp'),
                             default_selections.get('other'),
                             default_selections.get('ipset'),
                             default_selections.get('ipset_udp'),
@@ -540,66 +543,66 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def update_autostart_ui(self, service_running: bool | None):
         """Обновляет интерфейс при включении/выключении автозапуска"""
-        if service_running is None and hasattr(self, 'service_manager'):
-            service_running = self.service_manager.check_autostart_exists()
+        try:
+            log(f"🔴 update_autostart_ui начат: service_running={service_running}", "DEBUG")
+            
+            # ✅ НОВОЕ: Используем быструю проверку через реестр
+            if service_running is None:
+                from autostart.registry_check import is_autostart_enabled
+                service_running = is_autostart_enabled()
+                log(f"Быстрая проверка автозапуска через реестр: {service_running}", "DEBUG")
 
-        # Убеждаемся, что оба стека всегда находятся в правильных позициях
-        # и имеют правильные размеры
-        
-        # Сначала удаляем виджеты из сетки (если они там есть)
-        self.button_grid.removeWidget(self.start_stop_stack)
-        self.button_grid.removeWidget(self.autostart_stack)
-        
-        # Добавляем обратно в правильные позиции - ВСЕГДА по одной колонке на каждый
-        self.button_grid.addWidget(self.start_stop_stack, 0, 0, 1, 1)  # строка 0, колонка 0, 1 строка, 1 колонка
-        self.button_grid.addWidget(self.autostart_stack, 0, 1, 1, 1)   # строка 0, колонка 1, 1 строка, 1 колонка
-        
-        # Убеждаемся, что оба стека видимы
-        self.start_stop_stack.setVisible(True)
-        self.autostart_stack.setVisible(True)
-        
-        if service_running:
-            # ✅ АВТОЗАПУСК АКТИВЕН
-            # Показываем кнопку отключения автозапуска
-            self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
+            # Убеждаемся, что оба стека всегда находятся в правильных позициях
+            # и имеют правильные размеры
             
-            # В левой колонке показываем кнопку остановки
-            # (так как при автозапуске процесс обычно запущен)
-            self.start_stop_stack.setCurrentWidget(self.stop_btn)
+            # Сначала удаляем виджеты из сетки (если они там есть)
+            self.button_grid.removeWidget(self.start_stop_stack)
+            self.button_grid.removeWidget(self.autostart_stack)
             
-        else:
-            # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
-            # Показываем кнопку включения автозапуска
-            self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
+            # Добавляем обратно в правильные позиции - ВСЕГДА по одной колонке на каждый
+            self.button_grid.addWidget(self.start_stop_stack, 0, 0, 1, 1)  # строка 0, колонка 0, 1 строка, 1 колонка
+            self.button_grid.addWidget(self.autostart_stack, 0, 1, 1, 1)   # строка 0, колонка 1, 1 строка, 1 колонка
             
-            # Обновляем состояние кнопок запуска/остановки
-            process_running = self.dpi_starter.check_process_running_wmi(silent=True) if hasattr(self, 'dpi_starter') else False
-            if process_running:
+            # Убеждаемся, что оба стека видимы
+            self.start_stop_stack.setVisible(True)
+            self.autostart_stack.setVisible(True)
+            
+            if service_running:
+                # ✅ АВТОЗАПУСК АКТИВЕН
+                # Показываем кнопку отключения автозапуска
+                self.autostart_stack.setCurrentWidget(self.autostart_disable_btn)
+                
+                # В левой колонке показываем кнопку остановки
+                # (так как при автозапуске процесс обычно запущен)
                 self.start_stop_stack.setCurrentWidget(self.stop_btn)
+                
             else:
-                self.start_stop_stack.setCurrentWidget(self.start_btn)
-        
-        # Принудительное обновление layout
-        self.button_grid.update()
-        QApplication.processEvents()
-
+                # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
+                # Показываем кнопку включения автозапуска
+                self.autostart_stack.setCurrentWidget(self.autostart_enable_btn)
+                
+                # Обновляем состояние кнопок запуска/остановки
+                process_running = self.dpi_starter.check_process_running_wmi(silent=True) if hasattr(self, 'dpi_starter') else False
+                if process_running:
+                    self.start_stop_stack.setCurrentWidget(self.stop_btn)
+                else:
+                    self.start_stop_stack.setCurrentWidget(self.start_btn)
+            
+            # Принудительное обновление layout
+            self.button_grid.update()
+            QApplication.processEvents()
+        except Exception as e:
+            log(f"❌ Ошибка в update_autostart_ui: {e}", "ERROR")
+    
     def update_strategies_list(self, force_update=False):
         """Обновляет список доступных стратегий"""
+        log("🔵 update_strategies_list начат", "DEBUG")
+        
         try:
-            
-            
             # Получаем список стратегий
+            log("🔵 Получаем список стратегий из manager", "DEBUG")
             strategies = self.strategy_manager.get_strategies_list(force_update=force_update)
-            
-            if not strategies:
-                log("Не удалось получить список стратегий", level="❌ ERROR")
-                return
-            
-            # Выводим список стратегий в лог для отладки
-            #log(f"Получены стратегии: {list(strategies.keys())}", level="DEBUG")
-            for strategy_id, info in strategies.items():
-                #log(f"Стратегия ID: {strategy_id}, Name: {info.get('name')}, Path: {info.get('file_path')}", level="DEBUG")
-                pass  # Убираем лишний лог, если не нужно
+            log(f"🔵 Получено стратегий: {len(strategies) if strategies else 0}", "DEBUG")
             
             # Сохраняем текущий выбор
             current_strategy = None
@@ -618,9 +621,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
             
         except Exception as e:
             error_msg = f"Ошибка при обновлении списка стратегий: {str(e)}"
-            
             log(error_msg, level="❌ ERROR")
             self.set_status(error_msg)
+        finally:
+            log("🔵 update_strategies_list завершен", "DEBUG")
 
     def _on_dns_worker_finished(self):
         """Обработчик завершения DNS worker"""
@@ -630,30 +634,60 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.dns_worker = None
 
     def _start_heavy_init(self):
-        """Запускает тяжелую инициализацию"""
-        self.set_status("Запуск инициализации...")
+        """Запуск тяжелой инициализации с прогресс-баром"""
         
-        self._hthr = QThread(self)
-        self._hwrk = HeavyInitWorker(self.dpi_starter, DOWNLOAD_URLS)
-        self._hwrk.moveToThread(self._hthr)
-
-        # сигналы
-        self._hthr.started.connect(self._hwrk.run)
-        self._hwrk.progress.connect(self.set_status)
-        self._hwrk.finished.connect(self._on_heavy_done)
-        self._hwrk.finished.connect(self._hthr.quit)
-        self._hwrk.finished.connect(self._hwrk.deleteLater)
-        self._hthr.finished.connect(self._hthr.deleteLater)
-
-        # ДОБАВЛЯЕМ больше отладки
-        self._hwrk.progress.connect(lambda msg: log(f"HeavyInit прогресс: {msg}", "DEBUG"))
+        # ЗАЩИТА от двойного вызова
+        if self._heavy_init_started:
+            log("🔵 _start_heavy_init: уже запущен, пропускаем", "⚠ WARNING")
+            return
         
-        # Отслеживаем старт потока
-        self._hthr.started.connect(lambda: log("HeavyInit поток запущен", "DEBUG"))
-        self._hthr.finished.connect(lambda: log("HeavyInit поток завершен", "DEBUG"))
-
-        log("Запускаем HeavyInit поток...", "DEBUG")
-        self._hthr.start()
+        self._heavy_init_started = True
+        log("🔵 _start_heavy_init ВЫЗВАН", "DEBUG")
+        
+        # Показываем прогресс-бар
+        if hasattr(self, 'init_progress_bar'):
+            self.init_progress_bar.show_animated()
+            self.init_progress_bar.set_progress(0, "🚀 Начинаем инициализацию...")
+        
+        try:
+            log("🔵 Создаем QThread для HeavyInit", "DEBUG")
+            self._heavy_init_thread = QThread()
+            
+            log("🔵 Создаем HeavyInitWorker", "DEBUG")
+            self.heavy_worker = HeavyInitWorker(
+                self.dpi_starter if hasattr(self, 'dpi_starter') else None,
+                self.download_urls if hasattr(self, 'download_urls') else []
+            )
+            
+            log("🔵 Перемещаем worker в поток", "DEBUG")
+            self.heavy_worker.moveToThread(self._heavy_init_thread)
+            
+            # Подключаем сигналы
+            self._heavy_init_thread.started.connect(self.heavy_worker.run)
+            self.heavy_worker.progress.connect(self._on_heavy_progress)
+            self.heavy_worker.finished.connect(self._on_heavy_done)
+            self.heavy_worker.finished.connect(self._heavy_init_thread.quit)
+            
+            log("Запускаем HeavyInit поток...", "DEBUG")
+            self._heavy_init_thread.start()
+            
+        except Exception as e:
+            log(f"🔵 Ошибка в _start_heavy_init: {e}", "❌ ERROR")
+            self._heavy_init_started = False
+            
+            # Скрываем прогресс-бар при ошибке
+            if hasattr(self, 'init_progress_bar'):
+                self.init_progress_bar.set_progress(0, "❌ Ошибка инициализации")
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(2000, self.init_progress_bar.hide_animated)
+            
+        except Exception as e:
+            log(f"🔵 Ошибка в _start_heavy_init: {e}", "❌ ERROR")
+            self._heavy_init_started = False  # Сбрасываем флаг при ошибке
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}", "❌ ERROR")
+        
+        log("🔵 _start_heavy_init ЗАВЕРШЕН", "DEBUG")
 
     def _check_local_files(self):
         """Проверяет наличие критически важных локальных файлов"""
@@ -711,12 +745,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 sub_info['is_premium'], 
                 current_theme, 
                 sub_info['days_remaining'], 
-                sub_info['is_auto_renewal']
             )
             
             self.update_subscription_button_text(
                 sub_info['is_premium'], 
-                sub_info['is_auto_renewal'], 
                 sub_info['days_remaining']
             )
             
@@ -727,7 +759,6 @@ class LupiDPIApp(QWidget, MainWindowUI):
                 # Просто обновляем статусную строку
                 status_text = self.get_subscription_status_text(
                     sub_info['is_premium'],
-                    sub_info['is_auto_renewal'],
                     sub_info['days_remaining']
                 )
                 self.set_status(f"✅ {status_text}")
@@ -760,13 +791,11 @@ class LupiDPIApp(QWidget, MainWindowUI):
         self.update_title_with_subscription_status(
             sub_info['is_premium'],
             current_theme,
-            sub_info['days_remaining'],
-            sub_info['is_auto_renewal']
+            sub_info['days_remaining']
         )
         
         self.update_subscription_button_text(
             sub_info['is_premium'],
-            sub_info['is_auto_renewal'],
             sub_info['days_remaining']
         )
 
@@ -892,31 +921,90 @@ class LupiDPIApp(QWidget, MainWindowUI):
         except Exception as e:
             log(f"Ошибка при обновлении UI после изменения подписки: {e}", "❌ ERROR")
 
-    def _on_heavy_done(self, ok: bool, err: str):
-        """GUI-поток: тяжёлая инициализация завершена."""
-        if not ok:
-            QMessageBox.critical(self, "Ошибка инициализации", err)
-            self.set_status("Ошибка инициализации")
-            return
-
-        # index.json и winws.exe готовы
-        if self.strategy_manager.already_loaded:
-            self.update_strategies_list()
-
-        self.delayed_dpi_start()
-        self.update_proxy_button_state()
-
-        # combobox-фикс
-        for d in (0, 100, 200):
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(d, self.force_enable_combos)
-
-        self.set_status("Инициализация завершена")
+    def _on_heavy_done(self, success: bool, error_msg: str):
+        """Обработка завершения HeavyInit"""
+        log("🔵 _on_heavy_done начат", "DEBUG")
         
-        # ---------- АВТО-ОБНОВЛЕНИЕ с отложенным запуском ---------
-        # Запускаем проверку обновлений через 2 секунды после инициализации
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(2000, self._start_auto_update)
+        # Сбрасываем флаг для возможности повторного запуска в будущем
+        self._heavy_init_started = False
+        
+        if success:
+            # index.json и winws.exe готовы
+            # Завершаем прогресс-бар
+            if hasattr(self, 'init_progress_bar'):
+                self.init_progress_bar.set_progress(100, "✅ Инициализация завершена!")         
+
+            # Безопасная проверка strategy_manager
+            if hasattr(self, 'strategy_manager') and self.strategy_manager:
+                log(f"🔵 strategy_manager.already_loaded = {self.strategy_manager.already_loaded}", "DEBUG")
+                
+                if self.strategy_manager.already_loaded:
+                    log("🔵 Вызываем update_strategies_list", "DEBUG")
+                    self.update_strategies_list()
+                    log("🔵 update_strategies_list завершен", "DEBUG")
+            else:
+                log("🔵 strategy_manager не инициализирован!", "⚠ WARNING")
+
+            # Автозапуск DPI если настроен
+            log("🔵 Вызываем delayed_dpi_start", "DEBUG")
+            self.delayed_dpi_start()
+            log("🔵 delayed_dpi_start завершен", "DEBUG")
+            
+            # Обновление UI
+            log("🔵 Вызываем update_proxy_button_state", "DEBUG")
+            self.update_proxy_button_state()
+            log("🔵 update_proxy_button_state завершен", "DEBUG")
+
+            # combobox-фикс (импорт QTimer лучше вынести наверх файла)
+            from PyQt6.QtCore import QTimer
+            for delay in (0, 100, 200):
+                QTimer.singleShot(delay, self.force_enable_combos)
+
+            self.set_status("Инициализация завершена")
+            
+            # Запускаем проверку обновлений через 2 секунды после инициализации
+            QTimer.singleShot(2000, self._start_auto_update)
+            
+            log("🔵 _on_heavy_done успешно завершен", "DEBUG")
+            
+        else:
+            # Показываем ошибку в прогресс-баре
+            if hasattr(self, 'init_progress_bar'):
+                self.init_progress_bar.set_progress(
+                    self.init_progress_bar.progress_bar.value(),
+                    f"❌ Ошибка: {error_msg}"
+                )
+                QTimer.singleShot(3000, self.init_progress_bar.hide_animated)
+            
+            log(f"HeavyInit завершился с ошибкой: {error_msg}", "❌ ERROR")
+
+    def _on_heavy_progress(self, message: str):
+        """Обработка прогресса от HeavyInitWorker с прогресс-баром"""
+        log(f"HeavyInit прогресс: {message}", "DEBUG")
+        
+        # Карта прогресса с эмодзи для красоты
+        progress_map = {
+            "Проверка интернет-соединения...": (10, "🌐 Проверка соединения..."),
+            "Работаем в автономном режиме": (15, "📴 Автономный режим"),
+            "Проверка winws.exe...": (30, "🔍 Проверка winws.exe..."),
+            "Загрузка стратегий...": (50, "📦 Загрузка стратегий..."),
+            "Обновление списка стратегий...": (65, "📋 Обновление списка..."),
+            "Загрузка ресурсов...": (80, "📂 Загрузка ресурсов..."),
+            "Обновление ресурсов...": (90, "🔄 Обновление ресурсов..."),
+            "Инициализация завершена": (100, "✅ Готово!")
+        }
+        
+        # Обновляем прогресс-бар если есть
+        if hasattr(self, 'init_progress_bar'):
+            if message in progress_map:
+                value, display_text = progress_map[message]
+                self.init_progress_bar.set_progress(value, display_text)
+            else:
+                # Для неизвестных сообщений просто обновляем текст
+                self.init_progress_bar.status_label.setText(f"⚙️ {message}")
+        
+        # Обновляем основной статус
+        self.set_status(message)
 
     def _start_auto_update(self):
         """
@@ -978,8 +1066,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Обрабатывает сигнал изменения статуса процесса"""
         try:
             # Проверяем, изменилось ли состояние автозапуска
-            autostart_active = self.service_manager.check_autostart_exists() \
-                            if hasattr(self, 'service_manager') else False
+            from autostart.registry_check import is_autostart_enabled
+            autostart_active = is_autostart_enabled() if hasattr(self, 'service_manager') else False
             
             # Сохраняем текущее состояние для сравнения в будущем
             if not hasattr(self, '_prev_autostart'):
@@ -1026,6 +1114,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.update_ui(running=False)
             return
 
+        # 2. Получаем метод запуска
+        from strategy_menu import get_strategy_launch_method
+        launch_method = get_strategy_launch_method()
+        
         # 3. Определяем, какую стратегию запускать
         strategy_name = get_last_strategy()  # Получаем из реестра сразу
         
@@ -1044,7 +1136,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     selections.get('youtube_udp'),
                     selections.get('googlevideo_tcp'),
                     selections.get('discord'),
-                    selections.get('discord_voice'),
+                    selections.get('discord_voice_udp'),
+                    selections.get('twitch_tcp'),
                     selections.get('other'),
                     selections.get('ipset'),
                     selections.get('ipset_udp'),
@@ -1076,12 +1169,30 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Обычная стратегия
             log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
             
-            # Обновляем UI
-            self.current_strategy_label.setText(strategy_name)
-            self.current_strategy_name = strategy_name
-            
-            # Запускаем обычную стратегию
-            self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+            # ✅ ИСПРАВЛЕНИЕ: Проверяем совместимость режима и стратегии
+            if launch_method == "direct":
+                log(f"Обычная стратегия '{strategy_name}' несовместима с Direct режимом", "⚠ WARNING")
+                
+                # Вариант А: Переключаемся на BAT режим для этой стратегии
+                log("Переключаемся на BAT режим для запуска обычной стратегии", "INFO")
+                from strategy_menu import set_strategy_launch_method
+                set_strategy_launch_method("bat")
+                
+                # Обновляем UI
+                self.current_strategy_label.setText(strategy_name)
+                self.current_strategy_name = strategy_name
+                
+                # Запускаем через BAT
+                self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+                
+                # Возвращаем обратно Direct режим после запуска (опционально)
+                # set_strategy_launch_method("direct")
+                
+            else:
+                # BAT режим - запускаем как обычно
+                self.current_strategy_label.setText(strategy_name)
+                self.current_strategy_name = strategy_name
+                self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
 
         # 5. Обновляем интерфейс
         self.update_ui(running=True)
@@ -1155,35 +1266,27 @@ class LupiDPIApp(QWidget, MainWindowUI):
             self.set_status(f"Ошибка DPI: {e}")
 
     def _init_hostlists_check(self):
-        """Асинхронная проверка хостлистов"""
-        from PyQt6.QtCore import QThread, QObject, pyqtSignal
-        
-        class HostlistsChecker(QObject):
-            finished = pyqtSignal(bool, str)
-            progress = pyqtSignal(str)
+        """Синхронная проверка и создание хостлистов"""
+        try:
+            log("🔧 Начинаем проверку хостлистов", "DEBUG")
             
-            def run(self):
-                try:
-                    self.progress.emit("Проверка хостлистов...")
-                    from utils.hostlists_manager import startup_hostlists_check
-                    startup_hostlists_check()
-                    self.finished.emit(True, "Хостлисты проверены")
-                except Exception as e:
-                    self.finished.emit(False, str(e))
-        
-        thread = QThread()
-        worker = HostlistsChecker()
-        worker.moveToThread(thread)
-        
-        thread.started.connect(worker.run)
-        worker.progress.connect(self.set_status)
-        worker.finished.connect(lambda ok, msg: log(f"Hostlists: {msg}", "✅" if ok else "❌"))
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        
-        thread.start()
-        self._hostlists_thread = thread  # Сохраняем ссылку
+            # Импортируем функцию проверки
+            from utils.hostlists_manager import startup_hostlists_check
+            
+            # Вызываем синхронно
+            result = startup_hostlists_check()
+            
+            if result:
+                log("✅ Хостлисты проверены и готовы", "SUCCESS")
+            else:
+                log("⚠️ Проблемы с хостлистами, создаем минимальные", "WARNING")
+                # Создаем минимальные файлы напрямую
+                self._create_minimal_hostlists()
+                
+        except Exception as e:
+            log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
+            # В случае ошибки создаем минимальные файлы
+            self._create_minimal_hostlists()
 
     def _init_ipsets_check(self):
         """Асинхронная проверка IPsets"""
@@ -1259,6 +1362,10 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # Запускаем финальные задачи
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(500, self._post_init_tasks)
+
+            # Синхронизация статуса автозапуска при старте
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(3000, self._sync_autostart_status)
         else:
             error_msg = f"Не инициализированы: {', '.join(missing)}"
             self.set_status(f"⚠️ {error_msg}")
@@ -1269,6 +1376,16 @@ class LupiDPIApp(QWidget, MainWindowUI):
                             f"Некоторые компоненты не были инициализированы:\n{', '.join(missing)}\n\n"
                             "Приложение может работать нестабильно.")
 
+    def _sync_autostart_status(self):
+        """Синхронизирует статус автозапуска с реальным состоянием"""
+        try:
+            from autostart.registry_check import verify_autostart_status
+            real_status = verify_autostart_status()
+            self.update_autostart_ui(real_status)
+            log(f"Статус автозапуска синхронизирован: {real_status}", "INFO")
+        except Exception as e:
+            log(f"Ошибка синхронизации автозапуска: {e}", "❌ ERROR")
+            
     def _post_init_tasks(self):
         """Задачи после успешной инициализации"""
         # Проверка локальных файлов
@@ -1282,6 +1399,12 @@ class LupiDPIApp(QWidget, MainWindowUI):
         QTimer.singleShot(2000, self._start_auto_update)
 
     def __init__(self):
+        super().__init__()  # ← ОБЯЗАТЕЛЬНО должна быть эта строка!
+        # Создаем прогресс-бар
+        self._create_progress_bar()
+
+        self._heavy_init_started = False  # Флаг защиты от двойного вызова
+        self._heavy_init_thread = None
         QWidget.__init__(self)
         
         # ✅ НОВОЕ: Сразу создаем полный UI без индикатора загрузки
@@ -1319,6 +1442,29 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(50, self._async_init)
 
+    def _create_progress_bar(self):
+        """Создание и размещение прогресс-бара"""
+        from widgets.progress_bar import AnimatedProgressBar
+        
+        # Создаем прогресс-бар
+        self.init_progress_bar = AnimatedProgressBar(self)
+        
+        # Размещаем его внизу окна или в нужном месте
+        # Вариант 1: Внизу окна
+        self.init_progress_bar.setParent(self)
+        self.init_progress_bar.move(0, self.height() - 100)
+        self.init_progress_bar.resize(self.width(), 80)
+        
+        # Или вариант 2: Добавить в layout если есть
+        # self.main_layout.addWidget(self.init_progress_bar)
+
+    def resizeEvent(self, event):
+        """Перемещаем прогресс-бар при изменении размера окна"""
+        super().resizeEvent(event)
+        if hasattr(self, 'init_progress_bar'):
+            self.init_progress_bar.move(0, self.height() - 100)
+            self.init_progress_bar.resize(self.width(), 80)
+
     def initialize_managers_and_services(self):
         """
         Синхронная инициализация менеджеров
@@ -1327,13 +1473,15 @@ class LupiDPIApp(QWidget, MainWindowUI):
         log("🔴 initialize_managers_and_services ВЫЗВАН (синхронно)", "DEBUG")
         
         try:
+            """
             # Применяем DNS настройки (асинхронно)
             self.set_status("Применение настроек DNS...")
             self.dns_worker = ImprovedDNSWorker()
             self.dns_worker.status_update.connect(self.set_status)
             self.dns_worker.finished.connect(self._on_dns_worker_finished)
             self.dns_worker.start()
-            
+            """
+
             # Создаем файлы
             from utils.file_manager import ensure_required_files
             ensure_required_files()
@@ -1383,7 +1531,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
             # ✅ ДОБАВЬТЕ ЛОГИРОВАНИЕ ЗДЕСЬ:
             try:
                 log("🔴 Начинаем update_autostart_ui", "DEBUG")
-                autostart_exists = self.service_manager.check_autostart_exists()
+                from autostart.registry_check import is_autostart_enabled
+                autostart_exists = is_autostart_enabled()
                 log(f"🔴 autostart_exists = {autostart_exists}", "DEBUG")
                 self.update_autostart_ui(autostart_exists)
                 log("🔴 update_autostart_ui завершен", "DEBUG")
@@ -1411,6 +1560,15 @@ class LupiDPIApp(QWidget, MainWindowUI):
         """Обработчик успешной инициализации менеджеров"""
         log("Все менеджеры инициализированы", "✅ SUCCESS")
         self.set_status("Инициализация завершена")
+        
+        # ✅ ДОБАВИТЬ ЛОГИРОВАНИЕ
+        log("🔵 Планируем запуск _start_heavy_init через 100ms", "DEBUG")
+        
+        # Запускаем тяжелую инициализацию
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self._start_heavy_init)
+        
+        log("🔵 QTimer запланирован", "DEBUG")
         
         # Запускаем тяжелую инициализацию
         from PyQt6.QtCore import QTimer
@@ -1760,7 +1918,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
         from strategy_menu import get_strategy_launch_method
         
         # Если уже есть автозапуск — предупредим и выйдем
-        if self.service_manager.check_autostart_exists():
+        from autostart.registry_check import is_autostart_enabled
+        if is_autostart_enabled():
             log("Автозапуск уже активен", "⚠ WARNING")
             self.set_status("Сначала отключите текущий автозапуск.<br>Если он уже отключён - перезагрузите ПК.")
             return
@@ -1782,7 +1941,8 @@ class LupiDPIApp(QWidget, MainWindowUI):
                     selections.get('youtube'),
                     selections.get('googlevideo_tcp'),
                     selections.get('discord'),
-                    selections.get('discord_voice'),
+                    selections.get('discord_voice_udp'),
+                    selections.get('twitch_tcp'),
                     selections.get('other'),
                     selections.get('ipset'),
                     selections.get('ipset_udp'),
@@ -1878,10 +2038,13 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
     def remove_autostart(self):
         """Удаляет автозапуск ВЕСЬ вообще и обновляет UI"""
+        from autostart.registry_check import set_autostart_enabled
+        
         cleaner = AutoStartCleaner(
-            status_cb=self.set_status      # передаём вашу строку статуса
+            status_cb=self.set_status
         )
         if cleaner.run():
+            # Реестр обновится автоматически в AutoStartCleaner
             self.update_autostart_ui(False)
             self.on_process_status_changed(
                 self.dpi_starter.check_process_running_wmi(silent=True)
@@ -1889,6 +2052,7 @@ class LupiDPIApp(QWidget, MainWindowUI):
 
         from autostart.autostart_exe import remove_all_autostart_mechanisms
         if remove_all_autostart_mechanisms():
+            # Реестр обновится автоматически в remove_all_autostart_mechanisms
             self.set_status("Автозапуск отключен")
             self.update_autostart_ui(False)
             self.on_process_status_changed(
@@ -2398,7 +2562,8 @@ def set_batfile_association():
 def main():
     import sys, ctypes, os, atexit
     log("=== ЗАПУСК ПРИЛОЖЕНИЯ ===", "🔹 main")
-    
+    log(APP_VERSION, "🔹 main")
+
     # ---------------- Быстрая обработка специальных аргументов ----------------
     if "--version" in sys.argv:
         ctypes.windll.user32.MessageBoxW(None, APP_VERSION, "Zapret – версия", 0x40)

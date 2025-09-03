@@ -308,7 +308,8 @@ class DPIController:
                     saved_selections.get('youtube_udp'),
                     saved_selections.get('googlevideo_tcp'),
                     saved_selections.get('discord'),
-                    saved_selections.get('discord_voice'),
+                    saved_selections.get('discord_voice_udp'),
+                    saved_selections.get('twitch_tcp'),
                     saved_selections.get('other'),
                     saved_selections.get('ipset'),
                     saved_selections.get('ipset_udp'),
@@ -413,10 +414,6 @@ class DPIController:
                 from strategy_menu import set_direct_strategy_selections
                 selections = selected_mode['selections']
                 set_direct_strategy_selections(selections)
-                log(f"Выбранные стратегии - YouTube: {selections.get('youtube')}, "
-                    f"Discord: {selections.get('discord')}, "
-                    f"Discord Voice: {selections.get('discord_voice')}, "
-                    f"Остальные: {selections.get('other')}", "DEBUG")
             
         elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
             # Встроенная стратегия (ID, название)

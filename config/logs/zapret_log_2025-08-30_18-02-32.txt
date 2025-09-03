@@ -4,4 +4,4 @@ Total log files in folder: 51
 ============================================================
 
 [18:02:32] D:\Privacy\zapretgui\dns\dns_force.py:505: SyntaxWarning: invalid escape sequence '\S'
-  Создаёт ключ HKCU\Software\Zapret\ForceDNS = 1,
+  Создаёт ключ HKCU\Software\ZapretReg2\ForceDNS = 1,

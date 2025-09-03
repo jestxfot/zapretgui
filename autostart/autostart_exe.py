@@ -1,4 +1,3 @@
-# autostart_exe.py
 """
 Самостоятельный модуль для управления автозапуском приложения через Планировщик задач Windows.
 Не зависит от других модулей проекта.
@@ -68,6 +67,8 @@ def setup_autostart_for_exe(selected_mode: Optional[str] = None,
             status_cb(msg)
     
     try:
+        from .registry_check import set_autostart_enabled
+        
         _log("Включаем автозапуск GUI", "INFO")
         exe_path = sys.executable
         
@@ -101,6 +102,9 @@ def setup_autostart_for_exe(selected_mode: Optional[str] = None,
         if selected_mode:
             _save_last_strategy(selected_mode)
         
+        # Обновляем статус автозапуска в реестре
+        set_autostart_enabled(True, "exe")
+        
         _log(f"Задача автозапуска создана: {TASK_NAME}", "INFO")
         _status("Автозапуск успешно настроен через Планировщик заданий")
         return True
@@ -113,11 +117,20 @@ def setup_autostart_for_exe(selected_mode: Optional[str] = None,
 def remove_autostart() -> bool:
     """Удаляет задачу автозапуска из планировщика"""
     try:
+        from .registry_check import set_autostart_enabled
+        
         delete_args = ["/Delete", "/TN", TASK_NAME, "/F"]
         result = _run_schtasks(delete_args)
         
         if result.returncode == 0:
             _log(f"Задача автозапуска удалена: {TASK_NAME}", "INFO")
+            
+            # Проверяем остались ли другие методы автозапуска
+            from .checker import CheckerManager
+            checker = CheckerManager(None)
+            if not checker.check_autostart_exists_full():
+                set_autostart_enabled(False)
+            
             return True
         elif result.returncode == 1:
             # Задача не найдена - это тоже успех
@@ -133,7 +146,7 @@ def remove_autostart() -> bool:
         return False
 
 def is_autostart_enabled() -> bool:
-    """Проверяет, включен ли автозапуск через планировщик"""
+    """Проверяет, включен ли автозапуск через планировщик (полная проверка)"""
     try:
         query_args = ["/Query", "/TN", TASK_NAME]
         result = _run_schtasks(query_args)
@@ -158,6 +171,8 @@ def remove_all_autostart_mechanisms() -> bool:
     Удаляет все механизмы автозапуска (ярлыки и задачи планировщика)
     ВНИМАНИЕ: Эта функция вызывается из основного приложения
     """
+    from .registry_check import set_autostart_enabled
+    
     _log("Удаление всех механизмов автозапуска…", "INFO")
     
     removed_any = False
@@ -204,15 +219,21 @@ def remove_all_autostart_mechanisms() -> bool:
         _log("Механизмы автозапуска не найдены", "INFO")
     else:
         _log("Все механизмы автозапуска удалены", "INFO")
+        
+        # Обновляем реестр если все удалено
+        from .checker import CheckerManager
+        checker = CheckerManager(None)
+        if not checker.check_autostart_exists_full():
+            set_autostart_enabled(False)
     
     return True
 
 def _save_last_strategy(strategy: str) -> bool:
-    """Сохраняет последнюю стратегию в реестр (замена для config.set_last_strategy)"""
+    """Сохраняет последнюю стратегию в реестр"""
     try:
         import winreg
         
-        reg_path = r"SOFTWARE\ZapretGUI"
+        reg_path = r"Software\ZapretReg2GUI"
         
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
             winreg.SetValueEx(key, "LastStrategy", 0, winreg.REG_SZ, strategy)

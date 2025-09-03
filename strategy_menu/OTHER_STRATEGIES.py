@@ -1,6 +1,6 @@
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
 
-OTHER_BASE_ARG = "--filter-tcp=80,443 --ipcache-hostname --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt"
+OTHER_BASE_ARG = "--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt"
 
 """
 --filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-ttl=0 --dpi-desync-fooling=md5sig,badsum --new
@@ -39,6 +39,27 @@ OTHER_STRATEGIES = {
         "author": "hz",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new"""
+    },
+    "fake_autottl_repeats_6_badseq": {
+        "name": "alt mgts (v1) 1.6.1",
+        "description": "fake autottl repeats 6 badseq",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
+    },
+    "altmgts2_161_2": {
+        "name": "alt mgts (v2) 1.6.1",
+        "description": "fake autottl repeats 6 md5sig",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
+    },
+    "altmgts2_161_3": {
+        "name": "alt mgts (v3) 1.6.1",
+        "description": "fake autottl repeats 6 md5sig",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
     },
     "original_bolvan_v2_badsum": {
         "name": "Если стратегия не работает смени её!",
@@ -125,7 +146,7 @@ OTHER_STRATEGIES = {
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
     },
     "other6": {
-        "name": "general (alt) 1.8.1",
+        "name": "general (alt1) 1.8.1",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": None,
@@ -145,7 +166,7 @@ OTHER_STRATEGIES = {
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
     },
-    "other_none": {
+    "other_tcp_none": {
         "name": "Не применять для остальных",
         "description": "Отключить обработку остальных сайтов",
         "author": "System",

@@ -213,34 +213,40 @@ class BatDPIStart:
                     strategy_name = selected_mode
                     log(f"Поиск file_path для стратегии: {strategy_name}", "DEBUG")
                     
-                    # Получаем strategy_manager с правильной типизацией
-                    strategy_manager = self._get_strategy_manager()
-                    
-                    if strategy_manager:
-                        try:
-                            strategies: Dict[str, Dict[str, Any]] = strategy_manager.get_strategies_list()
+                    # ✅ НОВЫЙ КОД - читаем напрямую из index.json
+                    try:
+                        from config import INDEXJSON_FOLDER
+                        idx_path = os.path.join(INDEXJSON_FOLDER, 'index.json')
+                        
+                        if os.path.exists(idx_path):
+                            with open(idx_path, 'r', encoding='utf-8-sig') as f:
+                                import json
+                                idx_data = json.load(f)
                             
                             # Ищем стратегию по имени
-                            for sid, sinfo in strategies.items():
+                            for sid, sinfo in idx_data.items():
                                 if sinfo.get('name') == strategy_name:
                                     file_path = sinfo.get('file_path')
                                     if file_path:
                                         bat_file = os.path.join(BAT_FOLDER, file_path)
-                                        log(f"Найден file_path для '{strategy_name}': {file_path}", "DEBUG")
+                                        log(f"Найден file_path для '{strategy_name}': {file_path}", "SUCCESS")
                                         break
+                                    else:
+                                        log(f"file_path отсутствует для стратегии {sid}", "WARNING")
                             
                             if not bat_file:
-                                log(f"Не найден file_path для стратегии '{strategy_name}' в index.json", "❌ ERROR")
-                                self.set_status(f"Стратегия '{strategy_name}' не найдена в списке")
-                                return False
-                                
-                        except Exception as e:
-                            log(f"Ошибка при получении списка стратегий: {e}", "❌ ERROR")
-                            self.set_status("Ошибка доступа к списку стратегий")
-                            return False
-                    else:
-                        log("strategy_manager недоступен", "❌ ERROR")
-                        self.set_status("Ошибка: менеджер стратегий недоступен")
+                                log(f"Стратегия '{strategy_name}' не найдена в index.json", "ERROR")
+                                # Показываем первые несколько имен для отладки
+                                names = [s.get('name', 'Unknown') for s in idx_data.values()][:5]
+                                log(f"Примеры доступных стратегий: {names}", "DEBUG")
+                        else:
+                            log(f"index.json не найден: {idx_path}", "ERROR")
+                            
+                    except Exception as e:
+                        log(f"Ошибка при чтении index.json: {e}", "ERROR")
+                        
+                    if not bat_file:
+                        self.set_status(f"Стратегия '{strategy_name}' не найдена")
                         return False
             else:
                 # Используем стратегию по умолчанию

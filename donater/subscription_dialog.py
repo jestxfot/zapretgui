@@ -582,9 +582,8 @@ class SubscriptionDialog(QDialog):
             self.status_text.setText("Подписка активна")
             self.status_text.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {colors['success']};")
             
-            if result['auto_payment']:
-                self.status_details.setText("♾️ Бесконечная подписка\nАвтопродление включено")
-            elif result['days_remaining'] is not None:
+
+            if result['days_remaining'] is not None:
                 days = result['days_remaining']
                 if days > 30:
                     self.status_details.setText(f"Осталось дней: {days}")

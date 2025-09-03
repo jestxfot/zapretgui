@@ -7,7 +7,7 @@ from log import log
 class StartupCheckCache:
     """Кэширование результатов проверок запуска в реестре"""
     
-    REGISTRY_KEY = r"SOFTWARE\Zapret"
+    REGISTRY_KEY = r"Software\ZapretReg2"
     CACHE_EXPIRY_HOURS = 24  # Время жизни кэша в часах
     
     # Добавляем разные времена жизни для разных типов проверок

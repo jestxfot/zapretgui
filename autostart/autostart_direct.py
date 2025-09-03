@@ -1,4 +1,3 @@
-# autostart_direct.py
 """
 Модуль для настройки автозапуска стратегий в Direct режиме.
 Запускает winws.exe напрямую через задачи планировщика.
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Optional, Callable, Dict, List
 from log import log
 from utils import run_hidden
+from .registry_check import set_autostart_enabled
 
 # Имена для задач Direct режима
 DIRECT_TASK_NAME = "ZapretDirect"
@@ -181,6 +181,8 @@ def setup_direct_autostart_task(
         
         if result.returncode == 0:
             log(f"Задача {DIRECT_TASK_NAME} создана", "✅ SUCCESS")
+            # Обновляем статус в реестре
+            set_autostart_enabled(True, "direct_task")
             return True
         else:
             error_msg = f"Ошибка создания задачи. Код: {result.returncode}\n{result.stderr}"
@@ -307,6 +309,9 @@ def setup_direct_autostart_service(
             
             log(f"Задача {DIRECT_BOOT_TASK_NAME} создана (запуск при загрузке)", "✅ SUCCESS")
             
+            # Обновляем статус в реестре
+            set_autostart_enabled(True, "direct_boot")
+            
             if ui_error_cb:
                 ui_error_cb(
                     "✅ Автозапуск настроен!\n\n"
@@ -392,6 +397,9 @@ cd /d "{work_dir}"
         
         if result.returncode == 0:
             log(f"Задача {task_name} создана через .bat файл", "✅ SUCCESS")
+            # Обновляем статус в реестре
+            method = "direct_boot_bat" if "Boot" in task_name else "direct_task_bat"
+            set_autostart_enabled(True, method)
             return True
         else:
             log(f"Ошибка создания задачи: {result.stderr}", "❌ ERROR")
@@ -416,6 +424,11 @@ def remove_direct_autostart() -> bool:
     if _delete_task(DIRECT_BOOT_TASK_NAME):
         removed_any = True
     
+    # НОВОЕ: Удаляем службу Direct режима
+    from .autostart_direct_service import remove_direct_service
+    if remove_direct_service():
+        removed_any = True
+    
     # Удаляем .bat файлы
     for filename in ["zapret_autostart.bat", "zapret_direct.bat", "zapret_boot_task.xml"]:
         try:
@@ -432,12 +445,21 @@ def remove_direct_autostart() -> bool:
     if _delete_direct_strategy_config():
         removed_any = True
     
+    # Обновляем реестр если что-то удалили
+    if removed_any:
+        # Проверяем остались ли другие методы автозапуска
+        from .checker import CheckerManager
+        checker = CheckerManager(None)
+        if not checker.check_autostart_exists_full():
+            # Если ничего не осталось - отключаем в реестре
+            set_autostart_enabled(False)
+    
     return removed_any
 
 
 def check_direct_autostart_exists() -> bool:
     """
-    Проверяет наличие автозапуска Direct режима
+    Проверяет наличие автозапуска Direct режима (для полной проверки)
     """
     return _check_task_exists(DIRECT_TASK_NAME) or _check_task_exists(DIRECT_BOOT_TASK_NAME)
 
@@ -467,7 +489,8 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
             selections.get('youtube_udp'),
             selections.get('googlevideo_tcp'),
             selections.get('discord'),
-            selections.get('discord_voice'),
+            selections.get('discord_voice_udp'),
+            selections.get('twitch_tcp'),
             selections.get('other'),
             selections.get('ipset'),
             selections.get('ipset_udp'),
@@ -519,7 +542,7 @@ def _save_direct_strategy_config(args: List[str], name: str, cmd_line: str):
             "cmd_line": cmd_line
         }
         
-        reg_path = r"SOFTWARE\ZapretGUI\DirectAutostart"
+        reg_path = r"Software\ZapretReg2GUI\DirectAutostart"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
             winreg.SetValueEx(key, "Config", 0, winreg.REG_SZ, json.dumps(config))
         
@@ -532,7 +555,7 @@ def _delete_direct_strategy_config() -> bool:
     """Удаляет конфигурацию из реестра"""
     try:
         import winreg
-        reg_path = r"SOFTWARE\ZapretGUI"
+        reg_path = r"Software\ZapretReg2GUI"
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE) as key:
             winreg.DeleteKey(key, "DirectAutostart")
         log("Конфигурация удалена", "DEBUG")

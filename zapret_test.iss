@@ -22,7 +22,7 @@
   #define OutputName "ZapretSetup_TEST"
   #define GroupName "Zapret Dev"
   #define DataFolder "ZapretDev"
-  #define IconFile "ZapretDevLogo3.ico"
+  #define IconFile "ZapretDevLogo4.ico"
 #else
   #define AppName "Zapret"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"

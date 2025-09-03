@@ -39,14 +39,14 @@ except ImportError:
 
 def _reg_get() -> Optional[str]:
     try:
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Zapret")
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\ZapretReg2")
         cid, _ = winreg.QueryValueEx(k, "ClientID")
         return cid
     except Exception:
         return None
 
 def _reg_set(cid: str):
-    k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Zapret")
+    k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\ZapretReg2")
     winreg.SetValueEx(k, "ClientID", 0, winreg.REG_SZ, cid)
 
 def get_client_id() -> str:

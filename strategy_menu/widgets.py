@@ -25,7 +25,7 @@ class CompactStrategyItem(QFrame):
                 border: 1px solid #444;
                 border-radius: 4px;
                 padding: 0px;
-                margin: 2px;
+                margin: 1px;             # было 2px
             }
             CompactStrategyItem:hover {
                 background: #3a3a3a;
@@ -37,8 +37,8 @@ class CompactStrategyItem(QFrame):
         
     def init_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(6)
         
         # Радиокнопка
         self.radio = QRadioButton()
@@ -85,7 +85,7 @@ class CompactStrategyItem(QFrame):
                     border-radius: 4px;
                     background: #2a2a3a;
                     padding: 0px;
-                    margin: 2px;
+                    margin: 1px;
                 }
             """)
             self.clicked.emit(self.strategy_id)
@@ -96,7 +96,7 @@ class CompactStrategyItem(QFrame):
                     border: 1px solid #444;
                     border-radius: 4px;
                     padding: 0px;
-                    margin: 2px;
+                    margin: 1px;             # было 2px
                 }
                 CompactStrategyItem:hover {
                     background: #3a3a3a;

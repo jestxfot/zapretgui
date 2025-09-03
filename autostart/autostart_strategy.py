@@ -1,10 +1,9 @@
-# autostart_strategy.py
-
 from pathlib import Path
 import json, sys, subprocess, traceback
 from log import log
 from typing import Callable, Optional
 from utils import run_hidden # обёртка для subprocess.run
+from .registry_check import set_autostart_enabled
 
 
 def _resolve_bat_folder(bat_folder: str) -> Path:
@@ -83,6 +82,11 @@ def setup_autostart_for_strategy(
                 bat_path = bat_path,
                 ui_error_cb = ui_error_cb
         )
+        
+        if ok:
+            # Обновляем статус автозапуска в реестре
+            set_autostart_enabled(True, "task")
+        
         return ok
 
     except Exception as exc:
@@ -110,7 +114,7 @@ def _create_task_scheduler_job(
         "schtasks", "/Create",
         "/TN", task_name,
         "/TR", f'"{bat_path}"',
-        "/SC", "ONLOGON",        # Изменено: при входе в систему вместо при запуске
+        "/SC", "ONLOGON",        # При входе в систему
         "/RU", "SYSTEM",
         "/RL", "HIGHEST",        # Запуск с повышенными правами
         "/IT",                   # Интерактивное выполнение (важно для ONLOGON)
@@ -173,4 +177,59 @@ def _create_task_scheduler_job(
         log(err_msg, "❌ ERROR")
         if ui_error_cb:
             ui_error_cb("Ошибка создания задачи автозапуска; подробности в логе.")
+        return False
+
+
+def remove_task_scheduler_job(task_name: str = "ZapretStrategy") -> bool:
+    """
+    Удаляет задачу из планировщика Windows
+    
+    Args:
+        task_name: Имя задачи для удаления
+        
+    Returns:
+        True если задача удалена, False если её не было или ошибка
+    """
+    try:
+        # Проверяем существование задачи
+        check_cmd = ["schtasks", "/Query", "/TN", task_name]
+        check_res = run_hidden(
+            check_cmd,
+            capture_output=True,
+            text=True,
+            encoding="cp866",
+            errors="ignore"
+        )
+        
+        if check_res.returncode != 0:
+            # Задачи нет
+            return False
+        
+        # Удаляем задачу
+        delete_cmd = ["schtasks", "/Delete", "/TN", task_name, "/F"]
+        delete_res = run_hidden(
+            delete_cmd,
+            capture_output=True,
+            text=True,
+            encoding="cp866",
+            errors="ignore"
+        )
+        
+        if delete_res.returncode == 0:
+            log(f'Задача "{task_name}" удалена', "INFO")
+            
+            # Проверяем остались ли другие методы автозапуска
+            from .checker import CheckerManager
+            checker = CheckerManager(None)
+            if not checker.check_autostart_exists_full():
+                # Если ничего не осталось - отключаем в реестре
+                set_autostart_enabled(False)
+            
+            return True
+        else:
+            log(f"Не удалось удалить задачу {task_name}: {delete_res.stderr}", "❌ ERROR")
+            return False
+            
+    except Exception as e:
+        log(f"Ошибка удаления задачи планировщика: {e}", "❌ ERROR")
         return False

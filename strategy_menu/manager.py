@@ -16,127 +16,59 @@ class StrategyManager:
     """
 
     # ─────────────────────────────── init ──────────────────────────────
-    def __init__(self,
-                local_dir: str,
-                json_dir: str,
-                status_callback=None,
-                json_url: str | None = None,
-                preload: bool = False) -> None:
+    def __init__(self, local_dir: str, json_dir: str, status_callback=None, **kwargs):
         """
-        local_dir      – куда сохраняем bat-файлы
-        json_dir       – куда сохраняем index.json и strategy_versions.json
-        status_callback– функция-коллбек для сообщений в GUI / консоль
-        json_url       – прямая ссылка на index.json (если есть)
-        preload        – True ⇒ сразу скачивать index + bat-файлы
+        local_dir      – где хранятся bat-файлы
+        json_dir       – где хранится index.json
+        status_callback– функция для сообщений в GUI
         """
-        self.local_dir       = local_dir
-        self.json_dir        = json_dir
+        self.local_dir = local_dir
+        self.json_dir = json_dir
         self.status_callback = status_callback
-        self.json_url        = json_url
-        self.local_only_mode = True  # ← ИЗМЕНЕНО: по умолчанию True
-
+        
         self.strategies_cache: dict[str, dict] = {}
-        self.cache_loaded = False  # Флаг что кэш уже загружен
-        self._loaded = False  # ✅ ДОБАВИТЬ ЭТУ СТРОКУ
-        self.last_update_time = 0
-        self.update_interval  = 3600          # 1 ч
-
-        # Добавляем настройки для обработки зависаний
-        self.download_timeout = 30  # таймаут для скачивания
-        self.max_retries = 3        # максимум попыток
-        self.retry_delay = 2        # задержка между попытками
-
-        # Добавляем поддержку резервных источников
-        self.current_source_index = 0
-        self.url_sources = URL_SOURCES
-        self.failed_sources = set()  # Источники, которые не работают
-
+        self.cache_loaded = False
+        self._loaded = False
+        
         os.makedirs(self.local_dir, exist_ok=True)
+        
+        # Сразу загружаем локальный кэш при инициализации
+        self._load_local_cache()
+        log(f"Strategy Manager инициализирован (без загрузки из интернета)", "INFO")
+
+    @property
+    def already_loaded(self) -> bool:
+        """True после загрузки локального кэша."""
+        return self._loaded
+
+    def set_status(self, text: str) -> None:
+        if self.status_callback:
+            self.status_callback(text)
+        else:
+            print(text)
 
     def get_local_strategies_only(self) -> dict:
-        """НОВЫЙ МЕТОД: Возвращает только локальные стратегии без попыток загрузки"""
-        if self.strategies_cache:
-            return self.strategies_cache
-            
-        # Загружаем ТОЛЬКО из локального файла
-        index_file = os.path.join(INDEXJSON_FOLDER, "index.json")
-        if os.path.isfile(index_file):
-            try:
-                with open(index_file, encoding="utf-8-sig") as f:
-                    self.strategies_cache = json.load(f)
-                self.cache_loaded = True
-                self._loaded = True
-                log(f"Загружен локальный index.json ({len(self.strategies_cache)} стратегий)", "⚙ manager")
-                return self.strategies_cache
-            except Exception as e:
-                log(f"Ошибка чтения локального индекса: {e}", "❌ ERROR")
-        
-        # Возвращаем пустой словарь если нет файла
-        self.strategies_cache = {}
-        self.cache_loaded = True
-        self._loaded = True
-        log("Локальный index.json не найден", "⚙ manager")
-        return self.strategies_cache
+        """Возвращает только локальные стратегии"""
+        return self.get_strategies_list()
     
     def download_strategies_index_from_internet(self) -> dict:
-        """НОВЫЙ МЕТОД: Явно загружает index.json из интернета"""
-        log("Принудительная загрузка стратегий из интернета", "⚙ manager")
-        self.set_status("Загрузка списка стратегий...")
-        
-        # Временно отключаем local_only_mode
-        prev_mode = self.local_only_mode
-        self.local_only_mode = False
-        
-        try:
-            # Сбрасываем флаги кэша чтобы форсировать загрузку
-            self._loaded = False
-            self.cache_loaded = False
-            result = self._download_strategies_index()
-            
-            self.set_status(f"Загружено {len(result)} стратегий")
-            return result
-            
-        except Exception as e:
-            log(f"Ошибка загрузки стратегий: {e}", "❌ ERROR")
-            self.set_status(f"Ошибка загрузки: {e}")
-            return self.strategies_cache or {}
-            
-        finally:
-            # Восстанавливаем режим
-            self.local_only_mode = prev_mode
+        """ЗАГЛУШКА: загрузка из интернета отключена"""
+        log("Загрузка из интернета отключена", "⚠ WARNING")
+        return self.strategies_cache
     
     def download_single_strategy_bat(self, strategy_id: str) -> str | None:
-        """НОВЫЙ МЕТОД: Скачивает один .bat файл стратегии"""
-        log(f"Скачивание стратегии {strategy_id}", "⚙ manager")
-        
-        # Временно отключаем local_only_mode для скачивания
-        prev_mode = self.local_only_mode
-        self.local_only_mode = False
-        
-        try:
-            return self.download_strategy(strategy_id)
-        finally:
-            self.local_only_mode = prev_mode
+        """ЗАГЛУШКА: загрузка из интернета отключена"""
+        log(f"Загрузка стратегии {strategy_id} из интернета отключена", "⚠ WARNING")
+        return None
     
     def preload_strategies(self) -> None:
-        """Модифицированный метод - в local_only_mode просто загружает локальный кэш"""
+        """Загружает локальный кэш стратегий."""
         if self._loaded:
-            log("preload_strategies(): уже загружено – пропуск", "DEBUG")
+            log("Стратегии уже загружены", "DEBUG")
             return
-
-        if self.local_only_mode:
-            log("Preload в режиме 'только локальный кэш'", "⚙ manager")
-            self.get_local_strategies_only()
-            return
-
-        log("Preload стратегий (только индекс)…", "⚙ manager")
-        strategies = self.get_strategies_list()
-        if not strategies:
-            log("Список стратегий пуст – preload отменён", "❌ ERROR")
-            return
-
-        self._loaded = True
-        log("Preload индекса завершён", "⚙ manager")
+        
+        self._load_local_cache()
+        log(f"Preload завершён: {len(self.strategies_cache)} стратегий", "⚙ manager")
 
     def _get_next_working_source(self):
         """Находит следующий рабочий источник"""
@@ -339,76 +271,43 @@ class StrategyManager:
             self.set_status(f"Ошибка загрузки {strategy_id}: {e}")
             return local_path if os.path.isfile(local_path) else None
         
-    # ────────────────────────── свойства / util ───────────────────────
-    @property
-    def already_loaded(self) -> bool:
-        """True после первой успешной preload_strategies()."""
-        return self._loaded
-
-    def set_status(self, text: str) -> None:
-        if self.status_callback:
-            self.status_callback(text)
-        else:
-            print(text)
-
-    # ─────────────────────── index.jфson (GET) ─────────────────────────
-    def get_strategies_list(self, *, force_update: bool = False) -> dict:
-        """
-        Возвращает словарь стратегий с ПРАВИЛЬНЫМ кэшированием.
-        """
-
-        # После первой успешной загрузки index.json — возвращаем только из памяти
+    def get_strategies_list(self, force_update: bool = False) -> dict:
+        """Возвращает словарь локальных стратегий."""
         if self._loaded and self.strategies_cache and not force_update:
             return self.strategies_cache
-
-        # Если кэш уже загружен и не нужно принудительное обновление
-        if self.cache_loaded and self.strategies_cache and not force_update:
-            return self.strategies_cache
-
-        # Проверяем нужна ли загрузка по времени
-        if not force_update and self.cache_loaded:
-            now = time.time()
-            if (now - self.last_update_time) <= self.update_interval:
-                return self.strategies_cache
-
+        
         return self._load_local_cache()
     
     def _load_local_cache(self) -> dict:
-        """Загружает локальный кэш index.json ОДИН РАЗ."""
-        # Если уже загружен в память - возвращаем сразу
+        """Загружает локальный index.json."""
+        # Если уже загружен - возвращаем
         if self.cache_loaded and self.strategies_cache:
             return self.strategies_cache
             
-        index_file = os.path.join(self.local_dir, "index.json")
+        index_file = os.path.join(self.json_dir, "index.json")
+        
         if os.path.isfile(index_file):
             try:
                 with open(index_file, encoding="utf-8-sig") as f:
                     self.strategies_cache = json.load(f)
                 self.cache_loaded = True
                 self._loaded = True
-                self.last_update_time = os.path.getmtime(index_file)
-                log("Загружен локальный index.json", "⚙ manager")
+                log(f"Загружено {len(self.strategies_cache)} локальных стратегий", "⚙ manager")
                 return self.strategies_cache
             except Exception as e:
-                log(f"Ошибка чтения локального индекса: {e}", "❌ ERROR")
+                log(f"Ошибка чтения index.json: {e}", "❌ ERROR")
+        else:
+            log(f"Файл index.json не найден: {index_file}", "⚠ WARNING")
         
+        # Возвращаем пустой словарь если нет файла
         self.strategies_cache = {}
         self.cache_loaded = True
+        self._loaded = True
         return self.strategies_cache
 
     def check_strategy_version_status(self, strategy_id: str, strategies_cache: dict = None) -> str:
-        """
-        Проверяет статус версии стратегии.
-        
-        Args:
-            strategy_id: ID стратегии
-            strategies_cache: Опциональный кэш стратегий (чтобы не вызывать get_strategies_list)
-        
-        Returns:
-            'current', 'outdated', 'not_downloaded', 'unknown'
-        """
+        """Проверяет статус локальной стратегии."""
         try:
-            # Используем переданный кэш или загружаем список
             strategies = strategies_cache if strategies_cache is not None else self.get_strategies_list()
             
             if strategy_id not in strategies:
@@ -419,31 +318,14 @@ class StrategyManager:
             filename = os.path.basename(remote_path)
             local_path = os.path.join(self.local_dir, filename)
             
-            # Если файл не скачан
-            if not os.path.isfile(local_path):
-                return 'not_downloaded'
-                
-            # Если есть информация о версии
-            if "version" in info:
-                local_ver = self.get_local_strategy_version(local_path, strategy_id)
-                remote_ver = info["version"]
-                
-                if local_ver is None:
-                    return 'unknown'
-                elif local_ver == remote_ver:
-                    return 'current'
-                else:
-                    return 'outdated'
+            # Проверяем наличие файла
+            if os.path.isfile(local_path):
+                return 'current'
             else:
-                # Проверяем по времени модификации (если нет версии)
-                age = time.time() - os.path.getmtime(local_path)
-                if age > 86400:  # старше суток
-                    return 'outdated'
-                else:
-                    return 'current'
+                return 'not_downloaded'
                     
         except Exception as e:
-            log(f"Ошибка проверки версии стратегии {strategy_id}: {e}", "DEBUG")
+            log(f"Ошибка проверки стратегии {strategy_id}: {e}", "DEBUG")
             return 'unknown'
     
     def save_strategies_index(self, data: dict = None) -> bool:
@@ -459,30 +341,11 @@ class StrategyManager:
         except Exception as e:
             log(f"index.json save error: {e}", "❌ ERROR")
             return False
-    
-    # ─────────────────────── download 1 strategy ──────────────────────
+
     def download_strategy(self, strategy_id: str) -> str | None:
-        """
-        Скачивает стратегию с улучшенной обработкой зависаний.
-        Остается асинхронным для отдельных загрузок.
-        """
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            try:
-                future = executor.submit(self._download_strategy_sync, strategy_id)
-                return future.result(timeout=self.download_timeout)
-            except TimeoutError:
-                log(f"Таймаут при скачивании {strategy_id}", "❌ ERROR")
-                self.set_status(f"Таймаут скачивания {strategy_id}")
-                
-                # Возвращаем локальную копию если есть
-                strategies = self.strategies_cache or self._load_local_cache()
-                if strategy_id in strategies:
-                    info = strategies[strategy_id]
-                    remote_path = info.get("file_path", f"{strategy_id}.bat")
-                    filename = os.path.basename(remote_path)
-                    local_path = os.path.join(self.local_dir, filename)
-                    return local_path if os.path.isfile(local_path) else None
-                return None
+        """ЗАГЛУШКА: загрузка из интернета отключена"""
+        log(f"Загрузка стратегии {strategy_id} из интернета отключена", "⚠ WARNING")
+        return None
 
     # ─────────────────────────── version util ─────────────────────────
     def get_local_strategy_version(self, file_path, strategy_id):

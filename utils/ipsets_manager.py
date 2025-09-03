@@ -11,7 +11,7 @@ IPSET_ALL_PATH = os.path.join(LISTS_FOLDER, "ipset-base.txt")
 IPSET_ALL2_PATH = os.path.join(LISTS_FOLDER, "ipset-all2.txt")
 
 # Ключи реестра
-_IPSETS_KEY = r"Software\Zapret"
+_IPSETS_KEY = r"Software\ZapretReg2"
 _IPSETS_SERVICES = "IpsetsServices"  # JSON строка с выбранными сервисами
 _IPSETS_CUSTOM = "IpsetsCustom"      # JSON строка с пользовательскими IP
 

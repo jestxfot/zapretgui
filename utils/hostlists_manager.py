@@ -2,214 +2,16 @@
 
 import os
 import json
+from datetime import datetime
 from typing import Set, List, Dict
 from log import log
 from config import OTHER_PATH, OTHER2_PATH, reg
+from .BASE_DOMAINS_TEXT import BASE_DOMAINS_TEXT # Базовые домены (всегда включены)
 
 # Ключи реестра для хостлистов
-_HOSTLISTS_KEY = r"Software\Zapret"
+_HOSTLISTS_KEY = r"Software\ZapretReg2"
 _HOSTLISTS_SERVICES = "HostlistsServices"  # JSON строка с выбранными сервисами
 _HOSTLISTS_CUSTOM = "HostlistsCustom"      # JSON строка с пользовательскими доменами
-
-# Базовые домены (всегда включены)
-BASE_DOMAINS_TEXT = """
-1.1.1.1
-4pda.ws
-5sim.net
-adtidy.org
-amazon.com
-amazonaws.com
-awsstatic.com
-animego.org
-aol.com
-archive.org
-articles.sk
-bbc.com
-bellingcat.com
-bigvideo.net
-bravotube.tv
-btdig.com
-cdn.betterttv.net
-cdn.frankerfacez.com
-cdn.hsmedia.ru
-cdn.strapsco.com
-cdn.vigo.one
-cdn77.com
-cdnbunny.org
-cdninstagram.com
-cdnst.net
-cloudflare-ech.com
-cloudflare.com
-cloudflareportal.com
-cloudflareok.com
-cloudflareclient.com
-cloudflarecp.com
-cloudfront.net
-codenames.game
-coursera.org
-cryptpad.fr
-currenttime.tv
-delfi.lv
-dept.one
-detectportal.firefox.com
-donationalerts.com
-doppiocdn.live
-doppiocdn.media
-downdetector.com
-doxa.team
-dpidetector.org
-dtf.ru
-dw.com
-e621.net
-element.io
-erome.com
-escapefromtarkov.com
-etahub.com
-exitgames.com
-eyeofgod.bot
-eyezgod.ru
-epicgames.com
-facebook.com
-fbcdn.net
-fbsbx.com
-fburl.com
-flibusta.is
-flibusta.site
-fonts.googleapis.com
-f95zone.to
-gifer.com
-glaznews.com
-googleads.g.doubleclick.net
-hd2.lordfilm-ru.net
-hentai-img.com
-hmvmania.com
-holod.media
-hrw.org
-i.kym-cdn.com
-idelreal.org
-indigogobot.com
-ingest.sentry.io
-instagram.com
-invizible.net
-jut.su
-krymr.com
-lantern.io
-link.usersbox.io
-linkedin.com
-lordfilm.llc
-lordfilms.day
-matrix.org
-maven.neoforged.net
-medium.com
-meduza.io
-minecraftrating.ru
-moscowtimes.ru
-mullvad.net
-mytpn.net
-news.google.com
-nexusmods.com
-nnmclub.to
-nnmstatic.win
-notion.so
-novayagazeta.eu
-ntc.party
-onlinesim.io
-ooklaserver.net
-otzovik.com
-oxu.az
-papervpn.io
-patreon.com
-phncdn.com
-phpmyadmin.net
-pixiv.net
-play.google.com
-prostovpn.org
-proton.me
-protonmail.com
-protonvpn.com
-psiphon.ca
-quora.com
-radiofrance.fr
-rapidgator.net
-re-russia.net
-republic.ru
-reutersagency.com
-rferl.org
-roskomsvoboda.org
-rtmps.youtube.com
-rule34.xxx
-rumble.com
-rutor.info
-rutor.is
-rutracker.cc
-rutracker.org
-rutracker.wiki
-save4k.top
-signal.org
-singlelogin.cc
-sms-activate.guru
-sndcdn.com
-soundcloud.cloud
-soundcloud.com
-soundcloud.app.goo.gl
-cdn.cookielaw.org
-ns-1745.awsdns-26.co.uk
-ns-799.awsdns-35.net
-ns-56.awsdns-07.com
-ns-1445.awsdns-52.org
-spankbang.com
-speedtest.net
-static.doubleclick.net
-store-steam.ru
-streamable.com
-svoboda.org
-t-ru.org
-t.co
-te-st.org
-thebell.io
-theins.ru
-tntracker.org
-torproject.org
-tuta.com
-twimg.com
-twitter.com
-udemy.com
-unian.net
-vector.im
-viber.com
-vpngate.net
-vpngen.org
-vpnguild.org
-web.archive.org
-wixmp.com
-x.com
-xhamster.com
-xnxx.com
-xvideos-cdn.com
-xvideos.com
-yande.re
-z-lib.gs
-z-lib.id
-z-lib.io
-z-library.cc
-z-library.sk
-ziffstatic.com
-zlibrary.to
-znanija.com
-#anime
-animego.online
-doramy.club
-animejoy.ru
-getchu.com
-#porno
-porno365.sexy
-porno365.plus
-porno365.team
-rusuchka.com
-porno365.bingo
-24video.porn
-xn--m1abbbg.me
-"""
 
 # Предустановленные домены сервисов
 PREDEFINED_DOMAINS = {
@@ -265,37 +67,118 @@ PREDEFINED_DOMAINS = {
             'w7.web.whatsapp.com',
             'w8.web.whatsapp.com'
         ]
-    },
-    'twitch': {
-        'name': '🎥 Twitch',
-        'domains': [
-            'twitch.tv',
-            'twitch.com',
-            'twitchcdn.net',
-            'twitchsvc.net',
-            'jtvnw.net',
-            'ttvnw.net',
-            'twitch-ext.rootonline.de',
-            'ext-twitch.tv',
-            'pubster.twitch.tv',
-            'app.twitch.tv',
-            'player.twitch.tv',
-            'clips.twitch.tv',
-            'gql.twitch.tv',
-            'vod-secure.twitch.tv',
-            'usher.ttvnw.net',
-            'video-weaver.fra02.hls.ttvnw.net'
-        ]
     }
 }
 
 def get_base_domains() -> List[str]:
     """Возвращает список базовых доменов"""
-    return [
-        domain.strip() 
-        for domain in BASE_DOMAINS_TEXT.strip().split('\n') 
-        if domain.strip() and not domain.strip().startswith('#')
-    ]
+    try:
+        # Пробуем импортировать
+        from utils import BASE_DOMAINS_TEXT
+        
+        # Парсим домены
+        domains = [
+            domain.strip() 
+            for domain in BASE_DOMAINS_TEXT.strip().split('\n') 
+            if domain.strip() and not domain.strip().startswith('#')
+        ]
+        
+        log(f"get_base_domains: извлечено {len(domains)} доменов", "DEBUG")
+        
+        # Если доменов мало - что-то не так
+        if len(domains) < 5:
+            log(f"⚠ WARNING: Только {len(domains)} доменов в BASE_DOMAINS_TEXT", "WARNING")
+            return []  # Вернем пустой список, чтобы сработал fallback
+        
+        return domains
+        
+    except Exception as e:
+        log(f"❌ Ошибка в get_base_domains: {e}", "ERROR")
+        return []
+
+def rebuild_hostlists_from_registry():
+    """Перестраивает файлы other.txt и other2.txt из настроек в реестре"""
+    try:
+        log("Перестройка хостлистов из реестра...", "INFO")
+        
+        # Загружаем настройки из реестра
+        selected_services, custom_domains = load_hostlists_settings()
+        
+        # Создаем папку lists если её нет
+        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
+        
+        # --- Перестраиваем other.txt ---
+        # Получаем базовые домены
+        base_domains = get_base_domains()
+        log(f"Базовых доменов из BASE_DOMAINS_TEXT: {len(base_domains)}", "DEBUG")
+        
+        # ✅ ВАЖНОЕ ИСПРАВЛЕНИЕ: Если базовых доменов нет или их мало - используем встроенные
+        if len(base_domains) < 5:  # Меньше 5 доменов - явно что-то не так
+            log("BASE_DOMAINS_TEXT пуст или содержит мало доменов, используем встроенные", "⚠ WARNING")
+            
+            # Пробуем еще раз импортировать напрямую
+            try:
+                from BASE_DOMAINS_TEXT import BASE_DOMAINS_TEXT
+                direct_domains = [
+                    line.strip() 
+                    for line in BASE_DOMAINS_TEXT.strip().split('\n')
+                    if line.strip() and not line.strip().startswith('#')
+                ]
+                if len(direct_domains) > 5:
+                    base_domains = direct_domains
+                    log(f"Прямой импорт успешен: {len(base_domains)} доменов", "INFO")
+                else:
+                    raise ValueError("Недостаточно доменов")
+            except:
+                log("Ошибка при прямом импорте базовых доменов", "❌ ERROR")
+
+        # Создаем набор всех доменов
+        all_domains = set(base_domains)
+        log(f"Добавлено базовых доменов: {len(all_domains)}", "INFO")
+        
+        # Добавляем домены выбранных сервисов
+        for service_id in selected_services:
+            if service_id in PREDEFINED_DOMAINS:
+                service_domains = PREDEFINED_DOMAINS[service_id]['domains']
+                all_domains.update(service_domains)
+                log(f"Добавлены домены сервиса {PREDEFINED_DOMAINS[service_id]['name']}: {len(service_domains)} шт.", "DEBUG")
+        
+        # ✅ ВАЖНО: Проверяем что есть домены для записи
+        if not all_domains:
+            log("КРИТИЧЕСКАЯ ОШИБКА: Нет доменов для записи в other.txt!", "❌ ERROR")
+            # Аварийный минимум
+            all_domains = {'youtube.com', 'googlevideo.com', 'discord.com'}
+        
+        # Записываем other.txt
+        with open(OTHER_PATH, 'w', encoding='utf-8') as f:
+            for domain in sorted(all_domains):
+                f.write(f"{domain}\n")
+        
+        log(f"✅ Создан other.txt: {len(all_domains)} доменов", "SUCCESS")
+        
+        # Проверяем что файл действительно записан и не пустой
+        with open(OTHER_PATH, 'r', encoding='utf-8') as f:
+            verification = f.read()
+            lines = [l for l in verification.split('\n') if l.strip()]
+            if not lines:
+                log("❌ ОШИБКА: other.txt записан, но оказался пустым!", "ERROR")
+            else:
+                log(f"✅ Проверка: other.txt содержит {len(lines)} строк", "DEBUG")
+        
+        # --- Перестраиваем other2.txt ---
+        with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
+            for domain in sorted(custom_domains):
+                f.write(f"{domain}\n")
+        
+        log(f"✅ Создан other2.txt: {len(custom_domains)} доменов", "SUCCESS")
+        
+        return True
+        
+    except Exception as e:
+        log(f"❌ Ошибка перестройки хостлистов: {e}", "ERROR")
+        import traceback
+        log(f"Traceback: {traceback.format_exc()}", "ERROR")
+        return False
 
 def save_hostlists_settings(selected_services: Set[str], custom_domains: List[str]) -> bool:
     """Сохраняет настройки хостлистов в реестр"""
@@ -342,47 +225,6 @@ def load_hostlists_settings() -> tuple[Set[str], List[str]]:
         log(f"Ошибка загрузки настроек хостлистов: {e}", "⚠ WARNING")
     
     return selected_services, custom_domains
-
-def rebuild_hostlists_from_registry():
-    """Перестраивает файлы other.txt и other2.txt из настроек в реестре"""
-    try:
-        log("Перестройка хостлистов из реестра...", "INFO")
-        
-        # Загружаем настройки из реестра
-        selected_services, custom_domains = load_hostlists_settings()
-        
-        # Создаем папку lists если её нет
-        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-        
-        # --- Перестраиваем other.txt ---
-        all_domains = set(get_base_domains())  # Базовые домены
-        
-        # Добавляем домены выбранных сервисов
-        for service_id in selected_services:
-            if service_id in PREDEFINED_DOMAINS:
-                service_domains = PREDEFINED_DOMAINS[service_id]['domains']
-                all_domains.update(service_domains)
-                log(f"Добавлены домены сервиса {service_id}: {len(service_domains)} шт.", "DEBUG")
-        
-        # Записываем other.txt
-        with open(OTHER_PATH, 'w', encoding='utf-8') as f:
-            for domain in sorted(all_domains):
-                f.write(f"{domain}\n")
-        
-        log(f"Создан other.txt: {len(all_domains)} доменов", "✅ SUCCESS")
-        
-        # --- Перестраиваем other2.txt ---
-        with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
-            for domain in sorted(custom_domains):
-                f.write(f"{domain}\n")
-        
-        log(f"Создан other2.txt: {len(custom_domains)} доменов", "✅ SUCCESS")
-        
-        return True
-        
-    except Exception as e:
-        log(f"Ошибка перестройки хостлистов: {e}", "❌ ERROR")
-        return False
 
 def ensure_hostlists_exist():
     """Проверяет существование файлов хостлистов и создает их если нужно"""
@@ -446,15 +288,29 @@ def startup_hostlists_check():
         # 1. Проверяем существование файлов
         ensure_hostlists_exist()
         
+        # ✅ НОВОЕ: Всегда проверяем валидность other.txt
+        if os.path.exists(OTHER_PATH):
+            with open(OTHER_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = [l.strip() for l in content.split('\n') 
+                        if l.strip() and not l.strip().startswith('#')]
+                
+                if not lines:
+                    log("other.txt пуст или содержит только комментарии, пересоздаем", "⚠ WARNING")
+                    # Принудительно пересоздаем файлы
+                    rebuild_hostlists_from_registry()
+                    return True
+        
         # 2. Если есть настройки в реестре - применяем их
         selected_services, custom_domains = load_hostlists_settings()
         
         if selected_services or custom_domains:
             log(f"Найдены настройки в реестре: {len(selected_services)} сервисов, {len(custom_domains)} доменов", "INFO")
-            # Перестраиваем файлы из реестра
             rebuild_hostlists_from_registry()
         else:
-            log("Настройки хостлистов в реестре не найдены, используются существующие файлы", "INFO")
+            log("Настройки хостлистов в реестре не найдены", "INFO")
+            # ✅ НОВОЕ: Если реестр пуст, но файл невалидный - пересоздаем с базовыми
+            rebuild_hostlists_from_registry()
         
         return True
         

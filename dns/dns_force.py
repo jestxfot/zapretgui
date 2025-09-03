@@ -29,7 +29,7 @@ else:
 class DNSForceManager:
     """Менеджер принудительной установки DNS серверов с поддержкой IPv6"""
     
-    REGISTRY_PATH = r"Software\Zapret"
+    REGISTRY_PATH = r"Software\ZapretReg2"
     FORCE_DNS_KEY = "ForceDNS"
     
     # DNS серверы для IPv4
@@ -502,7 +502,7 @@ def apply_force_dns_if_enabled_async(callback=None):
 
 def ensure_default_force_dns():
     """
-    Создаёт ключ HKCU\Software\Zapret\ForceDNS = 1,
+    Создаёт ключ HKCU\Software\ZapretReg2\ForceDNS = 1,
     если его ещё нет (по умолчанию опция включена).
     """
     import winreg
