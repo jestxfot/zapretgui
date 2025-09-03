@@ -9,3 +9,4 @@ build_zapret/
 build_zapret
 build_zapret/build_release_gui.py
 build_zapret/github_release.py
+config/tokens.py
