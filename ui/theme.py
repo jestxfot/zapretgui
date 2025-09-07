@@ -61,26 +61,37 @@ QWidget {
 }
 """
 
-# Стили для AMOLED тем
+# В начале файла ui/theme.py добавить защиту для кастомных фонов:
+
 AMOLED_OVERRIDE_STYLE = """
 QWidget {
     background-color: #000000;
     color: #ffffff;
 }
 
+/* НЕ применяем фон к виджетам с кастомным фоном */
+QWidget[hasCustomBackground="true"] {
+    background-color: transparent;
+}
+
 QMainWindow {
     background-color: #000000;
 }
 
+/* НЕ применяем фон к главному окну с кастомным фоном */
+QMainWindow[hasCustomBackground="true"] {
+    background-color: transparent;
+}
+
 QFrame {
     background-color: #000000;
-    border: none;  /* Убираем рамку */
+    border: none;
 }
 
 QLabel {
     background-color: transparent;
     color: #ffffff;
-    border: none;  /* Убираем рамку у меток */
+    border: none;
 }
 
 QComboBox {
@@ -105,35 +116,42 @@ QComboBox QAbstractItemView {
 
 QStackedWidget {
     background-color: #000000;
-    border: none;  /* Убираем рамку */
+    border: none;
 }
 
-/* Убираем рамки у кнопок в стеках */
 QStackedWidget > QPushButton {
     border: none;
 }
 
-/* Убираем рамки у разделителей */
 QFrame[frameShape="4"] {
     color: #333333;
     max-height: 1px;
 }
 """
 
-# Стили для полностью черной темы
 PURE_BLACK_OVERRIDE_STYLE = """
 QWidget {
     background-color: #000000;
     color: #ffffff;
 }
 
+/* НЕ применяем фон к виджетам с кастомным фоном */
+QWidget[hasCustomBackground="true"] {
+    background-color: transparent;
+}
+
 QMainWindow {
     background-color: #000000;
 }
 
+/* НЕ применяем фон к главному окну с кастомным фоном */
+QMainWindow[hasCustomBackground="true"] {
+    background-color: transparent;
+}
+
 QFrame {
     background-color: #000000;
-    border: none;  /* Убираем рамку */
+    border: none;
 }
 
 QLabel {
@@ -143,7 +161,7 @@ QLabel {
 
 QComboBox {
     background-color: #000000;
-    border: none;  /* Убираем рамку */
+    border: none;
     color: #ffffff;
     padding: 5px;
     border-radius: 4px;
@@ -156,7 +174,7 @@ QComboBox::drop-down {
 
 QComboBox QAbstractItemView {
     background-color: #000000;
-    border: none;  /* Убираем рамку */
+    border: none;
     selection-background-color: #1a1a1a;
     color: #ffffff;
 }
@@ -173,7 +191,7 @@ QPushButton {
 
 QPushButton:hover {
     background-color: #333333;
-    border: none;  /* Убираем рамку */
+    border: none;
 }
 
 QPushButton:pressed {
@@ -610,6 +628,16 @@ class ThemeManager:
             theme_name = self.current_theme
 
         clean = self.get_clean_theme_name(theme_name)
+        
+        # ✅ ИСПРАВЛЕНИЕ: Определяем правильный виджет для сброса фона
+        target_widget = self.widget
+        if hasattr(self.widget, 'main_widget'):
+            target_widget = self.widget.main_widget
+        
+        # Сбрасываем фон только если это НЕ РКН Тян
+        if clean != "РКН Тян":
+            target_widget.setAutoFillBackground(False)
+            target_widget.setProperty("hasCustomBackground", False)
 
         # проверка премиум для всех премиум тем (используем кеш)
         if self._is_premium_theme(clean):
@@ -630,6 +658,32 @@ class ThemeManager:
 
         try:
             info = THEMES[clean]
+            
+            # Применяем базовую тему
+            qt_material.apply_stylesheet(self.app, theme=info["file"])
+            
+            # Специальная обработка для РКН Тян
+            if clean == "РКН Тян":
+                # Добавляем защитный стиль СРАЗУ
+                rkn_protection_style = """
+                QWidget[hasCustomBackground="true"] {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                }
+                
+                QWidget[hasCustomBackground="true"] > QWidget {
+                    background: transparent;
+                }
+                """
+                current_style = self.app.styleSheet()
+                self.app.setStyleSheet(current_style + "\n" + rkn_protection_style)
+                
+                # Применяем фон с задержкой
+                QTimer.singleShot(100, lambda: self._apply_rkn_with_protection())
+            
+            # Сначала сбрасываем любой предыдущий кастомный фон
+            self.widget.setAutoFillBackground(False)
+            self.widget.setProperty("hasCustomBackground", False)
             
             # Применяем базовую тему
             qt_material.apply_stylesheet(self.app, theme=info["file"])
@@ -665,20 +719,125 @@ class ThemeManager:
             # Обновление заголовка (асинхронно если нужно)
             self._update_title_async(clean)
 
-            # Специальный фон только для РКН Тян
-            if clean == "РКН Тян":
-                QTimer.singleShot(500, self.apply_rkn_background)
-            else:
-                self.widget.setAutoFillBackground(False)
-
             if persist:
                 set_selected_theme(clean)
             self.current_theme = clean
+            
+            # ✅ ПРИМЕНЯЕМ ФОНЫ В САМОМ КОНЦЕ
+            if clean == "РКН Тян":
+                # Применяем фон РКН Тян после всех стилей с минимальной задержкой
+                QTimer.singleShot(50, lambda: self._apply_rkn_with_protection())
+            else:
+                # Убеждаемся что фон сброшен для других тем
+                self.widget.setAutoFillBackground(False)
+                self.widget.setProperty("hasCustomBackground", False)
+            
             return True, "ok"
 
         except Exception as e:
             log(f"Theme error: {e}", "❌ ERROR")
             return False, str(e)
+
+    def _apply_rkn_with_protection(self):
+        """Применяет фон РКН Тян с защитой от перезаписи"""
+        try:
+            log("Применение фона РКН Тян с защитой", "DEBUG")
+            success = self.apply_rkn_background()
+            if success:
+                # Дополнительная защита - повторная проверка через 200мс
+                QTimer.singleShot(200, self._verify_rkn_background)
+                log("Фон РКН Тян успешно применён", "INFO")
+            else:
+                log("Не удалось применить фон РКН Тян", "WARNING")
+        except Exception as e:
+            log(f"Ошибка при применении фона РКН Тян: {e}", "❌ ERROR")
+
+    def _verify_rkn_background(self):
+        """Проверяет что фон РКН Тян всё ещё применён"""
+        try:
+            # Определяем правильный виджет
+            target_widget = self.widget
+            if hasattr(self.widget, 'main_widget'):
+                target_widget = self.widget.main_widget
+            
+            if not target_widget.autoFillBackground() or not target_widget.property("hasCustomBackground"):
+                log("Фон РКН Тян был сброшен, восстанавливаем", "WARNING")
+                self.apply_rkn_background()
+            else:
+                log("Фон РКН Тян успешно сохранён", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка при проверке фона РКН Тян: {e}", "❌ ERROR")
+
+    def apply_rkn_background(self):
+        """Применяет фоновое изображение для темы РКН Тян"""
+        try:
+            import requests
+            
+            # ✅ ИСПРАВЛЕНИЕ: Определяем правильный виджет для применения фона
+            target_widget = self.widget
+            
+            # Если widget имеет main_widget, применяем к нему
+            if hasattr(self.widget, 'main_widget'):
+                target_widget = self.widget.main_widget
+                log("Применяем фон РКН Тян к main_widget", "DEBUG")
+            else:
+                log("Применяем фон РКН Тян к основному виджету", "DEBUG")
+            
+            temp_dir = os.path.join(self.theme_folder, "rkn_tyan")
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            img_path = os.path.join(temp_dir, "rkn_background.jpg")
+            
+            if not os.path.exists(img_path):
+                try:
+                    self._set_status("Загрузка фонового изображения...")
+                    img_url = "https://github.com/youtubediscord/src/releases/download/files/rkn_background.jpg"
+                    
+                    response = requests.get(img_url, stream=True, timeout=10)
+                    if response.status_code == 200:
+                        with open(img_path, 'wb') as f:
+                            for chunk in response.iter_content(1024):
+                                f.write(chunk)
+                        self._set_status("Фоновое изображение загружено")
+                        log("Фоновое изображение РКН Тян загружено", "INFO")
+                except Exception as e:
+                    log(f"Ошибка при загрузке фона: {str(e)}", "❌ ERROR")
+                    self._set_status("Ошибка загрузки фона")
+
+            if os.path.exists(img_path):
+                pixmap = QPixmap(img_path)
+                if not pixmap.isNull():
+                    # Помечаем виджет
+                    target_widget.setProperty("hasCustomBackground", True)
+                    
+                    # Устанавливаем палитру для target_widget
+                    palette = target_widget.palette()
+                    brush = QBrush(pixmap.scaled(
+                        target_widget.size(),
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation
+                    ))
+                    palette.setBrush(QPalette.ColorRole.Window, brush)
+                    target_widget.setPalette(palette)
+                    target_widget.setAutoFillBackground(True)
+                    
+                    # Защитный стиль
+                    widget_style = """
+                    QWidget {
+                        background: transparent !important;
+                    }
+                    """
+                    existing_style = target_widget.styleSheet()
+                    if "background: transparent" not in existing_style:
+                        target_widget.setStyleSheet(existing_style + widget_style)
+                    
+                    log(f"Фон РКН Тян успешно установлен на {target_widget.__class__.__name__}", "INFO")
+                    return True
+                    
+        except Exception as e:
+            log(f"Ошибка при применении фона РКН Тян: {str(e)}", "❌ ERROR")
+        
+        return False
 
     def _update_title_async(self, current_theme):
         """Асинхронно обновляет заголовок окна"""
@@ -697,7 +856,6 @@ class ThemeManager:
         except Exception as e:
             log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
 
-    # Остальные методы остаются без изменений...
     def _apply_pure_black_button_colors(self):
         """Применяет цвета кнопок для полностью черной темы"""
         try:
@@ -969,50 +1127,6 @@ class ThemeManager:
             updated_style = current_style + f' color: {new_color};'
         return updated_style
     
-    def apply_rkn_background(self):
-        """Применяет фоновое изображение для темы РКН Тян"""
-        try:
-            import requests
-            
-            temp_dir = os.path.join(self.theme_folder, "rkn_tyan")
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            img_path = os.path.join(temp_dir, "rkn_background.jpg")
-            
-            if not os.path.exists(img_path):
-                try:
-                    self._set_status("Загрузка фонового изображения...")
-                    img_url = "https://github.com/youtubediscord/src/releases/download/files/rkn_background.jpg"
-                    
-                    response = requests.get(img_url, stream=True, timeout=10)
-                    if response.status_code == 200:
-                        with open(img_path, 'wb') as f:
-                            for chunk in response.iter_content(1024):
-                                f.write(chunk)
-                        self._set_status("Фоновое изображение загружено")
-                except Exception as e:
-                    print(f"Ошибка при загрузке фона: {str(e)}")
-                    self._set_status("Ошибка загрузки фона")
-            
-            if os.path.exists(img_path):
-                pixmap = QPixmap(img_path)
-                if not pixmap.isNull():
-                    palette = self.widget.palette()
-                    brush = QBrush(pixmap.scaled(
-                        self.widget.size(),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation
-                    ))
-                    palette.setBrush(QPalette.ColorRole.Window, brush)
-                    self.widget.setPalette(palette)
-                    self.widget.setAutoFillBackground(True)
-                    return True
-                    
-        except Exception as e:
-            print(f"Ошибка при применении фона РКН Тян: {str(e)}")
-        
-        return False
-    
     def _set_status(self, text):
         """Устанавливает текст статуса"""
         if self.status_label:
@@ -1020,12 +1134,31 @@ class ThemeManager:
 
 
 class ThemeHandler:
-    """Обработчик событий связанных с темами"""
-    
-    def __init__(self, theme_manager, app_window):
+    def __init__(self, app_instance, target_widget=None):
+        self.app = app_instance
+        self.app_window = app_instance
+        self.target_widget = target_widget if target_widget else app_instance
+        self.theme_manager = None  # Будет установлен позже
+
+    def set_theme_manager(self, theme_manager):
+        """Устанавливает theme_manager после его создания"""
         self.theme_manager = theme_manager
-        self.app_window = app_window
+        log("ThemeManager установлен в ThemeHandler", "DEBUG")
+
     
+    def apply_theme_background(self, theme_name):
+        """Применяет фон для темы"""
+        # Применяем к target_widget, а не к self.app
+        widget_to_style = self.target_widget
+        
+        if theme_name == "РКН Тян":
+            # Применяем фон именно к target_widget
+            if self.theme_manager and hasattr(self.theme_manager, 'apply_rkn_background'):
+                self.theme_manager.apply_rkn_background()
+                log(f"Фон РКН Тян применен через theme_manager", "INFO")
+            else:
+                log("theme_manager не доступен для применения фона РКН Тян", "WARNING")
+
     def update_subscription_status_in_title(self):
         """Обновляет статус подписки в title_label"""
         try:
@@ -1034,14 +1167,14 @@ class ThemeHandler:
                 log("donate_checker не инициализирован", "⚠ WARNING")
                 return
             
-            if not hasattr(self.app_window, 'theme_manager'):
+            if not self.theme_manager:
                 log("theme_manager не инициализирован", "⚠ WARNING")
                 return
 
             # Используем кэшированные данные для быстрого обновления
             donate_checker = self.app_window.donate_checker
             is_premium, status_msg, days_remaining = donate_checker.check_subscription_status(use_cache=True)
-            current_theme = self.theme_manager.current_theme
+            current_theme = self.theme_manager.current_theme if self.theme_manager else None
             
             # Получаем полную информацию о подписке
             sub_info = donate_checker.get_full_subscription_info()
@@ -1066,13 +1199,21 @@ class ThemeHandler:
             log(f"Ошибка при обновлении статуса подписки: {e}", "❌ ERROR")
             # В случае ошибки показываем базовый заголовок
             try:
-                self.app_window.update_title_with_subscription_status(False, None, 0, False)
+                self.app_window.update_title_with_subscription_status(False, None, 0)
             except:
                 pass  # Игнорируем вторичные ошибки
     
     def change_theme(self, theme_name):
         """Обработчик изменения темы"""
         try:
+            # ✅ ИСПРАВЛЕНИЕ: используем theme_manager напрямую или через app_window
+            if not self.theme_manager:
+                if hasattr(self.app_window, 'theme_manager'):
+                    self.theme_manager = self.app_window.theme_manager
+                else:
+                    log("theme_manager не доступен", "❌ ERROR")
+                    return
+            
             # Проверяем, не является ли тема заблокированной
             if any(suffix in theme_name for suffix in ["(заблокировано)", "(AMOLED Premium)", "(Pure Black Premium)"]):
                 clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
@@ -1085,9 +1226,10 @@ class ThemeHandler:
                     available_themes = self.theme_manager.get_available_themes()
                     for theme in available_themes:
                         if self.theme_manager.get_clean_theme_name(theme) == self.theme_manager.current_theme:
-                            self.app_window.theme_combo.blockSignals(True)
-                            self.app_window.theme_combo.setCurrentText(theme)
-                            self.app_window.theme_combo.blockSignals(False)
+                            if hasattr(self.app_window, 'theme_combo'):
+                                self.app_window.theme_combo.blockSignals(True)
+                                self.app_window.theme_combo.setCurrentText(theme)
+                                self.app_window.theme_combo.blockSignals(False)
                             break
                     return
             
@@ -1096,7 +1238,8 @@ class ThemeHandler:
             
             if success:
                 log(f"Тема изменена на: {theme_name}", level="INFO")
-                self.app_window.set_status(f"Тема изменена: {theme_name}")
+                if hasattr(self.app_window, 'set_status'):
+                    self.app_window.set_status(f"Тема изменена: {theme_name}")
                 
                 # Обновляем стили комбо-бокса после смены темы
                 QTimer.singleShot(50, self.update_theme_combo_styles)
@@ -1105,17 +1248,27 @@ class ThemeHandler:
                 QTimer.singleShot(100, self.update_subscription_status_in_title)
             else:
                 log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
-                self.app_window.set_status(f"Ошибка изменения темы: {message}")
+                if hasattr(self.app_window, 'set_status'):
+                    self.app_window.set_status(f"Ошибка изменения темы: {message}")
                 
         except Exception as e:
             log(f"Ошибка при обработке изменения темы: {e}", level="❌ ERROR")
-            self.app_window.set_status(f"Ошибка: {e}")
+            if hasattr(self.app_window, 'set_status'):
+                self.app_window.set_status(f"Ошибка: {e}")
 
     def update_theme_combo_styles(self):
         """Применяет стили к комбо-боксу тем для выделения заблокированных элементов"""
         if not hasattr(self.app_window, 'theme_combo'):
             log("theme_combo не найден в app_window", "DEBUG")
             return
+        
+        # ✅ ИСПРАВЛЕНИЕ: проверяем theme_manager правильно
+        if not self.theme_manager:
+            if hasattr(self.app_window, 'theme_manager'):
+                self.theme_manager = self.app_window.theme_manager
+            else:
+                log("theme_manager не доступен", "DEBUG")
+                return
         
         # Проверяем, используется ли полностью черная тема
         is_pure_black = False
@@ -1265,6 +1418,14 @@ class ThemeHandler:
         """Обновляет список доступных тем в комбо-боксе"""
         if not hasattr(self.app_window, 'theme_combo'):
             return
+        
+        # ✅ ИСПРАВЛЕНИЕ: проверяем theme_manager правильно    
+        if not self.theme_manager:
+            if hasattr(self.app_window, 'theme_manager'):
+                self.theme_manager = self.app_window.theme_manager
+            else:
+                log("theme_manager не доступен для update_available_themes", "DEBUG")
+                return
             
         try:
             available_themes = self.theme_manager.get_available_themes()

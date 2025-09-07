@@ -11,6 +11,9 @@
     ensure_default_force_dns   – автосоздание ключа ForceDNS
 
     PREDEFINED_DNS             – словарь с готовыми наборами DNS
+    
+    DNSUIManager               – менеджер UI для DNS операций
+    DNSStartupManager          – менеджер DNS при запуске
 
 Все тяжёлые модули импортируются лениво (при первом обращении).
 """
@@ -24,6 +27,7 @@ from typing import Any
 from .dns_core import DNSManager, DEFAULT_EXCLUSIONS, refresh_exclusion_cache, _normalize_alias
 from .dns_force import DNSForceManager, AsyncDNSForceManager, ensure_default_force_dns, apply_force_dns_if_enabled_async
 from .dns_dialog import DNSSettingsDialog, PREDEFINED_DNS
+from .dns_worker import DNSUIManager, DNSStartupManager
 
 __all__: tuple[str, ...] = (
     "DNSManager",
@@ -36,6 +40,8 @@ __all__: tuple[str, ...] = (
     "apply_force_dns_if_enabled_async",
     "PREDEFINED_DNS",
     "DNSSettingsDialog",
+    "DNSUIManager", 
+    "DNSStartupManager",
 )
 
 # Чтобы dir() показывал отложенные элементы

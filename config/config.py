@@ -33,7 +33,7 @@ OTHER2_PATH = os.path.join(LISTS_FOLDER, "other2.txt")
 NETROGAT_PATH = os.path.join(LISTS_FOLDER, "netrogat.txt")
 NETROGAT2_PATH = os.path.join(LISTS_FOLDER, "netrogat2.txt")
 
-DEFAULT_STRAT = "Если эта стратегия не работает смени её!"
+DEFAULT_STRAT = "Alt 2"
 REG_LATEST_STRATEGY = "LastStrategy2"
 
 # Настройки для GitHub стратегий

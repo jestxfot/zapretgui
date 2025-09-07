@@ -205,6 +205,7 @@ begin
     StopAndDeleteService('WinDivert14');
     StopAndDeleteService('WinDivert1.4');
     StopAndDeleteService('WinDivert64');
+    StopAndDeleteService('Monkey');
     Sleep(500);
     Exit;
   end;
@@ -230,24 +231,9 @@ begin
     KillProcessWithRetry('winws.exe');
     
     CurrentStep := CurrentStep + 1;
-    ProgressPage.SetText('Остановка службы WinDivert...', '');
+    ProgressPage.SetText('Остановка службы Monkey...', '');
     ProgressPage.SetProgress(CurrentStep, StepCount);
-    StopAndDeleteService('WinDivert');
-    
-    CurrentStep := CurrentStep + 1;
-    ProgressPage.SetText('Остановка службы WinDivert14...', '');
-    ProgressPage.SetProgress(CurrentStep, StepCount);
-    StopAndDeleteService('WinDivert14');
-    
-    CurrentStep := CurrentStep + 1;
-    ProgressPage.SetText('Остановка службы WinDivert1.4...', '');
-    ProgressPage.SetProgress(CurrentStep, StepCount);
-    StopAndDeleteService('WinDivert1.4');
-    
-    CurrentStep := CurrentStep + 1;
-    ProgressPage.SetText('Остановка службы WinDivert64...', '');
-    ProgressPage.SetProgress(CurrentStep, StepCount);
-    StopAndDeleteService('WinDivert64');
+    StopAndDeleteService('Monkey');
     
     CurrentStep := CurrentStep + 1;
     ProgressPage.SetText('Очистка временных файлов...', '');
@@ -309,56 +295,43 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurStep: TUninstallStep);
-var
-  ProgressPage: TOutputProgressWizardPage;
-  IsSilent: Boolean;
 begin
   if CurStep = usUninstall then
   begin
     // ✅ Проверяем Silent режим при удалении
-    IsSilent := UninstallSilent();
-    
-    if IsSilent then
+    if UninstallSilent() then
     begin
       // В Silent режиме без GUI
       StopAndDeleteService('WinDivert');
-      StopAndDeleteService('WinDivert14');
-      StopAndDeleteService('WinDivert1.4');
       StopAndDeleteService('WinDivert64');
+      StopAndDeleteService('Monkey');
       KillProcessWithRetry('winws.exe');
       KillProcessWithRetry('Zapret.exe');
       Sleep(500);
       Exit;
     end;
     
-    // GUI режим с прогресс-баром
-    ProgressPage := CreateOutputProgressPage('Удаление программы',
-      'Пожалуйста, подождите пока программа будет удалена.');
+    // ✅ GUI режим - используем стандартную форму деинсталлятора
+    UninstallProgressForm.StatusLabel.Caption := 'Остановка служб...';
+    UninstallProgressForm.ProgressBar.Position := 20;
     
-    try
-      ProgressPage.Show;
-      
-      ProgressPage.SetText('Остановка служб...', '');
-      ProgressPage.SetProgress(1, 6);
-      StopAndDeleteService('WinDivert');
-      StopAndDeleteService('WinDivert14');
-      StopAndDeleteService('WinDivert1.4');
-      StopAndDeleteService('WinDivert64');
-      
-      ProgressPage.SetText('Завершение процессов...', '');
-      ProgressPage.SetProgress(3, 6);
-      KillProcessWithRetry('winws.exe');
-      
-      ProgressPage.SetProgress(5, 6);
-      KillProcessWithRetry('Zapret.exe');
-      
-      ProgressPage.SetText('Завершение удаления...', '');
-      ProgressPage.SetProgress(6, 6);
-      Sleep(500);
-      
-    finally
-      ProgressPage.Hide;
-    end;
+    StopAndDeleteService('WinDivert');
+    StopAndDeleteService('WinDivert64');
+    StopAndDeleteService('Monkey');
+    
+    UninstallProgressForm.StatusLabel.Caption := 'Завершение процессов...';
+    UninstallProgressForm.ProgressBar.Position := 60;
+    
+    KillProcessWithRetry('winws.exe');
+    
+    UninstallProgressForm.ProgressBar.Position := 80;
+    
+    KillProcessWithRetry('Zapret.exe');
+    
+    UninstallProgressForm.StatusLabel.Caption := 'Завершение удаления...';
+    UninstallProgressForm.ProgressBar.Position := 100;
+    
+    Sleep(500);
   end;
 end;
 

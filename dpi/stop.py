@@ -1,4 +1,3 @@
-# dpi/stop.py
 import subprocess
 import time
 import psutil, os
@@ -40,7 +39,9 @@ def stop_dpi_direct(app: "LupiDPIApp"):
         if not app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws.exe не запущен", level="INFO")
             app.set_status("Zapret уже остановлен")
-            app.update_ui(running=False)
+            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+            if hasattr(app, 'ui_manager'):
+                app.ui_manager.update_ui_state(running=False)
             return True
         
         app.set_status("Останавливаю Zapret...")
@@ -97,42 +98,51 @@ def stop_dpi_direct(app: "LupiDPIApp"):
                 pass
         
         # 3. Останавливаем и удаляем службу WinDivert
-        try:
-            # Останавливаем службу
-            subprocess.run(
-                ["sc", "stop", "windivert"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=5
-            )
-            
-            time.sleep(1)
-            
-            # Удаляем службу
-            subprocess.run(
-                ["sc", "delete", "windivert"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=5
-            )
-            
-            log("Служба WinDivert остановлена и удалена", "INFO")
-            
-        except Exception as e:
-            log(f"Ошибка при остановке службы: {e}", "DEBUG")
-        
+        services_to_stop = ["WinDivert", "Monkey"]
+
+        for service_name in services_to_stop:
+            try:
+                # Останавливаем службу
+                subprocess.run(
+                    ["sc", "stop", service_name],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+                
+                time.sleep(1)
+                
+                # Удаляем службу
+                subprocess.run(
+                    ["sc", "delete", service_name],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+                
+                log(f"Служба {service_name} остановлена и удалена", "INFO")
+                
+            except Exception as e:
+                log(f"Ошибка при остановке службы {service_name}: {e}", "DEBUG")
+
         # Проверяем результат
         time.sleep(1)
         if app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws.exe все еще работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
-            app.on_process_status_changed(True)
+            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+            if hasattr(app, 'process_monitor_manager'):
+                app.process_monitor_manager.on_process_status_changed(True)
             return False
         else:
             log("Zapret успешно остановлен", level="✅ SUCCESS")
-            app.update_ui(running=False)
+            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+            if hasattr(app, 'ui_manager'):
+                app.ui_manager.update_ui_state(running=False)
             app.set_status("Zapret успешно остановлен")
-            app.on_process_status_changed(False)
+            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+            if hasattr(app, 'process_monitor_manager'):
+                app.process_monitor_manager.on_process_status_changed(False)
             return True
             
     except Exception as e:
@@ -149,7 +159,9 @@ def stop_dpi_bat(app: "LupiDPIApp"):
         if not app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws.exe не запущен, нет необходимости в остановке", level="INFO")
             app.set_status("Zapret уже остановлен")
-            app.update_ui(running=False)
+            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+            if hasattr(app, 'ui_manager'):
+                app.ui_manager.update_ui_state(running=False)
             return True
         
         # Получаем абсолютные пути
@@ -237,13 +249,19 @@ def stop_dpi_bat(app: "LupiDPIApp"):
         if app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws.exe все еще работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
-            app.on_process_status_changed(True)
+            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+            if hasattr(app, 'process_monitor_manager'):
+                app.process_monitor_manager.on_process_status_changed(True)
             return False
         else:
             log("Zapret успешно остановлен", level="✅ SUCCESS")
-            app.update_ui(running=False)
+            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+            if hasattr(app, 'ui_manager'):
+                app.ui_manager.update_ui_state(running=False)
             app.set_status("Zapret успешно остановлен")
-            app.on_process_status_changed(False)
+            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+            if hasattr(app, 'process_monitor_manager'):
+                app.process_monitor_manager.on_process_status_changed(False)
             return True
             
     except Exception as e:

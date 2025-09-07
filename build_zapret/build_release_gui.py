@@ -190,138 +190,51 @@ def elevate_as_admin():
     )
     sys.exit(0)
 
-def fetch_local_versions() -> dict[str, str]:
-    """Получает текущие версии из локального JSON файла"""
-    try:
-        # Путь к файлу версий
-        versions_file = Path(__file__).parent / "versions.json"
-        
-        if not versions_file.exists():
-            # Создаем файл с дефолтными версиями если его нет
-            default_versions = {
-                "stable": {
-                    "version": "16.2.1.3.0",
-                    "description": "Стабильная версия",
-                    "release_date": "2025-07-15"
-                },
-                "test": {
-                    "version": "16.4.1.9.0", 
-                    "description": "Тестовая версия",
-                    "release_date": "2025-07-28"
-                },
-                "next_suggested": {
-                    "stable": "16.2.1.3.1",
-                    "test": "16.4.1.9.1"
-                },
-                "metadata": {
-                    "last_updated": "2025-07-30",
-                    "updated_by": "build_system"
-                }
-            }
-            
-            with open(versions_file, 'w', encoding='utf-8') as f:
-                json.dump(default_versions, f, indent=2, ensure_ascii=False)
-        
-        # Читаем файл
-        with open(versions_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        versions = {
-            "stable": data.get("stable", {}).get("version", "16.2.1.3.0"),
-            "test": data.get("test", {}).get("version", "16.4.1.9.0")
-        }
-        
-        return versions
-        
-    except Exception as e:
-        # Fallback версии
-        return {"stable": "16.2.1.3.0", "test": "16.4.1.9.0"}
-
-def update_versions_file(channel: str, new_version: str):
-    """Обновляет файл версий после успешной сборки"""
-    try:
-        from datetime import datetime
-        
-        versions_file = Path(__file__).parent / "versions.json"
-        
-        # Читаем текущие данные
-        if versions_file.exists():
-            with open(versions_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        else:
-            data = {"stable": {}, "test": {}, "next_suggested": {}, "metadata": {}}
-        
-        # Обновляем версию для канала
-        data[channel] = {
-            "version": new_version,
-            "description": f"{'Стабильная' if channel == 'stable' else 'Тестовая'} версия",
-            "release_date": datetime.now().strftime("%Y-%m-%d")
-        }
-        
-        # Обновляем предложения для следующих версий
-        if "next_suggested" not in data:
-            data["next_suggested"] = {}
-            
-        data["next_suggested"][channel] = suggest_next(new_version)
-        
-        # Обновляем метаданные
-        data["metadata"] = {
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "updated_by": "build_system"
-        }
-        
-        # Сохраняем обратно
-        with open(versions_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"✔ Версии обновлены в {versions_file}")
-            
-    except Exception as e:
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
-
-def parse_version(version_string: str) -> tuple:
-    """Парсит версию в кортеж чисел для правильного сравнения"""
+def parse_version(version_string: str) -> tuple[int, int, int, int]:
+    """Парсит версию в кортеж из ровно 4 чисел для правильного сравнения/нормализации."""
     try:
         # Убираем префикс 'v' если есть
-        version = version_string.lstrip('v')
+        version = (version_string or "").lstrip('v')
         # Разбиваем на части и конвертируем в числа
-        parts = [int(x) for x in version.split('.')]
+        parts = [int(x) for x in version.split('.') if x.strip().isdigit()]
         # Дополняем до 4 частей нулями если нужно
         while len(parts) < 4:
             parts.append(0)
-        return tuple(parts[:4])  # Берем только первые 4 части
-    except (ValueError, AttributeError):
+        # Берем только первые 4 части
+        return tuple(parts[:4])
+    except Exception:
         return (0, 0, 0, 0)
 
+def normalize_to_4(ver: str) -> str:
+    """Возвращает строку-версию строго из 4 чисел X.X.X.X"""
+    return ".".join(map(str, parse_version(ver)))
+
 def suggest_next(ver: str) -> str:
-    """Предлагает следующую версию (4 цифры, без ограничения на 9)"""
+    """Предлагает следующую 4-частную версию (увеличивает последнюю часть на 1)"""
     try:
-        # Парсим текущую версию
-        current_parts = parse_version(ver)
-        new_parts = list(current_parts[:4])  # Берем только первые 4 части
-        
-        # Просто увеличиваем последнюю часть на 1
-        if len(new_parts) > 0:
-            new_parts[-1] += 1
-        
+        new_parts = list(parse_version(ver))
+        new_parts[-1] += 1
         return ".".join(map(str, new_parts))
-    except:
-        # Fallback
+    except Exception:
         nums = [int(x) for x in (ver.split(".") + ["0"] * 4)[:4]]
         if nums:
             nums[-1] += 1
         return ".".join(map(str, nums))
 
+def safe_json_write(path: Path, data: dict):
+    """Атомарная запись JSON: пишем во временный файл, затем заменяем."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+
 def fetch_local_versions() -> dict[str, str]:
-    """Получает текущие версии из локального JSON файла"""
+    """Получает текущие версии из локального JSON файла (строго 4 части)."""
     try:
-        # Путь к файлу версий
         versions_file = Path(__file__).parent / "versions.json"
         
+        # Если файла нет — создаем с дефолтными значениями (4 части)
         if not versions_file.exists():
-            # Создаем файл с дефолтными версиями если его нет
             default_versions = {
                 "stable": {
                     "version": "16.2.1.3",
@@ -342,27 +255,54 @@ def fetch_local_versions() -> dict[str, str]:
                     "updated_by": "build_system"
                 }
             }
-            
-            with open(versions_file, 'w', encoding='utf-8') as f:
-                json.dump(default_versions, f, indent=2, ensure_ascii=False)
+            safe_json_write(versions_file, default_versions)
+            return {"stable": "16.2.1.3", "test": "16.4.1.9"}
         
         # Читаем файл
         with open(versions_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
+
+        # Достаем и нормализуем версии
+        stable_raw = (data.get("stable", {}) or {}).get("version", "16.2.1.3")
+        test_raw   = (data.get("test", {}) or {}).get("version", "16.4.1.9")
+        stable = normalize_to_4(stable_raw)
+        test   = normalize_to_4(test_raw)
+
+        # Если что-то поменялось — мигрируем файл к 4 частям
+        changed = (stable_raw != stable) or (test_raw != test)
+        if "next_suggested" in data and isinstance(data["next_suggested"], dict):
+            ns = data["next_suggested"]
+            for ch in ("stable", "test"):
+                if ch in ns and ns[ch]:
+                    new_val = normalize_to_4(ns[ch])
+                    changed = changed or (ns[ch] != new_val)
+                    ns[ch] = new_val
+
+        if "stable" not in data or not isinstance(data["stable"], dict):
+            data["stable"] = {}
+            changed = True
+        if "test" not in data or not isinstance(data["test"], dict):
+            data["test"] = {}
+            changed = True
+
+        if (data["stable"].get("version") != stable):
+            data["stable"]["version"] = stable
+            changed = True
+        if (data["test"].get("version") != test):
+            data["test"]["version"] = test
+            changed = True
+
+        if changed:
+            safe_json_write(versions_file, data)
+
+        return {"stable": stable, "test": test}
         
-        versions = {
-            "stable": data.get("stable", {}).get("version", "16.2.1.3"),
-            "test": data.get("test", {}).get("version", "16.4.1.9")
-        }
-        
-        return versions
-        
-    except Exception as e:
-        # Fallback версии
+    except Exception:
+        # Fallback версии (4 части)
         return {"stable": "16.2.1.3", "test": "16.4.1.9"}
 
 def get_suggested_version(channel: str) -> str:
-    """Получает предложенную версию из файла"""
+    """Получает предложенную версию из файла (строго 4 части)"""
     try:
         versions_file = Path(__file__).parent / "versions.json"
         
@@ -370,17 +310,61 @@ def get_suggested_version(channel: str) -> str:
             with open(versions_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            suggested = data.get("next_suggested", {}).get(channel)
+            suggested = (data.get("next_suggested", {}) or {}).get(channel)
             if suggested:
-                return suggested
+                return normalize_to_4(suggested)
         
         # Fallback - вычисляем из текущей версии
         versions = fetch_local_versions()
         current = versions.get(channel, "0.0.0.0")
-        return suggest_next(current)
+        return normalize_to_4(suggest_next(current))
         
     except Exception:
         return "1.0.0.0"
+
+def update_versions_file(channel: str, new_version: str):
+    """Обновляет файл версий после успешной сборки (строго 4 части)"""
+    try:
+        from datetime import datetime
+        versions_file = Path(__file__).parent / "versions.json"
+        
+        # Читаем текущие данные
+        if versions_file.exists():
+            with open(versions_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        else:
+            data = {"stable": {}, "test": {}, "next_suggested": {}, "metadata": {}}
+        
+        # Нормализуем версию к 4 частям
+        new_version = normalize_to_4(new_version)
+        
+        # Обновляем версию для канала
+        data[channel] = {
+            "version": new_version,
+            "description": f"{'Стабильная' if channel == 'stable' else 'Тестовая'} версия",
+            "release_date": datetime.now().strftime("%Y-%m-%d")
+        }
+        
+        # Обновляем предложения для следующих версий (нормализовано)
+        if "next_suggested" not in data or not isinstance(data["next_suggested"], dict):
+            data["next_suggested"] = {}
+        data["next_suggested"][channel] = normalize_to_4(suggest_next(new_version))
+        
+        # Обновляем метаданные
+        data["metadata"] = {
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_by": "build_system"
+        }
+        
+        # Сохраняем обратно атомарно
+        safe_json_write(versions_file, data)
+            
+        if hasattr(run, 'log_queue'):
+            run.log_queue.put(f"✔ Версии обновлены в {versions_file}")
+            
+    except Exception as e:
+        if hasattr(run, 'log_queue'):
+            run.log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
 
 def _taskkill(exe: str):
     run(f'taskkill /F /T /IM "{exe}" >nul 2>&1', check=False)
@@ -428,16 +412,6 @@ def _sub(line: str, repl: str, text: str) -> str:
                       text)
     return text.replace("[Setup]", f"[Setup]\n{line}={repl}", 1)
 
-def _ensure_uninstall_delete(text: str, path: str) -> str:
-    """Вставляет/заменяет блок [UninstallDelete]"""
-    block = f"[UninstallDelete]\nType: filesandordirs; Name: \"{path}\""
-    pat   = r"(?is)\[UninstallDelete\].*?(?=\n\[|\Z)"
-    if re.search(pat, text):
-        text = re.sub(pat, lambda _: block, text)
-    else:
-        text += "\n" + block
-    return text
-
 def prepare_iss(channel: str, version: str) -> Path:
     """Просто копирует универсальный ISS файл"""
     src = ROOT / "zapret_universal.iss"
@@ -456,7 +430,7 @@ def prepare_iss(channel: str, version: str) -> Path:
 def write_build_info(channel: str, version: str):
     dst = ROOT / "config" / "build_info.py"
     dst.parent.mkdir(exist_ok=True)
-    dst.write_text(f"# AUTOGENERATED\nCHANNEL={channel!r}\nAPP_VERSION={version!r}\n",
+    dst.write_text(f"# AUTOGENERATED\nCHANNEL={channel!r}\nAPP_VERSION={normalize_to_4(version)!r}\n",
                    encoding="utf-8-sig")
     if hasattr(run, 'log_queue'):
         run.log_queue.put("✔ build_info.py updated")
@@ -750,7 +724,7 @@ class BuildReleaseGUI:
             self.update_version_labels()
         except Exception as e:
             self.log_queue.put(f"❌ Ошибка загрузки версий: {e}")
-            self.versions_info = {"stable": "16.2.1.3.0", "test": "16.4.1.9.0"}
+            self.versions_info = {"stable": "16.2.1.3", "test": "16.4.1.9"}
             self.update_version_labels()
         
     def update_version_labels(self):
@@ -803,7 +777,7 @@ class BuildReleaseGUI:
             return
         
         # Валидация
-        version = self.version_var.get().strip()
+        version = normalize_to_4(self.version_var.get().strip())
         if not version:
             messagebox.showerror("Ошибка", "Укажите версию!")
             return
@@ -1076,7 +1050,7 @@ def run_without_console():
         pythonw = sys.executable.replace('python.exe', 'pythonw.exe')
         if Path(pythonw).exists():
             subprocess.Popen([pythonw] + sys.argv, 
-                           creationflags=subprocess.CREATE_NO_WINDOW)
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             sys.exit(0)
 
 

@@ -3,7 +3,7 @@ from .constants import LABEL_RECOMMENDED, LABEL_CAUTION, LABEL_EXPERIMENTAL, LAB
 YOUTUBE_BASE_ARG = "--filter-tcp=80,443 --hostlist=youtube.txt"
 
 # YouTube стратегии
-YOUTUBE_STRATEGIES = {
+YOUTUBE_TCP_STRATEGIES = {
     "multisplit_seqovl_midsld": {
         "name": "multisplit seqovl midsld",
         "description": "Самая простая стратегия multisplit для YouTube",
@@ -191,7 +191,7 @@ YOUTUBE_STRATEGIES = {
         "description": "fake,split seqovl 652 pos 2 seqovl pattern",
         "author": "hz",
         "label": None,
-        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern="tls_clienthello_www_google_com.bin"  --new"""
+        "args": f"""{YOUTUBE_BASE_ARG} --dpi-desync=split2 --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin  --new"""
     },
     "general_alt2183": {
         "name": "general (alt v2) 1.8.3",

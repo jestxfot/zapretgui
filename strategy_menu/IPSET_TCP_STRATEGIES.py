@@ -12,34 +12,6 @@ IPSET_BASE_ARG = "--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt
 WARMFRAME_CHAT = "--filter-tcp=6695-6705 --dpi-desync=fake,split2 --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig --dpi-desync-autottl=2 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"
 
 IPSET_TCP_STRATEGIES = {
-    "syndata_1": {
-        "name": "syndata 4",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": LABEL_STABLE,
-        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new"""
-    },
-    "syndata_4_badseq": {
-        "name": "syndata 4 badseq",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new"""
-    },
-    "syndata_7_n3": {
-        "name": "syndata 7 n3",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
-    "syndata_syn_packet_n3": {
-        "name": "syndata syn_packet.bin n3",
-        "description": "Потом опишу подробнее",
-        "author": "hz",
-        "label": None,
-        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new"""
-    },
     "other_seqovl": {
         "name": "multisplit seqovl 211 & pattern 5",
         "description": "Потом опишу подробнее",
@@ -144,6 +116,34 @@ IPSET_TCP_STRATEGIES = {
         "author": "Flowseal",
         "label": LABEL_GAME,
         "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
+    },
+    "syndata_1": {
+        "name": "syndata 4",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new"""
+    },
+    "syndata_4_badseq": {
+        "name": "syndata 4 badseq",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": None,
+        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-fooling=badseq --new"""
+    },
+    "syndata_7_n3": {
+        "name": "syndata 7 n3",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": None,
+        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_7.bin --dup=2 --dup-cutoff=n3 --new"""
+    },
+    "syndata_syn_packet_n3": {
+        "name": "syndata syn_packet.bin n3",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": None,
+        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=syndata --dpi-desync-fake-syndata=syn_packet.bin --dup=2 --dup-cutoff=n3 --new"""
     },
     "ipset_tcp_none": {
         "name": "Не применять для остальных",

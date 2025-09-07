@@ -20,7 +20,8 @@ from log import log
 # ──────────────────────────────────────────────────────────────────────
 DEFAULT_EXCLUSIONS: list[str] = [
     # Виртуальные адаптеры
-    "vmware", "outline-tap", "openvpn", "virtualbox", "hyper-v", "vmnet",
+    "vmware", "outline-tap", "openvpn", "virtualbox", "hyper-v", "vmnet", "OpenVPN",
+"tap-windows", "tuntap", "wireguard", "protonvpn", "proton vpn",
     # VPN
     "radmin vpn", "hamachi", "nordvpn", "expressvpn", "surfshark",
     "pritunl", "zerotier", "tailscale",

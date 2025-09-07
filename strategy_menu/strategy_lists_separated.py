@@ -3,8 +3,9 @@
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
 from .OTHER_STRATEGIES import OTHER_STRATEGIES
 from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
-from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_STRATEGIES
+from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
 from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
+from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
 
 """
 Censorliber, [08.08.2025 1:02]
@@ -30,7 +31,6 @@ Censorliber, [08.08.2025 1:02]
 --filter-udp=443-9000 --ipset=ipset-all.txt --hostlist-domains=riotcdn.net,playvalorant.com,riotgames.com,pvp.net,rgpub.io,rdatasrv.net,riotcdn.com,riotgames.es,RiotClientServices.com,LeagueofLegends.com --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new
 
 ------ ВАЖНЫЕ И НЕОБЫЧНЫЕ СТРАТЕГИИ по идее надо писать syndata в конце в порядке исключения для всех доменов--------------------
-
 --filter-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --filter-tcp=443 --dpi-desync=fake --dpi-desync-ttl=4 --dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --filter-tcp=443 --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --new
@@ -95,7 +95,227 @@ Censorliber, [08.08.2025 1:02]
 
 GOOGLEVIDEO_BASE_ARG = "--filter-tcp=443 --hostlist-domains=googlevideo.com"
 
+"""
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multidisorder --dpi-desync-split-pos=1,midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multidisorder --dpi-desync-split-pos=1,sniext+1,host+1,midsld-2,midsld,midsld+2,endhost-1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=8 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=datanoack --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badseq --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=9 --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-fooling=badseq --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+4 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,midsld --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=3 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=3 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=syndata,multisplit --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=syndata,multisplit --dpi-desync-split-pos=1,midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=8 --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=9 --wssize 1:6 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=9 --wssize 1:6 --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --wssize 1:6 --dpi-desync-split-pos=1,midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1 --wssize 1:6
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=midsld
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=3 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=4 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=5 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=5 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=syndata,multisplit --wssize 1:6 --dpi-desync-split-pos=1,midsld
+--wf-tcp=443 --dpi-desync=multidisorder --dpi-desync-split-pos=1,midsld
+--wf-tcp=443 --dpi-desync=multidisorder --dpi-desync-split-pos=1,sniext+1,host+1,midsld-2,midsld,midsld+2,endhost-1
+--wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=7 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=badsum --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=datanoack --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake --dpi-desync-fooling=md5sig --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=8 --dpi-desync-split-pos=1
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=8 --dpi-desync-split-pos=midsld
+--wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld
+--wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badseq --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=badseq --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1
+--wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+4 --dpi-desync-split-seqovl=1
+--wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld
+--wf-tcp=443 --dpi-desync=fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=3 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=4 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-ttl=1 --dpi-desync-autottl=5 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
+--wf-tcp=443 --dpi-desync=syndata,multidisorder --dpi-desync-split-pos=1,midsld
+"""
+
 GOOGLEVIDEO_STRATEGIES = {
+    "googlevideo_fakeddisorder_datanoack_1": {
+        "name": "GoogleVideo FakedDisorder datanoack",
+        "description": "Базовая стратегия FakedDisorder для GoogleVideo с datanoack ()",
+        "author": None,
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000"""
+    },
     "googlevideo_fakedsplit": {
         "name": "GoogleVideo FakedSplit badseq",
         "description": "Базовая стратегия FakedSplit для GoogleVideo с badseq",
@@ -107,7 +327,7 @@ GOOGLEVIDEO_STRATEGIES = {
         "name": "GoogleVideo Split cutoff",
         "description": "Стратегия Split для GoogleVideo с cutoff",
         "author": None,
-        "label": LABEL_RECOMMENDED,
+        "label": None,
         "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=10 --dpi-desync-cutoff=d2 --dpi-desync-ttl=4 --new"""
     },
     "googlevideo_multidisorder": {
@@ -121,21 +341,21 @@ GOOGLEVIDEO_STRATEGIES = {
         "name": "GoogleVideo MultiSplit Pattern 7",
         "description": "MultiSplit с паттерном ClientHello 7",
         "author": None,
-        "label": LABEL_STABLE,
+        "label": None,
         "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-split-seqovl-pattern=tls_clienthello_7.bin --new"""
     },
     "googlevideo_fakeddisorder": {
         "name": "GoogleVideo FakedDisorder AutoTTL",
         "description": "FakedDisorder с паттерном и AutoTTL",
         "author": None,
-        "label": LABEL_STABLE,
+        "label": None,
         "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fakeddisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-fakedsplit-pattern=tls_clienthello_7.bin --dpi-desync-fooling=badseq --dpi-desync-autottl --new"""
     },
     "googlevideo_fakedsplit_simple": {
         "name": "GoogleVideo FakedSplit Simple",
         "description": "Простая стратегия FakedSplit с позицией 1",
         "author": None,
-        "label": LABEL_STABLE,
+        "label": None,
         "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fakedsplit --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=8 --dpi-desync-autottl --new"""
     },
     "googlevideo_split_aggressive": {
@@ -825,221 +1045,6 @@ DISCORD_UPD_STRATEGIES = {
     }
 }
 
-IPSET_UDP_BASE_ARG = "--filter-udp=443,444-65535 --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare.txt --ipset-exclude=ipset-dns.txt"
-
-IPSET_UDP_STRATEGIES = {
-    "fake_2_n2_google": {
-        "name": "Apex Legends & Rockstar",
-        "description": "Базовая стратегия для многих игр",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-   "fake_2_n2_test": {
-        "name": "Rockstar v3",
-        "description": "2 повтора с quic_test_00.bin, cutoff n2",
-        "author": "community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
-    },
-    "fake_4_google": {
-        "name": "Fake x4 Google",
-        "description": "4 повтора с Google QUIC",
-        "author": "community",
-        "label": None,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "fake_4_quic1": {
-        "name": "Fake x4 QUIC1",
-        "description": "4 повтора с quic_1.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_1.bin --new"""
-    },
-    "ipset_fake_12_n2": {
-        "name": "Apex legends & Rockstar v2",
-        "description": "UDP 443+ с ipset-all, 12 повторов, cutoff n2",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=d3 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
-    },
-    "ipset_fake_12_n3": {
-        "name": "IPSET Fake x12 N3 (Apex legends)",
-        "description": "UDP 443+ с ipset-all, 12 повторов, cutoff n3",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3 --new"""
-    },
-    "ipset_fake_10_n2": {
-        "name": "IPSET Fake x10 N2 (Apex legends)",
-        "description": "UDP 443+ с ipset-all, 10 повторов, cutoff n2",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
-    },
-    "ipset_fake_14_n3": {
-        "name": "IPSET Fake x14 N3 (Apex legends)",
-        "description": "UDP 443+ с ipset-all, 14 повторов, cutoff n3",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=14 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n3 --new"""
-    },
-    "ipset_fake_tamper_11": {
-        "name": "IPSET Fake+Tamper x11",
-        "description": "UDP 443+ с ipset-all, fake+tamper, 11 повторов",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,tamper --dpi-desync-any-protocol --dpi-desync-autottl=2 --dpi-desync-repeats=11 --new"""
-    },
-    "ipset_fake_quic6_ttl7": {
-        "name": "IPSET Fake QUIC6 TTL7",
-        "description": "UDP 443+ с ipset-all, quic_6.bin, TTL 7",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_6.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n4 --dpi-desync-ttl=7 --new"""
-    },
-    "fake_11_simple": {
-        "name": "Fake x11 Simple",
-        "description": "Простая стратегия с 11 повторами fake",
-        "author": "community",
-        "label": LABEL_STABLE,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=11 --new"""
-    },
-    "fake_15_ttl0_md5sig": {
-        "name": "Fake x15 TTL0 MD5sig",
-        "description": "15 повторов, TTL 0, md5sig+badsum",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=15 --dpi-desync-ttl=0 --dpi-desync-any-protocol --dpi-desync-cutoff=d4 --dpi-desync-fooling=md5sig,badsum --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "fake_15_ttl0_badsum": {
-        "name": "Fake x15 TTL0 Badsum",
-        "description": "15 повторов, TTL 0, только badsum",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=15 --dpi-desync-ttl=0 --dpi-desync-any-protocol --dpi-desync-cutoff=d4 --dpi-desync-fooling=badsum --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "fake_6_google": {
-        "name": "Fake x6 Google",
-        "description": "6 повторов с Google QUIC",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-fake-quic=quic_initial_www_google_com.bin --dpi-desync-repeats=6 --new"""
-    },
-    "fake_ipfrag2_quic5": {
-        "name": "Fake+IPFrag2 QUIC5",
-        "description": "Fake с IP фрагментацией, quic_5.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new"""
-    },
-    "fake_ipfrag2_quic3": {
-        "name": "Fake+IPFrag2 QUIC3",
-        "description": "Fake с IP фрагментацией, quic_3.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_ipfrag2_quic7": {
-        "name": "Fake+IPFrag2 QUIC7",
-        "description": "Fake с IP фрагментацией, quic_7.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,ipfrag2 --dpi-desync-fake-quic=quic_7.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=3 --new"""
-    },
-    "fake_udplen_2_quic3": {
-        "name": "Fake+UDPLen+2 QUIC3",
-        "description": "Fake с изменением длины UDP +2",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=2 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_4_quic3": {
-        "name": "Fake+UDPLen+4 QUIC3",
-        "description": "Fake с изменением длины UDP +4, quic_3.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_3.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_4_quic4": {
-        "name": "Fake+UDPLen+4 QUIC4",
-        "description": "Fake с изменением длины UDP +4, quic_4.bin",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=4 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_8_pattern1": {
-        "name": "Fake+UDPLen+8 Pattern1",
-        "description": "UDPLen +8 с паттерном 0x0F0F0E0F",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_8_pattern1_autottl": {
-        "name": "Fake+UDPLen+8 Pattern1 AutoTTL",
-        "description": "UDPLen +8 с паттерном и AutoTTL",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0F0F0E0F --dpi-desync-fake-quic=quic_6.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --dpi-desync-autottl --new"""
-    },
-    "fake_udplen_8_pattern2": {
-        "name": "Fake+UDPLen+8 Pattern2",
-        "description": "UDPLen +8 с паттерном 0x0E0F0E0F",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0x0E0F0E0F --dpi-desync-fake-quic=quic_7.bin --dpi-desync-cutoff=n3 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_8_pattern3": {
-        "name": "Fake+UDPLen+8 Pattern3",
-        "description": "UDPLen +8 с паттерном 0xFEA82025",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=8 --dpi-desync-udplen-pattern=0xFEA82025 --dpi-desync-fake-quic=quic_4.bin --dpi-desync-cutoff=n4 --dpi-desync-repeats=2 --new"""
-    },
-    "fake_udplen_25": {
-        "name": "Fake+UDPLen+25",
-        "description": "Fake с большим изменением длины UDP +25",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,udplen --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_5.bin --dpi-desync-repeats=2 --dpi-desync-cutoff=n3 --new"""
-    },
-    "fake_split2_10": {
-        "name": "Fake+Split2 x10",
-        "description": "Fake со split2, 10 повторов",
-        "author": "community",
-        "label": None,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,split2 --dpi-desync-repeats=10 --dpi-desync-udplen-increment=25 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "fake_tamper_11": {
-        "name": "Fake+Tamper x11",
-        "description": "Fake с tamper, 11 повторов",
-        "author": "community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,tamper --dpi-desync-repeats=11 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "fake_tamper_11_autottl": {
-        "name": "Fake+Tamper x11 AutoTTL",
-        "description": "Fake с tamper и AutoTTL=2",
-        "author": "community",
-        "label": LABEL_RECOMMENDED,
-        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake,tamper --dpi-desync-autottl=2 --dpi-desync-repeats=11 --new"""
-    },
-    "fake_tamper_11_autottl": {
-        "name": "Rockstar Launcher",
-        "description": "Полезно исключительно для рокстар лаунчера",
-        "author": "community",
-        "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
-    },
-    "ipset_udp_none": {
-        "name": "Не применять для остальных UDP",
-        "description": "Отключить обработку остальных сайтов по UDP",
-        "author": "System",
-        "label": None,
-        "args": ""
-    }
-}
-
 
 # Базовые аргументы (применяются всегда)
 BASE_ARGS = "--wf-raw=@windivert.all.txt"
@@ -1061,8 +1066,8 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
             args_parts.append(googlevideo_args)
 
     # Добавляем YouTube стратегию
-    if youtube_id and youtube_id in YOUTUBE_STRATEGIES:
-        youtube_args = YOUTUBE_STRATEGIES[youtube_id]["args"]
+    if youtube_id and youtube_id in YOUTUBE_TCP_STRATEGIES:
+        youtube_args = YOUTUBE_TCP_STRATEGIES[youtube_id]["args"]
         if youtube_args:
             args_parts.append(youtube_args)
 
@@ -1114,7 +1119,7 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
     # Формируем описание
     descriptions = []
     if youtube_id and youtube_id != "youtube_tcp_none":
-        descriptions.append(f"YouTube: {YOUTUBE_STRATEGIES[youtube_id]['name']}")
+        descriptions.append(f"YouTube: {YOUTUBE_TCP_STRATEGIES[youtube_id]['name']}")
     if youtube_udp_id and youtube_udp_id != "youtube_quic_none":
         descriptions.append(f"YouTube QUIC: {YOUTUBE_QUIC_STRATEGIES[youtube_udp_id]['name']}")
     if discord_id and discord_id != "discord_tcp_none":

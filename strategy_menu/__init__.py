@@ -9,13 +9,13 @@ REGISTRY_PATH = r"Software\ZapretReg2"
 DIRECT_PATH = r"Software\ZapretReg2\DirectMethod"
 
 def get_strategy_launch_method():
-    """Получает метод запуска стратегий из реестра bat или direct"""
+    """Получает метод запуска стратегий из реестра bat"""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "StrategyLaunchMethod")
             return value
     except:
-        return "direct"
+        return "bat"
 
 def set_strategy_launch_method(method: str):
     """Сохраняет метод запуска стратегий в реестр"""
@@ -396,9 +396,19 @@ def set_direct_strategy_udp_ipset(strategy_id: str) -> bool:
     """Сохраняет выбранную UDP IPset стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, "DirectStrategyUdpIpset", strategy_id)
 
+from .OTHER_STRATEGIES import OTHER_STRATEGIES
+from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
+from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
+from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
+from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
+
 
 all = [
     'OTHER_STRATEGIES',
+    'TWITCH_TCP_STRATEGIES',
+    'YOUTUBE_TCP_STRATEGIES',
+    'IPSET_TCP_STRATEGIES',
+    'IPSET_UDP_STRATEGIES',
     'get_tabs_pinned',
     'set_tabs_pinned',
 ]

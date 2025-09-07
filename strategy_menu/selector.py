@@ -458,15 +458,16 @@ class StrategySelector(QDialog):
         # Импортируем стратегии только сейчас
         from .strategy_lists_separated import (
             YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES,
-            DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES, IPSET_UDP_STRATEGIES
+            DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES
         )
         from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
         from .OTHER_STRATEGIES import OTHER_STRATEGIES
-        from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_STRATEGIES
+        from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
         from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
+        from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
 
         strategies_map = {
-            'youtube': YOUTUBE_STRATEGIES,
+            'youtube': YOUTUBE_TCP_STRATEGIES,
             'youtube_udp': YOUTUBE_QUIC_STRATEGIES,
             'googlevideo_tcp': GOOGLEVIDEO_STRATEGIES,
             'discord': DISCORD_STRATEGIES,

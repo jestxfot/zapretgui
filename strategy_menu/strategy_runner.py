@@ -274,52 +274,71 @@ class StrategyRunner:
         
         return resolved_args
 
-    def _force_cleanup_windivert(self):
-        """Принудительная очистка службы и драйвера WinDivert"""
+    def _force_cleanup_multiple_services(self, service_names, processes_to_kill=None, drivers_to_unload=None):
+        """Принудительная очистка списка служб"""
         try:
             import time
             
-            log("Принудительная очистка WinDivert...", "DEBUG")
+            log(f"Принудительная очистка служб: {', '.join(service_names)}...", "DEBUG")
             
-            subprocess.run(
-                ["sc", "stop", "windivert"],
-                capture_output=True,
-                creationflags=0x08000000,
-                timeout=5
-            )
+            # Останавливаем и удаляем все службы
+            for service_name in service_names:
+                try:
+                    subprocess.run(
+                        ["sc", "stop", service_name],
+                        capture_output=True,
+                        creationflags=0x08000000,
+                        timeout=5
+                    )
+                    
+                    time.sleep(0.5)
+                    
+                    subprocess.run(
+                        ["sc", "delete", service_name],
+                        capture_output=True,
+                        creationflags=0x08000000,
+                        timeout=5
+                    )
+                    
+                    log(f"Служба {service_name} остановлена и удалена", "DEBUG")
+                    
+                except Exception as e:
+                    log(f"Ошибка при очистке службы {service_name}: {e}", "DEBUG")
             
             time.sleep(0.5)
             
-            subprocess.run(
-                ["sc", "delete", "windivert"],
-                capture_output=True,
-                creationflags=0x08000000,
-                timeout=5
-            )
+            # Убиваем процессы, если указаны
+            if processes_to_kill:
+                for process_name in processes_to_kill:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/IM", process_name, "/T"],
+                            capture_output=True,
+                            creationflags=0x08000000,
+                            timeout=5
+                        )
+                        log(f"Процесс {process_name} завершен", "DEBUG")
+                    except Exception as e:
+                        log(f"Ошибка при завершении процесса {process_name}: {e}", "DEBUG")
             
-            time.sleep(0.5)
+            # Выгружаем драйверы, если указаны
+            if drivers_to_unload:
+                for driver_name in drivers_to_unload:
+                    try:
+                        subprocess.run(
+                            ["fltmc", "unload", driver_name],
+                            capture_output=True,
+                            creationflags=0x08000000,
+                            timeout=5
+                        )
+                        log(f"Драйвер {driver_name} выгружен", "DEBUG")
+                    except Exception as e:
+                        log(f"Ошибка при выгрузке драйвера {driver_name}: {e}", "DEBUG")
             
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "winws.exe", "/T"],
-                capture_output=True,
-                creationflags=0x08000000,
-                timeout=5
-            )
-            
-            try:
-                subprocess.run(
-                    ["fltmc", "unload", "windivert"],
-                    capture_output=True,
-                    creationflags=0x08000000,
-                    timeout=5
-                )
-            except:
-                pass
-            
-            log("Очистка WinDivert завершена", "DEBUG")
+            log("Очистка завершена", "DEBUG")
             
         except Exception as e:
-            log(f"Ошибка при принудительной очистке WinDivert: {e}", "DEBUG")
+            log(f"Ошибка при принудительной очистке: {e}", "DEBUG")
 
     def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "Пользовательская стратегия") -> bool:
         """
@@ -336,8 +355,11 @@ class StrategyRunner:
                 self.stop()
             
             # Очистка WinDivert
-            self._force_cleanup_windivert()
-            
+            self._force_cleanup_multiple_services(
+                service_names=["WinDivert", "Monkey"],
+                processes_to_kill=["winws.exe"],
+                drivers_to_unload=["WinDivert", "Monkey"]
+            )
             import time
             time.sleep(0.5)
             

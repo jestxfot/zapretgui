@@ -1,4 +1,3 @@
-# dpi_controller.py
 """
 Контроллер для управления DPI - содержит всю логику запуска и остановки
 """
@@ -24,9 +23,18 @@ class DPIStartWorker(QObject):
         try:
             self.progress.emit("Подготовка к запуску...")
             
+            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
+            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
+                self.app_instance.splash.set_progress(70, "Подготовка к запуску DPI...", "")
+            
             # Проверяем, не запущен ли уже процесс
             if self.dpi_starter.check_process_running_wmi(silent=True):
                 self.progress.emit("Останавливаем предыдущий процесс...")
+                
+                # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
+                if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
+                    self.app_instance.splash.set_progress(75, "Останавливаем предыдущий процесс...", "")
+                
                 # Останавливаем через соответствующий метод
                 if self.launch_method == "direct":
                     from strategy_menu.strategy_runner import get_strategy_runner
@@ -38,6 +46,10 @@ class DPIStartWorker(QObject):
             
             self.progress.emit("Запуск DPI...")
             
+            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
+            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
+                self.app_instance.splash.set_progress(80, "Запуск DPI...", "Инициализация winws.exe")
+            
             # Выбираем метод запуска
             if self.launch_method == "direct":
                 success = self._start_direct()
@@ -46,6 +58,11 @@ class DPIStartWorker(QObject):
             
             if success:
                 self.progress.emit("DPI успешно запущен")
+                
+                # ✅ ОБНОВЛЯЕМ SPLASH SCREEN ПЕРЕД ЗАВЕРШЕНИЕМ
+                if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
+                    self.app_instance.splash.set_progress(90, "DPI успешно запущен", "Завершение инициализации...")
+                
                 self.finished.emit(True, "")
             else:
                 self.finished.emit(False, "Не удалось запустить DPI")
@@ -569,11 +586,19 @@ class DPIController:
                 log("DPI запущен асинхронно", "INFO")
                 self.app.set_status("✅ DPI успешно запущен")
                 
-                # Обновляем UI
-                self.app.update_ui(running=True)
+                # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ТОЛЬКО ОДИН РАЗ
+                if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
+                    # Показываем финальное сообщение
+                    self.app.splash.set_progress(100, "✅ DPI успешно запущен!", "Готово к работе")
+                    # splash закроется автоматически через 500ms из-за progress=100
+                    
+                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                if hasattr(self.app, 'ui_manager'):
+                    self.app.ui_manager.update_ui_state(running=True)
                 
-                # Обновляем статус процесса
-                self.app.on_process_status_changed(True)
+                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+                if hasattr(self.app, 'process_monitor_manager'):
+                    self.app.process_monitor_manager.on_process_status_changed(True)
                 
                 # Устанавливаем флаг намеренного запуска
                 self.app.intentional_start = True
@@ -581,7 +606,8 @@ class DPIController:
                 # Перезапускаем Discord если нужно
                 from discord.discord_restart import get_discord_restart_setting
                 if not self.app.first_start and get_discord_restart_setting():
-                    self.app.discord_manager.restart_discord_if_running()
+                    if hasattr(self.app, 'discord_manager'):
+                        self.app.discord_manager.restart_discord_if_running()
                 else:
                     self.app.first_start = False
                     
@@ -589,9 +615,19 @@ class DPIController:
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
                 self.app.set_status(f"❌ Ошибка запуска: {error_message}")
                 
-                # Обновляем UI как неактивный
-                self.app.update_ui(running=False)
-                self.app.on_process_status_changed(False)
+                # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ПРИ ОШИБКЕ
+                if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
+                    # Показываем ошибку на splash screen
+                    self.app.splash.show_error(error_message)
+                    # Splash screen сам закроется через 3 секунды
+                
+                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                if hasattr(self.app, 'ui_manager'):
+                    self.app.ui_manager.update_ui_state(running=False)
+                
+                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
+                if hasattr(self.app, 'process_monitor_manager'):
+                    self.app.process_monitor_manager.on_process_status_changed(False)
                 
         except Exception as e:
             log(f"Ошибка при обработке результата запуска DPI: {e}", "❌ ERROR")
@@ -613,11 +649,13 @@ class DPIController:
                 else:
                     self.app.set_status("✅ DPI успешно остановлен")
                 
-                # Обновляем UI
-                self.app.update_ui(running=False)
+                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                if hasattr(self.app, 'ui_manager'):
+                    self.app.ui_manager.update_ui_state(running=False)
                 
-                # Обновляем статус процесса
-                self.app.on_process_status_changed(False)
+                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
+                if hasattr(self.app, 'process_monitor_manager'):
+                    self.app.process_monitor_manager.on_process_status_changed(False)
                 
             else:
                 log(f"Ошибка асинхронной остановки DPI: {error_message}", "❌ ERROR")
@@ -625,8 +663,14 @@ class DPIController:
                 
                 # Проверяем реальный статус процесса
                 is_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
-                self.app.update_ui(running=is_running)
-                self.app.on_process_status_changed(is_running)
+                
+                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                if hasattr(self.app, 'ui_manager'):
+                    self.app.ui_manager.update_ui_state(running=is_running)
+                
+                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
+                if hasattr(self.app, 'process_monitor_manager'):
+                    self.app.process_monitor_manager.on_process_status_changed(is_running)
                 
         except Exception as e:
             log(f"Ошибка при обработке результата остановки DPI: {e}", "❌ ERROR")

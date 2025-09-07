@@ -72,11 +72,11 @@ class StrategyChecker:
             # Это комбинированная стратегия
             from strategy_menu.strategy_lists_separated import (
                 YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES, DISCORD_STRATEGIES, 
-                DISCORD_VOICE_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES,
+                DISCORD_VOICE_STRATEGIES,
                 combine_strategies
             )
 
-            from strategy_menu import OTHER_STRATEGIES, TWITCH_TCP_STRATEGIES, YOUTUBE_STRATEGIES, IPSET_TCP_STRATEGIES
+            from strategy_menu import OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(
@@ -98,7 +98,7 @@ class StrategyChecker:
             # YouTube
             if selections.get('youtube') and selections['youtube'] != 'youtube_tcp_none':
                 active_categories.append('YouTube')
-                yt_strat = YOUTUBE_STRATEGIES.get(selections['youtube'])
+                yt_strat = YOUTUBE_TCP_STRATEGIES.get(selections['youtube'])
                 if yt_strat:
                     strategy_names.append(f"YT: {yt_strat.get('name', selections['youtube'])}")
 
