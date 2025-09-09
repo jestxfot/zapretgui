@@ -349,6 +349,8 @@ class StrategySelector(QDialog):
             'googlevideo_tcp': ("📹", "📹 GoogleVideo"),
             'discord': ("💬", "💬 Discord"),
             'discord_voice_udp': ("🔊", "🔊 Discord Voice"),
+            'rutracker_tcp': ("🛠", "🛠 Rutracker"),
+            'ntcparty_tcp': ("🛠", "🛠 NtcParty"),
             'twitch_tcp': ("🎙", "🎙 Twitch"),
             'other': ("🌐", "🌐 Hostlist"),
             'ipset': ("🔢", "🔢 IPset TCP"),
@@ -358,8 +360,17 @@ class StrategySelector(QDialog):
 
         # Добавляем заглушки
         tab_data = [
-            ('youtube',), ('youtube_udp',), ('googlevideo_tcp',), ('discord',),
-            ('discord_voice_udp',), ('twitch_tcp',), ('other',), ('ipset',), ('ipset_udp',),
+            ('youtube',),
+            ('youtube_udp',),
+            ('googlevideo_tcp',),
+            ('discord',),
+            ('discord_voice_udp',),
+            ('rutracker_tcp',),
+            ('ntcparty_tcp',),
+            ('twitch_tcp',),
+            ('other',),
+            ('ipset',),
+            ('ipset_udp',),
         ]
 
         for category_key, in tab_data:
@@ -461,10 +472,12 @@ class StrategySelector(QDialog):
             DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES
         )
         from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
+        from .RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
         from .OTHER_STRATEGIES import OTHER_STRATEGIES
         from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
         from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
         from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
+        from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
 
         strategies_map = {
             'youtube': YOUTUBE_TCP_STRATEGIES,
@@ -472,6 +485,8 @@ class StrategySelector(QDialog):
             'googlevideo_tcp': GOOGLEVIDEO_STRATEGIES,
             'discord': DISCORD_STRATEGIES,
             'discord_voice_udp': DISCORD_VOICE_STRATEGIES,
+            'rutracker_tcp': RUTRACKER_TCP_STRATEGIES,
+            'ntcparty_tcp': NTCPARTY_TCP_STRATEGIES,
             'twitch_tcp': TWITCH_TCP_STRATEGIES,
             'other': OTHER_STRATEGIES,
             'ipset': IPSET_TCP_STRATEGIES,
@@ -520,6 +535,14 @@ class StrategySelector(QDialog):
     Обходит блокировку голосовой связи и видеозвонков в Discord.
     Использует UDP протокол для передачи голоса в реальном времени.
     Включите если не работают голосовые каналы и звонки.""",
+
+            'rutracker_tcp': """🛠 Rutracker (порты 80, 443)
+    Обходит блокировку торрент-трекера Rutracker через стандартные веб-порты.
+    Работает с основным трафиком Rutracker через TCP протокол.""",
+
+            'ntcparty_tcp': """🛠 NtcParty (порты 80, 443)
+    Обходит блокировку технического форума NtcParty отдельно от основных хостлистов.
+    Работает с основным трафиком NtcParty через TCP протокол.""",
 
             'twitch_tcp': """🎙 Twitch стриминг (порты 80, 443)
     Обходит блокировку Twitch стримов через стандартные веб-порты.
@@ -720,8 +743,18 @@ class StrategySelector(QDialog):
     def _update_category_indices(self):
         """Обновляет индексы категорий после изменения табов"""
         if hasattr(self, '_category_tab_indices'):
-            category_keys = ['youtube', 'youtube_udp', 'googlevideo_tcp', 'discord',
-                             'discord_voice_udp', 'twitch_tcp', 'other', 'ipset', 'ipset_udp']
+            category_keys = ['youtube',
+                             'youtube_udp',
+                             'googlevideo_tcp',
+                             'discord',
+                             'discord_voice_udp',
+                             'rutracker_tcp',
+                             'ntcparty_tcp',
+                             'twitch_tcp',
+                             'other',
+                             'ipset',
+                             'ipset_udp'
+                            ]
             for i, key in enumerate(category_keys):
                 if i < self.category_tabs.count():
                     self._category_tab_indices[key] = i
@@ -734,6 +767,8 @@ class StrategySelector(QDialog):
             'googlevideo_tcp': "GoogleVideo CDN серверы - если не загружаются видео со стандартными стратегиями",
             'discord': "Discord мессенджер (TCP) - основной трафик discord.com",
             'discord_voice_udp': "Discord голосовые звонки (UDP) - голосовые каналы и звонки",
+            'rutracker_tcp': "Rutracker (TCP) - основной трафик rutracker.org",
+            'ntcparty_tcp': "NtcParty (TCP) - основной трафик ntcparty.com",
             'twitch_tcp': "Twitch стриминг (TCP) - основной трафик twitch.tv",
             'other': "Заблокированные сайты из списка other.txt (TCP)",
             'ipset': "Блокировка по IP адресам (TCP) ipset-all.txt",
@@ -787,7 +822,7 @@ class StrategySelector(QDialog):
         """Пересортировывает стратегии в категории с учетом избранных"""
         category_map = {
             'youtube': 0, 'youtube_udp': 1, 'googlevideo_tcp': 2, 'discord': 3,
-            'discord_voice_udp': 4, 'twitch_tcp': 5, 'other': 6, 'ipset': 7, 'ipset_udp': 8
+            'discord_voice_udp': 4, 'rutracker_tcp': 5, 'ntcparty_tcp': 6, 'twitch_tcp': 7, 'other': 8, 'ipset': 9, 'ipset_udp': 10
         }
 
         tab_index = category_map.get(category_key, -1)
@@ -1336,7 +1371,8 @@ class StrategySelector(QDialog):
                                    set_direct_strategy_googlevideo, set_direct_strategy_discord,
                                    set_direct_strategy_other, set_direct_strategy_discord_voice,
                                    set_direct_strategy_ipset, set_direct_strategy_udp_ipset,
-                                   set_direct_strategy_twitch_tcp)
+                                   set_direct_strategy_twitch_tcp, set_direct_strategy_ntcparty_tcp,
+                                   set_direct_strategy_rutracker_tcp)
 
         self.category_selections[category] = strategy_id
         self.update_combined_preview()
@@ -1352,6 +1388,10 @@ class StrategySelector(QDialog):
                 set_direct_strategy_discord(strategy_id)
             elif category == 'discord_voice_udp':
                 set_direct_strategy_discord_voice(strategy_id)
+            elif category == 'rutracker_tcp':
+                set_direct_strategy_rutracker_tcp(strategy_id)
+            elif category == 'ntcparty_tcp':
+                set_direct_strategy_ntcparty_tcp(strategy_id)
             elif category == 'twitch_tcp':
                 set_direct_strategy_twitch_tcp(strategy_id)
             elif category == 'other':
@@ -1379,6 +1419,8 @@ class StrategySelector(QDialog):
             self.category_selections.get('googlevideo_tcp'),
             self.category_selections.get('discord'),
             self.category_selections.get('discord_voice_udp'),
+            self.category_selections.get('rutracker_tcp'),
+            self.category_selections.get('ntcparty_tcp'),
             self.category_selections.get('twitch_tcp'),
             self.category_selections.get('other'),
             self.category_selections.get('ipset'),
@@ -1394,6 +1436,8 @@ class StrategySelector(QDialog):
             'googlevideo_tcp': 'googlevideo_tcp_none',
             'discord': 'discord_tcp_none',
             'discord_voice_udp': 'discord_voice_udp_none',
+            'rutracker_tcp': 'rutracker_tcp_none',
+            'ntcparty_tcp': 'ntcparty_tcp_none',
             'twitch_tcp': 'twitch_tcp_none',
             'other': 'other_tcp_none',
             'ipset': 'ipset_tcp_none',
@@ -1414,6 +1458,8 @@ class StrategySelector(QDialog):
             format_strategy("GoogleVideo TCP (443)", 'googlevideo_tcp', '#ff9900'),
             format_strategy("Discord TCP (80 & 443)", 'discord', '#7289da'),
             format_strategy("Discord Voice UDP (all stun ports)", 'discord_voice_udp', '#9b59b6'),
+            format_strategy("Rutracker TCP (80 & 443)", 'rutracker_tcp', '#6c5ce7'),
+            format_strategy("NtcParty TCP (80 & 443)", 'ntcparty_tcp', '#6c5ce7'),
             format_strategy("Twitch TCP (80 & 443)", 'twitch_tcp', '#9146ff'),
             format_strategy("Сайты TCP (80 & 443)", 'other', '#66ff66'),
             format_strategy("IPset TCP (80 & 443)", 'ipset', '#ffa500'),
@@ -1552,6 +1598,8 @@ class StrategySelector(QDialog):
                 self.category_selections.get('googlevideo_tcp'),
                 self.category_selections.get('discord'),
                 self.category_selections.get('discord_voice_udp'),
+                self.category_selections.get('rutracker_tcp'),
+                self.category_selections.get('ntcparty_tcp'),
                 self.category_selections.get('twitch_tcp'),
                 self.category_selections.get('other'),
                 self.category_selections.get('ipset'),

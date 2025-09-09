@@ -108,7 +108,7 @@ OTHER_STRATEGIES = {
         "description": "Рекомендуется для 80 порта (HTTP)",
         "author": "hz",
         "label": None,
-        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq"""
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new"""
     },
     "multisplit_seqovl_2_midsld": {
         "name": "fake multisplit seqovl 2 midsld",

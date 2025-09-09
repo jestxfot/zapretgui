@@ -184,6 +184,8 @@ _DIRECT_YOUTUBE_UDP_NAME = "DirectStrategyYoutubeUDP"
 _DIRECT_GOOGLEVIDEO_NAME = "DirectStrategyGoogleVideo"
 _DIRECT_DISCORD_NAME = "DirectStrategyDiscord"
 _DIRECT_DISCORD_VOICE_NAME = "DirectStrategyDiscordVoice"
+_DIRECT_RUTRACKER_TCP_NAME = "DirectStrategyRutrackerTcp"
+_DIRECT_NTCPARTY_TCP_NAME = "DirectStrategyNtcPartyTcp"
 _DIRECT_TWITCH_TCP_NAME = "DirectStrategyTwitchTCP"
 _DIRECT_OTHER_NAME = "DirectStrategyOther"
 _DIRECT_IPSET_NAME = "DirectStrategyIpset"
@@ -197,6 +199,8 @@ def get_direct_strategy_selections() -> dict:
         googlevideo_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_GOOGLEVIDEO_NAME)
         discord = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_NAME)
         discord_voice_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME)
+        rutracker_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME)
+        ntcparty_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME)
         twitch_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
         other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
         ipset = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_NAME)
@@ -212,6 +216,8 @@ def get_direct_strategy_selections() -> dict:
             'googlevideo_tcp': googlevideo_tcp if googlevideo_tcp else default_selections.get('googlevideo_tcp'),
             'discord': discord if discord else default_selections.get('discord'),
             'discord_voice_udp': discord_voice_udp if discord_voice_udp else default_selections.get('discord_voice_udp'),
+            'rutracker_tcp': rutracker_tcp if rutracker_tcp else default_selections.get('rutracker_tcp'),
+            'ntcparty_tcp': ntcparty_tcp if ntcparty_tcp else default_selections.get('ntcparty_tcp'),
             'twitch_tcp': twitch_tcp if twitch_tcp else default_selections.get('twitch_tcp'),
             'other': other if other else default_selections.get('other'),
             'ipset': ipset if ipset else default_selections.get('ipset'),
@@ -246,6 +252,12 @@ def set_direct_strategy_selections(selections: dict) -> bool:
         
         if 'discord_voice_udp' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, selections['discord_voice_udp'])
+
+        if 'rutracker_tcp' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME, selections['rutracker_tcp'])
+
+        if 'ntcparty_tcp' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME, selections['ntcparty_tcp'])
 
         if 'twitch_tcp' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME, selections['twitch_tcp'])
@@ -340,6 +352,34 @@ def set_direct_strategy_discord_voice(strategy_id: str) -> bool:
     """Сохраняет выбранную Discord Voice стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, _DIRECT_DISCORD_VOICE_NAME, strategy_id)
 
+def get_direct_strategy_rutracker_tcp() -> str:
+    """Возвращает сохраненную Rutracker TCP стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('rutracker_tcp', 'rutracker_tcp_none')
+
+def set_direct_strategy_rutracker_tcp(strategy_id: str) -> bool:
+    """Сохраняет выбранную Rutracker TCP стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME, strategy_id)
+
+def get_direct_strategy_ntcparty_tcp() -> str:
+    """Возвращает сохраненную NtcParty TCP стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('ntcparty_tcp', 'original_bolvan_v2_badsum')
+
+def set_direct_strategy_ntcparty_tcp(strategy_id: str) -> bool:
+    """Сохраняет выбранную NtcParty TCP стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME, strategy_id)
+
 def get_direct_strategy_twitch_tcp() -> str:
     """Возвращает сохраненную Twitch TCP стратегию"""
     result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
@@ -396,6 +436,8 @@ def set_direct_strategy_udp_ipset(strategy_id: str) -> bool:
     """Сохраняет выбранную UDP IPset стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, "DirectStrategyUdpIpset", strategy_id)
 
+from .RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
+from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
 from .OTHER_STRATEGIES import OTHER_STRATEGIES
 from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
 from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
@@ -405,6 +447,8 @@ from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
 
 all = [
     'OTHER_STRATEGIES',
+    'RUTRACKER_TCP_STRATEGIES',
+    'NTCPARTY_TCP_STRATEGIES',
     'TWITCH_TCP_STRATEGIES',
     'YOUTUBE_TCP_STRATEGIES',
     'IPSET_TCP_STRATEGIES',

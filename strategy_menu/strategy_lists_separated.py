@@ -1,11 +1,49 @@
 # strategy_menu/strategy_lists_separated.py
 
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
-from .OTHER_STRATEGIES import OTHER_STRATEGIES
-from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
-from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
-from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
-from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
+from log import log
+
+try:
+    from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта TWITCH_TCP_STRATEGIES: {e}", "❌ ERROR")
+    TWITCH_TCP_STRATEGIES = {}
+
+try:
+    from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта YOUTUBE_TCP_STRATEGIES: {e}", "❌ ERROR")
+    YOUTUBE_TCP_STRATEGIES = {}
+
+try:
+    from .OTHER_STRATEGIES import OTHER_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта OTHER_STRATEGIES: {e}", "❌ ERROR")
+    OTHER_STRATEGIES = {}
+
+try:
+    from .RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта RUTRACKER_TCP_STRATEGIES: {e}", "❌ ERROR")
+    RUTRACKER_TCP_STRATEGIES = {}
+
+try:
+    from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта NTCPARTY_TCP_STRATEGIES: {e}", "❌ ERROR")
+    NTCPARTY_TCP_STRATEGIES = {}
+
+try:
+    from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта IPSET_TCP_STRATEGIES: {e}", "❌ ERROR")
+    IPSET_TCP_STRATEGIES = {}
+
+try:
+    from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта IPSET_UDP_STRATEGIES: {e}", "❌ ERROR")
+    IPSET_UDP_STRATEGIES = {}
 
 """
 Censorliber, [08.08.2025 1:02]
@@ -1048,96 +1086,164 @@ DISCORD_UPD_STRATEGIES = {
 
 # Базовые аргументы (применяются всегда)
 BASE_ARGS = "--wf-raw=@windivert.all.txt"
+BASE_ARGS_WF_L3 = "--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50100"
 
-def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, twitch_tcp_id: str, other_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
+def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, rutracker_tcp_id: str, ntcparty_tcp_id: str, twitch_tcp_id: str, other_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
     """
     Объединяет выбранные стратегии в одну общую
         
     Returns:
         Словарь с объединенной стратегией
     """
+    from log import log
+    
     # Собираем аргументы
     args_parts = [BASE_ARGS]
 
+    # Безопасная функция для получения аргументов стратегии
+    def safe_get_strategy_args(strategy_dict, strategy_id, category_name):
+        if not strategy_id:
+            return None
+        
+        if strategy_id not in strategy_dict:
+            log(f"Стратегия '{strategy_id}' не найдена в категории '{category_name}'", "⚠ WARNING")
+            log(f"Доступные стратегии в '{category_name}': {list(strategy_dict.keys())}", "DEBUG")
+            return None
+        
+        try:
+            args = strategy_dict[strategy_id].get("args", "")
+            return args if args else None
+        except Exception as e:
+            log(f"Ошибка получения аргументов для '{strategy_id}': {e}", "❌ ERROR")
+            return None
+
     # Добавляем GoogleVideo стратегию
-    if googlevideo_id and googlevideo_id in GOOGLEVIDEO_STRATEGIES:
-        googlevideo_args = GOOGLEVIDEO_STRATEGIES[googlevideo_id]["args"]
-        if googlevideo_args:
-            args_parts.append(googlevideo_args)
+    googlevideo_args = safe_get_strategy_args(GOOGLEVIDEO_STRATEGIES, googlevideo_id, "GoogleVideo")
+    if googlevideo_args:
+        args_parts.append(googlevideo_args)
 
     # Добавляем YouTube стратегию
-    if youtube_id and youtube_id in YOUTUBE_TCP_STRATEGIES:
-        youtube_args = YOUTUBE_TCP_STRATEGIES[youtube_id]["args"]
-        if youtube_args:
-            args_parts.append(youtube_args)
+    youtube_args = safe_get_strategy_args(YOUTUBE_TCP_STRATEGIES, youtube_id, "YouTube TCP")
+    if youtube_args:
+        args_parts.append(youtube_args)
 
     # Добавляем YouTube QUIC стратегию
-    if youtube_udp_id and youtube_udp_id in YOUTUBE_QUIC_STRATEGIES:
-        youtube_quic_args = YOUTUBE_QUIC_STRATEGIES[youtube_udp_id]["args"]
-        if youtube_quic_args:
-            args_parts.append(youtube_quic_args)
+    youtube_quic_args = safe_get_strategy_args(YOUTUBE_QUIC_STRATEGIES, youtube_udp_id, "YouTube QUIC")
+    if youtube_quic_args:
+        args_parts.append(youtube_quic_args)
 
     # Добавляем Discord стратегию
-    if discord_id and discord_id in DISCORD_STRATEGIES:
-        discord_args = DISCORD_STRATEGIES[discord_id]["args"]
-        if discord_args:
-            args_parts.append(discord_args)
+    discord_args = safe_get_strategy_args(DISCORD_STRATEGIES, discord_id, "Discord")
+    if discord_args:
+        args_parts.append(discord_args)
     
     # Добавляем Discord Voice стратегию
-    if discord_voice_id and discord_voice_id in DISCORD_VOICE_STRATEGIES:
-        discord_voice_args = DISCORD_VOICE_STRATEGIES[discord_voice_id]["args"]
-        if discord_voice_args:
-            args_parts.append(discord_voice_args)
+    discord_voice_args = safe_get_strategy_args(DISCORD_VOICE_STRATEGIES, discord_voice_id, "Discord Voice")
+    if discord_voice_args:
+        args_parts.append(discord_voice_args)
+
+    # Добавляем Rutracker TCP стратегию
+    rutracker_tcp_args = safe_get_strategy_args(RUTRACKER_TCP_STRATEGIES, rutracker_tcp_id, "Rutracker TCP")
+    if rutracker_tcp_args:
+        args_parts.append(rutracker_tcp_args)
+
+    # Добавляем NtcParty TCP стратегию
+    ntcparty_tcp_args = safe_get_strategy_args(NTCPARTY_TCP_STRATEGIES, ntcparty_tcp_id, "NtcParty TCP")
+    if ntcparty_tcp_args:
+        args_parts.append(ntcparty_tcp_args)
 
     # Добавляем Twitch TCP стратегию
-    if twitch_tcp_id and twitch_tcp_id in TWITCH_TCP_STRATEGIES:
-        twitch_tcp_args = TWITCH_TCP_STRATEGIES[twitch_tcp_id]["args"]
-        if twitch_tcp_args:
-            args_parts.append(twitch_tcp_args)
+    twitch_tcp_args = safe_get_strategy_args(TWITCH_TCP_STRATEGIES, twitch_tcp_id, "Twitch TCP")
+    if twitch_tcp_args:
+        args_parts.append(twitch_tcp_args)
 
     # Добавляем стратегию для остальных сайтов
-    if other_id and other_id in OTHER_STRATEGIES:
-        other_args = OTHER_STRATEGIES[other_id]["args"]
-        if other_args:
-            args_parts.append(other_args)
+    other_args = safe_get_strategy_args(OTHER_STRATEGIES, other_id, "Other")
+    if other_args:
+        args_parts.append(other_args)
 
     # IPset
-    if ipset_id and ipset_id in IPSET_TCP_STRATEGIES:
-        ipset_args = IPSET_TCP_STRATEGIES[ipset_id]["args"]
-        if ipset_args:
-            args_parts.append(ipset_args)
+    ipset_args = safe_get_strategy_args(IPSET_TCP_STRATEGIES, ipset_id, "IPset TCP")
+    if ipset_args:
+        args_parts.append(ipset_args)
 
     # UDP IPset
-    if ipset_udp_id and ipset_udp_id in IPSET_UDP_STRATEGIES:
-        ipset_udp_args = IPSET_UDP_STRATEGIES[ipset_udp_id]["args"]
-        if ipset_udp_args:
-            args_parts.append(ipset_udp_args)
+    ipset_udp_args = safe_get_strategy_args(IPSET_UDP_STRATEGIES, ipset_udp_id, "IPset UDP")
+    if ipset_udp_args:
+        args_parts.append(ipset_udp_args)
 
     # Объединяем все части через пробел
     combined_args = " ".join(args_parts)
     
+    # Безопасная функция для получения имени стратегии
+    def safe_get_strategy_name(strategy_dict, strategy_id):
+        if not strategy_id or strategy_id not in strategy_dict:
+            return None
+        try:
+            return strategy_dict[strategy_id].get('name', strategy_id)
+        except:
+            return strategy_id
+    
     # Формируем описание
     descriptions = []
     if youtube_id and youtube_id != "youtube_tcp_none":
-        descriptions.append(f"YouTube: {YOUTUBE_TCP_STRATEGIES[youtube_id]['name']}")
+        name = safe_get_strategy_name(YOUTUBE_TCP_STRATEGIES, youtube_id)
+        if name:
+            descriptions.append(f"YouTube: {name}")
+    
     if youtube_udp_id and youtube_udp_id != "youtube_quic_none":
-        descriptions.append(f"YouTube QUIC: {YOUTUBE_QUIC_STRATEGIES[youtube_udp_id]['name']}")
+        name = safe_get_strategy_name(YOUTUBE_QUIC_STRATEGIES, youtube_udp_id)
+        if name:
+            descriptions.append(f"YouTube QUIC: {name}")
+    
     if discord_id and discord_id != "discord_tcp_none":
-        descriptions.append(f"Discord: {DISCORD_STRATEGIES[discord_id]['name']}")
+        name = safe_get_strategy_name(DISCORD_STRATEGIES, discord_id)
+        if name:
+            descriptions.append(f"Discord: {name}")
+    
     if googlevideo_id and googlevideo_id != "googlevideo_tcp_none":
-        descriptions.append(f"GoogleVideo: {GOOGLEVIDEO_STRATEGIES[googlevideo_id]['name']}")
+        name = safe_get_strategy_name(GOOGLEVIDEO_STRATEGIES, googlevideo_id)
+        if name:
+            descriptions.append(f"GoogleVideo: {name}")
+    
     if discord_voice_id and discord_voice_id != "discord_voice_udp_none":
-        descriptions.append(f"Discord Voice: {DISCORD_VOICE_STRATEGIES[discord_voice_id]['name']}")
+        name = safe_get_strategy_name(DISCORD_VOICE_STRATEGIES, discord_voice_id)
+        if name:
+            descriptions.append(f"Discord Voice: {name}")
+    
+    if rutracker_tcp_id and rutracker_tcp_id != "rutracker_tcp_none":
+        name = safe_get_strategy_name(RUTRACKER_TCP_STRATEGIES, rutracker_tcp_id)
+        if name:
+            descriptions.append(f"Rutracker TCP: {name}")
+
+    if ntcparty_tcp_id and ntcparty_tcp_id != "ntcparty_tcp_none":
+        name = safe_get_strategy_name(NTCPARTY_TCP_STRATEGIES, ntcparty_tcp_id)
+        if name:
+            descriptions.append(f"NtcParty TCP: {name}")
+    
     if twitch_tcp_id and twitch_tcp_id != "twitch_tcp_none":
-        descriptions.append(f"Twitch TCP: {TWITCH_TCP_STRATEGIES[twitch_tcp_id]['name']}")
+        name = safe_get_strategy_name(TWITCH_TCP_STRATEGIES, twitch_tcp_id)
+        if name:
+            descriptions.append(f"Twitch TCP: {name}")
+    
     if other_id and other_id != "other_tcp_none":
-        descriptions.append(f"Остальные: {OTHER_STRATEGIES[other_id]['name']}")
+        name = safe_get_strategy_name(OTHER_STRATEGIES, other_id)
+        if name:
+            descriptions.append(f"Остальные: {name}")
+    
     if ipset_id and ipset_id != "ipset_tcp_none":
-        descriptions.append(f"IPset: {IPSET_TCP_STRATEGIES[ipset_id]['name']}")
+        name = safe_get_strategy_name(IPSET_TCP_STRATEGIES, ipset_id)
+        if name:
+            descriptions.append(f"IPset: {name}")
+    
     if ipset_udp_id and ipset_udp_id != "ipset_udp_none":
-        descriptions.append(f"IPset UDP: {IPSET_UDP_STRATEGIES[ipset_udp_id]['name']}")
+        name = safe_get_strategy_name(IPSET_UDP_STRATEGIES, ipset_udp_id)
+        if name:
+            descriptions.append(f"IPset UDP: {name}")
 
     combined_description = " | ".join(descriptions) if descriptions else "Пользовательская комбинация"
+    
+    log(f"Создана комбинированная стратегия с аргументами: {combined_args}", "DEBUG")
     
     return {
         "name": "Комбинированная стратегия",
@@ -1155,11 +1261,14 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
         "_googlevideo_id": googlevideo_id,
         "_discord_id": discord_id,
         "_discord_voice_id": discord_voice_id,
+        "_rutracker_tcp_id": rutracker_tcp_id,
+        "_ntcparty_tcp_id": ntcparty_tcp_id,
         "_twitch_tcp_id": twitch_tcp_id,
         "_other_id": other_id,
         "_ipset_id": ipset_id,
         "_ipset_udp_id": ipset_udp_id
     }
+
 
 def get_default_selections():
     """Возвращает стратегии по умолчанию для каждой категории"""
@@ -1169,6 +1278,8 @@ def get_default_selections():
         'googlevideo_tcp': 'googlevideo_tcp_none',
         'discord': 'dis4',
         'discord_voice_udp': 'ipv4_dup2_autottl_cutoff_n3',
+        'rutracker_tcp': 'rutracker_tcp_none',
+        'ntcparty_tcp': 'original_bolvan_v2_badsum',
         'twitch_tcp': 'twitch_tcp_none',
         'other': 'other_seqovl',
         'ipset': 'other_seqovl',

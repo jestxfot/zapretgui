@@ -71,6 +71,8 @@ class DPIManager(QObject):
                 selections.get('googlevideo_tcp'),
                 selections.get('discord'),
                 selections.get('discord_voice_udp'),
+                selections.get('rutracker_tcp'),
+                selections.get('ntcparty_tcp'),
                 selections.get('twitch_tcp'),
                 selections.get('other'),
                 selections.get('ipset'),

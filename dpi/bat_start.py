@@ -5,7 +5,7 @@ import subprocess
 from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strategy_menu.manager import StrategyManager
+    from strategy_menu.strategy_manager import StrategyManager
     from main import LupiDPIApp
 
 from log import log

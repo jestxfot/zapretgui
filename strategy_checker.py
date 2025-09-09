@@ -76,7 +76,7 @@ class StrategyChecker:
                 combine_strategies
             )
 
-            from strategy_menu import OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES
+            from strategy_menu import OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(
@@ -85,6 +85,8 @@ class StrategyChecker:
                 selections.get('googlevideo_tcp'),
                 selections.get('discord'),
                 selections.get('discord_voice_udp'),
+                selections.get('rutracker_tcp'),
+                selections.get('ntcparty_tcp'),
                 selections.get('twitch_tcp'),
                 selections.get('other'),
                 selections.get('ipset'),
@@ -129,6 +131,13 @@ class StrategyChecker:
                 dv_strat = DISCORD_VOICE_STRATEGIES.get(selections['discord_voice_udp'])
                 if dv_strat:
                     strategy_names.append(f"DV: {dv_strat.get('name', selections['discord_voice_udp'])}")
+
+            # NtcParty TCP
+            if selections.get('ntcparty_tcp') and selections['ntcparty_tcp'] != 'ntcparty_tcp_none':
+                active_categories.append('NtcParty TCP')
+                ntc_strat = NTCPARTY_TCP_STRATEGIES.get(selections['ntcparty_tcp'])
+                if ntc_strat:
+                    strategy_names.append(f"NtcParty: {ntc_strat.get('name', selections['ntcparty_tcp'])}")
 
             # Twitch TCP
             if selections.get('twitch_tcp') and selections['twitch_tcp'] != 'twitch_tcp_none':

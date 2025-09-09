@@ -62,7 +62,8 @@ class InitializationManager:
     def _init_strategy_manager(self):
         """Быстрая синхронная инициализация Strategy Manager (локально)"""
         try:
-            from strategy_menu.manager import StrategyManager
+            # ВАЖНО: импортируем из 'strategy_menu.strategy_manager', чтобы избежать побочных эффектов
+            from strategy_menu.strategy_manager import StrategyManager
             from config import STRATEGIES_FOLDER, INDEXJSON_FOLDER
             import os
 

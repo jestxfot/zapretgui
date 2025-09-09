@@ -326,6 +326,8 @@ class DPIController:
                     saved_selections.get('googlevideo_tcp'),
                     saved_selections.get('discord'),
                     saved_selections.get('discord_voice_udp'),
+                    saved_selections.get('rutracker_tcp'),
+                    saved_selections.get('ntcparty_tcp'),
                     saved_selections.get('twitch_tcp'),
                     saved_selections.get('other'),
                     saved_selections.get('ipset'),
