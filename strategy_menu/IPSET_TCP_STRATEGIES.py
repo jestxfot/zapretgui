@@ -1,6 +1,6 @@
 from .constants import LABEL_CAUTION, LABEL_GAME, LABEL_RECOMMENDED, LABEL_STABLE 
 
-IPSET_BASE_ARG = "--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare.txt --ipset=ipset-discord.txt --ipset-exclude=ipset-dns.txt"
+IPSET_BASE_ARG = "--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare1.txt --ipset=ipset-cloudflare.txt --ipset=ipset-discord.txt --ipset-exclude=ipset-dns.txt"
 
 """
 --filter-tcp=443 --ipset=russia-youtube-rtmps.txt --dpi-desync=syndata --dpi-desync-fake-syndata=tls_clienthello_4.bin --dpi-desync-autottl --new
@@ -12,6 +12,13 @@ IPSET_BASE_ARG = "--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt
 WARMFRAME_CHAT = "--filter-tcp=6695-6705 --dpi-desync=fake,split2 --dpi-desync-repeats=8 --dpi-desync-fooling=md5sig --dpi-desync-autottl=2 --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"
 
 IPSET_TCP_STRATEGIES = {
+    "general_alt4_182": {
+        "name": "general (alt v4) 1.8.2",
+        "description": "Для Rockstar Launcher & Epic Games",
+        "author": "https://github.com/Flowseal/zapret-discord-youtube/issues/2361",
+        "label": LABEL_GAME,
+        "args": f"""{WARMFRAME_CHAT} {IPSET_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin --new"""
+    },
     "other_seqovl": {
         "name": "multisplit seqovl 211 & pattern 5",
         "description": "Потом опишу подробнее",

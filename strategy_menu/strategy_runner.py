@@ -259,7 +259,8 @@ class StrategyRunner:
             ]):
                 prefix, filename = arg.split("=", 1)
                 
-                if filename.startswith("0x"):
+                # Проверяем специальные значения (hex или модификаторы)
+                if filename.startswith("0x") or filename.startswith("!"):
                     resolved_args.append(arg)
                 else:
                     filename = filename.strip('"')

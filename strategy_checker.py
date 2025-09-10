@@ -70,13 +70,9 @@ class StrategyChecker:
             selections = get_direct_strategy_selections()
             
             # Это комбинированная стратегия
-            from strategy_menu.strategy_lists_separated import (
-                YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES, DISCORD_STRATEGIES, 
-                DISCORD_VOICE_STRATEGIES,
-                combine_strategies
-            )
+            from strategy_menu.strategy_lists_separated import YOUTUBE_QUIC_STRATEGIES, DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES,combine_strategies
 
-            from strategy_menu import OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES
+            from strategy_menu import GOOGLEVIDEO_STRATEGIES, OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(

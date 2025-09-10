@@ -275,7 +275,7 @@ class CommandLineDialog(QDialog):
                 "--dpi-desync-fake-syndata=", "--dpi-desync-fake-unknown-udp="
             ]):
                 prefix, filename = arg.split("=", 1)
-                if not filename.startswith("0x") and not os.path.isabs(filename):
+                if not filename.startswith("0x") and not filename.startswith("!") and not os.path.isabs(filename):
                     filename = filename.strip('"')
                     full_path = os.path.join(bin_dir, filename)
                     resolved.append(f'{prefix}={full_path}')

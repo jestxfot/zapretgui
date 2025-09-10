@@ -116,6 +116,27 @@ def set_tabs_pinned(pinned: bool) -> bool:
     return success
         
 # ───────────── Настройки прямого метода ─────────────
+
+def get_base_args_selection() -> str:
+    """Получает выбранный вариант базовых аргументов"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "BaseArgsSelection")
+            return value
+    except:
+        return "windivert_all"
+
+def set_base_args_selection(selection: str) -> bool:
+    """Сохраняет выбранный вариант базовых аргументов"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            winreg.SetValueEx(key, "BaseArgsSelection", 0, winreg.REG_SZ, selection)
+            log(f"Базовые аргументы изменены на: {selection}", "INFO")
+            return True
+    except Exception as e:
+        log(f"Ошибка сохранения базовых аргументов: {e}", "❌ ERROR")
+        return False
+    
 def get_allzone_hostlist_enabled() -> bool:
     """Получает состояние настройки замены other.txt на allzone.txt"""
     try:
@@ -190,6 +211,7 @@ _DIRECT_TWITCH_TCP_NAME = "DirectStrategyTwitchTCP"
 _DIRECT_OTHER_NAME = "DirectStrategyOther"
 _DIRECT_IPSET_NAME = "DirectStrategyIpset"
 _DIRECT_IPSET_UDP_NAME = "DirectStrategyIpsetUdp"
+_DIRECT_ROCKSTAR_LAUNCHER_TCP_NAME = "DirectStrategyRockstarLauncherTcp"
 
 def get_direct_strategy_selections() -> dict:
     """Возвращает сохраненные выборы стратегий для прямого запуска"""
@@ -202,6 +224,7 @@ def get_direct_strategy_selections() -> dict:
         rutracker_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME)
         ntcparty_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME)
         twitch_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
+        rockstar_launcher_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_ROCKSTAR_LAUNCHER_TCP_NAME)
         other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
         ipset = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_NAME)
         ipset_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_UDP_NAME)
@@ -443,9 +466,11 @@ from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
 from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
 from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
 from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
+from .GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
 
 
 all = [
+    'GOOGLEVIDEO_STRATEGIES',
     'OTHER_STRATEGIES',
     'RUTRACKER_TCP_STRATEGIES',
     'NTCPARTY_TCP_STRATEGIES',

@@ -36,6 +36,17 @@ PREDEFINED_DOMAINS = {
             'valvesoftware.com'
         ]
     },
+    'Rockstar & Epic Games': {
+        'name': '🎮 Rockstar & Epic Games',
+        'domains': [
+            'epicgames.com',
+            'cdn1.unrealengine.com',
+            'cdn2.unrealengine.com',
+            'epicgames-download1.akamaized.net',
+            'fortnite.com',
+            'rockstargames.com'
+        ]
+    },
     'telegram': {
         'name': '✈️ Telegram',
         'domains': [

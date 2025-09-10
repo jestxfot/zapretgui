@@ -1,6 +1,6 @@
 from .constants import LABEL_RECOMMENDED, LABEL_STABLE, LABEL_GAME
 
-IPSET_UDP_BASE_ARG = "--filter-udp=443,444-65535 --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare.txt --ipset-exclude=ipset-dns.txt"
+IPSET_UDP_BASE_ARG = "--filter-udp=443,444-65535 --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare1.txt --ipset=ipset-cloudflare.txt --ipset-exclude=ipset-dns.txt"
 
 IPSET_UDP_STRATEGIES = {
     "fake_2_n2_google": {

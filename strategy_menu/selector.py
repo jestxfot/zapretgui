@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                             QWidget, QTabWidget, QTabBar, QLabel, QMessageBox, QGroupBox,
                             QTextBrowser, QSizePolicy, QFrame, QScrollArea,
                             QRadioButton, QButtonGroup, QCheckBox, QProgressBar,
-                            QTextEdit)
+                            QTextEdit, QComboBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QSize, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QTextCursor, QPainter, QTextOption, QPen, QCursor, QColor
 
@@ -468,7 +468,7 @@ class StrategySelector(QDialog):
 
         # Импортируем стратегии только сейчас
         from .strategy_lists_separated import (
-            YOUTUBE_QUIC_STRATEGIES, GOOGLEVIDEO_STRATEGIES,
+            YOUTUBE_QUIC_STRATEGIES,
             DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES
         )
         from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
@@ -478,6 +478,7 @@ class StrategySelector(QDialog):
         from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
         from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
         from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
+        from .GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
 
         strategies_map = {
             'youtube': YOUTUBE_TCP_STRATEGIES,
@@ -1196,6 +1197,81 @@ class StrategySelector(QDialog):
             params_layout.addWidget(self._create_separator())
 
         if self.is_direct_mode:
+            # Добавляем выбор базовых аргументов
+            base_args_widget = QWidget()
+            base_args_layout = QVBoxLayout(base_args_widget)
+            base_args_layout.setContentsMargins(0, 0, 0, 0)
+            base_args_layout.setSpacing(3)
+            
+            base_args_label = QLabel("🔧 Базовые аргументы запуска:")
+            base_args_label.setStyleSheet("font-weight: bold; margin-bottom: 3px;")
+            base_args_layout.addWidget(base_args_label)
+            
+            from PyQt6.QtWidgets import QComboBox
+            self.base_args_combo = QComboBox()
+            self.base_args_combo.setStyleSheet("""
+                QComboBox {
+                    padding: 5px;
+                    background: #333;
+                    border: 1px solid #555;
+                    border-radius: 3px;
+                    font-size: 9pt;
+                }
+                QComboBox:hover {
+                    border: 1px solid #2196F3;
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: none;
+                    border-left: 5px solid transparent;
+                    border-right: 5px solid transparent;
+                    border-top: 5px solid #2196F3;
+                    margin-right: 5px;
+                }
+                QComboBox QAbstractItemView {
+                    background: #2a2a2a;
+                    border: 1px solid #555;
+                    selection-background-color: #2196F3;
+                    padding: 5px;
+                }
+            """)
+            
+            # Добавляем варианты
+            base_args_options = [
+                ("💚 Аккуратный режим (базовый)", "wf-l3", "Использует L3 фильтрацию с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
+                ("💯 Умный режим (все порты)", "windivert_all", "Использует файл wf-raw для фильтрации.\nБьёт по всем портам (может нарушать работу игр, однако старается делать это быстро)."),
+                ("💥 Агрессивный режим (все порты)", "wf-l3-all", "Использует медленную L3 фильтрацию чтобы гарантированно покрыть 100% всех портов и игр. Сильно нагружает систему, но может помочь для некоторых игр")
+            ]
+            
+            for display_name, value, tooltip in base_args_options:
+                self.base_args_combo.addItem(display_name, value)
+                index = self.base_args_combo.count() - 1
+                self.base_args_combo.setItemData(index, tooltip, Qt.ItemDataRole.ToolTipRole)
+            
+            # Загружаем сохраненное значение
+            from strategy_menu import get_base_args_selection
+            current_selection = get_base_args_selection()
+            index = self.base_args_combo.findData(current_selection)
+            if index >= 0:
+                self.base_args_combo.setCurrentIndex(index)
+            
+            # Подключаем обработчик изменения
+            self.base_args_combo.currentIndexChanged.connect(self._on_base_args_changed)
+            
+            base_args_layout.addWidget(self.base_args_combo)
+            
+            base_args_info = QLabel("Определяет метод перехвата и фильтрации трафика")
+            base_args_info.setWordWrap(True)
+            base_args_info.setStyleSheet("padding-left: 5px; color: #aaa; font-size: 8pt; margin-top: 3px;")
+            base_args_layout.addWidget(base_args_info)
+            
+            params_layout.addWidget(base_args_widget)
+            params_layout.addWidget(self._create_separator())
+
+        if self.is_direct_mode:
             # ALLZONE
             allzone_widget = QWidget()
             allzone_layout = QVBoxLayout(allzone_widget)
@@ -1296,6 +1372,18 @@ class StrategySelector(QDialog):
         set_allzone_hostlist_enabled(enabled)
         log(f"Замена other.txt на allzone.txt {'включена' if enabled else 'выключена'}", "INFO")
 
+    def _on_base_args_changed(self, index):
+        """Обработчик изменения базовых аргументов"""
+        from strategy_menu import set_base_args_selection
+        value = self.base_args_combo.itemData(index)
+        if value:
+            set_base_args_selection(value)
+            log(f"Базовые аргументы изменены на: {value}", "INFO")
+            
+            # Обновляем предпросмотр
+            if hasattr(self, 'update_combined_preview'):
+                self.update_combined_preview()
+                
     def _on_tab_changed(self, index):
         try:
             if index == 0:  # Стратегии
