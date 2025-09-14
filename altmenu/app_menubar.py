@@ -114,11 +114,15 @@ class AppMenuBar(QMenuBar):
         # -------- 3. «Справка» ---------------------------------------------
         help_menu = self.addMenu("&Справка")
 
-        act_help = QAction("Что это такое? (Руководство)", self)
+        act_help = QAction("❓ Что это такое? (Руководство)", self)
         act_help.triggered.connect(self.open_info)
         help_menu.addAction(act_help)
 
-        act_about = QAction("О программе…", self)
+        act_support = QAction("💬 Поддержка (запросить помощь)", self)
+        act_support.triggered.connect(self.open_support)
+        help_menu.addAction(act_support)
+
+        act_about = QAction("ℹ О программе…", self)
         act_about.triggered.connect(lambda: AboutDialog(parent).exec())
         help_menu.addAction(act_about)
 
@@ -453,6 +457,16 @@ class AppMenuBar(QMenuBar):
             self._set_status("Открываю руководство…")
         except Exception as e:
             err = f"Ошибка при открытии руководства: {e}"
+            self._set_status(err)
+            QMessageBox.warning(self._pw, "Ошибка", err)
+
+    def open_support(self):
+        try:
+            import webbrowser
+            webbrowser.open("https://t.me/zaprethelp")
+            self._set_status("Открываю поддержку...")
+        except Exception as e:
+            err = f"Ошибка при открытии поддержки: {e}"
             self._set_status(err)
             QMessageBox.warning(self._pw, "Ошибка", err)
 

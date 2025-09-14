@@ -1,21 +1,6 @@
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE, LABEL_WARP
 
-OTHER_BASE_ARG = "--filter-tcp=80,443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --hostlist=porn.txt"
-
-"""
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-ttl=0 --dpi-desync-fooling=md5sig,badsum --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-pos=method+2 --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=badseq --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0E0E0F0E --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=host+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=http_fake_MS.bin --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3 --new
---filter-tcp=80 --dpi-desync=fake,multisplit --dpi-desync-split-pos=sld+1 --dpi-desync-fooling=md5sig --dpi-desync-autottl --new # LABEL_GAME
---filter-tcp=80 --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=2 --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,split2 --dpi-desync-autottl=3 --dpi-desync-fooling=md5sig --new
---filter-tcp=80 --dpi-desync=fake,disorder2 --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new
-"""
+OTHER_BASE_ARG = "--filter-tcp=443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --hostlist=porn.txt"
 
 # Стратегии для остальных сайтов
 OTHER_STRATEGIES = {
@@ -26,23 +11,37 @@ OTHER_STRATEGIES = {
         "label": LABEL_RECOMMENDED,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
     },
+    "other_seqovl": {
+        "name": "multidisorder seqovl 211 & pattern 5",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=multidisorder --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
+    },
     "multisplit_286_pattern": {
         "name": "multisplit seqovl 286 и cutoff n3",
-        "description": "Дисордер стратегия с фуллингом pattern и cutoff n3",
+        "description": "Мультисплит стратегия с фуллингом pattern и cutoff n3",
         "author": "hz",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new"""
     },
     "multisplit_226_pattern_18": {
         "name": "multisplit seqovl 226",
-        "description": "Дисордер стратегия с фуллингом pattern и повтором 9",
+        "description": "Мультисплит стратегия с фуллингом pattern и повтором 9",
         "author": "hz",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=226 --dpi-desync-split-seqovl-pattern=tls_clienthello_18.bin --dup=2 --dup-cutoff=n3 --new"""
     },
+    "multisplit_226_pattern_google_Com": {
+        "name": "multisplit seqovl 226 v2",
+        "description": "Мультисплит стратегия с фуллингом pattern и повтором 9",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=226 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dup=2 --dup-cutoff=d1 --new"""
+    },
     "multisplit_308_pattern": {
         "name": "multisplit seqovl 308 с парттерном 9",
-        "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 9",
+        "description": "Мультисплит стратегия с фуллингом badseq нарезкой и повтором 9",
         "author": "hz",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new"""
@@ -52,7 +51,7 @@ OTHER_STRATEGIES = {
         "description": "Базовая стратегия FakedDisorder с datanoack",
         "author": None,
         "label": LABEL_RECOMMENDED,
-        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000"""
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000 --new"""
     },
     "fake_autottl_repeats_6_badseq": {
         "name": "alt mgts (v1) 1.6.1",
@@ -82,6 +81,13 @@ OTHER_STRATEGIES = {
         "label": LABEL_RECOMMENDED,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --new"""
     },
+    "original_bolvan_v2_badsum_max": {
+        "name": "Мессенджер Max",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=web.max.ru --new"""
+    },
     "other_multidisorder": {
         "name": "multidisorder 6 md5sig",
         "description": "Потом опишу подробнее",
@@ -105,7 +111,7 @@ OTHER_STRATEGIES = {
     },
     "fake_fakedsplit_autottl_2": {
         "name": "fake fakedsplit badseq",
-        "description": "Рекомендуется для 80 порта (HTTP)",
+        "description": "",
         "author": "hz",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-autottl=2 --dpi-desync-fooling=badseq --new"""
@@ -186,6 +192,20 @@ OTHER_STRATEGIES = {
         "author": "Flowseal",
         "label": None,
         "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --new"""
+    },
+    "multisplit_1_midsld": {
+        "name": "multisplit seqovl 1 и midsld",
+        "description": "Базовая мультисплит с midsld",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-pos=1,midsld"""
+    },
+    "fake_multidisorder_1_split_pos_1": {
+        "name": "fake multidisorder badsum split pos 1",
+        "description": "Базовая мультисплит с midsld",
+        "author": "hz",
+        "label": None,
+        "args": f"""{OTHER_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=1"""
     },
     "other_tcp_none": {
         "name": "Не применять для остальных",

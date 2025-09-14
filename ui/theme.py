@@ -210,17 +210,7 @@ def get_selected_theme(default: str | None = None) -> str | None:
 def set_selected_theme(theme_name: str) -> bool:
     """Записывает строку SelectedTheme"""
     return reg(r"Software\ZapretReg2", "SelectedTheme", theme_name)
-
-def get_windows_theme() -> str:
-    """Читает системную тему Windows"""
-    val = reg(
-        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        "AppsUseLightTheme",
-        root=HKCU
-    )
-    return "light" if val == 1 else "dark"
-
-
+   
 class PremiumCheckWorker(QObject):
     """Воркер для асинхронной проверки премиум статуса"""
     
@@ -336,6 +326,27 @@ class RippleButton(QPushButton):
             painter.end()
 
 
+
+class DualActionRippleButton(RippleButton):
+    """Кнопка с разными действиями для левого и правого клика"""
+    
+    def __init__(self, text, parent=None, color="0, 119, 255"):
+        super().__init__(text, parent, color)
+        self.right_click_callback = None
+    
+    def set_right_click_callback(self, callback):
+        """Устанавливает функцию для правого клика"""
+        self.right_click_callback = callback
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            if self.right_click_callback:
+                self.right_click_callback()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
 class ThemeManager:
     """Класс для управления темами приложения"""
 
@@ -378,8 +389,7 @@ class ThemeManager:
                 self.current_theme = saved
         else:
             self.current_theme = (
-                "Светлая синяя" if get_windows_theme() == "light"
-                else "Темная синяя"
+                "Темная синяя"
             )
 
         # применяем тему, НО БЕЗ записи в настройки

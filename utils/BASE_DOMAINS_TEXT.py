@@ -98,7 +98,6 @@ nnmclub.to
 nnmstatic.win
 notion.so
 novayagazeta.eu
-ntc.party
 onlinesim.io
 ooklaserver.net
 otzovik.com
@@ -127,9 +126,6 @@ rule34.xxx
 rumble.com
 rutor.info
 rutor.is
-rutracker.cc
-rutracker.org
-rutracker.wiki
 save4k.top
 signal.org
 singlelogin.cc
@@ -195,4 +191,6 @@ rusuchka.com
 porno365.bingo
 24video.porn
 xn--m1abbbg.me
+itch.io
+itch.zone
 """

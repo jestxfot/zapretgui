@@ -1,14 +1,14 @@
 # ui/main_window.py
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QComboBox, QSpacerItem, QSizePolicy, QFrame, QStackedWidget
 )
-from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtGui import QIcon, QFont, QMouseEvent
 from PyQt6.QtCore import QSize
 
 from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
-                      STYLE_SHEET, RippleButton)
+                      STYLE_SHEET, RippleButton, DualActionRippleButton)
 
 import qtawesome as qta
 from config import APP_VERSION, CHANNEL
@@ -75,6 +75,11 @@ class MainWindowUI:
         self.current_strategy_label.setMinimumHeight(40)
         self.current_strategy_label.setStyleSheet(
             f"{COMMON_STYLE} font-weight: bold; font-size: 12pt;")
+
+        # ✅ ДОБАВЛЯЕМ: Делаем label кликабельным
+        self.current_strategy_label.setCursor(Qt.CursorShape.WhatsThisCursor)  # Курсор вопроса
+        self.current_strategy_label.installEventFilter(self)  # Устанавливаем фильтр событий
+
         root.addWidget(self.current_strategy_label)
 
         # Списки для тематических элементов
@@ -82,10 +87,12 @@ class MainWindowUI:
         self.themed_labels = [self.current_strategy_label]
 
         # ---------- Кнопка выбора стратегии ----------------------------------
-        self.select_strategy_btn = RippleButton(" Сменить пресет обхода блокировок", self, "0, 119, 255")
+        self.select_strategy_btn = DualActionRippleButton(" Сменить пресет обхода блокировок", self, "0, 119, 255")
         self.select_strategy_btn.setIcon(qta.icon('fa5s.cog', color='white'))
         self.select_strategy_btn.setIconSize(QSize(16, 16))
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.select_strategy_btn.set_right_click_callback(self._show_instruction)
+        self.select_strategy_btn.setToolTip("Левый клик - открыть настройки\nПравый клик - показать инструкцию")
         self.themed_buttons.append(self.select_strategy_btn)
         root.addWidget(self.select_strategy_btn)
 
@@ -132,6 +139,81 @@ class MainWindowUI:
         # ---------- сигналы-прокси (для main.py) ----------------------
         self._setup_signals()
 
+    def eventFilter(self, obj, event: QEvent) -> bool:
+        """Обработчик событий для кликабельных элементов"""
+        if obj == self.current_strategy_label:
+            if event.type() == QEvent.Type.MouseButtonPress:
+                mouse_event = event
+                if mouse_event.button() == Qt.MouseButton.LeftButton:
+                    # Анимируем кнопку, чтобы привлечь внимание
+                    self._show_wrong_click_warning()
+                    return True  # Событие обработано
+            elif event.type() == QEvent.Type.Enter:
+                # При наведении показываем подсказку
+                self.current_strategy_label.setToolTip(
+                    "Это текущая стратегия.\n"
+                    "Для изменения используйте кнопку ниже! 👇"
+                )
+        
+        # ✅ ИСПРАВЛЕНИЕ: Возвращаем False для необработанных событий
+        return False  # Пропускаем событие дальше
+
+    def _show_wrong_click_warning(self):
+        """Показывает предупреждение и подсвечивает правильную кнопку"""
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtCore import QTimer
+        
+        # Показываем сообщение
+        msg = QMessageBox(self)
+        msg.setWindowTitle("АТАТА! Не ломай меня! Не туда! 😅")
+        msg.setText("Вы нажали на ТЕКСТ с названием стратегии!")
+        msg.setInformativeText(
+            "Это просто информационная надпись.\n\n"
+            "Для смены стратегии нажмите на КНОПКУ:\n"
+            "🔧 «Сменить пресет обхода блокировок»\n\n" 
+            "Она замигает для Вас! ✨"
+        )
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.exec()
+        
+        # Анимируем кнопку выбора стратегии
+        if hasattr(self, 'select_strategy_btn'):
+            # Сохраняем оригинальный стиль
+            original_style = self.select_strategy_btn.styleSheet()
+            
+            # Функция мигания
+            def blink(count=0):
+                if count >= 6:  # 3 мигания
+                    self.select_strategy_btn.setStyleSheet(original_style)
+                    return
+                
+                if count % 2 == 0:
+                    # Подсвечиваем красным
+                    self.select_strategy_btn.setStyleSheet(
+                        original_style + 
+                        "QPushButton { border: 3px solid red; background-color: rgba(255, 0, 0, 0.2); }"
+                    )
+                else:
+                    # Возвращаем обычный вид
+                    self.select_strategy_btn.setStyleSheet(original_style)
+                
+                QTimer.singleShot(300, lambda: blink(count + 1))
+            
+            # Запускаем анимацию
+            blink()
+
+    def _show_instruction(self):
+        """Показывает окно с инструкцией по выбору пресета"""
+        from ui.instruction_dialog import InstructionDialog
+        dialog = InstructionDialog(self)
+        dialog.exec()
+
+    def _show_premium_info(self):
+        """Показывает окно с информацией о Premium функциях"""
+        from ui.premium_dialog import PremiumDialog
+        dialog = PremiumDialog(self)
+        dialog.exec()
+        
     def _create_main_buttons(self):
         """Создает основные кнопки управления"""
         self.start_btn = RippleButton(" Запустить Zapret", self, "54, 153, 70")
@@ -191,9 +273,12 @@ class MainWindowUI:
         self.test_connection_btn.setIcon(qta.icon('fa5s.wifi', color='white'))
         self.test_connection_btn.setIconSize(QSize(16, 16))
 
-        self.subscription_btn = RippleButton(' Premium и VPN', self, "224, 132, 0")
+        # Кнопка Premium с поддержкой правого клика
+        self.subscription_btn = DualActionRippleButton(' Premium и VPN', self, "224, 132, 0")
         self.subscription_btn.setIcon(qta.icon('fa5s.user-check', color='white'))
         self.subscription_btn.setIconSize(QSize(16, 16))
+        self.subscription_btn.set_right_click_callback(self._show_premium_info)
+        self.subscription_btn.setToolTip("Левый клик - управление подпиской\nПравый клик - информация о Premium")
 
         self.dns_settings_btn = RippleButton(" Настройка DNS", self, "0, 119, 255")
         self.dns_settings_btn.setIcon(qta.icon('fa5s.network-wired', color='white'))

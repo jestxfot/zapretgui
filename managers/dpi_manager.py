@@ -74,7 +74,9 @@ class DPIManager(QObject):
                 selections.get('rutracker_tcp'),
                 selections.get('ntcparty_tcp'),
                 selections.get('twitch_tcp'),
+                selections.get('phasmophobia_udp'),
                 selections.get('other'),
+                selections.get('hostlist_80port'),
                 selections.get('ipset'),
                 selections.get('ipset_udp'),
             )

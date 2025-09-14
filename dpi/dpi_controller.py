@@ -329,7 +329,9 @@ class DPIController:
                     saved_selections.get('rutracker_tcp'),
                     saved_selections.get('ntcparty_tcp'),
                     saved_selections.get('twitch_tcp'),
+                    saved_selections.get('phasmophobia_udp'),
                     saved_selections.get('other'),
+                    saved_selections.get('hostlist_80port'),
                     saved_selections.get('ipset'),
                     saved_selections.get('ipset_udp'),
                 )

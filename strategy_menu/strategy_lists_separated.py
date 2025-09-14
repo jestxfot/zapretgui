@@ -51,6 +51,18 @@ except ImportError as e:
     log(f"Ошибка импорта IPSET_UDP_STRATEGIES: {e}", "❌ ERROR")
     IPSET_UDP_STRATEGIES = {}
 
+try:
+    from .PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта PHASMOPHOBIA_UDP_STRATEGIES: {e}", "❌ ERROR")
+    PHASMOPHOBIA_UDP_STRATEGIES = {}
+
+try:
+    from .HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
+except ImportError as e:
+    log(f"Ошибка импорта HOSTLIST_80PORT_STRATEGIES: {e}", "❌ ERROR")
+    HOSTLIST_80PORT_STRATEGIES = {}
+
 """
 Censorliber, [08.08.2025 1:02]
 ну окей начнем с дискодра и ютуба
@@ -794,7 +806,7 @@ DISCORD_UPD_STRATEGIES = {
     }
 }
 
-def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, rutracker_tcp_id: str, ntcparty_tcp_id: str, twitch_tcp_id: str, other_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
+def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str, discord_id: str, discord_voice_id: str, rutracker_tcp_id: str, ntcparty_tcp_id: str, twitch_tcp_id: str, phasmophobia_udp_id: str, other_id: str, hostlist_80port_id: str, ipset_id: str = None, ipset_udp_id: str = None) -> dict:
     """
     Объединяет выбранные стратегии в одну общую
         
@@ -810,6 +822,7 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
     # Словарь базовых аргументов
     BASE_ARGS_OPTIONS = {
         "windivert_all": "--wf-raw=@windivert.all.txt",
+        "windivert-discord-media-stun-sites": "--wf-raw=@windivert.discord_media+stun+sites.txt",
         "wf-l3": "--wf-l3=ipv4,ipv6 --wf-tcp=80,443 --wf-udp=443,50000-50100",
         "wf-l3-all": "--wf-l3=ipv4,ipv6 --wf-tcp=80,443,444-65535 --wf-udp=443,444-65535",
         "none": ""
@@ -878,10 +891,20 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
     if twitch_tcp_args:
         args_parts.append(twitch_tcp_args)
 
+    # Добавляем Phasmophobia UDP стратегию
+    phasmophobia_udp_args = safe_get_strategy_args(PHASMOPHOBIA_UDP_STRATEGIES, phasmophobia_udp_id, "Phasmophobia UDP")
+    if phasmophobia_udp_args:
+        args_parts.append(phasmophobia_udp_args)
+
     # Добавляем стратегию для остальных сайтов
     other_args = safe_get_strategy_args(OTHER_STRATEGIES, other_id, "Other")
     if other_args:
         args_parts.append(other_args)
+
+    # Добавляем hostlist 80 порт
+    hostlist_80_args = safe_get_strategy_args(HOSTLIST_80PORT_STRATEGIES, hostlist_80port_id, "Hostlist 80")
+    if hostlist_80_args:
+        args_parts.append(hostlist_80_args)
 
     # IPset
     ipset_args = safe_get_strategy_args(IPSET_TCP_STRATEGIES, ipset_id, "IPset TCP")
@@ -946,7 +969,17 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
         name = safe_get_strategy_name(TWITCH_TCP_STRATEGIES, twitch_tcp_id)
         if name:
             descriptions.append(f"Twitch TCP: {name}")
-    
+
+    if phasmophobia_udp_id and phasmophobia_udp_id != "phasmophobia_udp_none":
+        name = safe_get_strategy_name(PHASMOPHOBIA_UDP_STRATEGIES, phasmophobia_udp_id)
+        if name:
+            descriptions.append(f"Phasmophobia UDP: {name}")
+
+    if hostlist_80port_id and hostlist_80port_id != "hostlist_80port_none":
+        name = safe_get_strategy_name(HOSTLIST_80PORT_STRATEGIES, hostlist_80port_id)
+        if name:
+            descriptions.append(f"Hostlist 80port: {name}")
+
     if other_id and other_id != "other_tcp_none":
         name = safe_get_strategy_name(OTHER_STRATEGIES, other_id)
         if name:
@@ -985,7 +1018,9 @@ def combine_strategies(youtube_id: str, youtube_udp_id: str, googlevideo_id: str
         "_rutracker_tcp_id": rutracker_tcp_id,
         "_ntcparty_tcp_id": ntcparty_tcp_id,
         "_twitch_tcp_id": twitch_tcp_id,
+        "_phasmophobia_udp_id": phasmophobia_udp_id,
         "_other_id": other_id,
+        "_hostlist_80port_id": hostlist_80port_id,
         "_ipset_id": ipset_id,
         "_ipset_udp_id": ipset_udp_id
     }
@@ -999,10 +1034,12 @@ def get_default_selections():
         'googlevideo_tcp': 'googlevideo_tcp_none',
         'discord': 'dis4',
         'discord_voice_udp': 'ipv4_dup2_autottl_cutoff_n3',
-        'rutracker_tcp': 'rutracker_tcp_none',
-        'ntcparty_tcp': 'original_bolvan_v2_badsum',
+        'rutracker_tcp': 'multisplit_split_pos_1',
+        'ntcparty_tcp': 'other_seqovl',
         'twitch_tcp': 'twitch_tcp_none',
+        'phasmophobia_udp': 'fake_2_n2_google',
         'other': 'other_seqovl',
+        'hostlist_80port': 'fake_multisplit_2_fake_http',
         'ipset': 'other_seqovl',
         'ipset_udp': 'fake_2_n2_google'
     }

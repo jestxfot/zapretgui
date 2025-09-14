@@ -8,21 +8,21 @@ IPSET_UDP_STRATEGIES = {
         "description": "Базовая стратегия для многих игр",
         "author": "community",
         "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
    "fake_2_n2_test": {
         "name": "Rockstar v3",
         "description": "2 повтора с quic_test_00.bin, cutoff n2",
         "author": "community",
         "label": LABEL_RECOMMENDED,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
+        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-cutoff=n2 --dpi-desync-fake-quic=quic_test_00.bin --new"""
     },
     "fake_4_google": {
         "name": "Fake x4 Google",
         "description": "4 повтора с Google QUIC",
         "author": "community",
         "label": None,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=4 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "fake_4_quic1": {
         "name": "Fake x4 QUIC1",
@@ -36,7 +36,7 @@ IPSET_UDP_STRATEGIES = {
         "description": "UDP 443+ с ipset-all, 12 повторов, cutoff n2",
         "author": "community",
         "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=d3 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
+        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --dpi-desync-cutoff=n2 --new"""
     },
     "ipset_fake_12_n3": {
         "name": "IPSET Fake x12 N3 (Apex legends)",
@@ -204,7 +204,7 @@ IPSET_UDP_STRATEGIES = {
         "description": "Полезно исключительно для рокстар лаунчера",
         "author": "community",
         "label": LABEL_GAME,
-        "args": f"""--filter-udp=5056,27002 --dpi-desync-any-protocol --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-cutoff=n15 --dpi-desync-fake-unknown-udp=quic_initial_www_google_com.bin --new {IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
+        "args": f"""{IPSET_UDP_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=quic_initial_www_google_com.bin --new"""
     },
     "ipset_udp_none": {
         "name": "Не применять для остальных UDP",

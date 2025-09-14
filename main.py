@@ -382,7 +382,9 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
                             default_selections.get('discord_voice_udp'),
                             default_selections.get('ntcparty_tcp'),
                             default_selections.get('twitch_tcp'),
+                            default_selections.get('phasmophobia_udp'),
                             default_selections.get('other'),
+                            default_selections.get('hostlist_80port'),
                             default_selections.get('ipset'),
                             default_selections.get('ipset_udp'),
                         )
@@ -739,7 +741,9 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
                     selections.get('rutracker_tcp'),
                     selections.get('ntcparty_tcp'),
                     selections.get('twitch_tcp'),
+                    selections.get('phasmophobia_udp'),
                     selections.get('other'),
+                    selections.get('hostlist_80port'),
                     selections.get('ipset'),
                     selections.get('ipset_udp'),
                 )

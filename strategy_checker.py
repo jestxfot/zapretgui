@@ -72,7 +72,7 @@ class StrategyChecker:
             # Это комбинированная стратегия
             from strategy_menu.strategy_lists_separated import YOUTUBE_QUIC_STRATEGIES, DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES,combine_strategies
 
-            from strategy_menu import GOOGLEVIDEO_STRATEGIES, OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES
+            from strategy_menu import GOOGLEVIDEO_STRATEGIES, OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES, PHASMOPHOBIA_UDP_STRATEGIES, HOSTLIST_80PORT_STRATEGIES
             
             # Получаем комбинированную конфигурацию
             combined = combine_strategies(
@@ -84,7 +84,9 @@ class StrategyChecker:
                 selections.get('rutracker_tcp'),
                 selections.get('ntcparty_tcp'),
                 selections.get('twitch_tcp'),
+                selections.get('phasmophobia_udp'),
                 selections.get('other'),
+                selections.get('hostlist_80port'),
                 selections.get('ipset'),
                 selections.get('ipset_udp'),
             )
@@ -142,12 +144,33 @@ class StrategyChecker:
                 if tt_strat:
                     strategy_names.append(f"Twitch: {tt_strat.get('name', selections['twitch_tcp'])}")
             
+            # Rutracker TCP
+            if selections.get('rutracker_tcp') and selections['rutracker_tcp'] != 'rutracker_tcp_none':
+                active_categories.append('Rutracker TCP')
+                rt_strat = RUTRACKER_TCP_STRATEGIES.get(selections['rutracker_tcp'])
+                if rt_strat:
+                    strategy_names.append(f"Rutracker: {rt_strat.get('name', selections['rutracker_tcp'])}")
+
+            # Phasmophobia UDP
+            if selections.get('phasmophobia_udp') and selections['phasmophobia_udp'] != 'phasmophobia_udp_none':
+                active_categories.append('Phasmophobia UDP')
+                rl_strat = PHASMOPHOBIA_UDP_STRATEGIES.get(selections['phasmophobia_udp'])
+                if rl_strat:
+                    strategy_names.append(f"Phasmophobia UDP: {rl_strat.get('name', selections['phasmophobia_udp'])}")
+
             # Other
             if selections.get('other') and selections['other'] != 'other_tcp_none':
                 active_categories.append('Остальные')
                 ot_strat = OTHER_STRATEGIES.get(selections['other'])
                 if ot_strat:
                     strategy_names.append(f"Other: {ot_strat.get('name', selections['other'])}")
+
+            # Hostlist 80 port
+            if selections.get('hostlist_80port') and selections['hostlist_80port'] != 'hostlist_80port_none':
+                active_categories.append('Hostlist 80')
+                h80_strat = HOSTLIST_80PORT_STRATEGIES.get(selections['hostlist_80port'])
+                if h80_strat:
+                    strategy_names.append(f"Hostlist 80: {h80_strat.get('name', selections['hostlist_80port'])}")
 
             # IPset
             if selections.get('ipset') and selections['ipset'] != 'ipset_tcp_none':
@@ -291,7 +314,7 @@ class StrategyChecker:
                     analysis['key_flags'].append(arg)
             
             # Специальные параметры
-            elif arg.startswith('--wssize='):
+            elif arg.startswith('--wssize'):
                 analysis['special_params'].append(arg)
             elif arg.startswith('--ipset='):
                 analysis['special_params'].append(arg)

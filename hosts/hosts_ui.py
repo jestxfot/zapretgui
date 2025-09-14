@@ -1,7 +1,7 @@
-# hosts/hosts_ui.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# hosts/hosts_ui.py - Обновленная версия без выпадающего меню
 import os
 from pathlib import Path
-from PyQt6.QtWidgets import QMenu, QMessageBox, QDialog
+from PyQt6.QtWidgets import QMessageBox, QDialog
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, QTimer
 from log import log
 
@@ -56,103 +56,70 @@ class HostsUIManager:
             log(f"Ошибка при очистке HostsUIManager: {e}", "DEBUG")
     
     def toggle_proxy_domains(self, proxy_button):
-        """Переключает состояние разблокировки: добавляет или удаляет записи из hosts"""
+        """Открывает диалог выбора доменов для разблокировки"""
         try:
             if not self.hosts_manager:
                 self.status_callback("Ошибка: менеджер hosts не инициализирован")
                 return
             
-            # Проверяем текущее состояние proxy и adobe
-            is_proxy_active = self.hosts_manager.is_proxy_domains_active()
-            is_adobe_active = self.hosts_manager.is_adobe_domains_active()
-            
-            # Создаем меню
-            menu = QMenu(self.parent)
-            
-            # РАЗДЕЛ PROXY
-            menu.addSection("🌐 Разблокировка сервисов")
-            
-            if is_proxy_active:
-                disable_all_action = menu.addAction("Отключить всю разблокировку")
-                select_domains_action = menu.addAction("Выбрать домены для отключения")
-            else:
-                enable_all_action = menu.addAction("Включить всю разблокировку")
-                select_domains_action = menu.addAction("Выбрать домены для включения")
-            
-            menu.addSeparator()
-            
-            # РАЗДЕЛ ADOBE
-            menu.addSection("🔒 Adobe")
-            
-            if is_adobe_active:
-                adobe_disable_action = menu.addAction("🔓 Отключить блокировку Adobe")
-            else:
-                adobe_enable_action = menu.addAction("🔒 Включить блокировку Adobe")
-            
-            adobe_info_action = menu.addAction("ℹ️ О блокировке Adobe")
-            
-            menu.addSeparator()
-            
-            # ОБЩИЕ ДЕЙСТВИЯ
-            open_hosts_action = menu.addAction("📝 Открыть файл hosts")
-            
-            # Показываем меню
-            button_pos = proxy_button.mapToGlobal(proxy_button.rect().bottomLeft())
-            action = menu.exec(button_pos)
-            
-            # Обрабатываем выбранное действие
-            if action:
-                action_text = action.text()
-                
-                # Общие действия
-                if action_text == "📝 Открыть файл hosts":
-                    self.open_hosts_file()
-                
-                # Proxy действия
-                elif action_text == "Отключить всю разблокировку":
-                    self.handle_proxy_disable_all_async(proxy_button)
-                elif action_text == "Включить всю разблокировку":  
-                    self.handle_proxy_enable_all_async(proxy_button)
-                elif "Выбрать домены" in action_text:
-                    self.handle_proxy_select_domains_async(proxy_button)
-                
-                # Adobe действия
-                elif action_text == "🔓 Отключить блокировку Adobe":
-                    self.handle_adobe_disable_async(proxy_button)
-                elif action_text == "🔒 Включить блокировку Adobe":
-                    self.handle_adobe_enable_async(proxy_button)
-                elif action_text == "ℹ️ О блокировке Adobe":
-                    self.show_adobe_info()
+            # Сразу открываем диалог выбора доменов
+            self.open_domains_selector_dialog(proxy_button)
                     
         except Exception as e:
             log(f"❌ Ошибка в toggle_proxy_domains: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "ERROR")
 
-    def show_adobe_info(self):
-        """Показывает информацию о блокировке Adobe"""
-        try:
-            # Импортируем здесь, чтобы избежать циклических импортов
-            from .adobe_domains import ADOBE_DOMAINS
-            
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("Блокировка активации Adobe")
-            msg.setText("Блокировка серверов активации Adobe")
-            msg.setInformativeText(
-                "Эта функция блокирует доступ к серверам активации Adobe, "
-                "добавляя записи в файл hosts.\n\n"
-                "⚠️ Внимание:\n"
-                "• Используйте только для личного тестирования\n"
-                "• Может нарушить работу некоторых функций Adobe\n"
-                "• Требуется перезапуск приложений Adobe после изменений\n\n"
-                f"Будет заблокировано {len(ADOBE_DOMAINS)} доменов Adobe."
+    def open_domains_selector_dialog(self, proxy_button):
+        """Открывает диалог выбора доменов"""
+        log("🔵 Открытие диалога выбора доменов", "DEBUG")
+        
+        from .menu import HostsSelectorDialog
+        from .proxy_domains import PROXY_DOMAINS
+        
+        # Получаем текущие активные домены
+        current_active = self.hosts_manager.get_active_domains()
+        log(f"Найдено активных доменов: {len(current_active)}", "DEBUG")
+        
+        # Показываем диалог выбора
+        dialog = HostsSelectorDialog(self.parent, current_active)
+        
+        # Устанавливаем состояние Adobe, если метод существует
+        if hasattr(dialog, 'add_adobe_section'):
+            dialog.add_adobe_section(
+                self.hosts_manager.is_adobe_domains_active(),
+                self.handle_adobe_toggle
             )
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
-        except Exception as e:
-            log(f"❌ Ошибка в show_adobe_info: {e}", "ERROR")
-            QMessageBox.critical(self.parent, "Ошибка", f"Не удалось показать информацию: {str(e)}")
+        else:
+            # Альтернативный способ - напрямую устанавливаем callback
+            dialog.adobe_callback = self.handle_adobe_toggle
+            dialog.is_adobe_active = self.hosts_manager.is_adobe_domains_active()
+            
+            # Обновляем кнопку Adobe если она существует
+            if hasattr(dialog, 'adobe_btn'):
+                if dialog.is_adobe_active:
+                    dialog.adobe_btn.setText("🔓 Отключить")
+                else:
+                    dialog.adobe_btn.setText("🔒 Включить")
+        
+        result = dialog.exec()
+        log(f"Диалог закрыт с результатом: {result}", "DEBUG")
+        
+        if result == QDialog.DialogCode.Accepted:
+            selected_domains = dialog.get_selected_domains()
+            log(f"Выбрано доменов: {len(selected_domains)}", "DEBUG")
+            
+            # Применяем выбранные домены
+            self.perform_hosts_operation_async('select', proxy_button, selected_domains)
+        else:
+            log("Диалог отменен", "DEBUG")
+
+    def handle_adobe_toggle(self, enable):
+        """Обработчик переключения Adobe блокировки"""
+        if enable:
+            self.handle_adobe_enable_async(None)
+        else:
+            self.handle_adobe_disable_async(None)
 
     def handle_adobe_disable_async(self, proxy_button):
         """Асинхронно отключает блокировку Adobe"""
@@ -177,7 +144,6 @@ class HostsUIManager:
     def handle_adobe_enable_async(self, proxy_button):
         """Асинхронно включает блокировку Adobe"""
         try:
-            # Импортируем здесь
             from .adobe_domains import ADOBE_DOMAINS
             
             msg = QMessageBox()
@@ -209,7 +175,8 @@ class HostsUIManager:
             if hasattr(self.parent, 'set_proxy_button_loading'):
                 self.parent.set_proxy_button_loading(True, "Обработка Adobe...")
             
-            proxy_button.setEnabled(False)
+            if proxy_button:
+                proxy_button.setEnabled(False)
             
             # Создаем воркер
             worker = AdobeWorker(self.hosts_manager, operation)
@@ -244,7 +211,8 @@ class HostsUIManager:
             log(traceback.format_exc(), "ERROR")
             
             # Восстанавливаем состояние кнопки при ошибке
-            proxy_button.setEnabled(True)
+            if proxy_button:
+                proxy_button.setEnabled(True)
             if hasattr(self.parent, 'set_proxy_button_loading'):
                 self.parent.set_proxy_button_loading(False)
             
@@ -260,7 +228,8 @@ class HostsUIManager:
                 self.parent.set_proxy_button_loading(False)
             
             # Разблокируем кнопку
-            proxy_button.setEnabled(True)
+            if proxy_button:
+                proxy_button.setEnabled(True)
             
             # Показываем результат
             self.status_callback(message)
@@ -288,69 +257,6 @@ class HostsUIManager:
             log(f"❌ Ошибка в on_adobe_operation_complete: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "ERROR")
-
-    # ... остальные методы остаются без изменений ...
-
-    def handle_proxy_disable_all_async(self, proxy_button):
-        """Асинхронно обрабатывает отключение всей разблокировки"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Question)
-        msg.setWindowTitle("Отключение разблокировки")
-        msg.setText("Отключить разблокировку сервисов через hosts-файл?")
-        msg.setInformativeText(
-            "Это действие удалит добавленные ранее записи из файла hosts.\n\n"
-            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер и/или приложение Spotify!"
-        )
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if msg.exec() == QMessageBox.StandardButton.Yes:
-            self.perform_hosts_operation_async('remove', proxy_button)
-        else:
-            self.status_callback("Операция отменена.")
-
-    def handle_proxy_enable_all_async(self, proxy_button):
-        """Асинхронно обрабатывает включение всей разблокировки"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle("Разблокировка через hosts-файл")
-        msg.setText("Установка соединения к proxy-серверу через файл hosts")
-        msg.setInformativeText(
-            "Добавление этих сайтов в обычные списки Zapret не поможет их разблокировать, "
-            "так как доступ к ним заблокирован для территории РФ со стороны самих сервисов "
-            "(без участия Роскомнадзора).\n\n"
-            "Для применения изменений ОБЯЗАТЕЛЬНО СЛЕДУЕТ закрыть и открыть веб-браузер "
-            "(не только сайт, а всю программу) и/или приложение Spotify!"
-        )
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        
-        if msg.exec() == QMessageBox.StandardButton.Ok:
-            self.perform_hosts_operation_async('add', proxy_button)
-        else:
-            self.status_callback("Операция отменена.")
-
-    def handle_proxy_select_domains_async(self, proxy_button):
-        """Асинхронно обрабатывает выбор доменов для разблокировки"""
-        log("🔵 handle_proxy_select_domains_async начат", "DEBUG")
-        
-        from .menu import HostsSelectorDialog
-        from .proxy_domains import PROXY_DOMAINS
-        
-        # Получаем текущие активные домены
-        current_active = self.hosts_manager.get_active_domains()
-        log(f"Найдено активных доменов: {len(current_active)}", "DEBUG")
-        
-        # Показываем диалог выбора
-        dialog = HostsSelectorDialog(self.parent, current_active)
-        
-        result = dialog.exec()
-        log(f"Диалог закрыт с результатом: {result}", "DEBUG")
-        
-        if result == QDialog.DialogCode.Accepted:
-            selected_domains = dialog.get_selected_domains()
-            log(f"Выбрано доменов: {len(selected_domains)}", "DEBUG")
-            self.perform_hosts_operation_async('select', proxy_button, selected_domains)
-        else:
-            log("Диалог отменен", "DEBUG")
 
     def perform_hosts_operation_async(self, operation, proxy_button, domains=None):
         """Выполняет операцию с hosts файлом асинхронно"""
@@ -425,6 +331,13 @@ class HostsUIManager:
             
             # Показываем уведомление
             if success:
+                # Показываем информационное сообщение
+                QMessageBox.information(
+                    self.parent, 
+                    "Успешно",
+                    message + "\n\nДля применения изменений обязательно перезапустите браузер!"
+                )
+                
                 if hasattr(self.parent, 'tray_manager') and self.parent.tray_manager:
                     try:
                         self.parent.tray_manager.show_notification(
@@ -442,27 +355,6 @@ class HostsUIManager:
             log(f"❌ Ошибка в on_hosts_operation_complete: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "ERROR")
-
-    def cleanup_hosts_thread(self):
-        """Отложенная очистка потока и воркера"""
-        try:
-            log("🔵 Выполняем отложенную очистку потока", "DEBUG")
-            
-            if hasattr(self, '_hosts_operation_worker') and self._hosts_operation_worker:
-                self._hosts_operation_worker.deleteLater()
-                self._hosts_operation_worker = None
-                
-            if hasattr(self, '_hosts_operation_thread') and self._hosts_operation_thread:
-                if self._hosts_operation_thread.isRunning():
-                    self._hosts_operation_thread.quit()
-                    self._hosts_operation_thread.wait(1000)
-                self._hosts_operation_thread.deleteLater()
-                self._hosts_operation_thread = None
-                
-            log("🔵 Очистка потока завершена", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при очистке потока: {e}", "DEBUG")
 
     def open_hosts_file(self):
         """Открывает файл hosts в текстовом редакторе с правами администратора"""
@@ -521,7 +413,7 @@ class HostsUIManager:
             self.status_callback(error_msg)
 
 
-# Классы воркеров вынесены за пределы класса HostsUIManager
+# Классы воркеров
 class AdobeWorker(QObject):
     """Воркер для асинхронных операций с Adobe доменами"""
     finished = pyqtSignal(bool, str)
@@ -590,29 +482,23 @@ class HostsWorker(QObject):
             success = False
             message = ""
             
-            if self.operation == 'add':
-                self.progress.emit("Добавление доменов в hosts...")
-                success = self.hosts_manager.add_proxy_domains()
-                if success:
-                    message = "Разблокировка включена. Перезапустите браузер."
+            if self.operation == 'select' and self.domains is not None:
+                if len(self.domains) == 0:
+                    # Если не выбрано ни одного домена - удаляем все
+                    self.progress.emit("Удаление всех доменов из hosts...")
+                    success = self.hosts_manager.remove_proxy_domains()
+                    if success:
+                        message = "Все записи удалены из hosts файла."
+                    else:
+                        message = "Не удалось удалить записи из hosts файла."
                 else:
-                    message = "Не удалось включить разблокировку."
-                    
-            elif self.operation == 'remove':
-                self.progress.emit("Удаление доменов из hosts...")
-                success = self.hosts_manager.remove_proxy_domains()
-                if success:
-                    message = "Разблокировка отключена. Перезапустите браузер."
-                else:
-                    message = "Не удалось отключить разблокировку."
-                    
-            elif self.operation == 'select' and self.domains:
-                self.progress.emit(f"Применение {len(self.domains)} доменов...")
-                success = self.hosts_manager.apply_selected_domains(self.domains)
-                if success:
-                    message = f"Применено {len(self.domains)} доменов. Перезапустите браузер."
-                else:
-                    message = "Не удалось применить выбранные домены."
+                    # Применяем выбранные домены
+                    self.progress.emit(f"Применение {len(self.domains)} доменов...")
+                    success = self.hosts_manager.apply_selected_domains(self.domains)
+                    if success:
+                        message = f"Применено {len(self.domains)} доменов."
+                    else:
+                        message = "Не удалось применить выбранные домены."
             
             self.finished.emit(success, message)
             

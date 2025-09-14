@@ -162,7 +162,7 @@ def get_wssize_enabled():
             value, _ = winreg.QueryValueEx(key, "WSSizeEnabled")
             return bool(value)
     except:
-        return True  # По умолчанию включено
+        return False # По умолчанию выключено
     
 def set_allzone_hostlist_enabled(enabled: bool):
     """Сохраняет состояние настройки замены other.txt на allzone.txt"""
@@ -209,9 +209,10 @@ _DIRECT_RUTRACKER_TCP_NAME = "DirectStrategyRutrackerTcp"
 _DIRECT_NTCPARTY_TCP_NAME = "DirectStrategyNtcPartyTcp"
 _DIRECT_TWITCH_TCP_NAME = "DirectStrategyTwitchTCP"
 _DIRECT_OTHER_NAME = "DirectStrategyOther"
+_DIRECT_HOSTLIST_80PORT_NAME = "DirectStrategyHostlist80Port"
 _DIRECT_IPSET_NAME = "DirectStrategyIpset"
 _DIRECT_IPSET_UDP_NAME = "DirectStrategyIpsetUdp"
-_DIRECT_ROCKSTAR_LAUNCHER_TCP_NAME = "DirectStrategyRockstarLauncherTcp"
+_DIRECT_phasmophobia_udp_NAME = "DirectStrategyRockstarLauncherTcp"
 
 def get_direct_strategy_selections() -> dict:
     """Возвращает сохраненные выборы стратегий для прямого запуска"""
@@ -224,8 +225,9 @@ def get_direct_strategy_selections() -> dict:
         rutracker_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_RUTRACKER_TCP_NAME)
         ntcparty_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_NTCPARTY_TCP_NAME)
         twitch_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME)
-        rockstar_launcher_tcp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_ROCKSTAR_LAUNCHER_TCP_NAME)
+        phasmophobia_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_phasmophobia_udp_NAME)
         other = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
+        hostlist_80port = reg(_DIRECT_STRATEGY_KEY, _DIRECT_HOSTLIST_80PORT_NAME)
         ipset = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_NAME)
         ipset_udp = reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_UDP_NAME)
         
@@ -242,7 +244,9 @@ def get_direct_strategy_selections() -> dict:
             'rutracker_tcp': rutracker_tcp if rutracker_tcp else default_selections.get('rutracker_tcp'),
             'ntcparty_tcp': ntcparty_tcp if ntcparty_tcp else default_selections.get('ntcparty_tcp'),
             'twitch_tcp': twitch_tcp if twitch_tcp else default_selections.get('twitch_tcp'),
+            'phasmophobia_udp': phasmophobia_udp if phasmophobia_udp else default_selections.get('phasmophobia_udp'),
             'other': other if other else default_selections.get('other'),
+            'hostlist_80port': hostlist_80port if hostlist_80port else default_selections.get('hostlist_80port'),
             'ipset': ipset if ipset else default_selections.get('ipset'),
             'ipset_udp': ipset_udp if ipset_udp else default_selections.get('ipset_udp'),
         }
@@ -284,10 +288,16 @@ def set_direct_strategy_selections(selections: dict) -> bool:
 
         if 'twitch_tcp' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME, selections['twitch_tcp'])
-            
+
+        if 'phasmophobia_udp' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_phasmophobia_udp_NAME, selections['phasmophobia_udp'])
+
         if 'other' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, selections['other'])
-        
+
+        if 'hostlist_80port' in selections:
+            success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_HOSTLIST_80PORT_NAME, selections['hostlist_80port'])
+
         if 'ipset' in selections:
             success &= reg(_DIRECT_STRATEGY_KEY, _DIRECT_IPSET_NAME, selections['ipset'])
 
@@ -383,7 +393,7 @@ def get_direct_strategy_rutracker_tcp() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('rutracker_tcp', 'rutracker_tcp_none')
+    return get_default_selections().get('rutracker_tcp', 'multisplit_split_pos_1')
 
 def set_direct_strategy_rutracker_tcp(strategy_id: str) -> bool:
     """Сохраняет выбранную Rutracker TCP стратегию"""
@@ -397,7 +407,7 @@ def get_direct_strategy_ntcparty_tcp() -> str:
     
     # Значение по умолчанию
     from strategy_menu.strategy_lists_separated import get_default_selections
-    return get_default_selections().get('ntcparty_tcp', 'original_bolvan_v2_badsum')
+    return get_default_selections().get('ntcparty_tcp', 'other_seqovl')
 
 def set_direct_strategy_ntcparty_tcp(strategy_id: str) -> bool:
     """Сохраняет выбранную NtcParty TCP стратегию"""
@@ -417,6 +427,20 @@ def set_direct_strategy_twitch_tcp(strategy_id: str) -> bool:
     """Сохраняет выбранную Twitch TCP стратегию"""
     return reg(_DIRECT_STRATEGY_KEY, _DIRECT_TWITCH_TCP_NAME, strategy_id)
 
+def get_direct_strategy_phasmophobia_udp() -> str:
+    """Возвращает сохраненную Phasmophobia UDP стратегию"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_phasmophobia_udp_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('phasmophobia_udp', 'fake_2_n2_google')
+
+def set_direct_strategy_phasmophobia_udp(strategy_id: str) -> bool:
+    """Сохраняет выбранную Phasmophobia UDP стратегию"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_phasmophobia_udp_NAME, strategy_id)
+
 def get_direct_strategy_other() -> str:
     """Возвращает сохраненную стратегию для остальных сайтов"""
     result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME)
@@ -430,6 +454,20 @@ def get_direct_strategy_other() -> str:
 def set_direct_strategy_other(strategy_id: str) -> bool:
     """Сохраняет выбранную стратегию для остальных сайтов"""
     return reg(_DIRECT_STRATEGY_KEY, _DIRECT_OTHER_NAME, strategy_id)
+
+def get_direct_strategy_hostlist_80port() -> str:
+    """Возвращает сохраненную стратегию для hostlist_80port"""
+    result = reg(_DIRECT_STRATEGY_KEY, _DIRECT_HOSTLIST_80PORT_NAME)
+    if result:
+        return result
+    
+    # Значение по умолчанию
+    from strategy_menu.strategy_lists_separated import get_default_selections
+    return get_default_selections().get('hostlist_80port', 'fake_multisplit_2_fake_http')
+
+def set_direct_strategy_hostlist_80port(strategy_id: str) -> bool:
+    """Сохраняет выбранную стратегию для hostlist_80port"""
+    return reg(_DIRECT_STRATEGY_KEY, _DIRECT_HOSTLIST_80PORT_NAME, strategy_id)
 
 def get_direct_strategy_ipset() -> str:
     """Возвращает сохраненную IPset стратегию"""
@@ -467,6 +505,8 @@ from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
 from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
 from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
 from .GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
+from .PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
+from .HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
 
 
 all = [
@@ -478,6 +518,8 @@ all = [
     'YOUTUBE_TCP_STRATEGIES',
     'IPSET_TCP_STRATEGIES',
     'IPSET_UDP_STRATEGIES',
+    'PHASMOPHOBIA_UDP_STRATEGIES',
+    'HOSTLIST_80PORT_STRATEGIES',
     'get_tabs_pinned',
     'set_tabs_pinned',
 ]

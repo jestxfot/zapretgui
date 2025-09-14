@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                             QWidget, QTabWidget, QTabBar, QLabel, QMessageBox, QGroupBox,
                             QTextBrowser, QSizePolicy, QFrame, QScrollArea,
                             QRadioButton, QButtonGroup, QCheckBox, QProgressBar,
-                            QTextEdit, QComboBox)
+                            QTextEdit, QComboBox, QListWidget, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QSize, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QTextCursor, QPainter, QTextOption, QPen, QCursor, QColor
 
@@ -98,126 +98,396 @@ class HorizontalTextTabBar(QTabBar):
 
         painter.end()
 
-
-class AnimatedTabWidget(QTabWidget):
-    """TabWidget с анимированным изменением ширины таббара и поддержкой закрепления"""
-
+class AnimatedSidePanel(QWidget):
+    """Боковая панель с анимированным изменением ширины и поддержкой закрепления"""
+    
+    currentChanged = pyqtSignal(int)
+    
     def __init__(self):
         super().__init__()
-        self.custom_tab_bar = HorizontalTextTabBar()
-        self.setTabBar(self.custom_tab_bar)
-
-        # Добавьте эти строки:
-        self.setDocumentMode(True)  # убирает рамку вокруг содержимого
-        self.setContentsMargins(0, 0, 0, 0)
-
         self.collapsed_width = 45
         self.expanded_width = 160
         self.is_expanded = False
         self.is_pinned = False
-
+        
+        # Для прокрутки текста
+        self.scroll_timer = QTimer()
+        self.scroll_timer.timeout.connect(self._scroll_text)
+        self.current_hover_item = None
+        self.current_hover_index = -1
+        self.original_texts = {}  # Словарь для хранения оригинальных текстов
+        self.scroll_position = 0
+        self.scroll_pause_counter = 0  # Счетчик для паузы в начале/конце
+        
+        # Основной layout
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Левая панель с списком
+        self.list_widget = QListWidget()
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Включаем отслеживание мыши
+        self.list_widget.setMouseTracking(True)
+        
+        # Стиль для списка и скроллбара
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 5px 0 0 5px;
+                border-right: none;
+                outline: none;
+            }
+            QListWidget::item {
+                color: #aaa;
+                padding: 3px 5px;
+                border-bottom: 1px solid #333;
+                font-size: 8pt;
+                min-height: 20px;
+                max-height: 25px;
+                white-space: nowrap;
+                overflow: hidden;
+            }
+            QListWidget::item:hover {
+                background: #333;
+                color: #fff;
+            }
+            QListWidget::item:selected {
+                background: #3a3a3a;
+                color: #2196F3;
+                font-weight: bold;
+                border-right: 2px solid #2196F3;
+            }
+            QScrollBar:vertical {
+                width: 8px;
+                background: #222;
+                border: none;
+                border-radius: 4px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical {
+                background: #555;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #666;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        
+        # Контейнер для списка с фиксированной шириной
+        self.list_container = QWidget()
+        list_layout = QVBoxLayout(self.list_container)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.addWidget(self.list_widget)
+        
+        # Правая панель с содержимым
+        self.stack_widget = QStackedWidget()
+        self.stack_widget.setStyleSheet("""
+            QStackedWidget {
+                background: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 0 5px 5px 0;
+                border-left: none;
+            }
+        """)
+        
+        layout.addWidget(self.list_container)
+        layout.addWidget(self.stack_widget, 1)
+        
         # Анимация ширины
-        self.tab_animation = QPropertyAnimation(self.custom_tab_bar, b"minimumWidth")
-        self.tab_animation.setDuration(200)
-        self.tab_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-        # Целевой размер для обработчика finished
-        self._anim_target_width = self.collapsed_width
-        # Во время анимации синхронизируем fixedWidth, чтобы QTabWidget корректно перекладывал контент
-        self.tab_animation.valueChanged.connect(lambda v: self._on_anim_value(int(v)))
-        self.tab_animation.finished.connect(self._on_anim_finished)
-
+        self.width_animation = QPropertyAnimation(self.list_container, b"maximumWidth")
+        self.width_animation.setDuration(200)
+        self.width_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        
         # Загружаем закрепление
         from strategy_menu import get_tabs_pinned
         self.is_pinned = get_tabs_pinned()
-
+        
         start_w = self.expanded_width if self.is_pinned else self.collapsed_width
-        self.custom_tab_bar.set_forced_width(start_w)
+        self.list_container.setFixedWidth(start_w)
         self.is_expanded = self.is_pinned
-
-        # анимация
-        self.tab_animation.valueChanged.connect(lambda v: self.custom_tab_bar.set_forced_width(int(v)))
-
-        def _set_bar_width(self, w):
-            self.custom_tab_bar.set_forced_width(w)
-
-        def _expand_tabs_animated(self):
-            if not self.is_expanded:
-                self.tab_animation.stop()
-                self.tab_animation.setStartValue(self.custom_tab_bar.width())
-                self.tab_animation.setEndValue(self.expanded_width)
-                self.tab_animation.start()
-                self.is_expanded = True
-
-        def _collapse_tabs_animated(self):
-            if self.is_expanded and not self.is_pinned:
-                self.tab_animation.stop()
-                self.tab_animation.setStartValue(self.custom_tab_bar.width())
-                self.tab_animation.setEndValue(self.collapsed_width)
-                self.tab_animation.start()
-                self.is_expanded = False
-
+        
+        # Обработчики
+        self.list_widget.currentRowChanged.connect(self._on_selection_changed)
+        self.list_widget.installEventFilter(self)
+        
+        # Устанавливаем обработчик движения мыши на viewport списка
+        self.list_widget.viewport().installEventFilter(self)
+        
         self.tab_names = {}
-
-    def _on_anim_value(self, w: int):
-        self.custom_tab_bar.setFixedWidth(w)
-        self._relayout()
-
-    def _on_anim_finished(self):
-        self._set_bar_width(self._anim_target_width)
-
-    def _set_bar_width(self, w: int):
-        self.custom_tab_bar.setMinimumWidth(w)
-        self.custom_tab_bar.setMaximumWidth(w)
-        self.custom_tab_bar.setFixedWidth(w)
-        self._relayout()
-
-    def _relayout(self):
-        self.custom_tab_bar.updateGeometry()
-        self.updateGeometry()
-        if self.parentWidget():
-            self.parentWidget().updateGeometry()
-
+        self._tab_indices = {}
+        
+    def eventFilter(self, obj, event):
+        """Обработчик событий для анимации и прокрутки текста"""
+        from PyQt6.QtCore import QEvent
+        
+        if obj == self.list_widget:
+            if event.type() == QEvent.Type.HoverEnter and not self.is_pinned:
+                self._expand_animated()
+            elif event.type() == QEvent.Type.HoverLeave:
+                if not self.is_pinned:
+                    self._collapse_animated()
+                self._stop_scrolling()
+                
+        elif obj == self.list_widget.viewport():
+            if event.type() == QEvent.Type.MouseMove:
+                # Определяем элемент под курсором
+                pos = event.pos()
+                item = self.list_widget.itemAt(pos)
+                
+                if item:
+                    row = self.list_widget.row(item)
+                    if row != self.current_hover_index:
+                        # Перешли на другой элемент
+                        self._stop_scrolling()
+                        self._start_scrolling(item, row)
+                else:
+                    # Курсор не над элементом
+                    self._stop_scrolling()
+                    
+            elif event.type() == QEvent.Type.Leave:
+                # Мышь покинула область списка
+                self._stop_scrolling()
+                
+        return super().eventFilter(obj, event)
+    
+    def _start_scrolling(self, item, index):
+        """Запускает прокрутку текста для элемента"""
+        if not item:
+            return
+            
+        text = item.text()
+        
+        # Сохраняем оригинальный текст
+        if index not in self.original_texts:
+            self.original_texts[index] = text
+        else:
+            # Используем сохраненный оригинальный текст
+            text = self.original_texts[index]
+        
+        # Проверяем, нужна ли прокрутка
+        font_metrics = self.list_widget.fontMetrics()
+        text_width = font_metrics.horizontalAdvance(text)
+        available_width = self.list_container.width() - 20  # учитываем padding
+        
+        if text_width > available_width:
+            # Текст не помещается, запускаем прокрутку
+            self.current_hover_item = item
+            self.current_hover_index = index
+            self.scroll_position = 0
+            self.scroll_pause_counter = 0
+            
+            # Запускаем таймер прокрутки
+            self.scroll_timer.start(100)  # обновление каждые 100мс
+    
+    def _scroll_text(self):
+        """Прокручивает текст текущего элемента"""
+        if self.current_hover_item is None or self.current_hover_index == -1:
+            self._stop_scrolling()
+            return
+            
+        # Получаем оригинальный текст
+        original_text = self.original_texts.get(self.current_hover_index, "")
+        if not original_text:
+            self._stop_scrolling()
+            return
+        
+        # Пауза в начале
+        if self.scroll_pause_counter < 10:  # Пауза 1 секунда (10 * 100мс)
+            self.scroll_pause_counter += 1
+            return
+        
+        # Создаем прокручиваемый текст с разделителем
+        scrolling_text = original_text + "     •     " + original_text
+        
+        # Сдвигаем позицию
+        self.scroll_position += 1
+        
+        # Сбрасываем, когда прокрутили полностью
+        if self.scroll_position >= len(original_text) + 13:  # +13 для разделителя
+            self.scroll_position = 0
+            self.scroll_pause_counter = 0  # Сбрасываем счетчик паузы
+            return
+        
+        # Создаем видимую часть текста
+        visible_text = scrolling_text[self.scroll_position:]
+        
+        # Обрезаем до доступной ширины
+        font_metrics = self.list_widget.fontMetrics()
+        available_width = self.list_container.width() - 20
+        elided_text = font_metrics.elidedText(visible_text, Qt.TextElideMode.ElideRight, available_width)
+        
+        # Обновляем текст элемента
+        try:
+            self.current_hover_item.setText(elided_text)
+        except:
+            self._stop_scrolling()
+    
+    def _stop_scrolling(self):
+        """Останавливает прокрутку и восстанавливает оригинальный текст"""
+        self.scroll_timer.stop()
+        
+        # Восстанавливаем оригинальный текст
+        if self.current_hover_item and self.current_hover_index in self.original_texts:
+            try:
+                self.current_hover_item.setText(self.original_texts[self.current_hover_index])
+            except:
+                pass
+        
+        self.current_hover_item = None
+        self.current_hover_index = -1
+        self.scroll_position = 0
+        self.scroll_pause_counter = 0
+        
+    def tabBar(self):
+        """Возвращает список для совместимости с существующим кодом"""
+        return self.list_widget
+        
     def set_tab_names(self, tab_names_dict):
         """Сохраняет словарь названий вкладок"""
         self.tab_names = tab_names_dict
         if self.is_pinned and self.is_expanded:
             self.show_full_names()
-
+            
     def show_full_names(self):
+        """Показывает полные названия вкладок"""
         if not self.tab_names:
             return
         for i, key in enumerate(self.tab_names.keys()):
-            if i < self.count():
+            if i < self.list_widget.count():
                 _, full = self.tab_names[key]
-                self.setTabText(i, full)
-
+                item = self.list_widget.item(i)
+                if item:
+                    item.setText(full)
+                    # Обновляем сохраненный оригинальный текст
+                    self.original_texts[i] = full
+                
     def show_short_names(self):
+        """Показывает короткие названия вкладок"""
         if not self.tab_names:
             return
         for i, key in enumerate(self.tab_names.keys()):
-            if i < self.count():
+            if i < self.list_widget.count():
                 short, _ = self.tab_names[key]
-                self.setTabText(i, short)
-
-    def _expand_tabs_animated(self):
+                item = self.list_widget.item(i)
+                if item:
+                    item.setText(short)
+                    # Обновляем сохраненный оригинальный текст
+                    self.original_texts[i] = short
+                
+    def addTab(self, widget, label):
+        """Добавляет новую вкладку"""
+        index = self.stack_widget.addWidget(widget)
+        self.list_widget.addItem(label)
+        # Сохраняем оригинальный текст
+        self.original_texts[index] = label
+        return index
+        
+    def insertTab(self, index, widget, label):
+        """Вставляет вкладку в определенную позицию"""
+        self.stack_widget.insertWidget(index, widget)
+        self.list_widget.insertItem(index, label)
+        # Обновляем сохраненные тексты
+        self._update_original_texts()
+        return index
+        
+    def removeTab(self, index):
+        """Удаляет вкладку"""
+        if index < self.stack_widget.count():
+            widget = self.stack_widget.widget(index)
+            self.stack_widget.removeWidget(widget)
+            item = self.list_widget.takeItem(index)
+            if item:
+                del item
+            # Обновляем сохраненные тексты
+            self._update_original_texts()
+            
+    def _update_original_texts(self):
+        """Обновляет словарь с оригинальными текстами после изменения списка"""
+        new_texts = {}
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item:
+                # Если текст уже был сохранен, используем оригинал
+                if i in self.original_texts:
+                    new_texts[i] = self.original_texts[i]
+                else:
+                    new_texts[i] = item.text()
+        self.original_texts = new_texts
+        
+    def widget(self, index):
+        """Возвращает виджет по индексу"""
+        return self.stack_widget.widget(index)
+        
+    def count(self):
+        """Возвращает количество вкладок"""
+        return self.stack_widget.count()
+        
+    def setCurrentIndex(self, index):
+        """Устанавливает текущую вкладку"""
+        self.list_widget.setCurrentRow(index)
+        self.stack_widget.setCurrentIndex(index)
+        
+    def setTabToolTip(self, index, tooltip):
+        """Устанавливает подсказку для вкладки"""
+        if index < self.list_widget.count():
+            item = self.list_widget.item(index)
+            if item:
+                item.setToolTip(tooltip)
+            
+    def _on_selection_changed(self, index):
+        """Обработчик изменения выбора"""
+        if index >= 0:
+            self.stack_widget.setCurrentIndex(index)
+            self.currentChanged.emit(index)
+            
+    def _expand_animated(self):
+        """Анимированное расширение панели"""
         if not self.is_expanded:
-            self.tab_animation.stop()
-            self._anim_target_width = self.expanded_width
-            self.tab_animation.setStartValue(self.custom_tab_bar.width())
-            self.tab_animation.setEndValue(self.expanded_width)
-            self.tab_animation.start()
+            self.width_animation.stop()
+            self.width_animation.setStartValue(self.list_container.width())
+            self.width_animation.setEndValue(self.expanded_width)
+            self.width_animation.start()
             self.is_expanded = True
-
-    def _collapse_tabs_animated(self):
+            self.show_full_names()
+            
+    def _collapse_animated(self):
+        """Анимированное сворачивание панели"""
         if self.is_expanded and not self.is_pinned:
-            self.tab_animation.stop()
-            self._anim_target_width = self.collapsed_width
-            self.tab_animation.setStartValue(self.custom_tab_bar.width())
-            self.tab_animation.setEndValue(self.collapsed_width)
-            self.tab_animation.start()
+            # Останавливаем прокрутку перед сворачиванием
+            self._stop_scrolling()
+            
+            self.width_animation.stop()
+            self.width_animation.setStartValue(self.list_container.width())
+            self.width_animation.setEndValue(self.collapsed_width)
+            self.width_animation.start()
             self.is_expanded = False
-
+            self.show_short_names()
+            
+    def _expand_tabs_animated(self):
+        """Совместимость со старым кодом"""
+        self._expand_animated()
+        
+    def _collapse_tabs_animated(self):
+        """Совместимость со старым кодом"""
+        self._collapse_animated()
+        
+    def _set_bar_width(self, w):
+        """Совместимость со старым кодом"""
+        self.list_container.setFixedWidth(w)
 
 class StrategySelector(QDialog):
     """Диалог для выбора стратегии обхода блокировок"""
@@ -233,7 +503,7 @@ class StrategySelector(QDialog):
                 background-color: #2a2a2a;
                 color: white;
                 border: 1px solid #2196F3;
-                padding: 8px;
+                padding: 15px;
                 font-size: 10pt;
                 border-radius: 4px;
             }
@@ -278,6 +548,10 @@ class StrategySelector(QDialog):
         from strategy_menu import get_direct_strategy_selections
         from .strategy_lists_separated import get_default_selections
 
+        # Инициализируем атрибуты для загрузки категорий
+        self._pending_categories = []
+        self._categories_loaded = set()
+        
         # Загружаем сохраненные выборы
         try:
             self.category_selections = get_direct_strategy_selections()
@@ -302,42 +576,12 @@ class StrategySelector(QDialog):
         self.loading_progress.setVisible(False)
         layout.addWidget(self.loading_progress)
 
-        # TabWidget
-        self.category_tabs = AnimatedTabWidget()
-
-        self.category_tabs.setContentsMargins(0, 0, 0, 0)
-        self.category_tabs.layout().setContentsMargins(0, 0, 0, 0) if self.category_tabs.layout() else None
-        self.category_tabs.layout().setSpacing(0) if self.category_tabs.layout() else None
-
-        self.category_tabs.setTabPosition(QTabWidget.TabPosition.West)
+        # Используем AnimatedSidePanel вместо AnimatedTabWidget
+        self.category_tabs = AnimatedSidePanel()
         self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # Найдите блок со стилями (строки 213-228) и замените на:
-        self.category_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #444;
-                background: #2a2a2a;
-                border-radius: 5px;
-                margin-left: -10px;  /* отрицательный margin для сдвига влево */
-                padding-left: 10px;  /* компенсируем padding'ом содержимого */
-                padding-top: 0px;
-                padding-right: 0px;
-                padding-bottom: 0px;
-            }
-            QTabWidget::tab-bar { 
-                left: 0px; 
-            }
-            QTabBar {
-                margin: 0px;
-                padding: 0px;
-            }
-        """)
 
         # Обработчик для анимации
         self.category_tabs.tabBar().installEventFilter(self)
-
-        self._pending_categories = []
-        self._categories_loaded = set()
 
         # Подсказки
         self.tab_tooltips = self._get_tab_tooltips()
@@ -352,9 +596,11 @@ class StrategySelector(QDialog):
             'rutracker_tcp': ("🛠", "🛠 Rutracker"),
             'ntcparty_tcp': ("🛠", "🛠 NtcParty"),
             'twitch_tcp': ("🎙", "🎙 Twitch"),
-            'other': ("🌐", "🌐 Hostlist"),
-            'ipset': ("🔢", "🔢 IPset TCP"),
-            'ipset_udp': ("🎮", "🎮 Games UDP"),
+            'phasmophobia_udp': ("🎮", "🎮 Phasmophobia UDP"),
+            'other': ("🌐", "🌐 Hostlist (HTTPS)"),
+            'hostlist_80port': ("🌐", "🌐 Hostlist (HTTP)"),
+            'ipset': ("🔢", "🔢 IPset TCP (Games)"),
+            'ipset_udp': ("🎮", "🎮 IPset UDP (Games)"),
         }
         self.category_tabs.set_tab_names(self.tab_names)
 
@@ -368,7 +614,9 @@ class StrategySelector(QDialog):
             ('rutracker_tcp',),
             ('ntcparty_tcp',),
             ('twitch_tcp',),
+            ('phasmophobia_udp',),
             ('other',),
+            ('hostlist_80port',),
             ('ipset',),
             ('ipset_udp',),
         ]
@@ -386,30 +634,7 @@ class StrategySelector(QDialog):
             if category_key in self.tab_tooltips:
                 self.category_tabs.setTabToolTip(tab_index, self.tab_tooltips[category_key])
 
-
-        # Используйте:
-        from PyQt6.QtWidgets import QSplitter
-
-        # Создаем невидимый сплиттер для точного контроля позиции
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setContentsMargins(0, 0, 0, 0)
-        splitter.setHandleWidth(0)  # убираем разделитель
-        splitter.setChildrenCollapsible(False)
-
-        # Добавляем пустой виджет слева с фиксированной шириной
-        left_spacer = QWidget()
-        left_spacer.setFixedWidth(0)  # 0 пикселей отступа
-        splitter.addWidget(left_spacer)
-
-        # Добавляем сам TabWidget
-        splitter.addWidget(self.category_tabs)
-
-        # Блокируем изменение размеров
-        splitter.setSizes([0, self.width()])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.category_tabs, 1)
 
         # Предпросмотр
         self._create_preview_widget(layout)
@@ -425,38 +650,18 @@ class StrategySelector(QDialog):
 
     def eventFilter(self, obj, event):
         """Обработчик событий для анимации табов"""
-        from PyQt6.QtCore import QEvent
-
-        if obj == self.category_tabs.tabBar() and self.is_direct_mode:
-            # Если закреплены — ничего не анимируем
-            if self.category_tabs.is_pinned:
-                return super().eventFilter(obj, event)
-
-            if event.type() == QEvent.Type.HoverEnter:
-                if not self.category_tabs.is_expanded:
-                    self._expand_all_tabs()
-                    self.category_tabs._expand_tabs_animated()
-
-            elif event.type() == QEvent.Type.HoverLeave:
-                if self.category_tabs.is_expanded:
-                    self._collapse_all_tabs()
-                    self.category_tabs._collapse_tabs_animated()
-
+        # Этот метод теперь обрабатывается внутри AnimatedSidePanel
         return super().eventFilter(obj, event)
 
     def _expand_all_tabs(self):
         """Разворачивает ВСЕ табы при наведении"""
-        for i, key in enumerate(self.tab_names.keys()):
-            if i < self.category_tabs.count():
-                _, full = self.tab_names[key]
-                self.category_tabs.setTabText(i, full)
+        if hasattr(self, 'category_tabs'):
+            self.category_tabs.show_full_names()
 
     def _collapse_all_tabs(self):
         """Сворачивает ВСЕ табы при уходе мышки"""
-        for i, key in enumerate(self.tab_names.keys()):
-            if i < self.category_tabs.count():
-                short, _ = self.tab_names[key]
-                self.category_tabs.setTabText(i, short)
+        if hasattr(self, 'category_tabs'):
+            self.category_tabs.show_short_names()
 
     def _load_next_category_async(self):
         """Загружает следующую категорию"""
@@ -479,6 +684,8 @@ class StrategySelector(QDialog):
         from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
         from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
         from .GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
+        from .PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
+        from .HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
 
         strategies_map = {
             'youtube': YOUTUBE_TCP_STRATEGIES,
@@ -489,7 +696,9 @@ class StrategySelector(QDialog):
             'rutracker_tcp': RUTRACKER_TCP_STRATEGIES,
             'ntcparty_tcp': NTCPARTY_TCP_STRATEGIES,
             'twitch_tcp': TWITCH_TCP_STRATEGIES,
+            'phasmophobia_udp': PHASMOPHOBIA_UDP_STRATEGIES,
             'other': OTHER_STRATEGIES,
+            'hostlist_80port': HOSTLIST_80PORT_STRATEGIES,
             'ipset': IPSET_TCP_STRATEGIES,
             'ipset_udp': IPSET_UDP_STRATEGIES
         }
@@ -550,9 +759,18 @@ class StrategySelector(QDialog):
     Работает с основным трафиком Twitch через TCP протокол.
     Включите если не работают стримы на Twitch.""",
 
+            'phasmophobia_udp': """🎮 Phasmophobia UDP (порты 443)
+    Обходит блокировку Phasmophobia через стандартные веб-порты.
+    Работает с основным трафиком Phasmophobia через UDP протокол.""",
+
             'other': """🌐 Заблокированные сайты из списка (порты 80, 443)
     Обходит блокировку сайтов из файла other.txt через TCP.
     Включает сотни популярных заблокированных сайтов и сервисов.
+    Можно редактировать список сайтов во вкладке Hostlist.""",
+
+            'hostlist_80port': """🌐 Заблокированные сайты из списка (порт 80)
+    Обходит блокировку сайтов из файла other.txt через HTTP (порт 80).
+    Полезно если провайдер блокирует только HTTP трафик, а HTTPS оставляет открытым.
     Можно редактировать список сайтов во вкладке Hostlist.""",
 
             'ipset': """🔢 Блокировка по IP адресам (порты 80, 443)
@@ -634,9 +852,12 @@ class StrategySelector(QDialog):
                 self._category_tab_indices = {}
             self._category_tab_indices[category_key] = tab_index
 
+            # Проверяем существование _pending_categories перед добавлением
+            if not hasattr(self, '_pending_categories'):
+                self._pending_categories = []
             self._pending_categories.append((display_name, category_key))
             return
-
+        
         # Иначе создаем полноценную вкладку
         tab_widget = QWidget()
         tab_layout = QVBoxLayout(tab_widget)
@@ -646,7 +867,14 @@ class StrategySelector(QDialog):
         # Заголовок категории
         category_title = self._get_category_title(category_key)
         title_label = QLabel(category_title)
-        title_label.setStyleSheet("font-weight: bold; font-size: 10pt; color: #2196F3;")
+        title_label.setStyleSheet("""
+            font-weight: bold; 
+            font-size: 10pt; 
+            color: #2196F3;
+            padding-top: 10px;  /* Отступ сверху внутри label */
+            margin-top: 5px;    /* Отступ сверху снаружи label */
+            padding-left: 5px;  /* Небольшой отступ слева */
+        """)
         tab_layout.addWidget(title_label)
 
         # Счетчик избранных
@@ -752,7 +980,9 @@ class StrategySelector(QDialog):
                              'rutracker_tcp',
                              'ntcparty_tcp',
                              'twitch_tcp',
+                             'phasmophobia_udp',
                              'other',
+                             'hostlist_80port',
                              'ipset',
                              'ipset_udp'
                             ]
@@ -771,7 +1001,9 @@ class StrategySelector(QDialog):
             'rutracker_tcp': "Rutracker (TCP) - основной трафик rutracker.org",
             'ntcparty_tcp': "NtcParty (TCP) - основной трафик ntcparty.com",
             'twitch_tcp': "Twitch стриминг (TCP) - основной трафик twitch.tv",
+            'phasmophobia_udp': "Phasmophobia (UDP) - основной трафик игры",
             'other': "Заблокированные сайты из списка other.txt (TCP)",
+            'hostlist_80port': "Заблокированные сайты из списка other.txt (HTTP порт 80)",
             'ipset': "Блокировка по IP адресам (TCP) ipset-all.txt",
             'ipset_udp': "Блокировка по IP адресам (UDP/в основном игры) ipset-all.txt",
         }
@@ -823,7 +1055,7 @@ class StrategySelector(QDialog):
         """Пересортировывает стратегии в категории с учетом избранных"""
         category_map = {
             'youtube': 0, 'youtube_udp': 1, 'googlevideo_tcp': 2, 'discord': 3,
-            'discord_voice_udp': 4, 'rutracker_tcp': 5, 'ntcparty_tcp': 6, 'twitch_tcp': 7, 'other': 8, 'ipset': 9, 'ipset_udp': 10
+            'discord_voice_udp': 4, 'rutracker_tcp': 5, 'ntcparty_tcp': 6, 'twitch_tcp': 7, 'phasmophobia_udp': 8, 'other': 9, 'hostlist_80port': 10, 'ipset': 11, 'ipset_udp': 12
         }
 
         tab_index = category_map.get(category_key, -1)
@@ -1241,6 +1473,7 @@ class StrategySelector(QDialog):
             
             # Добавляем варианты
             base_args_options = [
+                ("💚 ОЧЕНЬ аккуратный режим (лайтовый)", "windivert-discord-media-stun-sites", "Используется самая элегантная windivert.discord_media+stun+sites.txt фильтрация с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
                 ("💚 Аккуратный режим (базовый)", "wf-l3", "Использует L3 фильтрацию с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
                 ("💯 Умный режим (все порты)", "windivert_all", "Использует файл wf-raw для фильтрации.\nБьёт по всем портам (может нарушать работу игр, однако старается делать это быстро)."),
                 ("💥 Агрессивный режим (все порты)", "wf-l3-all", "Использует медленную L3 фильтрацию чтобы гарантированно покрыть 100% всех портов и игр. Сильно нагружает систему, но может помочь для некоторых игр")
@@ -1335,7 +1568,7 @@ class StrategySelector(QDialog):
             from strategy_menu import get_wssize_enabled
             self.wssize_checkbox = QCheckBox("Изменить размер окна интернета wssize (МОЖЕТ УМЕНЬШИТЬ СКОРОСТЬ!)")
             self.wssize_checkbox.setToolTip(
-                "Включает параметр --wssize=1:6 для всех TCP соединений на порту 443.\n"
+                "Включает параметр --wssize 1:6 для всех TCP соединений на порту 443.\n"
                 "Может улучшить обход блокировок на некоторых провайдерах.\n"
                 "Влияет на размер окна TCP сегментов."
             )
@@ -1441,7 +1674,7 @@ class StrategySelector(QDialog):
         from strategy_menu import set_wssize_enabled
         enabled = (state == Qt.CheckState.Checked.value)
         set_wssize_enabled(enabled)
-        log(f"Параметр --wssize=1:6 {'включен' if enabled else 'выключен'}", "INFO")
+        log(f"Параметр --wssize 1:6 {'включен' if enabled else 'выключен'}", "INFO")
 
     def _on_table_strategy_selected(self, strategy_id, strategy_name):
         self.selected_strategy_id = strategy_id
@@ -1460,7 +1693,8 @@ class StrategySelector(QDialog):
                                    set_direct_strategy_other, set_direct_strategy_discord_voice,
                                    set_direct_strategy_ipset, set_direct_strategy_udp_ipset,
                                    set_direct_strategy_twitch_tcp, set_direct_strategy_ntcparty_tcp,
-                                   set_direct_strategy_rutracker_tcp)
+                                   set_direct_strategy_rutracker_tcp, set_direct_strategy_phasmophobia_udp,
+                                   set_direct_strategy_hostlist_80port)
 
         self.category_selections[category] = strategy_id
         self.update_combined_preview()
@@ -1482,8 +1716,12 @@ class StrategySelector(QDialog):
                 set_direct_strategy_ntcparty_tcp(strategy_id)
             elif category == 'twitch_tcp':
                 set_direct_strategy_twitch_tcp(strategy_id)
+            elif category == 'phasmophobia_udp':
+                set_direct_strategy_phasmophobia_udp(strategy_id)
             elif category == 'other':
                 set_direct_strategy_other(strategy_id)
+            elif category == 'hostlist_80port':
+                set_direct_strategy_hostlist_80port(strategy_id)
             elif category == 'ipset':
                 set_direct_strategy_ipset(strategy_id)
             elif category == 'ipset_udp':
@@ -1510,7 +1748,9 @@ class StrategySelector(QDialog):
             self.category_selections.get('rutracker_tcp'),
             self.category_selections.get('ntcparty_tcp'),
             self.category_selections.get('twitch_tcp'),
+            self.category_selections.get('phasmophobia_udp'),
             self.category_selections.get('other'),
+            self.category_selections.get('hostlist_80port'),
             self.category_selections.get('ipset'),
             self.category_selections.get('ipset_udp')
         )
@@ -1527,7 +1767,9 @@ class StrategySelector(QDialog):
             'rutracker_tcp': 'rutracker_tcp_none',
             'ntcparty_tcp': 'ntcparty_tcp_none',
             'twitch_tcp': 'twitch_tcp_none',
+            'phasmophobia_udp': 'phasmophobia_udp_none',
             'other': 'other_tcp_none',
+            'hostlist_80port': 'hostlist_80port_none',
             'ipset': 'ipset_tcp_none',
             'ipset_udp': 'ipset_udp_none'
         }
@@ -1549,7 +1791,9 @@ class StrategySelector(QDialog):
             format_strategy("Rutracker TCP (80 & 443)", 'rutracker_tcp', '#6c5ce7'),
             format_strategy("NtcParty TCP (80 & 443)", 'ntcparty_tcp', '#6c5ce7'),
             format_strategy("Twitch TCP (80 & 443)", 'twitch_tcp', '#9146ff'),
+            format_strategy("Phasmophobia UDP (80 & 443)", 'phasmophobia_udp', '#ff4757'),
             format_strategy("Сайты TCP (80 & 443)", 'other', '#66ff66'),
+            format_strategy("Hostlist 80port TCP", 'hostlist_80port', '#00ffcc'),
             format_strategy("IPset TCP (80 & 443)", 'ipset', '#ffa500'),
             format_strategy("IPset UDP (all ports)", 'ipset_udp', "#006eff"),
         ]
@@ -1689,7 +1933,9 @@ class StrategySelector(QDialog):
                 self.category_selections.get('rutracker_tcp'),
                 self.category_selections.get('ntcparty_tcp'),
                 self.category_selections.get('twitch_tcp'),
+                self.category_selections.get('phasmophobia_udp'),
                 self.category_selections.get('other'),
+                self.category_selections.get('hostlist_80port'),
                 self.category_selections.get('ipset'),
                 self.category_selections.get('ipset_udp')
             )

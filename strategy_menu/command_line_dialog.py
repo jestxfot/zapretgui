@@ -193,7 +193,9 @@ class CommandLineDialog(QDialog):
             self.parent_selector.category_selections.get('rutracker_tcp'),
             self.parent_selector.category_selections.get('ntcparty_tcp'),
             self.parent_selector.category_selections.get('twitch_tcp'),
+            self.parent_selector.category_selections.get('phasmophobia_udp'),
             self.parent_selector.category_selections.get('other'),
+            self.parent_selector.category_selections.get('hostlist_80port'),
             self.parent_selector.category_selections.get('ipset'),
             self.parent_selector.category_selections.get('ipset_udp')
         )

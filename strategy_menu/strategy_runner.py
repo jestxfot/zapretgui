@@ -103,7 +103,7 @@ def log_full_command(cmd_list: List[str], strategy_name: str):
 
 def apply_wssize_parameter(args: list) -> list:
     """
-    Применяет параметр --wssize=1:6 к аргументам стратегии если включено в настройках
+    Применяет параметр --wssize 1:6 к аргументам стратегии если включено в настройках
     """
     from strategy_menu import get_wssize_enabled
     
@@ -133,24 +133,24 @@ def apply_wssize_parameter(args: list) -> list:
             
             if "443" in ports:
                 next_arg = args[i + 1] if i + 1 < len(args) else None
-                if next_arg != "--wssize=1:6":
-                    new_args.append("--wssize=1:6")
+                if next_arg != "--wssize 1:6":
+                    new_args.append("--wssize 1:6")
                     wssize_added = True
-                    log(f"Добавлен параметр --wssize=1:6 после {arg}", "DEBUG")
-        
+                    log(f"Добавлен параметр --wssize 1:6 после {arg}", "DEBUG")
+
         i += 1
     
     if not wssize_added:
         insert_index = _find_wssize_insert_position(new_args)
         
         new_args.insert(insert_index, "--filter-tcp=443")
-        new_args.insert(insert_index + 1, "--wssize=1:6")
-        
+        new_args.insert(insert_index + 1, "--wssize 1:6")
+
         if insert_index + 2 >= len(new_args) or new_args[insert_index + 2] != "--new":
             new_args.insert(insert_index + 2, "--new")
-        
-        log("Добавлено глобальное правило --filter-tcp=443 --wssize=1:6 --new", "DEBUG")
-    
+
+        log("Добавлено глобальное правило --filter-tcp=443 --wssize 1:6 --new", "DEBUG")
+
     return new_args
 
 def _find_wssize_insert_position(args: list) -> int:

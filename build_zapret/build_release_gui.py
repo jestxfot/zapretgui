@@ -876,25 +876,28 @@ class BuildReleaseGUI:
             self.log_queue.put(traceback.format_exc())
             self.root.after(0, lambda: self.build_error(str(e)))
 
-    def run_inno_setup(self, channel, version):
-        """Запуск Inno Setup с параметрами препроцессора"""
-        # ✅ ИСПРАВЛЕНО: Используем абсолютные пути
+    def run_inno_setup(self, channel, version, max_retries=50):
+        """Запуск Inno Setup с параметрами препроцессора и автоматическим перезапуском при ошибках доступа"""
+        
         # Определяем пути
-        project_root = Path("D:/Privacy/zapretgui")  # Папка с исходниками
-        output_dir = Path("D:/Privacy/zapret")       # Папка с собранным exe
+        project_root = Path("D:/Privacy/zapretgui")
+        output_dir = Path("D:/Privacy/zapret")
         
         # Имя ISS файла в зависимости от канала
         iss_filename = "zapret_test.iss" if channel == "test" else "zapret_stable.iss"
         
         # Путь к универсальному ISS файлу
         universal_iss = project_root / "zapret_universal.iss"
-        
-        # Путь к целевому ISS файлу
         target_iss = project_root / iss_filename
+        
+        # Путь к выходному файлу установщика
+        output_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        output_file = project_root / output_name
         
         self.log_queue.put(f"📁 Папка проекта: {project_root}")
         self.log_queue.put(f"📁 Папка сборки: {output_dir}")
         self.log_queue.put(f"📄 ISS файл: {target_iss}")
+        self.log_queue.put(f"📦 Выходной файл: {output_file}")
         
         # Проверяем существование универсального ISS
         if not universal_iss.exists():
@@ -907,7 +910,6 @@ class BuildReleaseGUI:
         # Проверяем существование Inno Setup
         iscc_path = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
         if not iscc_path.exists():
-            # Пробуем альтернативный путь
             iscc_path = Path(r"C:\Program Files\Inno Setup 6\ISCC.exe")
             if not iscc_path.exists():
                 raise FileNotFoundError("Inno Setup не найден! Установите Inno Setup 6")
@@ -920,40 +922,167 @@ class BuildReleaseGUI:
             str(target_iss)
         ]
         
-        self.log_queue.put(f"Запуск: {' '.join(cmd)}")
+        # Попытки запуска с обработкой ошибок блокировки файла
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.log_queue.put(f"\n🔄 Попытка {attempt}/{max_retries}: Запуск Inno Setup...")
+                self.log_queue.put(f"Команда: {' '.join(cmd)}")
+                
+                # Если это не первая попытка, пытаемся освободить файл
+                if attempt > 1 and output_file.exists():
+                    self.log_queue.put(f"⚠️ Попытка освободить файл {output_file.name}...")
+                    
+                    # Метод 1: Попытка удалить файл
+                    try:
+                        output_file.unlink()
+                        self.log_queue.put(f"✓ Файл удален")
+                    except Exception as e:
+                        self.log_queue.put(f"❌ Не удалось удалить: {e}")
+                        
+                        # Метод 2: Попытка переименовать файл
+                        try:
+                            temp_name = output_file.with_suffix('.old.exe')
+                            if temp_name.exists():
+                                temp_name.unlink()
+                            output_file.rename(temp_name)
+                            self.log_queue.put(f"✓ Файл переименован в {temp_name.name}")
+                        except Exception as e2:
+                            self.log_queue.put(f"❌ Не удалось переименовать: {e2}")
+                            
+                            # Метод 3: Принудительное закрытие процессов
+                            self.force_close_file_handles(output_file)
+                            
+                            # Ждем немного
+                            time.sleep(2)
+                
+                # Запускаем Inno Setup
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding='cp1251',
+                    cwd=str(project_root)
+                )
+                
+                # Проверяем на ошибку доступа к файлу
+                if result.returncode != 0:
+                    error_text = (result.stdout or "") + (result.stderr or "")
+                    
+                    # Проверяем на типичные ошибки блокировки файла
+                    file_locked_errors = [
+                        "Процесс не может получить доступ к файлу",
+                        "The process cannot access the file",
+                        "Access is denied",
+                        "Отказано в доступе",
+                        "being used by another process",
+                        "занят другим процессом"
+                    ]
+                    
+                    is_file_locked = any(err in error_text for err in file_locked_errors)
+                    
+                    if is_file_locked and attempt < max_retries:
+                        self.log_queue.put(f"⚠️ Файл заблокирован другим процессом")
+                        self.log_queue.put(f"⏳ Ожидание 5 секунд перед повторной попыткой...")
+                        time.sleep(5)
+                        continue  # Переходим к следующей попытке
+                    
+                    # Если это не ошибка блокировки или последняя попытка - выбрасываем исключение
+                    error_msg = f"Inno Setup завершился с кодом {result.returncode}"
+                    if result.stdout:
+                        self.log_queue.put(f"Вывод:\n{result.stdout}")
+                        error_msg += f"\n\nВывод:\n{result.stdout}"
+                    if result.stderr:
+                        self.log_queue.put(f"Ошибки:\n{result.stderr}")
+                        error_msg += f"\n\nОшибки:\n{result.stderr}"
+                    raise RuntimeError(error_msg)
+                
+                # Успешное выполнение
+                if result.stdout:
+                    self.log_queue.put(f"Вывод Inno Setup:\n{result.stdout}")
+                
+                # Проверяем, что установщик создан
+                if output_file.exists():
+                    self.log_queue.put(f"✅ Установщик создан: {output_file}")
+                    self.log_queue.put(f"📏 Размер: {output_file.stat().st_size / 1024 / 1024:.1f} MB")
+                    return  # Успешно завершаем
+                else:
+                    if attempt < max_retries:
+                        self.log_queue.put(f"⚠️ Установщик не найден, повторная попытка...")
+                        time.sleep(3)
+                        continue
+                    else:
+                        raise FileNotFoundError(f"Установщик не создан: {output_file}")
+                        
+            except Exception as e:
+                if attempt < max_retries:
+                    self.log_queue.put(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                    self.log_queue.put(f"⏳ Повторная попытка через 5 секунд...")
+                    time.sleep(5)
+                else:
+                    self.log_queue.put(f"❌ Все {max_retries} попытки исчерпаны")
+                    raise
         
-        # Запускаем Inno Setup с рабочей директорией = папка проекта
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding='cp1251',  # Windows кодировка
-            cwd=str(project_root)  # Важно! Устанавливаем рабочую директорию
-        )
+    def force_close_file_handles(self, file_path):
+        """Принудительное закрытие процессов, использующих файл"""
+        try:
+            import psutil
+            
+            self.log_queue.put(f"🔍 Поиск процессов, использующих {file_path.name}...")
+            
+            # Получаем список всех процессов
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    # Проверяем открытые файлы процесса
+                    for item in proc.open_files():
+                        if str(file_path) in str(item.path):
+                            self.log_queue.put(f"  → Найден процесс {proc.info['name']} (PID: {proc.info['pid']})")
+                            try:
+                                proc.terminate()
+                                self.log_queue.put(f"  → Процесс завершен")
+                            except:
+                                try:
+                                    proc.kill()
+                                    self.log_queue.put(f"  → Процесс принудительно завершен")
+                                except:
+                                    pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+                    
+        except ImportError:
+            # Если psutil недоступен, используем taskkill
+            self.log_queue.put(f"⚠️ psutil недоступен, использую taskkill...")
+            
+            # Пытаемся закрыть типичные процессы, которые могут держать файл
+            possible_processes = [
+                "explorer.exe",  # Проводник Windows
+                "ZapretSetup_TEST.exe",  # Сам установщик
+                "ZapretSetup.exe",
+                "Zapret.exe"
+            ]
+            
+            for proc_name in possible_processes:
+                try:
+                    result = subprocess.run(
+                        f'taskkill /F /IM "{proc_name}"',
+                        shell=True,
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode == 0:
+                        self.log_queue.put(f"  → Завершен процесс {proc_name}")
+                except:
+                    pass
+            
+            # Перезапускаем проводник если закрыли его
+            if "explorer.exe" in possible_processes:
+                try:
+                    subprocess.Popen("explorer.exe", shell=True)
+                    self.log_queue.put(f"  → Проводник перезапущен")
+                except:
+                    pass
         
-        # Выводим результат
-        if result.stdout:
-            self.log_queue.put(f"Вывод Inno Setup:\n{result.stdout}")
-        if result.stderr:
-            self.log_queue.put(f"Ошибки Inno Setup:\n{result.stderr}")
-        
-        if result.returncode != 0:
-            error_msg = f"Inno Setup завершился с кодом {result.returncode}"
-            if result.stdout:
-                error_msg += f"\n\nВывод:\n{result.stdout}"
-            if result.stderr:
-                error_msg += f"\n\nОшибки:\n{result.stderr}"
-            raise RuntimeError(error_msg)
-        
-        # Проверяем, что установщик создан
-        output_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
-        output_file = project_root / output_name
-        
-        if output_file.exists():
-            self.log_queue.put(f"✅ Установщик создан: {output_file}")
-            self.log_queue.put(f"📏 Размер: {output_file.stat().st_size / 1024 / 1024:.1f} MB")
-        else:
-            self.log_queue.put(f"⚠️ Установщик не найден: {output_file}")
+        except Exception as e:
+            self.log_queue.put(f"⚠️ Ошибка при закрытии процессов: {e}")
 
     def deploy_to_ssh(self, channel):
         """Деплой на VPS через SSH"""

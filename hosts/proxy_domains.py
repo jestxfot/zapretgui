@@ -118,7 +118,7 @@ PROXY_DOMAINS = {
     "login-wall.deepl.com": "204.12.192.222",
     "gtm.deepl.com": "204.12.192.222",
     "checkout.www.deepl.com": "204.12.192.222",
-    "rutracker.org": "104.21.32.39",
+    "rutracker.org": "172.67.182.196", # 172.67.182.196 104.21.32.39
     "static.rutracker.cc": "104.21.50.150",
     "1xbet.kz": "0.0.0.0",
     "1xbet.com": "0.0.0.0",

@@ -1,4 +1,6 @@
 import subprocess
+from typing import List, Callable, Optional
+from utils import run_hidden
 
 class CurlChecker:
     def __init__(self):

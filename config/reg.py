@@ -138,3 +138,45 @@ def get_remove_github_api() -> bool:
 def set_remove_github_api(enabled: bool) -> bool:
     """Включает/выключает удаление api.github.com из hosts при запуске."""
     return reg(_GITHUB_API_KEY, _GITHUB_API_NAME, 1 if enabled else 0)
+
+# ───────────── Активные домены hosts ─────────────
+_HOSTS_KEY = r"Software\ZapretReg2"
+_HOSTS_DOMAINS_NAME = "ActiveHostsDomains"  # REG_SZ (JSON строка)
+
+def get_active_hosts_domains() -> set:
+    """Возвращает множество активных доменов из реестра"""
+    import json
+    try:
+        val = reg(_HOSTS_KEY, _HOSTS_DOMAINS_NAME)
+        if val:
+            domains_list = json.loads(val)
+            return set(domains_list)
+    except Exception as e:
+        log(f"Ошибка чтения активных доменов: {e}", "DEBUG")
+    return set()
+
+def set_active_hosts_domains(domains: set) -> bool:
+    """Сохраняет множество активных доменов в реестр"""
+    import json
+    try:
+        domains_json = json.dumps(list(domains))
+        return reg(_HOSTS_KEY, _HOSTS_DOMAINS_NAME, domains_json)
+    except Exception as e:
+        log(f"Ошибка записи активных доменов: {e}", "❌ ERROR")
+        return False
+
+def add_active_hosts_domain(domain: str) -> bool:
+    """Добавляет домен в список активных"""
+    domains = get_active_hosts_domains()
+    domains.add(domain)
+    return set_active_hosts_domains(domains)
+
+def remove_active_hosts_domain(domain: str) -> bool:
+    """Удаляет домен из списка активных"""
+    domains = get_active_hosts_domains()
+    domains.discard(domain)
+    return set_active_hosts_domains(domains)
+
+def clear_active_hosts_domains() -> bool:
+    """Очищает список активных доменов"""
+    return set_active_hosts_domains(set())

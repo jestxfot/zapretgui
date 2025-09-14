@@ -1,15 +1,36 @@
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE, LABEL_WARP
 
-RUTRACKER_BASE_ARG = "--filter-tcp=80 --hostlist-domains=rutracker.org,rutracker.cc --dpi-desync=fakedsplit --dpi-desync-ttl=6 --dpi-desync-split-pos=method+2 --new --filter-tcp=443 --hostlist-domains=rutracker.org,rutracker.cc"
+RUTRACKER_BASE_ARG = "--filter-tcp=443 --hostlist-domains=rutracker.org,static.rutracker.cc"
 
 # Стратегии для остальных сайтов
 RUTRACKER_TCP_STRATEGIES = {
+    "multisplit_split_pos_1": {
+        "name": "multisplit split pos 1",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-pos=1"""
+    },
     "other_seqovl_fakedsplit_ttl2": {
         "name": "fakedsplit ttl2",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
         "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=fake,fakedsplit --dpi-desync-ttl=2 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000 --dpi-desync-fake-tls=! --dpi-desync-fake-tls-mod=rnd,rndsni,dupsid"""
+    },
+    "multisplit_226_pattern_google_Com": {
+        "name": "multisplit seqovl 226 v2",
+        "description": "Мультисплит стратегия с фуллингом pattern и повтором 9",
+        "author": "hz",
+        "label": None,
+        "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=226 --dpi-desync-split-seqovl-pattern=tls_clienthello_www_google_com.bin --dup=2 --dup-cutoff=d1 --new"""
+    },
+    "original_bolvan_v2_badsum_max": {
+        "name": "Мессенджер Max",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=web.max.ru --new"""
     },
     "other_seqovl": {
         "name": "multisplit seqovl 211 & pattern 5",
@@ -18,23 +39,37 @@ RUTRACKER_TCP_STRATEGIES = {
         "label": LABEL_RECOMMENDED,
         "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
     },
+    "other_seqovl": {
+        "name": "multidisorder seqovl 211 & pattern 5",
+        "description": "Потом опишу подробнее",
+        "author": "hz",
+        "label": LABEL_RECOMMENDED,
+        "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multidisorder --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin --new"""
+    },
     "multisplit_286_pattern": {
         "name": "multisplit seqovl 286 и cutoff n3",
-        "description": "Дисордер стратегия с фуллингом pattern и cutoff n3",
+        "description": "Мультисплит стратегия с фуллингом pattern и cutoff n3",
         "author": "hz",
         "label": None,
         "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3 --new"""
     },
     "multisplit_226_pattern_18": {
         "name": "multisplit seqovl 226",
-        "description": "Дисордер стратегия с фуллингом pattern и повтором 9",
+        "description": "Мультисплит стратегия с фуллингом pattern и повтором 9",
         "author": "hz",
         "label": None,
         "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=226 --dpi-desync-split-seqovl-pattern=tls_clienthello_18.bin --dup=2 --dup-cutoff=n3 --new"""
     },
+    "multisplit_sniext_midsld_18": {
+        "name": "multisplit sniext+1 midsld-1",
+        "description": "Потом опишу позже",
+        "author": "hz",
+        "label": None,
+        "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-pos=sniext+1,midsld  --dpi-desync-split-seqovl=midsld-1 --new"""
+    },
     "multisplit_308_pattern": {
         "name": "multisplit seqovl 308 с парттерном 9",
-        "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 9",
+        "description": "Мультисплит стратегия с фуллингом badseq нарезкой и повтором 9",
         "author": "hz",
         "label": None,
         "args": f"""{RUTRACKER_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3 --new"""
