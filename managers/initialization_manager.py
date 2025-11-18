@@ -133,36 +133,20 @@ class InitializationManager:
             log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
 
     def _init_ipsets_check(self):
-        """Асинхронная проверка IPsets"""
-        class IPsetsChecker(QObject):
-            finished = pyqtSignal(bool, str)
-            progress = pyqtSignal(str)
-
-            def run(self):
-                try:
-                    self.progress.emit("Проверка IPsets...")
-                    from utils.ipsets_manager import startup_ipsets_check
-                    startup_ipsets_check()
-                    self.finished.emit(True, "IPsets проверены")
-                except Exception as e:
-                    self.finished.emit(False, str(e))
-
-        thread = QThread()
-        worker = IPsetsChecker()
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.progress.connect(self.app.set_status)
-        worker.finished.connect(lambda ok, msg: (
-            log(f"IPsets: {msg}", "✅" if ok else "❌"),
-            self.init_tasks_completed.add('ipsets') if ok else None
-        ))
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        thread.start()
-        self._ipsets_thread = thread
+        """Синхронная проверка IPsets"""
+        try:
+            log("🔧 Начинаем проверку IPsets", "DEBUG")
+            from utils.ipsets_manager import startup_ipsets_check
+            result = startup_ipsets_check()
+            if result:
+                log("✅ IPsets проверены и готовы", "SUCCESS")
+            else:
+                log("⚠️ Проблемы с IPsets, создаем минимальные", "WARNING")
+            self.init_tasks_completed.add('ipsets')
+        except Exception as e:
+            log(f"❌ Ошибка проверки IPsets: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
 
     def _init_dpi_controller(self):
         """Инициализация DPI контроллера"""
@@ -201,10 +185,8 @@ class InitializationManager:
             self.app.subscription_btn.clicked.connect(self.app.show_subscription_dialog)
             self.app.dns_settings_btn.clicked.connect(self.app.open_dns_settings)
             self.app.proxy_button.clicked.connect(self.app.toggle_proxy_domains)
-            self.app.update_check_btn.clicked.connect(self.app.manual_update_check)
-
-            log("Сигналы подключены", "INFO")
-            self.init_tasks_completed.add('signals')
+            self.app.server_status_btn.clicked.connect(self.app._show_server_status)
+            self.app.help_btn.clicked.connect(self.app.open_help_dialog)
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
 

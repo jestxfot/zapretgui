@@ -65,7 +65,7 @@ class DPIStartWorker(QObject):
                 
                 self.finished.emit(True, "")
             else:
-                self.finished.emit(False, "Не удалось запустить DPI")
+                self.finished.emit(False, "Не удалось запустить DPI. Перезапустите ПК!")
                 
         except Exception as e:
             error_msg = f"Ошибка запуска DPI: {str(e)}"
@@ -320,21 +320,7 @@ class DPIController:
                 log(f"Загружены сохраненные выборы из реестра: {saved_selections}", "DEBUG")
                 
                 # Создаем комбинированную стратегию на основе сохраненных выборов
-                combined = combine_strategies(
-                    saved_selections.get('youtube'),
-                    saved_selections.get('youtube_udp'),
-                    saved_selections.get('googlevideo_tcp'),
-                    saved_selections.get('discord'),
-                    saved_selections.get('discord_voice_udp'),
-                    saved_selections.get('rutracker_tcp'),
-                    saved_selections.get('ntcparty_tcp'),
-                    saved_selections.get('twitch_tcp'),
-                    saved_selections.get('phasmophobia_udp'),
-                    saved_selections.get('other'),
-                    saved_selections.get('hostlist_80port'),
-                    saved_selections.get('ipset'),
-                    saved_selections.get('ipset_udp'),
-                )
+                combined = combine_strategies(**saved_selections)
                 
                 selected_mode = {
                     'is_combined': True,

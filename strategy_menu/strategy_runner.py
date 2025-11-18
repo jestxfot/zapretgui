@@ -7,7 +7,15 @@ from typing import Optional, List, Dict
 from log import log
 from datetime import datetime
 
+from .apply_filters import apply_all_filters
 from .constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
+from dpi.process_health_check import (
+    check_process_health, 
+    get_last_crash_info, 
+    check_common_crash_causes,
+    check_conflicting_processes,
+    get_conflicting_processes_report
+)
 
 def log_full_command(cmd_list: List[str], strategy_name: str):
     """
@@ -101,81 +109,6 @@ def log_full_command(cmd_list: List[str], strategy_name: str):
     except Exception as e:
         log(f"Ошибка записи команды в лог: {e}", "DEBUG")
 
-def apply_wssize_parameter(args: list) -> list:
-    """
-    Применяет параметр --wssize 1:6 к аргументам стратегии если включено в настройках
-    """
-    from strategy_menu import get_wssize_enabled
-    
-    if not get_wssize_enabled():
-        return args
-    
-    new_args = []
-    wssize_added = False
-    
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        new_args.append(arg)
-        
-        if arg.startswith("--filter-tcp="):
-            ports_part = arg.split("=", 1)[1]
-            ports = []
-            
-            for port_spec in ports_part.split(","):
-                if "-" in port_spec:
-                    start, end = port_spec.split("-")
-                    if int(start) <= 443 <= int(end):
-                        ports.append("443")
-                else:
-                    if port_spec.strip() == "443":
-                        ports.append("443")
-            
-            if "443" in ports:
-                next_arg = args[i + 1] if i + 1 < len(args) else None
-                if next_arg != "--wssize 1:6":
-                    new_args.append("--wssize 1:6")
-                    wssize_added = True
-                    log(f"Добавлен параметр --wssize 1:6 после {arg}", "DEBUG")
-
-        i += 1
-    
-    if not wssize_added:
-        insert_index = _find_wssize_insert_position(new_args)
-        
-        new_args.insert(insert_index, "--filter-tcp=443")
-        new_args.insert(insert_index + 1, "--wssize 1:6")
-
-        if insert_index + 2 >= len(new_args) or new_args[insert_index + 2] != "--new":
-            new_args.insert(insert_index + 2, "--new")
-
-        log("Добавлено глобальное правило --filter-tcp=443 --wssize 1:6 --new", "DEBUG")
-
-    return new_args
-
-def _find_wssize_insert_position(args: list) -> int:
-    """Находит оптимальную позицию для вставки глобального правила wssize"""
-    last_wf_index = -1
-    first_filter_index = -1
-    first_new_index = -1
-    
-    for i, arg in enumerate(args):
-        if arg.startswith("--wf-tcp=") or arg.startswith("--wf-udp="):
-            last_wf_index = i
-        elif arg.startswith("--filter-tcp=") and first_filter_index == -1:
-            first_filter_index = i
-        elif arg == "--new" and first_new_index == -1:
-            first_new_index = i
-    
-    if last_wf_index != -1:
-        return last_wf_index + 1
-    elif first_filter_index != -1:
-        return first_filter_index
-    elif first_new_index != -1:
-        return first_new_index
-    else:
-        return len(args)
-
 class StrategyRunner:
     """Класс для запуска стратегий напрямую через subprocess. Отвечает только за Direct режим"""
     
@@ -229,10 +162,14 @@ class StrategyRunner:
                     filename = filename.strip('"')
                     
                     if not os.path.isabs(filename):
-                        # Используем папку WINDIVERT_FILTER для фильтров
-                        windivert_dir = os.path.dirname(WINDIVERT_FILTER) if os.path.isfile(WINDIVERT_FILTER) else WINDIVERT_FILTER
-                        full_path = os.path.join(windivert_dir, filename)
-                        # Кавычки добавляем только вокруг пути, не всего аргумента
+                        # WINDIVERT_FILTER - это путь к папке windivert.filter
+                        # Файлы фильтров лежат прямо в ней
+                        full_path = os.path.join(WINDIVERT_FILTER, filename)
+                        
+                        # Проверяем существование файла
+                        if not os.path.exists(full_path):
+                            log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
+                        
                         resolved_args.append(f'--wf-raw=@{full_path}')
                     else:
                         resolved_args.append(f'--wf-raw=@{filename}')
@@ -253,20 +190,30 @@ class StrategyRunner:
                     resolved_args.append(f'{prefix}={filename}')
                     
             elif any(arg.startswith(prefix) for prefix in [
-                "--dpi-desync-fake-tls=", "--dpi-desync-fake-syndata=", 
-                "--dpi-desync-fake-quic=", "--dpi-desync-fake-unknown-udp=",
-                "--dpi-desync-split-seqovl-pattern="
+                "--dpi-desync-fake-tls=",
+                "--dpi-desync-fake-syndata=", 
+                "--dpi-desync-fake-quic=",
+                "--dpi-desync-fake-unknown-udp=",
+                "--dpi-desync-split-seqovl-pattern=",
+                "--dpi-desync-fake-http=", 
+                "--dpi-desync-fake-unknown=",
+                "--dpi-desync-fakedsplit-pattern="
             ]):
                 prefix, filename = arg.split("=", 1)
                 
                 # Проверяем специальные значения (hex или модификаторы)
-                if filename.startswith("0x") or filename.startswith("!"):
+                if filename.startswith("0x") or filename.startswith("0x00") or filename.startswith("!") or filename.startswith("^"):
                     resolved_args.append(arg)
                 else:
                     filename = filename.strip('"')
                     
                     if not os.path.isabs(filename):
                         full_path = os.path.join(self.bin_dir, filename)
+                        
+                        # Проверяем существование файла
+                        if not os.path.exists(full_path):
+                            log(f"Предупреждение: бинарный файл не найден: {full_path}", "WARNING")
+                        
                         resolved_args.append(f'{prefix}={full_path}')
                     else:
                         resolved_args.append(f'{prefix}={filename}')
@@ -349,6 +296,11 @@ class StrategyRunner:
             custom_args: Список аргументов командной строки
             strategy_name: Название стратегии для логов
         """
+        conflicting = check_conflicting_processes()
+        if conflicting:
+            warning_report = get_conflicting_processes_report()
+            log(warning_report, "⚠ WARNING")
+            
         try:
             # Останавливаем предыдущий процесс
             if self.running_process and self.is_running():
@@ -368,11 +320,11 @@ class StrategyRunner:
                 log("Нет аргументов для запуска", "ERROR")
                 return False
             
-            # Разрешаем пути и применяем параметры
+            # Разрешаем пути
             resolved_args = self._resolve_file_paths(custom_args)
-            resolved_args = apply_allzone_replacement(resolved_args)
-            resolved_args = apply_game_filter_parameter(resolved_args, self.lists_dir)
-            resolved_args = apply_wssize_parameter(resolved_args)
+            
+            # ✅ Применяем ВСЕ фильтры в правильном порядке
+            resolved_args = apply_all_filters(resolved_args, self.lists_dir)
             
             # Формируем команду
             cmd = [self.winws_exe] + resolved_args
@@ -380,38 +332,8 @@ class StrategyRunner:
             log(f"Запуск стратегии '{strategy_name}'", "INFO")
             log(f"Количество аргументов: {len(resolved_args)}", "DEBUG")
             
-            # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ В ОТДЕЛЬНЫЙ ЛОГ
+            # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ
             log_full_command(cmd, strategy_name)
-            
-            # Формируем командную строку для отображения в основном логе (сокращенная версия)
-            cmd_display_parts = []
-            for arg in cmd:
-                if '\\' in arg and len(arg) > 60:
-                    # Сокращаем длинные пути
-                    parts = arg.split('\\')
-                    if len(parts) > 3:
-                        # Сохраняем начало и конец пути
-                        short_arg = f"{parts[0]}\\...\\{parts[-1]}"
-                    else:
-                        short_arg = arg
-                    cmd_display_parts.append(short_arg)
-                else:
-                    cmd_display_parts.append(arg)
-            
-            cmd_display = ' '.join(cmd_display_parts)
-            
-            # Выводим в лог
-            if len(cmd_display) > 500:
-                log("─" * 60, "INFO")
-                log("📋 КОМАНДНАЯ СТРОКА (сокращенная):", "INFO")
-                log(cmd_display, "INFO")
-                log("💡 Полная команда сохранена в logs/commands_full.log", "INFO")
-                log("─" * 60, "INFO")
-            else:
-                log("─" * 60, "INFO")
-                log("📋 КОМАНДНАЯ СТРОКА:", "INFO")
-                log(cmd_display, "INFO")
-                log("─" * 60, "INFO")
             
             # Запускаем процесс
             self.running_process = subprocess.Popen(
@@ -428,12 +350,39 @@ class StrategyRunner:
             self.current_strategy_name = strategy_name
             self.current_strategy_args = resolved_args.copy()
             
-            # Проверяем запуск
-            if self.running_process.poll() is None:
-                log(f"Стратегия '{strategy_name}' успешно запущена (PID: {self.running_process.pid})", "✅ SUCCESS")
+            # ✅ НОВАЯ ПРОВЕРКА ЗДОРОВЬЯ ПРОЦЕССА
+            log("Ожидание инициализации процесса...", "INFO")
+            time.sleep(1)  # Даем процессу время на инициализацию
+            
+            from dpi.process_health_check import check_process_health, get_last_crash_info, check_common_crash_causes
+            
+            is_healthy, error_message = check_process_health(
+                process_name="winws.exe",
+                monitor_duration=5,
+                check_interval=0.5
+            )
+            
+            if is_healthy:
+                log(f"✅ Стратегия '{strategy_name}' успешно запущена и работает стабильно (PID: {self.running_process.pid})", "SUCCESS")
                 return True
             else:
-                log("Процесс завершился сразу после запуска", "❌ ERROR")
+                log(f"❌ Стратегия '{strategy_name}' запустилась, но завершилась: {error_message}", "ERROR")
+                
+                # Показываем дополнительную информацию
+                crash_info = get_last_crash_info()
+                if crash_info:
+                    log("📋 История падений из Event Log:", "INFO")
+                    for line in crash_info.split('\n'):
+                        log(f"  {line}", "INFO")
+                
+                # Проверяем типичные причины
+                causes = check_common_crash_causes()
+                if causes:
+                    log("💡 Возможные причины падения:", "INFO")
+                    for line in causes.split('\n'):
+                        log(f"  {line}", "INFO")
+                
+                # Очищаем состояние
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
@@ -441,6 +390,8 @@ class StrategyRunner:
                 
         except Exception as e:
             log(f"Ошибка запуска стратегии: {e}", "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
             self.running_process = None
             self.current_strategy_name = None
             self.current_strategy_args = None
@@ -473,6 +424,7 @@ class StrategyRunner:
             
             # Дополнительная очистка
             self._stop_windivert_service()
+            self._stop_monkey_service()
             self._kill_all_winws_processes()
             
             # Очищаем состояние
@@ -510,7 +462,32 @@ class StrategyRunner:
             
         except Exception as e:
             log(f"Ошибка при остановке службы WinDivert: {e}", "DEBUG")
-    
+
+    def _stop_monkey_service(self):
+        """Останавливает и удаляет службу Monkey"""
+        try:
+            subprocess.run(
+                ["sc", "stop", "Monkey"],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=10
+            )
+            
+            import time
+            time.sleep(1)
+            
+            subprocess.run(
+                ["sc", "delete", "Monkey"],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=10
+            )
+            
+            log("Служба Monkey остановлена и удалена", "INFO")
+            
+        except Exception as e:
+            log(f"Ошибка при остановке службы Monkey: {e}", "DEBUG")
+
     def _kill_all_winws_processes(self):
         """Принудительно завершает все процессы winws.exe"""
         try:
@@ -565,90 +542,3 @@ def reset_strategy_runner():
     if _strategy_runner_instance:
         _strategy_runner_instance.stop()
     _strategy_runner_instance = None
-
-def apply_game_filter_parameter(args: list, lists_dir: str) -> list:
-    """
-    Применяет Game Filter - добавляет порты 444-65535 для стратегий с other.txt или allzone.txt
-    """
-    from strategy_menu import get_game_filter_enabled
-    
-    if not get_game_filter_enabled():
-        return args
-    
-    new_args = []
-    i = 0
-    ports_modified = False
-    
-    while i < len(args):
-        arg = args[i]
-        new_args.append(arg)
-        
-        if arg.startswith("--filter-tcp="):
-            has_other_hostlist = False
-            j = i + 1
-            
-            while j < len(args) and args[j] != "--new":
-                if "--hostlist=" in args[j]:
-                    hostlist_value = args[j].split("=", 1)[1].strip('"')
-                    hostlist_filename = os.path.basename(hostlist_value)
-                    if hostlist_filename in ["other.txt", "other2.txt", "russia-blacklist.txt", "allzone.txt"]:
-                        has_other_hostlist = True
-                        break
-                j += 1
-            
-            if has_other_hostlist:
-                ports_part = arg.split("=", 1)[1]
-                ports_list = ports_part.split(",")
-                
-                if "444-65535" not in ports_list:
-                    ports_list.append("444-65535")
-                    new_args[-1] = f"--filter-tcp={','.join(ports_list)}"
-                    ports_modified = True
-                    log(f"Game Filter: расширен диапазон портов до {','.join(ports_list)}", "INFO")
-        
-        i += 1
-    
-    if ports_modified:
-        log("Game Filter применен (добавлены порты 444-65535)", "✅ SUCCESS")
-    
-    return new_args
-
-def apply_allzone_replacement(args: list) -> list:
-    """
-    Заменяет other.txt на allzone.txt в хостлистах если включено в настройках
-    
-    Args:
-        args: Список аргументов командной строки
-        
-    Returns:
-        Модифицированный список аргументов с замененными хостлистами
-    """
-    from strategy_menu import get_allzone_hostlist_enabled
-    
-    # Если замена выключена, возвращаем аргументы без изменений
-    if not get_allzone_hostlist_enabled():
-        return args
-    
-    new_args = []
-    replacements_count = 0
-    
-    for arg in args:
-        if arg.startswith("--hostlist="):
-            hostlist_value = arg.split("=", 1)[1]
-            
-            # Проверяем, содержит ли путь other.txt
-            if "other.txt" in hostlist_value:
-                # Заменяем other.txt на allzone.txt
-                new_value = hostlist_value.replace("other.txt", "allzone.txt")
-                new_args.append(f"--hostlist={new_value}")
-                replacements_count += 1
-                log(f"Заменен хостлист: other.txt → allzone.txt", "DEBUG")
-            else:
-                new_args.append(arg)
-        else:
-            new_args.append(arg)
-    
-    if replacements_count > 0:
-        log(f"Выполнена замена other.txt на allzone.txt ({replacements_count} замен)", "✅ SUCCESS")
-    
-    return new_args

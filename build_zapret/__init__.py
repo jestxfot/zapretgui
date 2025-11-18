@@ -1,9 +1,4 @@
-"""
-build_tools/__init__.py - Инициализация пакета build_tools
-"""
-
-UPDATER_SERVER = "217.114.0.114"
-SSH_PASSWORD = "3AaWx#G_yu2N"
+# build_tools/__init__.py
 
 # Пытаемся импортировать GitHub функции
 try:
@@ -31,11 +26,15 @@ except ImportError:
     GITHUB_CONFIG = {"enabled": False}
     GITHUB_AVAILABLE = False
 
+from .config import TELEGRAM_API_HASH, TELEGRAM_API_ID
+
 # Экспортируем функции
 __all__ = [
     'create_github_release',
     'is_github_enabled', 
     'get_github_config_info',
     'test_github_connection',
-    'GITHUB_AVAILABLE'
+    'GITHUB_AVAILABLE',
+    'TELEGRAM_API_HASH',
+    'TELEGRAM_API_ID'
 ]

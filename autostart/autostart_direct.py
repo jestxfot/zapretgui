@@ -39,10 +39,13 @@ def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
                 filename = filename.strip('"')
                 
                 if not os.path.isabs(filename):
-                    # Используем папку WINDIVERT_FILTER для фильтров
-                    windivert_dir = os.path.dirname(WINDIVERT_FILTER) if os.path.isfile(WINDIVERT_FILTER) else WINDIVERT_FILTER
-                    full_path = os.path.join(windivert_dir, filename)
-                    # Для autostart не нужны кавычки - schtasks сам добавит при необходимости
+                    # WINDIVERT_FILTER - это путь к папке windivert.filter
+                    full_path = os.path.join(WINDIVERT_FILTER, filename)
+                    
+                    # Проверяем существование файла
+                    if not os.path.exists(full_path):
+                        log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
+                    
                     resolved_args.append(f'--wf-raw=@{full_path}')
                 else:
                     resolved_args.append(f'--wf-raw=@{filename}')
@@ -59,20 +62,25 @@ def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
             
             if not os.path.isabs(filename):
                 full_path = os.path.join(lists_dir, filename)
-                resolved_args.append(f'{prefix}={full_path}')  # Без кавычек - schtasks сам добавит
+                resolved_args.append(f'{prefix}={full_path}')
             else:
                 resolved_args.append(f'{prefix}={filename}')
         
         # Обработка bin файлов
         elif any(arg.startswith(prefix) for prefix in [
-            "--dpi-desync-fake-tls=", "--dpi-desync-fake-syndata=", 
-            "--dpi-desync-fake-quic=", "--dpi-desync-fake-unknown-udp=",
-            "--dpi-desync-split-seqovl-pattern="
+            "--dpi-desync-fake-tls=",
+            "--dpi-desync-fake-syndata=", 
+            "--dpi-desync-fake-quic=",
+            "--dpi-desync-fake-unknown-udp=",
+            "--dpi-desync-split-seqovl-pattern=",
+            "--dpi-desync-fake-http=",
+            "--dpi-desync-fake-unknown=",
+            "--dpi-desync-fakedsplit-pattern="
         ]):
             prefix, filename = arg.split("=", 1)
             
             # Проверяем специальные значения (hex или модификаторы)
-            if filename.startswith("0x") or filename.startswith("!"):
+            if filename.startswith("0x") or filename.startswith("!") or filename.startswith("^"):
                 resolved_args.append(arg)
             else:
                 filename = filename.strip('"')
@@ -91,18 +99,14 @@ def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
     """
     Строит командную строку для winws.exe с правильным экранированием
     """
+    from strategy_menu.apply_filters import apply_all_filters
+    
     # Разрешаем пути к файлам
     resolved_args = _resolve_file_paths(args, work_dir)
     
-    # Применяем дополнительные параметры
-    from strategy_menu.strategy_runner import (
-        apply_game_filter_parameter,
-        apply_wssize_parameter
-    )
-    
+    # ✅ Применяем ВСЕ фильтры в правильном порядке
     lists_dir = os.path.join(work_dir, "lists")
-    resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-    resolved_args = apply_wssize_parameter(resolved_args)
+    resolved_args = apply_all_filters(resolved_args, lists_dir)
     
     # Экранируем аргументы для командной строки Windows
     escaped_args = []
@@ -232,6 +236,12 @@ def setup_direct_autostart_service(
         # Удаляем старую задачу
         _delete_task(DIRECT_BOOT_TASK_NAME)
         
+        # Разрешаем пути и применяем фильтры для XML
+        from strategy_menu.apply_filters import apply_all_filters
+        resolved_args = _resolve_file_paths(strategy_args, work_dir)
+        lists_dir = os.path.join(work_dir, "lists")
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
+        
         # Создаем XML для задачи с триггером при запуске системы
         xml_content = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -270,7 +280,7 @@ def setup_direct_autostart_service(
   <Actions Context="Author">
     <Exec>
       <Command>{winws_exe}</Command>
-      <Arguments>{' '.join(_resolve_file_paths(strategy_args, work_dir))}</Arguments>
+      <Arguments>{' '.join(resolved_args)}</Arguments>
       <WorkingDirectory>{work_dir}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -346,21 +356,17 @@ def _create_task_with_bat_fallback(
     Создает задачу через .bat файл когда командная строка слишком длинная
     """
     try:
+        from strategy_menu.apply_filters import apply_all_filters
+        
         # Создаем .bat файл
         bat_path = os.path.join(work_dir, "zapret_autostart.bat")
         
         # Разрешаем пути
         resolved_args = _resolve_file_paths(args, work_dir)
         
-        # Применяем параметры
-        from strategy_menu.strategy_runner import (
-            apply_game_filter_parameter,
-            apply_wssize_parameter
-        )
-        
+        # ✅ Применяем ВСЕ фильтры в правильном порядке
         lists_dir = os.path.join(work_dir, "lists")
-        resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-        resolved_args = apply_wssize_parameter(resolved_args)
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
         
         # Создаем .bat содержимое
         bat_content = f"""@echo off
@@ -425,7 +431,7 @@ def remove_direct_autostart() -> bool:
     if _delete_task(DIRECT_BOOT_TASK_NAME):
         removed_any = True
     
-    # НОВОЕ: Удаляем службу Direct режима
+    # Удаляем службу Direct режима
     from .autostart_direct_service import remove_direct_service
     if remove_direct_service():
         removed_any = True
@@ -485,21 +491,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         selections = get_direct_strategy_selections()
         
         # Комбинируем стратегии
-        combined = combine_strategies(
-            selections.get('youtube'),
-            selections.get('youtube_udp'),
-            selections.get('googlevideo_tcp'),
-            selections.get('discord'),
-            selections.get('discord_voice_udp'),
-            selections.get('rutracker_tcp'),
-            selections.get('ntcparty_tcp'),
-            selections.get('twitch_tcp'),
-            selections.get('phasmophobia_udp'),
-            selections.get('other'),
-            selections.get('hostlist_80port'),
-            selections.get('ipset'),
-            selections.get('ipset_udp'),
-        )
+        combined = combine_strategies(**selections)
         
         # Парсим аргументы
         import shlex

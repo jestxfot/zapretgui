@@ -1,0 +1,129 @@
+digraph vs_block {
+	concentrate=true fontname=Arial rankdir=LR splines=ortho
+	subgraph cluster_cpu0 {
+		color="#93C5FD" label="CPU0: AMD EPYC 9654
+DDR5-4800" penwidth=2 style=rounded
+		CPU0 [label="CPU0
+96 ядер" color="#1f2937" fillcolor="#DBEAFE" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		subgraph cluster_g0 {
+			color="#FDA4AF" label="GPU под CPU0" style=rounded
+			GPU1 [label="GPU1
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU2 [label="GPU2
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU3 [label="GPU3
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU4 [label="GPU4
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU5 [label="GPU5
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU6 [label="GPU6
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		}
+	}
+	subgraph cluster_cpu1 {
+		color="#93C5FD" label="CPU1: AMD EPYC 9654
+DDR5-4800" penwidth=2 style=rounded
+		CPU1 [label="CPU1
+96 ядер" color="#1f2937" fillcolor="#DBEAFE" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		subgraph cluster_g1 {
+			color="#FDA4AF" label="GPU под CPU1" style=rounded
+			GPU7 [label="GPU7
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU8 [label="GPU8
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU9 [label="GPU9
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU10 [label="GPU10
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU11 [label="GPU11
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU12 [label="GPU12
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+			GPU13 [label="GPU13
+NVIDIA H100" color="#1f2937" fillcolor="#FEE2E2" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		}
+	}
+	GPU1 -> GPU2 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	GPU3 -> GPU4 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	GPU5 -> GPU6 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	GPU7 -> GPU8 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	GPU9 -> GPU10 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	GPU11 -> GPU12 [label="NVLink 600 ГБ/с" color="#F43F5E" dir=both fontsize=10 penwidth=2]
+	CPU0 -> GPU1 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU0 -> GPU2 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU0 -> GPU3 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU0 -> GPU4 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU0 -> GPU5 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU0 -> GPU6 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU7 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU8 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU9 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU10 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU11 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU12 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	CPU1 -> GPU13 [label="PCIe Gen5 x16
+128 ГБ/с" color="#1D4ED8" fontsize=10 penwidth=1.6]
+	subgraph cluster_hca {
+		color="#86EFAC" label="NVIDIA ConnectX-7 NDR200 (HCAs)" style=rounded
+		HCA1 [label="HCA1
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA2 [label="HCA2
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA3 [label="HCA3
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA4 [label="HCA4
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA5 [label="HCA5
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA6 [label="HCA6
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+		HCA7 [label="HCA7
+NDR200 2×200 Гбит/с" color="#1f2937" fillcolor="#DCFCE7" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+	}
+	CPU0 -> HCA1 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU0 -> HCA2 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU0 -> HCA3 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU1 -> HCA4 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU1 -> HCA5 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU1 -> HCA6 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	CPU1 -> HCA7 [label="PCIe Gen5 x16" color="#16A34A" fontsize=10]
+	IBSW [label="Коммутатор InfiniBand NDR200" color="#1f2937" fillcolor="#E5E7EB" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+	HCA1 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA2 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA3 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA4 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA5 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA6 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	HCA7 -> IBSW [label="2×200 Гбит/с
+(до 400 Гбит/с)" color="#059669" fontsize=10]
+	ETHSW [label="Коммутатор 100 GbE" color="#1f2937" fillcolor="#E5E7EB" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+	STO [label="Хранилище
+RAID-6 SSD+HDD" color="#1f2937" fillcolor="#E0E7FF" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+	CPU0 -> ETHSW [label="100 GbE" color="#EA580C" fontsize=10]
+	CPU1 -> ETHSW [label="100 GbE" color="#EA580C" fontsize=10]
+	ETHSW -> STO [label="100 GbE" color="#EA580C" fontsize=10]
+	MGMT [label="Коммутатор 1 GbE (MGMT)" color="#1f2937" fillcolor="#FFF7ED" fontcolor="#111827" penwidth=1.5 shape=box style="rounded,filled"]
+	CPU0 -> MGMT [label="1 GbE" color="#92400E" fontsize=10]
+	CPU1 -> MGMT [label="1 GbE" color="#92400E" fontsize=10]
+	STO -> MGMT [label="1 GbE" color="#92400E" fontsize=10]
+	IBSW -> MGMT [label="OOB MGMT" color="#92400E" fontsize=10]
+}

@@ -15,25 +15,50 @@ _HOSTLISTS_CUSTOM = "HostlistsCustom"      # JSON строка с пользов
 
 # Предустановленные домены сервисов
 PREDEFINED_DOMAINS = {
-    'steam': {
-        'name': '🎮 Steam',
+    'pinterest': {
+        'name': '🖼 Pinterest',
         'domains': [
-            'steamcommunity.com',
-            'steampowered.com',
-            'steam-chat.com',
-            'steamgames.com',
-            'steamusercontent.com',
-            'steamcontent.com',
-            'steamstatic.com',
-            'akamaihd.net',
-            'steam-api.com',
-            'steamserver.net',
-            'playartifact.com',
-            's.team',
-            'steam.tv',
-            'steamdeck.com',
-            'underlords.com',
-            'valvesoftware.com'
+            'pinterest.com',
+            'pinimg.com',
+            'pinterest.co.uk',
+            'pinterest.co',
+            'pinterest.ca',
+            'pinterest.de',
+            'pinterest.fr',
+            'pinterest.it',
+            'pinterest.es',
+            'pinterest.ru',
+            'akamai.net',
+            'akamaized.net',
+            'akamaiedge.net'
+        ]
+    },
+    'reddit': {
+        'name': '👽 Reddit',
+        'domains': [
+            'reddit.com',
+            'redd.it',
+            'redditmedia.com',
+            'redditstatic.com',
+            'redditgifts.com',
+            'redditinc.com',
+            'reddit.co',
+            'reddit.co.uk'
+        ]
+    },
+    'roblox': {
+        'name': '🎮 Roblox',
+        'domains': [
+            'roblox.com',
+            'robloxcdn.com',
+            'robloxgames.com',
+            'robloxlabs.com',
+            'robloxapi.com',
+            'roblox.net',
+            'roblox.org',
+            'rbxcdn.com',
+            'rblx.co',
+            'rblxcloud.com'
         ]
     },
     'Rockstar & Epic Games': {
@@ -45,18 +70,6 @@ PREDEFINED_DOMAINS = {
             'epicgames-download1.akamaized.net',
             'fortnite.com',
             'rockstargames.com'
-        ]
-    },
-    'telegram': {
-        'name': '✈️ Telegram',
-        'domains': [
-            'telegram.org',
-            'telegram.me',
-            't.me',
-            'telegra.ph',
-            'telesco.pe',
-            'telegram-cdn.org',
-            'tdesktop.com'
         ]
     },
     'whatsapp': {

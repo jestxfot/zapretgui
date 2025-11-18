@@ -6,8 +6,8 @@ download_dialog.py
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QProgressBar, 
                              QPushButton, QHBoxLayout, QWidget, QFrame)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QMovie, QIcon
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtGui import QFont, QMovie, QIcon, QDesktopServices, QCursor
 import os
 import time
 from config import ICON_PATH, ICON_TEST_PATH, CHANNEL
@@ -17,9 +17,23 @@ class DownloadDialog(QDialog):
     
     cancelled = pyqtSignal()
     retry_requested = pyqtSignal()  # Новый сигнал для повторной попытки
+    # ✅ СТАТИЧЕСКАЯ ПЕРЕМЕННАЯ ДЛЯ ОТСЛЕЖИВАНИЯ АКТИВНОГО ДИАЛОГА
+    _active_instance = None
     
     def __init__(self, parent=None, version="", total_size=0):
+        # ✅ ЗАКРЫВАЕМ ПРЕДЫДУЩИЙ ЭКЗЕМПЛЯР ЕСЛИ ОН ЕСТЬ
+        if DownloadDialog._active_instance is not None:
+            try:
+                DownloadDialog._active_instance.close()
+                DownloadDialog._active_instance = None
+            except:
+                pass
+        
         super().__init__(parent)
+        
+        # ✅ СОХРАНЯЕМ ТЕКУЩИЙ ЭКЗЕМПЛЯР
+        DownloadDialog._active_instance = self
+
         self.version = version
         self.total_size = total_size
         self.downloaded = 0
@@ -40,7 +54,7 @@ class DownloadDialog(QDialog):
     def setupUI(self):
         """Создаёт интерфейс диалога"""
         self.setWindowTitle(f"Загрузка обновления {self.version}")
-        self.setFixedSize(500, 280)
+        self.setFixedSize(500, 300)
         
         # Основной layout
         layout = QVBoxLayout()
@@ -168,21 +182,53 @@ class DownloadDialog(QDialog):
         layout.addWidget(self.button_container)
         
         layout.addStretch()
-        
+
         # Информационное сообщение
         self.info_msg_label = QLabel("⚠️ Загрузка может занять несколько минут в зависимости от скорости интернета")
         self.info_msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.info_msg_label.setStyleSheet("color: #666; font-size: 10px;")
         self.info_msg_label.setWordWrap(True)
         layout.addWidget(self.info_msg_label)
-        
+
+        # ✅ КЛИКАБЕЛЬНАЯ ССЫЛКА НА TELEGRAM
+        self.telegram_link_label = QLabel(
+            '💬 <a href="https://t.me/zapretnetdiscordyoutube" style="color: #3daee9; text-decoration: none;">'
+            'Если обновление зависло скачайте файл по ссылке (там всегда свежие версии)</a>'
+        )
+        self.telegram_link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.telegram_link_label.setOpenExternalLinks(True)  # Автоматически открывает ссылки
+        self.telegram_link_label.setStyleSheet("""
+            QLabel {
+                color: #3daee9;
+                font-size: 10px;
+                padding: 5px;
+            }
+            QLabel:hover {
+                background-color: rgba(61, 174, 233, 0.1);
+                border-radius: 3px;
+            }
+        """)
+        self.telegram_link_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Курсор-рука
+        self.telegram_link_label.setWordWrap(True)
+
+        # Добавляем обработчик для логирования кликов
+        self.telegram_link_label.linkActivated.connect(self.on_telegram_link_clicked)
+
+        layout.addWidget(self.telegram_link_label)
+
         self.setLayout(layout)
         
         # Таймер для обновления скорости
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_speed)
         self.update_timer.start(1000)  # Обновляем каждую секунду
-    
+
+    def on_telegram_link_clicked(self, url: str):
+        """Обработчик клика по ссылке Telegram (для логирования)"""
+        from log import log
+        log(f"🔗 Пользователь перешёл по ссылке: {url}", "📥 DOWNLOAD")
+        # QLabel с setOpenExternalLinks(True) автоматически откроет ссылку
+
     def update_progress(self, percent: int, downloaded_bytes: int = 0, total_bytes: int = 0):
         """Обновляет прогресс загрузки"""
         self.progress_bar.setValue(percent)
@@ -358,6 +404,10 @@ class DownloadDialog(QDialog):
     
     def closeEvent(self, event):
         """Обработка закрытия окна"""
+        # ✅ ОЧИЩАЕМ ССЫЛКУ НА АКТИВНЫЙ ЭКЗЕМПЛЯР
+        if DownloadDialog._active_instance == self:
+            DownloadDialog._active_instance = None
+
         # Разрешаем закрытие если загрузка завершена, отменена или произошла ошибка
         if self._download_complete or self._cancelled or self._download_failed:
             event.accept()
@@ -373,3 +423,5 @@ class DownloadDialog(QDialog):
                 self.cancel_button.show()
             else:
                 event.accept()
+        
+        super().closeEvent(event)

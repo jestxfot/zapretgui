@@ -12,8 +12,8 @@
 #endif
 
 ; ✅ АБСОЛЮТНЫЕ ПУТИ
-#define SourcePath "D:\Privacy\zapret"
-#define ProjectPath "D:\Privacy\zapretgui"
+#define SourcePath "H:\Privacy\zapret"
+#define ProjectPath "H:\Privacy\zapretgui"
 
 ; Настройки в зависимости от канала
 #if CHANNEL == "test"
@@ -44,7 +44,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename={#OutputName}
+OutputBaseFilename=ZapretSetup_test_1763412928_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
@@ -82,6 +82,7 @@ Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ign
 Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
@@ -90,7 +91,13 @@ Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"; IconFilen
 Name: "{commondesktop}\{#AppName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
 
 [Tasks]
-Name: desktopicon; Description: "Создать ярлык на рабочем столе"; Flags: unchecked
+Name: desktopicon; Description: "Создать ярлык на рабочем столе";
+
+[InstallDelete]
+Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
+; ✅ ИСПРАВЛЕНИЕ: Удаляем старые ярлыки перед созданием новых
+Type: files; Name: "{commondesktop}\Zapret.lnk"
+Type: files; Name: "{commondesktop}\Zapret Dev.lnk"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"

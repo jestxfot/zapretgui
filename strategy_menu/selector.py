@@ -1,12 +1,12 @@
 # strategy_menu/selector.py
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-                            QWidget, QTabWidget, QTabBar, QLabel, QMessageBox, QGroupBox,
+                            QWidget, QTabWidget, QLabel, QMessageBox, QGroupBox,
                             QTextBrowser, QSizePolicy, QFrame, QScrollArea,
                             QRadioButton, QButtonGroup, QCheckBox, QProgressBar,
-                            QTextEdit, QComboBox, QListWidget, QStackedWidget)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QSize, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QTextCursor, QPainter, QTextOption, QPen, QCursor, QColor
+                            QComboBox)
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt6.QtGui import QFont
 
 from log import log
 from strategy_menu import get_strategy_launch_method
@@ -16,488 +16,39 @@ from .widgets import CompactStrategyItem
 from .strategy_table_widget_favorites import StrategyTableWithFavoritesFilter as StrategyTableWidget
 from .workers import InternetStrategyLoader
 from .command_line_dialog import show_command_line_dialog
-
-
-class HorizontalTextTabBar(QTabBar):
-    def __init__(self):
-        super().__init__()
-        self.setDrawBase(False)
-        self._forced_width = 45
-        self.setContentsMargins(0, 0, 0, 0)  # добавьте эту строку
-        self.setExpanding(False)  # и эту
-
-    def set_forced_width(self, w: int):
-        self._forced_width = w
-        self.setMinimumWidth(w)
-        self.setMaximumWidth(w)
-        self.updateGeometry()
-
-    def sizeHint(self):
-        s = super().sizeHint()
-        s.setWidth(self._forced_width)
-        return s
-
-    def minimumSizeHint(self):
-        s = super().minimumSizeHint()
-        s.setWidth(self._forced_width)
-        return s
-
-    def tabSizeHint(self, index):
-        size = super().tabSizeHint(index)
-        return QSize(size.height(), 35)
-
-    def tabSizeHint(self, index):
-        """Возвращает размер таба"""
-        size = super().tabSizeHint(index)
-        # Меняем местами ширину и высоту для горизонтального текста
-        return QSize(size.height(), 35)
-
-    def paintEvent(self, event):
-        """Рисуем табы с горизонтальным текстом"""
-        painter = QPainter(self)
-
-        for index in range(self.count()):
-            rect = self.tabRect(index)
-
-            # Определяем стиль таба
-            is_selected = index == self.currentIndex()
-            is_hovered = rect.contains(self.mapFromGlobal(QCursor.pos()))
-
-            # Фон таба
-            if is_selected:
-                painter.fillRect(rect, QColor("#3a3a3a"))
-                # Правая граница для выбранного таба
-                painter.setPen(QPen(QColor("#2196F3"), 2))
-                painter.drawLine(rect.right() - 1, rect.top(), rect.right() - 1, rect.bottom())
-            elif is_hovered:
-                painter.fillRect(rect, QColor("#333"))
-                # Правая граница при наведении
-                painter.setPen(QPen(QColor("#2196F3"), 2))
-                painter.drawLine(rect.right() - 1, rect.top(), rect.right() - 1, rect.bottom())
-            else:
-                painter.fillRect(rect, QColor("#2a2a2a"))
-
-            # Рамка таба
-            painter.setPen(QPen(QColor("#444"), 1))
-            painter.drawRect(rect.adjusted(0, 0, -1, -1))
-
-            # Текст
-            text = self.tabText(index)
-            text_color = QColor("#2196F3") if is_selected else (QColor("#fff") if is_hovered else QColor("#aaa"))
-            painter.setPen(text_color)
-
-            font = painter.font()
-            if is_selected:
-                font.setBold(True)
-            font.setPointSize(8)
-            painter.setFont(font)
-
-            # Рисуем текст горизонтально
-            text_rect = rect.adjusted(5, 3, -3, -3)
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
-
-        painter.end()
-
-class AnimatedSidePanel(QWidget):
-    """Боковая панель с анимированным изменением ширины и поддержкой закрепления"""
-    
-    currentChanged = pyqtSignal(int)
-    
-    def __init__(self):
-        super().__init__()
-        self.collapsed_width = 45
-        self.expanded_width = 160
-        self.is_expanded = False
-        self.is_pinned = False
-        
-        # Для прокрутки текста
-        self.scroll_timer = QTimer()
-        self.scroll_timer.timeout.connect(self._scroll_text)
-        self.current_hover_item = None
-        self.current_hover_index = -1
-        self.original_texts = {}  # Словарь для хранения оригинальных текстов
-        self.scroll_position = 0
-        self.scroll_pause_counter = 0  # Счетчик для паузы в начале/конце
-        
-        # Основной layout
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        
-        # Левая панель с списком
-        self.list_widget = QListWidget()
-        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
-        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
-        # Включаем отслеживание мыши
-        self.list_widget.setMouseTracking(True)
-        
-        # Стиль для списка и скроллбара
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background: #2a2a2a;
-                border: 1px solid #444;
-                border-radius: 5px 0 0 5px;
-                border-right: none;
-                outline: none;
-            }
-            QListWidget::item {
-                color: #aaa;
-                padding: 3px 5px;
-                border-bottom: 1px solid #333;
-                font-size: 8pt;
-                min-height: 20px;
-                max-height: 25px;
-                white-space: nowrap;
-                overflow: hidden;
-            }
-            QListWidget::item:hover {
-                background: #333;
-                color: #fff;
-            }
-            QListWidget::item:selected {
-                background: #3a3a3a;
-                color: #2196F3;
-                font-weight: bold;
-                border-right: 2px solid #2196F3;
-            }
-            QScrollBar:vertical {
-                width: 8px;
-                background: #222;
-                border: none;
-                border-radius: 4px;
-                margin: 2px;
-            }
-            QScrollBar::handle:vertical {
-                background: #555;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #666;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
-        """)
-        
-        # Контейнер для списка с фиксированной шириной
-        self.list_container = QWidget()
-        list_layout = QVBoxLayout(self.list_container)
-        list_layout.setContentsMargins(0, 0, 0, 0)
-        list_layout.addWidget(self.list_widget)
-        
-        # Правая панель с содержимым
-        self.stack_widget = QStackedWidget()
-        self.stack_widget.setStyleSheet("""
-            QStackedWidget {
-                background: #2a2a2a;
-                border: 1px solid #444;
-                border-radius: 0 5px 5px 0;
-                border-left: none;
-            }
-        """)
-        
-        layout.addWidget(self.list_container)
-        layout.addWidget(self.stack_widget, 1)
-        
-        # Анимация ширины
-        self.width_animation = QPropertyAnimation(self.list_container, b"maximumWidth")
-        self.width_animation.setDuration(200)
-        self.width_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        
-        # Загружаем закрепление
-        from strategy_menu import get_tabs_pinned
-        self.is_pinned = get_tabs_pinned()
-        
-        start_w = self.expanded_width if self.is_pinned else self.collapsed_width
-        self.list_container.setFixedWidth(start_w)
-        self.is_expanded = self.is_pinned
-        
-        # Обработчики
-        self.list_widget.currentRowChanged.connect(self._on_selection_changed)
-        self.list_widget.installEventFilter(self)
-        
-        # Устанавливаем обработчик движения мыши на viewport списка
-        self.list_widget.viewport().installEventFilter(self)
-        
-        self.tab_names = {}
-        self._tab_indices = {}
-        
-    def eventFilter(self, obj, event):
-        """Обработчик событий для анимации и прокрутки текста"""
-        from PyQt6.QtCore import QEvent
-        
-        if obj == self.list_widget:
-            if event.type() == QEvent.Type.HoverEnter and not self.is_pinned:
-                self._expand_animated()
-            elif event.type() == QEvent.Type.HoverLeave:
-                if not self.is_pinned:
-                    self._collapse_animated()
-                self._stop_scrolling()
-                
-        elif obj == self.list_widget.viewport():
-            if event.type() == QEvent.Type.MouseMove:
-                # Определяем элемент под курсором
-                pos = event.pos()
-                item = self.list_widget.itemAt(pos)
-                
-                if item:
-                    row = self.list_widget.row(item)
-                    if row != self.current_hover_index:
-                        # Перешли на другой элемент
-                        self._stop_scrolling()
-                        self._start_scrolling(item, row)
-                else:
-                    # Курсор не над элементом
-                    self._stop_scrolling()
-                    
-            elif event.type() == QEvent.Type.Leave:
-                # Мышь покинула область списка
-                self._stop_scrolling()
-                
-        return super().eventFilter(obj, event)
-    
-    def _start_scrolling(self, item, index):
-        """Запускает прокрутку текста для элемента"""
-        if not item:
-            return
-            
-        text = item.text()
-        
-        # Сохраняем оригинальный текст
-        if index not in self.original_texts:
-            self.original_texts[index] = text
-        else:
-            # Используем сохраненный оригинальный текст
-            text = self.original_texts[index]
-        
-        # Проверяем, нужна ли прокрутка
-        font_metrics = self.list_widget.fontMetrics()
-        text_width = font_metrics.horizontalAdvance(text)
-        available_width = self.list_container.width() - 20  # учитываем padding
-        
-        if text_width > available_width:
-            # Текст не помещается, запускаем прокрутку
-            self.current_hover_item = item
-            self.current_hover_index = index
-            self.scroll_position = 0
-            self.scroll_pause_counter = 0
-            
-            # Запускаем таймер прокрутки
-            self.scroll_timer.start(100)  # обновление каждые 100мс
-    
-    def _scroll_text(self):
-        """Прокручивает текст текущего элемента"""
-        if self.current_hover_item is None or self.current_hover_index == -1:
-            self._stop_scrolling()
-            return
-            
-        # Получаем оригинальный текст
-        original_text = self.original_texts.get(self.current_hover_index, "")
-        if not original_text:
-            self._stop_scrolling()
-            return
-        
-        # Пауза в начале
-        if self.scroll_pause_counter < 10:  # Пауза 1 секунда (10 * 100мс)
-            self.scroll_pause_counter += 1
-            return
-        
-        # Создаем прокручиваемый текст с разделителем
-        scrolling_text = original_text + "     •     " + original_text
-        
-        # Сдвигаем позицию
-        self.scroll_position += 1
-        
-        # Сбрасываем, когда прокрутили полностью
-        if self.scroll_position >= len(original_text) + 13:  # +13 для разделителя
-            self.scroll_position = 0
-            self.scroll_pause_counter = 0  # Сбрасываем счетчик паузы
-            return
-        
-        # Создаем видимую часть текста
-        visible_text = scrolling_text[self.scroll_position:]
-        
-        # Обрезаем до доступной ширины
-        font_metrics = self.list_widget.fontMetrics()
-        available_width = self.list_container.width() - 20
-        elided_text = font_metrics.elidedText(visible_text, Qt.TextElideMode.ElideRight, available_width)
-        
-        # Обновляем текст элемента
-        try:
-            self.current_hover_item.setText(elided_text)
-        except:
-            self._stop_scrolling()
-    
-    def _stop_scrolling(self):
-        """Останавливает прокрутку и восстанавливает оригинальный текст"""
-        self.scroll_timer.stop()
-        
-        # Восстанавливаем оригинальный текст
-        if self.current_hover_item and self.current_hover_index in self.original_texts:
-            try:
-                self.current_hover_item.setText(self.original_texts[self.current_hover_index])
-            except:
-                pass
-        
-        self.current_hover_item = None
-        self.current_hover_index = -1
-        self.scroll_position = 0
-        self.scroll_pause_counter = 0
-        
-    def tabBar(self):
-        """Возвращает список для совместимости с существующим кодом"""
-        return self.list_widget
-        
-    def set_tab_names(self, tab_names_dict):
-        """Сохраняет словарь названий вкладок"""
-        self.tab_names = tab_names_dict
-        if self.is_pinned and self.is_expanded:
-            self.show_full_names()
-            
-    def show_full_names(self):
-        """Показывает полные названия вкладок"""
-        if not self.tab_names:
-            return
-        for i, key in enumerate(self.tab_names.keys()):
-            if i < self.list_widget.count():
-                _, full = self.tab_names[key]
-                item = self.list_widget.item(i)
-                if item:
-                    item.setText(full)
-                    # Обновляем сохраненный оригинальный текст
-                    self.original_texts[i] = full
-                
-    def show_short_names(self):
-        """Показывает короткие названия вкладок"""
-        if not self.tab_names:
-            return
-        for i, key in enumerate(self.tab_names.keys()):
-            if i < self.list_widget.count():
-                short, _ = self.tab_names[key]
-                item = self.list_widget.item(i)
-                if item:
-                    item.setText(short)
-                    # Обновляем сохраненный оригинальный текст
-                    self.original_texts[i] = short
-                
-    def addTab(self, widget, label):
-        """Добавляет новую вкладку"""
-        index = self.stack_widget.addWidget(widget)
-        self.list_widget.addItem(label)
-        # Сохраняем оригинальный текст
-        self.original_texts[index] = label
-        return index
-        
-    def insertTab(self, index, widget, label):
-        """Вставляет вкладку в определенную позицию"""
-        self.stack_widget.insertWidget(index, widget)
-        self.list_widget.insertItem(index, label)
-        # Обновляем сохраненные тексты
-        self._update_original_texts()
-        return index
-        
-    def removeTab(self, index):
-        """Удаляет вкладку"""
-        if index < self.stack_widget.count():
-            widget = self.stack_widget.widget(index)
-            self.stack_widget.removeWidget(widget)
-            item = self.list_widget.takeItem(index)
-            if item:
-                del item
-            # Обновляем сохраненные тексты
-            self._update_original_texts()
-            
-    def _update_original_texts(self):
-        """Обновляет словарь с оригинальными текстами после изменения списка"""
-        new_texts = {}
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if item:
-                # Если текст уже был сохранен, используем оригинал
-                if i in self.original_texts:
-                    new_texts[i] = self.original_texts[i]
-                else:
-                    new_texts[i] = item.text()
-        self.original_texts = new_texts
-        
-    def widget(self, index):
-        """Возвращает виджет по индексу"""
-        return self.stack_widget.widget(index)
-        
-    def count(self):
-        """Возвращает количество вкладок"""
-        return self.stack_widget.count()
-        
-    def setCurrentIndex(self, index):
-        """Устанавливает текущую вкладку"""
-        self.list_widget.setCurrentRow(index)
-        self.stack_widget.setCurrentIndex(index)
-        
-    def setTabToolTip(self, index, tooltip):
-        """Устанавливает подсказку для вкладки"""
-        if index < self.list_widget.count():
-            item = self.list_widget.item(index)
-            if item:
-                item.setToolTip(tooltip)
-            
-    def _on_selection_changed(self, index):
-        """Обработчик изменения выбора"""
-        if index >= 0:
-            self.stack_widget.setCurrentIndex(index)
-            self.currentChanged.emit(index)
-            
-    def _expand_animated(self):
-        """Анимированное расширение панели"""
-        if not self.is_expanded:
-            self.width_animation.stop()
-            self.width_animation.setStartValue(self.list_container.width())
-            self.width_animation.setEndValue(self.expanded_width)
-            self.width_animation.start()
-            self.is_expanded = True
-            self.show_full_names()
-            
-    def _collapse_animated(self):
-        """Анимированное сворачивание панели"""
-        if self.is_expanded and not self.is_pinned:
-            # Останавливаем прокрутку перед сворачиванием
-            self._stop_scrolling()
-            
-            self.width_animation.stop()
-            self.width_animation.setStartValue(self.list_container.width())
-            self.width_animation.setEndValue(self.collapsed_width)
-            self.width_animation.start()
-            self.is_expanded = False
-            self.show_short_names()
-            
-    def _expand_tabs_animated(self):
-        """Совместимость со старым кодом"""
-        self._expand_animated()
-        
-    def _collapse_tabs_animated(self):
-        """Совместимость со старым кодом"""
-        self._collapse_animated()
-        
-    def _set_bar_width(self, w):
-        """Совместимость со старым кодом"""
-        self.list_container.setFixedWidth(w)
+from .animated_side_panel import AnimatedSidePanel
+from strategy_menu.strategies_registry import registry
+from .lazy_tab_loader import LazyTabLoader
+from .profiler import PerformanceProfiler
 
 class StrategySelector(QDialog):
     """Диалог для выбора стратегии обхода блокировок"""
 
-    strategySelected = pyqtSignal(str, str)  # (strategy_id, strategy_name)
+    strategySelected = pyqtSignal(str, str)
+    
+    _instance = None
+    _is_initialized = False
+
+    @classmethod
+    def get_instance(cls, parent=None, strategy_manager=None, current_strategy_name=None):
+        """Получить единственный экземпляр диалога (Singleton pattern)"""
+        if cls._instance is None:
+            log("Создание нового экземпляра StrategySelector", "DEBUG")
+            cls._instance = cls(parent, strategy_manager, current_strategy_name)
+        else:
+            log("Переиспользование существующего экземпляра StrategySelector", "DEBUG")
+            cls._instance.current_strategy_name = current_strategy_name
+            cls._instance.strategy_manager = strategy_manager
+            
+        return cls._instance
 
     def __init__(self, parent=None, strategy_manager=None, current_strategy_name=None):
+        if self._is_initialized:
+            log("Диалог уже инициализирован, пропуск __init__", "DEBUG")
+            return
+            
         super().__init__(parent)
 
-        # Устанавливаем стиль для tooltip
         self.setStyleSheet("""
             QToolTip {
                 background-color: #2a2a2a;
@@ -514,12 +65,10 @@ class StrategySelector(QDialog):
         self.selected_strategy_id = None
         self.selected_strategy_name = None
 
-        # Инициализируем атрибуты для комбинированных стратегий
         self._combined_args = None
         self._combined_strategy_data = None
         self.category_selections = {}
 
-        # Для асинхронной загрузки Direct режима
         self._category_widgets_cache = {}
         self._loading_in_progress = False
         self._categories_loaded = set()
@@ -539,33 +88,82 @@ class StrategySelector(QDialog):
         self.init_ui()
 
         if self.is_direct_mode:
-            QTimer.singleShot(10, self._async_load_builtin_strategies)
+            self.lazy_loader = LazyTabLoader(self)
+            QTimer.singleShot(10, self._init_lazy_loading)
         else:
             self.load_local_strategies()
 
+        self._is_initialized = True
+        log("Диалог StrategySelector инициализирован", "DEBUG")
+
+    def _init_lazy_loading(self):
+        """Инициализирует ленивую загрузку вкладок"""
+        log("Инициализация ленивой загрузки вкладок", "DEBUG")
+        
+        # ✅ Загружаем ТОЛЬКО первую вкладку
+        self.lazy_loader.preload_first_tab()
+        
+        # ✅ Подключаем обработчик переключения вкладок
+        self.category_tabs.currentChanged.connect(self._on_category_tab_changed)
+        
+        # ✅ Включаем кнопку выбора после загрузки первой вкладки
+        QTimer.singleShot(200, lambda: self.select_button.setEnabled(True))
+        
+        # ✅ Обновляем статус
+        QTimer.singleShot(150, lambda: self._update_loading_status())
+        
+        # ❌ ФОНОВАЯ ЗАГРУЗКА ОТКЛЮЧЕНА!
+        # Вкладки загружаются ТОЛЬКО по клику пользователя
+        
+        log("Ленивая загрузка инициализирована (загружена только первая вкладка)", "INFO")
+
+    def _on_category_tab_changed(self, index):
+        """
+        Обработчик переключения вкладки - загружает содержимое по требованию
+        ✅ Защита от повторной загрузки
+        ✅ Мгновенный отклик для уже загруженных вкладок
+        """
+        if not hasattr(self, 'lazy_loader'):
+            return
+        
+        # ✅ Проверяем: уже загружена?
+        if index in self.lazy_loader.loaded_tabs:
+            # Вкладка уже загружена, ничего не делаем
+            return
+        
+        # ✅ Загружаем вкладку по клику
+        log(f"Переключение на вкладку {index}, загружаем содержимое", "DEBUG")
+        self.lazy_loader.load_tab_content(index)
+
+    def _update_loading_status(self):
+        """Обновляет статус загрузки"""
+        if hasattr(self, 'status_label'):
+            self.status_label.setText("✅ Готово к выбору")
+            self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50; font-size: 9pt; padding: 3px;")
+        
+        if hasattr(self, 'loading_progress'):
+            self.loading_progress.setVisible(False)
+
     def _init_direct_mode_ui(self, layout):
         """Инициализирует интерфейс для прямого режима"""
-        from strategy_menu import get_direct_strategy_selections
-        from .strategy_lists_separated import get_default_selections
-
-        # Инициализируем атрибуты для загрузки категорий
+        
         self._pending_categories = []
         self._categories_loaded = set()
         
-        # Загружаем сохраненные выборы
         try:
+            from strategy_menu import get_direct_strategy_selections
             self.category_selections = get_direct_strategy_selections()
         except Exception as e:
             log(f"Ошибка загрузки выборов: {e}", "⚠ WARNING")
+            from strategy_menu import get_default_selections
             self.category_selections = get_default_selections()
 
-        # Заголовок
         title = QLabel("Выберите стратегию для каждого типа трафика чтобы собрать пресет")
         title.setStyleSheet("font-weight: bold; font-size: 10pt; color: #2196F3; margin: 5px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        # Прогресс бар
+        # Прогресс бар (теперь почти не нужен, но оставим для совместимости)
         self.loading_progress = QProgressBar()
         self.loading_progress.setFixedHeight(3)
         self.loading_progress.setTextVisible(False)
@@ -573,84 +171,215 @@ class StrategySelector(QDialog):
             QProgressBar { border: none; background: #2a2a2a; }
             QProgressBar::chunk { background: #2196F3; }
         """)
-        self.loading_progress.setVisible(False)
+        self.loading_progress.setVisible(True)  # Покажем на секунду
+        self.loading_progress.setRange(0, 0)  # Бесконечная анимация
         layout.addWidget(self.loading_progress)
 
-        # Используем AnimatedSidePanel вместо AnimatedTabWidget
         self.category_tabs = AnimatedSidePanel()
+        self.category_tabs._tab_category_keys = []
         self.category_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # Обработчик для анимации
         self.category_tabs.tabBar().installEventFilter(self)
 
-        # Подсказки
-        self.tab_tooltips = self._get_tab_tooltips()
-
-        # Имена вкладок
-        self.tab_names = {
-            'youtube': ("🎬", "🎬 YouTube TCP"),
-            'youtube_udp': ("📺", "📺 YouTube QUIC"),
-            'googlevideo_tcp': ("📹", "📹 GoogleVideo"),
-            'discord': ("💬", "💬 Discord"),
-            'discord_voice_udp': ("🔊", "🔊 Discord Voice"),
-            'rutracker_tcp': ("🛠", "🛠 Rutracker"),
-            'ntcparty_tcp': ("🛠", "🛠 NtcParty"),
-            'twitch_tcp': ("🎙", "🎙 Twitch"),
-            'phasmophobia_udp': ("🎮", "🎮 Phasmophobia UDP"),
-            'other': ("🌐", "🌐 Hostlist (HTTPS)"),
-            'hostlist_80port': ("🌐", "🌐 Hostlist (HTTP)"),
-            'ipset': ("🔢", "🔢 IPset TCP (Games)"),
-            'ipset_udp': ("🎮", "🎮 IPset UDP (Games)"),
-        }
+        self.tab_tooltips = registry.get_tab_tooltips_dict()
+        self.tab_names = registry.get_tab_names_dict()
         self.category_tabs.set_tab_names(self.tab_names)
 
-        # Добавляем заглушки
-        tab_data = [
-            ('youtube',),
-            ('youtube_udp',),
-            ('googlevideo_tcp',),
-            ('discord',),
-            ('discord_voice_udp',),
-            ('rutracker_tcp',),
-            ('ntcparty_tcp',),
-            ('twitch_tcp',),
-            ('phasmophobia_udp',),
-            ('other',),
-            ('hostlist_80port',),
-            ('ipset',),
-            ('ipset_udp',),
-        ]
+        self._category_tab_indices = {}
+        category_keys = registry.get_all_category_keys()
 
-        for category_key, in tab_data:
+        # Создаем ВСЕ вкладки сразу, но с заглушками
+        for i, category_key in enumerate(category_keys):
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                continue
+                
+            self._category_tab_indices[category_key] = i
+            
             if self.category_tabs.is_pinned:
-                _, full = self.tab_names[category_key]
-                display_name = full
+                display_name = category_info.full_name
             else:
-                short, _ = self.tab_names[category_key]
-                display_name = short
+                display_name = category_info.short_name
 
-            self._add_category_tab(display_name, None, category_key)
-            tab_index = self.category_tabs.count() - 1
+            # Создаем заглушку (будет заменена при ленивой загрузке)
+            placeholder = QWidget()
+            placeholder.category_key = category_key  # ✅ Главное - сохранить ключ!
+            p_layout = QVBoxLayout(placeholder)
+            p_layout.setContentsMargins(20, 20, 20, 20)
+            p_layout.addWidget(QLabel("⏳ Нажмите для загрузки..."))
+            p_layout.addStretch()
+            
+            tab_index = self.category_tabs.addTab(placeholder, display_name, category_key)
+            
             if category_key in self.tab_tooltips:
                 self.category_tabs.setTabToolTip(tab_index, self.tab_tooltips[category_key])
 
         layout.addWidget(self.category_tabs, 1)
 
-        # Предпросмотр
         self._create_preview_widget(layout)
 
-        # Статус
         self.status_label = QLabel("⏳ Загрузка стратегий...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-weight: bold; color: #ffa500; font-size: 9pt; padding: 3px;")
         self.status_label.setFixedHeight(25)
         layout.addWidget(self.status_label)
 
-        self.select_button.setEnabled(False)
+        self.select_button.setEnabled(False)  # Включится после загрузки первой вкладки
+
+    def _populate_tab_content(self, tab_widget, strategies, category_key, category_info):
+        """
+        Заполняет существующий виджет вкладки содержимым
+        ✅ В 3-5 раз быстрее чем пересоздание вкладки через insertTab!
+        """
+        from .profiler import PerformanceProfiler
+        from PyQt6.QtWidgets import QScrollArea, QButtonGroup
+        
+        profiler = PerformanceProfiler(f"populate_{category_key}")
+        profiler.start()
+        
+        # ✅ ИСПРАВЛЕНО: Сначала блокируем обновления
+        tab_widget.setUpdatesEnabled(False)
+        
+        # Очищаем старый layout СИНХРОННО
+        old_layout = tab_widget.layout()
+        if old_layout:
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                if item.widget():
+                    widget = item.widget()
+                    widget.setParent(None)
+                    widget.deleteLater()
+            # ✅ Удаляем layout СИНХРОННО
+            from PyQt6.sip import delete as sip_delete
+            try:
+                sip_delete(old_layout)
+            except:
+                old_layout.setParent(None)
+                old_layout.deleteLater()
+        
+        profiler.checkpoint("Layout очищен")
+        
+        # Создаем новый layout
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(0)
+        
+        # Заголовок
+        title_label = QLabel(category_info.description)
+        title_label.setStyleSheet("""
+            font-weight: bold; 
+            font-size: 10pt; 
+            color: #2196F3;
+            padding-top: 10px;
+            margin-top: 5px;
+            padding-left: 5px;
+        """)
+        tab_layout.addWidget(title_label)
+        
+        # Счетчик избранных
+        favorites_label = QLabel("")
+        favorites_label.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 8pt;")
+        favorites_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        tab_layout.addWidget(favorites_label)
+        
+        profiler.checkpoint("Заголовки созданы")
+        
+        # Scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("""
+            QScrollArea { 
+                border: none; 
+                background: transparent;
+                margin: 0px; padding: 0px;
+            }
+            QScrollBar:vertical { width: 10px; background: #2a2a2a; }
+            QScrollBar::handle:vertical { background: #555; border-radius: 5px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background: #666; }
+        """)
+        
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(3)
+        
+        button_group = QButtonGroup()
+        
+        profiler.checkpoint("Контейнеры созданы")
+        
+        # Сортировка
+        sorted_strategies = self._sort_category_strategies(strategies, category_key)
+        profiler.checkpoint(f"Сортировка ({len(sorted_strategies)} шт)")
+        
+        # Избранные
+        from strategy_menu import get_favorites_for_category
+        favorites_set = get_favorites_for_category(category_key)
+        favorites_count = 0
+        
+        profiler.checkpoint("Избранные загружены")
+        
+        # Создаем виджеты
+        from .widgets_favorites import get_strategy_widget
+        
+        for idx, (strat_id, strat_data) in enumerate(sorted_strategies):
+            is_fav = strat_id in favorites_set
+            if is_fav:
+                favorites_count += 1
+            
+            strategy_item = get_strategy_widget(strat_id, strat_data, category_key)
+            
+            if strat_id == self.category_selections.get(category_key):
+                strategy_item.set_checked(True)
+            
+            strategy_item.clicked.connect(
+                lambda sid=strat_id, cat=category_key: 
+                    self.on_category_selection_changed(cat, sid)
+            )
+            
+            strategy_item.favoriteToggled.connect(
+                lambda sid, is_fav, cat=category_key: 
+                    self._on_direct_favorite_toggled(sid, is_fav, cat)
+            )
+            
+            strategy_item.favoriteToggled.connect(
+                lambda sid, is_fav, cat=category_key, fl=favorites_label:
+                    self._on_category_favorite_toggled(cat, sid, is_fav, fl, scroll_widget)
+            )
+            
+            button_group.addButton(strategy_item.radio, idx)
+            scroll_layout.addWidget(strategy_item)
+        
+        profiler.checkpoint(f"Виджеты созданы ({len(sorted_strategies)} шт)")
+        
+        # Финализация
+        if favorites_count > 0:
+            favorites_label.setText(f"⭐ {favorites_count}")
+        
+        setattr(self, f"{category_key}_button_group", button_group)
+        setattr(self, f"{category_key}_favorites_label", favorites_label)
+        
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        tab_layout.addWidget(scroll_area)
+        
+        profiler.checkpoint("Layout собран")
+        
+        # ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Принудительно обновляем геометрию и перерисовку
+        scroll_widget.updateGeometry()
+        scroll_area.updateGeometry()
+        tab_widget.updateGeometry()
+        
+        # ✅ Разблокируем обновления и принудительно перерисовываем
+        tab_widget.setUpdatesEnabled(True)
+        tab_widget.update()
+        scroll_area.update()
+        
+        profiler.checkpoint("UI обновлен")
+        profiler.end()
+        
+        log(f"✅ _populate_tab_content завершен для {category_key} ({len(sorted_strategies)} стратегий)", "DEBUG")
 
     def eventFilter(self, obj, event):
         """Обработчик событий для анимации табов"""
-        # Этот метод теперь обрабатывается внутри AnimatedSidePanel
         return super().eventFilter(obj, event)
 
     def _expand_all_tabs(self):
@@ -663,371 +392,35 @@ class StrategySelector(QDialog):
         if hasattr(self, 'category_tabs'):
             self.category_tabs.show_short_names()
 
-    def _load_next_category_async(self):
-        """Загружает следующую категорию"""
-        if self._load_index >= len(self._pending_categories):
-            self._finalize_loading()
-            return
-
-        tab_name, category_key = self._pending_categories[self._load_index]
-
-        # Импортируем стратегии только сейчас
-        from .strategy_lists_separated import (
-            YOUTUBE_QUIC_STRATEGIES,
-            DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES
-        )
-        from .TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
-        from .RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
-        from .OTHER_STRATEGIES import OTHER_STRATEGIES
-        from .YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
-        from .IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
-        from .IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
-        from .NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
-        from .GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
-        from .PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
-        from .HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
-
-        strategies_map = {
-            'youtube': YOUTUBE_TCP_STRATEGIES,
-            'youtube_udp': YOUTUBE_QUIC_STRATEGIES,
-            'googlevideo_tcp': GOOGLEVIDEO_STRATEGIES,
-            'discord': DISCORD_STRATEGIES,
-            'discord_voice_udp': DISCORD_VOICE_STRATEGIES,
-            'rutracker_tcp': RUTRACKER_TCP_STRATEGIES,
-            'ntcparty_tcp': NTCPARTY_TCP_STRATEGIES,
-            'twitch_tcp': TWITCH_TCP_STRATEGIES,
-            'phasmophobia_udp': PHASMOPHOBIA_UDP_STRATEGIES,
-            'other': OTHER_STRATEGIES,
-            'hostlist_80port': HOSTLIST_80PORT_STRATEGIES,
-            'ipset': IPSET_TCP_STRATEGIES,
-            'ipset_udp': IPSET_UDP_STRATEGIES
-        }
-
-        strategies = strategies_map.get(category_key, {})
-
-        # Если закреплены — используем полные имена
-        if self.category_tabs.is_pinned and category_key in self.tab_names:
-            _, full = self.tab_names[category_key]
-            tab_name = full
-
-        self._add_category_tab(tab_name, strategies, category_key)
-
-        if hasattr(self, 'loading_progress'):
-            self.loading_progress.setValue(self._load_index + 1)
-
-        self._load_index += 1
-        QTimer.singleShot(20, self._load_next_category_async)
-
     def _get_tab_tooltips(self):
         """Возвращает словарь с подсказками для вкладок"""
-        return {
-            'youtube': """🎬 YouTube через TCP протокол (порты 80, 443)
-    Обходит блокировку обычного YouTube трафика через стандартные веб-порты.
-    TCP - это надежный протокол передачи данных, используется для загрузки веб-страниц и видео.
-    Работает с youtube.com и youtu.be.""",
+        return registry.get_tab_tooltips_dict()
 
-            'youtube_udp': """🎬 YouTube через QUIC/UDP протокол (порт 443)
-    Обходит блокировку YouTube при использовании современного протокола QUIC (HTTP/3).
-    QUIC работает поверх UDP и обеспечивает более быструю загрузку видео.
-    Многие браузеры автоматически используют QUIC для YouTube.""",
-
-            'googlevideo_tcp': """🎬 YouTube видео с CDN серверов GoogleVideo
-    Обходит блокировку видеопотоков с серверов *.googlevideo.com (порт 443).
-    Это серверы доставки контента (CDN), откуда загружаются сами видеофайлы YouTube.
-    Нужно включать если видео не загружаются при работающем основном YouTube.""",
-
-            'discord': """💬 Discord мессенджер (порты 80, 443)
-    Обходит блокировку текстовых чатов и загрузки файлов в Discord.
-    Работает с основным трафиком Discord через TCP протокол.
-    Включите если не работают текстовые сообщения и картинки.""",
-
-            'discord_voice_udp': """🔊 Discord голосовые звонки (UDP порты)
-    Обходит блокировку голосовой связи и видеозвонков в Discord.
-    Использует UDP протокол для передачи голоса в реальном времени.
-    Включите если не работают голосовые каналы и звонки.""",
-
-            'rutracker_tcp': """🛠 Rutracker (порты 80, 443)
-    Обходит блокировку торрент-трекера Rutracker через стандартные веб-порты.
-    Работает с основным трафиком Rutracker через TCP протокол.""",
-
-            'ntcparty_tcp': """🛠 NtcParty (порты 80, 443)
-    Обходит блокировку технического форума NtcParty отдельно от основных хостлистов.
-    Работает с основным трафиком NtcParty через TCP протокол.""",
-
-            'twitch_tcp': """🎙 Twitch стриминг (порты 80, 443)
-    Обходит блокировку Twitch стримов через стандартные веб-порты.
-    Работает с основным трафиком Twitch через TCP протокол.
-    Включите если не работают стримы на Twitch.""",
-
-            'phasmophobia_udp': """🎮 Phasmophobia UDP (порты 443)
-    Обходит блокировку Phasmophobia через стандартные веб-порты.
-    Работает с основным трафиком Phasmophobia через UDP протокол.""",
-
-            'other': """🌐 Заблокированные сайты из списка (порты 80, 443)
-    Обходит блокировку сайтов из файла other.txt через TCP.
-    Включает сотни популярных заблокированных сайтов и сервисов.
-    Можно редактировать список сайтов во вкладке Hostlist.""",
-
-            'hostlist_80port': """🌐 Заблокированные сайты из списка (порт 80)
-    Обходит блокировку сайтов из файла other.txt через HTTP (порт 80).
-    Полезно если провайдер блокирует только HTTP трафик, а HTTPS оставляет открытым.
-    Можно редактировать список сайтов во вкладке Hostlist.""",
-
-            'ipset': """🔢 Блокировка по IP адресам (порты 80, 443)
-    Обходит блокировку сервисов по их IP адресам через TCP.
-    Работает когда провайдер блокирует не домены, а конкретные IP.
-    Полезно для сервисов с фиксированными IP адресами.""",
-
-            'ipset_udp': """🔢 Блокировка по IP адресам (UDP для игр)
-    Обходит блокировку сервисов по их IP адресам через UDP.
-    Работает когда провайдер блокирует не домены, а конкретные IP.
-    Полезно для сервисов с фиксированными IP адресами.""",
-        }
-
-    def _async_load_builtin_strategies(self):
-        """Асинхронно загружает встроенные стратегии"""
-        log("Начало асинхронной загрузки стратегий Direct режима", "DEBUG")
-
-        self._loading_in_progress = True
-
-        if hasattr(self, 'loading_progress'):
-            self.loading_progress.setVisible(True)
-            self.loading_progress.setRange(0, len(self._pending_categories))
-            self.loading_progress.setValue(0)
-
-        self._load_index = 0
-        QTimer.singleShot(1, self._load_next_category_async)
-
-    def _finalize_loading(self):
-        """Завершает процесс загрузки"""
-        self._loading_in_progress = False
-
-        if hasattr(self, 'loading_progress'):
-            self.loading_progress.setVisible(False)
-
-        # Если закреплены — убедимся, что показаны полные имена
-        if self.category_tabs.is_pinned:
-            self.category_tabs.show_full_names()
-
-        # Обновляем статус
-        self.status_label.setText("✅ Готово к выбору")
-        self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50; font-size: 9pt; padding: 3px;")
-
-        # Включаем кнопку выбора
-        self.select_button.setEnabled(True)
-
-        # Первая вкладка
-        if self.category_tabs.count() > 0:
-            self.category_tabs.setCurrentIndex(0)
-
-        # Обновляем предпросмотр
-        self.update_combined_preview()
-
-        log("Встроенные стратегии готовы", "INFO")
-
-    def _add_category_tab(self, tab_name, strategies, category_key):
-        """Добавляет вкладку категории (с заглушкой если strategies=None)"""
-
-        # Если strategies=None, создаем заглушку
-        if strategies is None:
-            placeholder = QWidget()
-            layout = QVBoxLayout(placeholder)
-            layout.setContentsMargins(4, 6, 6, 6)
-
-            loading_label = QLabel("⏳ Загрузка...")
-            loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            loading_label.setStyleSheet("color: #888; font-style: italic; font-size: 10pt;")
-            layout.addWidget(loading_label)
-            layout.addStretch()
-
-            # Показываем полное название при закреплении
-            display_name = tab_name
-            if self.category_tabs.is_pinned and hasattr(self, 'tab_names') and category_key in self.tab_names:
-                _, full = self.tab_names[category_key]
-                display_name = full
-
-            tab_index = self.category_tabs.addTab(placeholder, display_name)
-
-            if not hasattr(self, '_category_tab_indices'):
-                self._category_tab_indices = {}
-            self._category_tab_indices[category_key] = tab_index
-
-            # Проверяем существование _pending_categories перед добавлением
-            if not hasattr(self, '_pending_categories'):
-                self._pending_categories = []
-            self._pending_categories.append((display_name, category_key))
-            return
-        
-        # Иначе создаем полноценную вкладку
-        tab_widget = QWidget()
-        tab_layout = QVBoxLayout(tab_widget)
-        tab_layout.setContentsMargins(0, 0, 0, 0)  # полностью убираем отступы
-        tab_layout.setSpacing(0)  # убираем spacing
-
-        # Заголовок категории
-        category_title = self._get_category_title(category_key)
-        title_label = QLabel(category_title)
-        title_label.setStyleSheet("""
-            font-weight: bold; 
-            font-size: 10pt; 
-            color: #2196F3;
-            padding-top: 10px;  /* Отступ сверху внутри label */
-            margin-top: 5px;    /* Отступ сверху снаружи label */
-            padding-left: 5px;  /* Небольшой отступ слева */
-        """)
-        tab_layout.addWidget(title_label)
-
-        # Счетчик избранных
-        favorites_label = QLabel("")
-        favorites_label.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 8pt;")
-        favorites_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        tab_layout.addWidget(favorites_label)
-
-        # Прокручиваемая область для стратегий
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("""
-            QScrollArea { 
-                border: none; 
-                background: transparent;
-                margin: 0px;
-                padding: 0px;
-            }
-            QWidget { 
-                margin: 0px;
-                padding: 0px;
-            }
-            QScrollBar:vertical { width: 10px; background: #2a2a2a; }
-            QScrollBar::handle:vertical { background: #555; border-radius: 5px; min-height: 20px; }
-            QScrollBar::handle:vertical:hover { background: #666; }
-        """)
-
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)  # все нули
-        scroll_layout.setSpacing(0)  # без spacing
-
-        button_group = QButtonGroup()
-
-        # Сортируем стратегии - избранные вверху
-        sorted_strategies = self._sort_category_strategies(strategies)
-        favorites_count = 0
-
-        for idx, (strat_id, strat_data) in enumerate(sorted_strategies):
-            from .widgets_favorites import FavoriteCompactStrategyItem
-            strategy_item = FavoriteCompactStrategyItem(strat_id, strat_data)
-
-            from strategy_menu import is_favorite_strategy
-            if is_favorite_strategy(strat_id):
-                favorites_count += 1
-
-            if strat_id == self.category_selections.get(category_key):
-                strategy_item.set_checked(True)
-
-            strategy_item.clicked.connect(
-                lambda sid, cat=category_key: self.on_category_selection_changed(cat, sid)
-            )
-
-            strategy_item.favoriteToggled.connect(
-                lambda sid, is_fav: self._on_direct_favorite_toggled(sid, is_fav)
-            )
-
-            strategy_item.favoriteToggled.connect(
-                lambda sid, is_fav, cat=category_key, fl=favorites_label:
-                self._on_category_favorite_toggled(cat, sid, is_fav, fl, scroll_widget)
-            )
-
-            button_group.addButton(strategy_item.radio, idx)
-            scroll_layout.addWidget(strategy_item)
-
-        if favorites_count > 0:
-            favorites_label.setText(f"⭐ {favorites_count}")
-
-        setattr(self, f"{category_key}_button_group", button_group)
-        setattr(self, f"{category_key}_favorites_label", favorites_label)
-
-        scroll_layout.addStretch()
-        scroll_area.setWidget(scroll_widget)
-        tab_layout.addWidget(scroll_area)
-
-        # Заменяем заглушку на реальную вкладку в том же индексе
-        if hasattr(self, '_category_tab_indices') and category_key in self._category_tab_indices:
-            correct_index = self._category_tab_indices[category_key]
-            if correct_index < self.category_tabs.count():
-                self.category_tabs.removeTab(correct_index)
-
-                # Отображаем полное/короткое имя в зависимости от закрепления
-                display_name = tab_name
-                if self.category_tabs.is_pinned and category_key in self.tab_names:
-                    _, full = self.tab_names[category_key]
-                    display_name = full
-
-                self.category_tabs.insertTab(correct_index, tab_widget, display_name)
-
-                if hasattr(self, 'tab_tooltips') and category_key in self.tab_tooltips:
-                    self.category_tabs.setTabToolTip(correct_index, self.tab_tooltips[category_key])
-
-                self._update_category_indices()
-
-    def _update_category_indices(self):
-        """Обновляет индексы категорий после изменения табов"""
-        if hasattr(self, '_category_tab_indices'):
-            category_keys = ['youtube',
-                             'youtube_udp',
-                             'googlevideo_tcp',
-                             'discord',
-                             'discord_voice_udp',
-                             'rutracker_tcp',
-                             'ntcparty_tcp',
-                             'twitch_tcp',
-                             'phasmophobia_udp',
-                             'other',
-                             'hostlist_80port',
-                             'ipset',
-                             'ipset_udp'
-                            ]
-            for i, key in enumerate(category_keys):
-                if i < self.category_tabs.count():
-                    self._category_tab_indices[key] = i
-
-    def _get_category_title(self, category_key):
-        """Возвращает полный заголовок для категории"""
-        titles = {
-            'youtube': "YouTube через TCP (порты 80, 443) - основной трафик www.youtube.com",
-            'youtube_udp': "YouTube через QUIC/UDP (порт 443) - если включен QUIC в браузере",
-            'googlevideo_tcp': "GoogleVideo CDN серверы - если не загружаются видео со стандартными стратегиями",
-            'discord': "Discord мессенджер (TCP) - основной трафик discord.com",
-            'discord_voice_udp': "Discord голосовые звонки (UDP) - голосовые каналы и звонки",
-            'rutracker_tcp': "Rutracker (TCP) - основной трафик rutracker.org",
-            'ntcparty_tcp': "NtcParty (TCP) - основной трафик ntcparty.com",
-            'twitch_tcp': "Twitch стриминг (TCP) - основной трафик twitch.tv",
-            'phasmophobia_udp': "Phasmophobia (UDP) - основной трафик игры",
-            'other': "Заблокированные сайты из списка other.txt (TCP)",
-            'hostlist_80port': "Заблокированные сайты из списка other.txt (HTTP порт 80)",
-            'ipset': "Блокировка по IP адресам (TCP) ipset-all.txt",
-            'ipset_udp': "Блокировка по IP адресам (UDP/в основном игры) ipset-all.txt",
-        }
-        return titles.get(category_key, "Стратегии")
-
-    def _on_direct_favorite_toggled(self, strategy_id, is_favorite):
+    def _on_direct_favorite_toggled(self, strategy_id, is_favorite, category):
         """Обработчик изменения избранного в Direct режиме"""
         action = "добавлена в" if is_favorite else "удалена из"
-        log(f"Стратегия {strategy_id} {action} избранных", "INFO")
+        log(f"Стратегия {strategy_id} {action} избранных в категории {category}", "INFO")
 
         self.status_label.setText(f"{'⭐ Добавлено в избранные' if is_favorite else '☆ Удалено из избранных'}")
         self.status_label.setStyleSheet("font-weight: bold; color: #ffd700; font-size: 9pt; padding: 3px;")
 
         QTimer.singleShot(2000, lambda: self.status_label.setText("✅ Готово к выбору"))
 
-    def _sort_category_strategies(self, strategies):
-        """Сортирует стратегии категории: избранные вверху"""
+    def _sort_category_strategies(self, strategies, category_key):
+        """
+        Сортирует стратегии категории: избранные вверху
+        
+        Args:
+            strategies: Словарь стратегий {id: data}
+            category_key: Ключ категории для проверки избранных
+        """
         from strategy_menu import is_favorite_strategy
 
         favorites = []
         regular = []
 
         for strat_id, strat_data in strategies.items():
-            if is_favorite_strategy(strat_id):
+            if is_favorite_strategy(strat_id, category_key):
                 favorites.append((strat_id, strat_data))
             else:
                 regular.append((strat_id, strat_data))
@@ -1041,24 +434,25 @@ class StrategySelector(QDialog):
 
         favorites_count = 0
         for child in scroll_widget.findChildren(CompactStrategyItem):
-            if is_favorite_strategy(child.strategy_id):
+            if hasattr(child, 'strategy_id') and is_favorite_strategy(child.strategy_id, category_key):
                 favorites_count += 1
 
         favorites_label.setText(f"⭐ {favorites_count}" if favorites_count > 0 else "")
 
         action = "добавлена в" if is_favorite else "удалена из"
-        log(f"Стратегия {strategy_id} {action} избранных", "INFO")
+        log(f"Стратегия {strategy_id} {action} избранных в категории {category_key}", "INFO")
 
         QTimer.singleShot(500, lambda: self._resort_category_strategies(category_key))
 
     def _resort_category_strategies(self, category_key):
         """Пересортировывает стратегии в категории с учетом избранных"""
-        category_map = {
-            'youtube': 0, 'youtube_udp': 1, 'googlevideo_tcp': 2, 'discord': 3,
-            'discord_voice_udp': 4, 'rutracker_tcp': 5, 'ntcparty_tcp': 6, 'twitch_tcp': 7, 'phasmophobia_udp': 8, 'other': 9, 'hostlist_80port': 10, 'ipset': 11, 'ipset_udp': 12
-        }
+        category_keys = registry.get_all_category_keys()
+        try:
+            tab_index = category_keys.index(category_key)
+        except ValueError:
+            log(f"Категория {category_key} не найдена в реестре", "⚠ WARNING")
+            return
 
-        tab_index = category_map.get(category_key, -1)
         if tab_index == -1 or tab_index >= self.category_tabs.count():
             return
 
@@ -1077,7 +471,6 @@ class StrategySelector(QDialog):
         if not scroll_widget:
             return
 
-        # Собираем все стратегии
         strategy_items = []
         for child in scroll_widget.findChildren(CompactStrategyItem):
             strategy_items.append({
@@ -1087,7 +480,6 @@ class StrategySelector(QDialog):
                 'is_checked': child.radio.isChecked()
             })
 
-        # Очищаем layout
         layout = scroll_widget.layout()
         while layout.count() > 0:
             item = layout.takeAt(0)
@@ -1099,7 +491,10 @@ class StrategySelector(QDialog):
         favorites = []
         regular = []
         for item in strategy_items:
-            (favorites if is_favorite_strategy(item['id']) else regular).append(item)
+            if is_favorite_strategy(item['id'], category_key):
+                favorites.append(item)
+            else:
+                regular.append(item)
 
         favorites.sort(key=lambda x: x['data'].get('name', x['id']).lower())
         regular.sort(key=lambda x: x['data'].get('name', x['id']).lower())
@@ -1133,7 +528,10 @@ class StrategySelector(QDialog):
         self.buttons_layout = QHBoxLayout()
         self.buttons_layout.setSpacing(10)
 
-        self.select_button = QPushButton("✅ Выбрать")
+        from strategy_menu import get_keep_dialog_open
+        button_text = "✅ Применить" if get_keep_dialog_open() else "✅ Выбрать"
+        
+        self.select_button = QPushButton(button_text)
         self.select_button.clicked.connect(self.accept)
         self.select_button.setEnabled(False)
         self.select_button.setMinimumHeight(30)
@@ -1144,8 +542,61 @@ class StrategySelector(QDialog):
         self.cancel_button.setMinimumHeight(30)
         self.buttons_layout.addWidget(self.cancel_button)
 
+        self.help_button = QPushButton("❓ Справка")
+        self.help_button.clicked.connect(self._open_help_pdf)
+        self.help_button.setMinimumHeight(30)
+        self.buttons_layout.addWidget(self.help_button)
+
+        self.help_button = QPushButton("💬 Поддержка")
+        self.help_button.clicked.connect(self._open_support)
+        self.help_button.setMinimumHeight(30)
+        self.buttons_layout.addWidget(self.help_button)
+
         self.buttons_widget = QWidget()
         self.buttons_widget.setLayout(self.buttons_layout)
+
+    def _open_support(self):
+        try:
+            import webbrowser
+            webbrowser.open("https://t.me/zapret_support_bot")
+            self._set_status("Открываю поддержку...")
+        except Exception as e:
+            err = f"Ошибка при открытии поддержки: {e}"
+            self._set_status(err)
+            QMessageBox.warning(self._pw, "Ошибка", err)
+
+    def _open_help_pdf(self):
+        """Открывает PDF руководство пользователя"""
+        try:
+            from config import HELP_FOLDER
+            import os
+            
+            pdf_path = os.path.join(HELP_FOLDER, "Как пользоваться Zapret.pdf")
+            
+            if not os.path.exists(pdf_path):
+                log(f"PDF руководство не найдено: {pdf_path}", "❌ ERROR")
+                
+                QMessageBox.warning(
+                    self,
+                    "Файл не найден",
+                    f"Руководство пользователя не найдено:\n{pdf_path}\n\n"
+                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                )
+                return
+            
+            log(f"Открываем PDF руководство: {pdf_path}", "INFO")
+            os.startfile(pdf_path)
+            log("PDF руководство успешно открыто", "✅ SUCCESS")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии PDF руководства: {e}", "❌ ERROR")
+            
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть руководство пользователя:\n{str(e)}\n\n"
+                "Попробуйте открыть файл вручную из папки Help."
+            )
 
     def _create_tabs(self):
         """Создает вкладки интерфейса"""
@@ -1165,24 +616,20 @@ class StrategySelector(QDialog):
             }
         """)
 
-        # Вкладка стратегий
         self.strategies_tab = QWidget()
         self._init_strategies_tab()
         self.tab_widget.addTab(self.strategies_tab, "📋 Стратегии")
 
-        # Хостлисты
         from .hostlists_tab import HostlistsTab
         self.hostlists_tab = HostlistsTab()
         self.hostlists_tab.hostlists_changed.connect(self._on_hostlists_changed)
         self.tab_widget.addTab(self.hostlists_tab, "🌐 Hostlist")
 
-        # IPsets
         from .ipsets_tab import IpsetsTab
         self.ipsets_tab = IpsetsTab()
         self.ipsets_tab.ipsets_changed.connect(self._on_ipsets_changed)
         self.tab_widget.addTab(self.ipsets_tab, "🔢 IPSet")
 
-        # Вкладка настроек
         self.settings_tab = QWidget()
         self._init_settings_tab()
         self.tab_widget.addTab(self.settings_tab, "⚙️ Настройки")
@@ -1292,7 +739,7 @@ class StrategySelector(QDialog):
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet(
-            "font-weight: bold; font-size: 10pt; color: #2196F3; margin: 0 0 4px 0;"  # слева 0
+            "font-weight: bold; font-size: 10pt; color: #2196F3; margin: 0 0 4px 0;"
         )
         layout.addWidget(title_label)
 
@@ -1381,7 +828,7 @@ class StrategySelector(QDialog):
 
     def _create_launch_params(self, layout):
         """Создает параметры запуска"""
-        from strategy_menu import get_wssize_enabled, get_allzone_hostlist_enabled, get_game_filter_enabled
+        from strategy_menu import get_wssize_enabled, get_allzone_hostlist_enabled
 
         params_group = QGroupBox("Параметры запуска")
         params_group.setStyleSheet("""
@@ -1401,7 +848,32 @@ class StrategySelector(QDialog):
         warning_label.setStyleSheet("color: #ffa500; font-weight: bold; font-size: 9pt; margin-bottom: 5px;")
         params_layout.addWidget(warning_label)
 
-        # Закрепление табов
+        # Чекбокс: Не закрывать окно после выбора
+        keep_open_widget = QWidget()
+        keep_open_layout = QVBoxLayout(keep_open_widget)
+        keep_open_layout.setContentsMargins(0, 0, 0, 0)
+        keep_open_layout.setSpacing(3)
+
+        from strategy_menu import get_keep_dialog_open
+        self.keep_dialog_open_checkbox = QCheckBox("🔓 Не закрывать окно после выбора стратегии")
+        self.keep_dialog_open_checkbox.setToolTip(
+            "Если включено, окно выбора стратегии останется открытым после применения.\n"
+            "Полезно для быстрого переключения между стратегиями.\n"
+            "Если выключено, окно автоматически закроется после выбора."
+        )
+        self.keep_dialog_open_checkbox.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        self.keep_dialog_open_checkbox.setChecked(get_keep_dialog_open())
+        self.keep_dialog_open_checkbox.stateChanged.connect(self._on_keep_dialog_open_changed)
+        keep_open_layout.addWidget(self.keep_dialog_open_checkbox)
+
+        keep_open_info = QLabel("Окно останется открытым для быстрого переключения стратегий")
+        keep_open_info.setWordWrap(True)
+        keep_open_info.setStyleSheet("padding-left: 20px; color: #aaa; font-size: 8pt;")
+        keep_open_layout.addWidget(keep_open_info)
+
+        params_layout.addWidget(keep_open_widget)
+        
+        # Закрепление табов (только для Direct режима)
         if self.is_direct_mode:
             tabs_widget = QWidget()
             tabs_layout = QVBoxLayout(tabs_widget)
@@ -1428,6 +900,8 @@ class StrategySelector(QDialog):
             params_layout.addWidget(tabs_widget)
             params_layout.addWidget(self._create_separator())
 
+        params_layout.addWidget(self._create_separator())
+
         if self.is_direct_mode:
             # Добавляем выбор базовых аргументов
             base_args_widget = QWidget()
@@ -1439,7 +913,6 @@ class StrategySelector(QDialog):
             base_args_label.setStyleSheet("font-weight: bold; margin-bottom: 3px;")
             base_args_layout.addWidget(base_args_label)
             
-            from PyQt6.QtWidgets import QComboBox
             self.base_args_combo = QComboBox()
             self.base_args_combo.setStyleSheet("""
                 QComboBox {
@@ -1473,10 +946,14 @@ class StrategySelector(QDialog):
             
             # Добавляем варианты
             base_args_options = [
-                ("💚 ОЧЕНЬ аккуратный режим (лайтовый)", "windivert-discord-media-stun-sites", "Используется самая элегантная windivert.discord_media+stun+sites.txt фильтрация с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
-                ("💚 Аккуратный режим (базовый)", "wf-l3", "Использует L3 фильтрацию с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
-                ("💯 Умный режим (все порты)", "windivert_all", "Использует файл wf-raw для фильтрации.\nБьёт по всем портам (может нарушать работу игр, однако старается делать это быстро)."),
-                ("💥 Агрессивный режим (все порты)", "wf-l3-all", "Использует медленную L3 фильтрацию чтобы гарантированно покрыть 100% всех портов и игр. Сильно нагружает систему, но может помочь для некоторых игр")
+                ("💚 ОЧЕНЬ аккуратный режим (лайтовый) --wf-raw=@windivert.discord_media+stun+sites.txt", "windivert-discord-media-stun-sites", 
+                 "Используется самая элегантная --wf-raw=@windivert.discord_media+stun+sites.txt фильтрация с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
+                ("💚 Аккуратный режим (базовый) --wf-l3=ipv4,ipv6 --wf-tcp=80,443,2053,2083,2087,2096,8080,8443 --wf-udp=443,1400,19294-19344,50000-50100", "wf-l3", 
+                 "Использует L3 фильтрацию с указанием портов.\nМожет работать лучше на некоторых провайдерах."),
+                ("💯 Умный режим (все порты) --wf-raw=@windivert.all.txt", "windivert_all", 
+                 "Использует файл wf-raw для фильтрации.\nБьёт по всем портам (может нарушать работу игр, однако старается делать это быстро)."),
+                ("💥 Агрессивный режим (все порты) --wf-l3=ipv4,ipv6 --wf-tcp=80,443,444-65535 --wf-udp=443,444-65535", "wf-l3-all", 
+                 "Использует медленную L3 фильтрацию чтобы гарантированно покрыть 100% всех портов и игр. Сильно нагружает систему, но может помочь для некоторых игр")
             ]
             
             for display_name, value, tooltip in base_args_options:
@@ -1505,6 +982,60 @@ class StrategySelector(QDialog):
             params_layout.addWidget(self._create_separator())
 
         if self.is_direct_mode:
+            # ✅ ПАРАМЕТР 1: Применить ко всем сайтам (удалить --hostlist)
+            remove_hostlists_widget = QWidget()
+            remove_hostlists_layout = QVBoxLayout(remove_hostlists_widget)
+            remove_hostlists_layout.setContentsMargins(0, 0, 0, 0)
+            remove_hostlists_layout.setSpacing(3)
+
+            from strategy_menu import get_remove_hostlists_enabled
+            self.remove_hostlists_checkbox = QCheckBox("🌐 Применить запрет ко ВСЕМ сайтам (игнорировать hostlist)")
+            self.remove_hostlists_checkbox.setToolTip(
+                "Удаляет все упоминания --hostlist, --hostlist-domains и --hostlist-exclude из стратегий.\n"
+                "Zapret будет применяться ко ВСЕМ доменам без исключений.\n"
+                "⚠️ ВНИМАНИЕ: Может снизить скорость интернета!\n"
+                "Используйте только если фильтрация по конкретным сайтам не работает."
+            )
+            self.remove_hostlists_checkbox.setStyleSheet("font-weight: bold; color: #ff9966;")
+            self.remove_hostlists_checkbox.setChecked(get_remove_hostlists_enabled())
+            self.remove_hostlists_checkbox.stateChanged.connect(self._on_remove_hostlists_changed)
+            remove_hostlists_layout.addWidget(self.remove_hostlists_checkbox)
+
+            remove_hostlists_info = QLabel("⚠️ Удаляет фильтры доменов, применяя стратегию ко всему HTTP/HTTPS трафику")
+            remove_hostlists_info.setWordWrap(True)
+            remove_hostlists_info.setStyleSheet("padding-left: 20px; color: #ff9966; font-size: 8pt;")
+            remove_hostlists_layout.addWidget(remove_hostlists_info)
+
+            params_layout.addWidget(remove_hostlists_widget)
+            params_layout.addWidget(self._create_separator())
+
+            # ✅ ПАРАМЕТР 2: Применить ко всем IP-адресам (удалить --ipset)
+            remove_ipsets_widget = QWidget()
+            remove_ipsets_layout = QVBoxLayout(remove_ipsets_widget)
+            remove_ipsets_layout.setContentsMargins(0, 0, 0, 0)
+            remove_ipsets_layout.setSpacing(3)
+
+            from strategy_menu import get_remove_ipsets_enabled
+            self.remove_ipsets_checkbox = QCheckBox("🔢 Применить запрет ко ВСЕМ IP-адресам (игнорировать ipset)")
+            self.remove_ipsets_checkbox.setToolTip(
+                "Удаляет все упоминания --ipset, --ipset-ip и --ipset-exclude из стратегий.\n"
+                "Zapret будет применяться ко ВСЕМ IP-адресам без исключений.\n"
+                "⚠️ ВНИМАНИЕ: Может сильно снизить скорость интернета!\n"
+                "Используйте только если фильтрация по конкретным IP не работает."
+            )
+            self.remove_ipsets_checkbox.setStyleSheet("font-weight: bold; color: #ff6b6b;")
+            self.remove_ipsets_checkbox.setChecked(get_remove_ipsets_enabled())
+            self.remove_ipsets_checkbox.stateChanged.connect(self._on_remove_ipsets_changed)
+            remove_ipsets_layout.addWidget(self.remove_ipsets_checkbox)
+
+            remove_ipsets_info = QLabel("⚠️ Удаляет фильтры IP-адресов, применяя стратегию ко всему трафику")
+            remove_ipsets_info.setWordWrap(True)
+            remove_ipsets_info.setStyleSheet("padding-left: 20px; color: #ff6b6b; font-size: 8pt;")
+            remove_ipsets_layout.addWidget(remove_ipsets_info)
+
+            params_layout.addWidget(remove_ipsets_widget)
+            params_layout.addWidget(self._create_separator())
+
             # ALLZONE
             allzone_widget = QWidget()
             allzone_layout = QVBoxLayout(allzone_widget)
@@ -1531,34 +1062,6 @@ class StrategySelector(QDialog):
             params_layout.addWidget(allzone_widget)
             params_layout.addWidget(self._create_separator())
 
-        if self.is_direct_mode:
-            # Game filter
-            game_widget = QWidget()
-            game_layout = QVBoxLayout(game_widget)
-            game_layout.setContentsMargins(0, 0, 0, 0)
-            game_layout.setSpacing(3)
-
-            from strategy_menu import get_game_filter_enabled
-            self.ipset_all_checkbox = QCheckBox("Включить фильтр для игр (Game Filter)")
-            self.ipset_all_checkbox.setToolTip(
-                "Расширяет диапазон портов с 80,443 на 80,443,444-65535\n"
-                "для стратегий с хостлистами other.txt.\n"
-                "Полезно для игр и приложений на нестандартных портах."
-            )
-            self.ipset_all_checkbox.setStyleSheet("font-weight: bold;")
-            self.ipset_all_checkbox.setChecked(get_game_filter_enabled())
-            self.ipset_all_checkbox.stateChanged.connect(self._on_game_filter_changed)
-            game_layout.addWidget(self.ipset_all_checkbox)
-
-            ipset_info = QLabel("Расширяет фильтрацию на порты 444-65535 для игрового трафика")
-            ipset_info.setWordWrap(True)
-            ipset_info.setStyleSheet("padding-left: 20px; color: #aaa; font-size: 8pt;")
-            game_layout.addWidget(ipset_info)
-
-            params_layout.addWidget(game_widget)
-            params_layout.addWidget(self._create_separator())
-
-        if self.is_direct_mode:
             # wssize
             wssize_widget = QWidget()
             wssize_layout = QVBoxLayout(wssize_widget)
@@ -1599,6 +1102,44 @@ class StrategySelector(QDialog):
         separator.setStyleSheet("QFrame { background-color: #444; max-height: 1px; margin: 5px 0; }")
         return separator
 
+    def _on_remove_hostlists_changed(self, state):
+        """Обработчик изменения настройки 'применить ко всем сайтам'"""
+        from strategy_menu import set_remove_hostlists_enabled
+        enabled = (state == Qt.CheckState.Checked.value)
+        set_remove_hostlists_enabled(enabled)
+        log(f"Настройка 'применить ко всем сайтам' {'включена' if enabled else 'выключена'}", "INFO")
+        
+        # Показываем предупреждение при включении
+        if enabled:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Внимание!",
+                "Вы включили режим 'применить ко всем сайтам'.\n\n"
+                "Это означает что Zapret будет обрабатывать ВЕСЬ HTTP/HTTPS трафик без фильтрации по доменам,\n"
+                "что может снизить скорость интернета.\n\n"
+                "Используйте эту опцию только если фильтрация по конкретным сайтам не работает."
+            )
+
+    def _on_remove_ipsets_changed(self, state):
+        """Обработчик изменения настройки 'применить ко всем IP-адресам'"""
+        from strategy_menu import set_remove_ipsets_enabled
+        enabled = (state == Qt.CheckState.Checked.value)
+        set_remove_ipsets_enabled(enabled)
+        log(f"Настройка 'применить ко всем IP-адресам' {'включена' if enabled else 'выключена'}", "INFO")
+        
+        # Показываем предупреждение при включении
+        if enabled:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Внимание!",
+                "Вы включили режим 'применить ко всем IP-адресам'.\n\n"
+                "Это означает что Zapret будет обрабатывать ВЕСЬ трафик без фильтрации по IP,\n"
+                "что может СИЛЬНО снизить скорость интернета.\n\n"
+                "Используйте эту опцию только если фильтрация по конкретным IP не работает."
+            )
+
     def _on_allzone_changed(self, state):
         from strategy_menu import set_allzone_hostlist_enabled
         enabled = (state == Qt.CheckState.Checked.value)
@@ -1613,7 +1154,6 @@ class StrategySelector(QDialog):
             set_base_args_selection(value)
             log(f"Базовые аргументы изменены на: {value}", "INFO")
             
-            # Обновляем предпросмотр
             if hasattr(self, 'update_combined_preview'):
                 self.update_combined_preview()
                 
@@ -1655,26 +1195,64 @@ class StrategySelector(QDialog):
             self._schedule_dialog_restart()
 
     def _schedule_dialog_restart(self):
+        """Перезапуск диалога при смене метода"""
+        StrategySelector._is_initialized = False
+        StrategySelector._instance = None
+        
         parent_window = self.parent()
-        self.close()
-
+        
+        try:
+            self.strategySelected.disconnect()
+        except:
+            pass
+        super().close()
+        
         def restart_dialog():
-            if parent_window and hasattr(parent_window, '_show_strategy_dialog'):
+            if parent_window and hasattr(parent_window, 'force_reload_strategy_dialog'):
+                parent_window.force_reload_strategy_dialog()
                 parent_window._show_strategy_dialog()
 
         QTimer.singleShot(100, restart_dialog)
-
-    def _on_game_filter_changed(self, state):
-        from strategy_menu import set_game_filter_enabled
-        enabled = (state == Qt.CheckState.Checked.value)
-        set_game_filter_enabled(enabled)
-        log(f"Параметр ipset-all {'включен' if enabled else 'выключен'}", "INFO")
 
     def _on_wssize_changed(self, state):
         from strategy_menu import set_wssize_enabled
         enabled = (state == Qt.CheckState.Checked.value)
         set_wssize_enabled(enabled)
         log(f"Параметр --wssize 1:6 {'включен' if enabled else 'выключен'}", "INFO")
+
+    def _on_keep_dialog_open_changed(self, state):
+        """Обработчик изменения настройки сохранения окна открытым"""
+        from strategy_menu import set_keep_dialog_open
+        enabled = (state == Qt.CheckState.Checked.value)
+        set_keep_dialog_open(enabled)
+        log(f"Настройка 'не закрывать окно' {'включена' if enabled else 'выключена'}", "INFO")
+        
+        if hasattr(self, 'select_button'):
+            if enabled:
+                self.select_button.setText("✅ Применить")
+            else:
+                self.select_button.setText("✅ Выбрать")
+
+    def _on_pin_tabs_changed(self, state):
+        """Обработчик изменения закрепления табов"""
+        from strategy_menu import set_tabs_pinned
+        enabled = (state == Qt.CheckState.Checked.value)
+        set_tabs_pinned(enabled)
+
+        if hasattr(self, 'category_tabs'):
+            self.category_tabs.is_pinned = enabled
+
+            if enabled:
+                self.category_tabs.is_expanded = True
+                self.category_tabs._set_bar_width(self.category_tabs.expanded_width)
+                self.category_tabs.show_full_names()
+            else:
+                if not self.category_tabs.tabBar().underMouse():
+                    self.category_tabs.is_expanded = False
+                    self.category_tabs._set_bar_width(self.category_tabs.collapsed_width)
+                    self.category_tabs.show_short_names()
+
+        log(f"Закрепление табов {'включено' if enabled else 'выключено'}", "INFO")
 
     def _on_table_strategy_selected(self, strategy_id, strategy_name):
         self.selected_strategy_id = strategy_id
@@ -1688,45 +1266,14 @@ class StrategySelector(QDialog):
         self.accept()
 
     def on_category_selection_changed(self, category, strategy_id):
-        from strategy_menu import (set_direct_strategy_youtube, set_direct_strategy_youtube_udp,
-                                   set_direct_strategy_googlevideo, set_direct_strategy_discord,
-                                   set_direct_strategy_other, set_direct_strategy_discord_voice,
-                                   set_direct_strategy_ipset, set_direct_strategy_udp_ipset,
-                                   set_direct_strategy_twitch_tcp, set_direct_strategy_ntcparty_tcp,
-                                   set_direct_strategy_rutracker_tcp, set_direct_strategy_phasmophobia_udp,
-                                   set_direct_strategy_hostlist_80port)
+        """Обработчик изменения выбора стратегии в категории"""
+        from strategy_menu import set_direct_strategy_selections
 
         self.category_selections[category] = strategy_id
         self.update_combined_preview()
 
         try:
-            if category == 'youtube':
-                set_direct_strategy_youtube(strategy_id)
-            elif category == 'youtube_udp':
-                set_direct_strategy_youtube_udp(strategy_id)
-            elif category == 'googlevideo_tcp':
-                set_direct_strategy_googlevideo(strategy_id)
-            elif category == 'discord':
-                set_direct_strategy_discord(strategy_id)
-            elif category == 'discord_voice_udp':
-                set_direct_strategy_discord_voice(strategy_id)
-            elif category == 'rutracker_tcp':
-                set_direct_strategy_rutracker_tcp(strategy_id)
-            elif category == 'ntcparty_tcp':
-                set_direct_strategy_ntcparty_tcp(strategy_id)
-            elif category == 'twitch_tcp':
-                set_direct_strategy_twitch_tcp(strategy_id)
-            elif category == 'phasmophobia_udp':
-                set_direct_strategy_phasmophobia_udp(strategy_id)
-            elif category == 'other':
-                set_direct_strategy_other(strategy_id)
-            elif category == 'hostlist_80port':
-                set_direct_strategy_hostlist_80port(strategy_id)
-            elif category == 'ipset':
-                set_direct_strategy_ipset(strategy_id)
-            elif category == 'ipset_udp':
-                set_direct_strategy_udp_ipset(strategy_id)
-
+            set_direct_strategy_selections(self.category_selections)
             log(f"Сохранена {category} стратегия: {strategy_id}", "DEBUG")
         except Exception as e:
             log(f"Ошибка сохранения {category} стратегии: {e}", "⚠ WARNING")
@@ -1734,74 +1281,39 @@ class StrategySelector(QDialog):
         self.select_button.setEnabled(True)
 
     def update_combined_preview(self):
+        """Обновляет предпросмотр комбинированной стратегии"""
         if not hasattr(self, 'preview_text'):
             return
 
-        from .strategy_lists_separated import combine_strategies
+        from strategy_menu.strategy_lists_separated import combine_strategies
+        combined = combine_strategies(**self.category_selections)
 
-        combined = combine_strategies(
-            self.category_selections.get('youtube'),
-            self.category_selections.get('youtube_udp'),
-            self.category_selections.get('googlevideo_tcp'),
-            self.category_selections.get('discord'),
-            self.category_selections.get('discord_voice_udp'),
-            self.category_selections.get('rutracker_tcp'),
-            self.category_selections.get('ntcparty_tcp'),
-            self.category_selections.get('twitch_tcp'),
-            self.category_selections.get('phasmophobia_udp'),
-            self.category_selections.get('other'),
-            self.category_selections.get('hostlist_80port'),
-            self.category_selections.get('ipset'),
-            self.category_selections.get('ipset_udp')
-        )
-
-        # Добавляем звездочки для избранных
         from strategy_menu import is_favorite_strategy
+        
+        none_strategies = registry.get_none_strategies()
+        category_colors = registry.get_category_colors_dict()
 
-        NONE_STRATEGY_IDS = {
-            'youtube': 'youtube_tcp_none',
-            'youtube_udp': 'youtube_udp_none',
-            'googlevideo_tcp': 'googlevideo_tcp_none',
-            'discord': 'discord_tcp_none',
-            'discord_voice_udp': 'discord_voice_udp_none',
-            'rutracker_tcp': 'rutracker_tcp_none',
-            'ntcparty_tcp': 'ntcparty_tcp_none',
-            'twitch_tcp': 'twitch_tcp_none',
-            'phasmophobia_udp': 'phasmophobia_udp_none',
-            'other': 'other_tcp_none',
-            'hostlist_80port': 'hostlist_80port_none',
-            'ipset': 'ipset_tcp_none',
-            'ipset_udp': 'ipset_udp_none'
-        }
-
-        def format_strategy(category_name, category_key, color):
+        def format_strategy(category_key):
             strategy_id = self.category_selections.get(category_key)
-            none_id = NONE_STRATEGY_IDS.get(category_key, f'{category_key}_none')
+            none_id = none_strategies.get(category_key)
+            
             if strategy_id and strategy_id != none_id:
-                star = "⭐ " if is_favorite_strategy(strategy_id) else ""
-                return f"{star}<span style='color: {color};'>{category_name}</span>"
+                category_info = registry.get_category_info(category_key)
+                if category_info:
+                    star = "⭐ " if is_favorite_strategy(strategy_id, category_key) else ""
+                    color = category_info.color
+                    display_name = category_info.full_name.replace(category_info.emoji + ' ', '')
+                    return f"{star}<span style='color: {color};'>{display_name}</span>"
             return None
 
-        items = [
-            format_strategy("YouTube TCP (80 & 443)", 'youtube', '#ff6666'),
-            format_strategy("YouTube QUIC/UDP (443)", 'youtube_udp', "#ff3c00"),
-            format_strategy("GoogleVideo TCP (443)", 'googlevideo_tcp', '#ff9900'),
-            format_strategy("Discord TCP (80 & 443)", 'discord', '#7289da'),
-            format_strategy("Discord Voice UDP (all stun ports)", 'discord_voice_udp', '#9b59b6'),
-            format_strategy("Rutracker TCP (80 & 443)", 'rutracker_tcp', '#6c5ce7'),
-            format_strategy("NtcParty TCP (80 & 443)", 'ntcparty_tcp', '#6c5ce7'),
-            format_strategy("Twitch TCP (80 & 443)", 'twitch_tcp', '#9146ff'),
-            format_strategy("Phasmophobia UDP (80 & 443)", 'phasmophobia_udp', '#ff4757'),
-            format_strategy("Сайты TCP (80 & 443)", 'other', '#66ff66'),
-            format_strategy("Hostlist 80port TCP", 'hostlist_80port', '#00ffcc'),
-            format_strategy("IPset TCP (80 & 443)", 'ipset', '#ffa500'),
-            format_strategy("IPset UDP (all ports)", 'ipset_udp', "#006eff"),
-        ]
+        items = []
+        for category_key in registry.get_all_category_keys():
+            formatted = format_strategy(category_key)
+            if formatted:
+                items.append(formatted)
 
-        active = [item for item in items if item]
-
-        if active:
-            preview_html = f"<b>Активные:</b> {', '.join(active)}"
+        if items:
+            preview_html = f"<b>Активные:</b> {', '.join(items)}"
             args_count = len(combined['args'].split())
             preview_html += f"<br><span style='color: #888; font-size: 7pt;'>Аргументов: {args_count}</span>"
         else:
@@ -1820,6 +1332,7 @@ class StrategySelector(QDialog):
         """)
 
     def load_builtin_strategies(self):
+        """Загружает встроенные стратегии"""
         try:
             if hasattr(self, 'status_label'):
                 self.status_label.setText("✅ Готово к выбору стратегий")
@@ -1834,6 +1347,7 @@ class StrategySelector(QDialog):
             log(f"Ошибка загрузки встроенных стратегий: {e}", "❌ ERROR")
 
     def load_local_strategies(self):
+        """Загружает локальные стратегии (для bat режима)"""
         try:
             if hasattr(self, 'strategy_table'):
                 self.strategy_table.set_progress_visible(True)
@@ -1863,6 +1377,7 @@ class StrategySelector(QDialog):
                 self.strategy_table.set_progress_visible(False)
 
     def refresh_strategies(self):
+        """Обновляет список стратегий из интернета"""
         if self.is_loading_strategies:
             QMessageBox.information(self, "Обновление в процессе",
                                     "Обновление уже выполняется")
@@ -1896,6 +1411,7 @@ class StrategySelector(QDialog):
         log("Запуск загрузки стратегий из интернета", "INFO")
 
     def _on_strategies_loaded(self, strategies, error_message):
+        """Обработчик завершения загрузки стратегий"""
         self.is_loading_strategies = False
 
         self.strategy_table.set_progress_visible(False)
@@ -1918,27 +1434,14 @@ class StrategySelector(QDialog):
         log(f"Загружено {len(strategies)} стратегий", "INFO")
 
     def accept(self):
+        """Применяет выбранную стратегию"""
         if self.is_direct_mode:
-            from .strategy_lists_separated import combine_strategies, get_default_selections
-
+            from .strategy_lists_separated import combine_strategies
+            from strategy_menu import get_default_selections
             if not self.category_selections:
                 self.category_selections = get_default_selections()
 
-            combined = combine_strategies(
-                self.category_selections.get('youtube'),
-                self.category_selections.get('youtube_udp'),
-                self.category_selections.get('googlevideo_tcp'),
-                self.category_selections.get('discord'),
-                self.category_selections.get('discord_voice_udp'),
-                self.category_selections.get('rutracker_tcp'),
-                self.category_selections.get('ntcparty_tcp'),
-                self.category_selections.get('twitch_tcp'),
-                self.category_selections.get('phasmophobia_udp'),
-                self.category_selections.get('other'),
-                self.category_selections.get('hostlist_80port'),
-                self.category_selections.get('ipset'),
-                self.category_selections.get('ipset_udp')
-            )
+            combined = combine_strategies(**self.category_selections)
 
             self._combined_args = combined['args']
             self._combined_strategy_data = {
@@ -1965,13 +1468,44 @@ class StrategySelector(QDialog):
 
             log(f"Выбрана стратегия: {self.selected_strategy_name}", "INFO")
 
+        # Испускаем сигнал о выборе
         self.strategySelected.emit(self.selected_strategy_id, self.selected_strategy_name)
+        
+        # Проверяем настройку: Закрывать ли окно?
+        from strategy_menu import get_keep_dialog_open
+        if not get_keep_dialog_open():
+            # Закрываем окно (скрываем)
+            self.hide()
+            log("Диалог закрыт после выбора", "DEBUG")
+        else:
+            # Оставляем окно открытым
+            log("Диалог остается открытым после выбора", "DEBUG")
+            
+            # Показываем временное уведомление
+            if hasattr(self, 'status_label'):
+                self.status_label.setText("✅ Стратегия применена! Окно осталось открытым")
+                self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50; font-size: 9pt; padding: 3px;")
+                
+                # Через 3 секунды возвращаем стандартный статус
+                QTimer.singleShot(3000, lambda: self.status_label.setText("✅ Готово к выбору"))
+
+    def _update_current_selection(self):
+        """Обновляет текущий выбор без полной перезагрузки"""
+        if self.is_direct_mode:
+            if hasattr(self, 'update_combined_preview'):
+                self.update_combined_preview()
+        else:
+            if hasattr(self, 'strategy_table') and self.current_strategy_name:
+                self.strategy_table.select_strategy_by_name(self.current_strategy_name)
 
     def reject(self):
-        self.close()
-        log("Диалог выбора стратегии отменен", "INFO")
+        """Переопределяем закрытие - просто скрываем вместо уничтожения"""
+        self.hide()
+        log("Диалог выбора стратегии скрыт", "INFO")
 
     def closeEvent(self, event):
+        """Переопределяем событие закрытия"""
+        # Останавливаем потоки если есть
         try:
             if hasattr(self, 'loader_thread') and self.loader_thread:
                 if self.loader_thread.isRunning():
@@ -1982,25 +1516,6 @@ class StrategySelector(QDialog):
         except RuntimeError:
             pass
 
-        event.accept()
-
-    def _on_pin_tabs_changed(self, state):
-        """Обработчик изменения закрепления табов"""
-        from strategy_menu import set_tabs_pinned
-        enabled = (state == Qt.CheckState.Checked.value)
-        set_tabs_pinned(enabled)
-
-        if hasattr(self, 'category_tabs'):
-            self.category_tabs.is_pinned = enabled
-
-            if enabled:
-                self.category_tabs.is_expanded = True
-                self.category_tabs._set_bar_width(self.category_tabs.expanded_width)
-                self.category_tabs.show_full_names()
-            else:
-                if not self.category_tabs.tabBar().underMouse():
-                    self.category_tabs.is_expanded = False
-                    self.category_tabs._set_bar_width(self.category_tabs.collapsed_width)
-                    self.category_tabs.show_short_names()
-
-        log(f"Закрепление табов {'включено' if enabled else 'выключено'}", "INFO")
+        # Скрываем вместо полного закрытия
+        event.ignore()
+        self.hide()

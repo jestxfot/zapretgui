@@ -70,121 +70,29 @@ class StrategyChecker:
             selections = get_direct_strategy_selections()
             
             # Это комбинированная стратегия
-            from strategy_menu.strategy_lists_separated import YOUTUBE_QUIC_STRATEGIES, DISCORD_STRATEGIES, DISCORD_VOICE_STRATEGIES,combine_strategies
-
-            from strategy_menu import GOOGLEVIDEO_STRATEGIES, OTHER_STRATEGIES, YOUTUBE_TCP_STRATEGIES, TWITCH_TCP_STRATEGIES, IPSET_TCP_STRATEGIES, IPSET_UDP_STRATEGIES, NTCPARTY_TCP_STRATEGIES, RUTRACKER_TCP_STRATEGIES, PHASMOPHOBIA_UDP_STRATEGIES, HOSTLIST_80PORT_STRATEGIES
+            from strategy_menu.strategy_lists_separated import combine_strategies
+            from strategy_menu.strategies_registry import registry
             
             # Получаем комбинированную конфигурацию
-            combined = combine_strategies(
-                selections.get('youtube'),
-                selections.get('youtube_udp'),
-                selections.get('googlevideo_tcp'),
-                selections.get('discord'),
-                selections.get('discord_voice_udp'),
-                selections.get('rutracker_tcp'),
-                selections.get('ntcparty_tcp'),
-                selections.get('twitch_tcp'),
-                selections.get('phasmophobia_udp'),
-                selections.get('other'),
-                selections.get('hostlist_80port'),
-                selections.get('ipset'),
-                selections.get('ipset_udp'),
-            )
+            combined = combine_strategies(**selections)
             
             # Формируем детали
             active_categories = []
             strategy_names = []
+
+            none_strategies = registry.get_none_strategies()
             
-            # YouTube
-            if selections.get('youtube') and selections['youtube'] != 'youtube_tcp_none':
-                active_categories.append('YouTube')
-                yt_strat = YOUTUBE_TCP_STRATEGIES.get(selections['youtube'])
-                if yt_strat:
-                    strategy_names.append(f"YT: {yt_strat.get('name', selections['youtube'])}")
-
-            # YouTube QUIC
-            if selections.get('youtube_udp') and selections['youtube_udp'] != 'youtube_udp_none':
-                active_categories.append('YouTube QUIC')
-                ytu_strat = YOUTUBE_QUIC_STRATEGIES.get(selections['youtube_udp'])
-                if ytu_strat:
-                    strategy_names.append(f"YTU: {ytu_strat.get('name', selections['youtube_udp'])}")
-            
-            # GoogleVideo
-            if selections.get('googlevideo_tcp') and selections['googlevideo_tcp'] != 'googlevideo_tcp_none':
-                active_categories.append('GoogleVideo')
-                gv_strat = GOOGLEVIDEO_STRATEGIES.get(selections['googlevideo_tcp'])
-                if gv_strat:
-                    strategy_names.append(f"GV: {gv_strat.get('name', selections['googlevideo_tcp'])}")
-
-            # Discord
-            if selections.get('discord') and selections['discord'] != 'discord_tcp_none':
-                active_categories.append('Discord')
-                dc_strat = DISCORD_STRATEGIES.get(selections['discord'])
-                if dc_strat:
-                    strategy_names.append(f"DC: {dc_strat.get('name', selections['discord'])}")
-            
-            # Discord Voice
-            if selections.get('discord_voice_udp') and selections['discord_voice_udp'] != 'discord_voice_udp_none':
-                active_categories.append('Discord Voice')
-                dv_strat = DISCORD_VOICE_STRATEGIES.get(selections['discord_voice_udp'])
-                if dv_strat:
-                    strategy_names.append(f"DV: {dv_strat.get('name', selections['discord_voice_udp'])}")
-
-            # NtcParty TCP
-            if selections.get('ntcparty_tcp') and selections['ntcparty_tcp'] != 'ntcparty_tcp_none':
-                active_categories.append('NtcParty TCP')
-                ntc_strat = NTCPARTY_TCP_STRATEGIES.get(selections['ntcparty_tcp'])
-                if ntc_strat:
-                    strategy_names.append(f"NtcParty: {ntc_strat.get('name', selections['ntcparty_tcp'])}")
-
-            # Twitch TCP
-            if selections.get('twitch_tcp') and selections['twitch_tcp'] != 'twitch_tcp_none':
-                active_categories.append('Twitch TCP')
-                tt_strat = TWITCH_TCP_STRATEGIES.get(selections['twitch_tcp'])
-                if tt_strat:
-                    strategy_names.append(f"Twitch: {tt_strat.get('name', selections['twitch_tcp'])}")
-            
-            # Rutracker TCP
-            if selections.get('rutracker_tcp') and selections['rutracker_tcp'] != 'rutracker_tcp_none':
-                active_categories.append('Rutracker TCP')
-                rt_strat = RUTRACKER_TCP_STRATEGIES.get(selections['rutracker_tcp'])
-                if rt_strat:
-                    strategy_names.append(f"Rutracker: {rt_strat.get('name', selections['rutracker_tcp'])}")
-
-            # Phasmophobia UDP
-            if selections.get('phasmophobia_udp') and selections['phasmophobia_udp'] != 'phasmophobia_udp_none':
-                active_categories.append('Phasmophobia UDP')
-                rl_strat = PHASMOPHOBIA_UDP_STRATEGIES.get(selections['phasmophobia_udp'])
-                if rl_strat:
-                    strategy_names.append(f"Phasmophobia UDP: {rl_strat.get('name', selections['phasmophobia_udp'])}")
-
-            # Other
-            if selections.get('other') and selections['other'] != 'other_tcp_none':
-                active_categories.append('Остальные')
-                ot_strat = OTHER_STRATEGIES.get(selections['other'])
-                if ot_strat:
-                    strategy_names.append(f"Other: {ot_strat.get('name', selections['other'])}")
-
-            # Hostlist 80 port
-            if selections.get('hostlist_80port') and selections['hostlist_80port'] != 'hostlist_80port_none':
-                active_categories.append('Hostlist 80')
-                h80_strat = HOSTLIST_80PORT_STRATEGIES.get(selections['hostlist_80port'])
-                if h80_strat:
-                    strategy_names.append(f"Hostlist 80: {h80_strat.get('name', selections['hostlist_80port'])}")
-
-            # IPset
-            if selections.get('ipset') and selections['ipset'] != 'ipset_tcp_none':
-                active_categories.append('IPset')
-                i_strat = IPSET_TCP_STRATEGIES.get(selections['ipset'])
-                if i_strat:
-                    strategy_names.append(f"IPset: {i_strat.get('name', selections['ipset'])}")
-
-            # IPset UDP
-            if selections.get('ipset_udp') and selections['ipset_udp'] != 'ipset_udp_none':
-                active_categories.append('IPset UDP')
-                iu_strat = IPSET_UDP_STRATEGIES.get(selections['ipset_udp'])
-                if iu_strat:
-                    strategy_names.append(f"IPset UDP: {iu_strat.get('name', selections['ipset_udp'])}")
+            for category_key in registry.get_all_category_keys():
+                strategy_id = selections.get(category_key)
+                none_id = none_strategies.get(category_key)
+                
+                if strategy_id and strategy_id != none_id:
+                    category_info = registry.get_category_info(category_key)
+                    strategy_name = registry.get_strategy_name_safe(category_key, strategy_id)
+                    
+                    if category_info:
+                        active_categories.append(category_info.full_name.replace(category_info.emoji + ' ', ''))
+                        strategy_names.append(f"{category_info.emoji} {strategy_name}")
             
             # Подсчитываем параметры
             args_list = combined['args'].split() if combined['args'] else []

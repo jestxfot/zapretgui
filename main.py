@@ -1,6 +1,4 @@
-"""
-pip install pyinstaller packaging PyQt6 requests pywin32 python-telegram-bot psutil qt_material urllib3 nuitka paramiko qtawesome wmi
-"""
+# main.py
 import sys, os
 
 # ──────────────────────────────────────────────────────────────
@@ -52,7 +50,7 @@ _set_workdir_to_app()
 import subprocess, webbrowser, time
 
 from PyQt6.QtCore    import QThread
-from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu
+from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication, QMenu, QDialog
 
 from ui.main_window import MainWindowUI
 from ui.theme import ThemeManager, COMMON_STYLE
@@ -178,6 +176,22 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
         """Обрабатывает событие закрытия окна"""
         self._is_exiting = True
         
+        # ✅ СОХРАНЯЕМ ПОЗИЦИЮ И РАЗМЕР ОКНА
+        try:
+            from config import set_window_position, set_window_size
+            
+            # Сохраняем позицию
+            pos = self.pos()
+            set_window_position(pos.x(), pos.y())
+            
+            # Сохраняем размер
+            size = self.size()
+            set_window_size(size.width(), size.height())
+            
+            log(f"Сохранена позиция окна: ({pos.x()}, {pos.y()}), размер: ({size.width()}x{size.height()})", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
+        
         # ✅ Очищаем менеджеры через их методы
         if hasattr(self, 'heavy_init_manager'):
             self.heavy_init_manager.cleanup()
@@ -214,7 +228,73 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             log(f"Ошибка при очистке потоков: {e}", "❌ ERROR")
         
         super().closeEvent(event)
-        
+
+    def restore_window_geometry(self):
+        """Восстанавливает сохраненную позицию и размер окна"""
+        try:
+            from config import get_window_position, get_window_size, WIDTH, HEIGHT
+            from PyQt6.QtWidgets import QApplication
+            
+            # Восстанавливаем размер
+            saved_size = get_window_size()
+            if saved_size:
+                width, height = saved_size
+                # Проверяем что размер не меньше минимального
+                if width >= WIDTH and height >= HEIGHT:
+                    self.resize(width, height)
+                    log(f"Восстановлен размер окна: {width}x{height}", "DEBUG")
+                else:
+                    log(f"Сохраненный размер слишком мал, используем по умолчанию", "DEBUG")
+                    self.resize(WIDTH, HEIGHT)
+            else:
+                self.resize(WIDTH, HEIGHT)
+            
+            # Восстанавливаем позицию
+            saved_pos = get_window_position()
+            if saved_pos:
+                x, y = saved_pos
+                
+                # Проверяем что окно будет видимо на каком-то из экранов
+                screen_geometry = QApplication.primaryScreen().availableGeometry()
+                screens = QApplication.screens()
+                
+                # Проверяем все экраны
+                is_visible = False
+                for screen in screens:
+                    screen_rect = screen.availableGeometry()
+                    # Окно считается видимым если хотя бы 100x100 пикселей на экране
+                    if (x + 100 > screen_rect.left() and 
+                        x < screen_rect.right() and
+                        y + 100 > screen_rect.top() and 
+                        y < screen_rect.bottom()):
+                        is_visible = True
+                        break
+                
+                if is_visible:
+                    self.move(x, y)
+                    log(f"Восстановлена позиция окна: ({x}, {y})", "DEBUG")
+                else:
+                    # Если окно за пределами всех экранов - центрируем на основном
+                    self.move(
+                        screen_geometry.center().x() - self.width() // 2,
+                        screen_geometry.center().y() - self.height() // 2
+                    )
+                    log(f"Сохраненная позиция за пределами экранов, окно отцентрировано", "WARNING")
+            else:
+                # Если позиция не сохранена - центрируем
+                screen_geometry = QApplication.primaryScreen().availableGeometry()
+                self.move(
+                    screen_geometry.center().x() - self.width() // 2,
+                    screen_geometry.center().y() - self.height() // 2
+                )
+                log("Позиция не сохранена, окно отцентрировано", "DEBUG")
+                
+        except Exception as e:
+            log(f"Ошибка восстановления геометрии окна: {e}", "❌ ERROR")
+            # В случае ошибки используем размер по умолчанию
+            from config import WIDTH, HEIGHT
+            self.resize(WIDTH, HEIGHT)
+
     def set_status(self, text: str) -> None:
         """Sets the status text."""
         self.status_label.setText(text)
@@ -257,7 +337,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             local_strategies = self.strategy_manager.get_local_strategies_only()
             
             if not local_strategies:
-                # Если локальных стратегий нет, показываем сообщение
                 QMessageBox.information(self, "Стратегии не найдены", 
                                     "Локальный список стратегий не найден.\n\n"
                                     "Нажмите кнопку обновления для загрузки стратегий из интернета.")
@@ -271,45 +350,87 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             self.set_status(f"Ошибка при выборе стратегии: {e}")
 
     def _show_strategy_dialog(self) -> None:
-        """Показывает диалог выбора стратегии"""
+        """Показывает диалог выбора стратегии (с кэшированием)"""
         try:
-            # ✅ ЗАКРЫВАЕМ ПРЕДЫДУЩИЙ ДИАЛОГ ЕСЛИ ОН ЕСТЬ
-            if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog:
-                if self._strategy_selector_dialog.isVisible():
-                    # Если диалог видим, но мы пытаемся открыть новый - закрываем старый
-                    log("Закрытие предыдущего диалога стратегий", "DEBUG")
-                    self._strategy_selector_dialog.close()
-                    self._strategy_selector_dialog = None
-
             # Определяем текущую стратегию
             current_strategy = self.current_strategy_label.text()
             if current_strategy == "Автостарт DPI отключен":
                 current_strategy = get_last_strategy()
 
-            # Создаём диалог
             from strategy_menu.selector import StrategySelector
-            self._strategy_selector_dialog = StrategySelector(
-                parent=self,
-                strategy_manager=self.strategy_manager,
-                current_strategy_name=current_strategy
-            )
             
-            # Подключаем сигналы
-            self._strategy_selector_dialog.strategySelected.connect(self.on_strategy_selected_from_dialog)
+            # ✅ ИСПОЛЬЗУЕМ SINGLETON PATTERN
+            if self._strategy_selector_dialog is None or not self._strategy_dialog_initialized:
+                log("Создание нового экземпляра диалога стратегий", "DEBUG")
+                
+                # Создаём новый диалог
+                self._strategy_selector_dialog = StrategySelector.get_instance(
+                    parent=self,
+                    strategy_manager=self.strategy_manager,
+                    current_strategy_name=current_strategy
+                )
+                
+                # Подключаем сигналы ОДИН РАЗ
+                try:
+                    self._strategy_selector_dialog.strategySelected.disconnect()
+                except:
+                    pass
+                self._strategy_selector_dialog.strategySelected.connect(self.on_strategy_selected_from_dialog)
+                
+                self._strategy_dialog_initialized = True
+                
+            else:
+                log("Переиспользование существующего диалога стратегий", "DEBUG")
+                
+                # ✅ ОБНОВЛЯЕМ ТОЛЬКО ТЕКУЩУЮ СТРАТЕГИЮ
+                self._strategy_selector_dialog.current_strategy_name = current_strategy
+                self._strategy_selector_dialog._update_current_selection()
             
-            # ✅ ПОКАЗЫВАЕМ БЕЗ БЛОКИРОВКИ!
-            self._strategy_selector_dialog.show()  # НЕ exec()!
+            # ✅ ПОКАЗЫВАЕМ ДИАЛОГ (не exec()!)
+            if not self._strategy_selector_dialog.isVisible():
+                self._strategy_selector_dialog.show()
             
             # Поднимаем на передний план
             self._strategy_selector_dialog.raise_()
             self._strategy_selector_dialog.activateWindow()
             
-            log("Открыт диалог выбора стратегии (неблокирующий)", "INFO")
+            log("Диалог выбора стратегии открыт", "INFO")
             
         except Exception as e:
             log(f"Ошибка при показе диалога стратегий: {e}", "❌ ERROR")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
             self.set_status(f"Ошибка диалога: {e}")
 
+    def force_reload_strategy_dialog(self):
+        """Принудительная перезагрузка диалога (при смене метода запуска)"""
+        try:
+            log("Принудительная перезагрузка диалога стратегий", "INFO")
+            
+            # Закрываем старый диалог если есть
+            if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog:
+                try:
+                    self._strategy_selector_dialog.strategySelected.disconnect()
+                except:
+                    pass
+                
+                self._strategy_selector_dialog.close()
+                self._strategy_selector_dialog.deleteLater()
+                self._strategy_selector_dialog = None
+            
+            # Сбрасываем флаг
+            self._strategy_dialog_initialized = False
+            
+            # Сбрасываем Singleton в классе диалога
+            from strategy_menu.selector import StrategySelector
+            StrategySelector._instance = None
+            StrategySelector._is_initialized = False
+            
+            log("Диалог стратегий сброшен, будет создан заново при следующем открытии", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка при перезагрузке диалога: {e}", "⚠ WARNING")
+    
     def on_strategy_selected_from_dialog(self, strategy_id: str, strategy_name: str) -> None:
         """Обрабатывает выбор стратегии из диалога."""
         try:
@@ -319,24 +440,24 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             self.current_strategy_id = strategy_id
             self.current_strategy_name = strategy_name
             
+            # ✅ УБИРАЕМ АВТОМАТИЧЕСКОЕ СКРЫТИЕ - теперь это контролируется настройкой
+            # Диалог сам решит закрываться или нет в методе accept()
+            
             # ✅ ДЛЯ КОМБИНИРОВАННЫХ СТРАТЕГИЙ ИСПОЛЬЗУЕМ ПРОСТОЕ НАЗВАНИЕ
             if strategy_id == "COMBINED_DIRECT":
-                # Просто устанавливаем "Прямой запуск" без деталей
                 display_name = "Прямой запуск"
                 self.current_strategy_name = display_name
                 strategy_name = display_name
                 
-                # ✅ ВАЖНО: Сохраняем специальный маркер "COMBINED_DIRECT" в реестр
-                set_last_strategy("COMBINED_DIRECT")  # <-- Сохраняем ID, а не название!
+                set_last_strategy("COMBINED_DIRECT")
                 
                 log(f"Установлено простое название для комбинированной стратегии: {display_name}", "DEBUG")
             else:
-                # Для обычных стратегий сохраняем имя как раньше
                 set_last_strategy(strategy_name)
             
             # Обновляем метку с текущей стратегией
             self.current_strategy_label.setText(strategy_name)
-    
+
             # Записываем время изменения стратегии
             self.last_strategy_change_time = time.time()
             
@@ -345,20 +466,16 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             launch_method = get_strategy_launch_method()
             
             if launch_method == "direct":
-                # Проверяем, является ли это комбинированной стратегией
                 if strategy_id == "COMBINED_DIRECT":
-                    # ✅ ИСПРАВЛЕНИЕ: Используем правильное имя атрибута
                     combined_data = {
                         'id': strategy_id,
                         'name': strategy_name,
                         'is_combined': True
                     }
                     
-                    # Пытаемся получить данные из диалога
                     combined_args = None
                     category_selections = None
                     
-                    # ✅ ПРАВИЛЬНОЕ ОБРАЩЕНИЕ К ДИАЛОГУ
                     if hasattr(self, '_strategy_selector_dialog') and self._strategy_selector_dialog is not None:
                         if hasattr(self._strategy_selector_dialog, '_combined_args'):
                             combined_args = self._strategy_selector_dialog._combined_args
@@ -368,31 +485,17 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
                             category_selections = self._strategy_selector_dialog.category_selections
                             log(f"Получены выборы категорий: {category_selections}", "DEBUG")
                     
-                    # Если данные не получены из диалога, создаем заново
                     if not combined_args or not category_selections:
                         log("Создаем комбинированную стратегию заново из значений по умолчанию", "⚠ WARNING")
-                        from strategy_menu.strategy_lists_separated import combine_strategies, get_default_selections
+                        from strategy_menu.strategy_lists_separated import combine_strategies
+                        from strategy_menu import get_default_selections
                         
                         default_selections = get_default_selections()
-                        combined_strategy = combine_strategies(
-                            default_selections.get('youtube'),
-                            default_selections.get('youtube_udp'),
-                            default_selections.get('googlevideo_tcp'),
-                            default_selections.get('discord'), 
-                            default_selections.get('discord_voice_udp'),
-                            default_selections.get('ntcparty_tcp'),
-                            default_selections.get('twitch_tcp'),
-                            default_selections.get('phasmophobia_udp'),
-                            default_selections.get('other'),
-                            default_selections.get('hostlist_80port'),
-                            default_selections.get('ipset'),
-                            default_selections.get('ipset_udp'),
-                        )
+                        combined_strategy = combine_strategies(**default_selections)
                         
                         combined_args = combined_strategy['args']
                         category_selections = default_selections
                     
-                    # Добавляем данные в объект
                     if combined_args:
                         combined_data['args'] = combined_args
                         log(f"Добавлены аргументы: {len(combined_args)} символов", "DEBUG")
@@ -400,18 +503,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
                         combined_data['selections'] = category_selections
                         log(f"Добавлены выборы: {category_selections}", "DEBUG")
                     
-                    # Сохраняем для следующего раза
                     self._last_combined_args = combined_args
                     self._last_category_selections = category_selections
                     
-                    # Запускаем DPI контроллер
                     self.dpi_controller.start_dpi_async(selected_mode=combined_data)
                     
                 else:
-                    # Обычная встроенная стратегия
                     self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name))
             else:
-                # Для BAT метода получаем полную информацию
                 try:
                     strategies = self.strategy_manager.get_strategies_list()
                     strategy_info = strategies.get(strategy_id, {})
@@ -429,32 +528,50 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
                     log(f"Ошибка при получении информации о стратегии: {strategy_error}", "❌ ERROR")
                     self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
             
-            # Перезапускаем Discord только если:
-            # 1. Это не первый запуск
-            # 2. Автоперезапуск включен в настройках
             from discord.discord_restart import get_discord_restart_setting
             if not self.first_start and get_discord_restart_setting():
                 self.discord_manager.restart_discord_if_running()
             else:
-                self.first_start = False  # Сбрасываем флаг первого запуска
+                self.first_start = False
                 
         except Exception as e:
             log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="❌ ERROR")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
 
-    def __init__(self):
+    def _on_strategy_launch_method_changed(self):
+        """Вызывается когда пользователь меняет метод запуска в настройках"""
+        log("Метод запуска изменен, перезагрузка диалога стратегий", "INFO")
+        self.force_reload_strategy_dialog()
+
+    def __init__(self, start_in_tray=False):
         super().__init__()
         QWidget.__init__(self)
+        
+        # ✅ ИНИЦИАЛИЗИРУЕМ МЕТОД ЗАПУСКА ПРИ ПЕРВОМ ЗАПУСКЕ
+        from strategy_menu import get_strategy_launch_method
+        current_method = get_strategy_launch_method()
+        log(f"Метод запуска стратегий: {current_method}", "INFO")
+        
+        self.start_in_tray = start_in_tray
         
         # Флаги для защиты от двойных вызовов
         self._splash_closed = False
         self._dpi_autostart_initiated = False
         self._heavy_init_started = False
         self._heavy_init_thread = None
+        
+        # ✅ ДОБАВЛЯЕМ КЭШ ДЛЯ ДИАЛОГА СТРАТЕГИЙ
+        self._strategy_selector_dialog = None
+        self._strategy_dialog_initialized = False
 
         # Устанавливаем основные параметры окна
         self.setWindowTitle(f"Zapret v{APP_VERSION} - загрузка...")
 
+        # ✅ ДОБАВЛЕНО: Восстанавливаем сохраненную геометрию окна
+        self.restore_window_geometry()
+        
         # ✅ УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЙ РАЗМЕР ОКНА
         self.setMinimumSize(WIDTH, HEIGHT)  # Минимальный размер
         self.resize(WIDTH, HEIGHT)          # Текущий размер
@@ -490,11 +607,19 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
         self.splash_index = self.stacked_widget.addWidget(self.splash)
         self.main_index = self.stacked_widget.addWidget(self.main_widget)
         
-        # Показываем загрузочный экран
-        self.stacked_widget.setCurrentIndex(self.splash_index)
+        # Показываем загрузочный экран ТОЛЬКО если не в трее
+        if not self.start_in_tray:
+            self.stacked_widget.setCurrentIndex(self.splash_index)
+        else:
+            # Если в трее - сразу переключаемся на основной виджет
+            self.stacked_widget.setCurrentIndex(self.main_index)
+            # И запускаем инициализацию без splash
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self._on_splash_complete)
         
-        # Показываем окно
-        self.show()
+        # Показываем окно ТОЛЬКО если НЕ в трее
+        if not self.start_in_tray:
+            self.show()  # ← Условный показ
         
         # Обновляем прогресс
         self.splash.set_progress(5, "Запуск Zapret...", "Инициализация компонентов")
@@ -529,7 +654,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
         # Инициализируем donate checker
         self.splash.set_progress(10, "Проверка подписки...", "")
         self._init_real_donate_checker()  # Упрощенная версия
-        self.update_title_with_subscription_status(False, None, 0)
+        self.update_title_with_subscription_status(False, None, 0, source="init")
         
         # Запускаем асинхронную инициализацию через менеджер
         from PyQt6.QtCore import QTimer
@@ -657,9 +782,39 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             log(f"Ошибка при открытии диалога подписки: {e}", level="❌ ERROR")
             self.set_status(f"Ошибка: {e}")
             
-    def manual_update_check(self) -> None:
-        """Ручная проверка обновлений (кнопка) - АСИНХРОННАЯ версия"""
-        log("Запуск ручной проверки обновлений...", level="INFO")
+    def _show_server_status(self):
+        """Показывает диалог статуса серверов и версий"""
+        log("Открытие диалога статуса серверов...", "INFO")
+        self.set_status("Загрузка информации о серверах...")
+        
+        try:
+            from updater.server_status_dialog import ServerStatusDialog
+            
+            dialog = ServerStatusDialog(self)
+            
+            # Подключаем сигнал для запуска обновления из диалога
+            dialog.update_requested.connect(self._on_update_check_from_dialog)
+            
+            # Показываем диалог
+            dialog.exec()
+            
+            self.set_status("")
+            
+        except Exception as e:
+            log(f"Ошибка открытия диалога статуса: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка: {e}")
+            
+            # Показываем простое сообщение об ошибке
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть диалог статуса серверов:\n{e}"
+            )
+
+    def _on_update_check_from_dialog(self):
+        """Обработчик запроса обновления из диалога статуса"""
+        log("Запуск проверки обновлений из диалога статуса...", "INFO")
         self.set_status("Проверка обновлений…")
         
         try:
@@ -675,32 +830,62 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             if hasattr(thread, '_worker'):
                 worker = thread._worker
                 
-                def _manual_update_done(ok: bool):
+                def _update_done(ok: bool):
                     if ok:
                         self.set_status("🔄 Обновление запущено")
                     else:
-                        # Проверяем, было ли найдено обновление или нет
                         self.set_status("✅ Проверка завершена")
+                    
+                    # ✅ ОБНОВЛЯЕМ КЭШ В UI ЕСЛИ ДИАЛОГ ЕЩЕ ОТКРЫТ
+                    # (это для случая если пользователь снова откроет диалог)
                     
                     # Удаляем ссылки
                     if hasattr(self, '_manual_update_thread'):
                         del self._manual_update_thread
                 
-                worker.finished.connect(_manual_update_done)
+                worker.finished.connect(_update_done)
                 
-                # Блокируем кнопку на время проверки
-                if hasattr(self, 'update_check_btn'):
-                    self.update_check_btn.setEnabled(False)
-                    worker.finished.connect(lambda: self.update_check_btn.setEnabled(True))
+                # Блокируем кнопку на время проверки если она есть
+                if hasattr(self, 'server_status_btn'):
+                    self.server_status_btn.setEnabled(False)
+                    worker.finished.connect(lambda: self.server_status_btn.setEnabled(True))
             
         except Exception as e:
             log(f"Ошибка при запуске проверки обновлений: {e}", "❌ ERROR")
             self.set_status(f"Ошибка проверки: {e}")
             
             # Разблокируем кнопку в случае ошибки
-            if hasattr(self, 'update_check_btn'):
-                self.update_check_btn.setEnabled(True)
-        
+            if hasattr(self, 'server_status_btn'):
+                self.server_status_btn.setEnabled(True)
+
+    def open_help_dialog(self) -> None:
+        """Открывает диалог справки"""
+        try:
+            # Проверяем, не открыто ли уже окно
+            if hasattr(self, '_help_dialog') and self._help_dialog:
+                if self._help_dialog.isVisible():
+                    # Поднимаем существующее окно на передний план
+                    self._help_dialog.raise_()
+                    self._help_dialog.activateWindow()
+                    return
+            
+            # Создаем новое окно
+            from ui.help_dialog import HelpDialog
+            self._help_dialog = HelpDialog(self)
+            
+            # Показываем БЕЗ блокировки
+            self._help_dialog.show()
+            
+            # Поднимаем на передний план
+            self._help_dialog.raise_()
+            self._help_dialog.activateWindow()
+            
+            log("Открыто окно справки", "INFO")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии окна справки: {e}", "❌ ERROR")
+            self.set_status(f"Ошибка: {e}")
+                    
     def open_folder(self) -> None:
         """Opens the DPI folder."""
         try:
@@ -732,21 +917,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
             
             try:
                 selections = get_direct_strategy_selections()
-                combined = combine_strategies(
-                    selections.get('youtube_udp'),
-                    selections.get('youtube'),
-                    selections.get('googlevideo_tcp'),
-                    selections.get('discord'),
-                    selections.get('discord_voice_udp'),
-                    selections.get('rutracker_tcp'),
-                    selections.get('ntcparty_tcp'),
-                    selections.get('twitch_tcp'),
-                    selections.get('phasmophobia_udp'),
-                    selections.get('other'),
-                    selections.get('hostlist_80port'),
-                    selections.get('ipset'),
-                    selections.get('ipset_udp'),
-                )
+                combined = combine_strategies(**selections)
                 strategy_name = combined['description']
             except:
                 # Fallback на текущую метку или последнюю стратегию
@@ -864,24 +1035,42 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager):
         except Exception as e:
             log(f"Ошибка при открытии окна тестирования: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
-
+            
     def open_dns_settings(self) -> None:
         """Открывает диалог настройки DNS-серверов"""
         try:
             # Показываем индикатор в статусной строке
             self.set_status("Открываем настройки DNS (загрузка данных)...")
-        
-            # Передаем текущий стиль в диалог
-            dns_dialog = DNSSettingsDialog(self, common_style=COMMON_STYLE)
-            dns_dialog.exec()
             
-            # Сбрасываем статус после закрытия диалога
-            self.set_status("Настройки DNS закрыты")
+            # Получаем текущее имя темы
+            current_theme = "Темная синяя"  # Значение по умолчанию
+            
+            if hasattr(self, 'theme_manager') and self.theme_manager:
+                current_theme = self.theme_manager.current_theme
+                log(f"Открываем DNS диалог с темой: {current_theme}", "DEBUG")
+            
+            # Создаем диалог с текущей темой
+            dns_dialog = DNSSettingsDialog(self, theme_name=current_theme)
+            
+            result = dns_dialog.exec()
+            
+            # Сбрасываем статус после закрытия
+            if result == QDialog.DialogCode.Accepted:
+                self.set_status("DNS настройки применены")
+            else:
+                self.set_status("Настройки DNS закрыты")
+                
         except Exception as e:
             error_msg = f"Ошибка при открытии настроек DNS: {str(e)}"
-            
-            log(f"Ошибка при открытии настроек DNS: {str(e)}", level="❌ ERROR")
+            log(error_msg, level="❌ ERROR")
             self.set_status(error_msg)
+            
+            # Показываем пользователю сообщение об ошибке
+            QMessageBox.critical(
+                self, 
+                "Ошибка DNS", 
+                f"Не удалось открыть настройки DNS:\n{str(e)}"
+            )
 
 def set_batfile_association() -> bool:
     """
@@ -944,7 +1133,29 @@ def main():
     
     atexit.register(lambda: release_mutex(mutex_handle))
 
-    # ---------------- Создаём QApplication СРАЗУ ----------------
+    # ✅ КРИТИЧЕСКИЕ ПРОВЕРКИ ДО СОЗДАНИЯ QApplication
+    from startup.check_start import check_win10_tweaker, check_goodbyedpi, check_mitmproxy
+    from startup.check_start import _native_message
+    
+    # Проверка Win 10 Tweaker
+    has_tweaker, tweaker_msg = check_win10_tweaker()
+    if has_tweaker:
+        log("CRITICAL: Win 10 Tweaker обнаружен - прерываем запуск", "❌ CRITICAL")
+        _native_message("Критическая ошибка", tweaker_msg, 0x10)
+    
+    # Проверка GoodbyeDPI
+    has_gdpi, gdpi_msg = check_goodbyedpi()
+    if has_gdpi:
+        log("CRITICAL: GoodbyeDPI обнаружен - прерываем запуск", "❌ CRITICAL")
+        _native_message("Критическая ошибка", gdpi_msg, 0x10)
+    
+    # Проверка mitmproxy
+    has_mitmproxy, mitmproxy_msg = check_mitmproxy()
+    if has_mitmproxy:
+        log("CRITICAL: mitmproxy обнаружен - прерываем запуск", "❌ CRITICAL")
+        _native_message("Критическая ошибка", mitmproxy_msg, 0x10)
+
+    # ---------------- Создаём QApplication ----------------
     try:
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
         _set_attr_if_exists("AA_EnableHighDpiScaling")
@@ -953,13 +1164,11 @@ def main():
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
         
-        # ✅ ИСПОЛЬЗУЕМ НОВЫЙ МОДУЛЬ ДЛЯ ПРИМЕНЕНИЯ ТЕМЫ
         apply_initial_theme(app)
         
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
-        sys.exit(1)
 
     # ---------- проверяем Касперского + показываем диалог -----------------
     try:
@@ -976,48 +1185,47 @@ def main():
             log(f"Не удалось показать предупреждение Kaspersky: {e}",
                 "⚠️ KASPERSKY")
 
-    # ---------------- СОЗДАЁМ И ПОКАЗЫВАЕМ ОКНО СРАЗУ ----------------
-    window = LupiDPIApp()
+    # СОЗДАЁМ ОКНО
+    window = LupiDPIApp(start_in_tray=start_in_tray)
     
-    # ✅ ЗАПУСКАЕМ IPC СЕРВЕР ДЛЯ ПРИЕМА КОМАНД
+    # ✅ ЗАПУСКАЕМ IPC СЕРВЕР
     ipc_manager = IPCManager()
     ipc_manager.start_server(window)
     atexit.register(ipc_manager.stop)
-    
-    if not start_in_tray:
-        window.show()
-        log("Запуск приложения в обычном режиме", "TRAY")
-    else:
+
+    if start_in_tray:
         log("Запуск приложения скрыто в трее", "TRAY")
         if hasattr(window, 'tray_manager'):
             window.tray_manager.show_notification(
                 "Zapret работает в трее", 
                 "Приложение запущено в фоновом режиме"
             )
-    
+                
     from PyQt6.QtCore import QTimer
-    # ---------------- АСИНХРОННЫЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА ----------------
+    
+    # ✅ НЕКРИТИЧЕСКИЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА
     def async_startup_checks():
-        """Выполняет все стартовые проверки асинхронно"""
+        """Выполняет некритические стартовые проверки асинхронно"""
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
-            from startup.check_start import check_startup_conditions, display_startup_warnings
+            from startup.check_start import display_startup_warnings
             from startup.remove_terminal import remove_windows_terminal_if_win11
             from startup.admin_check_debug import debug_admin_status
             
             preload_service_status("BFE")
             
             if not ensure_bfe_running(show_ui=True):
+                log("BFE не запущен, закрываем приложение", "❌ ERROR")
+                window.close()
+                QApplication.quit()
                 return
             
-            conditions_ok, error_msg = check_startup_conditions()
-            if not conditions_ok and not start_in_tray:
-                if error_msg:
-                    QMessageBox.critical(window, "Ошибка запуска", error_msg)
-                return
-            
+            # ✅ ТОЛЬКО НЕКРИТИЧЕСКИЕ ПРОВЕРКИ (пути, команды, архив)
             warnings_ok = display_startup_warnings()
             if not warnings_ok and not start_in_tray:
+                log("Некритические проверки не пройдены, закрываем приложение", "⚠ WARNING")
+                window.close()
+                QApplication.quit()
                 return
             
             remove_windows_terminal_if_win11()
@@ -1026,11 +1234,12 @@ def main():
             
             atexit.register(bfe_cleanup)
             
-            log("✅ Все проверки пройдены", "🔹 main - async_startup_checks")
+            log("✅ Все проверки пройдены", "🔹 main")
             
         except Exception as e:
             log(f"Ошибка при асинхронных проверках: {e}", "❌ ERROR")
-            window.set_status(f"Ошибка проверок: {e}")
+            if hasattr(window, 'set_status'):
+                window.set_status(f"Ошибка проверок: {e}")
 
     # Запускаем проверки через 100ms после показа окна
     QTimer.singleShot(100, async_startup_checks)

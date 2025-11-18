@@ -133,7 +133,7 @@ _GITHUB_API_NAME = "RemoveGitHubAPI"     # REG_DWORD (1/0)
 def get_remove_github_api() -> bool:
     """True – удалять api.github.com из hosts при запуске, False – не удалять."""
     val = reg(_GITHUB_API_KEY, _GITHUB_API_NAME)
-    return bool(val) if val is not None else True
+    return bool(val) if val is not None else True # По умолчанию True
 
 def set_remove_github_api(enabled: bool) -> bool:
     """Включает/выключает удаление api.github.com из hosts при запуске."""
@@ -180,3 +180,16 @@ def remove_active_hosts_domain(domain: str) -> bool:
 def clear_active_hosts_domains() -> bool:
     """Очищает список активных доменов"""
     return set_active_hosts_domains(set())
+
+# ───────────── Автообновления при старте ─────────────
+_AUTO_UPDATE_KEY = r"Software\ZapretReg2"
+_AUTO_UPDATE_NAME = "AutoUpdateEnabled"  # REG_DWORD (1/0)
+
+def get_auto_update_enabled() -> bool:
+    """True – проверять обновления при старте, False – не проверять."""
+    val = reg(_AUTO_UPDATE_KEY, _AUTO_UPDATE_NAME)
+    return bool(val) if val is not None else True  # По умолчанию включено
+
+def set_auto_update_enabled(enabled: bool) -> bool:
+    """Включает/выключает автоматическую проверку обновлений при старте."""
+    return reg(_AUTO_UPDATE_KEY, _AUTO_UPDATE_NAME, 1 if enabled else 0)

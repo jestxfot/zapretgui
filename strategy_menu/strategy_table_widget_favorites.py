@@ -76,7 +76,9 @@ class FavoriteStrategyTableWidget(StrategyTableWidget):
         regular = {}
         
         for strat_id, strat_data in strategies.items():
-            if is_favorite_strategy(strat_id):
+            # Для классического режима проверяем глобально (без категории)
+            # is_favorite_strategy с category=None проверит во всех категориях
+            if is_favorite_strategy(strat_id, category=None):
                 favorites[strat_id] = strat_data
             else:
                 regular[strat_id] = strat_data
@@ -95,7 +97,8 @@ class FavoriteStrategyTableWidget(StrategyTableWidget):
         for row, strategy_info in self.strategies_map.items():
             strategy_id = strategy_info['id']
             
-            if is_favorite_strategy(strategy_id):
+            # Для классического режима проверяем глобально
+            if is_favorite_strategy(strategy_id, category=None):
                 # Добавляем звездочку к названию
                 name_item = self.table.item(row, 0)
                 if name_item and not name_item.text().startswith("⭐"):
@@ -107,12 +110,69 @@ class FavoriteStrategyTableWidget(StrategyTableWidget):
                     if item:
                         # Светлый золотистый фон для избранных
                         item.setBackground(QBrush(QColor(50, 45, 20)))  # Темно-золотистый для темной темы
-    
+
+    def _toggle_favorite(self, strategy_id):
+        """Переключает статус избранной стратегии"""
+        from strategy_menu import toggle_favorite_strategy, is_favorite_strategy
+        
+        # Для классического режима используем категорию "classic" 
+        # чтобы отделить от Direct режима
+        CLASSIC_CATEGORY = "classic_strategies"
+        
+        was_favorite = is_favorite_strategy(strategy_id, CLASSIC_CATEGORY)
+        toggle_favorite_strategy(strategy_id, CLASSIC_CATEGORY)
+        
+        # Находим строку стратегии
+        for row, info in self.strategies_map.items():
+            if info['id'] == strategy_id:
+                name_item = self.table.item(row, 0)
+                if name_item:
+                    current_text = name_item.text()
+                    
+                    if was_favorite:
+                        # Удаляем звездочку
+                        if current_text.startswith("⭐ "):
+                            name_item.setText(current_text[2:])
+                        # Убираем подсветку
+                        for col in range(self.table.columnCount()):
+                            item = self.table.item(row, col)
+                            if item:
+                                item.setBackground(QBrush())  # Сброс фона
+                    else:
+                        # Добавляем звездочку
+                        if not current_text.startswith("⭐"):
+                            name_item.setText(f"⭐ {current_text}")
+                        # Добавляем подсветку
+                        for col in range(self.table.columnCount()):
+                            item = self.table.item(row, col)
+                            if item:
+                                item.setBackground(QBrush(QColor(50, 45, 20)))
+                
+                break
+        
+        # Обновляем счетчик
+        self._update_favorites_count()
+        
+        # Логируем действие
+        action = "добавлена в" if not was_favorite else "удалена из"
+        strategy_name = self.strategies_map.get(row, {}).get('name', strategy_id)
+        log(f"Стратегия '{strategy_name}' {action} избранных", "INFO")
+        
+        # Уведомляем пользователя
+        status_text = f"⭐ Добавлено в избранные" if not was_favorite else "☆ Удалено из избранных"
+        self.set_status(status_text, "success")
+        
+        # Сбрасываем статус через 2 секунды
+        QTimer.singleShot(2000, lambda: self.set_status("✅ Готово", "success"))
+
     def _update_favorites_count(self):
         """Обновляет счетчик избранных стратегий"""
         from strategy_menu import get_favorite_strategies
         
-        favorites = get_favorite_strategies()
+        # Для классического режима получаем избранные из категории "classic"
+        CLASSIC_CATEGORY = "classic_strategies"
+        favorites = get_favorite_strategies(CLASSIC_CATEGORY)
+        
         # Считаем только те избранные, которые есть в текущем списке
         self.favorites_count = len([
             f for f in favorites 
@@ -189,56 +249,6 @@ class FavoriteStrategyTableWidget(StrategyTableWidget):
         # Показываем меню
         global_pos = self.table.mapToGlobal(position)
         context_menu.exec(global_pos)
-    
-    def _toggle_favorite(self, strategy_id):
-        """Переключает статус избранной стратегии"""
-        from strategy_menu import toggle_favorite_strategy, is_favorite_strategy
-        
-        was_favorite = is_favorite_strategy(strategy_id)
-        toggle_favorite_strategy(strategy_id)
-        
-        # Находим строку стратегии
-        for row, info in self.strategies_map.items():
-            if info['id'] == strategy_id:
-                name_item = self.table.item(row, 0)
-                if name_item:
-                    current_text = name_item.text()
-                    
-                    if was_favorite:
-                        # Удаляем звездочку
-                        if current_text.startswith("⭐ "):
-                            name_item.setText(current_text[2:])
-                        # Убираем подсветку
-                        for col in range(self.table.columnCount()):
-                            item = self.table.item(row, col)
-                            if item:
-                                item.setBackground(QBrush())  # Сброс фона
-                    else:
-                        # Добавляем звездочку
-                        if not current_text.startswith("⭐"):
-                            name_item.setText(f"⭐ {current_text}")
-                        # Добавляем подсветку
-                        for col in range(self.table.columnCount()):
-                            item = self.table.item(row, col)
-                            if item:
-                                item.setBackground(QBrush(QColor(50, 45, 20)))
-                
-                break
-        
-        # Обновляем счетчик
-        self._update_favorites_count()
-        
-        # Логируем действие
-        action = "добавлена в" if not was_favorite else "удалена из"
-        strategy_name = self.strategies_map.get(row, {}).get('name', strategy_id)
-        log(f"Стратегия '{strategy_name}' {action} избранных", "INFO")
-        
-        # Уведомляем пользователя
-        status_text = f"⭐ Добавлено в избранные" if not was_favorite else "☆ Удалено из избранных"
-        self.set_status(status_text, "success")
-        
-        # Сбрасываем статус через 2 секунды
-        QTimer.singleShot(2000, lambda: self.set_status("✅ Готово", "success"))
     
     def refresh_favorites(self):
         """Обновляет отображение избранных стратегий"""
@@ -319,7 +329,10 @@ class StrategyTableWithFavoritesFilter(FavoriteStrategyTableWidget):
         if checked:
             # Показываем только избранные
             from strategy_menu import get_favorite_strategies
-            favorites = get_favorite_strategies()
+            
+            # Для классического режима используем категорию "classic"
+            CLASSIC_CATEGORY = "classic_strategies"
+            favorites = get_favorite_strategies(CLASSIC_CATEGORY)
             
             filtered_strategies = {
                 sid: sdata 

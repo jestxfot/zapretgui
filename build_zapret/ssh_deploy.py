@@ -1,292 +1,728 @@
+# build_zapret/ssh_deploy.py
 """
-build_tools/ssh_deploy.py - SSH деплой на VPS сервер (оптимизированный)
+SSH деплой на несколько VPS серверов с автоматическим обновлением JSON
+Поддержка балансировки нагрузки между серверами
 """
 
+import paramiko
+import os
+import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
-import stat
+from typing import Optional, Any, List, Dict
 import json
-from datetime import date
-from build_zapret import UPDATER_SERVER, SSH_PASSWORD
+from datetime import datetime
+import tempfile
 
-# ════════════════════════════════════════════════════════════════
-# НАСТРОЙКИ SSH - ИЗМЕНИТЕ НА СВОИ
-# ════════════════════════════════════════════════════════════════
-SSH_PORT = 22  # Порт SSH, обычно 22
-SSH_USERNAME = "root"
-SSH_KEY_PATH = ""  # Например: "C:/Users/You/.ssh/id_rsa"
-REMOTE_PATH = "/root/zapretgpt"
-SSH_ENABLED = True  # Включить деплой
+# ═══════════════════════════════════════════════════════════
+# КОНФИГУРАЦИЯ СЕРВЕРОВ
+# ═══════════════════════════════════════════════════════════
 
-# ════════════════════════════════════════════════════════════════
+VPS_SERVERS = [
+    {
+        'id': 'vps1',
+        'name': 'VPS Server 1 (Основной)',
+        'host': '84.54.30.233',
+        'port': 2089,
+        'user': 'root',
+        'key_path': 'H:/Privacy/main',
+        'key_password': 'zxcvbita2014',
+        'upload_dir': '/var/www/zapret/download',
+        'scripts_dir': '/root/zapretgpt/tests',
+        'json_path': '/var/www/zapret/api/all_versions.json',
+        'priority': 1,
+        'use_for_telegram': False,  # ❌ Основной сервер - только деплой
+    },
+    {
+        'id': 'vps2',
+        'name': 'VPS Server 2 (Резервный)',
+        'host': '185.68.247.42',
+        'port': 2089,
+        'user': 'root',
+        'key_path': 'H:/Privacy/main',
+        'key_password': 'zxcvbita2014',
+        'upload_dir': '/var/www/zapret/download',
+        'scripts_dir': '/root/zapretgpt/tests',
+        'json_path': '/var/www/zapret/api/all_versions.json',
+        'priority': 2,
+        'use_for_telegram': True,  # ✅ Этот сервер будет публиковать в Telegram
+    },
+]
+
+# ═══════════════════════════════════════════════════════════
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ═══════════════════════════════════════════════════════════
+
+def convert_key_to_pem(key_path: str, password: str = None) -> Optional[str]:
+    """Конвертирует OpenSSH ключ в PEM формат для Paramiko"""
+    try:
+        temp_pem = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
+        temp_pem_path = temp_pem.name
+        temp_pem.close()
+        
+        import shutil
+        shutil.copy2(key_path, temp_pem_path)
+        
+        result = subprocess.run(
+            ["ssh-keygen", "-p", "-f", temp_pem_path, "-m", "PEM", "-N", "", "-P", password if password else ""],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            return temp_pem_path
+        else:
+            os.unlink(temp_pem_path)
+            return None
+    except:
+        return None
 
 def is_ssh_configured() -> bool:
-    """Проверяет, настроен ли SSH"""
-    return SSH_ENABLED and UPDATER_SERVER and SSH_USERNAME
+    """Проверка конфигурации SSH"""
+    if not VPS_SERVERS:
+        return False
+    
+    # Проверяем хотя бы один сервер
+    for server in VPS_SERVERS:
+        key_path = Path(server['key_path'])
+        if key_path.exists():
+            return True
+    
+    return False
 
 def get_ssh_config_info() -> str:
-    """Возвращает информацию о текущей конфигурации SSH"""
-    if not SSH_ENABLED:
-        return "SSH деплой выключен"
-    if not UPDATER_SERVER:
+    """Информация о конфигурации SSH"""
+    if not VPS_SERVERS:
         return "SSH не настроен"
-    return f"SSH: {SSH_USERNAME}@{UPDATER_SERVER}:{SSH_PORT}"
-
-def create_version_json(channel: str, version: str, notes: str, existing_data: dict = None) -> str:
-    """Создает содержимое version.json"""
-    if existing_data is None:
-        existing_data = {
-            "stable": {},
-            "test": {}
-        }
-    
-    # Обновляем данные для нужного канала
-    existing_data[channel] = {
-        "version": version,
-        "release_notes": notes,
-        "date": date.today().strftime("%Y-%m-%d")
-    }
-    
-    return json.dumps(existing_data, indent=2, ensure_ascii=False)
-
-def deploy_to_vps(file_path: Path, channel: str = None, version: str = None, 
-                  notes: str = None, log_queue=None) -> Tuple[bool, str]:
-    """
-    Отправляет файл на VPS сервер и обновляет version.json
-    Возвращает (успех, сообщение)
-    """
-    if not SSH_ENABLED:
-        return False, "SSH деплой выключен"
-        
-    if not file_path.exists():
-        return False, f"Файл не найден: {file_path}"
     
     try:
         import paramiko
     except ImportError:
-        return False, "Модуль paramiko не установлен. Выполните: pip install paramiko"
+        return "Paramiko не установлен (pip install paramiko)"
+    
+    count = len(VPS_SERVERS)
+    first = VPS_SERVERS[0]
+    
+    if count == 1:
+        return f"SSH настроен (1 сервер): {first['user']}@{first['host']}"
+    else:
+        return f"SSH настроен ({count} серверов): {first['user']}@{first['host']} +{count-1}"
 
+# ═══════════════════════════════════════════════════════════
+# ГЛАВНАЯ ФУНКЦИЯ ДЕПЛОЯ
+# ═══════════════════════════════════════════════════════════
+
+def deploy_to_all_servers(
+    file_path: Path,
+    channel: str,
+    version: str,
+    notes: str,
+    publish_telegram: bool = False,  # ✅ Новый параметр
+    log_queue: Optional[Any] = None
+) -> tuple[bool, str]:
+    """
+    Деплой на все сервера из списка с публикацией в Telegram
+    
+    Args:
+        file_path: Путь к .exe файлу
+        channel: "stable" или "test"
+        version: Версия (например, "16.5.26.4")
+        notes: Release notes
+        publish_telegram: Публиковать ли в Telegram после деплоя
+        log_queue: Очередь для логов (опционально)
+        
+    Returns:
+        (success, message): True если хотя бы один сервер успешен
+    """
+    def log(msg: str):
+        if log_queue:
+            log_queue.put(msg)
+        else:
+            print(msg)
+    
+    if not file_path.exists():
+        return False, f"Файл не найден: {file_path}"
+    
+    if not VPS_SERVERS:
+        return False, "Нет серверов в конфигурации"
+    
+    # Сортируем серверы по приоритету
+    servers = sorted(VPS_SERVERS, key=lambda s: s['priority'])
+    
+    log(f"\n{'='*60}")
+    log(f"📤 ДЕПЛОЙ НА {len(servers)} {'СЕРВЕР' if len(servers) == 1 else 'СЕРВЕРОВ'}")
+    log(f"{'='*60}")
+    
+    results = []
+    
+    # ═══════════════════════════════════════════════════════
+    # ШАГ 1: ДЕПЛОЙ НА ВСЕ СЕРВЕРА
+    # ═══════════════════════════════════════════════════════
+    
+    for i, server in enumerate(servers, 1):
+        log(f"\n{'─'*60}")
+        log(f"📍 Сервер {i}/{len(servers)}: {server['name']}")
+        log(f"{'─'*60}")
+        
+        success, message = _deploy_to_single_server(
+            file_path=file_path,
+            channel=channel,
+            version=version,
+            notes=notes,
+            server_config=server,
+            log_queue=log_queue
+        )
+        
+        results.append({
+            'server': server['name'],
+            'server_id': server['id'],
+            'success': success,
+            'message': message,
+            'config': server
+        })
+        
+        if success:
+            log(f"✅ {server['name']}: деплой успешен")
+        else:
+            log(f"❌ {server['name']}: {message}")
+    
+    # ═══════════════════════════════════════════════════════
+    # ИТОГИ ДЕПЛОЯ
+    # ═══════════════════════════════════════════════════════
+    
+    log(f"\n{'='*60}")
+    log(f"📊 ИТОГИ ДЕПЛОЯ")
+    log(f"{'='*60}")
+    
+    successful = sum(1 for r in results if r['success'])
+    failed = len(results) - successful
+    
+    log(f"✅ Успешно: {successful}/{len(results)}")
+    
+    if failed > 0:
+        log(f"❌ Ошибки: {failed}/{len(results)}")
+        
+        for r in results:
+            if not r['success']:
+                log(f"  • {r['server']}: {r['message']}")
+    
+    # Проверяем успешность деплоя
+    if successful == 0:
+        return False, "Деплой не удался ни на одном сервере"
+    
+    # ═══════════════════════════════════════════════════════
+    # ШАГ 2: ПУБЛИКАЦИЯ В TELEGRAM (только с выделенного сервера)
+    # ═══════════════════════════════════════════════════════
+    
+    if publish_telegram:
+        # Ищем сервер для публикации в Telegram
+        telegram_server = None
+        for result in results:
+            if result['success'] and result['config'].get('use_for_telegram', False):
+                telegram_server = result['config']
+                break
+        
+        if telegram_server:
+            log(f"\n{'='*60}")
+            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM")
+            log(f"{'='*60}")
+            log(f"📍 Выбран сервер: {telegram_server['name']}")
+            log(f"💡 Причина: менее нагруженный сервер (use_for_telegram=True)")
+            
+            telegram_success, telegram_message = _publish_to_telegram_via_ssh(
+                channel=channel,
+                version=version,
+                notes=notes,
+                server_config=telegram_server,
+                log_queue=log_queue
+            )
+            
+            if telegram_success:
+                log(f"✅ Telegram публикация успешна")
+            else:
+                log(f"⚠️ Telegram публикация не удалась: {telegram_message}")
+                # Не прерываем - деплой уже успешен
+        else:
+            log(f"\n⚠️ Нет сервера с флагом 'use_for_telegram=True', пропускаем публикацию")
+    
+    # Финальный результат
+    if successful < len(results):
+        return True, f"Деплой завершён частично ({successful}/{len(results)} серверов)"
+    else:
+        return True, f"Деплой успешно завершён на всех {len(results)} серверах"
+
+def _publish_to_telegram_via_ssh(
+    channel: str,
+    version: str,
+    notes: str,
+    server_config: Dict[str, Any],
+    log_queue: Optional[Any] = None
+) -> tuple[bool, str]:
+    """
+    Публикация в Telegram через SSH на конкретном сервере
+    
+    Args:
+        channel: "stable" или "test"
+        version: Версия релиза
+        notes: Release notes
+        server_config: Конфигурация сервера
+        log_queue: Очередь для логов
+        
+    Returns:
+        (success, message)
+    """
+    def log(msg: str):
+        if log_queue:
+            log_queue.put(msg)
+        else:
+            print(msg)
+    
     ssh = None
-    transport = None
-    sftp = None
+    pem_key_path = None
     
     try:
-        # ОПТИМИЗАЦИЯ: Создаем transport с максимальными параметрами
-        transport = paramiko.Transport((UPDATER_SERVER, SSH_PORT))
+        # Извлекаем конфигурацию
+        host = server_config['host']
+        port = server_config['port']
+        user = server_config['user']
+        key_path = Path(server_config['key_path'])
+        key_password = server_config.get('key_password')
+        scripts_dir = server_config.get('scripts_dir')
+        upload_dir = server_config['upload_dir']
         
-        # Максимальные размеры окна и буферов
-        transport.window_size = 2147483647  # 2GB window
-        transport.max_packet_size = 2147483647  # 2GB max packet
-        transport.packetizer.REKEY_BYTES = pow(2, 40)  # Реже пересогласование
-        transport.packetizer.REKEY_PACKETS = pow(2, 40)
+        if not scripts_dir:
+            return False, "scripts_dir не указан в конфигурации сервера"
         
-        # Отключаем сжатие для локальных/быстрых сетей (сжатие замедляет на быстрых каналах)
-        # Включите если канал медленный: transport.use_compression(True)
-        transport.use_compression(False)
+        # Формируем путь к файлу на сервере
+        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_path = f"{upload_dir}/{remote_filename}"
+        
+        log(f"🔌 Подключение к {user}@{host}:{port}...")
+        
+        # ═══════════════════════════════════════════════════════
+        # SSH ПОДКЛЮЧЕНИЕ
+        # ═══════════════════════════════════════════════════════
+        
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        if not key_path.exists():
+            return False, f"SSH ключ не найден: {key_path}"
+        
+        # Загрузка ключа (аналогично _deploy_to_single_server)
+        key = None
+        for key_type, key_class in [
+            ("RSA", paramiko.RSAKey),
+            ("Ed25519", paramiko.Ed25519Key),
+            ("ECDSA", paramiko.ECDSAKey),
+        ]:
+            try:
+                key = key_class.from_private_key_file(
+                    str(key_path),
+                    password=key_password if key_password else None
+                )
+                log(f"✅ SSH ключ загружен ({key_type})")
+                break
+            except:
+                continue
+        
+        if not key:
+            pem_key_path = convert_key_to_pem(str(key_path), key_password)
+            if pem_key_path:
+                try:
+                    key = paramiko.RSAKey.from_private_key_file(pem_key_path)
+                    log(f"✅ SSH ключ загружен после конвертации в PEM")
+                except:
+                    pass
+        
+        if not key:
+            return False, "Не удалось загрузить SSH ключ"
         
         # Подключаемся
-        if SSH_KEY_PATH and Path(SSH_KEY_PATH).exists():
-            pkey = paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
-            transport.connect(username=SSH_USERNAME, pkey=pkey)
+        ssh.connect(
+            hostname=host,
+            port=port,
+            username=user,
+            pkey=key,
+            timeout=30
+        )
+        
+        log(f"✅ Подключено к {host}")
+        
+        # ═══════════════════════════════════════════════════════
+        # ЗАПУСК ПУБЛИКАЦИИ
+        # ═══════════════════════════════════════════════════════
+        
+        # Экранируем кавычки в notes для bash
+        notes_escaped = notes.replace('"', '\\"').replace('$', '\\$')
+        
+        telegram_cmd = (
+            f"cd {scripts_dir} && "
+            f"python3 ssh_telegram_publisher.py "
+            f'"{remote_path}" "{channel}" "{version}" "{notes_escaped}"'
+        )
+        
+        log(f"📤 Запуск: ssh_telegram_publisher.py")
+        log(f"   Файл: {remote_path}")
+        log(f"   Канал: {channel}")
+        log(f"   Версия: {version}")
+        
+        stdin, stdout, stderr = ssh.exec_command(telegram_cmd, timeout=600)
+        
+        # Выводим stdout построчно
+        for line in stdout:
+            log(f"   {line.rstrip()}")
+        
+        exit_code = stdout.channel.recv_exit_status()
+        
+        # Выводим stderr если есть
+        stderr_output = stderr.read().decode('utf-8')
+        if stderr_output:
+            for line in stderr_output.split('\n'):
+                if line.strip():
+                    log(f"   ⚠️ {line}")
+        
+        ssh.close()
+        
+        if exit_code == 0:
+            return True, f"Telegram публикация выполнена с сервера {server_config['name']}"
         else:
-            transport.connect(username=SSH_USERNAME, password=SSH_PASSWORD)
+            return False, f"Скрипт публикации завершился с кодом {exit_code}"
         
-        if log_queue:
-            log_queue.put("✅ SSH соединение установлено (максимальная производительность)")
-        
-        # Создаем SSH клиент
-        ssh = paramiko.SSHClient()
-        ssh._transport = transport
-        
-        # Создаем директорию если нужно
-        if log_queue:
-            log_queue.put(f"📁 Создание директории {REMOTE_PATH}")
-        
-        stdin, stdout, stderr = ssh.exec_command(f'mkdir -p {REMOTE_PATH}')
-        stdout.read()
-        
-        # ОПТИМИЗАЦИЯ: Создаем SFTP с максимальными буферами
-        sftp = transport.open_sftp_client()
-        
-        # Устанавливаем максимальные размеры для SFTP
-        sftp.MAX_REQUEST_SIZE = 1048576  # 1MB запросы вместо 32KB
-        
-        # Информация о файле
-        remote_file = f"{REMOTE_PATH}/{file_path.name}"
-        file_size = file_path.stat().st_size
-        
-        if log_queue:
-            log_queue.put(f"📤 Отправка {file_path.name} → {remote_file}")
-            log_queue.put(f"📊 Размер: {file_size / (1024*1024):.1f} MB")
-
-        import time
-        start_time = time.time()
-        
-        # ГЛАВНАЯ ОПТИМИЗАЦИЯ: Используем putfo с большим буфером
-        # putfo работает быстрее чем ручная передача чанками
-        with open(file_path, 'rb') as local_file:
-            # Метод 1: Быстрая передача через putfo (рекомендуется)
-            try:
-                # Callback для прогресса
-                transferred = [0]  # Используем список для изменяемости в callback
-                last_percent = [0]
-                
-                def progress_callback(bytes_so_far, total_bytes):
-                    transferred[0] = bytes_so_far
-                    percent = int((bytes_so_far / total_bytes) * 100)
-                    if log_queue and percent >= last_percent[0] + 5:
-                        last_percent[0] = percent
-                        elapsed = time.time() - start_time
-                        if elapsed > 0:
-                            speed = bytes_so_far / elapsed / (1024*1024)
-                            log_queue.put(f"    Прогресс: {percent}% | Скорость: {speed:.1f} MB/s")
-                
-                # Используем putfo с callback для максимальной скорости
-                sftp.putfo(local_file, remote_file, file_size=file_size, 
-                          callback=progress_callback, confirm=True)
-                          
-            except AttributeError:
-                # Fallback: Если putfo недоступен, используем оптимизированную ручную передачу
-                if log_queue:
-                    log_queue.put("⚠️ Используется альтернативный метод передачи")
-                
-                # Открываем файл на удаленном сервере
-                with sftp.open(remote_file, 'wb') as remote_file_handle:
-                    # ВАЖНО: Устанавливаем большой буфер для записи
-                    remote_file_handle.MAX_REQUEST_SIZE = 1048576  # 1MB
-                    
-                    # Используем prefetch для ускорения
-                    remote_file_handle.set_pipelined(True)
-                    
-                    # Передаем большими блоками
-                    chunk_size = 4194304  # 4MB блоки для максимальной скорости
-                    transferred = 0
-                    last_percent = 0
-                    
-                    # Читаем и отправляем
-                    while True:
-                        data = local_file.read(chunk_size)
-                        if not data:
-                            break
-                        
-                        # Записываем данные
-                        remote_file_handle.write(data)
-                        transferred += len(data)
-                        
-                        # Прогресс
-                        percent = int((transferred / file_size) * 100)
-                        if log_queue and percent >= last_percent + 5:
-                            last_percent = percent
-                            elapsed = time.time() - start_time
-                            if elapsed > 0:
-                                speed = transferred / elapsed / (1024*1024)
-                                log_queue.put(f"    Прогресс: {percent}% | Скорость: {speed:.1f} MB/s")
-        
-        # Логируем результат
-        elapsed = time.time() - start_time
-        speed = file_size / elapsed / (1024*1024)
-        if log_queue:
-            log_queue.put(f"✅ Передано за {elapsed:.1f} сек. Средняя скорость: {speed:.1f} MB/s")
-        
-        # Устанавливаем права
-        sftp.chmod(remote_file, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-        
-        if log_queue:
-            log_queue.put(f"✅ Файл успешно отправлен: {remote_file}")
-        
-        # 2. Обновляем version.json если переданы параметры
-        if channel and version:
-            version_path = f"{REMOTE_PATH}/version.json"
-            
-            if log_queue:
-                log_queue.put(f"📄 Обновление {version_path}")
-            
-            # Пытаемся загрузить существующий version.json
-            existing_data = None
-            try:
-                # Загружаем существующий файл
-                with sftp.open(version_path, 'r') as f:
-                    existing_data = json.load(f)
-                    if log_queue:
-                        log_queue.put("    Загружен существующий version.json")
-            except Exception as e:
-                if log_queue:
-                    log_queue.put("    Создаётся новый version.json")
-                existing_data = {"stable": {}, "test": {}}
-            
-            # Создаем обновленный JSON
-            json_content = create_version_json(channel, version, notes or f"Zapret {version}", existing_data)
-            
-            # Сохраняем во временный локальный файл
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.json') as tmp:
-                tmp.write(json_content)
-                tmp_path = tmp.name
-            
-            try:
-                # Отправляем на сервер
-                sftp.put(tmp_path, version_path)
-                
-                # Устанавливаем права на чтение
-                sftp.chmod(version_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-                
-                if log_queue:
-                    log_queue.put(f"✅ version.json обновлен для {channel}: {version}")
-                    
-            finally:
-                # Удаляем временный файл
-                Path(tmp_path).unlink(missing_ok=True)
-        
-        return True, f"Файлы успешно развернуты в {REMOTE_PATH}"
-        
-    except paramiko.AuthenticationException:
-        return False, "Ошибка аутентификации SSH"
-    except paramiko.SSHException as e:
-        return False, f"SSH ошибка: {str(e)}"
     except Exception as e:
-        return False, f"Ошибка деплоя: {str(e)}"
+        import traceback
+        error_trace = traceback.format_exc()
+        log(f"❌ Ошибка публикации:\n{error_trace}")
+        return False, f"Ошибка: {str(e)[:100]}"
     finally:
-        # Закрываем соединения
-        try:
-            if sftp:
-                sftp.close()
-            if transport:
-                transport.close()
-            if ssh:
+        if ssh:
+            try:
                 ssh.close()
-        except:
-            pass
-
-
-def deploy_to_vps_parallel(file_path: Path, channel: str = None, version: str = None, 
-                          notes: str = None, log_queue=None) -> Tuple[bool, str]:
-    """
-    ЭКСПЕРИМЕНТАЛЬНЫЙ: Параллельная передача файла через несколько соединений
-    Используйте если обычный метод медленный
-    """
-    if not SSH_ENABLED:
-        return False, "SSH деплой выключен"
+            except:
+                pass
         
-    if not file_path.exists():
-        return False, f"Файл не найден: {file_path}"
+        if pem_key_path and os.path.exists(pem_key_path):
+            try:
+                os.unlink(pem_key_path)
+            except:
+                pass
+
+# ═══════════════════════════════════════════════════════════
+# ВНУТРЕННЯЯ ФУНКЦИЯ ДЕПЛОЯ НА ОДИН СЕРВЕР
+# ═══════════════════════════════════════════════════════════
+
+def _deploy_to_single_server(
+    file_path: Path,
+    channel: str,
+    version: str,
+    notes: str,
+    server_config: Dict[str, Any],
+    log_queue: Optional[Any] = None
+) -> tuple[bool, str]:
+    """
+    Деплой файла на конкретный VPS сервер
+    
+    Args:
+        file_path: Путь к .exe файлу
+        channel: "stable" или "test"
+        version: Версия релиза
+        notes: Release notes
+        server_config: Конфигурация сервера
+        log_queue: Очередь для логов
+        
+    Returns:
+        (success, message)
+    """
+    def log(msg: str):
+        if log_queue:
+            log_queue.put(msg)
+        else:
+            print(msg)
+    
+    ssh = None
+    pem_key_path = None
     
     try:
-        import paramiko
-        import threading
-        import tempfile
-    except ImportError:
-        return False, "Модули не установлены. Выполните: pip install paramiko"
+        # ═══════════════════════════════════════════════════════
+        # ИЗВЛЕЧЕНИЕ КОНФИГУРАЦИИ
+        # ═══════════════════════════════════════════════════════
+        
+        host = server_config['host']
+        port = server_config['port']
+        user = server_config['user']
+        key_path = Path(server_config['key_path'])
+        key_password = server_config.get('key_password')
+        upload_dir = server_config['upload_dir']
+        json_path = server_config['json_path']
+        
+        log(f"🔌 Подключение к {user}@{host}:{port}...")
+        
+        # ═══════════════════════════════════════════════════════
+        # SSH ПОДКЛЮЧЕНИЕ
+        # ═══════════════════════════════════════════════════════
+        
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        if not key_path.exists():
+            return False, f"SSH ключ не найден: {key_path}"
+        
+        # Попытка загрузить ключ
+        log(f"🔑 Загрузка SSH ключа: {key_path.name}")
+        key = None
+        key_error = None
+        
+        for key_type, key_class in [
+            ("RSA", paramiko.RSAKey),
+            ("Ed25519", paramiko.Ed25519Key),
+            ("ECDSA", paramiko.ECDSAKey),
+        ]:
+            try:
+                key = key_class.from_private_key_file(
+                    str(key_path),
+                    password=key_password if key_password else None
+                )
+                log(f"✅ SSH ключ загружен ({key_type})")
+                break
+            except Exception as e:
+                key_error = e
+                continue
+        
+        # Если прямая загрузка не удалась, пробуем конвертацию в PEM
+        if not key:
+            log(f"⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
+            pem_key_path = convert_key_to_pem(str(key_path), key_password)
+            
+            if pem_key_path:
+                try:
+                    key = paramiko.RSAKey.from_private_key_file(pem_key_path)
+                    log(f"✅ SSH ключ загружен после конвертации в PEM")
+                except Exception as e:
+                    log(f"❌ Конвертация в PEM не помогла: {e}")
+        
+        if not key:
+            return False, f"Не удалось загрузить SSH ключ: {key_error}"
+        
+        # Подключение
+        log("🔌 Подключение с SSH ключом...")
+        ssh.connect(
+            hostname=host,
+            port=port,
+            username=user,
+            pkey=key,
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=30,
+            banner_timeout=30,
+            auth_timeout=30
+        )
+        
+        log("✅ Подключено к VPS")
+        
+        # Проверка
+        stdin, stdout, stderr = ssh.exec_command("whoami", timeout=10)
+        connected_user = stdout.read().decode().strip()
+        log(f"✅ Вход под пользователем: {connected_user}")
+        
+        # ═══════════════════════════════════════════════════════
+        # ЗАГРУЗКА ФАЙЛА
+        # ═══════════════════════════════════════════════════════
+        
+        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_path = f"{upload_dir}/{remote_filename}"
+        
+        log(f"📤 Загрузка {file_path.name} на VPS...")
+        log(f"   → {remote_path}")
+        
+        sftp = ssh.open_sftp()
+        
+        # Создаём директорию если нужно
+        try:
+            sftp.stat(upload_dir)
+        except:
+            stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {upload_dir}")
+            stdout.channel.recv_exit_status()
+            log(f"✅ Создана директория: {upload_dir}")
+        
+        # Загружаем файл с прогрессом
+        file_size = file_path.stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+        
+        last_percent = -1
+        def progress_callback(transferred, total):
+            nonlocal last_percent
+            percent = int((transferred / total) * 100)
+            if percent >= last_percent + 10:
+                last_percent = percent - (percent % 10)
+                log(f"   📊 {last_percent}% ({transferred/1024/1024:.1f}/{total/1024/1024:.1f} МБ)")
+        
+        sftp.put(str(file_path), remote_path, callback=progress_callback)
+        
+        log(f"✅ Файл загружен на VPS ({file_size_mb:.1f} МБ)")
+        
+        # ═══════════════════════════════════════════════════════
+        # ОБНОВЛЕНИЕ JSON API
+        # ═══════════════════════════════════════════════════════
+        
+        log(f"\n📝 Обновление JSON API...")
+        
+        # Получаем информацию о файле
+        file_stat = sftp.stat(remote_path)
+        file_mtime = int(file_stat.st_mtime)
+        
+        # Читаем существующий JSON
+        json_data = {}
+        try:
+            with sftp.file(json_path, 'r') as json_file:
+                json_content = json_file.read()
+                
+                # Пробуем декодировать как UTF-8
+                try:
+                    json_text = json_content.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        json_text = json_content.decode('utf-8-sig')
+                    except:
+                        json_text = json_content.decode('cp1251')
+                
+                json_data = json.loads(json_text)
+                
+                log(f"   ✓ Прочитан существующий JSON")
+                existing_channels = [k for k in json_data.keys() if k in ['stable', 'test']]
+                log(f"   ✓ Найдено каналов: {len(existing_channels)} ({', '.join(existing_channels)})")
+                
+        except FileNotFoundError:
+            log(f"   ⚠️ JSON файл не найден, создаём новый")
+        except json.JSONDecodeError as e:
+            log(f"   ⚠️ Ошибка парсинга JSON: {e}, создаём новый")
+        except Exception as e:
+            log(f"   ⚠️ Ошибка чтения JSON: {e}, создаём новый")
+        
+        # Обновляем данные для текущего канала
+        import pytz
+        
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        modified_dt = datetime.fromtimestamp(file_mtime, tz=moscow_tz)
+        
+        # ✅ Обновляем только текущий канал, остальные сохраняем
+        json_data[channel] = {
+            "version": version,
+            "channel": channel,
+            "file_path": remote_path,
+            "file_size": int(file_stat.st_size),
+            "mtime": file_mtime,
+            "modified_at": modified_dt.isoformat(),
+            "date": datetime.now(moscow_tz).strftime("%Y-%m-%d"),
+            "release_notes": notes
+        }
+        
+        json_data["last_updated"] = datetime.now(moscow_tz).isoformat()
+        
+        log(f"   ✓ Обновлён канал: {channel}")
+        
+        all_channels = [k for k in json_data.keys() if k in ['stable', 'test']]
+        log(f"   ✓ Всего каналов в JSON: {len(all_channels)} ({', '.join(all_channels)})")
+        
+        # ═══════════════════════════════════════════════════════
+        # СОХРАНЕНИЕ all_versions.json
+        # ═══════════════════════════════════════════════════════
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
+            json.dump(json_data, tmp, indent=2, ensure_ascii=False)
+            tmp_json_path = tmp.name
+        
+        sftp.put(tmp_json_path, json_path)
+        os.unlink(tmp_json_path)
+        
+        log(f"   ✓ Сохранён all_versions.json")
+        
+        # ═══════════════════════════════════════════════════════
+        # ✅ ГЕНЕРАЦИЯ ОТДЕЛЬНЫХ JSON ДЛЯ КАЖДОГО КАНАЛА
+        # ═══════════════════════════════════════════════════════
+        
+        api_dir = os.path.dirname(json_path)
+        
+        # Генерируем version_stable.json
+        if 'stable' in json_data:
+            stable_json_path = f"{api_dir}/version_stable.json"
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
+                json.dump(json_data['stable'], tmp, indent=2, ensure_ascii=False)
+                tmp_path = tmp.name
+            
+            sftp.put(tmp_path, stable_json_path)
+            os.unlink(tmp_path)
+            
+            log(f"   ✓ Создан version_stable.json")
+        
+        # Генерируем version_test.json
+        if 'test' in json_data:
+            test_json_path = f"{api_dir}/version_test.json"
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
+                json.dump(json_data['test'], tmp, indent=2, ensure_ascii=False)
+                tmp_path = tmp.name
+            
+            sftp.put(tmp_path, test_json_path)
+            os.unlink(tmp_path)
+            
+            log(f"   ✓ Создан version_test.json")
+        
+        # ═══════════════════════════════════════════════════════
+        # ИТОГОВАЯ ИНФОРМАЦИЯ
+        # ═══════════════════════════════════════════════════════
+        
+        log(f"\n✅ Все JSON файлы обновлены:")
+        log(f"   • Канал: {channel}")
+        log(f"   • Версия: {version}")
+        log(f"   • Размер: {file_size_mb:.1f} МБ")
+        log(f"   • Время: {modified_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        log(f"   • Доступные каналы: {', '.join(all_channels)}")
+        log(f"   • Созданы файлы:")
+        log(f"     - all_versions.json")
+        if 'stable' in json_data:
+            log(f"     - version_stable.json")
+        if 'test' in json_data:
+            log(f"     - version_test.json")
+        
+        sftp.close()
+        
+        ssh.close()
+        
+        return True, f"Деплой на {host} завершён успешно"
+        
+    except paramiko.AuthenticationException as e:
+        return False, f"SSH аутентификация: {e}"
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        log(f"❌ Полная ошибка:\n{error_trace}")
+        return False, f"Ошибка: {str(e)[:100]}"
+    finally:
+        if ssh:
+            try:
+                ssh.close()
+            except:
+                pass
+        
+        if pem_key_path and os.path.exists(pem_key_path):
+            try:
+                os.unlink(pem_key_path)
+            except:
+                pass
+
+# ═══════════════════════════════════════════════════════════
+# ТОЧКА ВХОДА ДЛЯ ТЕСТИРОВАНИЯ
+# ═══════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    print("SSH Deploy Module for Multiple Servers")
+    print("=" * 60)
+    print(f"Configured: {is_ssh_configured()}")
+    print(f"Info: {get_ssh_config_info()}")
+    print(f"Servers: {len(VPS_SERVERS)}")
+    print("=" * 60)
     
-    # Разбиваем файл на части для параллельной передачи
-    file_size = file_path.stat().st_size
-    num_threads = 4  # Количество параллельных соединений
-    chunk_size = file_size // num_threads
-    
-    if log_queue:
-        log_queue.put(f"🚀 Параллельная передача через {num_threads} соединений")
-    
-    # Здесь можно реализовать параллельную передачу через несколько SSH соединений
-    # Но это сложнее и не всегда быстрее, поэтому оставляю как заглушку
-    
-    # Используем обычный метод
-    return deploy_to_vps(file_path, channel, version, notes, log_queue)
+    if VPS_SERVERS:
+        print("\nСписок серверов:")
+        for i, server in enumerate(VPS_SERVERS, 1):
+            print(f"  {i}. {server['name']} ({server['host']}:{server['port']}) - приоритет {server['priority']}")

@@ -1,0 +1,76 @@
+# requirements.txt - Всегда последние версии
+# "C:\Program Files\Python312\Scripts\pip.exe" install -r requirements.txt
+# python.exe -m pip install --upgrade pip
+# GUI Framework
+PyQt6
+PyQt6-Qt6
+PyQt6-sip
+
+# Windows System Integration
+pywin32
+
+# Network and HTTP
+requests
+urllib3
+
+# System and Process Management
+psutil
+
+# requirements.txt
+# Zapret - Обход блокировок + Build Tools
+
+# ════════════════════════════════════════════════════════════
+# GUI Framework
+# ════════════════════════════════════════════════════════════
+PyQt6
+
+# ════════════════════════════════════════════════════════════
+# Windows System Integration  
+# ════════════════════════════════════════════════════════════
+pywin32
+psutil
+
+# ════════════════════════════════════════════════════════════
+# Network and HTTPpython -m pip install -r requirements.txt
+# ════════════════════════════════════════════════════════════
+requests
+urllib3
+
+# ════════════════════════════════════════════════════════════
+# Build Tools (для build_release_gui.py)
+# ════════════════════════════════════════════════════════════
+PyInstaller
+Nuitka
+
+# ════════════════════════════════════════════════════════════
+# GitHub Integration (для публикации релизов)
+# ════════════════════════════════════════════════════════════
+PyGithub
+
+# ════════════════════════════════════════════════════════════
+# SSH Deployment (для деплоя на VPS)
+# ════════════════════════════════════════════════════════════
+paramiko
+
+# ════════════════════════════════════════════════════════════
+# Telegram Integration (для публикации в канал)
+# ════════════════════════════════════════════════════════════
+pyrogram
+
+# ════════════════════════════════════════════════════════════
+# Примечания:
+# ════════════════════════════════════════════════════════════
+# - tkinter входит в стандартную поставку Python (не требует установки)
+# - Inno Setup нужно установить отдельно для Windows
+# - PyInstaller и Nuitka опциональны (нужны только для сборки exe)
+# - PyGithub, paramiko, pyrogram опциональны (нужны только для публикации)
+
+aiohttp
+dotenv
+telethon
+python-telegram
+python-telegram-bot
+qtawesome
+pytz
+qt_material
+wmi

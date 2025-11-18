@@ -930,7 +930,7 @@ class ThemeManager:
             # Специальные кнопки с accent цветом
             special_buttons = [
                 'start_btn', 'stop_btn', 'autostart_enable_btn', 'autostart_disable_btn',
-                'subscription_btn', 'proxy_button', 'update_check_btn'
+                'subscription_btn', 'proxy_button', 'server_status_btn'
             ]
             
             for btn_name in special_buttons:
@@ -966,7 +966,7 @@ class ThemeManager:
                 'stop_btn': "255, 93, 174",
                 'autostart_disable_btn': "255, 93, 174",
                 'subscription_btn': "224, 132, 0",
-                'update_check_btn': "38, 38, 38"
+                'server_status_btn': "38, 38, 38"
             }
             
             for btn_name, color in special_button_colors.items():

@@ -1,19 +1,17 @@
-"""
-build_tools/build_release_gui.py  –  GUI версия для сборки и публикации
-Поддерживает выбор между PyInstaller и Nuitka
-"""
+# build_zapret/build_release_gui.py
 
 from __future__ import annotations
 import ctypes, json, os, re, shutil, subprocess, sys, tempfile, textwrap, urllib.request
 from pathlib import Path
 from datetime import date
-from typing import Sequence, Any
+from typing import Sequence, Any, Optional
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 from keyboard_manager import KeyboardManager
 from queue import Queue
 import time
+
 
 # ════════════════════════════════════════════════════════════════
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ МОДУЛЕЙ СБОРКИ
@@ -25,7 +23,7 @@ try:
     PYINSTALLER_AVAILABLE = True
 except ImportError:
     PYINSTALLER_AVAILABLE = False
-    def create_spec_file(channel: str, root_path: Path) -> Path:
+    def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = None) -> Path:
         raise ImportError("Модуль pyinstaller_builder недоступен")
     
     def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Any = None) -> None:
@@ -102,6 +100,38 @@ def setup_github_imports():
 # Настраиваем импорт
 create_github_release, is_github_enabled, get_github_config_info, GITHUB_AVAILABLE = setup_github_imports()
 
+# ════════════════════════════════════════════════════════════════
+#  УНИВЕРСАЛЬНЫЙ ИМПОРТ SSH + TELEGRAM МОДУЛЯ
+# ════════════════════════════════════════════════════════════════
+def setup_ssh_imports():
+    """Настройка импорта SSH модуля"""
+    try:
+        from ssh_deploy import deploy_to_all_servers, is_ssh_configured, get_ssh_config_info
+        return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, True
+    except ImportError:
+        # Заглушки
+        def deploy_to_all_servers(*args, **kwargs):
+            return False, "SSH модуль недоступен"
+        def is_ssh_configured():
+            return False
+        def get_ssh_config_info():
+            return "SSH модуль недоступен (установите: pip install paramiko)"
+        return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, False
+
+# Настраиваем импорт
+deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, SSH_AVAILABLE = setup_ssh_imports()
+
+
+def check_telegram_configured() -> tuple[bool, str]:
+    """Проверяет наличие Telegram сессии Pyrogram"""
+    
+    session_file = Path(__file__).parent / "zapret_uploader.session"
+    
+    if not session_file.exists():
+        return False, "⚠️ Требуется авторизация (telegram_auth_pyrogram.py)"
+    
+    return True, "✅ Pyrogram сессия активна"
+
 # Скрываем консоль Windows
 if sys.platform == "win32":
     import ctypes
@@ -151,20 +181,51 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
     
-    if capture:
-        res = subprocess.run(cmd, shell=isinstance(cmd, str), cwd=cwd,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                           text=True, startupinfo=startupinfo)
-        if check and res.returncode:
+    res = subprocess.run(
+        cmd, 
+        shell=isinstance(cmd, str), 
+        cwd=cwd,
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE, 
+        text=True, 
+        encoding='utf-8',
+        errors='ignore',
+        startupinfo=startupinfo
+    )
+    
+    # Выводим stdout если есть
+    if res.stdout and hasattr(run, 'log_queue'):
+        for line in res.stdout.strip().split('\n'):
+            if line.strip():
+                run.log_queue.put(line)
+    
+    # Выводим stderr если есть ошибки
+    if res.stderr and hasattr(run, 'log_queue'):
+        for line in res.stderr.strip().split('\n'):
+            if line.strip():
+                run.log_queue.put(f"❌ {line}")
+    
+    # Проверяем код возврата
+    if check and res.returncode != 0:
+        error_msg = f"Command failed with code {res.returncode}"
+        
+        if res.stderr:
+            error_msg += f"\n\nОшибки:\n{res.stderr}"
+        if res.stdout:
+            error_msg += f"\n\nВывод:\n{res.stdout}"
+            
+        if hasattr(run, 'log_queue'):
+            run.log_queue.put(f"❌ {error_msg}")
+            
+        if capture:
             raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
+        else:
+            raise RuntimeError(error_msg)
+    
+    if capture:
         return res.stdout
     else:
-        res = subprocess.run(cmd, shell=isinstance(cmd, str), cwd=cwd,
-                           startupinfo=startupinfo)
-        if check and res.returncode:
-            raise RuntimeError(f"Command failed with code {res.returncode}")
         return res.returncode
-
 
 def is_admin() -> bool:
     try:
@@ -175,7 +236,6 @@ def is_admin() -> bool:
 
 def elevate_as_admin():
     """Перезапуск с правами администратора"""
-    # Используем pythonw.exe вместо python.exe для запуска без консоли
     pythonw = PY.replace('python.exe', 'pythonw.exe')
     if not Path(pythonw).exists():
         pythonw = PY
@@ -191,16 +251,12 @@ def elevate_as_admin():
     sys.exit(0)
 
 def parse_version(version_string: str) -> tuple[int, int, int, int]:
-    """Парсит версию в кортеж из ровно 4 чисел для правильного сравнения/нормализации."""
+    """Парсит версию в кортеж из ровно 4 чисел"""
     try:
-        # Убираем префикс 'v' если есть
         version = (version_string or "").lstrip('v')
-        # Разбиваем на части и конвертируем в числа
         parts = [int(x) for x in version.split('.') if x.strip().isdigit()]
-        # Дополняем до 4 частей нулями если нужно
         while len(parts) < 4:
             parts.append(0)
-        # Берем только первые 4 части
         return tuple(parts[:4])
     except Exception:
         return (0, 0, 0, 0)
@@ -210,7 +266,7 @@ def normalize_to_4(ver: str) -> str:
     return ".".join(map(str, parse_version(ver)))
 
 def suggest_next(ver: str) -> str:
-    """Предлагает следующую 4-частную версию (увеличивает последнюю часть на 1)"""
+    """Предлагает следующую 4-частную версию"""
     try:
         new_parts = list(parse_version(ver))
         new_parts[-1] += 1
@@ -222,18 +278,17 @@ def suggest_next(ver: str) -> str:
         return ".".join(map(str, nums))
 
 def safe_json_write(path: Path, data: dict):
-    """Атомарная запись JSON: пишем во временный файл, затем заменяем."""
+    """Атомарная запись JSON"""
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
 
 def fetch_local_versions() -> dict[str, str]:
-    """Получает текущие версии из локального JSON файла (строго 4 части)."""
+    """Получает текущие версии из локального JSON файла"""
     try:
-        versions_file = Path(__file__).parent / "versions.json"
+        versions_file = Path(__file__).parent / "version_Local.json"
         
-        # Если файла нет — создаем с дефолтными значениями (4 части)
         if not versions_file.exists():
             default_versions = {
                 "stable": {
@@ -258,17 +313,14 @@ def fetch_local_versions() -> dict[str, str]:
             safe_json_write(versions_file, default_versions)
             return {"stable": "16.2.1.3", "test": "16.4.1.9"}
         
-        # Читаем файл
         with open(versions_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Достаем и нормализуем версии
         stable_raw = (data.get("stable", {}) or {}).get("version", "16.2.1.3")
         test_raw   = (data.get("test", {}) or {}).get("version", "16.4.1.9")
         stable = normalize_to_4(stable_raw)
         test   = normalize_to_4(test_raw)
 
-        # Если что-то поменялось — мигрируем файл к 4 частям
         changed = (stable_raw != stable) or (test_raw != test)
         if "next_suggested" in data and isinstance(data["next_suggested"], dict):
             ns = data["next_suggested"]
@@ -298,13 +350,12 @@ def fetch_local_versions() -> dict[str, str]:
         return {"stable": stable, "test": test}
         
     except Exception:
-        # Fallback версии (4 части)
         return {"stable": "16.2.1.3", "test": "16.4.1.9"}
 
 def get_suggested_version(channel: str) -> str:
-    """Получает предложенную версию из файла (строго 4 части)"""
+    """Получает предложенную версию из файла"""
     try:
-        versions_file = Path(__file__).parent / "versions.json"
+        versions_file = Path(__file__).parent / "version_Local.json"
         
         if versions_file.exists():
             with open(versions_file, 'r', encoding='utf-8') as f:
@@ -314,7 +365,6 @@ def get_suggested_version(channel: str) -> str:
             if suggested:
                 return normalize_to_4(suggested)
         
-        # Fallback - вычисляем из текущей версии
         versions = fetch_local_versions()
         current = versions.get(channel, "0.0.0.0")
         return normalize_to_4(suggest_next(current))
@@ -323,40 +373,34 @@ def get_suggested_version(channel: str) -> str:
         return "1.0.0.0"
 
 def update_versions_file(channel: str, new_version: str):
-    """Обновляет файл версий после успешной сборки (строго 4 части)"""
+    """Обновляет файл версий после успешной сборки"""
     try:
         from datetime import datetime
-        versions_file = Path(__file__).parent / "versions.json"
+        versions_file = Path(__file__).parent / "version_Local.json"
         
-        # Читаем текущие данные
         if versions_file.exists():
             with open(versions_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         else:
             data = {"stable": {}, "test": {}, "next_suggested": {}, "metadata": {}}
         
-        # Нормализуем версию к 4 частям
         new_version = normalize_to_4(new_version)
         
-        # Обновляем версию для канала
         data[channel] = {
             "version": new_version,
             "description": f"{'Стабильная' if channel == 'stable' else 'Тестовая'} версия",
             "release_date": datetime.now().strftime("%Y-%m-%d")
         }
         
-        # Обновляем предложения для следующих версий (нормализовано)
         if "next_suggested" not in data or not isinstance(data["next_suggested"], dict):
             data["next_suggested"] = {}
         data["next_suggested"][channel] = normalize_to_4(suggest_next(new_version))
         
-        # Обновляем метаданные
         data["metadata"] = {
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "updated_by": "build_system"
         }
         
-        # Сохраняем обратно атомарно
         safe_json_write(versions_file, data)
             
         if hasattr(run, 'log_queue'):
@@ -418,7 +462,6 @@ def prepare_iss(channel: str, version: str) -> Path:
     if not src.exists():
         raise FileNotFoundError(f"zapret_universal.iss не найден в {ROOT}")
     
-    # Копируем файл
     dst = ROOT / f"zapret_{channel}.iss" 
     shutil.copy(src, dst)
     
@@ -434,24 +477,6 @@ def write_build_info(channel: str, version: str):
                    encoding="utf-8-sig")
     if hasattr(run, 'log_queue'):
         run.log_queue.put("✔ build_info.py updated")
-
-def setup_ssh_imports():
-    """Настройка импорта SSH модуля"""
-    try:
-        from ssh_deploy import deploy_to_vps, is_ssh_configured, get_ssh_config_info
-        return deploy_to_vps, is_ssh_configured, get_ssh_config_info, True
-    except ImportError:
-        # Заглушки
-        def deploy_to_vps(*args, **kwargs):
-            return False, "SSH модуль недоступен"
-        def is_ssh_configured():
-            return False
-        def get_ssh_config_info():
-            return "SSH модуль недоступен"
-        return deploy_to_vps, is_ssh_configured, get_ssh_config_info, False
-
-# Настраиваем импорт
-deploy_to_vps, is_ssh_configured, get_ssh_config_info, SSH_AVAILABLE = setup_ssh_imports()
 
 # ════════════════════════════════════════════════════════════════
 #  GUI КЛАСС
@@ -477,6 +502,7 @@ class BuildReleaseGUI:
         self.channel_var = tk.StringVar(value="test")
         self.version_var = tk.StringVar()
         self.build_method_var = tk.StringVar(value="pyinstaller")
+        self.publish_telegram_var = tk.BooleanVar(value=False)
         self.versions_info = {"stable": "—", "test": "—"}
         
         # Создаем интерфейс
@@ -512,7 +538,52 @@ class BuildReleaseGUI:
         style.configure('Heading.TLabel', font=('Segoe UI', 12, 'bold'))
         style.configure('Info.TLabel', font=('Segoe UI', 10))
         style.configure('Card.TFrame', background=self.colors['frame_bg'], relief='flat', borderwidth=1)
+
+    def run_telegram_auth(self):
+        """Запуск авторизации Telegram (Pyrogram)"""
+        auth_script = Path(__file__).parent / "telegram_auth_pyrogram.py"
         
+        if not auth_script.exists():
+            messagebox.showerror(
+                "Ошибка",
+                f"Скрипт авторизации не найден:\n{auth_script}"
+            )
+            return
+        
+        # Используем python.exe (с консолью)
+        python_exe = sys.executable
+        if python_exe.endswith('pythonw.exe'):
+            python_exe = python_exe.replace('pythonw.exe', 'python.exe')
+        
+        if not Path(python_exe).exists():
+            messagebox.showerror(
+                "Ошибка",
+                f"python.exe не найден:\n{python_exe}"
+            )
+            return
+        
+        try:
+            subprocess.Popen(
+                [python_exe, str(auth_script)],
+                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+            )
+            
+            messagebox.showinfo(
+                "Авторизация Pyrogram",
+                "Открыто окно авторизации Telegram (Pyrogram).\n\n"
+                "Следуйте инструкциям в консоли:\n"
+                "1. Введите номер телефона с +\n"
+                "2. Введите код из Telegram\n"
+                "3. Если есть 2FA - введите пароль\n\n"
+                "После успешной авторизации можете закрыть окно."
+            )
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Ошибка",
+                f"Не удалось запустить авторизацию:\n{e}"
+            )
+                    
     def create_widgets(self):
         """Создание всех виджетов"""
         # Главный контейнер
@@ -540,7 +611,7 @@ class BuildReleaseGUI:
         self.stable_label.pack(anchor='w')
 
         # Информация о файле версий
-        versions_file_path = Path(__file__).parent / "versions.json"
+        versions_file_path = Path(__file__).parent / "version_Local.json"
         file_info_label = ttk.Label(self.version_info_frame, 
                                 text=f"📄 Файл: {versions_file_path.name}", 
                                 style='Info.TLabel', foreground='gray')
@@ -551,7 +622,6 @@ class BuildReleaseGUI:
                                      padding=15)
         github_frame.pack(fill='x', pady=(0, 15))
         
-        # Проверяем доступность GitHub
         if not GITHUB_AVAILABLE:
             ttk.Label(github_frame, text="❌ GitHub модуль недоступен!", 
                      style='Info.TLabel', foreground='red').pack(side='left')
@@ -563,21 +633,52 @@ class BuildReleaseGUI:
             ttk.Label(github_frame, text=f"✅ {status_text}", 
                      style='Info.TLabel', foreground='green').pack(side='left')
 
-        ssh_frame = ttk.LabelFrame(main_container, text="SSH деплой на VPS", 
+        # SSH статус
+        ssh_frame = ttk.LabelFrame(main_container, text="SSH VPS деплой", 
                                 padding=15)
         ssh_frame.pack(fill='x', pady=(0, 15))
 
-        # Проверяем доступность SSH
         if not SSH_AVAILABLE:
             ttk.Label(ssh_frame, text="❌ SSH модуль недоступен!", 
                     style='Info.TLabel', foreground='red').pack(side='left')
         elif not is_ssh_configured():
-            ttk.Label(ssh_frame, text="⚠️ SSH деплой выключен (SSH_ENABLED = False)", 
+            ttk.Label(ssh_frame, text="⚠️ SSH не настроен (установите: pip install paramiko)", 
                     style='Info.TLabel', foreground='orange').pack(side='left')
         else:
             status_text = get_ssh_config_info()
             ttk.Label(ssh_frame, text=f"✅ {status_text}", 
                     style='Info.TLabel', foreground='green').pack(side='left')
+
+        # Telegram публикация
+        telegram_frame = ttk.LabelFrame(main_container, text="Telegram канал публикация", 
+                                    padding=15)
+        telegram_frame.pack(fill='x', pady=(0, 15))
+
+        telegram_ok, telegram_status = check_telegram_configured()
+
+        status_label = ttk.Label(telegram_frame, text=telegram_status, 
+                                style='Info.TLabel',
+                                foreground='green' if telegram_ok else 'orange')
+        status_label.pack(side='left')
+
+        # Чекбокс публикации
+        self.publish_telegram_var = tk.BooleanVar(value=telegram_ok)
+        self.publish_telegram_check = ttk.Checkbutton(
+            telegram_frame,
+            text="📢 Опубликовать в Telegram канал после SSH",
+            variable=self.publish_telegram_var,
+            state='normal' if telegram_ok else 'disabled'
+        )
+        self.publish_telegram_check.pack(side='right')
+
+        # Кнопка авторизации
+        if not telegram_ok or not (Path(__file__).parent / "zapret_uploader.session").exists():
+            auth_button = ttk.Button(
+                telegram_frame,
+                text="🔑 Авторизация Telegram",
+                command=self.run_telegram_auth
+            )
+            auth_button.pack(side='right', padx=(10, 0))
 
         # Настройки сборки
         settings_frame = ttk.LabelFrame(main_container, text="Настройки сборки", 
@@ -655,12 +756,11 @@ class BuildReleaseGUI:
                                     padding=15)
         notes_frame.pack(fill='both', expand=True, pady=(0, 15))
         
-        # Включаем undo/redo для текстового поля
         self.notes_text = scrolledtext.ScrolledText(notes_frame, height=6, 
                                                    font=('Segoe UI', 10),
                                                    wrap='word',
-                                                   undo=True,  # Включаем undo/redo
-                                                   maxundo=20)  # Максимум 20 операций отмены
+                                                   undo=True,
+                                                   maxundo=20)
         self.notes_text.pack(fill='both', expand=True)
         
         # Подсказка
@@ -672,7 +772,6 @@ class BuildReleaseGUI:
                               style='Info.TLabel', foreground='gray')
         hint_label.pack(side='left')
         
-        # Подсказка о горячих клавишах
         shortcut_label = ttk.Label(hint_frame, 
                                   text="⌨️ Ctrl+V - вставить, Ctrl+A - выделить все, Ctrl+Z - отмена",
                                   style='Info.TLabel', foreground='gray')
@@ -712,8 +811,6 @@ class BuildReleaseGUI:
                                                  bg='#1e1e1e', fg='#d4d4d4',
                                                  wrap='word')
         self.log_text.pack(fill='both', expand=True)
-        
-        # Делаем лог только для чтения
         self.log_text.config(state='disabled')
 
     def load_versions(self):
@@ -731,8 +828,6 @@ class BuildReleaseGUI:
         """Обновление меток с версиями"""
         self.test_label.config(text=f"Test: {self.versions_info['test']}")
         self.stable_label.config(text=f"Stable: {self.versions_info['stable']}")
-        
-        # Автоматически предлагаем следующую версию
         self.suggest_version()
         
     def on_channel_change(self):
@@ -766,14 +861,13 @@ class BuildReleaseGUI:
             
     def start_build(self):
         """Запуск процесса сборки"""
-        # Проверка GitHub
         if not GITHUB_AVAILABLE:
             messagebox.showerror("Ошибка", "GitHub модуль недоступен!")
             return
             
         if not is_github_enabled():
             messagebox.showerror("Ошибка", "GitHub не настроен!\n\n"
-                                          "Настройте токен в build_tools/github_release.py")
+                                        "Настройте токен в build_tools/github_release.py")
             return
         
         # Валидация
@@ -782,7 +876,7 @@ class BuildReleaseGUI:
             messagebox.showerror("Ошибка", "Укажите версию!")
             return
             
-        VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")  # Ровно 4 части
+        VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
         if not VERSION_RE.fullmatch(version):
             messagebox.showerror("Ошибка", f"Неверный формат версии: {version}\n"
                                         "Используйте формат X.X.X.X (4 цифры)")
@@ -794,6 +888,7 @@ class BuildReleaseGUI:
             
         channel = self.channel_var.get()
         build_method = self.build_method_var.get()
+        publish_telegram = self.publish_telegram_var.get()
         
         # Проверка доступности выбранного метода
         if build_method == "nuitka" and not NUITKA_AVAILABLE:
@@ -804,11 +899,30 @@ class BuildReleaseGUI:
             messagebox.showerror("Ошибка", "Модуль pyinstaller_builder недоступен!")
             return
         
+        # Предупреждение если Telegram включен но не настроен
+        if publish_telegram:
+            telegram_ok, telegram_msg = check_telegram_configured()
+            if not telegram_ok:
+                if not messagebox.askyesno(
+                    "Предупреждение",
+                    f"{telegram_msg}\n\n"
+                    "Публикация в Telegram будет пропущена.\n"
+                    "Продолжить сборку?"
+                ):
+                    return
+        
         # Подтверждение
         msg = f"Канал: {channel.upper()}\nВерсия: {version}\n"
         msg += f"Метод сборки: {build_method.upper()}\n\n"
-        msg += "Релиз будет опубликован на GitHub.\n\n"
-        msg += "Продолжить сборку?"
+        msg += "Релиз будет опубликован на:\n"
+        msg += "  • GitHub ✅\n"
+        
+        if SSH_AVAILABLE and is_ssh_configured():
+            msg += "  • SSH VPS ✅\n"
+            if publish_telegram:
+                msg += "  • Telegram канал ✅\n"
+        
+        msg += "\nПродолжить сборку?"
         
         if not messagebox.askyesno("Подтверждение", msg):
             return
@@ -830,7 +944,6 @@ class BuildReleaseGUI:
             # Базовые шаги
             steps = [
                 (10, "Обновление build_info.py", lambda: write_build_info(channel, version))
-                #(20, "Остановка Zapret", stop_running_zapret),
             ]
             
             # Добавляем шаги в зависимости от метода сборки
@@ -840,7 +953,7 @@ class BuildReleaseGUI:
                 ])
             else:  # pyinstaller
                 steps.extend([
-                    (35, "Создание spec файла", lambda: create_spec_file(channel, ROOT)),
+                    (35, "Создание spec файла", lambda: create_spec_file(channel, ROOT, self.log_queue)),
                     (60, "Сборка PyInstaller", lambda: run_pyinstaller(channel, ROOT, run, self.log_queue)),
                 ])
             
@@ -850,9 +963,9 @@ class BuildReleaseGUI:
                 (95, "Создание GitHub release", lambda: self.create_github_release(channel, version, notes)),
             ])
             
-            # Добавляем SSH деплой если включен
+            # SSH деплой
             if SSH_AVAILABLE and is_ssh_configured():
-                steps.append((98, "SSH деплой на VPS", lambda: self.deploy_to_ssh(channel)))
+                steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
                 
             steps.append((100, "Завершение", lambda: None))
             
@@ -876,45 +989,75 @@ class BuildReleaseGUI:
             self.log_queue.put(traceback.format_exc())
             self.root.after(0, lambda: self.build_error(str(e)))
 
-    def run_inno_setup(self, channel, version, max_retries=50):
-        """Запуск Inno Setup с параметрами препроцессора и автоматическим перезапуском при ошибках доступа"""
+    def deploy_to_ssh(self, channel, version, notes):
+        """SSH деплой на все VPS сервера"""
+        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
         
-        # Определяем пути
-        project_root = Path("D:/Privacy/zapretgui")
-        output_dir = Path("D:/Privacy/zapret")
+        if not produced.exists():
+            raise FileNotFoundError(f"{produced} not found")
         
-        # Имя ISS файла в зависимости от канала
-        iss_filename = "zapret_test.iss" if channel == "test" else "zapret_stable.iss"
+        publish_telegram = self.publish_telegram_var.get()
         
-        # Путь к универсальному ISS файлу
+        self.log_queue.put(f"\n📦 SSH деплой версии: {version}")
+        self.log_queue.put(f"🔧 Канал: {channel.upper()}")
+        
+        if publish_telegram:
+            self.log_queue.put(f"📢 Telegram: будет опубликовано со 2-го сервера после деплоя")
+        
+        # ✅ Вызываем функцию с флагом публикации
+        success, message = deploy_to_all_servers(
+            file_path=produced,
+            channel=channel,
+            version=version,
+            notes=notes,
+            publish_telegram=publish_telegram,  # ✅ Передаём флаг
+            log_queue=self.log_queue
+        )
+        
+        if not success:
+            raise Exception(f"SSH деплой не удался: {message}")
+        
+        self.log_queue.put(f"\n{'='*60}")
+        self.log_queue.put(f"✅ SSH ДЕПЛОЙ ЗАВЕРШЕН")
+        self.log_queue.put(f"{'='*60}")
+        self.log_queue.put(message)
+
+
+    def run_inno_setup(self, channel, version, max_retries=10):
+        """Запуск Inno Setup с временным именем"""
+        
+        project_root = Path("H:/Privacy/zapretgui")
         universal_iss = project_root / "zapret_universal.iss"
-        target_iss = project_root / iss_filename
+        target_iss = project_root / f"zapret_{channel}.iss"
         
-        # Путь к выходному файлу установщика
-        output_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
-        output_file = project_root / output_name
+        timestamp = int(time.time())
+        temp_name = f"ZapretSetup_{channel}_{timestamp}_tmp"
+        final_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}"
         
-        self.log_queue.put(f"📁 Папка проекта: {project_root}")
-        self.log_queue.put(f"📁 Папка сборки: {output_dir}")
-        self.log_queue.put(f"📄 ISS файл: {target_iss}")
-        self.log_queue.put(f"📦 Выходной файл: {output_file}")
+        temp_file = project_root / f"{temp_name}.exe"
+        final_file = project_root / f"{final_name}.exe"
         
-        # Проверяем существование универсального ISS
+        self.log_queue.put(f"📦 Сборка во временный файл: {temp_name}.exe")
+        
         if not universal_iss.exists():
-            raise FileNotFoundError(f"Универсальный ISS не найден: {universal_iss}")
+            raise FileNotFoundError(f"ISS не найден: {universal_iss}")
         
-        # Копируем универсальный ISS в целевой
-        shutil.copy2(universal_iss, target_iss)
-        self.log_queue.put(f"✓ Скопирован ISS файл: {target_iss}")
+        iss_content = universal_iss.read_text(encoding='utf-8')
+        iss_content = re.sub(
+            r'OutputBaseFilename\s*=\s*.*',
+            f'OutputBaseFilename={temp_name}',
+            iss_content
+        )
         
-        # Проверяем существование Inno Setup
+        target_iss.write_text(iss_content, encoding='utf-8')
+        self.log_queue.put(f"✓ ISS настроен на вывод в {temp_name}.exe")
+        
         iscc_path = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
         if not iscc_path.exists():
             iscc_path = Path(r"C:\Program Files\Inno Setup 6\ISCC.exe")
-            if not iscc_path.exists():
-                raise FileNotFoundError("Inno Setup не найден! Установите Inno Setup 6")
+        if not iscc_path.exists():
+            raise FileNotFoundError("Inno Setup не найден!")
         
-        # Команда для запуска
         cmd = [
             str(iscc_path),
             f"/DCHANNEL={channel}",
@@ -922,196 +1065,99 @@ class BuildReleaseGUI:
             str(target_iss)
         ]
         
-        # Попытки запуска с обработкой ошибок блокировки файла
         for attempt in range(1, max_retries + 1):
             try:
-                self.log_queue.put(f"\n🔄 Попытка {attempt}/{max_retries}: Запуск Inno Setup...")
-                self.log_queue.put(f"Команда: {' '.join(cmd)}")
+                self.log_queue.put(f"\n🔄 Попытка {attempt}/{max_retries}...")
                 
-                # Если это не первая попытка, пытаемся освободить файл
-                if attempt > 1 and output_file.exists():
-                    self.log_queue.put(f"⚠️ Попытка освободить файл {output_file.name}...")
-                    
-                    # Метод 1: Попытка удалить файл
-                    try:
-                        output_file.unlink()
-                        self.log_queue.put(f"✓ Файл удален")
-                    except Exception as e:
-                        self.log_queue.put(f"❌ Не удалось удалить: {e}")
-                        
-                        # Метод 2: Попытка переименовать файл
-                        try:
-                            temp_name = output_file.with_suffix('.old.exe')
-                            if temp_name.exists():
-                                temp_name.unlink()
-                            output_file.rename(temp_name)
-                            self.log_queue.put(f"✓ Файл переименован в {temp_name.name}")
-                        except Exception as e2:
-                            self.log_queue.put(f"❌ Не удалось переименовать: {e2}")
-                            
-                            # Метод 3: Принудительное закрытие процессов
-                            self.force_close_file_handles(output_file)
-                            
-                            # Ждем немного
-                            time.sleep(2)
-                
-                # Запускаем Inno Setup
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
-                    encoding='cp1251',
-                    cwd=str(project_root)
+                    encoding='utf-8',
+                    errors='ignore',
+                    cwd=str(project_root),
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    timeout=300
                 )
                 
-                # Проверяем на ошибку доступа к файлу
                 if result.returncode != 0:
-                    error_text = (result.stdout or "") + (result.stderr or "")
-                    
-                    # Проверяем на типичные ошибки блокировки файла
-                    file_locked_errors = [
-                        "Процесс не может получить доступ к файлу",
-                        "The process cannot access the file",
-                        "Access is denied",
-                        "Отказано в доступе",
-                        "being used by another process",
-                        "занят другим процессом"
-                    ]
-                    
-                    is_file_locked = any(err in error_text for err in file_locked_errors)
-                    
-                    if is_file_locked and attempt < max_retries:
-                        self.log_queue.put(f"⚠️ Файл заблокирован другим процессом")
-                        self.log_queue.put(f"⏳ Ожидание 5 секунд перед повторной попыткой...")
-                        time.sleep(5)
-                        continue  # Переходим к следующей попытке
-                    
-                    # Если это не ошибка блокировки или последняя попытка - выбрасываем исключение
-                    error_msg = f"Inno Setup завершился с кодом {result.returncode}"
                     if result.stdout:
-                        self.log_queue.put(f"Вывод:\n{result.stdout}")
-                        error_msg += f"\n\nВывод:\n{result.stdout}"
+                        self.log_queue.put(result.stdout)
                     if result.stderr:
-                        self.log_queue.put(f"Ошибки:\n{result.stderr}")
-                        error_msg += f"\n\nОшибки:\n{result.stderr}"
-                    raise RuntimeError(error_msg)
+                        self.log_queue.put(f"❌ {result.stderr}")
+                    raise RuntimeError(f"Inno Setup код: {result.returncode}")
                 
-                # Успешное выполнение
-                if result.stdout:
-                    self.log_queue.put(f"Вывод Inno Setup:\n{result.stdout}")
+                if not temp_file.exists():
+                    raise FileNotFoundError(f"Не создан: {temp_file}")
                 
-                # Проверяем, что установщик создан
-                if output_file.exists():
-                    self.log_queue.put(f"✅ Установщик создан: {output_file}")
-                    self.log_queue.put(f"📏 Размер: {output_file.stat().st_size / 1024 / 1024:.1f} MB")
-                    return  # Успешно завершаем
-                else:
-                    if attempt < max_retries:
-                        self.log_queue.put(f"⚠️ Установщик не найден, повторная попытка...")
-                        time.sleep(3)
-                        continue
-                    else:
-                        raise FileNotFoundError(f"Установщик не создан: {output_file}")
-                        
+                size_mb = temp_file.stat().st_size / 1024 / 1024
+                self.log_queue.put(f"✅ Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
+                
+                if final_file.exists():
+                    backup = final_file.with_suffix('.old.exe')
+                    counter = 1
+                    while backup.exists():
+                        backup = final_file.with_suffix(f'.old{counter}.exe')
+                        counter += 1
+                    
+                    try:
+                        final_file.rename(backup)
+                        self.log_queue.put(f"  → Старый файл → {backup.name}")
+                    except Exception as e:
+                        self.log_queue.put(f"  ⚠️ Не удалось переместить старый: {e}")
+                
+                temp_file.rename(final_file)
+                self.log_queue.put(f"✅ Готово: {final_name}.exe")
+                
+                # Удаляем старые бэкапы
+                def cleanup():
+                    time.sleep(5)
+                    for old in project_root.glob(f"{final_name}.old*.exe"):
+                        try:
+                            old.unlink()
+                        except:
+                            pass
+                threading.Thread(target=cleanup, daemon=True).start()
+                
+                return
+                
+            except subprocess.TimeoutExpired:
+                self.log_queue.put("⏱️ Таймаут! Inno Setup завис")
+                self._kill_inno_setup()
+                if temp_file.exists():
+                    temp_file.unlink()
+                time.sleep(3)
+                
             except Exception as e:
+                self.log_queue.put(f"❌ Ошибка: {e}")
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except:
+                        pass
+                
                 if attempt < max_retries:
-                    self.log_queue.put(f"❌ Ошибка на попытке {attempt}: {str(e)}")
-                    self.log_queue.put(f"⏳ Повторная попытка через 5 секунд...")
+                    self.log_queue.put(f"⏳ Повтор через 5 сек...")
                     time.sleep(5)
                 else:
-                    self.log_queue.put(f"❌ Все {max_retries} попытки исчерпаны")
                     raise
-        
-    def force_close_file_handles(self, file_path):
-        """Принудительное закрытие процессов, использующих файл"""
-        try:
-            import psutil
-            
-            self.log_queue.put(f"🔍 Поиск процессов, использующих {file_path.name}...")
-            
-            # Получаем список всех процессов
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    # Проверяем открытые файлы процесса
-                    for item in proc.open_files():
-                        if str(file_path) in str(item.path):
-                            self.log_queue.put(f"  → Найден процесс {proc.info['name']} (PID: {proc.info['pid']})")
-                            try:
-                                proc.terminate()
-                                self.log_queue.put(f"  → Процесс завершен")
-                            except:
-                                try:
-                                    proc.kill()
-                                    self.log_queue.put(f"  → Процесс принудительно завершен")
-                                except:
-                                    pass
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-                    
-        except ImportError:
-            # Если psutil недоступен, используем taskkill
-            self.log_queue.put(f"⚠️ psutil недоступен, использую taskkill...")
-            
-            # Пытаемся закрыть типичные процессы, которые могут держать файл
-            possible_processes = [
-                "explorer.exe",  # Проводник Windows
-                "ZapretSetup_TEST.exe",  # Сам установщик
-                "ZapretSetup.exe",
-                "Zapret.exe"
-            ]
-            
-            for proc_name in possible_processes:
-                try:
-                    result = subprocess.run(
-                        f'taskkill /F /IM "{proc_name}"',
-                        shell=True,
-                        capture_output=True,
-                        text=True
-                    )
-                    if result.returncode == 0:
-                        self.log_queue.put(f"  → Завершен процесс {proc_name}")
-                except:
-                    pass
-            
-            # Перезапускаем проводник если закрыли его
-            if "explorer.exe" in possible_processes:
-                try:
-                    subprocess.Popen("explorer.exe", shell=True)
-                    self.log_queue.put(f"  → Проводник перезапущен")
-                except:
-                    pass
-        
-        except Exception as e:
-            self.log_queue.put(f"⚠️ Ошибка при закрытии процессов: {e}")
 
-    def deploy_to_ssh(self, channel):
-        """Деплой на VPS через SSH"""
-        # ✅ Абсолютный путь к установщику
-        produced = Path("D:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
-        
-        if not produced.exists():
-            raise FileNotFoundError(f"{produced} not found")
-        
-        version = self.version_var.get().strip()
-        notes = self.notes_text.get('1.0', 'end').strip()
-        
-        success, message = deploy_to_vps(
-            file_path=produced,
-            channel=channel,
-            version=version, 
-            notes=notes,
-            log_queue=self.log_queue
-        )
-        
-        if not success:
-            raise Exception(f"SSH деплой не удался: {message}")
-            
-        self.log_queue.put(f"🚀 {message}")
+    def _kill_inno_setup(self):
+        """Убить зависшие процессы Inno Setup"""
+        for proc_name in ["ISCC.exe", "compil32.exe"]:
+            try:
+                subprocess.run(
+                    f'taskkill /F /IM "{proc_name}"',
+                    shell=True,
+                    capture_output=True,
+                    timeout=5
+                )
+            except:
+                pass
   
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
-        # ✅ Абсолютный путь к установщику
-        produced = Path("D:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
@@ -1127,14 +1173,11 @@ class BuildReleaseGUI:
         self.build_button.config(state='normal', text="🔨 Собрать и опубликовать")
         self.cancel_button.config(state='normal')
         
-        # Обновляем файл версий
         channel = self.channel_var.get()
         version = self.version_var.get().strip()
         update_versions_file(channel, version)
         
         messagebox.showinfo("Успех", "Сборка и публикация завершены успешно!")
-        
-        # Перезагружаем версии из обновленного файла
         self.load_versions()
         
     def build_error(self, error_msg):
@@ -1147,34 +1190,27 @@ class BuildReleaseGUI:
         
     def run(self):
         """Запуск GUI"""
-        # Центрируем окно
         self.center_window()
-        
-        # Запускаем главный цикл
         self.root.mainloop()
         
     def center_window(self):
         """Центрирование окна на экране"""
         self.root.update_idletasks()
         
-        # Получаем размеры окна
         window_width = self.root.winfo_width()
         window_height = self.root.winfo_height()
         
-        # Получаем размеры экрана
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
-        # Вычисляем координаты
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         
-        # Устанавливаем позицию
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 
 def run_without_console():
-    """Перезапускает скрипт через pythonw.exe если запущен через python.exe"""
+    """Перезапускает скрипт через pythonw.exe"""
     if sys.executable.endswith('python.exe'):
         pythonw = sys.executable.replace('python.exe', 'pythonw.exe')
         if Path(pythonw).exists():
@@ -1186,20 +1222,16 @@ def run_without_console():
 def main():
     """Главная функция"""
     try:
-        # Перезапускаем без консоли если нужно
         run_without_console()
         
-        # Проверяем права администратора
         if not is_admin():
             print("Перезапуск с правами администратора…")
             elevate_as_admin()
             
-        # Создаем и запускаем GUI
         app = BuildReleaseGUI()
         app.run()
         
     except Exception as e:
-        # Если GUI не удалось запустить, показываем ошибку
         import traceback
         error_msg = f"Критическая ошибка:\n\n{str(e)}\n\n{traceback.format_exc()}"
         

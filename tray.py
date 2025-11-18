@@ -79,15 +79,37 @@ class SystemTrayManager:
 
         # ─── ДВА ОТДЕЛЬНЫХ ВЫХОДА ──────────────────────────
         exit_only_act = QAction("Выход", self.parent)
-        exit_only_act.triggered.connect(self.exit_only)          # ← NEW
+        exit_only_act.triggered.connect(self.exit_only)
         menu.addAction(exit_only_act)
 
         exit_stop_act = QAction("Выход и остановить DPI", self.parent)
-        exit_stop_act.triggered.connect(self.exit_and_stop)      # ← NEW
+        exit_stop_act.triggered.connect(self.exit_and_stop)
         menu.addAction(exit_stop_act)
         # ───────────────────────────────────────────────────
 
         self.tray_icon.setContextMenu(menu)
+
+    # ------------------------------------------------------------------
+    #  ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ СОХРАНЕНИЯ ГЕОМЕТРИИ
+    # ------------------------------------------------------------------
+    def _save_window_geometry(self):
+        """Сохраняет текущую позицию и размер окна"""
+        try:
+            from config import set_window_position, set_window_size
+            from log import log
+            
+            # Если окно видимо - сохраняем его текущую геометрию
+            if self.parent.isVisible():
+                pos = self.parent.pos()
+                set_window_position(pos.x(), pos.y())
+                
+                size = self.parent.size()
+                set_window_size(size.width(), size.height())
+                
+                log(f"Геометрия окна сохранена: ({pos.x()}, {pos.y()}), {size.width()}x{size.height()}", "DEBUG")
+        except Exception as e:
+            from log import log
+            log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
 
     # ------------------------------------------------------------------
     # 1) ПРОСТО закрыть GUI, winws.exe оставить жить
@@ -97,10 +119,16 @@ class SystemTrayManager:
         from log import log
         log("Выход без остановки DPI (только GUI)", level="INFO")
 
+        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
+        self._save_window_geometry()
+
         # останавливаем мониторинг (он будет «пустым» без окна)
         if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
             self.parent.process_monitor.stop()
 
+        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
+        self.parent._allow_close = True
+        
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -114,12 +142,18 @@ class SystemTrayManager:
 
         log("Выход + остановка DPI", level="INFO")
 
+        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
+        self._save_window_geometry()
+
         if hasattr(self.parent, 'dpi_starter'):
             stop_dpi(self.parent)
 
         if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
             self.parent.process_monitor.stop()
 
+        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
+        self.parent._allow_close = True
+        
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -161,6 +195,9 @@ class SystemTrayManager:
     #  ПРОЧИЕ ДЕЙСТВИЯ
     # ------------------------------------------------------------------
     def show_window(self):
+        """Показывает окно и восстанавливает его на прежнем месте"""
+        # ✅ ПРОВЕРЯЕМ: если окно было скрыто, просто показываем
+        # Позиция уже сохранена, Qt сам её помнит
         self.parent.showNormal()
         self.parent.activateWindow()
         self.parent.raise_()
@@ -177,25 +214,38 @@ class SystemTrayManager:
     def _close_event(self, ev):
         # ✅ ПРОВЕРЯЕМ флаг полного закрытия программы
         if hasattr(self.parent, '_closing_completely') and self.parent._closing_completely:
-            # Программа полностью закрывается - не показываем уведомление
+            # Программа полностью закрывается - вызываем оригинальный closeEvent
+            # (который сохранит позицию)
             self._orig_close(ev)
             return
             
+        # Проверяем флаг разрешения закрытия (устанавливается в exit_only/exit_and_stop)
         if not getattr(self.parent, '_allow_close', False):
+            # Обычное закрытие окна (крестик) - сворачиваем в трей
             if not self._shown_hint:
                 self.show_notification(
                     "Zapret продолжает работать",
                     "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
                 )
                 self._shown_hint = True
+            
+            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
+            self._save_window_geometry()
+            
             self.parent.hide()
             ev.ignore()
         else:
+            # Разрешено закрытие (из методов exit_*)
+            # Геометрия уже сохранена в exit_only/exit_and_stop
             self._orig_close(ev)
 
     def _change_event(self, ev):
-        if ev.type() == QEvent.WindowStateChange and self.parent.isMinimized():
+        if ev.type() == QEvent.Type.WindowStateChange and self.parent.isMinimized():
             ev.ignore()
+            
+            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД МИНИМИЗАЦИЕЙ
+            self._save_window_geometry()
+            
             self.parent.hide()
             if not self._shown_hint:
                 self.show_notification(

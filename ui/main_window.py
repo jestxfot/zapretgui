@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSize
 from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
                       STYLE_SHEET, RippleButton, DualActionRippleButton)
 
-import qtawesome as qta
+import qtawesome as qta, sys, os
 from config import APP_VERSION, CHANNEL
 
 class MainWindowUI:
@@ -87,12 +87,12 @@ class MainWindowUI:
         self.themed_labels = [self.current_strategy_label]
 
         # ---------- Кнопка выбора стратегии ----------------------------------
-        self.select_strategy_btn = DualActionRippleButton(" Сменить пресет обхода блокировок", self, "0, 119, 255")
+        self.select_strategy_btn = DualActionRippleButton(" Если не открывается то что тебе нужно - тыкай", self, "0, 119, 255")
         self.select_strategy_btn.setIcon(qta.icon('fa5s.cog', color='white'))
         self.select_strategy_btn.setIconSize(QSize(16, 16))
         self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
         self.select_strategy_btn.set_right_click_callback(self._show_instruction)
-        self.select_strategy_btn.setToolTip("Левый клик - открыть настройки\nПравый клик - показать инструкцию")
+        self.select_strategy_btn.setToolTip("Левый клик - открыть настройки\nПравый клик - открыть инструкцию (PDF)")
         self.themed_buttons.append(self.select_strategy_btn)
         root.addWidget(self.select_strategy_btn)
 
@@ -101,17 +101,20 @@ class MainWindowUI:
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         grid.setSpacing(10)
+        grid.setContentsMargins(0, 0, 0, 0)  # Убираем отступы у самого grid
         self.button_grid = grid
 
         # Создание основных кнопок
         self._create_main_buttons()
-        
-        # Создание стеков для переключения кнопок
-        self._create_button_stacks()
-        
-        # Добавление стеков в сетку
-        grid.addWidget(self.start_stop_stack, 0, 0)
-        grid.addWidget(self.autostart_stack, 0, 1)
+
+        # ✅ НОВАЯ СТРУКТУРА: Добавляем кнопки напрямую в grid (БЕЗ стеков!)
+        # Строка 0, колонка 0 - кнопки запуска/остановки (накладываются друг на друга)
+        grid.addWidget(self.start_btn, 0, 0)
+        grid.addWidget(self.stop_btn, 0, 0)  # Та же ячейка! Qt позволяет это
+
+        # Строка 0, колонка 1 - кнопки автозапуска (накладываются друг на друга)
+        grid.addWidget(self.autostart_enable_btn, 0, 1)
+        grid.addWidget(self.autostart_disable_btn, 0, 1)  # Та же ячейка!
 
         # Создание дополнительных кнопок
         self._create_additional_buttons(grid)
@@ -170,7 +173,7 @@ class MainWindowUI:
         msg.setInformativeText(
             "Это просто информационная надпись.\n\n"
             "Для смены стратегии нажмите на КНОПКУ:\n"
-            "🔧 «Сменить пресет обхода блокировок»\n\n" 
+            "🔧 «Если не открывается то что тебе нужно - тыкай»\n\n" 
             "Она замигает для Вас! ✨"
         )
         msg.setIcon(QMessageBox.Icon.Warning)
@@ -203,117 +206,254 @@ class MainWindowUI:
             blink()
 
     def _show_instruction(self):
-        """Показывает окно с инструкцией по выбору пресета"""
-        from ui.instruction_dialog import InstructionDialog
-        dialog = InstructionDialog(self)
-        dialog.exec()
+        """Открывает PDF инструкцию по использованию Zapret"""
+        try:
+            from config import HELP_FOLDER
+            import os
+            from log import log
+            
+            # Путь к PDF файлу
+            pdf_path = os.path.join(HELP_FOLDER, "Как пользоваться Zapret.pdf")
+            
+            # Проверяем существование файла
+            if not os.path.exists(pdf_path):
+                log(f"PDF инструкция не найдена: {pdf_path}", "❌ ERROR")
+                
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Файл не найден",
+                    f"Инструкция не найдена:\n{pdf_path}\n\n"
+                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                )
+                return
+            
+            # Открываем PDF файл
+            log(f"Открываем PDF инструкцию: {pdf_path}", "INFO")
+            os.startfile(pdf_path)
+            
+            log("PDF инструкция успешно открыта", "✅ SUCCESS")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии PDF инструкции: {e}", "❌ ERROR")
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть инструкцию:\n{str(e)}\n\n"
+                "Попробуйте открыть файл вручную из папки Help."
+            )
 
     def _show_premium_info(self):
-        """Показывает окно с информацией о Premium функциях"""
-        from ui.premium_dialog import PremiumDialog
-        dialog = PremiumDialog(self)
-        dialog.exec()
-        
+        """Открывает PDF с информацией о Premium функциях и тарифах"""
+        try:
+            from config import HELP_FOLDER
+            import os
+            import sys
+            from log import log
+            
+            # Путь к PDF файлу
+            pdf_path = os.path.join(HELP_FOLDER, "Всё о Zapret Premium и Zapret VPN (подробная инструкция).pdf")
+            
+            # Проверяем существование файла
+            if not os.path.exists(pdf_path):
+                log(f"PDF с тарифами не найден: {pdf_path}", "❌ ERROR")
+                
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Файл не найден",
+                    f"Информация о тарифах не найдена:\n{pdf_path}\n\n"
+                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                )
+                return
+            
+            # Открываем PDF файл
+            log(f"Открываем PDF с тарифами: {pdf_path}", "INFO")
+            
+            # Используем os.startfile для Windows
+            if sys.platform == 'win32':
+                os.startfile(pdf_path)
+            else:
+                # Для других ОС используем QDesktopServices
+                from PyQt6.QtCore import QUrl
+                from PyQt6.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path))
+            
+            log("PDF с тарифами Premium успешно открыт", "✅ SUCCESS")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии PDF с тарифами: {e}", "❌ ERROR")
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть информацию о тарифах:\n{str(e)}\n\n"
+                "Попробуйте открыть файл вручную из папки Help."
+            )
+
+    def _show_download_instruction(self):
+        """Открывает PDF инструкцию по скачиванию Zapret GUI"""
+        try:
+            from config import HELP_FOLDER
+            import os
+            from log import log
+            
+            # Путь к PDF файлу
+            pdf_path = os.path.join(HELP_FOLDER, "Как скачать Zapret.pdf")
+            
+            # Проверяем существование файла
+            if not os.path.exists(pdf_path):
+                log(f"PDF инструкция не найдена: {pdf_path}", "❌ ERROR")
+                
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Файл не найден",
+                    f"Инструкция не найдена:\n{pdf_path}\n\n"
+                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                )
+                return
+            
+            # Открываем PDF файл
+            log(f"Открываем PDF инструкцию по скачиванию: {pdf_path}", "INFO")
+            os.startfile(pdf_path)
+            
+            log("PDF инструкция по скачиванию успешно открыта", "✅ SUCCESS")
+            
+        except Exception as e:
+            log(f"Ошибка при открытии PDF инструкции: {e}", "❌ ERROR")
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть инструкцию:\n{str(e)}\n\n"
+                "Попробуйте открыть файл вручную из папки Help."
+            )
+
     def _create_main_buttons(self):
         """Создает основные кнопки управления"""
         self.start_btn = RippleButton(" Запустить Zapret", self, "54, 153, 70")
         self.start_btn.setIcon(qta.icon('fa5s.play', color='white'))
         self.start_btn.setIconSize(QSize(16, 16))
+        self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
+        self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.start_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.stop_btn = RippleButton(" Остановить Zapret", self, "255, 93, 174")
         self.stop_btn.setIcon(qta.icon('fa5s.stop', color='white'))
         self.stop_btn.setIconSize(QSize(16, 16))
+        self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
+        self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.stop_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # По умолчанию скрыта
+        self.stop_btn.hide()
         
         self.autostart_enable_btn = RippleButton(" Вкл. автозапуск", self, "54, 153, 70")
         self.autostart_enable_btn.setIcon(qta.icon('fa5s.check', color='white'))
         self.autostart_enable_btn.setIconSize(QSize(16, 16))
+        self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
+        self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.autostart_enable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.autostart_disable_btn = RippleButton(" Выкл. автозапуск", self, "255, 93, 174")
         self.autostart_disable_btn.setIcon(qta.icon('fa5s.times', color='white'))
         self.autostart_disable_btn.setIconSize(QSize(16, 16))
-
-        # Применяем стили и размеры
-        buttons_config = [
-            (self.start_btn, "54, 153, 70"),
-            (self.stop_btn, "255, 93, 174"),
-            (self.autostart_enable_btn, "54, 153, 70"),
-            (self.autostart_disable_btn, "255, 93, 174")
-        ]
-        
-        for button, color in buttons_config:
-            button.setStyleSheet(BUTTON_STYLE.format(color))
-            button.setMinimumHeight(BUTTON_HEIGHT)
-            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-    def _create_button_stacks(self):
-        """Создает стеки для переключения кнопок"""
-        # Стек для кнопок запуска/остановки (левая колонка)
-        self.start_stop_stack = QStackedWidget()
-        self.start_stop_stack.addWidget(self.start_btn)
-        self.start_stop_stack.addWidget(self.stop_btn)
-        self.start_stop_stack.setCurrentIndex(0)
-        self.start_stop_stack.setMinimumHeight(BUTTON_HEIGHT)
-        self.start_stop_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        # Стек для кнопок автозапуска (правая колонка)
-        self.autostart_stack = QStackedWidget()
-        self.autostart_stack.addWidget(self.autostart_enable_btn)
-        self.autostart_stack.addWidget(self.autostart_disable_btn)
-        self.autostart_stack.setCurrentIndex(0)
-        self.autostart_stack.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
+        self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.autostart_disable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # По умолчанию скрыта
+        self.autostart_disable_btn.hide()
 
     def _create_additional_buttons(self, grid):
         """Создает дополнительные кнопки и добавляет их в сетку"""
         self.open_folder_btn = RippleButton(" Папка Zapret", self, "0, 119, 255")
         self.open_folder_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
         self.open_folder_btn.setIconSize(QSize(16, 16))
+        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.open_folder_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.open_folder_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.test_connection_btn = RippleButton(" Тест соединения", self, "0, 119, 255")
         self.test_connection_btn.setIcon(qta.icon('fa5s.wifi', color='white'))
         self.test_connection_btn.setIconSize(QSize(16, 16))
+        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.test_connection_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.test_connection_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # Кнопка Premium с поддержкой правого клика
         self.subscription_btn = DualActionRippleButton(' Premium и VPN', self, "224, 132, 0")
         self.subscription_btn.setIcon(qta.icon('fa5s.user-check', color='white'))
         self.subscription_btn.setIconSize(QSize(16, 16))
         self.subscription_btn.set_right_click_callback(self._show_premium_info)
-        self.subscription_btn.setToolTip("Левый клик - управление подпиской\nПравый клик - информация о Premium")
+        self.subscription_btn.setToolTip(
+            "Левый клик - управление подпиской\n"
+            "Правый клик - открыть информацию о тарифах (PDF)"
+        )
+        self.subscription_btn.setStyleSheet(BUTTON_STYLE.format("224, 132, 0"))
+        self.subscription_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.subscription_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.dns_settings_btn = RippleButton(" Настройка DNS", self, "0, 119, 255")
         self.dns_settings_btn.setIcon(qta.icon('fa5s.network-wired', color='white'))
         self.dns_settings_btn.setIconSize(QSize(16, 16))
+        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
+        self.dns_settings_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.dns_settings_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.proxy_button = RippleButton(" Разблокировать популярные сервисы", self, "218, 165, 32")
         self.proxy_button.setIcon(qta.icon('fa5s.unlock', color='white'))
         self.proxy_button.setIconSize(QSize(16, 16))
+        self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
+        self.proxy_button.setMinimumHeight(BUTTON_HEIGHT)
+        self.proxy_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
-        self.update_check_btn = RippleButton(" Проверить обновления", self, "38, 38, 38")
-        self.update_check_btn.setIcon(qta.icon('fa5s.sync-alt', color='white'))
-        self.update_check_btn.setIconSize(QSize(16, 16))
-
-        # Добавляем в themed_buttons только основные UI кнопки
+        self.help_btn = RippleButton(" Справка", self, "76, 175, 80")
+        self.help_btn.setIcon(qta.icon('fa5s.question-circle', color='white'))
+        self.help_btn.setIconSize(QSize(16, 16))
+        self.help_btn.setStyleSheet(BUTTON_STYLE.format("76, 175, 80"))
+        self.help_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.help_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.help_btn.setToolTip(
+            "Открыть центр помощи\n"
+            "• Документация\n"
+            "• Поддержка в Telegram\n"
+            "• Локальные инструкции"
+        )
+        
+        self.server_status_btn = DualActionRippleButton(" Обновления", self, "38, 38, 38")
+        self.server_status_btn.setIcon(qta.icon('fa5s.sync-alt', color='white'))
+        self.server_status_btn.setIconSize(QSize(16, 16))
+        self.server_status_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
+        self.server_status_btn.setMinimumHeight(BUTTON_HEIGHT)
+        self.server_status_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.server_status_btn.set_right_click_callback(self._show_download_instruction)
+        self.server_status_btn.setToolTip(
+            "Левый клик - показать статус серверов обновлений\n"
+            "Правый клик - открыть инструкцию по скачиванию (PDF)\n\n"
+            "• Проверить доступность серверов\n"
+            "• Посмотреть последние версии\n"
+            "• Запустить обновление"
+        )
+        
+        # Добавляем в themed_buttons
         self.themed_buttons.extend([
             self.open_folder_btn,
             self.test_connection_btn,
-            self.dns_settings_btn
+            self.dns_settings_btn,
+            self.help_btn
         ])
 
-        # Применяем стили
-        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.subscription_btn.setStyleSheet(BUTTON_STYLE.format("224, 132, 0"))
-        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
-        self.update_check_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
-
-        # Добавляем в сетку
+        # Добавляем в сетку (начинаем со строки 2, т.к. строки 0-1 заняты)
         grid.addWidget(self.open_folder_btn, 2, 0)
         grid.addWidget(self.test_connection_btn, 2, 1)
         grid.addWidget(self.subscription_btn, 3, 0)
         grid.addWidget(self.dns_settings_btn, 3, 1)
-        grid.addWidget(self.proxy_button, 4, 0, 1, 2)
-        grid.addWidget(self.update_check_btn, 5, 0, 1, 2)
+        grid.addWidget(self.proxy_button, 4, 0, 1, 2)  # На 2 колонки
+        grid.addWidget(self.help_btn, 5, 0)
+        grid.addWidget(self.server_status_btn, 5, 1)
 
     def _setup_signals(self):
         """Настраивает сигналы-прокси для основного класса"""

@@ -1,6 +1,8 @@
 # altmenu/app_menubar.py
 
-from PyQt6.QtWidgets import QMenuBar, QWidget, QMessageBox, QApplication
+from PyQt6.QtWidgets import (QMenuBar, QWidget, QMessageBox, QApplication, 
+                            QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                            QTextEdit, QLineEdit, QPushButton, QDialogButtonBox)
 from PyQt6.QtGui     import QKeySequence, QAction
 from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
@@ -15,6 +17,79 @@ from utils import run_hidden
 from log import log, LogViewerDialog, global_logger
 
 from startup import get_remove_windows_terminal, set_remove_windows_terminal
+
+class LogReportDialog(QDialog):
+    """Диалог для ввода описания проблемы и контактов при отправке лога"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Отправка лога в техподдержку")
+        self.setModal(True)
+        self.setMinimumWidth(500)
+        
+        # Основной layout
+        layout = QVBoxLayout()
+        
+        # Заголовок
+        header_label = QLabel(
+            "<h3>Отправка лога файла</h3>"
+            "<p>Опишите проблему и оставьте контакты для обратной связи (необязательно):</p>"
+        )
+        header_label.setWordWrap(True)
+        layout.addWidget(header_label)
+        
+        # Поле для описания проблемы
+        problem_label = QLabel("Описание проблемы:")
+        layout.addWidget(problem_label)
+        
+        self.problem_text = QTextEdit()
+        self.problem_text.setPlaceholderText(
+            "Опишите, что не работает или какая ошибка возникает.\n"
+            "Например: Discord не открывается, показывает белый экран..."
+        )
+        self.problem_text.setMaximumHeight(150)
+        layout.addWidget(self.problem_text)
+        
+        # Поле для Telegram контакта
+        tg_label = QLabel("Telegram для связи (необязательно):")
+        layout.addWidget(tg_label)
+        
+        self.tg_contact = QLineEdit()
+        self.tg_contact.setPlaceholderText("@username или ссылка на профиль")
+        layout.addWidget(self.tg_contact)
+        
+        # Информация
+        info_label = QLabel(
+            "<p style='color: gray; font-size: 10pt;'>"
+            "💡 Ваши данные будут отправлены только в канал техподдержки<br>"
+            "📋 Лог файл поможет разработчикам найти и исправить проблему"
+            "</p>"
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # Кнопки
+        button_box = QDialogButtonBox()
+        
+        send_button = button_box.addButton("Отправить", QDialogButtonBox.ButtonRole.AcceptRole)
+        send_button.setDefault(True)
+        
+        cancel_button = button_box.addButton("Отмена", QDialogButtonBox.ButtonRole.RejectRole)
+        
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        
+        layout.addWidget(button_box)
+        
+        self.setLayout(layout)
+    
+    def get_report_data(self):
+        """Возвращает введенные данные"""
+        return {
+            'problem': self.problem_text.toPlainText().strip(),
+            'telegram': self.tg_contact.text().strip()
+        }
+
 
 class AppMenuBar(QMenuBar):
     """
@@ -35,11 +110,6 @@ class AppMenuBar(QMenuBar):
         self.auto_dpi_act.setChecked(get_dpi_autostart())
         self.auto_dpi_act.toggled.connect(self.toggle_dpi_autostart)
         file_menu.addAction(self.auto_dpi_act)
-
-        self.force_dns_act = QAction("Принудительный DNS 9.9.9.9", self, checkable=True)
-        self.force_dns_act.setChecked(self._get_force_dns_enabled())
-        self.force_dns_act.toggled.connect(self.toggle_force_dns)
-        file_menu.addAction(self.force_dns_act)
 
         self.clear_cache = file_menu.addAction("Сбросить программу")
         self.clear_cache.triggered.connect(self.clear_startup_cache)
@@ -108,7 +178,7 @@ class AppMenuBar(QMenuBar):
         telemetry_menu.addAction(act_logs)
 
         act_logs = QAction("Отправить лог файл", self)
-        act_logs.triggered.connect(self.send_log_to_tg)
+        act_logs.triggered.connect(self.send_log_to_tg_with_report)
         telemetry_menu.addAction(act_logs)
 
         # -------- 3. «Справка» ---------------------------------------------
@@ -122,193 +192,45 @@ class AppMenuBar(QMenuBar):
         act_support.triggered.connect(self.open_support)
         help_menu.addAction(act_support)
 
+        act_support = QAction("🤖 На андроид (ByeByeDPI)", self)
+        act_support.triggered.connect(self.show_byedpi_info)
+        help_menu.addAction(act_support)
+
         act_about = QAction("ℹ О программе…", self)
         act_about.triggered.connect(lambda: AboutDialog(parent).exec())
         help_menu.addAction(act_about)
 
-        # -------- 4. «Андроид» ---------------------------------------------
-        android_menu = self.addMenu("&Андроид")
-
-        act_byedpi_info = QAction("О ByeDPIAndroid", self)
-        act_byedpi_info.triggered.connect(self.show_byedpi_info)
-        android_menu.addAction(act_byedpi_info)
-
-        act_byedpi_github = QAction("GitHub проекта", self)
-        act_byedpi_github.triggered.connect(self.open_byedpi_github)
-        android_menu.addAction(act_byedpi_github)
-
-        act_byedpi_telegram = QAction("Telegram группа", self)
-        act_byedpi_telegram.triggered.connect(self.open_byedpi_telegram)
-        android_menu.addAction(act_byedpi_telegram)
-        
-
-    def _get_force_dns_enabled(self) -> bool:
-        """Получает текущее состояние принудительного DNS"""
+    def show_byedpi_info(self):
+        """Открывает PDF руководство пользователя"""
         try:
-            from dns import DNSForceManager
-            manager = DNSForceManager()
-            return manager.is_force_dns_enabled()
-        except Exception as e:
-            log(f"Ошибка при проверке состояния Force DNS: {e}", "❌ ERROR")
-            return False
-
-    def toggle_force_dns(self, enabled: bool):
-        """
-        Включает/выключает принудительную установку DNS 9.9.9.9
-        """
-
-        from dns import DNSForceManager
-        
-        try:
-            manager = DNSForceManager(status_callback=self._set_status)
+            from config import HELP_FOLDER
+            import os
             
-            if enabled:
-                # Показываем предупреждение перед включением
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Принудительный DNS")
-                msg_box.setIcon(QMessageBox.Icon.Warning)
-                msg_box.setText(
-                    "Включить принудительную установку DNS 9.9.9.9?\n\n"
-                    "Это действие изменит DNS-серверы на всех активных "
-                    "сетевых адаптерах (Ethernet и Wi-Fi)."
+            pdf_path = os.path.join(HELP_FOLDER, "ByeByeDPI - Что это такое.pdf")
+            
+            if not os.path.exists(pdf_path):
+                log(f"PDF руководство не найдено: {pdf_path}", "❌ ERROR")
+                
+                QMessageBox.warning(
+                    self,
+                    "Файл не найден",
+                    f"Руководство пользователя не найдено:\n{pdf_path}\n\n"
+                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
                 )
-                msg_box.setInformativeText(
-                    "DNS-сервер 9.9.9.9 (Quad9) обеспечивает:\n"
-                    "• Защиту от вредоносных сайтов\n"
-                    "• Конфиденциальность запросов\n"
-                    "• Обход некоторых блокировок\n\n"
-                    "Текущие настройки DNS будут сохранены для восстановления."
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-                
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
-                    # Пользователь отменил - откатываем галочку
-                    self.force_dns_act.blockSignals(True)
-                    self.force_dns_act.setChecked(False)
-                    self.force_dns_act.blockSignals(False)
-                    return
-                
-                # Создаем резервную копию текущих DNS
-                self._set_status("Создание резервной копии DNS...")
-                manager.backup_current_dns()
-                
-                # Включаем опцию в реестре
-                manager.set_force_dns_enabled(True)
-                
-                # Применяем DNS
-                self._set_status("Применение DNS 9.9.9.9...")
-                success, total = manager.force_dns_on_all_adapters()
-                
-                if success > 0:
-                    QMessageBox.information(
-                        self._pw, 
-                        "DNS установлен",
-                        f"DNS 9.9.9.9 успешно установлен на {success} из {total} адаптеров.\n\n"
-                        "Изменения вступят в силу немедленно."
-                    )
-                    log(f"Принудительный DNS включен: {success}/{total} адаптеров", "INFO")
-                else:
-                    QMessageBox.warning(
-                        self._pw,
-                        "Ошибка",
-                        "Не удалось установить DNS ни на одном адаптере.\n"
-                        "Возможно, требуются права администратора."
-                    )
-                    # Откатываем настройку
-                    manager.set_force_dns_enabled(False)
-                    self.force_dns_act.blockSignals(True)
-                    self.force_dns_act.setChecked(False)
-                    self.force_dns_act.blockSignals(False)
-                    
-            else:
-                # Отключение принудительного DNS
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Отключение принудительного DNS")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText("Как отключить принудительный DNS?")
-                
-                restore_btn = msg_box.addButton("Восстановить из резервной копии", QMessageBox.ButtonRole.AcceptRole)
-                auto_btn = msg_box.addButton("Переключить на автоматический", QMessageBox.ButtonRole.AcceptRole)
-                cancel_btn = msg_box.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
-                
-                msg_box.setDefaultButton(restore_btn)
-                msg_box.exec()
-                
-                clicked_btn = msg_box.clickedButton()
-                
-                if clicked_btn == cancel_btn:
-                    # Отмена - возвращаем галочку
-                    self.force_dns_act.blockSignals(True)
-                    self.force_dns_act.setChecked(True)
-                    self.force_dns_act.blockSignals(False)
-                    return
-                
-                # Отключаем опцию в реестре
-                manager.set_force_dns_enabled(False)
-                
-                if clicked_btn == restore_btn:
-                    # Восстанавливаем из резервной копии
-                    self._set_status("Восстановление DNS из резервной копии...")
-                    if manager.restore_dns_from_backup():
-                        QMessageBox.information(
-                            self._pw,
-                            "DNS восстановлен",
-                            "DNS-настройки успешно восстановлены из резервной копии."
-                        )
-                        log("DNS восстановлен из резервной копии", "INFO")
-                    else:
-                        QMessageBox.warning(
-                            self._pw,
-                            "Ошибка",
-                            "Не удалось восстановить DNS из резервной копии.\n"
-                            "Настройки будут сброшены на автоматические."
-                        )
-                        # Fallback - сбрасываем на автоматические
-                        self._reset_all_dns_to_auto(manager)
-                        
-                elif clicked_btn == auto_btn:
-                    # Сбрасываем на автоматическое получение
-                    self._reset_all_dns_to_auto(manager)
-                    
-            self._set_status("Готово")
+                return
+            
+            log(f"Открываем PDF руководство: {pdf_path}", "INFO")
+            os.startfile(pdf_path)
+            log("PDF руководство успешно открыто", "✅ SUCCESS")
             
         except Exception as e:
-            log(f"Ошибка при переключении Force DNS: {e}", "❌ ERROR")
+            log(f"Ошибка при открытии PDF руководства: {e}", "❌ ERROR")
+            
             QMessageBox.critical(
-                self._pw,
+                self,
                 "Ошибка",
-                f"Произошла ошибка при изменении настроек DNS:\n{e}"
-            )
-            # В случае ошибки откатываем галочку
-            self.force_dns_act.blockSignals(True)
-            self.force_dns_act.setChecked(not enabled)
-            self.force_dns_act.blockSignals(False)
-
-    def _reset_all_dns_to_auto(self, manager):
-        """Сбрасывает DNS на всех адаптерах на автоматическое получение"""
-        self._set_status("Сброс DNS на автоматическое получение...")
-        adapters = manager.get_network_adapters()
-        success_count = 0
-        
-        for adapter in adapters:
-            if manager.reset_dns_to_auto(adapter):
-                success_count += 1
-        
-        if success_count > 0:
-            QMessageBox.information(
-                self._pw,
-                "DNS сброшен",
-                f"DNS сброшен на автоматическое получение на {success_count} из {len(adapters)} адаптеров."
-            )
-            log(f"DNS сброшен на авто: {success_count}/{len(adapters)} адаптеров", "INFO")
-        else:
-            QMessageBox.warning(
-                self._pw,
-                "Ошибка",
-                "Не удалось сбросить DNS ни на одном адаптере."
+                f"Не удалось открыть руководство пользователя:\n{str(e)}\n\n"
+                "Попробуйте открыть файл вручную из папки Help."
             )
 
     def clear_startup_cache(self):
@@ -494,8 +416,8 @@ class AppMenuBar(QMenuBar):
                                 "Ошибка",
                                 f"Не удалось открыть журнал:\n{e}")
 
-    def send_log_to_tg(self):
-        """Отправляет полный лог через отдельного бота для логов."""
+    def send_log_to_tg_with_report(self):
+        """Показывает диалог для описания проблемы, затем отправляет лог"""
         import time
         now = time.time()
         interval = 1 * 60  # 1 минута
@@ -529,6 +451,13 @@ class AppMenuBar(QMenuBar):
             msg_box.exec()
             return
 
+        # Показываем диалог для ввода описания проблемы
+        report_dialog = LogReportDialog(self._pw)
+        if report_dialog.exec() != QDialog.DialogCode.Accepted:
+            return  # Пользователь отменил отправку
+        
+        report_data = report_dialog.get_report_data()
+
         # Запоминаем время отправки
         self._settings.setValue("last_full_log_send", now)
 
@@ -537,7 +466,7 @@ class AppMenuBar(QMenuBar):
         from tgram.tg_log_delta import get_client_id
         import os
 
-        # ИЗМЕНЕНО: используем текущий лог файл
+        # Используем текущий лог файл
         from log import global_logger
         LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
         
@@ -545,17 +474,23 @@ class AppMenuBar(QMenuBar):
             QMessageBox.warning(self._pw, "Ошибка", "Файл лога не найден")
             return
         
-        # Формируем подпись с информацией о файле
+        # Формируем подпись с информацией о файле и проблеме
         import platform
         log_filename = os.path.basename(LOG_PATH)
-        caption = (
-            f"📋 Ручная отправка лога\n"
-            f"📁 Файл: {log_filename}\n"  # Добавляем имя файла
-            f"Zapret v{APP_VERSION}\n"
-            f"ID: {get_client_id()}\n"
-            f"Host: {platform.node()}\n"
-            f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"
-        )
+        
+        caption = f"📋 Ручная отправка лога\n"
+        caption += f"📁 Файл: {log_filename}\n"
+        caption += f"Zapret v{APP_VERSION}\n"
+        caption += f"ID: {get_client_id()}\n"
+        caption += f"Host: {platform.node()}\n"
+        caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+        
+        # Добавляем описание проблемы и контакты, если они указаны
+        if report_data['problem']:
+            caption += f"\n🔴 Проблема:\n{report_data['problem']}\n"
+        
+        if report_data['telegram']:
+            caption += f"\n📱 Telegram: {report_data['telegram']}\n"
 
         action = self.sender()
         if action:
@@ -573,9 +508,12 @@ class AppMenuBar(QMenuBar):
 
         def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
             if ok:
-                QMessageBox.information(wnd, "Успешно", 
-                    "Лог успешно отправлен в канал поддержки.\n"
-                    "Спасибо за помощь в улучшении программы!")
+                success_msg = "Лог успешно отправлен в канал поддержки.\n"
+                if report_data['problem'] or report_data['telegram']:
+                    success_msg += "Ваше описание проблемы также отправлено.\n"
+                success_msg += "Спасибо за помощь в улучшении программы!"
+                
+                QMessageBox.information(wnd, "Успешно", success_msg)
                 if hasattr(wnd, "set_status"):
                     wnd.set_status("Лог отправлен")
             else:
@@ -604,61 +542,6 @@ class AppMenuBar(QMenuBar):
         # Сохраняем ссылку на поток
         self._log_send_thread = thr
         thr.start()
-
-    # ==================================================================
-    #  Андроид
-    # ==================================================================
-    def show_byedpi_info(self):
-        """Показывает информацию о ByeDPIAndroid"""
-        info_text = """
-        <h2>ByeDPIAndroid</h2>
-        
-        <p><b>ByeDPIAndroid</b> — это мобильная версия DPI-обхода для устройств Android, 
-        аналогичная Zapret GUI для Windows.</p>
-        
-        <h3>Особенности:</h3>
-        <ul>
-        <li>🔧 Простая настройка и использование</li>
-        <li>🛡️ Обход блокировок сайтов на Android</li>
-        <li>⚡ Работа без root-доступа</li>
-        <li>🔄 Регулярные обновления</li>
-        <li>💬 Активная поддержка сообщества</li>
-        </ul>
-        
-        <h3>Ссылки:</h3>
-        <p>📱 <a href="https://github.com/romanvht/ByeDPIAndroid">GitHub проекта</a></p>
-        <p>💬 <a href="https://t.me/byebyedpi_group">Telegram группа</a></p>
-        
-        <p><i>ByeDPIAndroid разрабатывается независимо от Zapret GUI, 
-        но использует схожие принципы работы.</i></p>
-        """
-        
-        msg_box = QMessageBox(self._pw)
-        msg_box.setWindowTitle("ByeDPIAndroid")
-        msg_box.setTextFormat(Qt.TextFormat.RichText)  # Исправлено: используем Qt.TextFormat
-        msg_box.setText(info_text)
-        msg_box.setIcon(QMessageBox.Icon.Information)
-        msg_box.exec()
-
-    def open_byedpi_github(self):
-        """Открывает GitHub проекта ByeDPIAndroid"""
-        try:
-            webbrowser.open("https://github.com/romanvht/ByeDPIAndroid")
-            self._set_status("Открываю GitHub ByeDPIAndroid...")
-        except Exception as e:
-            err = f"Ошибка при открытии GitHub: {e}"
-            self._set_status(err)
-            QMessageBox.warning(self._pw, "Ошибка", err)
-
-    def open_byedpi_telegram(self):
-        """Открывает Telegram группу ByeDPIAndroid"""
-        try:
-            webbrowser.open("https://t.me/byebyedpi_group")
-            self._set_status("Открываю Telegram группу ByeDPIAndroid...")
-        except Exception as e:
-            err = f"Ошибка при открытии Telegram: {e}"
-            self._set_status(err)
-            QMessageBox.warning(self._pw, "Ошибка", err)
 
     def _get_defender_disabled(self) -> bool:
         """Проверяет, отключен ли Windows Defender"""

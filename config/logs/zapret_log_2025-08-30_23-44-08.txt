@@ -10,7 +10,7 @@ Total log files in folder: 51
            ^^^^^^^^^^^^^^^^
 [23:57:05] [23:57:05]   File "C:\Program Files\Python312\Lib\tkinter\__init__.py", line 862, in callit
     func(*args)
-[23:57:05] [23:57:05]   File "D:\Privacy\zapretgui\build_zapret\build_release_gui.py", line 903, in <lambda>
+[23:57:05] [23:57:05]   File "H:\Privacy\zapretgui\build_zapret\build_release_gui.py", line 903, in <lambda>
     self.root.after(0, lambda: self.build_error(str(e)))
                                                     ^
 [23:57:05] [23:57:05] NameError: cannot access free variable 'e' where it is not associated with a value in enclosing scope

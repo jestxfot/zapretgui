@@ -236,7 +236,23 @@ def stop_dpi_bat(app: "LupiDPIApp"):
                     capture_output=True,
                     timeout=5
                 )
-                    
+
+                # Останавливаем службу
+                run_hidden(
+                    ['C:\\Windows\\System32\\sc.exe', 'stop', 'Monkey'],
+                    shell=False,
+                    capture_output=True,
+                    timeout=5
+                )
+                
+                # Удаляем службу
+                run_hidden(
+                    ['C:\\Windows\\System32\\sc.exe', 'delete', 'Monkey'],
+                    shell=False,
+                    capture_output=True,
+                    timeout=5
+                )
+
         except subprocess.TimeoutExpired:
             log("Таймаут при выполнении stop.bat", level="⚠ WARNING")
         except Exception as e:

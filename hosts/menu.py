@@ -40,18 +40,7 @@ DOMAIN_CATEGORIES = {
     ],
     
     "🧠 Google AI": [
-        "gemini.google.com",
-        "aistudio.google.com",
-        "generativelanguage.googleapis.com",
-        "alkalimakersuite-pa.clients6.google.com",
-        "aitestkitchen.withgoogle.com",
-        "aisandbox-pa.googleapis.com",
-        "webchannel-alkalimakersuite-pa.clients6.google.com",
-        "proactivebackend-pa.googleapis.com",
-        "o.pki.goog",
-        "labs.google",
-        "notebooklm.google",
-        "notebooklm.google.com",
+        "alkalimakersuite-pa.clients6.google.com"
     ],
     
     "🤖 Другие AI сервисы": [
@@ -72,6 +61,9 @@ DOMAIN_CATEGORIES = {
         "inference.codeium.com",
         "api.individual.githubcopilot.com",
         "proxy.individual.githubcopilot.com",
+    ],
+
+    "Deepl": [
         "deepl.com",
         "www.deepl.com",
         "s.deepl.com",
@@ -82,7 +74,7 @@ DOMAIN_CATEGORIES = {
         "gtm.deepl.com",
         "checkout.www.deepl.com",
     ],
-    
+
     "📘 Facebook & Instagram": [
         "facebook.com",
         "www.facebook.com",
@@ -130,6 +122,7 @@ DOMAIN_CATEGORIES = {
     
     "🎮 Twitch": [
         "usher.ttvnw.net",
+        "gql.twitch.tv"
     ],
     
     "📺 Стриминговые сервисы": [
@@ -175,6 +168,8 @@ DOMAIN_CATEGORIES = {
         "swap-api.pump.fun",
         "rutracker.org",
         "static.rutracker.cc",
+        "rutor.is",
+        "rutor.info"
     ],
     
     "🚫 Блокировка (казино)": [
@@ -303,11 +298,55 @@ class HostsSelectorDialog(QDialog):
         self.update_service_buttons_state()
         
     def _detect_dark_theme(self):
-        """Определяет, используется ли темная тема"""
-        palette = self.palette()
-        bg_color = palette.color(QPalette.ColorRole.Window)
-        return bg_color.lightness() < 128
-        
+        """Определяет, используется ли темная тема по реестру"""
+        try:
+            from ui.theme import get_selected_theme
+            current_theme = get_selected_theme()
+            
+            if not current_theme:
+                return is_dark
+            
+            # Очищаем название темы от суффиксов
+            clean_theme = current_theme
+            suffixes = [" (заблокировано)", " (AMOLED Premium)", " (Pure Black Premium)"]
+            for suffix in suffixes:
+                clean_theme = clean_theme.replace(suffix, "")
+            
+            # Импортируем THEMES из ui.theme
+            try:
+                from ui.theme import THEMES
+                theme_info = THEMES.get(clean_theme, {})
+                theme_file = theme_info.get("file", "")
+                
+                # Темные темы имеют файлы с префиксом "dark_"
+                # Также проверяем специальные темы
+                is_dark = (
+                    theme_file.startswith("dark_") or
+                    clean_theme in ["РКН Тян", "Полностью черная"] or
+                    clean_theme.startswith("AMOLED") or
+                    theme_info.get("amoled", False) or
+                    theme_info.get("pure_black", False)
+                )
+                
+                return is_dark
+                
+            except ImportError:
+                # Если не удается импортировать THEMES, используем список
+                dark_themes = [
+                    "Темная синяя", "Темная бирюзовая", "Темная янтарная", 
+                    "Темная розовая", "РКН Тян", "Полностью черная",
+                    "AMOLED Синяя", "AMOLED Зеленая", "AMOLED Фиолетовая", "AMOLED Красная"
+                ]
+                return clean_theme in dark_themes
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка определения темы из реестра: {e}", "❌ ERROR")
+            # Fallback на определение по палитре
+            palette = self.palette()
+            bg_color = palette.color(QPalette.ColorRole.Window)
+            return bg_color.lightness() < 128
+
     def init_ui(self):
         """Инициализация интерфейса"""
         main_layout = QVBoxLayout()
@@ -405,11 +444,22 @@ class HostsSelectorDialog(QDialog):
         """)
         main_layout.addWidget(line)
         
-        # Компактные табы
+        # ✅ СНАЧАЛА СОЗДАЕМ ТАБЫ (чтобы tree_widget был доступен)
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
+        self.tab_widget.tabBar().setDrawBase(False)
 
-        # Кнопки управления
+        # Вкладка с быстрым выбором
+        quick_tab = self.create_quick_select_tab()
+        self.tab_widget.addTab(quick_tab, "⚡ Быстрый выбор")
+        
+        # Вкладка с деревом категорий (создает self.tree_widget)
+        tree_tab = self.create_tree_tab()
+        self.tab_widget.addTab(tree_tab, "📋 Все домены")
+        
+        main_layout.addWidget(self.tab_widget)
+        
+        # ✅ ТОЛЬКО ПОСЛЕ ТАБОВ добавляем кнопки управления
         control_layout = QHBoxLayout()
         control_layout.setSpacing(8)
         
@@ -417,22 +467,27 @@ class HostsSelectorDialog(QDialog):
         select_all_btn.clicked.connect(self.select_all)
         control_layout.addWidget(select_all_btn)
         
-        clear_btn = QPushButton("Очистить выбор")
-        clear_btn.clicked.connect(self.deselect_all)
-        control_layout.addWidget(clear_btn)
+        deselect_btn = QPushButton("Снять выделение")
+        deselect_btn.clicked.connect(self.deselect_all)
+        control_layout.addWidget(deselect_btn)
         
-        control_layout.addStretch()
-        main_layout.addLayout(control_layout)  # ← ИСПРАВЛЕНО: используем addLayout вместо addWidget
-
-        # Вкладка с быстрым выбором
-        quick_tab = self.create_quick_select_tab()
-        self.tab_widget.addTab(quick_tab, "⚡ Быстрый выбор")
+        # Кнопка полной очистки hosts
+        clear_hosts_btn = QPushButton("🗑️ Очистить hosts")
+        clear_hosts_btn.setToolTip("Полностью очищает файл hosts (удаляет ВСЕ записи)")
+        clear_hosts_btn.clicked.connect(self.clear_hosts_completely)
+        clear_hosts_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {'#dc3545' if not self.is_dark_theme else '#991b1b'};
+                color: white;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {'#c82333' if not self.is_dark_theme else '#7f1d1d'};
+            }}
+        """)
+        control_layout.addWidget(clear_hosts_btn)
         
-        # Вкладка с деревом категорий
-        tree_tab = self.create_tree_tab()
-        self.tab_widget.addTab(tree_tab, "📋 Все домены")
-        
-        main_layout.addWidget(self.tab_widget)
+        main_layout.addLayout(control_layout)
         
         # Adobe секция
         self.adobe_section = self.create_adobe_section()
@@ -470,6 +525,68 @@ class HostsSelectorDialog(QDialog):
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
 
+    def clear_hosts_completely(self):
+        """Полностью очищает файл hosts с подтверждением"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("⚠️ Полная очистка hosts")
+        msg.setText("Вы уверены, что хотите ПОЛНОСТЬЮ очистить файл hosts?")
+        msg.setInformativeText(
+            "⚠️ ВНИМАНИЕ!\n\n"
+            "Это действие удалит ВСЕ записи из файла hosts:\n"
+            "• Все разблокированные сервисы (ChatGPT, Spotify и др.)\n"
+            "• Блокировку Adobe (если включена)\n"
+            "• Любые ваши собственные записи\n\n"
+            "Файл будет восстановлен до базового состояния Windows.\n\n"
+            "Продолжить?"
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        
+        # Красная кнопка подтверждения
+        yes_btn = msg.button(QMessageBox.StandardButton.Yes)
+        yes_btn.setText("Да, очистить всё")
+        yes_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            try:
+                log("🗑️ Пользователь подтвердил полную очистку hosts", "WARNING")
+                
+                # Очищаем выбор в дереве для визуального отображения
+                self.deselect_all()
+                
+                # Устанавливаем пустой набор доменов
+                self.selected_domains = set()
+                
+                # Сохраняем пустой набор в реестр
+                set_active_hosts_domains(set())
+                
+                # Закрываем диалог с кодом принятия
+                # Это вызовет применение пустого набора = полная очистка
+                super().accept()
+                
+                log("✅ Диалог закрыт с флагом полной очистки", "SUCCESS")
+                
+            except Exception as e:
+                log(f"❌ Ошибка при инициации очистки hosts: {e}", "ERROR")
+                QMessageBox.critical(
+                    self,
+                    "Ошибка",
+                    f"Не удалось инициировать очистку hosts:\n{str(e)}"
+                )
+        else:
+            log("Полная очистка hosts отменена пользователем", "INFO")
+
     def create_quick_select_tab(self):
         """Создает вкладку быстрого выбора с индикацией статуса"""
         widget = QWidget()
@@ -505,19 +622,6 @@ class HostsSelectorDialog(QDialog):
             services_grid.addWidget(btn, row, col)
             
         layout.addLayout(services_grid)
-        
-        # Разделитель
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet(f"""
-            QFrame {{
-                border: none;
-                background: {'#4a5568' if self.is_dark_theme else '#e0e0e0'};
-                max-height: 1px;
-                margin: 10px 0;
-            }}
-        """)
-        layout.addWidget(separator)
         
         # Предустановленные наборы
         presets_label = QLabel("Готовые наборы:")
@@ -629,14 +733,25 @@ class HostsSelectorDialog(QDialog):
             
             QTabWidget {{
                 border: 0px;
+                background-color: %s;               /* <- сделай как у pane */
             }}
             
+            QTabWidget::tab-bar {{
+                background: transparent;
+                alignment: left;
+            }}
+
             QTabWidget::pane {{
-                border: 0px; /* ← убираем границу полностью */
-                background-color: {bg_secondary};
+                border: 0px;
+                background-color: %s;               /* тот же цвет */
                 padding: 10px;
+                top: -1px;                          /* перекрыть тонкую линию под вкладками */
             }}
             
+            QTabBar {{
+                background: transparent;
+            }}
+
             QTabBar::tab {{
                 background-color: {bg_secondary};
                 color: {text_secondary};
@@ -1128,13 +1243,20 @@ class HostsSelectorDialog(QDialog):
         """Обработчик применения"""
         self.selected_domains = self.get_selected_domains()
         
+        # ✅ УЛУЧШЕННОЕ ПОДТВЕРЖДЕНИЕ при очистке
         if not self.selected_domains and self.all_active_domains:
+            # Проверяем, была ли это явная очистка через кнопку
+            # (в этом случае мы уже показали предупреждение)
+            # Иначе показываем стандартное подтверждение
+            
             reply = QMessageBox.question(
                 self,
-                "Подтверждение",
-                f"Вы собираетесь удалить все {len(self.all_active_domains)} активных доменов из hosts файла.\n\n"
-                "Продолжить?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                "Подтверждение удаления",
+                f"Вы не выбрали ни одного домена.\n\n"
+                f"Это удалит все {len(self.all_active_domains)} активных записей из hosts файла.\n\n"
+                f"Продолжить?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
                 return

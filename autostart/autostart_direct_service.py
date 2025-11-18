@@ -55,19 +55,14 @@ def create_direct_service_bat(
     try:
         from .autostart_direct import _resolve_file_paths
         from config import MAIN_DIRECTORY
+        from strategy_menu.apply_filters import apply_all_filters
         
         # Разрешаем пути
         resolved_args = _resolve_file_paths(strategy_args, work_dir)
         
-        # Применяем параметры
-        from strategy_menu.strategy_runner import (
-            apply_game_filter_parameter,
-            apply_wssize_parameter
-        )
-        
+        # ✅ Применяем ВСЕ фильтры в правильном порядке
         lists_dir = os.path.join(work_dir, "lists")
-        resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-        resolved_args = apply_wssize_parameter(resolved_args)
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
         
         # Создаем .bat файл в корневой папке программы
         bat_path = os.path.join(MAIN_DIRECTORY, "zapret_service.bat")
@@ -122,16 +117,14 @@ def setup_direct_service_alternative(
             return False
         
         from .autostart_direct import _resolve_file_paths
-        from strategy_menu.strategy_runner import (
-            apply_game_filter_parameter,
-            apply_wssize_parameter
-        )
+        from strategy_menu.apply_filters import apply_all_filters
         
         # Разрешаем пути
         resolved_args = _resolve_file_paths(strategy_args, work_dir)
+        
+        # ✅ Применяем ВСЕ фильтры в правильном порядке
         lists_dir = os.path.join(work_dir, "lists")
-        resolved_args = apply_game_filter_parameter(resolved_args, lists_dir)
-        resolved_args = apply_wssize_parameter(resolved_args)
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
         
         # Удаляем старую службу
         remove_direct_service()
@@ -197,9 +190,8 @@ def setup_direct_service(
     Создает Windows службу через NSSM для запуска Direct режима
     """
     try:
-        # НОВОЕ: Проверяем, не запущен ли уже winws.exe
+        # Проверяем, не запущен ли уже winws.exe
         try:
-            # Пробуем остановить существующий процесс
             log("Проверка запущенных процессов winws.exe...", "INFO")
             
             # Используем taskkill для остановки всех winws.exe

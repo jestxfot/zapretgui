@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 # ─── Настройки бота для логов ───────────────────────────────
-LOG_BOT_TOKEN = "8254416280:AAHDq7H3Lz2-UcU76RhMJzppr__wqwCmkO0"  # Замените на токен вашего лог-бота
+LOG_BOT_TOKEN = "8254416280:AAFKCebglBLvkmp7e0pJ3Ees477oKCDHqLg"  # Замените на токен вашего лог-бота
 LOG_BOT_CHAT_ID = "-1003005847271"  # ID чата/канала для логов
 
 # Настройки

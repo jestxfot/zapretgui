@@ -484,13 +484,13 @@ class HostsWorker(QObject):
             
             if self.operation == 'select' and self.domains is not None:
                 if len(self.domains) == 0:
-                    # Если не выбрано ни одного домена - удаляем все
-                    self.progress.emit("Удаление всех доменов из hosts...")
-                    success = self.hosts_manager.remove_proxy_domains()
+                    # ✅ Если не выбрано ни одного домена - ПОЛНОСТЬЮ очищаем hosts
+                    self.progress.emit("Полная очистка hosts файла...")
+                    success = self.hosts_manager.clear_hosts_file()  # ← ВОТ ЭТОТ ВЫЗОВ
                     if success:
-                        message = "Все записи удалены из hosts файла."
+                        message = "Файл hosts полностью очищен (восстановлено базовое содержимое Windows)."
                     else:
-                        message = "Не удалось удалить записи из hosts файла."
+                        message = "Не удалось очистить hosts файл."
                 else:
                     # Применяем выбранные домены
                     self.progress.emit(f"Применение {len(self.domains)} доменов...")

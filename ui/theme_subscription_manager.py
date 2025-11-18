@@ -36,34 +36,43 @@ class ThemeSubscriptionManager:
 
     def update_title_with_subscription_status(self: QWidget, is_premium: bool = False, 
                                             current_theme: str = None, 
-                                            days_remaining: Optional[int] = None):
+                                            days_remaining: Optional[int] = None,
+                                            source: str = "api"):
         """
-        Обновляет заголовок окна с информацией о подписке.
+        ✅ ОБНОВЛЕНО: Обновляет заголовок окна с информацией о подписке
         
         Args:
             is_premium: True если пользователь имеет премиум подписку
             current_theme: Текущая тема интерфейса
-            days_remaining: Количество дней до окончания подписки
+            days_remaining: Количество дней до окончания подписки (None для offline/безлимит)
+            source: Источник данных ('api', 'offline', 'init')
         """
         # Обновляем системный заголовок окна
         base_title = f'Zapret v{APP_VERSION}'
         
         if is_premium:
+            # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
             if days_remaining is not None:
                 if days_remaining > 0:
                     premium_text = f" [PREMIUM - {days_remaining} дн.]"
                 elif days_remaining == 0:
                     premium_text = " [PREMIUM - истекает сегодня]"
                 else:
-                    premium_text = " [PREMIUM - истекла]"
+                    # Отрицательное значение (не должно быть в новой системе)
+                    premium_text = " [PREMIUM - истёк]"
             else:
-                premium_text = " [PREMIUM]"
+                # None - offline режим или безлимитная подписка
+                if source == "offline":
+                    premium_text = " [PREMIUM - offline]"
+                else:
+                    premium_text = " [PREMIUM]"
                 
             full_title = f"{base_title}{premium_text}"
             self.setWindowTitle(full_title)
-            log(f"Заголовок окна обновлен: {full_title}", "DEBUG")
+            log(f"Заголовок окна обновлен: {full_title} (source: {source})", "DEBUG")
         else:
             self.setWindowTitle(base_title)
+            log(f"Заголовок окна: FREE режим (source: {source})", "DEBUG")
         
         # Обновляем title_label с цветным статусом
         base_label_title = "Zapret GUI"
@@ -75,7 +84,13 @@ class ThemeSubscriptionManager:
         
         if is_premium:
             premium_color = self._get_premium_indicator_color(actual_current_theme)
-            premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
+            
+            # ✅ УЛУЧШЕНО: Показываем offline статус с эмодзи
+            if source == "offline":
+                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM 📡]</span>'
+            else:
+                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
+                
             full_label_title = f"{base_label_title}{premium_indicator}"
             self.title_label.setText(full_label_title)
             self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
@@ -173,24 +188,27 @@ class ThemeSubscriptionManager:
     def update_subscription_button_text(self, is_premium: bool = False,
                                       days_remaining: Optional[int] = None):
         """
-        Обновляет текст кнопки подписки.
+        ✅ ОБНОВЛЕНО: Обновляет текст кнопки подписки
         
         Args:
             is_premium: True если пользователь имеет премиум подписку
-            days_remaining: Количество дней до окончания подписки
+            days_remaining: Количество дней до окончания подписки (может быть None)
         """
         if not hasattr(self, 'subscription_btn'):
             return
         
         if is_premium:
+            # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
             if days_remaining is not None:
                 if days_remaining > 0:
                     button_text = f" Premium ({days_remaining} дн.)"
                 elif days_remaining == 0:
                     button_text = " Истекает сегодня!"
                 else:
+                    # Отрицательное (не должно быть)
                     button_text = " Premium истёк"
             else:
+                # None - offline или безлимит
                 button_text = " Premium активен"
         else:
             button_text = " Premium и VPN"
@@ -198,35 +216,9 @@ class ThemeSubscriptionManager:
         self.subscription_btn.setText(button_text)
         log(f"Текст кнопки подписки обновлен: {button_text.strip()}", "DEBUG")
     
-    def get_subscription_status_text(self, is_premium: bool = False,
-                                   days_remaining: Optional[int] = None) -> str:
-        """
-        Возвращает форматированный текст статуса подписки.
-        
-        Args:
-            is_premium: True если пользователь имеет премиум подписку
-            days_remaining: Количество дней до окончания подписки
-            
-        Returns:
-            str: Форматированный текст статуса
-        """
-        if not is_premium:
-            return "Подписка: Бесплатная версия"
-        
-        if days_remaining is not None:
-            if days_remaining > 0:
-                return f"Подписка: Premium (осталось {days_remaining} дн.)"
-            elif days_remaining == 0:
-                return "Подписка: Premium (истекает сегодня)"
-            else:
-                return "Подписка: Premium (истекла)"
-        else:
-            return "Подписка: Premium"
-    
     def debug_theme_colors(self):
         """
-        Отладочный метод для проверки цветов темы.
-        Выводит в лог информацию о текущих цветах и статусе подписки.
+        ✅ ОБНОВЛЕНО: Отладочный метод для проверки цветов темы
         """
         if hasattr(self, 'theme_manager'):
             current_theme = self.theme_manager.current_theme
@@ -241,13 +233,21 @@ class ThemeSubscriptionManager:
             
             if hasattr(self, 'donate_checker') and self.donate_checker:
                 try:
-                    is_prem, status_msg, days = self.donate_checker.check_subscription_status()
+                    # ✅ ИСПОЛЬЗУЕМ НОВЫЙ API
+                    sub_info = self.donate_checker.get_full_subscription_info()
+                    
+                    is_prem = sub_info['is_premium']
+                    status_msg = sub_info['status_msg']
+                    days = sub_info['days_remaining']
+                    level = sub_info['subscription_level']
+                    
                     premium_color = self._get_premium_indicator_color(current_theme)
                     free_color = self._get_free_indicator_color(current_theme)
                     
                     log(f"Премиум статус: {is_prem}", "DEBUG")
                     log(f"Статус сообщение: '{status_msg}'", "DEBUG")
                     log(f"Дни до окончания: {days}", "DEBUG")
+                    log(f"Уровень подписки: {level}", "DEBUG")
                     log(f"Цвет PREMIUM индикатора: {premium_color}", "DEBUG")
                     log(f"Цвет FREE индикатора: {free_color}", "DEBUG")
                     
@@ -258,6 +258,8 @@ class ThemeSubscriptionManager:
                     
                 except Exception as e:
                     log(f"Ошибка отладки цветов: {e}", "❌ ERROR")
+                    import traceback
+                    log(f"Traceback: {traceback.format_exc()}", "DEBUG")
             
             log(f"=== КОНЕЦ ОТЛАДКИ ===", "DEBUG")
     
@@ -271,7 +273,6 @@ class ThemeSubscriptionManager:
             self.theme_handler.change_theme(theme_name)
             
             # Отладочная информация через таймер
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(200, self.debug_theme_colors)
         else:
             log("ThemeHandler не инициализирован", "❌ ERROR")

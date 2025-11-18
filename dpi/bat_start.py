@@ -11,6 +11,14 @@ if TYPE_CHECKING:
 from log import log
 from utils import run_hidden
 
+from dpi.process_health_check import (
+    check_process_health, 
+    get_last_crash_info, 
+    check_common_crash_causes,
+    check_conflicting_processes,
+    get_conflicting_processes_report
+)
+
 class BatDPIStart:
     """Класс для запуска DPI. Отвечает только за BAT режим"""
 
@@ -89,6 +97,9 @@ class BatDPIStart:
             Stop-Service -Name windivert -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
             sc.exe delete windivert | Out-Null
+            Stop-Service -Name Monkey -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            sc.exe delete Monkey | Out-Null
         }
         """
         
@@ -365,7 +376,12 @@ class BatDPIStart:
         """Запуск через ShellExecuteEx"""
         self.set_status(f"Запуск стратегии: {strategy_name}")
         log(f"Запускаем BAT файл: {bat_file}", level="INFO")
-        
+
+        conflicting = check_conflicting_processes()
+        if conflicting:
+            warning_report = get_conflicting_processes_report()
+            log(warning_report, "⚠ WARNING")
+
         try:
             import ctypes
             from ctypes import wintypes, byref
@@ -421,17 +437,45 @@ class BatDPIStart:
                 log("Ошибка ShellExecuteEx", "ERROR")
                 return False
             
-            time.sleep(3)
+            # ✅ НОВАЯ ПРОВЕРКА ЗДОРОВЬЯ ПРОЦЕССА
+            log("Ожидание инициализации процесса...", "INFO")
+            time.sleep(2)  # Даем процессу время на инициализацию
             
-            if self.check_process_running_wmi():
-                log("DPI успешно запущен", level="✅ SUCCESS")
-                self.set_status(f"DPI запущен: {strategy_name}")
+            from dpi.process_health_check import check_process_health, get_last_crash_info, check_common_crash_causes
+            
+            is_healthy, error_message = check_process_health(
+                process_name="winws.exe",
+                monitor_duration=5,  # Мониторим 5 секунд
+                check_interval=0.5   # Проверяем каждые 0.5 секунды
+            )
+            
+            if is_healthy:
+                log("DPI успешно запущен и работает стабильно", level="✅ SUCCESS")
+                self.set_status(f"✅ DPI запущен: {strategy_name}")
                 self._update_ui(True)
                 return True
             else:
-                log("Процесс winws.exe не запустился", level="❌ ERROR")
+                log(f"DPI запустился, но завершился: {error_message}", level="❌ ERROR")
+                self.set_status("❌ DPI завершился после запуска. Проверьте настройки!")
+                
+                # Показываем дополнительную информацию
+                crash_info = get_last_crash_info()
+                if crash_info:
+                    log("📋 История падений из Event Log:", "INFO")
+                    for line in crash_info.split('\n'):
+                        log(f"  {line}", "INFO")
+                
+                # Проверяем типичные причины
+                causes = check_common_crash_causes()
+                if causes:
+                    log("💡 Возможные причины падения:", "INFO")
+                    for line in causes.split('\n'):
+                        log(f"  {line}", "INFO")
+                
                 return False
                 
         except Exception as e:
             log(f"Ошибка при запуске: {e}", level="❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
             return False

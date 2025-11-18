@@ -96,7 +96,7 @@ def check_rate_limit() -> Dict[str, Any]:
     try:
         headers = {
             'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Zapret-Updater/1.0'
+            'User-Agent': 'Zapret-Updater/3.1'
         }
         
         # Добавляем токен если есть
@@ -148,7 +148,7 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
         # Делаем запрос
         headers = {
             'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Zapret-Updater/1.0'
+            'User-Agent': 'Zapret-Updater/3.1'
         }
         
         # Добавляем GitHub token если есть (увеличивает лимит с 60 до 5000)

@@ -5,10 +5,11 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                             QLabel, QMessageBox, QTextEdit, QApplication, QFileDialog)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QTextOption  # Добавили QTextOption
+from PyQt6.QtGui import QFont, QTextOption
 from datetime import datetime
 import shlex
 import os
+from typing import Sequence, Any, Optional, List
 
 from log import log
 from config import WINWS_EXE
@@ -168,51 +169,37 @@ class CommandLineDialog(QDialog):
                 
         except Exception as e:
             log(f"Ошибка генерации командной строки: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
             self._show_error(f"Ошибка генерации: {e}")
             
     def _generate_direct_mode_command(self):
         """Генерирует команду для Direct режима"""
         from strategy_menu.strategy_lists_separated import combine_strategies
-        from strategy_menu.strategy_runner import (
-            apply_allzone_replacement, 
-            apply_game_filter_parameter, 
-            apply_wssize_parameter
-        )
+        # ✅ ИСПРАВЛЕНО: импортируем из нового модуля apply_filters
+        from strategy_menu.apply_filters import apply_all_filters
         
         if not self.parent_selector.category_selections:
             self._show_error("Нет выбранных стратегий")
             return
             
         # Комбинируем стратегии
-        combined = combine_strategies(
-            self.parent_selector.category_selections.get('youtube'),
-            self.parent_selector.category_selections.get('youtube_udp'),
-            self.parent_selector.category_selections.get('googlevideo_tcp'),
-            self.parent_selector.category_selections.get('discord'),
-            self.parent_selector.category_selections.get('discord_voice_udp'),
-            self.parent_selector.category_selections.get('rutracker_tcp'),
-            self.parent_selector.category_selections.get('ntcparty_tcp'),
-            self.parent_selector.category_selections.get('twitch_tcp'),
-            self.parent_selector.category_selections.get('phasmophobia_udp'),
-            self.parent_selector.category_selections.get('other'),
-            self.parent_selector.category_selections.get('hostlist_80port'),
-            self.parent_selector.category_selections.get('ipset'),
-            self.parent_selector.category_selections.get('ipset_udp')
-        )
+        combined = combine_strategies(**self.parent_selector.category_selections)
         
         # Разбираем аргументы
         args = shlex.split(combined['args'])
         
-        # Применяем модификаторы
-        work_dir = os.path.dirname(os.path.dirname(WINWS_EXE))
+        # Разрешаем пути к файлам
+        from config import WINWS_EXE
+        exe_dir = os.path.dirname(WINWS_EXE)
+        work_dir = os.path.dirname(exe_dir)
         lists_dir = os.path.join(work_dir, "lists")
         
-        args = apply_allzone_replacement(args)
-        args = apply_game_filter_parameter(args, lists_dir)
-        args = apply_wssize_parameter(args)
+        # Сначала разрешаем пути
+        resolved_args = self._resolve_file_paths(args)
         
-        # Разрешаем пути к файлам
-        resolved_args = self._resolve_file_paths(args, work_dir)
+        # ✅ ИСПРАВЛЕНО: применяем ВСЕ фильтры через одну функцию
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
         
         # Формируем полную команду
         cmd_parts = [WINWS_EXE] + resolved_args
@@ -256,16 +243,45 @@ class CommandLineDialog(QDialog):
         self.text_edit.setPlainText(info_text)
         self.info_label.setText("BAT режим - команда внутри .bat файла")
         
-    def _resolve_file_paths(self, args, work_dir):
+    def _resolve_file_paths(self, args):
         """Разрешает относительные пути к файлам"""
         resolved = []
+        
+        # Получаем рабочую директорию из WINWS_EXE
+        from config import WINWS_EXE
+        exe_dir = os.path.dirname(WINWS_EXE)
+        work_dir = os.path.dirname(exe_dir)
+        
         lists_dir = os.path.join(work_dir, "lists")
         bin_dir = os.path.join(work_dir, "bin")
         
+        # Импортируем WINDIVERT_FILTER для обработки --wf-raw
+        from config import WINDIVERT_FILTER
+        
         for arg in args:
-            if arg.startswith("--hostlist=") or arg.startswith("--ipset="):
+            # Обработка --wf-raw
+            if arg.startswith("--wf-raw="):
+                value = arg.split("=", 1)[1]
+                
+                if value.startswith("@"):
+                    filename = value[1:]  # Убираем @ в начале
+                    filename = filename.strip('"')
+                    
+                    if not os.path.isabs(filename):
+                        # WINDIVERT_FILTER - это путь к папке windivert.filter
+                        full_path = os.path.join(WINDIVERT_FILTER, filename)
+                        resolved.append(f'--wf-raw=@{full_path}')
+                    else:
+                        resolved.append(f'--wf-raw=@{filename}')
+                else:
+                    resolved.append(arg)
+                    
+            elif any(arg.startswith(prefix) for prefix in [
+                "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
+            ]):
                 prefix, filename = arg.split("=", 1)
                 filename = filename.strip('"')
+                
                 if not os.path.isabs(filename):
                     full_path = os.path.join(lists_dir, filename)
                     resolved.append(f'{prefix}={full_path}')
@@ -273,11 +289,17 @@ class CommandLineDialog(QDialog):
                     resolved.append(arg)
                     
             elif any(arg.startswith(p) for p in [
-                "--dpi-desync-fake-tls=", "--dpi-desync-fake-quic=",
-                "--dpi-desync-fake-syndata=", "--dpi-desync-fake-unknown-udp="
+                "--dpi-desync-fake-tls=",
+                "--dpi-desync-fake-quic=",
+                "--dpi-desync-fake-syndata=",
+                "--dpi-desync-fake-unknown-udp=",
+                "--dpi-desync-split-seqovl-pattern=",
+                "--dpi-desync-fake-http=",
+                "--dpi-desync-fake-unknown=",
+                "--dpi-desync-fakedsplit-pattern="
             ]):
                 prefix, filename = arg.split("=", 1)
-                if not filename.startswith("0x") and not filename.startswith("!") and not os.path.isabs(filename):
+                if not filename.startswith("0x") and not filename.startswith("!") and not filename.startswith("^") and not filename.startswith("0x00") and not os.path.isabs(filename):
                     filename = filename.strip('"')
                     full_path = os.path.join(bin_dir, filename)
                     resolved.append(f'{prefix}={full_path}')

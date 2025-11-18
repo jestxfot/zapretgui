@@ -1,20 +1,13 @@
+# build_zapret/github_release.py
+
 """
 build_tools/github_release.py - Модуль для работы с GitHub releases
 Поддерживает как GitHub API, так и GitHub CLI для надежной загрузки больших файлов
 """
 
-import json
-import os
-import requests
+import json, os, requests, tempfile, mimetypes, ssl, urllib3, subprocess, shutil, time
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-import tempfile
-import mimetypes
-import ssl
-import urllib3
-import subprocess
-import shutil
-import time
 from config import UPDATE_GITHUB
 
 # ────────────────────────────────────────────────────────────────
@@ -55,43 +48,41 @@ def detect_token_type(token: str) -> str:
 
 def check_gh_cli() -> Tuple[bool, str]:
     """Проверяет наличие и настройку GitHub CLI"""
+    import os
+    
     # Проверяем наличие gh.exe
     gh_path = shutil.which("gh")
     if not gh_path:
         return False, "GitHub CLI не установлен"
     
-    # Проверяем авторизацию
+    # Создаем окружение с токеном
+    env = os.environ.copy()
+    env['GITHUB_TOKEN'] = GITHUB_CONFIG['token']
+    env['GH_TOKEN'] = GITHUB_CONFIG['token']
+    env['GH_PROMPT_DISABLED'] = '1'
+    
     try:
-        result = subprocess.run(
-            ["gh", "auth", "status"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        )
-        
-        if result.returncode != 0:
-            return False, "GitHub CLI не авторизован"
-            
-        # Проверяем доступ к репозиторию
+        # Проверяем доступ к репозиторию напрямую (без auth status)
         repo = f"{GITHUB_CONFIG['repo_owner']}/{GITHUB_CONFIG['repo_name']}"
         result = subprocess.run(
             ["gh", "repo", "view", repo, "--json", "name"],
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            env=env,
+            shell=False
         )
         
         if result.returncode != 0:
-            return False, f"Нет доступа к репозиторию {repo}"
+            error = result.stderr or result.stdout
+            return False, f"Нет доступа к {repo}: {error}"
             
-        return True, f"GitHub CLI настроен для {repo}"
+        return True, f"GitHub CLI работает с {repo} (токен из конфига)"
         
     except subprocess.TimeoutExpired:
         return False, "GitHub CLI не отвечает"
     except Exception as e:
-        return False, f"Ошибка проверки GitHub CLI: {e}"
+        return False, f"Ошибка проверки: {e}"
 
 class GitHubReleaseManager:
     """Менеджер для работы с GitHub releases"""
@@ -111,7 +102,15 @@ class GitHubReleaseManager:
         
         # Проверяем доступность GitHub CLI
         self.cli_available, self.cli_status = check_gh_cli()
-        
+
+    def _get_gh_env(self) -> dict:
+        """Создает окружение с токеном для GitHub CLI"""
+        env = os.environ.copy()
+        env['GITHUB_TOKEN'] = self.token
+        env['GH_TOKEN'] = self.token
+        env['GH_PROMPT_DISABLED'] = '1'
+        return env
+            
     def setup_headers(self):
         """Настройка заголовков в зависимости от типа токена"""
         if self.token_type == 'fine-grained':
@@ -372,10 +371,9 @@ class GitHubReleaseManager:
             return self._upload_asset_via_cli(release_id, file_path)
         else:
             return self._upload_asset_via_api(release_id, file_path, content_type)
-    
+
     def _upload_asset_via_cli(self, release_id: int, file_path: Path) -> Dict[str, Any]:
-        """Загрузить файл через GitHub CLI"""
-        # Получаем информацию о релизе для tag
+        """Загрузить файл через GitHub CLI с выводом прогресса"""
         response = self._make_request("GET", f"/releases/{release_id}")
         release_data = response.json()
         tag = release_data['tag_name']
@@ -389,29 +387,73 @@ class GitHubReleaseManager:
             "gh", "release", "upload", tag,
             str(file_path),
             "--repo", repo,
-            "--clobber"  # Перезаписать если существует
+            "--clobber"
         ]
         
         try:
-            result = subprocess.run(
+            # ✅ ИСПРАВЛЕНИЕ: Запускаем с Popen для реального вывода
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Объединяем stderr в stdout
                 text=True,
-                timeout=600,  # 10 минут
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                encoding='utf-8',
+                errors='replace',
+                env=self._get_gh_env(),
+                shell=False,
+                bufsize=1,  # Построчная буферизация
+                universal_newlines=True
             )
             
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout
+            # Читаем вывод в реальном времени
+            output_lines = []
+            start_time = time.time()
+            last_update = start_time
+            
+            while True:
+                line = process.stdout.readline()
+                
+                if not line:
+                    # Проверяем завершился ли процесс
+                    if process.poll() is not None:
+                        break
+                        
+                    # Показываем индикатор что процесс жив
+                    current_time = time.time()
+                    if current_time - last_update > 5:  # Каждые 5 секунд
+                        elapsed = int(current_time - start_time)
+                        if hasattr(self, 'log_queue') and self.log_queue:
+                            self.log_queue.put(f"  ⏳ Загрузка... {elapsed}s")
+                        last_update = current_time
+                        
+                    time.sleep(0.1)
+                    continue
+                
+                line = line.rstrip()
+                if line:
+                    output_lines.append(line)
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"  gh> {line}")
+                    last_update = time.time()
+            
+            # Ждем завершения с таймаутом
+            try:
+                returncode = process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise Exception("GitHub CLI не завершился после загрузки")
+            
+            if returncode != 0:
+                error_msg = "\n".join(output_lines) if output_lines else "Unknown error"
                 if hasattr(self, 'log_queue') and self.log_queue:
                     self.log_queue.put(f"❌ GitHub CLI ошибка: {error_msg}")
                 # Fallback на API метод
                 return self._upload_asset_via_api(release_id, file_path)
                 
             if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"✔ Файл загружен через CLI")
+                elapsed = int(time.time() - start_time)
+                self.log_queue.put(f"✔ Файл загружен через CLI ({elapsed}s)")
                 
-            # Возвращаем информацию об asset
             return {
                 "name": file_path.name,
                 "browser_download_url": f"https://github.com/{repo}/releases/download/{tag}/{file_path.name}"
@@ -427,8 +469,8 @@ class GitHubReleaseManager:
             return self._upload_asset_via_api(release_id, file_path)
     
     def _upload_asset_via_api(self, release_id: int, file_path: Path, 
-                             content_type: Optional[str] = None) -> Dict[str, Any]:
-        """Загрузить файл через GitHub API с retry логикой"""
+                            content_type: Optional[str] = None) -> Dict[str, Any]:
+        """Загрузить файл через GitHub API с прогрессом"""
         if content_type is None:
             content_type = mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
             
@@ -438,39 +480,60 @@ class GitHubReleaseManager:
         if hasattr(self, 'log_queue') and self.log_queue:
             self.log_queue.put(f"📤 Загружаем через API: {filename} ({file_size / 1024 / 1024:.1f} MB)")
         
-        # URL для загрузки assets отличается от обычного API
         upload_url = f"https://uploads.github.com/repos/{self.repo_owner}/{self.repo_name}/releases/{release_id}/assets"
         
-        # Настройки для retry
         max_attempts = GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3)
         
         for attempt in range(max_attempts):
             try:
-                # Создаем отдельную сессию для загрузки
                 upload_session = requests.Session()
                 upload_session.headers.update(self.headers)
                 upload_session.headers["Content-Type"] = content_type
+                
+                # ✅ ИСПРАВЛЕНИЕ: Используем генератор для отслеживания прогресса
+                def file_reader_with_progress(file_obj, chunk_size=8192):
+                    total_read = 0
+                    last_percent = -1
+                    start_time = time.time()
+                    
+                    while True:
+                        chunk = file_obj.read(chunk_size)
+                        if not chunk:
+                            break
+                            
+                        total_read += len(chunk)
+                        percent = int((total_read / file_size) * 100)
+                        
+                        # Обновляем каждые 10%
+                        if percent >= last_percent + 10:
+                            elapsed = int(time.time() - start_time)
+                            speed_mb = (total_read / 1024 / 1024) / max(elapsed, 1)
+                            if hasattr(self, 'log_queue') and self.log_queue:
+                                self.log_queue.put(f"  📊 {percent}% ({total_read / 1024 / 1024:.1f} MB) — {speed_mb:.1f} MB/s")
+                            last_percent = percent
+                        
+                        yield chunk
                 
                 with open(file_path, 'rb') as f:
                     try:
                         response = upload_session.post(
                             upload_url,
                             params={"name": filename},
-                            data=f,
+                            data=file_reader_with_progress(f),
                             verify=self.verify_ssl,
-                            timeout=(30, 600)  # 30 сек на соединение, 600 на загрузку
+                            timeout=(30, 1200)  # ✅ Увеличили таймаут до 20 минут
                         )
                     except requests.exceptions.SSLError:
                         if hasattr(self, 'log_queue') and self.log_queue:
-                            self.log_queue.put("⚠️ SSL ошибка при загрузке, повторяем без проверки...")
+                            self.log_queue.put("⚠️ SSL ошибка, повторяем без проверки...")
                         
-                        f.seek(0)  # Перематываем файл
+                        f.seek(0)
                         response = upload_session.post(
                             upload_url,
                             params={"name": filename},
-                            data=f,
+                            data=file_reader_with_progress(f),
                             verify=False,
-                            timeout=(30, 600)
+                            timeout=(30, 1200)
                         )
                 
                 if response.ok:
@@ -479,7 +542,6 @@ class GitHubReleaseManager:
                         self.log_queue.put(f"✔ Файл загружен: {asset_data['browser_download_url']}")
                     return asset_data
                 elif response.status_code == 422:
-                    # Файл уже существует
                     if hasattr(self, 'log_queue') and self.log_queue:
                         self.log_queue.put("⚠️ Файл уже существует в релизе")
                     return {"name": filename, "browser_download_url": f"https://github.com/{self.repo_owner}/{self.repo_name}/releases/"}
@@ -490,21 +552,10 @@ class GitHubReleaseManager:
                     requests.exceptions.Timeout,
                     ConnectionAbortedError) as e:
                 if attempt < max_attempts - 1:
-                    wait_time = (attempt + 1) * 5  # 5, 10, 15 секунд
-                    if hasattr(self, 'log_queue') and self.log_queue:
-                        self.log_queue.put(
-                            f"⚠️ Ошибка загрузки (попытка {attempt + 1}/{max_attempts}): {type(e).__name__}. "
-                            f"Повтор через {wait_time} сек..."
-                        )
-                    time.sleep(wait_time)
-                else:
-                    raise
-            except Exception as e:
-                if attempt < max_attempts - 1 and "Connection aborted" in str(e):
                     wait_time = (attempt + 1) * 5
                     if hasattr(self, 'log_queue') and self.log_queue:
                         self.log_queue.put(
-                            f"⚠️ Соединение прервано (попытка {attempt + 1}/{max_attempts}). "
+                            f"⚠️ Ошибка загрузки (попытка {attempt + 1}/{max_attempts}): {type(e).__name__}. "
                             f"Повтор через {wait_time} сек..."
                         )
                     time.sleep(wait_time)

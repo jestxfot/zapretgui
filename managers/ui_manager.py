@@ -1,3 +1,5 @@
+# managers/ui_manager.py
+
 from PyQt6.QtWidgets import QApplication
 from pathlib import Path
 from log import log
@@ -97,7 +99,6 @@ class UIManager:
                 state = config['disabled_state']
             
             # Обновляем текст, иконку и стиль
-            self.app.proxy_button.setText(f" {state['short_text']}")
             self.app.proxy_button.setIcon(qta.icon(state['icon'], color='white'))
             self.app.proxy_button.setIconSize(QSize(16, 16))
             self.app.proxy_button.setToolTip(state['tooltip'])
@@ -134,60 +135,61 @@ class UIManager:
         try:
             log(f"🔴 update_autostart_ui начат: service_running={service_running}", "DEBUG")
             
-            # ✅ Используем быструю проверку через реестр
+            # Используем быструю проверку через реестр
             if service_running is None:
                 from autostart.registry_check import is_autostart_enabled
                 service_running = is_autostart_enabled()
                 log(f"Быстрая проверка автозапуска через реестр: {service_running}", "DEBUG")
 
-            # Убеждаемся, что оба стека всегда находятся в правильных позициях
-            # и имеют правильные размеры
-            
-            # Сначала удаляем виджеты из сетки (если они там есть)
-            if hasattr(self.app, 'button_grid') and hasattr(self.app, 'start_stop_stack') and hasattr(self.app, 'autostart_stack'):
-                self.app.button_grid.removeWidget(self.app.start_stop_stack)
-                self.app.button_grid.removeWidget(self.app.autostart_stack)
+            # ✅ НОВАЯ ПРОСТАЯ ЛОГИКА: show/hide вместо стеков
+            if service_running:
+                # АВТОЗАПУСК АКТИВЕН
+                # Показываем кнопку отключения автозапуска, скрываем кнопку включения
+                if hasattr(self.app, 'autostart_enable_btn'):
+                    self.app.autostart_enable_btn.hide()
+                if hasattr(self.app, 'autostart_disable_btn'):
+                    self.app.autostart_disable_btn.show()
                 
-                # Добавляем обратно в правильные позиции - ВСЕГДА по одной колонке на каждый
-                self.app.button_grid.addWidget(self.app.start_stop_stack, 0, 0, 1, 1)  # строка 0, колонка 0, 1 строка, 1 колонка
-                self.app.button_grid.addWidget(self.app.autostart_stack, 0, 1, 1, 1)   # строка 0, колонка 1, 1 строка, 1 колонка
-                
-                # Убеждаемся, что оба стека видимы
-                self.app.start_stop_stack.setVisible(True)
-                self.app.autostart_stack.setVisible(True)
-                
-                if service_running:
-                    # ✅ АВТОЗАПУСК АКТИВЕН
-                    # Показываем кнопку отключения автозапуска
-                    if hasattr(self.app, 'autostart_disable_btn'):
-                        self.app.autostart_stack.setCurrentWidget(self.app.autostart_disable_btn)
-                    
-                    # В левой колонке показываем кнопку остановки
-                    # (так как при автозапуске процесс обычно запущен)
-                    if hasattr(self.app, 'stop_btn'):
-                        self.app.start_stop_stack.setCurrentWidget(self.app.stop_btn)
-                    
-                else:
-                    # ✅ АВТОЗАПУСК ВЫКЛЮЧЕН
-                    # Показываем кнопку включения автозапуска
-                    if hasattr(self.app, 'autostart_enable_btn'):
-                        self.app.autostart_stack.setCurrentWidget(self.app.autostart_enable_btn)
-                    
-                    # Обновляем состояние кнопок запуска/остановки
-                    process_running = self.app.dpi_starter.check_process_running_wmi(silent=True) if hasattr(self.app, 'dpi_starter') else False
-                    if process_running and hasattr(self.app, 'stop_btn'):
-                        self.app.start_stop_stack.setCurrentWidget(self.app.stop_btn)
-                    elif hasattr(self.app, 'start_btn'):
-                        self.app.start_stop_stack.setCurrentWidget(self.app.start_btn)
-                
-                # Принудительное обновление layout
-                self.app.button_grid.update()
-                QApplication.processEvents()
+                # Показываем кнопку остановки, скрываем кнопку запуска
+                if hasattr(self.app, 'start_btn'):
+                    self.app.start_btn.hide()
+                if hasattr(self.app, 'stop_btn'):
+                    self.app.stop_btn.show()
             else:
-                log("Не все виджеты кнопок найдены для обновления autostart UI", "⚠ WARNING")
+                # АВТОЗАПУСК ВЫКЛЮЧЕН
+                # Показываем кнопку включения автозапуска, скрываем кнопку отключения
+                if hasattr(self.app, 'autostart_enable_btn'):
+                    self.app.autostart_enable_btn.show()
+                if hasattr(self.app, 'autostart_disable_btn'):
+                    self.app.autostart_disable_btn.hide()
+                
+                # Проверяем статус процесса для кнопок запуска/остановки
+                process_running = False
+                if hasattr(self.app, 'dpi_starter'):
+                    process_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
+                
+                if process_running:
+                    # Процесс запущен - показываем кнопку остановки
+                    if hasattr(self.app, 'start_btn'):
+                        self.app.start_btn.hide()
+                    if hasattr(self.app, 'stop_btn'):
+                        self.app.stop_btn.show()
+                else:
+                    # Процесс остановлен - показываем кнопку запуска
+                    if hasattr(self.app, 'start_btn'):
+                        self.app.start_btn.show()
+                    if hasattr(self.app, 'stop_btn'):
+                        self.app.stop_btn.hide()
+            
+            # Легкое обновление UI
+            QApplication.processEvents()
+            
+            log(f"✅ update_autostart_ui завершен: автозапуск={'включен' if service_running else 'выключен'}", "DEBUG")
                 
         except Exception as e:
             log(f"❌ Ошибка в update_autostart_ui: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
 
     def update_ui_state(self, running: bool) -> None:
         """Обновляет состояние кнопок в зависимости от статуса запуска"""
@@ -200,12 +202,16 @@ class UIManager:
             if not autostart_active:
                 if running:
                     # Показываем кнопку остановки
-                    if hasattr(self.app, 'start_stop_stack') and hasattr(self.app, 'stop_btn'):
-                        self.app.start_stop_stack.setCurrentWidget(self.app.stop_btn)
+                    if hasattr(self.app, 'start_btn'):
+                        self.app.start_btn.hide()
+                    if hasattr(self.app, 'stop_btn'):
+                        self.app.stop_btn.show()
                 else:
                     # Показываем кнопку запуска
-                    if hasattr(self.app, 'start_stop_stack') and hasattr(self.app, 'start_btn'):
-                        self.app.start_stop_stack.setCurrentWidget(self.app.start_btn)
+                    if hasattr(self.app, 'start_btn'):
+                        self.app.start_btn.show()
+                    if hasattr(self.app, 'stop_btn'):
+                        self.app.stop_btn.hide()
         except Exception as e:
             log(f"Ошибка в update_ui_state: {e}", "❌ ERROR")
 
@@ -243,24 +249,44 @@ class UIManager:
         except Exception as e:
             log(f"Ошибка в update_process_status_display: {e}", "❌ ERROR")
 
-    def update_title_with_subscription_status(self, is_premium: bool, current_theme: str, days_remaining: int) -> None:
-        """Обновляет заголовок окна с информацией о подписке"""
+    def update_title_with_subscription_status(self, is_premium: bool, current_theme: str, 
+                                             days_remaining: int, source: str = "api") -> None:
+        """
+        ✅ ОБНОВЛЕНО: Обновляет заголовок окна с информацией о подписке
+        
+        Args:
+            is_premium: True если активна подписка
+            current_theme: Текущая тема
+            days_remaining: Дней до окончания (может быть None в offline)
+            source: Источник данных ('api', 'offline', 'init')
+        """
         try:
             from config import APP_VERSION
             
             base_title = f"Zapret v{APP_VERSION}"
             
             if is_premium:
-                if days_remaining > 0:
-                    if days_remaining <= 7:
-                        # Скоро истекает - показываем количество дней
-                        title = f"{base_title} - Premium ({days_remaining} дн.)"
+                # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
+                if days_remaining is not None:
+                    if days_remaining > 0:
+                        if days_remaining <= 7:
+                            # Скоро истекает - показываем количество дней
+                            title = f"{base_title} - Premium ({days_remaining} дн.)"
+                        else:
+                            # Обычная премиум подписка
+                            title = f"{base_title} - Premium"
+                    elif days_remaining == 0:
+                        # Истекает сегодня
+                        title = f"{base_title} - Premium (истекает сегодня)"
                     else:
-                        # Обычная премиум подписка
-                        title = f"{base_title} - Premium"
+                        # Отрицательное значение (не должно быть в новой системе)
+                        title = f"{base_title} - Premium (истёк)"
                 else:
-                    # Истекшая подписка
-                    title = f"{base_title} - Premium (истекла)"
+                    # None - offline режим или безлимитная подписка
+                    if source == "offline":
+                        title = f"{base_title} - Premium (offline)"
+                    else:
+                        title = f"{base_title} - Premium"
             else:
                 title = base_title
             
@@ -271,28 +297,48 @@ class UIManager:
             
             self.app.setWindowTitle(title)
             
+            log(f"Заголовок обновлен: {title} (source: {source})", "DEBUG")
+            
         except Exception as e:
             log(f"Ошибка при обновлении заголовка: {e}", "❌ ERROR")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
 
     def update_subscription_button_text(self, is_premium: bool, days_remaining: int) -> None:
-        """Обновляет текст кнопки подписки"""
+        """
+        ✅ ОБНОВЛЕНО: Обновляет текст кнопки подписки
+        
+        Args:
+            is_premium: True если активна подписка
+            days_remaining: Дней до окончания (может быть None в offline)
+        """
         try:
             if not hasattr(self.app, 'subscription_btn'):
                 return
                 
             if is_premium:
-                if days_remaining > 0:
-                    if days_remaining <= 7:
-                        # Скоро истекает
-                        self.app.subscription_btn.setText(f"Premium (осталось {days_remaining} дн.)")
+                # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
+                if days_remaining is not None:
+                    if days_remaining > 0:
+                        if days_remaining <= 7:
+                            # Скоро истекает
+                            self.app.subscription_btn.setText(f"Premium (осталось {days_remaining} дн.)")
+                        else:
+                            # Активная подписка
+                            self.app.subscription_btn.setText("Premium активен")
+                    elif days_remaining == 0:
+                        # Истекает сегодня
+                        self.app.subscription_btn.setText("Premium (истекает сегодня!)")
                     else:
-                        # Активная подписка
-                        self.app.subscription_btn.setText("Premium активен")
+                        # Отрицательное (не должно быть)
+                        self.app.subscription_btn.setText("Premium истёк")
                 else:
-                    # Истекшая подписка
-                    self.app.subscription_btn.setText("Premium истек")
+                    # None - offline или безлимит
+                    self.app.subscription_btn.setText("Premium активен")
             else:
                 self.app.subscription_btn.setText("Получить Premium")
+            
+            log(f"Текст кнопки подписки: {self.app.subscription_btn.text()}", "DEBUG")
                 
         except Exception as e:
             log(f"Ошибка при обновлении кнопки подписки: {e}", "❌ ERROR")
@@ -370,14 +416,12 @@ class UIManager:
         return {
             'enabled_state': {
                 'full_text': 'Отключить доступ к ChatGPT, Spotify, Twitch',
-                'short_text': 'Отключить разблокировку',
                 'color': "255, 93, 174",
                 'icon': 'fa5s.lock',
                 'tooltip': 'Нажмите чтобы отключить разблокировку сервисов через hosts-файл'
             },
             'disabled_state': {
                 'full_text': 'Разблокировать ChatGPT, Spotify, Twitch и др.',
-                'short_text': 'Разблокировать сервисы',
                 'color': "218, 165, 32",
                 'icon': 'fa5s.unlock',
                 'tooltip': 'Нажмите чтобы разблокировать популярные сервисы через hosts-файл'

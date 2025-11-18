@@ -2,6 +2,7 @@
 
 import os
 import json
+from datetime import datetime
 from typing import Set, List, Dict
 from log import log
 from config import LISTS_FOLDER, reg
@@ -28,17 +29,6 @@ BASE_IPS_TEXT = """
 
 # Предустановленные IP диапазоны сервисов
 PREDEFINED_IP_RANGES = {
-    'discord': {
-        'name': '🎮 Discord',
-        'ranges': [
-            '162.159.128.0/20',
-            '162.159.200.0/21',
-            '162.159.216.0/21',
-            '162.159.160.0/20',
-            '162.159.176.0/20',
-            '162.159.192.0/20'
-        ]
-    },
     'twitter': {
         'name': '🐦 Twitter/X',
         'ranges': [
@@ -222,21 +212,130 @@ def startup_ipsets_check():
     try:
         log("=== Проверка IPsets при запуске ===", "🔧 IPSETS")
         
-        # 1. Проверяем существование файлов
-        ensure_ipsets_exist()
+        # Диагностика путей
+        log(f"LISTS_FOLDER: {LISTS_FOLDER}", "DEBUG")
+        log(f"IPSET_ALL_PATH: {IPSET_ALL_PATH}", "DEBUG")
+        log(f"IPSET_ALL2_PATH: {IPSET_ALL2_PATH}", "DEBUG")
         
-        # 2. Если есть настройки в реестре - применяем их
+        # Проверяем существование папки
+        if not os.path.exists(LISTS_FOLDER):
+            log(f"Создаем папку lists: {LISTS_FOLDER}", "INFO")
+            os.makedirs(LISTS_FOLDER, exist_ok=True)
+        
+        # 1. Проверяем существование файлов ДО любых действий
+        base_exists = os.path.exists(IPSET_ALL_PATH)
+        all2_exists = os.path.exists(IPSET_ALL2_PATH)
+        
+        log(f"ipset-base.txt существует: {base_exists}", "INFO")
+        log(f"ipset-all2.txt существует: {all2_exists}", "INFO")
+        
+        # 2. Принудительно создаем файлы если их нет
+        if not base_exists:
+            log("Создаем ipset-base.txt принудительно", "WARNING")
+            _force_create_ipset_base()
+            
+        if not all2_exists:
+            log("Создаем ipset-all2.txt принудительно", "WARNING")
+            _force_create_ipset_all2()
+        
+        # 3. Проверяем размеры файлов
+        if os.path.exists(IPSET_ALL_PATH):
+            size = os.path.getsize(IPSET_ALL_PATH)
+            log(f"ipset-base.txt: {size} байт", "INFO")
+            
+            if size < 50:  # Если файл слишком маленький
+                log("ipset-base.txt слишком мал, пересоздаем", "WARNING")
+                _force_create_ipset_base()
+        
+        if os.path.exists(IPSET_ALL2_PATH):
+            size = os.path.getsize(IPSET_ALL2_PATH)
+            log(f"ipset-all2.txt: {size} байт", "INFO")
+        
+        # 4. Загружаем настройки из реестра и применяем если есть
         selected_services, custom_ips = load_ipsets_settings()
         
         if selected_services or custom_ips:
-            log(f"Найдены настройки IPsets в реестре: {len(selected_services)} сервисов, {len(custom_ips)} IP", "INFO")
-            # Перестраиваем файлы из реестра
+            log(f"Найдены настройки в реестре: {len(selected_services)} сервисов, {len(custom_ips)} IP", "INFO")
             rebuild_ipsets_from_registry()
-        else:
-            log("Настройки IPsets в реестре не найдены, используются существующие файлы", "INFO")
         
-        return True
+        # 5. Финальная проверка
+        final_check_result = _final_ipsets_check()
+        
+        return final_check_result
         
     except Exception as e:
-        log(f"Ошибка при проверке IPsets: {e}", "❌ ERROR")
+        log(f"❌ Критическая ошибка при проверке IPsets: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        return False
+
+def _force_create_ipset_base():
+    """Принудительно создает ipset-base.txt"""
+    try:
+        base_ips = get_base_ips()
+        
+        with open(IPSET_ALL_PATH, 'w', encoding='utf-8') as f:
+            f.write("# Базовые IP диапазоны\n")
+            f.write(f"# Создано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            for ip in base_ips:
+                f.write(f"{ip}\n")
+        
+        size = os.path.getsize(IPSET_ALL_PATH)
+        log(f"✅ ipset-base.txt создан принудительно ({size} байт)", "SUCCESS")
+        
+    except Exception as e:
+        log(f"❌ Ошибка принудительного создания ipset-base.txt: {e}", "ERROR")
+
+def _force_create_ipset_all2():
+    """Принудительно создает ipset-all2.txt"""
+    try:
+        _, custom_ips = load_ipsets_settings()
+        
+        with open(IPSET_ALL2_PATH, 'w', encoding='utf-8') as f:
+            f.write("# Пользовательские IP адреса\n")
+            f.write(f"# Создано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            for ip in custom_ips:
+                f.write(f"{ip}\n")
+        
+        size = os.path.getsize(IPSET_ALL2_PATH)
+        log(f"✅ ipset-all2.txt создан принудительно ({size} байт)", "SUCCESS")
+        
+    except Exception as e:
+        log(f"❌ Ошибка принудительного создания ipset-all2.txt: {e}", "ERROR")
+
+def _final_ipsets_check():
+    """Финальная проверка IPsets файлов"""
+    try:
+        base_ok = False
+        all2_ok = False
+        
+        # Проверяем ipset-base.txt
+        if os.path.exists(IPSET_ALL_PATH):
+            size = os.path.getsize(IPSET_ALL_PATH)
+            if size > 10:
+                with open(IPSET_ALL_PATH, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    ip_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+                
+                log(f"✅ ipset-base.txt финал: {size} байт, {len(ip_lines)} IP адресов", "SUCCESS")
+                base_ok = True
+            else:
+                log(f"❌ ipset-base.txt слишком мал: {size} байт", "ERROR")
+        else:
+            log(f"❌ ipset-base.txt не существует!", "ERROR")
+        
+        # Проверяем ipset-all2.txt
+        if os.path.exists(IPSET_ALL2_PATH):
+            size = os.path.getsize(IPSET_ALL2_PATH)
+            log(f"✅ ipset-all2.txt финал: {size} байт", "SUCCESS")
+            all2_ok = True
+        else:
+            log(f"❌ ipset-all2.txt не существует!", "ERROR")
+        
+        return base_ok and all2_ok
+        
+    except Exception as e:
+        log(f"❌ Ошибка финальной проверки IPsets: {e}", "ERROR")
         return False

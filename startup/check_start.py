@@ -157,66 +157,6 @@ def check_system_commands() -> tuple[bool, str]:
     startup_cache.cache_result("system_commands", has_issues)
     
     return has_issues, error_message
-
-def check_startup_conditions():
-    """
-    Выполняет все проверки условий запуска программы с кэшированием
-    """
-    warnings = []       # <- собираем все non-critical
-
-    try:
-        # Проверка Win 10 Tweaker - самая критичная, проверяем первой
-        has_tweaker, tweaker_msg = check_win10_tweaker()
-        if has_tweaker:
-            # Для Win 10 Tweaker всегда возвращаем критическую ошибку
-            try:
-                from log import log
-                log("CRITICAL: Win 10 Tweaker обнаружен - останавливаем запуск", level="❌ CRITICAL")
-            except ImportError:
-                print("CRITICAL: Win 10 Tweaker обнаружен - останавливаем запуск")
-            return False, tweaker_msg
-        
-        # Все проверки теперь используют кэш автоматически
-        has_cmd_issues, cmd_msg = check_system_commands()
-        if has_cmd_issues:
-            warnings.append(cmd_msg)
-
-        has_gdpi, gdpi_msg = check_goodbyedpi()
-        if has_gdpi:
-            return False, gdpi_msg
-
-        has_mitmproxy, mitmproxy_msg = check_mitmproxy()
-        if has_mitmproxy:
-            return False, mitmproxy_msg
-               
-        if check_if_in_archive():
-            error_message = (
-                "Программа запущена из временной директории.\n\n"
-                "Для корректной работы необходимо распаковать архив в постоянную директорию "
-                "(например, C:\\zapretgui) и запустить программу оттуда.\n\n"
-                "Продолжение работы возможно, но некоторые функции могут работать некорректно."
-            )
-            return False, error_message
-
-        in_onedrive, msg = check_path_for_onedrive()
-        if in_onedrive:
-            return False, msg
-                
-        has_special_chars, error_message = check_path_for_special_chars()
-        if has_special_chars:
-            return False, error_message
-        
-        # если дошли сюда – критичных ошибок нет
-        return True, "\n\n".join(warnings)   # строка может быть пустой
-        
-    except Exception as e:
-        error_message = f"Ошибка при выполнении проверок запуска: {str(e)}"
-        try:
-            from log import log
-            log(error_message, level="❌ ERROR")
-        except ImportError:
-            print(f"ERROR: {error_message}")
-        return False, error_message
    
 def check_mitmproxy() -> tuple[bool, str]:
     """
@@ -553,97 +493,70 @@ def _get_tweaker_error_message(access_denied=False) -> str:
         "3. НИКОГДА не используйте твикеры и подобные программы!\n\n"
     )
 
-
 def display_startup_warnings():
     """
-    Выполняет проверки запуска и отображает предупреждения если необходимо
+    Выполняет НЕКРИТИЧЕСКИЕ проверки запуска и отображает предупреждения
     
     Возвращает:
     - bool: True если запуск можно продолжать, False если запуск следует прервать
     """
+
+    from log import log
     try:
-        success, message = check_startup_conditions()
+        warnings = []
         
-        if not success:
-            # Определяем, является ли ошибка критической
-            is_critical = (
-                "специальные символы" in message or 
-                "системными командами" in message or
-                "GoodbyeDPI" in message or
-                "mitmproxy" in message or
-                "Win 10 Tweaker" in message
+        # ✅ ТОЛЬКО НЕКРИТИЧЕСКИЕ ПРОВЕРКИ
+        has_cmd_issues, cmd_msg = check_system_commands()
+        if has_cmd_issues and cmd_msg:
+            warnings.append(cmd_msg)
+        
+        if check_if_in_archive():
+            error_message = (
+                "Программа запущена из временной директории.\n\n"
+                "Для корректной работы необходимо распаковать архив в постоянную директорию "
+                "(например, C:\\zapretgui) и запустить программу оттуда.\n\n"
+                "Продолжение работы возможно, но некоторые функции могут работать некорректно."
             )
-            
-            # Специальная обработка для Win 10 Tweaker - всегда критическая ошибка
-            is_tweaker = "Win 10 Tweaker" in message
+            warnings.append(error_message)
 
-            app_exists = QApplication.instance() is not None
-
-            if is_critical or is_tweaker:
-                if app_exists:
-                    try:
-                        QMessageBox.critical(None, "Критическая ошибка", message)
-                    except Exception as e:
-                        try:
-                            from log import log
-                            log(f"Ошибка показа QMessageBox: {e}", level="❌ ERROR")
-                        except ImportError:
-                            print(f"ERROR: Ошибка показа QMessageBox: {e}")
-                        _native_message("Критическая ошибка", message, 0x10)
-                else:
-                    _native_message("Критическая ошибка", message, 0x10)
+        in_onedrive, msg = check_path_for_onedrive()
+        if in_onedrive:
+            warnings.append(msg)
                 
-                # Для критических ошибок (включая Win 10 Tweaker) возвращаем False
-                return False
+        has_special_chars, error_message = check_path_for_special_chars()
+        if has_special_chars:
+            warnings.append(error_message)
+        
+        # Если есть предупреждения - показываем
+        if warnings:
+            full_message = "\n\n".join(warnings) + "\n\nПродолжить работу?"
+            
+            app_exists = QApplication.instance() is not None
+            
+            if app_exists:
+                try:
+                    result = QMessageBox.warning(
+                        None, "Предупреждение",
+                        full_message,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    return result == QMessageBox.StandardButton.Yes
+                except Exception as e:
+                    log(f"Ошибка показа предупреждения: {e}", level="❌ ERROR")
+                    btn = _native_message("Предупреждение",
+                                        full_message,
+                                        0x34)  # MB_ICONWARNING | MB_YESNO
+                    return btn == 6  # IDYES
             else:
-                # Некритичные предупреждения
-                if message:
-                    if app_exists:
-                        try:
-                            result = QMessageBox.warning(
-                                None, "Предупреждение",
-                                message + "\n\nПродолжить работу?",
-                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                QMessageBox.StandardButton.No
-                            )
-                            return result == QMessageBox.StandardButton.Yes
-                        except Exception as e:
-                            try:
-                                from log import log
-                                log(f"Ошибка показа предупреждения: {e}", level="❌ ERROR")
-                            except ImportError:
-                                print(f"ERROR: Ошибка показа предупреждения: {e}")
-                            # Fallback к native сообщению
-                            btn = _native_message("Предупреждение",
-                                                message + "\n\nНажмите «Да» для продолжения.",
-                                                0x30)
-                            return btn == 6  # IDYES
-                    else:
-                        btn = _native_message("Предупреждение",
-                                            message + "\n\nНажмите «Да» для продолжения.",
-                                            0x30)  # MB_ICONWARNING | MB_YESNO
-                        return btn == 6  # IDYES
+                btn = _native_message("Предупреждение", full_message, 0x34)
+                return btn == 6
         
         return True
         
     except Exception as e:
-        error_msg = f"Критическая ошибка при проверке условий запуска: {str(e)}"
-        try:
-            from log import log
-            log(error_msg, level="❌ CRITICAL")
-        except ImportError:
-            print(f"CRITICAL: {error_msg}")
-        
-        # При критической ошибке показываем сообщение и закрываем программу
-        try:
-            if QApplication.instance() is not None:
-                QMessageBox.critical(None, "Критическая ошибка", error_msg)
-            else:
-                _native_message("Критическая ошибка", error_msg, 0x10)
-        except:
-            # Если даже нативное сообщение не показывается
-            pass
-        
+        error_msg = f"Ошибка при проверке условий запуска: {str(e)}"
+        log(error_msg, level="❌ CRITICAL")
         return False
         
 def _service_exists_reg(name: str) -> bool:

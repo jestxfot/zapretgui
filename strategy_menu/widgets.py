@@ -1,7 +1,5 @@
-# strategy_menu/widgets.py
-
 from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel, 
-                            QRadioButton, QWidget, QListWidgetItem)
+                            QRadioButton, QWidget, QListWidgetItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
@@ -19,13 +17,16 @@ class CompactStrategyItem(QFrame):
         self.strategy_data = strategy_data
         self.is_selected = False
         
+        # Включаем контекстное меню
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        
         self.setFrameStyle(QFrame.Shape.Box)
         self.setStyleSheet("""
             CompactStrategyItem {
                 border: 1px solid #444;
                 border-radius: 4px;
                 padding: 0px;
-                margin: 1px;             # было 2px
+                margin: 1px;
             }
             CompactStrategyItem:hover {
                 background: #3a3a3a;
@@ -35,10 +36,37 @@ class CompactStrategyItem(QFrame):
         
         self.init_ui()
         
+        # Устанавливаем простой tooltip
+        self._setup_simple_tooltip()
+        
+    def _setup_simple_tooltip(self):
+        """Устанавливает простой tooltip с базовой информацией"""
+        tooltip_parts = []
+        
+        # Название
+        name = self.strategy_data.get('name', self.strategy_id)
+        tooltip_parts.append(f"<b>{name}</b>")
+        
+        # Описание
+        desc = self.strategy_data.get('description', '')
+        if desc and len(desc) > 100:
+            desc = desc[:100] + "..."
+        if desc:
+            tooltip_parts.append(desc)
+        
+        # Подсказка
+        tooltip_parts.append("<br><i>ПКМ - показать полные аргументы</i>")
+        
+        self.setToolTip("<br>".join(tooltip_parts))
+    
     def init_ui(self):
+        """Инициализация интерфейса виджета"""
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
         layout.setSpacing(6)
+        
+        # Сохраняем ссылку на layout для FavoriteCompactStrategyItem
+        self.main_layout = layout
         
         # Радиокнопка
         self.radio = QRadioButton()
@@ -54,18 +82,18 @@ class CompactStrategyItem(QFrame):
         name_label.setStyleSheet("font-weight: bold; font-size: 9pt;")
         text_layout.addWidget(name_label)
         
-        # Краткое описание
+        # Полное описание без обрезки
         desc_text = self.strategy_data.get('description', '')
-        if len(desc_text) > 60:
-            desc_text = desc_text[:57] + "..."
-        desc_label = QLabel(desc_text)
-        desc_label.setStyleSheet("color: #888; font-size: 8pt;")
-        text_layout.addWidget(desc_label)
+        if desc_text:
+            desc_label = QLabel(desc_text)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("color: #888; font-size: 8pt;")
+            desc_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            text_layout.addWidget(desc_label)
         
-        layout.addLayout(text_layout)
-        layout.addStretch()
+        layout.addLayout(text_layout, 1)
         
-        # Метка
+        # Метка (если есть)
         label = self.strategy_data.get('label')
         if label and label in LABEL_TEXTS:
             label_widget = QLabel(LABEL_TEXTS[label])
@@ -74,9 +102,20 @@ class CompactStrategyItem(QFrame):
                 f"padding: 2px 6px; border: 1px solid {LABEL_COLORS[label]}; "
                 f"border-radius: 3px;"
             )
-            layout.addWidget(label_widget)
+            layout.addWidget(label_widget, 0)
+    
+    def mousePressEvent(self, event):
+        """Обработчик клика мыши"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.radio.setChecked(True)
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Показываем окно предпросмотра по правой кнопке
+            from .args_preview_dialog import preview_manager
+            preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
+        super().mousePressEvent(event)
     
     def on_radio_toggled(self, checked):
+        """Обработчик переключения радиокнопки"""
         if checked:
             self.is_selected = True
             self.setStyleSheet("""
@@ -96,7 +135,7 @@ class CompactStrategyItem(QFrame):
                     border: 1px solid #444;
                     border-radius: 4px;
                     padding: 0px;
-                    margin: 1px;             # было 2px
+                    margin: 1px;
                 }
                 CompactStrategyItem:hover {
                     background: #3a3a3a;
@@ -105,12 +144,8 @@ class CompactStrategyItem(QFrame):
             """)
     
     def set_checked(self, checked):
+        """Устанавливает состояние радиокнопки"""
         self.radio.setChecked(checked)
-    
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.radio.setChecked(True)
-        super().mousePressEvent(event)
 
 
 class ProviderHeaderItem(QListWidgetItem):
