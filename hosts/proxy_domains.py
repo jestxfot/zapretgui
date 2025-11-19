@@ -32,7 +32,7 @@ PROXY_DOMAINS = {
     #"generativelanguage.googleapis.com": "84.21.191.240",
     "alkalimakersuite-pa.clients6.google.com": "84.21.191.240", # 84.21.191.240  89.108.98.20
     #"aitestkitchen.withgoogle.com": "84.21.191.240",
-    #"aisandbox-pa.googleapis.com": "84.21.191.240",
+    "aisandbox-pa.googleapis.com": "84.21.191.240",
     #"webchannel-alkalimakersuite-pa.clients6.google.com": "84.21.191.240", 
     #"proactivebackend-pa.googleapis.com": "84.21.191.240",
     "o.pki.goog": "84.21.191.240",

@@ -44,7 +44,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=ZapretSetup_test_1763412928_tmp
+OutputBaseFilename=ZapretSetup_test_1763553980_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
