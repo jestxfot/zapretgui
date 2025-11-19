@@ -1,2 +1,0 @@
-TOKEN_GITHUB = "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"
-UPDATE_GITHUB = "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"
