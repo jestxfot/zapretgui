@@ -101,7 +101,11 @@ def _lazy_import_category_strategies(category_key: str) -> Dict:
         elif category_key == 'phasmophobia_udp':
             from .strategies.PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
             _strategies_cache['phasmophobia_udp'] = PHASMOPHOBIA_UDP_STRATEGIES
-            
+
+        elif category_key == 'battlefield_6_udp':
+            from .strategies.BATTLEFIELD_6_UDP_STRATEGIES import UDP_STRATEGIES
+            _strategies_cache['battlefield_6_udp'] = UDP_STRATEGIES
+
         elif category_key == 'warp_tcp':
             from .strategies.WARP_STRATEGIES import WARP_STRATEGIES
             _strategies_cache['warp_tcp'] = WARP_STRATEGIES
@@ -640,6 +644,29 @@ QUIC работает поверх UDP и обеспечивает более б
         icon_color='#8B4789'
     ),
 
+    'battlefield_6_udp': CategoryInfo(
+        key='battlefield_6_udp',
+        short_name='🎮',
+        full_name='Battlefield 6 UDP',
+        emoji='🎮',
+        description='Battlefield 6 UDP (порты 443)',
+        tooltip="""🎮 Battlefield UDP (порты 443)
+Обходит блокировку Battlefield через стандартные веб-порты.
+Работает с основным трафиком Battlefield через UDP протокол.""",
+        color='#ff4757',
+        default_strategy='fake_2_n2_test',
+        none_strategy='battlefield_6_udp_none',
+        ports='443',
+        protocol='UDP',
+        order=20,
+
+        command_order=20,
+        needs_new_separator=True,
+        command_group="games",
+        icon_name='fa5s.fighter-jet',
+        icon_color='#8B4789'
+    ),
+
     'warp_tcp': CategoryInfo(
         key='warp_tcp',
         short_name='🎮',
@@ -654,9 +681,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='warp_none',
         ports='443, 853',
         protocol='TCP',
-        order=20,
+        order=21,
 
-        command_order=20,
+        command_order=21,
         needs_new_separator=True,
         command_group="hostlists",
         icon_name='fa5b.cloudflare',
@@ -678,9 +705,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='other_tcp_none',
         ports='80, 443',
         protocol='TCP',
-        order=21,
+        order=22,
 
-        command_order=21,
+        command_order=22,
         needs_new_separator=True,
         command_group="hostlists",
         icon_name='fa5b.chrome',
@@ -702,9 +729,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='hostlist_80port_none',
         ports='80',
         protocol='TCP',
-        order=22,
+        order=23,
 
-        command_order=22,
+        command_order=23,
         needs_new_separator=True,
         command_group="hostlists",
         icon_name='fa5b.chrome',
@@ -723,9 +750,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='ipset_tcp_none',
         ports='all ports',
         protocol='TCP',
-        order=23,
+        order=24,
 
-        command_order=23,
+        command_order=24,
         needs_new_separator=True,
         command_group="ipsets",
         icon_name='fa5b.cloudflare',
@@ -747,9 +774,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='ipset_tcp_none',
         ports='all ports',
         protocol='TCP',
-        order=24,
+        order=25,
 
-        command_order=24,
+        command_order=25,
         needs_new_separator=True,
         command_group="ipsets",
         icon_name='fa5s.network-wired',
@@ -771,9 +798,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='ovh_udp_none',
         ports='all ports',
         protocol='UDP',
-        order=25,
+        order=26,
 
-        command_order=25,
+        command_order=26,
         needs_new_separator=True,
         command_group="ipsets",
         icon_name='fa5s.gamepad',
@@ -795,9 +822,9 @@ QUIC работает поверх UDP и обеспечивает более б
         none_strategy='ipset_udp_none',
         ports='all ports',
         protocol='UDP',
-        order=26,
+        order=27,
 
-        command_order=26,
+        command_order=27,
         needs_new_separator=False,  # IPset UDP последний
         command_group="ipsets",
         icon_name='fa5s.gamepad',

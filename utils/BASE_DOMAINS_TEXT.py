@@ -186,4 +186,5 @@ godaddy.com
 addons.mozilla.org
 googletagmanager.com
 cloudflareinsights.com
+mega.co.nz
 """
