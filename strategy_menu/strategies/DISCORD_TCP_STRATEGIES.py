@@ -8,7 +8,7 @@ DISCORD_TCP_STRATEGIES = {
         "description": "Раньше эта стратегия била по всем портам и отлично подходила для игр",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --blob=bin_tls5:@{BIN_FOLDER}\\tls_clienthello_5.bin {RUTRACKER_BASE_ARG} --payload=tls_client_hello --out-range=-d10 --lua-desync=multisplit:seqovl=211:seqovl_pattern=bin_tls5"""
     },
     "dis4": {
         "name": "general (alt v2) 1.6.1",
@@ -43,7 +43,7 @@ DISCORD_TCP_STRATEGIES = {
         "description": "Дисордер стратегия с фуллингом md5sig нарезкой и повтором 6",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} """
     },
     "multidisorder_ipset_syndata": {
         "name": "Ulta v2 / 06.01.2025",
@@ -57,14 +57,14 @@ DISCORD_TCP_STRATEGIES = {
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 6",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} """
     },
     "multisplit_286_pattern": {
         "name": "YTDisBystro 3.4 v2 (1)",
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 11",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --blob=bin_tls11:@{BIN_FOLDER}\\tls_clienthello_11.bin {RUTRACKER_BASE_ARG} --payload=tls_client_hello --out-range=-n3 --lua-desync=send:repeats=2 --out-range=-d10 --lua-desync=multisplit:seqovl=286:seqovl_pattern=bin_tls11"""
     },
     "multidisorder_super_split_md5sig": {
         "name": "Discord Voice & YT (badseq)",
@@ -323,7 +323,7 @@ DISCORD_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 badseq",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} """
     },
     "general_simplefake_185": {
         "name": "general simple fake alt 1.8.5",
@@ -337,7 +337,7 @@ DISCORD_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} """
     },
     "general_simple_fake_165_2": {
         "name": "general simple fake 1.8.5 v2",
@@ -351,7 +351,7 @@ DISCORD_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{DISCORD_TCP_STRATEGIES_BASE_ARG} """
     },
     "general_fake_tls_auto_alt_184": {
         "name": "general (fake TLS auto alt) 1.8.4",

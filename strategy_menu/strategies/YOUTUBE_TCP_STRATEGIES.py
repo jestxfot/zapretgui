@@ -9,7 +9,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "SNI max.ru",
         "author": None,
         "label": LABEL_RECOMMENDED,
-        "args": f"""--ipset=ipset-youtube.txt --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2"""
+        "args": f"""--ipset=ipset-youtube.txt """
     },
     "multisplit_seqovl_midsld": {
         "name": "multisplit seqovl midsld",
@@ -30,7 +30,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "Базовая стратегия multidisorder для YouTube",
         "author": "OrigBolvan",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"""
+        "args": f"""{BASE_ARG} """
     },
     "bolvan_md5sig": {
         "name": "BolVan md5sig 11",
@@ -352,7 +352,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "Базовая мультисплит с midsld",
         "author": "hz",
         "label": None,
-        "args": f"""{BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-pos=1,midsld"""
+        "args": f"""{BASE_ARG} --lua-desync=multisplit:pos=1,midsld"""
     },
     "fake_multidisorder_1_split_pos_1": {
         "name": "fake multidisorder badsum split pos 1",
@@ -394,7 +394,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 badseq",
         "author": "hz",
         "label": None,
-        "args": f"""{BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{BASE_ARG} """
     },
     "general_simplefake_185": {
         "name": "general simple fake alt 1.8.5",
@@ -408,7 +408,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{BASE_ARG} """
     },
     "general_simple_fake_165_2": {
         "name": "general simple fake 1.8.5 v2",
@@ -422,7 +422,7 @@ YOUTUBE_TCP_STRATEGIES = {
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
+        "args": f"""{BASE_ARG} """
     },
     "ankddev10": {
         "name": "aankddev (v10)",

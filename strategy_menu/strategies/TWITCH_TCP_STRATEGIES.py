@@ -8,49 +8,49 @@ TWITCH_TCP_STRATEGIES =  {
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=211 --dpi-desync-split-seqovl-pattern=tls_clienthello_5.bin"""
+        "args": f"""{TWITCH_BASE_ARG} --blob=bin_tls5:@{BIN_FOLDER}\\tls_clienthello_5.bin {RUTRACKER_BASE_ARG} --payload=tls_client_hello --out-range=-d10 --lua-desync=multisplit:seqovl=211:seqovl_pattern=bin_tls5"""
     },
     "multisplit_286_pattern": {
         "name": "YTDisBystro 3.4 v2 (1)",
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 11",
         "author": "hz",
         "label": None,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3"""
+        "args": f"""{TWITCH_BASE_ARG} --blob=bin_tls11:@{BIN_FOLDER}\\tls_clienthello_11.bin {RUTRACKER_BASE_ARG} --payload=tls_client_hello --out-range=-n3 --lua-desync=send:repeats=2 --out-range=-d10 --lua-desync=multisplit:seqovl=286:seqovl_pattern=bin_tls11"""
     },
     "multisplit_308_pattern": {
         "name": "multisplit seqovl 308 с парттерном 9",
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 9",
         "author": "hz",
         "label": None,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=308 --dpi-desync-split-seqovl-pattern=tls_clienthello_9.bin --dup=2 --dup-cutoff=n3"""
+        "args": f"""{TWITCH_BASE_ARG} """
     },
     "original_bolvan_v2_badsum": {
         "name": "Если стратегия не работает смени её!",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"""
+        "args": f"""{TWITCH_BASE_ARG} """
     },
     "other_multidisorder": {
         "name": "multidisorder 6 md5sig",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_STABLE,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig"""
+        "args": f"""{TWITCH_BASE_ARG} """
     },
     "other_multidisorder_2": {
         "name": "original bol-van v2",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_STABLE,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig"""
+        "args": f"""{TWITCH_BASE_ARG} """
     },
     "other2": {
         "name": "original bol-van v2 (badsum)",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": None,
-        "args": f"""{TWITCH_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq"""
+        "args": f"""{TWITCH_BASE_ARG} """
     },
     "fake_fakedsplit_autottl_2": {
         "name": "fake fakedsplit badseq",

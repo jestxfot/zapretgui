@@ -50,14 +50,14 @@ ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-ttl=7 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=badsum --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10 --dpi-desync-split-seqovl=1
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+4 --dpi-desync-split-seqovl=1
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,midsld --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --lua-desync=multisplit:pos=10 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --lua-desync=multisplit:pos=10,sniext+1 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --lua-desync=multisplit:pos=10,sniext+4 --dpi-desync-split-seqovl=1
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --lua-desync=multisplit:pos=10,midsld --dpi-desync-split-seqovl=1
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=2 --dpi-desync-split-pos=1
@@ -128,7 +128,7 @@ ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --wssize 1:6 --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
-ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1 --wssize 1:6
+ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --lua-desync=multisplit:pos=10,sniext+1 --dpi-desync-split-seqovl=1 --wssize 1:6
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1 --dpi-desync-fake-tls=0x00000000
 ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3=ipv4 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --wssize 1:6 --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=0x00000000
@@ -188,8 +188,8 @@ ipv4 rr8---sn-jvhnu5g-c35z.googlevideo.com curl_test_https_tls12 : winws --wf-l3
 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000
 --wf-tcp=443 --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=md5sig --dpi-desync-split-pos=midsld --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
---wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+1 --dpi-desync-split-seqovl=1
---wf-tcp=443 --dpi-desync=multisplit --dpi-desync-split-pos=10,sniext+4 --dpi-desync-split-seqovl=1
+--wf-tcp=443 --lua-desync=multisplit:pos=10,sniext+1 --dpi-desync-split-seqovl=1
+--wf-tcp=443 --lua-desync=multisplit:pos=10,sniext+4 --dpi-desync-split-seqovl=1
 --wf-tcp=443 --dpi-desync=fake --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
 --wf-tcp=443 --dpi-desync=fakedsplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1
 --wf-tcp=443 --dpi-desync=fake,multisplit --dpi-desync-ttl=1 --dpi-desync-autottl=1 --dpi-desync-split-pos=1 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap
@@ -220,7 +220,7 @@ GOOGLEVIDEO_STRATEGIES = {
         "description": "Базовая стратегия FakedDisorder для GoogleVideo с datanoack ()",
         "author": None,
         "label": LABEL_RECOMMENDED,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "multidisorder_midsld": {
         "name": "multidisorder midsld",
@@ -248,28 +248,28 @@ GOOGLEVIDEO_STRATEGIES = {
         "description": "Стратегия Split для GoogleVideo с cutoff",
         "author": None,
         "label": None,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=10 --dpi-desync-cutoff=d2 --dpi-desync-ttl=4"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "googlevideo_multidisorder": {
         "name": "GoogleVideo MultiDisorder Complex",
         "description": "Сложная стратегия MultiDisorder с множественными позициями разреза",
         "author": None,
         "label": LABEL_STABLE,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multidisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "googlevideo_multisplit_pattern": {
         "name": "GoogleVideo MultiSplit Pattern 7",
         "description": "MultiSplit с паттерном ClientHello 7",
         "author": None,
         "label": None,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-split-seqovl-pattern=tls_clienthello_7.bin"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "googlevideo_fakeddisorder": {
         "name": "GoogleVideo FakedDisorder AutoTTL",
         "description": "FakedDisorder с паттерном и AutoTTL",
         "author": None,
         "label": None,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=fakeddisorder --dpi-desync-split-seqovl=1 --dpi-desync-split-pos=2,midsld-2 --dpi-desync-fakedsplit-pattern=tls_clienthello_7.bin --dpi-desync-fooling=badseq --dpi-desync-autottl"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "googlevideo_fakedsplit_simple": {
         "name": "GoogleVideo FakedSplit Simple",
@@ -283,7 +283,7 @@ GOOGLEVIDEO_STRATEGIES = {
         "description": "Агрессивная стратегия Split с множеством повторов",
         "author": None,
         "label": LABEL_CAUTION,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=split --dpi-desync-split-pos=1 --dpi-desync-fooling=badseq --dpi-desync-repeats=15 --dpi-desync-cutoff=d3 --dpi-desync-ttl=3"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} """
     },
     "googlevideo_multidisorder_midsld": {
         "name": "GoogleVideo MultiDisorder MidSLD",
@@ -318,7 +318,7 @@ GOOGLEVIDEO_STRATEGIES = {
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-pos=1"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} --lua-desync=multisplit:pos=1"""
     },
     "datanoack": {
         "name": "datanoack",
@@ -332,14 +332,14 @@ GOOGLEVIDEO_STRATEGIES = {
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multisplit --dpi-desync-fooling=datanoack"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} --lua-desync=multisplit:pos=2:tcp_flags_unset=ack"""
     },
     "multisplit_datanoack_split_pos_1": {
         "name": "multisplit datanoack split pos 1",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{GOOGLEVIDEO_BASE_ARG} --dpi-desync=multisplit --dpi-desync-fooling=datanoack --dpi-desync-split-pos=1"""
+        "args": f"""{GOOGLEVIDEO_BASE_ARG} --lua-desync=multisplit:pos=1:tcp_flags_unset=ack"""
     },
     "googlevideo_tcp_none": {
         "name": "Не применять для GoogleVideo",
