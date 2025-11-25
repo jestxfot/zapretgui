@@ -119,5 +119,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon=r'H:\Privacy\zapret\ico\ZapretDevLogo4.ico',
+    icon=r'H:\Privacy\zapret\ico\Zapret2.ico',
 )

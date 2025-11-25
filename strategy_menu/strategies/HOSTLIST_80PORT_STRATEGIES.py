@@ -17,10 +17,10 @@ PORT80_BASE_ARG = "--filter-tcp=80"
 HOSTLIST_80PORT_STRATEGIES = {
     "fake_multisplit_2_fake_http": {
         "name": "TankiX Revive",
-        "description": "Fake HTTP (кастом 0x0F0F0F0F) + MultiSplit (sld+1, seqovl=2) + Dup×2 с TCP MD5 (для игр)",
+        "description": "fake multisplit seqovl md5sig",
         "author": "hz",
         "label": LABEL_GAME,
-        "args": f"""--blob=http_tankix:0x0F0F0F0F {PORT80_BASE_ARG} --payload=http_req --out-range=-n3 --lua-desync=send:repeats=2:tcp_md5 --out-range=-d10 --lua-desync=fake:blob=http_tankix:tcp_md5 --lua-desync=multisplit:pos=sld+1:seqovl=2:tcp_md5"""
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=2 --dpi-desync-split-pos=sld+1 --dpi-desync-fake-http=0x0F0F0F0F --dpi-desync-fooling=md5sig --dup=2 --dup-fooling=md5sig --dup-cutoff=n3"""
     },
     "fake_multisplit_seqovl_pos_fake_http": {
         "name": "TankiX Revive v2",
@@ -55,28 +55,28 @@ HOSTLIST_80PORT_STRATEGIES = {
         "description": "Базовая стратегия FakedDisorder с datanoack",
         "author": None,
         "label": LABEL_RECOMMENDED,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,fakeddisorder --dpi-desync-fooling=datanoack --dpi-desync-split-pos=midsld --dpi-desync-fake-tls=0x00000000"""
     },
     "fake_autottl_repeats_6_badseq": {
         "name": "alt mgts (v1) 1.6.1 / 1.8.4",
         "description": "fake autottl repeats 6 badseq",
         "author": "hz",
         "label": None,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "altmgts2_161_2": {
         "name": "alt mgts (v2) 1.6.1 / 1.8.4",
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "altmgts2_161_3": {
         "name": "alt mgts (v3) 1.6.1",
         "description": "fake autottl repeats 6 md5sig",
         "author": "hz",
         "label": None,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig --dpi-desync-fake-tls=tls_clienthello_www_google_com.bin"""
     },
     "dronator_4_3": {
         "name": "Dronator 4.3",
@@ -90,28 +90,28 @@ HOSTLIST_80PORT_STRATEGIES = {
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_RECOMMENDED,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"""
     },
     "other_multidisorder": {
         "name": "multidisorder 6 md5sig",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_STABLE,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=md5sig"""
     },
     "other_multidisorder_2": {
         "name": "original bol-van v2",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": LABEL_STABLE,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig"""
     },
     "other2": {
         "name": "original bol-van v2 (badsum)",
         "description": "Потом опишу подробнее",
         "author": "hz",
         "label": None,
-        "args": f"""{PORT80_BASE_ARG} """
+        "args": f"""{PORT80_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq"""
     },
     "multisplit_seqovl_2_midsld": {
         "name": "fake multisplit seqovl 2 midsld",

@@ -36,7 +36,7 @@ UPDATES_DISCORD_TCP_STRATEGIES = {
         "description": "Дисордер стратегия с фуллингом md5sig нарезкой и повтором 6",
         "author": "hz",
         "label": None,
-        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} """
+        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq,md5sig"""
     },
     "multidisorder_ipset_syndata": {
         "name": "Ulta v2 / 06.01.2025",
@@ -50,14 +50,14 @@ UPDATES_DISCORD_TCP_STRATEGIES = {
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 6",
         "author": "hz",
         "label": None,
-        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} """
+        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq"""
     },
     "multisplit_286_pattern": {
         "name": "YTDisBystro 3.4 v2 (1)",
         "description": "Дисордер стратегия с фуллингом badseq нарезкой и повтором 11",
         "author": "hz",
         "label": None,
-        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} --blob=bin_tls11:@{BIN_FOLDER}\\tls_clienthello_11.bin {RUTRACKER_BASE_ARG} --payload=tls_client_hello --out-range=-n3 --lua-desync=send:repeats=2 --out-range=-d10 --lua-desync=multisplit:seqovl=286:seqovl_pattern=bin_tls11"""
+        "args": f"""{UPDATES_DISCORD_TCP_STRATEGIES_BASE_ARG} --dpi-desync=multisplit --dpi-desync-split-seqovl=286 --dpi-desync-split-seqovl-pattern=tls_clienthello_11.bin --dup=2 --dup-cutoff=n3"""
     },
     "multidisorder_super_split_md5sig": {
         "name": "Discord Voice & YT (badseq)",
