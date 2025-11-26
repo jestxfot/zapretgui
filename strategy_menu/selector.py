@@ -1288,10 +1288,14 @@ class StrategySelector(QDialog):
         from strategy_menu.strategy_lists_separated import combine_strategies
         combined = combine_strategies(**self.category_selections)
 
-        from strategy_menu import is_favorite_strategy
+        from strategy_menu import (
+            is_favorite_strategy,
+            get_remove_hostlists_enabled,
+            get_remove_ipsets_enabled,
+            get_wssize_enabled
+        )
         
         none_strategies = registry.get_none_strategies()
-        category_colors = registry.get_category_colors_dict()
 
         def format_strategy(category_key):
             strategy_id = self.category_selections.get(category_key)
@@ -1314,8 +1318,19 @@ class StrategySelector(QDialog):
 
         if items:
             preview_html = f"<b>Активные:</b> {', '.join(items)}"
+            
+            # ✅ Показываем применённые настройки
+            settings_flags = []
+            if get_remove_hostlists_enabled():
+                settings_flags.append("🌐 все сайты")
+            if get_remove_ipsets_enabled():
+                settings_flags.append("🔢 все IP")
+            if get_wssize_enabled():
+                settings_flags.append("📐 wssize")
+                
             args_count = len(combined['args'].split())
-            preview_html += f"<br><span style='color: #888; font-size: 7pt;'>Аргументов: {args_count}</span>"
+            settings_str = f" | {', '.join(settings_flags)}" if settings_flags else ""
+            preview_html += f"<br><span style='color: #888; font-size: 7pt;'>Аргументов: {args_count}{settings_str}</span>"
         else:
             preview_html = "<span style='color: #888;'>Нет активных стратегий</span>"
 

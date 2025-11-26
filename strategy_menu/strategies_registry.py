@@ -9,153 +9,77 @@ from log import log
 
 # ==================== LAZY IMPORTS ====================
 
-_strategies_cache = {}  # {category_key: strategies_dict}
-_imported_categories = set()  # Какие категории уже загружены
+_strategies_cache = {}  # {strategy_type: strategies_dict} - теперь кешируем по типу стратегий
+_imported_types = set()  # Какие типы уже загружены
 
-def _lazy_import_category_strategies(category_key: str) -> Dict:
-    """Ленивый импорт стратегий ОДНОЙ категории"""
-    global _strategies_cache, _imported_categories
+# Кэш для discord_voice (особый случай - args уже содержат фильтры)
+_discord_voice_cache = None
+
+# ==================== КОНСТАНТЫ ФИЛЬТРОВ ====================
+
+# Discord Voice фильтр (используется в base_filter)
+DISCORD_VOICE_FILTER = "--filter-l7=discord,stun"
+
+def _lazy_import_base_strategies(strategy_type: str) -> Dict:
+    """Ленивый импорт базовых стратегий по типу."""
+    global _strategies_cache, _imported_types
     
-    # Проверяем кэш
-    if category_key in _imported_categories:
-        return _strategies_cache.get(category_key, {})
+    if strategy_type in _imported_types:
+        return _strategies_cache.get(strategy_type, {})
     
     try:
-        # Импортируем только нужную категорию
-        if category_key == 'youtube':
-            from .strategies.YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
-            _strategies_cache['youtube'] = YOUTUBE_TCP_STRATEGIES
+        if strategy_type == "tcp":
+            from .strategies.TCP_STRATEGIES_BASE import TCP_STRATEGIES_BASE
+            _strategies_cache["tcp"] = TCP_STRATEGIES_BASE
+            _imported_types.add("tcp")
+            return TCP_STRATEGIES_BASE
             
-        elif category_key == 'youtube_udp':
-            from .strategies.YOUTUBE_UDP_STRATEGIES import YOUTUBE_QUIC_STRATEGIES
-            _strategies_cache['youtube_udp'] = YOUTUBE_QUIC_STRATEGIES
+        elif strategy_type == "udp":
+            from .strategies.UDP_STRATEGIES_BASE import UDP_STRATEGIES_BASE
+            _strategies_cache["udp"] = UDP_STRATEGIES_BASE
+            _imported_types.add("udp")
+            return UDP_STRATEGIES_BASE
             
-        elif category_key == 'googlevideo_tcp':
-            from .strategies.GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
-            _strategies_cache['googlevideo_tcp'] = GOOGLEVIDEO_STRATEGIES
+        elif strategy_type == "http80":
+            from .strategies.HTTP80_STRATEGIES_BASE import HTTP80_STRATEGIES_BASE
+            _strategies_cache["http80"] = HTTP80_STRATEGIES_BASE
+            _imported_types.add("http80")
+            return HTTP80_STRATEGIES_BASE
             
-        elif category_key == 'discord':
-            from .strategies.DISCORD_TCP_STRATEGIES import DISCORD_TCP_STRATEGIES
-            _strategies_cache['discord'] = DISCORD_TCP_STRATEGIES
-            
-        elif category_key == 'discord_voice_udp':
+        elif strategy_type == "discord_voice":
             from .strategies.DISCORD_VOICE_STRATEGIES import DISCORD_VOICE_STRATEGIES
-            _strategies_cache['discord_voice_udp'] = DISCORD_VOICE_STRATEGIES
+            _strategies_cache["discord_voice"] = DISCORD_VOICE_STRATEGIES
+            _imported_types.add("discord_voice")
+            return DISCORD_VOICE_STRATEGIES
             
-        elif category_key == 'udp_discord':
-            from .strategies.DISCORD_UPD_STRATEGIES import DISCORD_UPD_STRATEGIES
-            _strategies_cache['udp_discord'] = DISCORD_UPD_STRATEGIES
-            
-        elif category_key == 'update_discord':
-            from .strategies.UPDATES_DISCORD_TCP_STRATEGIES import UPDATES_DISCORD_TCP_STRATEGIES
-            _strategies_cache['update_discord'] = UPDATES_DISCORD_TCP_STRATEGIES
-            
-        elif category_key == 'telegram_tcp':
-            from .strategies.TELEGRAM_TCP_STRATEGIES import TELEGRAM_TCP_STRATEGIES
-            _strategies_cache['telegram_tcp'] = TELEGRAM_TCP_STRATEGIES
-            
-        elif category_key == 'telegram_call':
-            from .strategies.TELEGRAM_CALL_STRATEGIES import TELEGRAM_CALL_STRATEGIES
-            _strategies_cache['telegram_call'] = TELEGRAM_CALL_STRATEGIES
-            
-        elif category_key == 'soundcloud_tcp':
-            from .strategies.SOUNDCLOUD_TCP_STRATEGIES import SOUNDCLOUD_STRATEGIES
-            _strategies_cache['soundcloud_tcp'] = SOUNDCLOUD_STRATEGIES
-            
-        elif category_key == 'github_tcp':
-            from .strategies.GITHUB_TCP_STRATEGIES import GITHUB_TCP_STRATEGIES
-            _strategies_cache['github_tcp'] = GITHUB_TCP_STRATEGIES
-            
-        elif category_key == 'rutracker_tcp':
-            from .strategies.RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
-            _strategies_cache['rutracker_tcp'] = RUTRACKER_TCP_STRATEGIES
-            
-        elif category_key == 'rutor_tcp':
-            from .strategies.RUTOR_TCP_STRATEGIES import RUTOR_TCP_STRATEGIES
-            _strategies_cache['rutor_tcp'] = RUTOR_TCP_STRATEGIES
-            
-        elif category_key == 'ntcparty_tcp':
-            from .strategies.NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
-            _strategies_cache['ntcparty_tcp'] = NTCPARTY_TCP_STRATEGIES
-            
-        elif category_key == 'twitch_tcp':
-            from .strategies.TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
-            _strategies_cache['twitch_tcp'] = TWITCH_TCP_STRATEGIES
-            
-        elif category_key == 'speedtest_tcp':
-            from .strategies.SPEEDTEST_TCP_STRATEGIES import SPEEDTEST_TCP_STRATEGIES
-            _strategies_cache['speedtest_tcp'] = SPEEDTEST_TCP_STRATEGIES
-            
-        elif category_key == 'steam_tcp':
-            from .strategies.STEAM_TCP_STRATEGIES import STEAM_TCP_STRATEGIES
-            _strategies_cache['steam_tcp'] = STEAM_TCP_STRATEGIES
-            
-        elif category_key == 'itch_tcp':
-            from .strategies.ITCH_TCP_STRATEGIES import ITCH_TCP_STRATEGIES
-            _strategies_cache['itch_tcp'] = ITCH_TCP_STRATEGIES
-
-        elif category_key == 'google_tcp':
-            from .strategies.GOOGLE_TCP_STRATEGIES import GOOGLE_TCP_STRATEGIES
-            _strategies_cache['google_tcp'] = GOOGLE_TCP_STRATEGIES
-            
-        elif category_key == 'phasmophobia_udp':
-            from .strategies.PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
-            _strategies_cache['phasmophobia_udp'] = PHASMOPHOBIA_UDP_STRATEGIES
-
-        elif category_key == 'battlefield_6_udp':
-            from .strategies.BATTLEFIELD_6_UDP_STRATEGIES import UDP_STRATEGIES
-            _strategies_cache['battlefield_6_udp'] = UDP_STRATEGIES
-
-        elif category_key == 'warp_tcp':
-            from .strategies.WARP_STRATEGIES import WARP_STRATEGIES
-            _strategies_cache['warp_tcp'] = WARP_STRATEGIES
-            
-        elif category_key == 'other':
-            from .strategies.OTHER_STRATEGIES import OTHER_STRATEGIES
-            _strategies_cache['other'] = OTHER_STRATEGIES
-            
-        elif category_key == 'hostlist_80port':
-            from .strategies.HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
-            _strategies_cache['hostlist_80port'] = HOSTLIST_80PORT_STRATEGIES
-
-        elif category_key == 'ipset_tcp_cloudflare':
-            from .strategies.IPSET_CLOUDFLARE_STRATEGIES import IPSET_CLOUDFLARE_STRATEGIES
-            _strategies_cache['ipset_tcp_cloudflare'] = IPSET_CLOUDFLARE_STRATEGIES
-
-        elif category_key == 'ipset':
-            from .strategies.IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
-            _strategies_cache['ipset'] = IPSET_TCP_STRATEGIES
-
-        elif category_key == 'ovh_udp':
-            from .strategies.OVH_UDP_STRATEGIES import OVH_UDP_STRATEGIES
-            _strategies_cache['ovh_udp'] = OVH_UDP_STRATEGIES
-
-        elif category_key == 'ipset_udp':
-            from .strategies.IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
-            _strategies_cache['ipset_udp'] = IPSET_UDP_STRATEGIES
-        
         else:
-            log(f"Неизвестная категория: {category_key}", "⚠ WARNING")
-            _strategies_cache[category_key] = {}
-        
-        _imported_categories.add(category_key)
-        log(f"Стратегии категории '{category_key}' загружены ({len(_strategies_cache.get(category_key, {}))} шт)", "DEBUG")
-        
+            log(f"Неизвестный тип стратегий: {strategy_type}", "⚠ WARNING")
+            return {}
+            
     except ImportError as e:
-        log(f"Ошибка импорта стратегий категории '{category_key}': {e}", "❌ ERROR")
-        _strategies_cache[category_key] = {}
-        _imported_categories.add(category_key)
+        log(f"Ошибка импорта стратегий типа '{strategy_type}': {e}", "❌ ERROR")
+        _imported_types.add(strategy_type)
+        return {}
+
+def _get_strategies_for_category(category_key: str) -> Dict:
+    """
+    Получить стратегии для категории на основе её strategy_type.
+    Используется для UI и отображения списка стратегий.
+    """
+    # Нужно получить strategy_type из CATEGORIES_REGISTRY
+    category_info = CATEGORIES_REGISTRY.get(category_key)
+    if not category_info:
+        log(f"Категория {category_key} не найдена", "⚠ WARNING")
+        return {}
     
-    return _strategies_cache.get(category_key, {})
+    return _lazy_import_base_strategies(category_info.strategy_type)
+
 
 def _lazy_import_all_strategies() -> Dict[str, Dict]:
-    """Импортирует ВСЕ стратегии (только если очень нужно)"""
-    global _strategies_cache
-    
-    # Импортируем все категории
-    for category_key in CATEGORIES_REGISTRY.keys():
-        if category_key not in _imported_categories:
-            _lazy_import_category_strategies(category_key)
+    """Импортирует ВСЕ базовые стратегии (только если очень нужно)"""
+    # Загружаем все типы
+    for strategy_type in ["tcp", "udp", "http80", "discord_voice"]:
+        _lazy_import_base_strategies(strategy_type)
     
     return _strategies_cache
 
@@ -171,17 +95,19 @@ class CategoryInfo:
     tooltip: str
     color: str
     default_strategy: str
-    none_strategy: str
     ports: str
     protocol: str
-    order: int  # Порядок в UI
+    order: int
+    command_order: int
+    needs_new_separator: bool = False
+    command_group: str = "default"
+    icon_name: str = 'fa5s.globe'
+    icon_color: str = '#2196F3'
     
-    command_order: int  # Порядок в командной строке
-    needs_new_separator: bool = False  # Нужен ли --new после этой категории
-    command_group: str = "default"  # Группа команд (команды в одной группе идут подряд)
-
-    icon_name: str = 'fa5s.globe'  # Font Awesome иконка по умолчанию
-    icon_color: str = '#2196F3'    # Цвет иконки по умолчанию
+    # Фильтр для категории (hostlist, ipset, filter-tcp/udp)
+    base_filter: str = ""
+    # Тип базовых стратегий: "tcp", "udp", "http80", "discord_voice"
+    strategy_type: str = "tcp"
 
 # Обновляем реестр категорий с новыми полями:
 CATEGORIES_REGISTRY: Dict[str, CategoryInfo] = {
@@ -197,7 +123,6 @@ TCP - это надежный протокол передачи данных, и
 Работает с youtube.com и youtu.be.""",
         color='#ff6666',
         default_strategy='multisplit_seqovl_midsld',
-        none_strategy='youtube_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=1,
@@ -206,7 +131,9 @@ TCP - это надежный протокол передачи данных, и
         needs_new_separator=True,
         command_group="youtube",
         icon_name='fa5b.youtube',
-        icon_color='#FF0000'
+        icon_color='#FF0000',
+        base_filter="--filter-tcp=80,443 --hostlist=youtube.txt",
+        strategy_type="tcp"
     ),
     
     'youtube_udp': CategoryInfo(
@@ -221,7 +148,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Многие браузеры автоматически используют QUIC для YouTube.""",
         color='#ff3c00',
         default_strategy='fake_11',
-        none_strategy='youtube_udp_none',
         ports='443',
         protocol='QUIC/UDP',
         order=2,
@@ -230,7 +156,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="youtube",
         icon_name='fa5b.youtube',
-        icon_color='#FF0000'
+        icon_color='#FF0000',
+        base_filter="--filter-udp=443 --hostlist=youtube.txt",
+        strategy_type="udp"
     ),
     
     'googlevideo_tcp': CategoryInfo(
@@ -244,8 +172,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Это серверы доставки контента (CDN), откуда загружаются сами видеофайлы YouTube.
 Нужно включать если видео не загружаются при работающем основном YouTube.""",
         color='#ff9900',
-        default_strategy='googlevideo_tcp_none',
-        none_strategy='googlevideo_tcp_none',
+        default_strategy='none',
         ports='443',
         protocol='TCP',
         order=3,
@@ -254,7 +181,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="google",
         icon_name='fa5b.google',
-        icon_color='#4285F4'
+        icon_color='#4285F4',
+        base_filter="--filter-tcp=443 --hostlist-domains=googlevideo.com",
+        strategy_type="tcp"
     ),
 
     'discord': CategoryInfo(
@@ -269,7 +198,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Включите если не работают текстовые сообщения и картинки.""",
         color='#7289da',
         default_strategy='dis4',
-        none_strategy='discord_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=4,
@@ -278,7 +206,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="discord",
         icon_name='fa5b.discord',
-        icon_color='#7289DA'
+        icon_color='#7289DA',
+        base_filter="--filter-tcp=443,2053,2083,2087,2096,8443 --hostlist=discord.txt",
+        strategy_type="tcp"
     ),
 
     'discord_voice_udp': CategoryInfo(
@@ -287,22 +217,20 @@ QUIC работает поверх UDP и обеспечивает более б
         full_name='Discord Voice',
         emoji='🔊',
         description='Discord голосовые звонки (UDP порты)',
-        tooltip="""🔊 Discord голосовые звонки (UDP порты)
-Обходит блокировку голосовой связи и видеозвонков в Discord.
-Использует UDP протокол для передачи голоса в реальном времени.
-Включите если не работают голосовые каналы и звонки.""",
+        tooltip="""🔊 Discord голосовые звонки (UDP порты)""",
         color='#9b59b6',
-        default_strategy='ipv4_dup2_autottl_cutoff_n3',
-        none_strategy='discord_voice_udp_none',
+        default_strategy='ipv4_ipv6_dup_autottl',
         ports='stun ports',
         protocol='UDP',
         order=5,
-
         command_order=6,
         needs_new_separator=True,
         command_group="discord",
         icon_name='fa5s.microphone',
-        icon_color='#7289DA'
+        icon_color='#7289DA',
+        # Для простых стратегий discord_voice
+        base_filter="--filter-l7=discord,stun",
+        strategy_type="discord_voice"
     ),
 
     'udp_discord': CategoryInfo(
@@ -313,8 +241,7 @@ QUIC работает поверх UDP и обеспечивает более б
         description='UDP протокол Discord мессенджер (порт 443)',
         tooltip="""💬 UDP для веб интерфейса дискорда, обычно не нужен но пусть будет.""",
         color='#7289da',
-        default_strategy='udp_discord_tcp_none',
-        none_strategy='udp_discord_tcp_none',
+        default_strategy='none',
         ports='443',
         protocol='TCP',
         order=6,
@@ -323,7 +250,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="discord",
         icon_name='fa5b.discord',
-        icon_color='#7289DA'
+        icon_color='#7289DA',
+        base_filter="--filter-udp=443 --hostlist=discord.txt",
+        strategy_type="udp"
     ),
 
     'update_discord': CategoryInfo(
@@ -334,8 +263,7 @@ QUIC работает поверх UDP и обеспечивает более б
         description='Обновления Discord мессенджер (порт 443)',
         tooltip="""💬 Пробивает прицельно отдельно апдейт дискорда. Полезно когда сайт discord.com грузится, а приложение Windows постоянно ищет обновления.""",
         color='#7289da',
-        default_strategy='update_discord_tcp_none',
-        none_strategy='update_discord_tcp_none',
+        default_strategy='none',
         ports='443',
         protocol='TCP',
         order=7,
@@ -343,7 +271,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="discord",
         icon_name='fa5b.discord',
-        icon_color='#7289DA'
+        icon_color='#7289DA',
+        base_filter="--filter-tcp=443 --hostlist-domains=updates.discord.com",
+        strategy_type="tcp"
     ),
 
     'telegram_tcp': CategoryInfo(
@@ -356,8 +286,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Обходит блокировку САЙТОВ и веб версии в Telegram. НЕ ПОДХОДИТ ДЛЯ ПРИЛОЖЕНИЯ!
 Включите если не работают сайты telegram.org и другие.""",
         color='#9b59b6',
-        default_strategy='telegram_tcp_none',
-        none_strategy='telegram_tcp_none',
+        default_strategy='none',
         ports='80, 443',
         protocol='TCP',
         order=8,
@@ -365,7 +294,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="telegram",
         icon_name='fa5b.telegram',
-        icon_color="#3CA7FF"
+        icon_color="#3CA7FF",
+        base_filter="--filter-tcp=80,443 --hostlist=telegram.txt",
+        strategy_type="tcp"
     ),
 
     'telegram_call': CategoryInfo(
@@ -380,7 +311,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Включите если не работают голосовые каналы и звонки.""",
         color='#9b59b6',
         default_strategy='dronator_43',
-        none_strategy='telegram_call_none',
         ports='stun ports',
         protocol='UDP',
         order=9,
@@ -388,7 +318,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="telegram",
         icon_name='fa5b.telegram',
-        icon_color="#3CA7FF"
+        icon_color="#3CA7FF",
+        base_filter="--filter-udp=1400 --filter-l7=stun",
+        strategy_type="udp"
     ),
     
     'soundcloud_tcp': CategoryInfo(
@@ -402,7 +334,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком SoundCloud через TCP протокол.""",
         color='#ff5500',
         default_strategy='other_seqovl',
-        none_strategy='soundcloud_tcp_none',
         ports='443',
         protocol='TCP',
         order=10,
@@ -412,6 +343,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="music",
         icon_name='fa5b.soundcloud',
         icon_color='#FF5500',
+        base_filter="--filter-tcp=443 --hostlist=soundcloud.txt",
+        strategy_type="tcp"
     ),
 
     'github_tcp': CategoryInfo(
@@ -425,7 +358,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком GitHub через TCP протокол.""",
         color="#808080",
         default_strategy='other_seqovl',
-        none_strategy='github_tcp_none',
         ports='443',
         protocol='TCP',
         order=10,
@@ -435,6 +367,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="github",
         icon_name='fa5b.github',
         icon_color="#FCFCFC",
+        base_filter="--filter-tcp=443 --hostlist=github.txt",
+        strategy_type="tcp"
     ),
 
     'rutracker_tcp': CategoryInfo(
@@ -448,7 +382,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Rutracker через TCP протокол.""",
         color='#6c5ce7',
         default_strategy='multisplit_split_pos_1',
-        none_strategy='rutracker_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=11,
@@ -458,6 +391,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="trackers",
         icon_name='fa5s.download',
         icon_color="#457AEB",
+        base_filter="--filter-tcp=80,443 --ipset=ipset-rutracker.txt",
+        strategy_type="tcp"
     ),
 
     'rutor_tcp': CategoryInfo(
@@ -471,7 +406,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Rutor.info через TCP протокол.""",
         color='#6c5ce7',
         default_strategy='multisplit_split_pos_1',
-        none_strategy='rutor_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=12,
@@ -481,6 +415,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="trackers",
         icon_name='fa5s.download',
         icon_color="#457AEB",
+        base_filter="--filter-tcp=80,443 --hostlist=rutor.txt",
+        strategy_type="tcp"
     ),
 
     'ntcparty_tcp': CategoryInfo(
@@ -494,7 +430,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком NtcParty через TCP протокол.""",
         color="#d9d8e0",
         default_strategy='other_seqovl',
-        none_strategy='ntcparty_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=13,
@@ -504,6 +439,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="trackers",
         icon_name='fa5s.tools',
         icon_color='#6C5CE7',
+        base_filter="--filter-tcp=80,443 --ipset-ip=130.255.77.28",
+        strategy_type="tcp"
     ),
     
     'twitch_tcp': CategoryInfo(
@@ -517,8 +454,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Twitch через TCP протокол.
 Включите если не работают стримы на Twitch.""",
         color='#9146ff',
-        default_strategy='twitch_tcp_none',
-        none_strategy='twitch_tcp_none',
+        default_strategy='none',
         ports='80, 443',
         protocol='TCP',
         order=14,
@@ -528,6 +464,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="streaming",
         icon_name='fa5b.twitch',
         icon_color='#9146FF',
+        base_filter="--filter-tcp=443 --hostlist=twitch.txt",
+        strategy_type="tcp"
     ),
 
     'speedtest_tcp': CategoryInfo(
@@ -541,7 +479,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Speedtest через TCP протокол.""",
         color='#9146ff',
         default_strategy='other_seqovl',
-        none_strategy='speedtest_tcp_none',
         ports= '443',
         protocol='TCP',
         order=15,
@@ -551,6 +488,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="hostlists",
         icon_name='fa5s.tachometer-alt',
         icon_color="#4671FF",
+        base_filter="--filter-tcp=443,8080 --hostlist=speedtest.txt",
+        strategy_type="tcp"
     ),
 
     'steam_tcp': CategoryInfo(
@@ -564,7 +503,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Steam через TCP протокол.""",
         color='#9146ff',
         default_strategy='other_seqovl',
-        none_strategy='steam_tcp_none',
         ports= '80, 443',
         protocol='TCP',
         order=16,
@@ -574,6 +512,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="hostlists",
         icon_name='fa5b.steam',
         icon_color="#7390F0",
+        base_filter="--filter-tcp=80,443 --hostlist=steam.txt",
+        strategy_type="tcp"
     ),
 
     'itch_tcp': CategoryInfo(
@@ -587,7 +527,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Itch.io через TCP протокол.""",
         color='#ff4757',
         default_strategy='disorder2_badseq_tls_google',
-        none_strategy='itch_tcp_none',
         ports='443',
         protocol='TCP',
         order=17,
@@ -596,7 +535,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="games",
         icon_name='fa5b.itch-io',
-        icon_color='#FA5C5C'
+        icon_color='#FA5C5C',
+        base_filter="--filter-tcp=443 --hostlist=itch.txt",
+        strategy_type="tcp"
     ),
 
     'google_tcp': CategoryInfo(
@@ -608,8 +549,7 @@ QUIC работает поверх UDP и обеспечивает более б
         tooltip="""🌐 Google TCP (порты 443, 853)
         Обходит блокировки основных сайтов и сервисов Google""",
         color='#4285F4',
-        default_strategy='google_tcp_none',
-        none_strategy='google_tcp_none',
+        default_strategy='none',
         ports='80, 443',
         protocol='TCP',
         order=18,
@@ -618,7 +558,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="hostlists",
         icon_name='fa5b.google',
-        icon_color="#4285F4"
+        icon_color="#4285F4",
+        base_filter="--filter-tcp=80,443 --hostlist=google.txt",
+        strategy_type="tcp"
     ),
 
     'phasmophobia_udp': CategoryInfo(
@@ -632,7 +574,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Phasmophobia через UDP протокол.""",
         color='#ff4757',
         default_strategy='fake_2_n2_test',
-        none_strategy='phasmophobia_udp_none',
         ports='443',
         protocol='UDP',
         order=19,
@@ -641,7 +582,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="games",
         icon_name='fa5s.ghost',
-        icon_color='#8B4789'
+        icon_color='#8B4789',
+        base_filter="--filter-udp=5056,27002",
+        strategy_type="udp"
     ),
 
     'battlefield_6_udp': CategoryInfo(
@@ -655,7 +598,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Battlefield через UDP протокол.""",
         color='#ff4757',
         default_strategy='fake_2_n2_test',
-        none_strategy='battlefield_6_udp_none',
         ports='443',
         protocol='UDP',
         order=20,
@@ -664,7 +606,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="games",
         icon_name='fa5s.fighter-jet',
-        icon_color='#8B4789'
+        icon_color='#8B4789',
+        base_filter="--filter-udp=21000-21999",
+        strategy_type="udp"
     ),
 
     'warp_tcp': CategoryInfo(
@@ -678,7 +622,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает с основным трафиком Warp через UDP протокол.""",
         color='#ff4757',
         default_strategy='other_seqovl',
-        none_strategy='warp_none',
         ports='443, 853',
         protocol='TCP',
         order=21,
@@ -687,7 +630,9 @@ QUIC работает поверх UDP и обеспечивает более б
         needs_new_separator=True,
         command_group="hostlists",
         icon_name='fa5b.cloudflare',
-        icon_color="#FD7A3E"
+        icon_color="#FD7A3E",
+        base_filter="--filter-tcp=443,853 --ipset-ip=162.159.36.1,162.159.46.1,2606:4700:4700::1111,2606:4700:4700::1001",
+        strategy_type="tcp"
     ),
 
     'other': CategoryInfo(
@@ -702,7 +647,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Можно редактировать список сайтов во вкладке Hostlist.""",
         color='#66ff66',
         default_strategy='other_seqovl',
-        none_strategy='other_tcp_none',
         ports='80, 443',
         protocol='TCP',
         order=22,
@@ -712,6 +656,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="hostlists",
         icon_name='fa5b.chrome',
         icon_color='#2696F1',
+        base_filter="--filter-tcp=443 --hostlist=netrogat.txt --new --filter-tcp=443 --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt --hostlist=porn.txt",
+        strategy_type="tcp"
     ),
     
     'hostlist_80port': CategoryInfo(
@@ -726,7 +672,6 @@ QUIC работает поверх UDP и обеспечивает более б
 Можно редактировать список сайтов во вкладке Hostlist.""",
         color='#00ffcc',
         default_strategy='fake_multisplit_2_fake_http',
-        none_strategy='hostlist_80port_none',
         ports='80',
         protocol='TCP',
         order=23,
@@ -736,6 +681,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="hostlists",
         icon_name='fa5b.chrome',
         icon_color="#2696F1",
+        base_filter="--filter-tcp=80",
+        strategy_type="http80"
     ),
 
     'ipset_tcp_cloudflare': CategoryInfo(
@@ -746,8 +693,7 @@ QUIC работает поверх UDP и обеспечивает более б
         description='Сервера CloudFlare (все порты)',
         tooltip="""☁️ Используйте если нужно разблокировать сервера этого ресурса""",
         color='#ffa500',
-        default_strategy='ipset_tcp_none',
-        none_strategy='ipset_tcp_none',
+        default_strategy='none',
         ports='all ports',
         protocol='TCP',
         order=24,
@@ -757,6 +703,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="ipsets",
         icon_name='fa5b.cloudflare',
         icon_color='#FFA500',
+        base_filter="--filter-tcp=80,443,444-65535 --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare1.txt --ipset=ipset-cloudflare.txt",
+        strategy_type="tcp"
     ),
 
     'ipset': CategoryInfo(
@@ -770,8 +718,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает когда провайдер блокирует не домены, а конкретные IP.
 Полезно для сервисов с фиксированными IP адресами.""",
         color='#ffa500',
-        default_strategy='ipset_tcp_none',
-        none_strategy='ipset_tcp_none',
+        default_strategy='none',
         ports='all ports',
         protocol='TCP',
         order=25,
@@ -781,6 +728,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="ipsets",
         icon_name='fa5s.network-wired',
         icon_color='#FFA500',
+        base_filter="--filter-tcp=80,443,444-65535 --ipset=russia-youtube-rtmps.txt --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=ipset-discord.txt --ipset-exclude=ipset-dns.txt",
+        strategy_type="tcp"
     ),
 
     'ovh_udp': CategoryInfo(
@@ -794,8 +743,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает когда провайдер блокирует не домены, а конкретные IP.
 Полезно для сервисов с фиксированными IP адресами.""",
         color="#e69f08",
-        default_strategy='ovh_udp_none',
-        none_strategy='ovh_udp_none',
+        default_strategy='none',
         ports='all ports',
         protocol='UDP',
         order=26,
@@ -805,6 +753,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="ipsets",
         icon_name='fa5s.gamepad',
         icon_color="#F1BB25",
+        base_filter="--filter-udp=* --ipset=ipset-ovh.txt",
+        strategy_type="udp"
     ),
 
     'ipset_udp': CategoryInfo(
@@ -818,8 +768,7 @@ QUIC работает поверх UDP и обеспечивает более б
 Работает когда провайдер блокирует не домены, а конкретные IP.
 Полезно для сервисов с фиксированными IP адресами.""",
         color='#006eff',
-        default_strategy='ipset_udp_none',
-        none_strategy='ipset_udp_none',
+        default_strategy='none',
         ports='all ports',
         protocol='UDP',
         order=27,
@@ -829,6 +778,8 @@ QUIC работает поверх UDP и обеспечивает более б
         command_group="ipsets",
         icon_name='fa5s.gamepad',
         icon_color="#D49B00",
+        base_filter="--filter-udp=* --ipset=ipset-all.txt --ipset=ipset-base.txt --ipset=ipset-all2.txt --ipset=cloudflare-ipset.txt --ipset=ipset-cloudflare1.txt --ipset=ipset-cloudflare.txt --ipset-exclude=ipset-dns.txt",
+        strategy_type="udp"
     ),
 }
 
@@ -850,11 +801,11 @@ class StrategiesRegistry:
     
     def __init__(self):
         self._categories = CATEGORIES_REGISTRY
-    
+
     @property
     def strategies(self) -> Dict[str, Dict]:
         """
-        Получение всех стратегий (загружает ВСЕ категории)
+        Получение всех стратегий (загружает ВСЕ типы)
         ⚠️ Используйте get_category_strategies() для лучшей производительности
         """
         return _lazy_import_all_strategies()
@@ -863,18 +814,99 @@ class StrategiesRegistry:
     def categories(self) -> Dict[str, CategoryInfo]:
         """Получение всех категорий"""
         return self._categories
-    
+
     def get_category_strategies(self, category_key: str) -> Dict[str, Any]:
-        """
-        Получить стратегии для конкретной категории
-        ✅ Оптимизировано - загружает только нужную категорию
-        """
-        return _lazy_import_category_strategies(category_key)
+        """Получить стратегии для категории"""
+        category_info = self._categories.get(category_key)
+        if not category_info:
+            return {}
+        return _lazy_import_base_strategies(category_info.strategy_type)
     
     def get_category_info(self, category_key: str) -> Optional[CategoryInfo]:
         """Получить информацию о категории"""
         return self._categories.get(category_key)
+
+    def get_strategy_args_safe(self, category_key: str, strategy_id: str) -> Optional[str]:
+        """
+        Получить полные аргументы стратегии.
+        
+        Логика:
+        1. Если strategy_id == "none" - возвращаем пустую строку
+        2. Для discord_voice - если args содержит --filter - используем как есть
+        3. Для остальных - склеиваем base_filter + техника
+        """
+        # Проверка на none
+        if strategy_id == "none":
+            return ""
+        
+        category_info = self.get_category_info(category_key)
+        if not category_info:
+            log(f"Категория {category_key} не найдена", "⚠ WARNING")
+            return None
+        
+        strategy_type = category_info.strategy_type
+        base_filter = category_info.base_filter
+        
+        # Получаем стратегию из BASE файла
+        base_strategies = _lazy_import_base_strategies(strategy_type)
+        strategy = base_strategies.get(strategy_id)
+        
+        if not strategy:
+            log(f"Стратегия {strategy_id} не найдена в типе {strategy_type}", "DEBUG")
+            return None
+        
+        base_args = strategy.get("args", "")
+        
+        # Если args пустой - категория отключена
+        if not base_args:
+            return ""
+        
+        # Для discord_voice - проверяем, содержит ли args уже фильтры
+        if strategy_type == "discord_voice":
+            if "--filter-" in base_args or "--new" in base_args:
+                # Сложная стратегия с полной командой
+                return base_args
+            # Простая стратегия - добавляем base_filter
+        
+        # Склеиваем: base_filter + техника
+        if base_filter and base_args:
+            return f"{base_filter} {base_args}"
+        elif base_filter:
+            return base_filter
+        else:
+            return base_args
+
+    def get_strategy_name_safe(self, category_key: str, strategy_id: str) -> str:
+        """Получить имя стратегии"""
+        if strategy_id == "none":
+            return "⛔ Отключено"
+        
+        category_info = self.get_category_info(category_key)
+        if not category_info:
+            return strategy_id or "Unknown"
+        
+        base_strategies = _lazy_import_base_strategies(category_info.strategy_type)
+        strategy = base_strategies.get(strategy_id)
+        
+        if strategy:
+            return strategy.get('name', strategy_id)
+        return strategy_id or "Unknown"
     
+    def get_default_selections(self) -> Dict[str, str]:
+        """Получить стратегии по умолчанию для всех категорий"""
+        return {
+            key: info.default_strategy
+            for key, info in self._categories.items()
+        }
+    
+    def get_none_strategies(self) -> Dict[str, str]:
+        """Получить 'none' стратегии для всех категорий"""
+        # Теперь для всех категорий используется единая стратегия "none"
+        return {
+            key: "none"
+            for key in self._categories.keys()
+        }
+
     def get_all_category_keys(self) -> List[str]:
         """Получить все ключи категорий в порядке сортировки"""
         return sorted(self._categories.keys(), key=lambda k: self._categories[k].order)
@@ -899,142 +931,11 @@ class StrategiesRegistry:
             key: info.color
             for key, info in self._categories.items()
         }
-    
-    def get_default_selections(self) -> Dict[str, str]:
-        """Получить стратегии по умолчанию для всех категорий"""
-        return {
-            key: info.default_strategy
-            for key, info in self._categories.items()
-        }
-    
-    def get_none_strategies(self) -> Dict[str, str]:
-        """Получить 'none' стратегии для всех категорий"""
-        return {
-            key: info.none_strategy
-            for key, info in self._categories.items()
-        }
-    
-    def add_new_category(self, 
-                        key: str,
-                        short_name: str,
-                        full_name: str,
-                        strategies_dict: Dict,
-                        emoji: str = "🔧",
-                        description: str = "",
-                        tooltip: str = "",
-                        color: str = "#888888",
-                        default_strategy: str = "",
-                        none_strategy: str = "",
-                        ports: str = "",
-                        protocol: str = "",
-                        order: int = 999,
-                        command_order: int = 999,
-                        needs_new_separator: bool = False,
-                        command_group: str = "default",
-                        icon_name: str = 'fa5s.globe',
-                        icon_color: str = '#2196F3') -> bool:
-        """
-        Добавить новую категорию динамически
-        """
-        try:
-            # Добавляем информацию о категории
-            self._categories[key] = CategoryInfo(
-                key=key,
-                short_name=short_name,
-                full_name=full_name,
-                emoji=emoji,
-                description=description,
-                tooltip=tooltip,
-                color=color,
-                default_strategy=default_strategy,
-                none_strategy=none_strategy,
-                ports=ports,
-                protocol=protocol,
-                order=order,
-                command_order=command_order,
-                needs_new_separator=needs_new_separator,
-                command_group=command_group,
-                icon_name=icon_name,
-                icon_color=icon_color
-            )
-            
-            # Добавляем стратегии в кэш
-            _strategies_cache[key] = strategies_dict
-            _imported_categories.add(key)
-            
-            log(f"Добавлена новая категория: {key} ({full_name})", "INFO")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка добавления категории {key}: {e}", "❌ ERROR")
-            return False
-    
-    def remove_category(self, key: str) -> bool:
-        """Удалить категорию"""
-        try:
-            if key in self._categories:
-                del self._categories[key]
-            
-            if key in _strategies_cache:
-                del _strategies_cache[key]
-                
-            if key in _imported_categories:
-                _imported_categories.remove(key)
-            
-            log(f"Удалена категория: {key}", "INFO")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка удаления категории {key}: {e}", "❌ ERROR")
-            return False
-    
-    def get_strategy_safe(self, category_key: str, strategy_id: str) -> Optional[Dict]:
-        """Безопасно получить стратегию"""
-        try:
-            category_strategies = self.get_category_strategies(category_key)
-            return category_strategies.get(strategy_id)
-        except Exception as e:
-            log(f"Ошибка получения стратегии {strategy_id} из {category_key}: {e}", "⚠ WARNING")
-            return None
-    
-    def get_strategy_args_safe(self, category_key: str, strategy_id: str) -> Optional[str]:
-        """Безопасно получить аргументы стратегии"""
-        strategy = self.get_strategy_safe(category_key, strategy_id)
-        if strategy:
-            return strategy.get("args", "")
-        return None
-    
-    def get_strategy_name_safe(self, category_key: str, strategy_id: str) -> str:
-        """Безопасно получить имя стратегии"""
-        strategy = self.get_strategy_safe(category_key, strategy_id)
-        if strategy:
-            return strategy.get('name', strategy_id)
-        return strategy_id or "Unknown"
 
     def get_all_category_keys_by_command_order(self) -> List[str]:
         """Получить все ключи категорий в порядке командной строки"""
         return sorted(self._categories.keys(), key=lambda k: self._categories[k].command_order)
 
-    def get_command_groups(self) -> Dict[str, List[str]]:
-        """Получить группы команд"""
-        groups = {}
-        for key, info in self._categories.items():
-            group = info.command_group
-            if group not in groups:
-                groups[group] = []
-            groups[group].append(key)
-        
-        # Сортируем категории в каждой группе по command_order
-        for group in groups:
-            groups[group].sort(key=lambda k: self._categories[k].command_order)
-        
-        return groups
-
-    @staticmethod
-    def get_category_icon(category_key: str):
-        """Возвращает Font Awesome иконку для категории"""
-        return get_category_icon(category_key)
-    
 # ==================== ГЛОБАЛЬНЫЙ ЭКЗЕМПЛЯР ====================
 
 # Создаем глобальный экземпляр реестра

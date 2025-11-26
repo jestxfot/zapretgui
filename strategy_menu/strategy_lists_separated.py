@@ -1,10 +1,4 @@
-# strategy_menu/strategy_lists_separated.py
-
-from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
-from log import log
-
-"""
-Censorliber, [08.08.2025 1:02]
+"""Censorliber, [08.08.2025 1:02]
 ну окей начнем с дискодра и ютуба
 
 Censorliber, [08.08.2025 1:02]
@@ -96,13 +90,31 @@ Censorliber, [08.08.2025 1:02]
 --filter-udp=8886 --ipset-ip=188.114.96.0/22 --dpi-desync=fake --dpi-desync-any-protocol --dpi-desync-fake-unknown-udp=quic_4.bin --dpi-desync-cutoff=d2 --dpi-desync-autottl --new
 """
 
+# strategy_menu/strategy_lists_separated.py
+
+"""
+Модуль объединения стратегий в одну командную строку.
+✅ Использует новую логику: base_filter из категории + техника из стратегии
+"""
+
+import re
+from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
+from log import log
 from .strategies_registry import registry
 
 def combine_strategies(*args, **kwargs) -> dict:
     """
-    Объединяет выбранные стратегии в одну общую с правильным порядком командной строки
+    Объединяет выбранные стратегии в одну общую с правильным порядком командной строки.
+    
+    ✅ Применяет все настройки из UI:
+    - Базовые аргументы (windivert)
+    - Удаление hostlist (если включено)
+    - Удаление ipset (если включено)
+    - Добавление wssize (если включено)
+    - Замена other.txt на allzone.txt (если включено)
     """
     
+    # Определяем источник выборов категорий
     if kwargs and not args:
         log("Используется новый способ вызова combine_strategies", "DEBUG")
         category_strategies = kwargs
@@ -112,7 +124,7 @@ def combine_strategies(*args, **kwargs) -> dict:
     else:
         raise ValueError("Нельзя одновременно использовать позиционные и именованные аргументы")
     
-    # Получаем базовые аргументы
+    # ==================== БАЗОВЫЕ АРГУМЕНТЫ ====================
     from strategy_menu import get_base_args_selection
     base_args_type = get_base_args_selection()
     
@@ -126,15 +138,12 @@ def combine_strategies(*args, **kwargs) -> dict:
     
     base_args = BASE_ARGS_OPTIONS.get(base_args_type, BASE_ARGS_OPTIONS["windivert_all"])
     
-    # ✅ НОВАЯ ЛОГИКА: Собираем аргументы в порядке командной строки
-    args_parts = []
-    if base_args:
-        args_parts.append(base_args)
-    
-    # Получаем категории в порядке командной строки
+    # ==================== СБОР АКТИВНЫХ КАТЕГОРИЙ ====================
     category_keys_ordered = registry.get_all_category_keys_by_command_order()
     none_strategies = registry.get_none_strategies()
     
+    # Собираем активные категории с их аргументами
+    active_categories = []  # [(category_key, args, category_info), ...]
     descriptions = []
     
     for category_key in category_keys_ordered:
@@ -148,28 +157,45 @@ def combine_strategies(*args, **kwargs) -> dict:
         if strategy_id == none_id:
             continue
             
-        # Получаем аргументы стратегии
+        # ✅ Получаем полные аргументы через registry (base_filter + техника)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
-            args_parts.append(args)
-            
-            # ✅ ДОБАВЛЯЕМ --new РАЗДЕЛИТЕЛЬ ЕСЛИ НУЖНО
             category_info = registry.get_category_info(category_key)
-            if category_info and category_info.needs_new_separator:
-                args_parts.append("--new")
+            active_categories.append((category_key, args, category_info))
             
             # Добавляем в описание
             strategy_name = registry.get_strategy_name_safe(category_key, strategy_id)
             if category_info:
                 descriptions.append(f"{category_info.emoji} {strategy_name}")
     
-    # Объединяем все части через пробел
+    # ==================== СБОРКА КОМАНДНОЙ СТРОКИ ====================
+    args_parts = []
+    
+    # Добавляем базовые аргументы
+    if base_args:
+        args_parts.append(base_args)
+    
+    # Добавляем категории с правильными разделителями
+    for i, (category_key, args, category_info) in enumerate(active_categories):
+        args_parts.append(args)
+        
+        # ✅ ИСПРАВЛЕНО: Добавляем --new только если:
+        # 1. Категория требует разделитель (needs_new_separator=True)
+        # 2. И это НЕ последняя активная категория
+        is_last = (i == len(active_categories) - 1)
+        if category_info and category_info.needs_new_separator and not is_last:
+            args_parts.append("--new")
+    
+    # Объединяем все части
     combined_args = " ".join(args_parts)
     
-    # Формируем описание
+    # ==================== ПРИМЕНЕНИЕ НАСТРОЕК ====================
+    combined_args = _apply_settings(combined_args)
+    
+    # ==================== ФИНАЛИЗАЦИЯ ====================
     combined_description = " | ".join(descriptions) if descriptions else "Пользовательская комбинация"
     
-    log(f"Создана комбинированная стратегия в командном порядке: {combined_args}", "DEBUG")
+    log(f"Создана комбинированная стратегия: {len(combined_args)} символов, {len(active_categories)} категорий", "DEBUG")
     
     return {
         "name": "Комбинированная стратегия",
@@ -181,5 +207,149 @@ def combine_strategies(*args, **kwargs) -> dict:
         "all_sites": True,
         "args": combined_args,
         "_is_builtin": True,
+        "_active_categories": len(active_categories),
         **{f"_{key}_id": strategy_id for key, strategy_id in category_strategies.items()}
     }
+
+
+def _apply_settings(args: str) -> str:
+    """
+    Применяет все пользовательские настройки к командной строке.
+    
+    ✅ Обрабатывает:
+    - Удаление --hostlist (применить ко всем сайтам)
+    - Удаление --ipset (применить ко всем IP)
+    - Добавление --wssize 1:6
+    - Замена other.txt на allzone.txt
+    """
+    from strategy_menu import (
+        get_remove_hostlists_enabled,
+        get_remove_ipsets_enabled,
+        get_wssize_enabled,
+        get_allzone_hostlist_enabled
+    )
+    
+    result = args
+    
+    # ==================== ЗАМЕНА ALLZONE ====================
+    # Делаем ДО удаления hostlist, чтобы замена сработала
+    if get_allzone_hostlist_enabled():
+        result = result.replace("--hostlist=other.txt", "--hostlist=allzone.txt")
+        result = result.replace("--hostlist=other2.txt", "--hostlist=allzone.txt")
+        log("Применена замена other.txt -> allzone.txt", "DEBUG")
+    
+    # ==================== УДАЛЕНИЕ HOSTLIST ====================
+    if get_remove_hostlists_enabled():
+        # Удаляем все варианты hostlist
+        patterns = [
+            r'--hostlist-domains=[^\s]+',
+            r'--hostlist-exclude=[^\s]+',
+            r'--hostlist=[^\s]+',
+        ]
+        for pattern in patterns:
+            result = re.sub(pattern, '', result)
+        
+        # Очищаем лишние пробелы
+        result = _clean_spaces(result)
+        log("Удалены все --hostlist параметры", "DEBUG")
+    
+    # ==================== УДАЛЕНИЕ IPSET ====================
+    if get_remove_ipsets_enabled():
+        # Удаляем все варианты ipset
+        patterns = [
+            r'--ipset-ip=[^\s]+',
+            r'--ipset-exclude=[^\s]+',
+            r'--ipset=[^\s]+',
+        ]
+        for pattern in patterns:
+            result = re.sub(pattern, '', result)
+        
+        # Очищаем лишние пробелы
+        result = _clean_spaces(result)
+        log("Удалены все --ipset параметры", "DEBUG")
+    
+    # ==================== ДОБАВЛЕНИЕ WSSIZE ====================
+    if get_wssize_enabled():
+        # Добавляем --wssize 1:6 для TCP 443
+        # Ищем место после базовых аргументов
+        if "--wssize" not in result:
+            # Вставляем после --wf-* аргументов
+            if "--wf-" in result:
+                # Находим конец wf аргументов
+                wf_end = 0
+                for match in re.finditer(r'--wf-[^\s]+=[^\s]+', result):
+                    wf_end = max(wf_end, match.end())
+                
+                if wf_end > 0:
+                    result = result[:wf_end] + " --wssize 1:6" + result[wf_end:]
+                else:
+                    result = "--wssize 1:6 " + result
+            else:
+                result = "--wssize 1:6 " + result
+            
+            log("Добавлен параметр --wssize 1:6", "DEBUG")
+    
+    # ==================== ФИНАЛЬНАЯ ОЧИСТКА ====================
+    result = _clean_spaces(result)
+    
+    # Удаляем пустые --new (если после удаления hostlist/ipset остались)
+    result = re.sub(r'--new\s+--new', '--new', result)
+    result = re.sub(r'\s+--new\s*$', '', result)  # Trailing --new
+    result = re.sub(r'^--new\s+', '', result)  # Leading --new
+    
+    return result.strip()
+
+
+def _clean_spaces(text: str) -> str:
+    """Очищает множественные пробелы"""
+    return ' '.join(text.split())
+
+
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+def get_strategy_display_name(category_key: str, strategy_id: str) -> str:
+    """Получает отображаемое имя стратегии"""
+    if strategy_id == "none":
+        return "⛔ Отключено"
+    
+    return registry.get_strategy_name_safe(category_key, strategy_id)
+
+
+def get_active_categories_count(category_strategies: dict) -> int:
+    """Подсчитывает количество активных категорий"""
+    none_strategies = registry.get_none_strategies()
+    count = 0
+    
+    for category_key, strategy_id in category_strategies.items():
+        if strategy_id and strategy_id != none_strategies.get(category_key):
+            count += 1
+    
+    return count
+
+
+def validate_category_strategies(category_strategies: dict) -> list:
+    """
+    Проверяет корректность выбранных стратегий.
+    Возвращает список ошибок (пустой если всё ок).
+    """
+    errors = []
+    
+    for category_key, strategy_id in category_strategies.items():
+        if not strategy_id:
+            continue
+            
+        if strategy_id == "none":
+            continue
+            
+        # Проверяем существование категории
+        category_info = registry.get_category_info(category_key)
+        if not category_info:
+            errors.append(f"Неизвестная категория: {category_key}")
+            continue
+        
+        # Проверяем существование стратегии
+        args = registry.get_strategy_args_safe(category_key, strategy_id)
+        if args is None:
+            errors.append(f"Стратегия '{strategy_id}' не найдена в категории '{category_key}'")
+    
+    return errors

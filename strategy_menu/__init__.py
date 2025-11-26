@@ -1,4 +1,9 @@
 # strategy_menu/__init__.py
+"""
+Модуль управления стратегиями DPI-обхода.
+Предоставляет единый интерфейс для работы со стратегиями.
+"""
+
 import winreg
 import json
 from log import log
@@ -6,6 +11,9 @@ from config import reg
 
 REGISTRY_PATH = r"Software\ZapretReg2"
 DIRECT_PATH = r"Software\ZapretReg2\DirectMethod"
+DIRECT_STRATEGY_KEY = r"Software\ZapretReg2\DirectStrategy"
+
+# ==================== МЕТОД ЗАПУСКА ====================
 
 def get_strategy_launch_method():
     """Получает метод запуска стратегий из реестра"""
@@ -14,7 +22,6 @@ def get_strategy_launch_method():
             value, _ = winreg.QueryValueEx(key, "StrategyLaunchMethod")
             return value.lower() if value else "direct"
     except:
-        # ✅ При первом запуске устанавливаем direct
         default_method = "direct"
         set_strategy_launch_method(default_method)
         log(f"Установлен метод запуска по умолчанию: {default_method}", "INFO")
@@ -31,7 +38,8 @@ def set_strategy_launch_method(method: str):
         log(f"Ошибка сохранения метода запуска: {e}", "❌ ERROR")
         return False
 
-# ───────────── Настройки UI диалога ─────────────
+
+# ==================== НАСТРОЙКИ UI ДИАЛОГА ====================
 
 def get_tabs_pinned() -> bool:
     """Получает состояние закрепления боковой панели табов"""
@@ -47,48 +55,43 @@ def set_tabs_pinned(pinned: bool) -> bool:
     """Сохраняет состояние закрепления боковой панели табов"""
     success = reg(DIRECT_PATH, "TabsPinned", int(pinned))
     if success:
-        log(f"Настройка закрепления табов сохранена: {'закреплено' if pinned else 'не закреплено'}", "INFO")
-    else:
-        log(f"Ошибка сохранения настройки закрепления табов", "❌ ERROR")
+        log(f"Настройка закрепления табов: {'закреплено' if pinned else 'не закреплено'}", "DEBUG")
     return success
 
 def get_keep_dialog_open() -> bool:
-    """Получает настройку сохранения диалога открытым после выбора стратегии"""
+    """Получает настройку сохранения диалога открытым"""
     result = reg(DIRECT_PATH, "KeepDialogOpen")
     if result is not None:
         try:
             return bool(int(result))
         except (ValueError, TypeError):
             return False
-    return False  # По умолчанию закрываем диалог
+    return False
 
 def set_keep_dialog_open(enabled: bool) -> bool:
-    """Сохраняет настройку сохранения диалога открытым после выбора стратегии"""
+    """Сохраняет настройку сохранения диалога открытым"""
     success = reg(DIRECT_PATH, "KeepDialogOpen", int(enabled))
     if success:
-        log(f"Настройка 'не закрывать окно' сохранена: {'включено' if enabled else 'выключено'}", "INFO")
-    else:
-        log(f"Ошибка сохранения настройки 'не закрывать окно'", "❌ ERROR")
+        log(f"Настройка 'не закрывать окно': {'вкл' if enabled else 'выкл'}", "DEBUG")
     return success
 
-# ───────────── Кэширование избранных ─────────────
+
+# ==================== КЭШИРОВАНИЕ ИЗБРАННЫХ ====================
 
 _favorites_cache = {}
 _favorites_cache_time = 0
-FAVORITES_CACHE_TTL = 0.5  # Кэш живет 0.5 секунды
+FAVORITES_CACHE_TTL = 0.5
 
 def get_favorites_for_category(category_key):
-    """Получает все избранные стратегии для категории (кэшированный вариант)"""
+    """Получает избранные стратегии для категории (с кэшем)"""
     import time
     global _favorites_cache, _favorites_cache_time
     
     current_time = time.time()
     
-    # Проверяем кэш
     if current_time - _favorites_cache_time < FAVORITES_CACHE_TTL:
         return _favorites_cache.get(category_key, set())
     
-    # Обновляем кэш
     favorites = get_favorite_strategies()
     _favorites_cache = {
         key: set(values) for key, values in favorites.items()
@@ -98,88 +101,22 @@ def get_favorites_for_category(category_key):
     return _favorites_cache.get(category_key, set())
 
 def invalidate_favorites_cache():
-    """Сбрасывает кэш избранных (вызывать после изменений)"""
+    """Сбрасывает кэш избранных"""
     global _favorites_cache_time
     _favorites_cache_time = 0
 
-# ───────────── Избранные стратегии (СТАРАЯ ВЕРСИЯ - для обратной совместимости) ─────────────
 
-def get_favorite_strategies_legacy():
-    """Получает список ID избранных стратегий (старая версия без категорий)"""
-    try:
-        result = reg(REGISTRY_PATH, "FavoriteStrategies")
-        if result:
-            return json.loads(result)
-        return []
-    except Exception as e:
-        log(f"Ошибка загрузки избранных стратегий (legacy): {e}", "DEBUG")
-        return []
-
-def add_favorite_strategy_legacy(strategy_id):
-    """Добавляет стратегию в избранные (старая версия)"""
-    try:
-        favorites = get_favorite_strategies_legacy()
-        if strategy_id not in favorites:
-            favorites.append(strategy_id)
-            reg(REGISTRY_PATH, "FavoriteStrategies", json.dumps(favorites))
-            log(f"Стратегия {strategy_id} добавлена в избранные (legacy)", "DEBUG")
-            return True
-        return False
-    except Exception as e:
-        log(f"Ошибка добавления стратегии в избранные (legacy): {e}", "ERROR")
-        return False
-
-def remove_favorite_strategy_legacy(strategy_id):
-    """Удаляет стратегию из избранных (старая версия)"""
-    try:
-        favorites = get_favorite_strategies_legacy()
-        if strategy_id in favorites:
-            favorites.remove(strategy_id)
-            reg(REGISTRY_PATH, "FavoriteStrategies", json.dumps(favorites))
-            log(f"Стратегия {strategy_id} удалена из избранных (legacy)", "DEBUG")
-            return True
-        return False
-    except Exception as e:
-        log(f"Ошибка удаления стратегии из избранных (legacy): {e}", "ERROR")
-        return False
-
-def is_favorite_strategy_legacy(strategy_id):
-    """Проверяет, является ли стратегия избранной (старая версия)"""
-    favorites = get_favorite_strategies_legacy()
-    return strategy_id in favorites
-
-def toggle_favorite_strategy_legacy(strategy_id):
-    """Переключает статус избранной стратегии (старая версия)"""
-    if is_favorite_strategy_legacy(strategy_id):
-        remove_favorite_strategy_legacy(strategy_id)
-        return False
-    else:
-        add_favorite_strategy_legacy(strategy_id)
-        return True
-
-def clear_favorite_strategies_legacy():
-    """Очищает список избранных стратегий (старая версия)"""
-    try:
-        reg(REGISTRY_PATH, "FavoriteStrategies", json.dumps([]))
-        log("Список избранных стратегий очищен (legacy)", "DEBUG")
-        return True
-    except Exception as e:
-        log(f"Ошибка очистки избранных стратегий (legacy): {e}", "ERROR")
-        return False
-
-# ───────────── Избранные стратегии (НОВАЯ ВЕРСИЯ - ПО КАТЕГОРИЯМ) ─────────────
+# ==================== ИЗБРАННЫЕ СТРАТЕГИИ ====================
 
 def get_favorite_strategies(category=None):
     """
-    Получает избранные стратегии
+    Получает избранные стратегии.
     
     Args:
-        category: Если указано, возвращает избранные только для этой категории.
-                 Если None, возвращает весь словарь категорий с избранными
+        category: категория или None для всех
     
     Returns:
-        Если category указано: список ID избранных стратегий для категории
-        Если category=None: словарь {category: [strategy_ids]}
+        list (если category) или dict {category: [strategy_ids]}
     """
     try:
         result = reg(REGISTRY_PATH, "FavoriteStrategiesByCategory")
@@ -190,17 +127,11 @@ def get_favorite_strategies(category=None):
             return favorites_dict
         return [] if category else {}
     except Exception as e:
-        log(f"Ошибка загрузки избранных стратегий: {e}", "DEBUG")
+        log(f"Ошибка загрузки избранных: {e}", "DEBUG")
         return [] if category else {}
 
 def add_favorite_strategy(strategy_id, category):
-    """
-    Добавляет стратегию в избранные для конкретной категории
-    
-    Args:
-        strategy_id: ID стратегии
-        category: Категория (вкладка)
-    """
+    """Добавляет стратегию в избранные"""
     try:
         favorites_dict = get_favorite_strategies()
         if not isinstance(favorites_dict, dict):
@@ -212,22 +143,16 @@ def add_favorite_strategy(strategy_id, category):
         if strategy_id not in favorites_dict[category]:
             favorites_dict[category].append(strategy_id)
             reg(REGISTRY_PATH, "FavoriteStrategiesByCategory", json.dumps(favorites_dict))
-            invalidate_favorites_cache()  # ✅ Сбрасываем кэш
-            log(f"Стратегия {strategy_id} добавлена в избранные для {category}", "DEBUG")
+            invalidate_favorites_cache()
+            log(f"Стратегия {strategy_id} добавлена в избранные ({category})", "DEBUG")
             return True
         return False
     except Exception as e:
-        log(f"Ошибка добавления стратегии в избранные: {e}", "ERROR")
+        log(f"Ошибка добавления в избранные: {e}", "ERROR")
         return False
 
 def remove_favorite_strategy(strategy_id, category):
-    """
-    Удаляет стратегию из избранных для конкретной категории
-    
-    Args:
-        strategy_id: ID стратегии
-        category: Категория (вкладка)
-    """
+    """Удаляет стратегию из избранных"""
     try:
         favorites_dict = get_favorite_strategies()
         if not isinstance(favorites_dict, dict):
@@ -236,31 +161,20 @@ def remove_favorite_strategy(strategy_id, category):
         if category in favorites_dict and strategy_id in favorites_dict[category]:
             favorites_dict[category].remove(strategy_id)
             
-            # Удаляем пустые категории
             if not favorites_dict[category]:
                 del favorites_dict[category]
                 
             reg(REGISTRY_PATH, "FavoriteStrategiesByCategory", json.dumps(favorites_dict))
-            invalidate_favorites_cache()  # ✅ Сбрасываем кэш
-            log(f"Стратегия {strategy_id} удалена из избранных для {category}", "DEBUG")
+            invalidate_favorites_cache()
+            log(f"Стратегия {strategy_id} удалена из избранных ({category})", "DEBUG")
             return True
         return False
     except Exception as e:
-        log(f"Ошибка удаления стратегии из избранных: {e}", "ERROR")
+        log(f"Ошибка удаления из избранных: {e}", "ERROR")
         return False
 
 def is_favorite_strategy(strategy_id, category=None):
-    """
-    Проверяет, является ли стратегия избранной
-    
-    Args:
-        strategy_id: ID стратегии
-        category: Если указано, проверяет только для этой категории.
-                 Если None, проверяет во всех категориях
-    
-    Returns:
-        True если стратегия в избранных
-    """
+    """Проверяет, является ли стратегия избранной"""
     favorites_dict = get_favorite_strategies()
     if not isinstance(favorites_dict, dict):
         return False
@@ -268,20 +182,13 @@ def is_favorite_strategy(strategy_id, category=None):
     if category:
         return strategy_id in favorites_dict.get(category, [])
     else:
-        # Проверяем во всех категориях
         for cat_favorites in favorites_dict.values():
             if strategy_id in cat_favorites:
                 return True
         return False
 
 def toggle_favorite_strategy(strategy_id, category):
-    """
-    Переключает статус избранной стратегии для категории
-    
-    Args:
-        strategy_id: ID стратегии
-        category: Категория (вкладка)
-    """
+    """Переключает статус избранной стратегии"""
     if is_favorite_strategy(strategy_id, category):
         remove_favorite_strategy(strategy_id, category)
         return False
@@ -290,38 +197,24 @@ def toggle_favorite_strategy(strategy_id, category):
         return True
 
 def clear_favorite_strategies(category=None):
-    """
-    Очищает список избранных стратегий
-    
-    Args:
-        category: Если указано, очищает только для этой категории.
-                 Если None, очищает все избранные
-    """
+    """Очищает избранные стратегии"""
     try:
         if category:
             favorites_dict = get_favorite_strategies()
-            if not isinstance(favorites_dict, dict):
-                return True
-            
-            if category in favorites_dict:
+            if isinstance(favorites_dict, dict) and category in favorites_dict:
                 del favorites_dict[category]
                 reg(REGISTRY_PATH, "FavoriteStrategiesByCategory", json.dumps(favorites_dict))
-                invalidate_favorites_cache()  # ✅ Сбрасываем кэш
-                log(f"Список избранных стратегий для {category} очищен", "DEBUG")
+                invalidate_favorites_cache()
         else:
             reg(REGISTRY_PATH, "FavoriteStrategiesByCategory", json.dumps({}))
-            invalidate_favorites_cache()  # ✅ Сбрасываем кэш
-            log("Все списки избранных стратегий очищены", "DEBUG")
+            invalidate_favorites_cache()
         return True
     except Exception as e:
-        log(f"Ошибка очистки избранных стратегий: {e}", "ERROR")
+        log(f"Ошибка очистки избранных: {e}", "ERROR")
         return False
 
 def get_all_favorite_strategies_flat():
-    """
-    Возвращает плоский список всех избранных стратегий из всех категорий
-    (для обратной совместимости)
-    """
+    """Возвращает плоский список всех избранных"""
     favorites_dict = get_favorite_strategies()
     if not isinstance(favorites_dict, dict):
         return []
@@ -331,8 +224,36 @@ def get_all_favorite_strategies_flat():
         all_favorites.update(cat_favorites)
     
     return list(all_favorites)
-        
-# ───────────── Настройки прямого метода ─────────────
+
+
+# ==================== LEGACY ИЗБРАННЫЕ (для совместимости) ====================
+
+def get_favorite_strategies_legacy():
+    """[LEGACY] Получает список ID избранных стратегий"""
+    try:
+        result = reg(REGISTRY_PATH, "FavoriteStrategies")
+        if result:
+            return json.loads(result)
+        return []
+    except:
+        return []
+
+def is_favorite_strategy_legacy(strategy_id):
+    """[LEGACY] Проверяет, является ли стратегия избранной"""
+    return strategy_id in get_favorite_strategies_legacy()
+
+def toggle_favorite_strategy_legacy(strategy_id):
+    """[LEGACY] Переключает статус избранной"""
+    favorites = get_favorite_strategies_legacy()
+    if strategy_id in favorites:
+        favorites.remove(strategy_id)
+    else:
+        favorites.append(strategy_id)
+    reg(REGISTRY_PATH, "FavoriteStrategies", json.dumps(favorites))
+    return strategy_id in favorites
+
+
+# ==================== НАСТРОЙКИ ПРЯМОГО РЕЖИМА ====================
 
 def get_base_args_selection() -> str:
     """Получает выбранный вариант базовых аргументов"""
@@ -344,74 +265,108 @@ def get_base_args_selection() -> str:
         return "windivert_all"
 
 def set_base_args_selection(selection: str) -> bool:
-    """Сохраняет выбранный вариант базовых аргументов"""
+    """Сохраняет вариант базовых аргументов"""
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
             winreg.SetValueEx(key, "BaseArgsSelection", 0, winreg.REG_SZ, selection)
-            log(f"Базовые аргументы изменены на: {selection}", "INFO")
+            log(f"Базовые аргументы: {selection}", "INFO")
             return True
     except Exception as e:
         log(f"Ошибка сохранения базовых аргументов: {e}", "❌ ERROR")
         return False
-    
+
 def get_allzone_hostlist_enabled() -> bool:
-    """Получает состояние настройки замены other.txt на allzone.txt"""
+    """Получает состояние замены other.txt на allzone.txt"""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "AllzoneHostlistEnabled")
             return bool(value)
     except:
-        return False # По умолчанию выключено
+        return False
 
-def get_wssize_enabled():
-    """Получает настройку включения параметра --wssize из реестра"""
+def set_allzone_hostlist_enabled(enabled: bool) -> bool:
+    """Сохраняет состояние замены other.txt на allzone.txt"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            winreg.SetValueEx(key, "AllzoneHostlistEnabled", 0, winreg.REG_DWORD, int(enabled))
+            return True
+    except:
+        return False
+
+def get_wssize_enabled() -> bool:
+    """Получает настройку включения --wssize"""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "WSSizeEnabled")
             return bool(value)
     except:
-        return False # По умолчанию выключено
-    
-def set_allzone_hostlist_enabled(enabled: bool):
-    """Сохраняет состояние настройки замены other.txt на allzone.txt"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "AllzoneHostlistEnabled", 0, winreg.REG_DWORD, int(enabled))
-            log(f"Настройка allzone.txt сохранена: {enabled}", "INFO")
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения настройки allzone.txt: {e}", "❌ ERROR")
         return False
 
-def set_wssize_enabled(enabled: bool):
-    """Сохраняет настройку включения параметра --wssize в реестр"""
+def set_wssize_enabled(enabled: bool) -> bool:
+    """Сохраняет настройку --wssize"""
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
             winreg.SetValueEx(key, "WSSizeEnabled", 0, winreg.REG_DWORD, int(enabled))
-            log(f"Настройка wssize_enabled сохранена: {enabled}", "INFO")
             return True
-    except Exception as e:
-        log(f"Ошибка сохранения настройки wssize_enabled: {e}", "❌ ERROR")
+    except:
+        return False
+
+def get_remove_hostlists_enabled() -> bool:
+    """Получает состояние 'применить ко всем сайтам'"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "RemoveHostlistsEnabled")
+            return bool(value)
+    except:
+        return False
+
+def set_remove_hostlists_enabled(enabled: bool) -> bool:
+    """Сохраняет 'применить ко всем сайтам'"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            winreg.SetValueEx(key, "RemoveHostlistsEnabled", 0, winreg.REG_DWORD, int(enabled))
+            return True
+    except:
+        return False
+
+def get_remove_ipsets_enabled() -> bool:
+    """Получает состояние 'применить ко всем IP'"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "RemoveIpsetsEnabled")
+            return bool(value)
+    except:
+        return False
+
+def set_remove_ipsets_enabled(enabled: bool) -> bool:
+    """Сохраняет 'применить ко всем IP'"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            winreg.SetValueEx(key, "RemoveIpsetsEnabled", 0, winreg.REG_DWORD, int(enabled))
+            return True
+    except:
         return False
 
 
-# ───────────── ЦЕНТРАЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ СО СТРАТЕГИЯМИ ─────────────
+# ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
 
-_DIRECT_STRATEGY_KEY = r"Software\ZapretReg2\DirectStrategy"
+def _category_to_reg_key(category_key: str) -> str:
+    """Преобразует ключ категории в ключ реестра"""
+    # youtube_udp -> YoutubeUdp
+    parts = category_key.split('_')
+    return "DirectStrategy" + ''.join(part.capitalize() for part in parts)
+
 
 def get_direct_strategy_selections() -> dict:
     """Возвращает сохраненные выборы стратегий для прямого запуска"""
-    _generate_category_functions()  # ✅ Генерируем только при необходимости
-    
     from .strategies_registry import registry
     
     try:
         selections = {}
         
-        # Получаем все ключи категорий из реестра
         for category_key in registry.get_all_category_keys():
-            reg_key = f"DirectStrategy{category_key.title().replace('_', '')}"
-            value = reg(_DIRECT_STRATEGY_KEY, reg_key)
+            reg_key = _category_to_reg_key(category_key)
+            value = reg(DIRECT_STRATEGY_KEY, reg_key)
             if value:
                 selections[category_key] = value
         
@@ -421,17 +376,16 @@ def get_direct_strategy_selections() -> dict:
             if key not in selections:
                 selections[key] = default_value
                 
-        log(f"Загружены выборы стратегий из реестра", "DEBUG")
         return selections
         
     except Exception as e:
         log(f"Ошибка загрузки выборов стратегий: {e}", "❌ ERROR")
+        from .strategies_registry import registry
         return registry.get_default_selections()
 
+
 def set_direct_strategy_selections(selections: dict) -> bool:
-    """Сохраняет выборы стратегий для прямого запуска в реестр"""
-    _generate_category_functions()  # ✅ Генерируем только при необходимости
-    
+    """Сохраняет выборы стратегий для прямого запуска"""
     from .strategies_registry import registry
     
     try:
@@ -439,138 +393,76 @@ def set_direct_strategy_selections(selections: dict) -> bool:
         
         for category_key, strategy_id in selections.items():
             if category_key in registry.get_all_category_keys():
-                reg_key = f"DirectStrategy{category_key.title().replace('_', '')}"
-                success &= reg(_DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+                reg_key = _category_to_reg_key(category_key)
+                result = reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+                success = success and (result is not False)
         
         if success:
-            log(f"Сохранены выборы стратегий в реестр", "DEBUG")
-        else:
-            log("Ошибка при сохранении некоторых выборов стратегий", "⚠ WARNING")
-            
+            log("Выборы стратегий сохранены", "DEBUG")
+        
         return success
         
     except Exception as e:
-        log(f"Ошибка сохранения выборов стратегий: {e}", "❌ ERROR")
+        log(f"Ошибка сохранения выборов: {e}", "❌ ERROR")
         return False
 
-# Генерируем функции get/set для каждой категории динамически
 
-_functions_generated = False
-
-def _generate_category_functions():
-    """Генерирует функции get/set для каждой категории"""
-    global _functions_generated
-    
-    if _functions_generated:
-        return
-    
+def get_direct_strategy_for_category(category_key: str) -> str:
+    """Получает выбранную стратегию для конкретной категории"""
     from .strategies_registry import registry
     
-    for category_key in registry.get_all_category_keys():
-        default_strategy = registry.get_category_info(category_key).default_strategy
-        reg_key = f"DirectStrategy{category_key.title().replace('_', '')}"
-        
-        # Создаем функции get/set для каждой категории
-        def make_getter(cat_key, def_strategy, r_key):
-            def getter():
-                result = reg(_DIRECT_STRATEGY_KEY, r_key)
-                return result if result else def_strategy
-            return getter
-        
-        def make_setter(r_key):
-            def setter(strategy_id: str):
-                return reg(_DIRECT_STRATEGY_KEY, r_key, strategy_id)
-            return setter
-        
-        # Добавляем функции в глобальное пространство имен
-        getter_name = f"get_direct_strategy_{category_key}"
-        setter_name = f"set_direct_strategy_{category_key}"
-        
-        globals()[getter_name] = make_getter(category_key, default_strategy, reg_key)
-        globals()[setter_name] = make_setter(reg_key)
+    reg_key = _category_to_reg_key(category_key)
+    value = reg(DIRECT_STRATEGY_KEY, reg_key)
     
-    _functions_generated = True
+    if value:
+        return value
+    
+    # Возвращаем значение по умолчанию
+    category_info = registry.get_category_info(category_key)
+    if category_info:
+        return category_info.default_strategy
+    
+    return "none"
 
-# ❌ НЕ вызываем функции при импорте!
-# _generate_category_functions()  # Закомментировали
+
+def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> bool:
+    """Сохраняет выбранную стратегию для категории"""
+    reg_key = _category_to_reg_key(category_key)
+    return reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
 
 
-# ───────────── ИМПОРТ СТРАТЕГИЙ ─────────────
+# ==================== ИМПОРТ СТРАТЕГИЙ ====================
 
-# Импортируем стратегии из реестра для совместимости
 from .strategies_registry import (
     registry,
     get_strategies_registry,
     get_category_strategies,
     get_category_info,
-    get_all_strategies,
     get_tab_names,
     get_tab_tooltips,
-    get_default_selections
+    get_default_selections,
+    get_category_icon,
+    CATEGORIES_REGISTRY,
+    CategoryInfo,
 )
 
-# ❌ НЕ экспортируем отдельные словари стратегий при импорте!
-# def _export_individual_strategies():
-#     """Экспортирует отдельные словари стратегий"""
-#     strategies = registry.strategies
-#     for category_key, strategy_dict in strategies.items():
-#         const_name = f"{category_key.upper()}_STRATEGIES"
-#         globals()[const_name] = strategy_dict
 
-# _export_individual_strategies()  # Закомментировали
-
-def get_remove_hostlists_enabled() -> bool:
-    """Получает состояние настройки 'применить ко всем сайтам'"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "RemoveHostlistsEnabled")
-            return bool(value)
-    except:
-        return False  # По умолчанию выключено
-
-def set_remove_hostlists_enabled(enabled: bool) -> bool:
-    """Сохраняет состояние настройки 'применить ко всем сайтам'"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "RemoveHostlistsEnabled", 0, winreg.REG_DWORD, int(enabled))
-            log(f"Настройка 'применить ко всем сайтам' сохранена: {enabled}", "INFO")
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения настройки 'применить ко всем сайтам': {e}", "❌ ERROR")
-        return False
-
-def get_remove_ipsets_enabled() -> bool:
-    """Получает состояние настройки 'применить ко всем IP-адресам'"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "RemoveIpsetsEnabled")
-            return bool(value)
-    except:
-        return False  # По умолчанию выключено
-
-def set_remove_ipsets_enabled(enabled: bool) -> bool:
-    """Сохраняет состояние настройки 'применить ко всем IP-адресам'"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "RemoveIpsetsEnabled", 0, winreg.REG_DWORD, int(enabled))
-            log(f"Настройка 'применить ко всем IP-адресам' сохранена: {enabled}", "INFO")
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения настройки 'применить ко всем IP-адресам': {e}", "❌ ERROR")
-        return False
+# ==================== ЭКСПОРТ ====================
 
 __all__ = [
-    # Стратегии (реестр)
+    # Реестр стратегий
     'registry',
     'get_strategies_registry',
     'get_category_strategies', 
     'get_category_info',
-    'get_all_strategies',
     'get_tab_names',
     'get_tab_tooltips',
     'get_default_selections',
+    'get_category_icon',
+    'CATEGORIES_REGISTRY',
+    'CategoryInfo',
     
-    # Настройки UI диалога
+    # Настройки UI
     'get_tabs_pinned',
     'set_tabs_pinned',
     'get_keep_dialog_open',
@@ -580,10 +472,10 @@ __all__ = [
     'get_strategy_launch_method',
     'set_strategy_launch_method',
     
-    # Избранные стратегии (новая версия)
+    # Избранные стратегии
     'get_favorite_strategies',
-    'get_favorites_for_category',  # ✅ ДОБАВЛЕНО
-    'invalidate_favorites_cache',   # ✅ ДОБАВЛЕНО
+    'get_favorites_for_category',
+    'invalidate_favorites_cache',
     'add_favorite_strategy',
     'remove_favorite_strategy',
     'is_favorite_strategy',
@@ -591,13 +483,10 @@ __all__ = [
     'clear_favorite_strategies',
     'get_all_favorite_strategies_flat',
     
-    # Избранные стратегии (legacy - для совместимости)
+    # Legacy избранные
     'get_favorite_strategies_legacy',
-    'add_favorite_strategy_legacy',
-    'remove_favorite_strategy_legacy',
     'is_favorite_strategy_legacy',
     'toggle_favorite_strategy_legacy',
-    'clear_favorite_strategies_legacy',
     
     # Настройки прямого режима
     'get_base_args_selection',
@@ -606,12 +495,14 @@ __all__ = [
     'set_allzone_hostlist_enabled',
     'get_wssize_enabled',
     'set_wssize_enabled',
-    'get_remove_hostlists_enabled',  # ✅ НОВОЕ
-    'set_remove_hostlists_enabled',  # ✅ НОВОЕ
-    'get_remove_ipsets_enabled',     # ✅ НОВОЕ
-    'set_remove_ipsets_enabled',     # ✅ НОВОЕ
+    'get_remove_hostlists_enabled',
+    'set_remove_hostlists_enabled',
+    'get_remove_ipsets_enabled',
+    'set_remove_ipsets_enabled',
     
     # Выборы стратегий
     'get_direct_strategy_selections',
     'set_direct_strategy_selections',
+    'get_direct_strategy_for_category',
+    'set_direct_strategy_for_category',
 ]
