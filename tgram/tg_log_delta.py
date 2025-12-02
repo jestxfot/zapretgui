@@ -104,7 +104,7 @@ class LogTailSender:
         return (
             "────────\n"
             f"ID  : {CID}\n"
-            f"Zapret v{APP_VERSION}\n"
+            f"Zapret2 v{APP_VERSION}\n"
             f"Host: {HOST}\n"
             f"Δ {datetime.now():%H:%M:%S}  ({lines} lines)\n"
             "────────\n"

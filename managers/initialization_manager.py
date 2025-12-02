@@ -46,6 +46,7 @@ class InitializationManager:
             (100, self._initialize_managers_and_services),
             (150, self._init_tray),
             (200, self._init_logger),
+            (2000, self._init_subscription_check),  # Фоновая проверка подписки (после инициализации менеджеров)
         ]
 
         for delay, task in init_tasks:
@@ -89,10 +90,20 @@ class InitializationManager:
         """Инициализация DPI стартера"""
         try:
             from dpi.bat_start import BatDPIStart
-            from config import WINWS_EXE
+            from config import WINWS_EXE, WINWS2_EXE
+            from strategy_menu import get_strategy_launch_method
+
+            # Выбираем исполняемый файл в зависимости от режима запуска
+            launch_method = get_strategy_launch_method()
+            if launch_method == "direct":
+                winws_exe = WINWS2_EXE  # Zapret 2 для прямого запуска
+                log("Используется winws2.exe для прямого запуска (Zapret 2)", "INFO")
+            else:
+                winws_exe = WINWS_EXE   # Zapret 1 для BAT режима
+                log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
 
             self.app.dpi_starter = BatDPIStart(
-                winws_exe=WINWS_EXE,
+                winws_exe=winws_exe,
                 status_callback=self.app.set_status,
                 ui_callback=self._safe_ui_update,  # безопасный вызов в UI
                 app_instance=self.app
@@ -163,30 +174,109 @@ class InitializationManager:
         """Инициализация меню"""
         try:
             from altmenu.app_menubar import AppMenuBar
+            from PyQt6.QtWidgets import QWidget, QHBoxLayout
+            
             self.app.menu_bar = AppMenuBar(self.app)
-            if self.app.layout():
-                self.app.layout().setMenuBar(self.app.menu_bar)
-            log("Меню инициализировано", "INFO")
+            
+            # ✅ Добавляем меню под titlebar в отдельном контейнере
+            if hasattr(self.app, 'container') and self.app.container.layout():
+                # Создаем контейнер для меню (с явным родителем!)
+                menubar_widget = QWidget(self.app.container)  # ✅ Родитель = container
+                menubar_widget.setObjectName("menubarWidget")
+                menubar_widget.setFixedHeight(28)
+                menubar_widget.setStyleSheet("""
+                    QWidget#menubarWidget {
+                        background-color: rgba(20, 20, 20, 240);
+                        border-bottom: 1px solid rgba(80, 80, 80, 200);
+                    }
+                """)
+                
+                menubar_layout = QHBoxLayout(menubar_widget)
+                menubar_layout.setContentsMargins(8, 0, 8, 0)
+                menubar_layout.setSpacing(0)
+                
+                # Стилизуем menubar
+                self.app.menu_bar.setStyleSheet("""
+                    QMenuBar {
+                        background-color: transparent;
+                        color: #ffffff;
+                        border: none;
+                        padding: 0px;
+                        spacing: 0px;
+                        font-size: 11px;
+                        font-family: 'Segoe UI', Arial, sans-serif;
+                    }
+                    QMenuBar::item {
+                        background-color: transparent;
+                        color: #ffffff;
+                        padding: 4px 10px;
+                        border-radius: 4px;
+                        margin: 2px 1px;
+                    }
+                    QMenuBar::item:selected {
+                        background-color: #333333;
+                    }
+                    QMenuBar::item:pressed {
+                        background-color: #404040;
+                    }
+                    QMenu {
+                        background-color: #252525;
+                        border: 1px solid #3d3d3d;
+                        border-radius: 6px;
+                        padding: 4px;
+                    }
+                    QMenu::item {
+                        padding: 6px 24px 6px 12px;
+                        border-radius: 4px;
+                        color: #ffffff;
+                    }
+                    QMenu::item:selected {
+                        background-color: #333333;
+                    }
+                    QMenu::separator {
+                        height: 1px;
+                        background-color: #3d3d3d;
+                        margin: 4px 8px;
+                    }
+                """)
+                
+                menubar_layout.addWidget(self.app.menu_bar)
+                menubar_layout.addStretch()
+                
+                # Вставляем после titlebar (индекс 1)
+                container_layout = self.app.container.layout()
+                container_layout.insertWidget(1, menubar_widget)
+                
+                # Сохраняем ссылку для обновления стилей при смене темы
+                self.app.menubar_widget = menubar_widget
+                
+                log("Меню добавлено под titlebar", "INFO")
+            else:
+                # Fallback для старого поведения
+                if self.app.layout():
+                    self.app.layout().setMenuBar(self.app.menu_bar)
+                log("Меню инициализировано (fallback)", "INFO")
+                
             self.init_tasks_completed.add('menu')
         except Exception as e:
             log(f"Ошибка инициализации меню: {e}", "❌ ERROR")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
 
     def _connect_signals(self):
         """Подключение всех сигналов"""
         try:
-            self.app.select_strategy_clicked.connect(self.app.select_strategy)
+            # select_strategy_clicked убран - стратегии выбираются на странице StrategiesPage
             self.app.start_clicked.connect(lambda: self.app.dpi_controller.start_dpi_async())
             self.app.stop_clicked.connect(self.app.show_stop_menu)
-            self.app.autostart_enable_clicked.connect(self.app.show_autostart_options)
-            self.app.autostart_disable_clicked.connect(self.app.remove_autostart)
+            # Автозапуск теперь управляется через страницу AutostartPage
+            # DNS настройки теперь интегрированы в страницу Сеть
             self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
             self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
-            self.app.subscription_btn.clicked.connect(self.app.show_subscription_dialog)
-            self.app.dns_settings_btn.clicked.connect(self.app.open_dns_settings)
+            # subscription_btn подключается в main_window._connect_page_signals
             self.app.proxy_button.clicked.connect(self.app.toggle_proxy_domains)
             self.app.server_status_btn.clicked.connect(self.app._show_server_status)
-            self.app.help_btn.clicked.connect(self.app.open_help_dialog)
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
 
@@ -253,7 +343,6 @@ class InitializationManager:
             self.app.theme_manager = ThemeManager(
                 app=QApplication.instance(),
                 widget=self.app,
-                status_label=self.app.status_label if hasattr(self.app, 'status_label') else None,
                 theme_folder=THEME_FOLDER,
                 donate_checker=getattr(self.app, 'donate_checker', None)
             )
@@ -279,6 +368,11 @@ class InitializationManager:
                 ui_callback=self._safe_ui_update
             )
             log("✅ Service Manager создан", "DEBUG")
+
+            # Update Manager (фоновая проверка обновлений)
+            from managers.update_manager import UpdateManager
+            self.app.update_manager = UpdateManager(self.app)
+            log("✅ Update Manager создан", "DEBUG")
 
             # Обновляем UI состояние через UI Manager
             try:
@@ -374,10 +468,25 @@ class InitializationManager:
                 log("Логгер инициализирован", "INFO")
             else:
                 log("Не удалось инициализировать отправку логов", "⚠ WARNING")
-
-            self.init_tasks_completed.add('logger')
         except Exception as e:
-            log(f"Ошибка инициализации логгера: {e}", "❌ ERROR")
+            log(f"Ошибка инициализации логгера: {e}", "ERROR")
+    
+    def _init_subscription_check(self):
+        """Фоновая проверка подписки при запуске"""
+        try:
+            log("Запуск фоновой проверки подписки...", "DEBUG")
+            
+            if hasattr(self.app, 'subscription_manager') and self.app.subscription_manager:
+                # Запускаем проверку в фоне (silent=True чтобы не показывать уведомления)
+                self.app.subscription_manager.check_and_update_subscription(silent=True)
+                log("Фоновая проверка подписки завершена", "INFO")
+            else:
+                log("subscription_manager не инициализирован, повторная попытка через 1с", "WARNING")
+                # Повторная попытка через 1 секунду
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(1000, self._init_subscription_check)
+        except Exception as e:
+            log(f"Ошибка проверки подписки: {e}", "ERROR")
 
     # ───────────────────────── верификация и пост-задачи ─────────────────────
 
@@ -498,14 +607,24 @@ class InitializationManager:
             return
         self._post_init_scheduled = True
 
-        if hasattr(self.app, 'heavy_init_manager'):
-            try:
+        try:
+            # Проверка локальных файлов и автозапуск DPI
+            if hasattr(self.app, 'heavy_init_manager'):
                 if self.app.heavy_init_manager.check_local_files():
                     if hasattr(self.app, 'dpi_manager'):
                         QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
-                # Автообновление стратегий/ресурсов
+            
+            # Фоновая проверка обновлений через UpdateManager
+            if hasattr(self.app, 'update_manager'):
+                # Запускаем проверку с задержкой 3 секунды (GUI должен быть готов)
+                self.app.update_manager.start_background_check(delay_ms=3000)
+                log("📦 Фоновая проверка обновлений запланирована", "DEBUG")
+            elif hasattr(self.app, 'heavy_init_manager'):
+                # Fallback на старый метод
                 QTimer.singleShot(2000, self.app.heavy_init_manager.start_auto_update)
-            except Exception as e:
-                log(f"Ошибка post-init задач: {e}", "❌ ERROR")
-        else:
-            log("❌ Heavy Init Manager не найден для post init tasks", "ERROR")
+                log("📦 Используем fallback для проверки обновлений", "DEBUG")
+                
+        except Exception as e:
+            log(f"Ошибка post-init задач: {e}", "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")

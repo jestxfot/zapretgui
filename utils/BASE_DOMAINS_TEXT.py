@@ -180,6 +180,7 @@ porno365.bingo
 xn--m1abbbg.me
 static.rutracker.cc
 turbobit.net
+nitroflare.com
 bandcamp.com
 bcbits.com
 godaddy.com

@@ -11,6 +11,7 @@ BIN_FOLDER = os.path.join(MAIN_DIRECTORY, "bin")
 BAT_FOLDER = os.path.join(MAIN_DIRECTORY, "bat")
 INDEXJSON_FOLDER = os.path.join(MAIN_DIRECTORY, "json")
 EXE_FOLDER = os.path.join(MAIN_DIRECTORY, "exe")
+LUA_FOLDER = os.path.join(MAIN_DIRECTORY, "lua")  # Lua библиотеки для Zapret 2
 ICO_FOLDER = os.path.join(MAIN_DIRECTORY, "ico")
 LISTS_FOLDER = os.path.join(MAIN_DIRECTORY, "lists")
 THEME_FOLDER = os.path.join(MAIN_DIRECTORY, "themes")
@@ -23,7 +24,8 @@ MAX_LOG_FILES = 50  # можно сделать настраиваемым че�
 WINDIVERT_FILTER = os.path.join(MAIN_DIRECTORY, "windivert.filter")
 
 # Пути к файлам
-WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")
+WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")      # Для BAT режима (Zapret 1)
+WINWS2_EXE = os.path.join(EXE_FOLDER, "winws2.exe")    # Для прямого запуска (Zapret 2)
 ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")
 ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo4.ico")
 
@@ -39,8 +41,8 @@ REGISTRY_PATH = r"Software\ZapretReg2"
 # Настройки для GitHub стратегий
 STRATEGIES_FOLDER = BAT_FOLDER
 
-WIDTH = 450
-HEIGHT = 730
+WIDTH = 1000  # Увеличено для бокового меню в стиле Windows 11
+HEIGHT = 950  # Увеличена высота для нового интерфейса
 
 # Discord TCP конфигурации
 

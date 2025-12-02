@@ -5,12 +5,12 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QTableWidget, QTableWidgetItem,
                             QGroupBox, QProgressBar, QTabWidget, QWidget,
-                            QHeaderView, QFrame, QTextEdit, QCheckBox)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QFont, QColor, QIcon
+                            QHeaderView, QTextEdit, QCheckBox, QFrame,
+                            QSizePolicy)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtGui import QColor, QIcon
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
 import time
 
 from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH, get_auto_update_enabled, set_auto_update_enabled
@@ -35,6 +35,10 @@ class ServerCheckWorker(QThread):
 
         pool = get_server_pool()
         
+        # ✅ ФИКСИРУЕМ текущий сервер в НАЧАЛЕ проверки
+        # чтобы он не менялся во время проверки (при переключении)
+        current_server_id = pool.selected_server['id']
+        
         # ─────────────────────────────────────────────
         # 1. Проверяем все VPS сервера из пула
         # ─────────────────────────────────────────────
@@ -57,7 +61,7 @@ class ServerCheckWorker(QThread):
                     'response_time': 0,
                     'url': f"https://{server['host']}:{server['https_port']}",
                     'error': f"Заблокирован до {until_dt.strftime('%H:%M:%S')}",
-                    'is_current': server_id == pool.selected_server['id'],
+                    'is_current': server_id == current_server_id,  # ✅ Используем сохранённый ID
                     'server_id': server_id
                 }
                 
@@ -106,7 +110,7 @@ class ServerCheckWorker(QThread):
                         'stable_version': stable_version,
                         'test_version': test_version,
                         'error': '',
-                        'is_current': server_id == pool.selected_server['id'],
+                        'is_current': server_id == current_server_id,  # ✅ Используем сохранённый ID
                         'priority': server['priority'],
                         'weight': server['weight'],
                         'server_id': server_id
@@ -122,7 +126,7 @@ class ServerCheckWorker(QThread):
                         'response_time': response_time,
                         'url': f"{server['host']}:{server['https_port']}",
                         'error': f'HTTP {response.status_code}',
-                        'is_current': server_id == pool.selected_server['id'],
+                        'is_current': server_id == current_server_id,  # ✅ Используем сохранённый ID
                         'server_id': server_id
                     }
                     
@@ -136,7 +140,7 @@ class ServerCheckWorker(QThread):
                     'response_time': _time.time() - start_time if start_time else 0,
                     'url': f"{server['host']}:{server['https_port']}",
                     'error': error_msg,
-                    'is_current': server_id == pool.selected_server['id'],
+                    'is_current': server_id == current_server_id,  # ✅ Используем сохранённый ID
                     'server_id': server_id
                 }
                 
@@ -209,17 +213,17 @@ class VersionCheckWorker(QThread):
 
 
 class ServerStatusDialog(QDialog):
-    """Диалог статуса серверов и версий"""
+    """Диалог статуса серверов - компактный без лишнего пространства"""
     
-    update_requested = pyqtSignal()  # Сигнал для запуска обновления
+    update_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        self.setWindowTitle("📊 Статус серверов обновлений")
-        self.setMinimumSize(700, 550)
+        self.setWindowTitle("Статус серверов обновлений")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         
-        # Устанавливаем иконку
+        # Иконка
         icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -227,118 +231,283 @@ class ServerStatusDialog(QDialog):
         self.server_worker = None
         self.version_worker = None
         
-        self.init_ui()
+        self._build_ui()
         
-        # Автоматически начинаем проверку
+        # Обеспечиваем адекватный стартовый размер
+        self._ensure_initial_size()
+        
         QTimer.singleShot(100, self.start_checks)
     
-    def init_ui(self):
-        """Создаёт интерфейс"""
-        layout = QVBoxLayout()
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 15, 15, 15)
+    def _build_ui(self):
+        """Строит компактный UI с вкладками"""
+        main = QVBoxLayout(self)
+        main.setSpacing(10)
+        main.setContentsMargins(12, 10, 12, 10)
         
-        # Заголовок
-        title = QLabel("🌐 Мониторинг серверов обновлений Zapret")
-        title_font = QFont()
-        title_font.setPointSize(12)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        # === Header ===
+        header_box = QVBoxLayout()
+        header_box.setSpacing(0)
         
-        # Информация о текущей версии
-        current_info = QLabel(f"Ваша версия: {APP_VERSION} (канал: {CHANNEL})")
-        current_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        current_info.setStyleSheet("color: #666; font-size: 10pt;")
-        layout.addWidget(current_info)
+        title = QLabel("Мониторинг серверов обновлений Zapret")
+        title.setStyleSheet("font-weight: 600; font-size: 13pt;")
+        header_box.addWidget(title)
         
-        # Разделитель
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("QFrame { color: #ddd; }")
-        layout.addWidget(line)
+        subtitle = QLabel(f"Версия: {APP_VERSION} · Канал: {CHANNEL}")
+        subtitle.setStyleSheet("color: #7f8c8d; font-size: 9pt;")
+        header_box.addWidget(subtitle)
         
-        # Табы
+        main.addLayout(header_box)
+        
+        # === Вкладки с контентом ===
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tabs.addTab(self._build_servers_tab(), "Сервера")
+        self.tabs.addTab(self._build_versions_tab(), "Версии")
+        self.tabs.addTab(self._build_stats_tab(), "Статистика")
+        self.tabs.setMinimumHeight(320)
+        main.addWidget(self.tabs, 1)
         
-        # Вкладка серверов
-        self.servers_tab = QWidget()
-        self._create_servers_tab()
-        self.tabs.addTab(self.servers_tab, "🖥️ Сервера")
-        
-        # Вкладка версий
-        self.versions_tab = QWidget()
-        self._create_versions_tab()
-        self.tabs.addTab(self.versions_tab, "📦 Версии")
-        
-        # Вкладка статистики
-        self.stats_tab = QWidget()
-        self._create_stats_tab()
-        self.tabs.addTab(self.stats_tab, "📊 Статистика")
-        
-        layout.addWidget(self.tabs)
-        
-        # Прогресс бар
+        # === Прогресс / статус ===
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(3)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                background: #f0f0f0;
-            }
-            QProgressBar::chunk {
-                background: #3daee9;
-            }
-        """)
-        layout.addWidget(self.progress_bar)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(1)
+        main.addWidget(self.progress_bar)
         
-        # Статус
-        self.status_label = QLabel("Готов к проверке")
+        self.status_label = QLabel("Готово к проверке")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("color: #666; font-style: italic;")
-        layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("color: #7f8c8d;")
+        main.addWidget(self.status_label)
         
-        # ✅ ЧЕКБОКС ДЛЯ АВТООБНОВЛЕНИЙ
-        self.auto_update_checkbox = QCheckBox("🔄 Проверять обновления при запуске программы")
+        # === Нижняя панель управления ===
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        
+        self.auto_update_checkbox = QCheckBox("Проверять обновления при запуске")
         self.auto_update_checkbox.setChecked(get_auto_update_enabled())
-        self.auto_update_checkbox.setToolTip(
-            "Если включено, программа будет автоматически проверять наличие обновлений при запуске.\n"
-            "Вы всегда можете проверить обновления вручную через кнопку 'Обновить'."
-        )
         self.auto_update_checkbox.stateChanged.connect(self.on_auto_update_toggled)
-        layout.addWidget(self.auto_update_checkbox)
+        controls.addWidget(self.auto_update_checkbox)
         
-        # Кнопки
-        button_layout = QHBoxLayout()
+        controls.addStretch()
         
-        self.refresh_btn = QPushButton("⬇️ Проверить серверы")
+        self.refresh_btn = QPushButton("Проверить серверы")
         self.refresh_btn.clicked.connect(self.start_checks)
-        button_layout.addWidget(self.refresh_btn)
+        controls.addWidget(self.refresh_btn)
         
-        button_layout.addSpacing(10)
-        
-        # ✅ ОБНОВЛЕННАЯ КНОПКА С ОЧИСТКОЙ КЭША
-        self.update_btn = QPushButton("🔄 Проверить обновления")
-        self.update_btn.setToolTip(
-            "Принудительная проверка обновлений\n"
-            "Игнорирует кэш и проверяет сервер напрямую"
-        )
+        self.update_btn = QPushButton("Проверить обновления")
         self.update_btn.clicked.connect(self.check_updates)
-        button_layout.addWidget(self.update_btn)
-        
-        button_layout.addStretch()
+        controls.addWidget(self.update_btn)
         
         self.close_btn = QPushButton("Закрыть")
         self.close_btn.clicked.connect(self.close)
-        button_layout.addWidget(self.close_btn)
+        controls.addWidget(self.close_btn)
         
-        layout.addLayout(button_layout)
+        main.addLayout(controls)
         
-        self.setLayout(layout)
+        QTimer.singleShot(200, self.update_cache_info)
 
-    def on_auto_update_toggled(self, state):
+    def _ensure_initial_size(self):
+        """Фиксирует минимальный размер по реальному контенту"""
+        hint = self.minimumSizeHint()
+        min_width = max(780, hint.width())
+        min_height = max(540, hint.height())
+        self.setMinimumSize(min_width, min_height)
+        self.resize(min_width, min_height)
+    
+    def _build_servers_tab(self) -> QWidget:
+        """Создаёт вкладку серверов"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        
+        self.vps_block_info = QLabel()
+        self.vps_block_info.setWordWrap(True)
+        self.vps_block_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.vps_block_info.setStyleSheet(
+            "background: #fdecea; border: 1px solid #f5c6cb; color: #c0392b; "
+            "border-radius: 4px; padding: 6px; font-size: 9pt;"
+        )
+        self.vps_block_info.hide()
+        layout.addWidget(self.vps_block_info)
+        
+        layout.addWidget(self._create_servers_section(), 1)
+        return tab
+    
+    def _build_versions_tab(self) -> QWidget:
+        """Создаёт вкладку версий и кэша"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        
+        layout.addWidget(self._create_versions_section(), 1)
+        layout.addWidget(self._create_cache_section())
+        return tab
+    
+    def _build_stats_tab(self) -> QWidget:
+        """Создаёт вкладку статистики"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        
+        layout.addWidget(self._create_stats_section(), 1)
+        return tab
+    
+    def _create_servers_section(self) -> QGroupBox:
+        """Создаёт компактный блок с таблицей серверов"""
+        group = QGroupBox("Сервера обновлений")
+        group.setStyleSheet("QGroupBox { font-weight: 600; }")
+        
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+        
+        self.servers_table = QTableWidget(0, 4)
+        self.servers_table.setHorizontalHeaderLabels(["Сервер", "Статус", "Время", "Инфо"])
+        header = self.servers_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.servers_table.verticalHeader().setVisible(False)
+        self.servers_table.verticalHeader().setDefaultSectionSize(22)
+        self.servers_table.setAlternatingRowColors(True)
+        self.servers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.servers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.servers_table)
+        
+        hint = QLabel("⭐ активный  🚫 блокирован после ошибок")
+        hint.setStyleSheet("color: #7f8c8d; font-size: 9pt;")
+        layout.addWidget(hint)
+        
+        return group
+    
+    def _create_version_card(self, title: str):
+        """Унифицированная карточка для информации о релизе"""
+        card = QFrame()
+        card.setObjectName("versionCard")
+        card.setStyleSheet("""
+            QFrame#versionCard {
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 6px;
+                background: rgba(255,255,255,0.02);
+            }
+        """)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+        
+        header = QHBoxLayout()
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: 600; font-size: 10pt;")
+        header.addWidget(title_label)
+        
+        status_label = QLabel("")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_label.setStyleSheet("font-size: 9pt;")
+        header.addWidget(status_label)
+        layout.addLayout(header)
+        
+        version_label = QLabel("Версия: —")
+        version_label.setStyleSheet("font-size: 11pt; font-weight: 600;")
+        layout.addWidget(version_label)
+        
+        source_label = QLabel("Источник: —")
+        source_label.setWordWrap(True)
+        source_label.setStyleSheet("color: #7f8c8d;")
+        layout.addWidget(source_label)
+        
+        notes = QTextEdit()
+        notes.setReadOnly(True)
+        notes.setMinimumHeight(52)
+        notes.setMaximumHeight(90)
+        notes.setPlaceholderText("Заметки релиза...")
+        notes.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid rgba(255,255,255,0.07);
+                border-radius: 4px;
+                background: rgba(0,0,0,0.05);
+                font-size: 9pt;
+            }
+        """)
+        layout.addWidget(notes)
+        
+        return card, version_label, source_label, status_label, notes
+    
+    def _create_versions_section(self) -> QGroupBox:
+        """Блок со сводкой версий"""
+        group = QGroupBox("Версии Zapret")
+        group.setStyleSheet("QGroupBox { font-weight: 600; }")
+        
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(10)
+        
+        stable_card, self.stable_version_label, self.stable_source_label, self.stable_status, self.stable_notes = self._create_version_card("🔒 Stable")
+        layout.addWidget(stable_card)
+        
+        dev_card, self.dev_version_label, self.dev_source_label, self.dev_status, self.dev_notes = self._create_version_card("🚀 Dev")
+        layout.addWidget(dev_card)
+        
+        return group
+    
+    def _create_cache_section(self) -> QGroupBox:
+        """Блок информации о кэше и действиях"""
+        group = QGroupBox("Кэш обновлений")
+        group.setStyleSheet("QGroupBox { font-weight: 600; }")
+        
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+        
+        self.cache_info_label = QLabel("💾 Кэш: проверка...")
+        self.cache_info_label.setStyleSheet("color: #7f8c8d; font-size: 9pt;")
+        self.cache_info_label.setWordWrap(True)
+        layout.addWidget(self.cache_info_label)
+        
+        actions = QHBoxLayout()
+        actions.addStretch()
+        clear_btn = QPushButton("Очистить кэш")
+        clear_btn.clicked.connect(self.clear_update_cache)
+        actions.addWidget(clear_btn)
+        layout.addLayout(actions)
+        
+        return group
+    
+    def _create_stats_section(self) -> QGroupBox:
+        """Блок с статистикой серверов"""
+        group = QGroupBox("Статистика опросов")
+        group.setStyleSheet("QGroupBox { font-weight: 600; }")
+        
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+        
+        self.stats_table = QTableWidget(0, 5)
+        self.stats_table.setHorizontalHeaderLabels(["Сервер", "OK", "Fail", "Время", "Послед."])
+        header = self.stats_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.stats_table.verticalHeader().setVisible(False)
+        self.stats_table.verticalHeader().setDefaultSectionSize(20)
+        self.stats_table.setAlternatingRowColors(True)
+        self.stats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.stats_table)
+        
+        controls = QHBoxLayout()
+        controls.addStretch()
+        clear_btn = QPushButton("Очистить статистику")
+        clear_btn.clicked.connect(self.clear_stats)
+        controls.addWidget(clear_btn)
+        layout.addLayout(controls)
+        
+        return group
+    
+    def on_auto_update_toggled(self, _state):
         """Обработчик изменения состояния чекбокса автообновлений"""
         enabled = self.auto_update_checkbox.isChecked()
         
@@ -353,124 +522,6 @@ class ServerStatusDialog(QDialog):
             self.auto_update_checkbox.setChecked(not enabled)
             self.auto_update_checkbox.blockSignals(False)
             self.status_label.setText("❌ Ошибка сохранения настройки")
-
-    def _create_versions_tab(self):
-        """Создаёт вкладку версий"""
-        layout = QVBoxLayout()
-        
-        # Группа Stable
-        stable_group = QGroupBox("🔒 Стабильная версия (Stable)")
-        stable_layout = QVBoxLayout()
-        
-        self.stable_version_label = QLabel("Проверка...")
-        self.stable_version_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-        stable_layout.addWidget(self.stable_version_label)
-        
-        self.stable_notes = QTextEdit()
-        self.stable_notes.setReadOnly(True)
-        self.stable_notes.setMaximumHeight(100)
-        self.stable_notes.setPlaceholderText("Информация о релизе...")
-        stable_layout.addWidget(self.stable_notes)
-        
-        self.stable_status = QLabel("")
-        stable_layout.addWidget(self.stable_status)
-        
-        stable_group.setLayout(stable_layout)
-        layout.addWidget(stable_group)
-        
-        # Группа Dev
-        dev_group = QGroupBox("🚀 Версия для разработчиков (Dev)")
-        dev_layout = QVBoxLayout()
-        
-        self.dev_version_label = QLabel("Проверка...")
-        self.dev_version_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-        dev_layout.addWidget(self.dev_version_label)
-        
-        self.dev_notes = QTextEdit()
-        self.dev_notes.setReadOnly(True)
-        self.dev_notes.setMaximumHeight(100)
-        self.dev_notes.setPlaceholderText("Информация о релизе...")
-        dev_layout.addWidget(self.dev_notes)
-        
-        self.dev_status = QLabel("")
-        dev_layout.addWidget(self.dev_status)
-        
-        dev_group.setLayout(dev_layout)
-        layout.addWidget(dev_group)
-        
-        # ✅ ДОБАВЛЯЕМ ИНФОРМАЦИЮ О КЭШЕ
-        cache_group = QGroupBox("💾 Информация о кэше обновлений")
-        cache_layout = QVBoxLayout()
-        
-        self.cache_info_label = QLabel("Проверка кэша...")
-        self.cache_info_label.setWordWrap(True)
-        self.cache_info_label.setStyleSheet("color: #666;")
-        cache_layout.addWidget(self.cache_info_label)
-        
-        # Кнопка очистки кэша
-        clear_cache_btn = QPushButton("🗑️ Очистить кэш")
-        clear_cache_btn.setToolTip("Очистить кэш обновлений для принудительной проверки")
-        clear_cache_btn.clicked.connect(self.clear_update_cache)
-        clear_cache_btn.setFixedWidth(150)
-        clear_cache_btn.setStyleSheet("""
-            QPushButton {
-                background: #e74c3c;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #c0392b;
-            }
-        """)
-        cache_layout.addWidget(clear_cache_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-        
-        cache_group.setLayout(cache_layout)
-        layout.addWidget(cache_group)
-        
-        layout.addStretch()
-        
-        self.versions_tab.setLayout(layout)
-        
-        # ✅ Обновляем информацию о кэше после создания UI
-        QTimer.singleShot(200, self.update_cache_info)
-
-    def _create_servers_tab(self):
-        """Создаёт вкладку серверов"""
-        layout = QVBoxLayout()
-        
-        # Таблица серверов
-        self.servers_table = QTableWidget()
-        self.servers_table.setColumnCount(4)
-        self.servers_table.setHorizontalHeaderLabels([
-            "Сервер", "Статус", "Время отклика", "Информация"
-        ])
-        
-        # Настройка таблицы
-        header = self.servers_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        
-        self.servers_table.setAlternatingRowColors(True)
-        self.servers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.servers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        
-        layout.addWidget(self.servers_table)
-        
-        # Описание
-        info_label = QLabel(
-            f"💡 Система автоматически выбирает наиболее быстрый доступный источник.\n\n"
-            f"⭐ Звёздочка — текущий активный сервер\n"
-            f"🚫 Сервера блокируются после нескольких ошибок подряд на день"
-        )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #666; font-size: 9pt; margin-top: 10px;")
-        layout.addWidget(info_label)
-        
-        self.servers_tab.setLayout(layout)
 
     def update_vps_block_info(self):
         """Обновляет информацию о блокировке VPS"""
@@ -503,47 +554,6 @@ class ServerStatusDialog(QDialog):
                 
         except Exception as e:
             log(f"Ошибка обновления информации о блокировке: {e}", "❌ ERROR")
-
-    def _create_stats_tab(self):
-        """Создаёт вкладку статистики"""
-        layout = QVBoxLayout()
-        
-        # Таблица статистики
-        self.stats_table = QTableWidget()
-        self.stats_table.setColumnCount(5)
-        self.stats_table.setHorizontalHeaderLabels([
-            "Сервер", "Успешных", "Неудачных", "Ср. время", "Последний успех"
-        ])
-        
-        # Настройка таблицы
-        header = self.stats_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        
-        self.stats_table.setAlternatingRowColors(True)
-        self.stats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        
-        layout.addWidget(self.stats_table)
-        
-        # Кнопка очистки статистики
-        clear_btn = QPushButton("🗑️ Очистить статистику")
-        clear_btn.clicked.connect(self.clear_stats)
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background: #e74c3c;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #c0392b;
-            }
-        """)
-        layout.addWidget(clear_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        
-        layout.addStretch()
-        
-        self.stats_tab.setLayout(layout)
 
     def start_checks(self):
         """Запускает проверку серверов и версий"""
@@ -654,27 +664,30 @@ class ServerStatusDialog(QDialog):
     
     def on_version_found(self, channel: str, version_info: dict):
         """Обработчик найденной версии"""
-        if 'error' in version_info:
-            version_text = f"❌ Ошибка: {version_info['error']}"
-            notes_text = ""
-            status_text = ""
+        error = version_info.get('error')
+        notes_text = ""
+        status_text = ""
+        status_color = ""
+        source_text = ""
+        version_text = "Версия: —"
+        
+        if error:
+            version_text = "Версия: недоступна"
+            source_text = f"Ошибка: {error}"
+            status_text = "⚠️ Ошибка получения"
+            status_color = "color: #e74c3c;"
         else:
-            version_text = f"Версия {version_info['version']}"
-            notes_text = version_info.get('release_notes', '')[:200]
+            version = version_info.get('version', 'н/д')
+            version_text = f"Версия {version}"
+            source = version_info.get('source') or version_info.get('server_name') or "неизвестно"
+            source_text = f"Источник: {source}"
+            notes_text = (version_info.get('release_notes') or '')[:400].strip()
             
-            # Добавляем источник
-            source = version_info.get('source', 'неизвестен')
-            version_text += f" (из: {source})"
-            
-            # Сравниваем с текущей версией
             from updater.update import compare_versions
             try:
-                current = APP_VERSION
-                remote = version_info['version']
-                cmp = compare_versions(current, remote)
-                
+                cmp = compare_versions(APP_VERSION, version)
                 if cmp < 0:
-                    status_text = "🆕 Доступно обновление!"
+                    status_text = "🆕 Доступно обновление"
                     status_color = "color: #27ae60; font-weight: bold;"
                 elif cmp == 0:
                     status_text = "✅ У вас последняя версия"
@@ -682,22 +695,22 @@ class ServerStatusDialog(QDialog):
                 else:
                     status_text = "⚠️ У вас более новая версия"
                     status_color = "color: #e67e22;"
-            except:
+            except Exception:
                 status_text = ""
                 status_color = ""
         
         if channel == 'stable':
             self.stable_version_label.setText(version_text)
+            self.stable_source_label.setText(source_text)
             self.stable_notes.setPlainText(notes_text)
-            if 'error' not in version_info:
-                self.stable_status.setText(status_text)
-                self.stable_status.setStyleSheet(status_color)
+            self.stable_status.setText(status_text)
+            self.stable_status.setStyleSheet(status_color)
         else:
             self.dev_version_label.setText(version_text)
+            self.dev_source_label.setText(source_text)
             self.dev_notes.setPlainText(notes_text)
-            if 'error' not in version_info:
-                self.dev_status.setText(status_text)
-                self.dev_status.setStyleSheet(status_color)
+            self.dev_status.setText(status_text)
+            self.dev_status.setStyleSheet(status_color)
     
     def update_stats(self):
         """Обновляет статистику"""
@@ -713,8 +726,8 @@ class ServerStatusDialog(QDialog):
             self.stats_table.insertRow(row)
             
             self.stats_table.setItem(row, 0, QTableWidgetItem(server_name))
-            self.stats_table.setItem(row, 1, QTableWidgetItem(str(server_stats['successes'])))
-            self.stats_table.setItem(row, 2, QTableWidgetItem(str(server_stats['failures'])))
+            self.stats_table.setItem(row, 1, QTableWidgetItem(str(server_stats.get('successes', 0))))
+            self.stats_table.setItem(row, 2, QTableWidgetItem(str(server_stats.get('failures', 0))))
             
             avg_time = server_stats.get('avg_response_time', 0)
             if avg_time > 0:

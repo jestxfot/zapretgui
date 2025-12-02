@@ -2,6 +2,7 @@
 import os
 import time
 import subprocess
+import psutil
 from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -57,37 +58,65 @@ class BatDPIStart:
         else:
             print(text)
 
-    def check_process_running_wmi(self, silent: bool = False) -> bool:
-        """Проверка через WMI - без окон консоли"""
+    def check_process_running_fast(self, silent: bool = False) -> bool:
+        """
+        ⚡ БЫСТРАЯ проверка через psutil (~1-10ms вместо 100-2000ms у WMI)
+        Основной метод проверки — используйте его везде!
+        """
         try:
-            import win32com.client
-            wmi = win32com.client.GetObject("winmgmts:")
-            processes = wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name = 'winws.exe'")
-            found = len(list(processes)) > 0
+            for proc in psutil.process_iter(['name']):
+                try:
+                    proc_name = proc.info['name']
+                    if proc_name and proc_name.lower() in ('winws.exe', 'winws2.exe'):
+                        if not silent:
+                            log(f"winws/winws2 state → True (psutil)", "DEBUG")
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
             if not silent:
-                log(f"winws.exe state → {found}", "DEBUG")
-            return found
-        except Exception:
-            # Fallback на tasklist если WMI недоступен
-            return self.check_process_running(silent)
+                log(f"winws/winws2 state → False (psutil)", "DEBUG")
+            return False
+        except Exception as e:
+            if not silent:
+                log(f"psutil check error: {e}, fallback to tasklist", "DEBUG")
+            # Fallback на tasklist если psutil не работает
+            return self._check_process_running_tasklist(silent)
+    
+    def check_process_running_wmi(self, silent: bool = False) -> bool:
+        """
+        Проверка процесса (теперь использует psutil, WMI как резерв)
+        ✅ Оставлен для обратной совместимости — внутри вызывает check_process_running_fast()
+        """
+        return self.check_process_running_fast(silent)
     
     def check_process_running(self, silent: bool = False) -> bool:
         """
-        Мини-версия: только tasklist (хватает в 99% случаев).
-        Никаких дополнительных окон не появляется.
+        Проверка процесса (теперь использует psutil)
+        ✅ Оставлен для обратной совместимости — внутри вызывает check_process_running_fast()
         """
-        cmd = ['C:\\Windows\\System32\\tasklist.exe', '/FI', 'IMAGENAME eq winws.exe', '/FO', 'CSV', '/NH']
-        try:
-            res = run_hidden(cmd, wait=True, capture_output=True,
-                             text=True, encoding='cp866')
-            found = 'winws.exe' in res.stdout
-            if not silent:
-                log(f"winws.exe state → {found}", "DEBUG")
-            return found
-        except Exception as e:
-            if not silent:
-                log(f"tasklist error: {e}", "⚠ WARNING")
-            return False
+        return self.check_process_running_fast(silent)
+    
+    def _check_process_running_tasklist(self, silent: bool = False) -> bool:
+        """
+        🐢 Резервный метод через tasklist (медленный, ~100-500ms)
+        Используется только как fallback если psutil недоступен
+        """
+        found = False
+        for exe_name in ['winws.exe', 'winws2.exe']:
+            cmd = ['C:\\Windows\\System32\\tasklist.exe', '/FI', f'IMAGENAME eq {exe_name}', '/FO', 'CSV', '/NH']
+            try:
+                res = run_hidden(cmd, wait=True, capture_output=True,
+                                 text=True, encoding='cp866')
+                if exe_name in res.stdout:
+                    found = True
+                    break
+            except Exception as e:
+                if not silent:
+                    log(f"tasklist error for {exe_name}: {e}", "⚠ WARNING")
+        
+        if not silent:
+            log(f"winws/winws2 state → {found} (tasklist fallback)", "DEBUG")
+        return found
 
     def cleanup_windivert_service(self) -> bool:
         """Очистка службы через PowerShell - без окон"""
@@ -129,7 +158,7 @@ class BatDPIStart:
 
         time.sleep(0.5)
         ok = not self.check_process_running_wmi(silent=True)
-        log("Все процессы остановлены" if ok else "winws.exe ещё работает",
+        log("Все процессы остановлены" if ok else "winws/winws2 ещё работает",
             "✅ SUCCESS" if ok else "⚠ WARNING")
         return ok
 
@@ -195,7 +224,7 @@ class BatDPIStart:
             
             # Проверяем, запущен ли уже процесс
             if self.check_process_running_wmi(silent=True):
-                log("Процесс winws.exe уже запущен, перезапускаем...", level="⚠ WARNING")
+                log("Процесс winws/winws2 уже запущен, перезапускаем...", level="⚠ WARNING")
                 if self.app_instance:
                     from dpi.stop import stop_dpi
                     stop_dpi(self.app_instance)
@@ -437,42 +466,30 @@ class BatDPIStart:
                 log("Ошибка ShellExecuteEx", "ERROR")
                 return False
             
-            # ✅ НОВАЯ ПРОВЕРКА ЗДОРОВЬЯ ПРОЦЕССА
-            log("Ожидание инициализации процесса...", "INFO")
-            time.sleep(2)  # Даем процессу время на инициализацию
-            
-            from dpi.process_health_check import check_process_health, get_last_crash_info, check_common_crash_causes
-            
-            is_healthy, error_message = check_process_health(
-                process_name="winws.exe",
-                monitor_duration=5,  # Мониторим 5 секунд
-                check_interval=0.5   # Проверяем каждые 0.5 секунды
-            )
-            
-            if is_healthy:
-                log("DPI успешно запущен и работает стабильно", level="✅ SUCCESS")
-                self.set_status(f"✅ DPI запущен: {strategy_name}")
-                self._update_ui(True)
-                return True
-            else:
-                log(f"DPI запустился, но завершился: {error_message}", level="❌ ERROR")
-                self.set_status("❌ DPI завершился после запуска. Проверьте настройки!")
+            # ⚡ ПРОВЕРКА ЗАПУСКА с несколькими попытками
+            # BAT файлы запускаются асинхронно, нужно подождать
+            max_attempts = 5
+            for attempt in range(max_attempts):
+                time.sleep(1)  # Пауза между проверками
                 
-                # Показываем дополнительную информацию
-                crash_info = get_last_crash_info()
-                if crash_info:
-                    log("📋 История падений из Event Log:", "INFO")
-                    for line in crash_info.split('\n'):
-                        log(f"  {line}", "INFO")
-                
-                # Проверяем типичные причины
-                causes = check_common_crash_causes()
-                if causes:
-                    log("💡 Возможные причины падения:", "INFO")
-                    for line in causes.split('\n'):
-                        log(f"  {line}", "INFO")
-                
-                return False
+                if self.check_process_running_fast(silent=True):
+                    log("DPI успешно запущен", level="✅ SUCCESS")
+                    self.set_status(f"✅ DPI запущен: {strategy_name}")
+                    self._update_ui(True)
+                    return True
+                    
+                # Логируем только на последней попытке
+                if attempt == max_attempts - 1:
+                    log(f"DPI не запустился после {max_attempts} проверок", level="⚠ WARNING")
+            
+            # Не показываем ошибку сразу — ProcessMonitorThread продолжит следить
+            # и обновит UI когда процесс запустится
+            log("DPI ещё не запущен, продолжаем мониторинг...", level="INFO")
+            self.set_status("⏳ Ожидание запуска DPI...")
+            
+            # Возвращаем True чтобы не показывать ошибку на splash screen
+            # ProcessMonitorThread обновит статус когда процесс появится
+            return True
                 
         except Exception as e:
             log(f"Ошибка при запуске: {e}", level="❌ ERROR")

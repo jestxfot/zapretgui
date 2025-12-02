@@ -291,7 +291,7 @@ class ReleaseManager:
             self.server_stats.record_success(server_name, response_time)
             
             # Формируем URL для скачивания
-            filename = f"ZapretSetup{'_TEST' if api_channel == 'test' else ''}.exe"
+            filename = f"Zapret2Setup{'_TEST' if api_channel == 'test' else ''}.exe"
             download_url = f"{url}/download/{filename}"
             
             log(f"📦 {server_name}: версия {data['version']}, файл: {filename}", "🔄 RELEASE")

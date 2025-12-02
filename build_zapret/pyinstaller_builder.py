@@ -48,13 +48,79 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
             log_queue.put(f"✅ Используется иконка: {icon_path}")
     
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
+import sys
+from PyInstaller.utils.hooks import collect_submodules
+
+# Собираем ВСЕ подмодули ui пакета
+ui_hiddenimports = collect_submodules('ui')
+log_hiddenimports = collect_submodules('log')
+managers_hiddenimports = collect_submodules('managers')
+strategy_hiddenimports = collect_submodules('strategy_menu')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[r'{root_path}'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[],
-    hiddenimports=[
+    datas=[],  # ✅ Python модули включаются через hiddenimports, НЕ через datas
+    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
+        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+        'ui',
+        'ui.splash_screen',
+        'ui.main_window', 
+        'ui.theme',
+        'ui.theme_subscription_manager',
+        'ui.sidebar',
+        'ui.custom_titlebar',
+        'ui.help_dialog',
+        'ui.acrylic',
+        'ui.fluent_icons',
+        'ui.pages',
+        'ui.pages.home_page',
+        'ui.pages.control_page',
+        'ui.pages.strategies_page',
+        'ui.pages.network_page',
+        'ui.pages.autostart_page',
+        'ui.pages.appearance_page',
+        'ui.pages.about_page',
+        'ui.pages.logs_page',
+        'ui.pages.base_page',
+        'ui.pages.premium_page',
+        
+        # ============= LOG МОДУЛИ =============
+        'log',
+        'log.log',
+        'log.crash_handler',
+        'log_tail',
+        
+        # ============= MANAGERS =============
+        'managers',
+        'managers.dpi_manager',
+        'managers.ui_manager',
+        'managers.heavy_init_manager',
+        'managers.initialization_manager',
+        'managers.process_monitor_manager',
+        
+        # ============= STRATEGY MENU =============
+        'strategy_menu',
+        'strategy_menu.selector',
+        'strategy_menu.strategies_registry',
+        'strategy_menu.strategy_runner',
+        'strategy_menu.strategy_lists_separated',
+        'strategy_menu.animated_side_panel',
+        'strategy_menu.widgets',
+        'strategy_menu.command_line_dialog',
+        'strategy_menu.constants',
+        'strategy_menu.workers',
+        'strategy_menu.lazy_tab_loader',
+        'strategy_menu.profiler',
+        'strategy_menu.strategy_table_widget_favorites',
+        
+        # ============= CRASH HANDLING =============
+        'faulthandler',
+        'threading',
+        'atexit',
+        'traceback',
+        
         # Windows API
         'win32com', 
         'win32com.client', 

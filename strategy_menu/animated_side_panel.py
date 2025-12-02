@@ -3,13 +3,38 @@
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, 
-                            QStackedWidget, QFrame)
+                            QStackedWidget, QFrame, QScrollArea)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, QSize
 from PyQt6.QtGui import QPainter, QCursor, QColor, QPen
 import qtawesome as qta
 
 from log import log
 from strategy_menu.strategies_registry import registry
+
+
+class ScrollBlockingListWidget(QListWidget):
+    """QListWidget который не пропускает прокрутку к родителю"""
+    
+    def wheelEvent(self, event):
+        # Обрабатываем прокрутку и блокируем её от "провала" к родителю
+        scrollbar = self.verticalScrollBar()
+        
+        # Проверяем направление прокрутки
+        delta = event.angleDelta().y()
+        
+        # Если прокручиваем вверх и уже в начале - блокируем
+        if delta > 0 and scrollbar.value() == scrollbar.minimum():
+            event.accept()
+            return
+        
+        # Если прокручиваем вниз и уже в конце - блокируем
+        if delta < 0 and scrollbar.value() == scrollbar.maximum():
+            event.accept()
+            return
+        
+        # Иначе обрабатываем нормально
+        super().wheelEvent(event)
+        event.accept()  # Всегда принимаем событие чтобы не пропускать дальше
 
 
 class AnimatedSidePanel(QWidget):
@@ -38,9 +63,9 @@ class AnimatedSidePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Левая панель с списком
-        self.list_widget = QListWidget()
-        self.list_widget.setIconSize(QSize(12, 12))
+        # Левая панель с списком (блокирует провал прокрутки)
+        self.list_widget = ScrollBlockingListWidget()
+        self.list_widget.setIconSize(QSize(16, 16))
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -48,62 +73,61 @@ class AnimatedSidePanel(QWidget):
         # Включаем отслеживание мыши
         self.list_widget.setMouseTracking(True)
         
-        # Стиль для списка и скроллбара
+        # Современный стиль для списка - компактный
         self.list_widget.setStyleSheet("""
             QListWidget {
-                background: #2a2a2a;
-                border: 1px solid #444;
-                border-radius: 5px 0 0 5px;
-                border-right: none;
+                background: transparent;
+                border: none;
                 outline: none;
+                padding: 2px 0;
             }
             QListWidget::item {
-                color: #aaa;
-                padding: 3px 5px 3px 10px;
-                border-bottom: 1px solid #333;
-                font-size: 8pt;
-                min-height: 20px;
-                max-height: 25px;
-                white-space: nowrap;
-                overflow: hidden;
+                color: rgba(255, 255, 255, 0.6);
+                padding: 6px 8px;
+                margin: 1px 2px;
+                border-radius: 4px;
+                font-size: 11px;
+                min-height: 16px;
             }
             QListWidget::item:hover {
-                background: #333;
-                color: #fff;
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(255, 255, 255, 0.9);
             }
             QListWidget::item:selected {
-                background: #3a3a3a;
-                color: #2196F3;
-                font-weight: bold;
-                border-right: 2px solid #2196F3;
+                background: rgba(96, 205, 255, 0.15);
+                color: #60cdff;
+                font-weight: 600;
             }
             QScrollBar:vertical {
-                width: 8px;
-                background: #222;
-                border: none;
-                border-radius: 4px;
-                margin: 2px;
+                width: 3px;
+                background: transparent;
             }
             QScrollBar::handle:vertical {
-                background: #555;
-                border-radius: 4px;
-                min-height: 30px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 1px;
+                min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background: #666;
+                background: rgba(255, 255, 255, 0.25);
             }
             QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
+            QScrollBar::sub-line:vertical,
             QScrollBar::add-page:vertical,
             QScrollBar::sub-page:vertical {
+                height: 0px;
                 background: none;
             }
         """)
         
         # Контейнер для списка с фиксированной шириной
         self.list_container = QWidget()
+        self.list_container.setStyleSheet("""
+            QWidget {
+                background: rgba(25, 25, 25, 0.6);
+                border: none;
+                border-right: 1px solid rgba(255, 255, 255, 0.06);
+            }
+        """)
         list_layout = QVBoxLayout(self.list_container)
         list_layout.setContentsMargins(0, 0, 0, 0)
         list_layout.addWidget(self.list_widget)
@@ -112,10 +136,8 @@ class AnimatedSidePanel(QWidget):
         self.stack_widget = QStackedWidget()
         self.stack_widget.setStyleSheet("""
             QStackedWidget {
-                background: #2a2a2a;
-                border: 1px solid #444;
-                border-radius: 0 5px 5px 0;
-                border-left: none;
+                background: transparent;
+                border: none;
             }
         """)
         
@@ -149,13 +171,21 @@ class AnimatedSidePanel(QWidget):
         
         if category_info:
             try:
-                icon = qta.icon(category_info.icon_name, color=category_info.icon_color)
-                return icon
+                # Проверяем валидность icon_name перед созданием
+                icon_name = category_info.icon_name
+                if icon_name and icon_name.startswith(('fa5s.', 'fa5b.', 'fa.', 'mdi.')):
+                    icon = qta.icon(icon_name, color=category_info.icon_color)
+                    return icon
+                else:
+                    log(f"Неизвестный префикс иконки для {category_key}: {icon_name}", "⚠ WARNING")
             except Exception as e:
                 log(f"Ошибка создания иконки для {category_key}: {e}", "⚠ WARNING")
-                return qta.icon('fa5s.globe', color='#2196F3')
-        else:
+        
+        # Безопасный fallback
+        try:
             return qta.icon('fa5s.globe', color='#2196F3')
+        except:
+            return None
                 
     def eventFilter(self, obj, event):
         """Обработчик событий для анимации и прокрутки текста"""
@@ -314,7 +344,6 @@ class AnimatedSidePanel(QWidget):
                 list_item = self.list_widget.item(index)
                 if list_item:
                     list_item.setIcon(icon)
-                    self.list_widget.setIconSize(QSize(14, 14))
         
         self.original_texts[index] = label
         return index
@@ -346,6 +375,50 @@ class AnimatedSidePanel(QWidget):
                     list_item = self.list_widget.item(index)
                     if list_item:
                         list_item.setIcon(icon)
+
+    def update_tab_active_states(self, active_categories: set):
+        """
+        Обновляет визуальное состояние вкладок: активные - яркие, неактивные - серые.
+        
+        Args:
+            active_categories: Множество ключей категорий с активными стратегиями
+        """
+        if not hasattr(self, '_tab_category_keys'):
+            return
+        
+        for index, category_key in enumerate(self._tab_category_keys):
+            if not category_key or index >= self.list_widget.count():
+                continue
+                
+            list_item = self.list_widget.item(index)
+            if not list_item:
+                continue
+            
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                continue
+            
+            is_active = category_key in active_categories
+            
+            # Цвет иконки: яркий для активных, серый для неактивных
+            if is_active:
+                icon_color = category_info.icon_color
+                text_color = "#fff"
+            else:
+                icon_color = "#555"
+                text_color = "#777"
+            
+            # Обновляем иконку
+            try:
+                icon_name = category_info.icon_name
+                if icon_name and icon_name.startswith(('fa5s.', 'fa5b.', 'fa.', 'mdi.')):
+                    icon = qta.icon(icon_name, color=icon_color)
+                    list_item.setIcon(icon)
+            except Exception as e:
+                log(f"Ошибка обновления иконки {category_key}: {e}", "⚠ WARNING")
+            
+            # Обновляем цвет текста через foreground
+            list_item.setForeground(QColor(text_color))
 
     def insertTab(self, index, widget, label, category_key=None):
         """Вставляет вкладку в определенную позицию"""
@@ -394,7 +467,29 @@ class AnimatedSidePanel(QWidget):
     def count(self):
         """Возвращает количество вкладок"""
         return self.stack_widget.count()
+    
+    def clear(self):
+        """Очищает все вкладки"""
+        # Очищаем список
+        self.list_widget.clear()
         
+        # Удаляем все виджеты из стека
+        while self.stack_widget.count() > 0:
+            widget = self.stack_widget.widget(0)
+            self.stack_widget.removeWidget(widget)
+            if widget:
+                widget.deleteLater()
+        
+        # Очищаем внутренние структуры
+        if hasattr(self, '_tab_category_keys'):
+            self._tab_category_keys = []
+        if hasattr(self, 'original_texts'):
+            self.original_texts = {}
+        
+    def currentIndex(self):
+        """Возвращает индекс текущей вкладки"""
+        return self.stack_widget.currentIndex()
+    
     def setCurrentIndex(self, index):
         """Устанавливает текущую вкладку"""
         self.list_widget.setCurrentRow(index)

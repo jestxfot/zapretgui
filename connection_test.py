@@ -1331,7 +1331,7 @@ class ConnectionTestDialog(QDialog):
         caption = (
             f"📊 <b>Лог тестирования соединений</b>\n"
             f"Тип: {test_type}\n"
-            f"Zapret v{APP_VERSION}\n"
+            f"Zapret2 v{APP_VERSION}\n"
             f"ID: <code>{get_client_id()}</code>\n"
             f"Host: {platform.node()}\n"
             f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"

@@ -14,7 +14,7 @@ from .defender_manager import WindowsDefenderManager
 from .max_blocker import MaxBlockerManager
 
 from utils import run_hidden
-from log import log, LogViewerDialog, global_logger
+from log import log, global_logger
 
 from startup import get_remove_windows_terminal, set_remove_windows_terminal
 
@@ -169,19 +169,7 @@ class AppMenuBar(QMenuBar):
         hostlists_menu.addSeparator()
         """
 
-        # -------- 2. «Телеметрия / Настройки» ------------------------------
-        telemetry_menu = self.addMenu("&Телеметрия")
-
-        # 2 Показ журнала
-        act_logs = QAction("Показать лог-файл", self)
-        act_logs.triggered.connect(self.show_logs)
-        telemetry_menu.addAction(act_logs)
-
-        act_logs = QAction("Отправить лог файл", self)
-        act_logs.triggered.connect(self.send_log_to_tg_with_report)
-        telemetry_menu.addAction(act_logs)
-
-        # -------- 3. «Справка» ---------------------------------------------
+        # -------- 2. «Справка» ---------------------------------------------
         help_menu = self.addMenu("&Справка")
 
         act_help = QAction("❓ Что это такое? (Руководство)", self)
@@ -394,27 +382,31 @@ class AppMenuBar(QMenuBar):
 
     def show_logs(self):
         """
-        Открывает окно просмотра логов без блокировки остального GUI.
-        Держим ссылку на объект, чтобы его не удалил сборщик мусора.
+        Переключается на вкладку Логи в основном интерфейсе.
         """
         try:
-            # если окно уже открыто ‑ просто поднимаем его
-            if getattr(self, "_log_dlg", None) and self._log_dlg.isVisible():
-                self._log_dlg.raise_()
-                self._log_dlg.activateWindow()
-                return
-
-            self._log_dlg = LogViewerDialog(
-                parent   = self._pw or self,
-                log_file = global_logger.log_file,
-            )
-            self._log_dlg.show()                   # <<- вместо exec()
-
+            # Находим главное окно и переключаемся на страницу логов
+            main_window = self._pw
+            if main_window and hasattr(main_window, 'main_widget'):
+                main_content = main_window.main_widget
+                if hasattr(main_content, 'sidebar') and hasattr(main_content, 'pages_stack'):
+                    # Индекс страницы логов (6 - после Оформление)
+                    logs_page_index = 6
+                    main_content.sidebar.set_current_index(logs_page_index)
+                    main_content.pages_stack.setCurrentIndex(logs_page_index)
+                    log("Переключение на страницу логов", "DEBUG")
+                    return
+            
+            # Fallback: если не нашли - открываем папку с логами
+            import subprocess
+            from config import LOGS_FOLDER
+            subprocess.run(['explorer', LOGS_FOLDER], check=False)
+            
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self._pw or self,
                                 "Ошибка",
-                                f"Не удалось открыть журнал:\n{e}")
+                                f"Не удалось открыть логи:\n{e}")
 
     def send_log_to_tg_with_report(self):
         """Показывает диалог для описания проблемы, затем отправляет лог"""
@@ -480,7 +472,7 @@ class AppMenuBar(QMenuBar):
         
         caption = f"📋 Ручная отправка лога\n"
         caption += f"📁 Файл: {log_filename}\n"
-        caption += f"Zapret v{APP_VERSION}\n"
+        caption += f"Zapret2 v{APP_VERSION}\n"
         caption += f"ID: {get_client_id()}\n"
         caption += f"Host: {platform.node()}\n"
         caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"

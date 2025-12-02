@@ -485,8 +485,8 @@ class BuildReleaseGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Zapret Release Builder")
-        self.root.geometry("950x1000")
-        self.root.minsize(950, 1000)
+        self.root.geometry("1100x1300")
+        self.root.minsize(1100, 1300)
         
         # Стилизация
         self.setup_styles()
@@ -991,7 +991,7 @@ class BuildReleaseGUI:
 
     def deploy_to_ssh(self, channel, version, notes):
         """SSH деплой на все VPS сервера"""
-        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        produced = Path("H:/Privacy/zapretgui") / f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
@@ -1031,8 +1031,8 @@ class BuildReleaseGUI:
         target_iss = project_root / f"zapret_{channel}.iss"
         
         timestamp = int(time.time())
-        temp_name = f"ZapretSetup_{channel}_{timestamp}_tmp"
-        final_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}"
+        temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
+        final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}"
         
         temp_file = project_root / f"{temp_name}.exe"
         final_file = project_root / f"{final_name}.exe"
@@ -1058,12 +1058,17 @@ class BuildReleaseGUI:
         if not iscc_path.exists():
             raise FileNotFoundError("Inno Setup не найден!")
         
+        is_test = 1 if channel == "test" else 0
         cmd = [
             str(iscc_path),
-            f"/DCHANNEL={channel}",
-            f"/DVERSION={version}",
+            f'/DIS_TEST={is_test}',  # ✅ Числовой флаг — надёжнее строк
+            f'/DVERSION={version}',
             str(target_iss)
         ]
+        
+        self.log_queue.put(f"📋 Канал: {channel} → IS_TEST={is_test}")
+        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretDev' if is_test else 'Zapret'}")
+        self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if is_test else 'Zapret2.ico'}")
         
         for attempt in range(1, max_retries + 1):
             try:
@@ -1157,7 +1162,7 @@ class BuildReleaseGUI:
   
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
-        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        produced = Path("H:/Privacy/zapretgui") / f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")

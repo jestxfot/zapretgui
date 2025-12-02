@@ -293,7 +293,7 @@ def _publish_to_telegram_via_ssh(
             return False, "scripts_dir не указан в конфигурации сервера"
         
         # Формируем путь к файлу на сервере
-        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
         log(f"🔌 Подключение к {user}@{host}:{port}...")
@@ -527,7 +527,7 @@ def _deploy_to_single_server(
         # ЗАГРУЗКА ФАЙЛА
         # ═══════════════════════════════════════════════════════
         
-        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
         log(f"📤 Загрузка {file_path.name} на VPS...")

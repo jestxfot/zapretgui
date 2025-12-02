@@ -196,17 +196,28 @@ class AutoStartMenu(QDialog):
                 "DPI будет запускаться при входе в систему."
             )
         else:
-            # BAT режим
+            # BAT режим - проверяем что стратегия не "Прямой запуск"
+            bat_strategy_name = self.strategy_name
+            if bat_strategy_name in ("Прямой запуск", "COMBINED_DIRECT", None, ""):
+                from config import get_last_strategy
+                bat_strategy_name = get_last_strategy()
+                if bat_strategy_name in ("COMBINED_DIRECT", None, ""):
+                    _show_error(
+                        "Для BAT режима необходимо сначала выбрать стратегию.\n\n"
+                        "Откройте меню 'Стратегии' и выберите BAT стратегию."
+                    )
+                    return
+            
             index_json_path = (Path(self.json_folder) / "index.json").resolve()
             ok = setup_autostart_for_strategy(
-                selected_mode=self.strategy_name,
+                selected_mode=bat_strategy_name,
                 bat_folder=self.bat_folder,
                 index_path=str(index_json_path),
                 ui_error_cb=_show_error,
             )
             success_msg = (
                 "✅ Автозапуск стратегии настроен!\n\n"
-                f"Стратегия «{self.strategy_name}» будет\n"
+                f"Стратегия «{bat_strategy_name}» будет\n"
                 "запускаться при входе в Windows."
             )
 
@@ -234,17 +245,29 @@ class AutoStartMenu(QDialog):
                 "Это наиболее надежный способ автозапуска."
             )
         else:
+            # BAT режим - проверяем что стратегия не "Прямой запуск"
+            bat_strategy_name = self.strategy_name
+            if bat_strategy_name in ("Прямой запуск", "COMBINED_DIRECT", None, ""):
+                from config import get_last_strategy
+                bat_strategy_name = get_last_strategy()
+                if bat_strategy_name in ("COMBINED_DIRECT", None, ""):
+                    _show_error(
+                        "Для BAT режима необходимо сначала выбрать стратегию.\n\n"
+                        "Откройте меню 'Стратегии' и выберите BAT стратегию."
+                    )
+                    return
+            
             # BAT режим - настоящая служба
             index_json_path = (Path(self.json_folder) / "index.json").resolve()
             ok = setup_service_for_strategy(
-                selected_mode=self.strategy_name,
+                selected_mode=bat_strategy_name,
                 bat_folder=self.bat_folder,
                 index_path=str(index_json_path),
                 ui_error_cb=_show_error,
             )
             success_msg = (
                 "✅ Служба Windows создана!\n\n"
-                f"Стратегия «{self.strategy_name}» будет\n"
+                f"Стратегия «{bat_strategy_name}» будет\n"
                 "запускаться как служба Windows."
             )
 

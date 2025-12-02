@@ -3,8 +3,8 @@
 ;---------------------------------------------------
 
 ; Определяем дефолтные значения
-#ifndef CHANNEL
-  #define CHANNEL "stable"
+#ifndef IS_TEST
+  #define IS_TEST 0
 #endif
 
 #ifndef VERSION
@@ -15,18 +15,18 @@
 #define SourcePath "H:\Privacy\zapret"
 #define ProjectPath "H:\Privacy\zapretgui"
 
-; Настройки в зависимости от канала
-#if CHANNEL == "test"
+; ✅ Настройки в зависимости от канала (числовой флаг надёжнее строк!)
+#if IS_TEST
   #define AppName "Zapret Dev"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
-  #define OutputName "ZapretSetup_TEST"
+  #define OutputName "Zapret2Setup_TEST"
   #define GroupName "Zapret Dev"
   #define DataFolder "ZapretDev"
   #define IconFile "ZapretDevLogo4.ico"
 #else
   #define AppName "Zapret"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
-  #define OutputName "ZapretSetup"
+  #define OutputName "Zapret2Setup"
   #define GroupName "Zapret"
   #define DataFolder "Zapret"
   #define IconFile "Zapret2.ico"
@@ -81,6 +81,7 @@ Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignor
 Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
@@ -184,6 +185,7 @@ begin
   // ✅ СРАЗУ ЗАКРЫВАЕМ ZAPRET.EXE БЕЗ GUI (WizardForm еще не создана)
   KillProcessWithRetry('Zapret.exe');
   KillProcessWithRetry('winws.exe');
+  KillProcessWithRetry('winws2.exe');
   
   // Определяем режим обновления
   IsUpdateMode := IsAutoUpdate;
@@ -208,6 +210,7 @@ begin
   begin
     KillProcessWithRetry('Zapret.exe');
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     StopAndDeleteService('WinDivert');
     StopAndDeleteService('WinDivert14');
     StopAndDeleteService('WinDivert1.4');
@@ -236,6 +239,7 @@ begin
     ProgressPage.SetText('Проверка процесса winws.exe...', '');
     ProgressPage.SetProgress(CurrentStep, StepCount);
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     CurrentStep := CurrentStep + 1;
     ProgressPage.SetText('Остановка службы Monkey...', '');
@@ -313,6 +317,7 @@ begin
       StopAndDeleteService('WinDivert64');
       StopAndDeleteService('Monkey');
       KillProcessWithRetry('winws.exe');
+      KillProcessWithRetry('winws2.exe');
       KillProcessWithRetry('Zapret.exe');
       Sleep(500);
       Exit;
@@ -330,6 +335,7 @@ begin
     UninstallProgressForm.ProgressBar.Position := 60;
     
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     UninstallProgressForm.ProgressBar.Position := 80;
     

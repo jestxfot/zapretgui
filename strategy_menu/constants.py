@@ -28,11 +28,11 @@ LABEL_COLORS = {
 }
 
 LABEL_TEXTS = {
-    LABEL_RECOMMENDED: "РЕКОМЕНДУЕМ",
-    LABEL_CAUTION: "С ОСТОРОЖНОСТЬЮ",
-    LABEL_EXPERIMENTAL: "ЭКСПЕРИМЕНТАЛЬНАЯ",
-    LABEL_STABLE: "СТАБИЛЬНАЯ",
-    LABEL_GAME: "ИГРОВАЯ",
+    LABEL_RECOMMENDED: "Рекомендуется",
+    LABEL_CAUTION: "Осторожно",
+    LABEL_EXPERIMENTAL: "Эксперимент",
+    LABEL_STABLE: "Стабильная",
+    LABEL_GAME: "Для игр",
     LABEL_WARP: "WARP"
 }
 

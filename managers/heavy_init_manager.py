@@ -76,18 +76,37 @@ class HeavyInitManager:
 
     def check_local_files(self):
         """Проверяет наличие критически важных локальных файлов"""
-        from config import WINWS_EXE
+        from config import WINWS_EXE, WINWS2_EXE
+        from strategy_menu import get_strategy_launch_method
         
-        if not os.path.exists(WINWS_EXE):
-            self.app.set_status("❌ winws.exe не найден - включите автозагрузку")
-            return False
+        launch_method = get_strategy_launch_method()
+        
+        if launch_method == "direct":
+            # Для прямого запуска нужен winws2.exe
+            if not os.path.exists(WINWS2_EXE):
+                self.app.set_status("❌ winws2.exe не найден - включите автозагрузку")
+                return False
+        else:
+            # Для BAT режима нужен winws.exe
+            if not os.path.exists(WINWS_EXE):
+                self.app.set_status("❌ winws.exe не найден - включите автозагрузку")
+                return False
         
         self.app.set_status("✅ Локальные файлы найдены")
         return True
 
     def start_auto_update(self):
-        """✅ НОВЫЙ ПУБЛИЧНЫЙ МЕТОД: Запуск автообновления"""
-        self._start_auto_update()
+        """
+        ✅ Запуск автообновления через UpdateManager.
+        Вызывается после успешной heavy init.
+        """
+        if hasattr(self.app, 'update_manager'):
+            log("📦 HeavyInitManager: делегируем проверку обновлений в UpdateManager", "DEBUG")
+            # Запускаем проверку с небольшой задержкой (GUI должен быть полностью готов)
+            self.app.update_manager.start_background_check(delay_ms=2000)
+        else:
+            log("⚠️ HeavyInitManager: UpdateManager не найден, используем fallback", "WARNING")
+            self._start_auto_update_fallback()
 
     def _on_heavy_progress(self, message: str):
         """Обработка прогресса от HeavyInitWorker"""
@@ -153,8 +172,8 @@ class HeavyInitManager:
 
         self.app.set_status("Инициализация завершена")
         
-        # Запускаем проверку обновлений через 2 секунды
-        QTimer.singleShot(2000, self._start_auto_update)
+        # Запускаем проверку обновлений через UpdateManager
+        QTimer.singleShot(1000, self.start_auto_update)
         
         log("🔵 HeavyInitManager: успешно завершен", "DEBUG")
 
@@ -166,9 +185,11 @@ class HeavyInitManager:
         
         log(f"HeavyInit завершился с ошибкой: {error_msg}", "❌ ERROR")
 
-    def _start_auto_update(self):
-        """Плановая (тихая) проверка обновлений в фоне"""
-        
+    def _start_auto_update_fallback(self):
+        """
+        Fallback метод для проверки обновлений (когда UpdateManager недоступен).
+        Использует старую логику напрямую через updater.
+        """
         # ✅ ПРОВЕРЯЕМ НАСТРОЙКУ АВТООБНОВЛЕНИЙ
         from config import get_auto_update_enabled
         if not get_auto_update_enabled():
@@ -185,14 +206,14 @@ class HeavyInitManager:
         try:
             from updater import run_update_async
         except Exception as e:
-            log(f"Auto-update: import error {e}", "❌ ERROR")
+            log(f"Auto-update fallback: import error {e}", "❌ ERROR")
             self.app.set_status("Не удалось запустить авто-апдейт")
             return
 
         thread = run_update_async(parent=self.app, silent=True)
         
         if not hasattr(thread, '_worker'):
-            log("Auto-update: worker not found in thread", "❌ ERROR")
+            log("Auto-update fallback: worker not found in thread", "❌ ERROR")
             self.app.set_status("Ошибка проверки обновлений")
             return
             
@@ -203,7 +224,7 @@ class HeavyInitManager:
                 self.app.set_status("🔄 Обновление установлено – Zapret перезапустится")
             else:
                 self.app.set_status("✅ Обновлений нет")
-            log(f"Auto-update finished, ok={ok}", "DEBUG")
+            log(f"Auto-update fallback finished, ok={ok}", "DEBUG")
 
             if hasattr(self.app, "_auto_upd_thread"):
                 del self.app._auto_upd_thread

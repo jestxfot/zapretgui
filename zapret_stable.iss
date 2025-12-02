@@ -19,14 +19,14 @@
 #if CHANNEL == "test"
   #define AppName "Zapret Dev"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
-  #define OutputName "ZapretSetup_TEST"
+  #define OutputName "Zapret2Setup_TEST"
   #define GroupName "Zapret Dev"
   #define DataFolder "ZapretDev"
   #define IconFile "ZapretDevLogo4.ico"
 #else
   #define AppName "Zapret"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
-  #define OutputName "ZapretSetup"
+  #define OutputName "Zapret2Setup"
   #define GroupName "Zapret"
   #define DataFolder "Zapret"
   #define IconFile "Zapret2.ico"
@@ -44,7 +44,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=ZapretSetup_stable_1764164416_tmp
+OutputBaseFilename=Zapret2Setup_stable_1764164416_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке

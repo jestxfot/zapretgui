@@ -56,16 +56,18 @@ def stop_dpi_direct(app: "LupiDPIApp"):
         except:
             pass
         
-        # 2. Убиваем все процессы winws.exe
+        # 2. Убиваем все процессы winws.exe и winws2.exe
         killed = False
+        exe_names = ['winws.exe', 'winws2.exe']
+        
         try:
             # Используем psutil для более надежного поиска процессов
             for proc in psutil.process_iter(['pid', 'name']):
-                if proc.info['name'].lower() == 'winws.exe':
+                if proc.info['name'].lower() in exe_names:
                     try:
                         psutil.Process(proc.info['pid']).terminate()
                         killed = True
-                        log(f"Процесс winws.exe (PID: {proc.info['pid']}) завершен", "INFO")
+                        log(f"Процесс {proc.info['name']} (PID: {proc.info['pid']}) завершен", "INFO")
                     except:
                         pass
             
@@ -74,10 +76,10 @@ def stop_dpi_direct(app: "LupiDPIApp"):
             
             # Принудительное завершение если не помогло
             for proc in psutil.process_iter(['pid', 'name']):
-                if proc.info['name'].lower() == 'winws.exe':
+                if proc.info['name'].lower() in exe_names:
                     try:
                         psutil.Process(proc.info['pid']).kill()
-                        log(f"Процесс winws.exe (PID: {proc.info['pid']}) принудительно завершен", "⚠ WARNING")
+                        log(f"Процесс {proc.info['name']} (PID: {proc.info['pid']}) принудительно завершен", "⚠ WARNING")
                     except:
                         pass
                         
@@ -85,17 +87,18 @@ def stop_dpi_direct(app: "LupiDPIApp"):
             log(f"Ошибка при завершении процессов: {e}", "DEBUG")
             
             # Fallback на taskkill
-            try:
-                result = subprocess.run(
-                    ["taskkill", "/F", "/IM", "winws.exe", "/T"],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW
-                )
-                if result.returncode == 0:
-                    killed = True
-                    log("Процессы завершены через taskkill", "INFO")
-            except:
-                pass
+            for exe_name in exe_names:
+                try:
+                    result = subprocess.run(
+                        ["taskkill", "/F", "/IM", exe_name, "/T"],
+                        capture_output=True,
+                        creationflags=CREATE_NO_WINDOW
+                    )
+                    if result.returncode == 0:
+                        killed = True
+                        log(f"Процессы {exe_name} завершены через taskkill", "INFO")
+                except:
+                    pass
         
         # 3. Останавливаем и удаляем службу WinDivert
         services_to_stop = ["WinDivert", "Monkey"]
@@ -213,13 +216,14 @@ def stop_dpi_bat(app: "LupiDPIApp"):
                 # Если stop.bat не сработал, пробуем выполнить команды напрямую
                 log("Пробуем выполнить команды остановки напрямую...", level="INFO")
                 
-                # Останавливаем процесс
-                run_hidden(
-                    ['C:\\Windows\\System32\\taskkill.exe', '/F', '/IM', 'winws.exe', '/T'],
-                    shell=False,
-                    capture_output=True,
-                    timeout=5
-                )
+                # Останавливаем процессы (оба варианта)
+                for exe_name in ['winws.exe', 'winws2.exe']:
+                    run_hidden(
+                        ['C:\\Windows\\System32\\taskkill.exe', '/F', '/IM', exe_name, '/T'],
+                        shell=False,
+                        capture_output=True,
+                        timeout=5
+                    )
                 
                 # Останавливаем службу
                 run_hidden(

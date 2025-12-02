@@ -82,6 +82,9 @@ _favorites_cache = {}
 _favorites_cache_time = 0
 FAVORITES_CACHE_TTL = 0.5
 
+# Кэш предупреждений о невалидных стратегиях (чтобы не спамить)
+_warned_invalid_strategies = set()
+
 def get_favorites_for_category(category_key):
     """Получает избранные стратегии для категории (с кэшем)"""
     import time
@@ -348,6 +351,136 @@ def set_remove_ipsets_enabled(enabled: bool) -> bool:
         return False
 
 
+# ==================== НАСТРОЙКИ ФИЛЬТРОВ WINDIVERT ====================
+
+# Путь для хранения настроек фильтров
+WINDIVERT_FILTERS_PATH = r"Software\ZapretReg2\WinDivertFilters"
+
+def _get_filter_enabled(filter_name: str, default: bool = True) -> bool:
+    """Получает состояние отдельного фильтра WinDivert"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, WINDIVERT_FILTERS_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, filter_name)
+            return bool(value)
+    except:
+        return default
+
+def _set_filter_enabled(filter_name: str, enabled: bool) -> bool:
+    """Сохраняет состояние отдельного фильтра WinDivert"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, WINDIVERT_FILTERS_PATH) as key:
+            winreg.SetValueEx(key, filter_name, 0, winreg.REG_DWORD, int(enabled))
+            return True
+    except Exception as e:
+        log(f"Ошибка сохранения фильтра {filter_name}: {e}", "❌ ERROR")
+        return False
+
+# --- TCP порты ---
+
+def get_wf_tcp_80_enabled() -> bool:
+    """TCP порт 80 (HTTP)"""
+    return _get_filter_enabled("TcpPort80", default=True)
+
+def set_wf_tcp_80_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("TcpPort80", enabled)
+
+def get_wf_tcp_443_enabled() -> bool:
+    """TCP порт 443 (HTTPS/TLS)"""
+    return _get_filter_enabled("TcpPort443", default=True)
+
+def set_wf_tcp_443_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("TcpPort443", enabled)
+
+# --- UDP порты ---
+
+def get_wf_udp_443_enabled() -> bool:
+    """UDP порт 443 (QUIC) - перехват всего порта, нагружает CPU"""
+    return _get_filter_enabled("UdpPort443", default=False)
+
+def set_wf_udp_443_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("UdpPort443", enabled)
+
+# --- Raw-part фильтры (эффективные по CPU) ---
+
+def get_wf_raw_discord_media_enabled() -> bool:
+    """Discord Media (raw-part фильтр, эффективный)"""
+    return _get_filter_enabled("RawDiscordMedia", default=True)
+
+def set_wf_raw_discord_media_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("RawDiscordMedia", enabled)
+
+def get_wf_raw_stun_enabled() -> bool:
+    """STUN (raw-part фильтр для голосовых звонков)"""
+    return _get_filter_enabled("RawStun", default=True)
+
+def set_wf_raw_stun_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("RawStun", enabled)
+
+def get_wf_raw_wireguard_enabled() -> bool:
+    """WireGuard (raw-part фильтр для VPN)"""
+    return _get_filter_enabled("RawWireguard", default=True)
+
+def set_wf_raw_wireguard_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("RawWireguard", enabled)
+
+def get_wf_raw_quic_initial_enabled() -> bool:
+    """QUIC Initial (raw-part фильтр, перехватывает только initial пакеты)"""
+    return _get_filter_enabled("RawQuicInitial", default=False)
+
+def set_wf_raw_quic_initial_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("RawQuicInitial", enabled)
+
+# --- Расширенные порты (высокая нагрузка на CPU!) ---
+
+def get_wf_tcp_all_ports_enabled() -> bool:
+    """TCP порты 444-65535 (ВСЕ остальные порты, высокая нагрузка!)"""
+    return _get_filter_enabled("TcpAllPorts", default=False)
+
+def set_wf_tcp_all_ports_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("TcpAllPorts", enabled)
+
+def get_wf_udp_all_ports_enabled() -> bool:
+    """UDP порты 444-65535 (ВСЕ остальные порты, очень высокая нагрузка!)"""
+    return _get_filter_enabled("UdpAllPorts", default=False)
+
+def set_wf_udp_all_ports_enabled(enabled: bool) -> bool:
+    return _set_filter_enabled("UdpAllPorts", enabled)
+
+
+def get_all_wf_filters() -> dict:
+    """Возвращает все настройки фильтров WinDivert"""
+    return {
+        'tcp_80': get_wf_tcp_80_enabled(),
+        'tcp_443': get_wf_tcp_443_enabled(),
+        'tcp_all_ports': get_wf_tcp_all_ports_enabled(),
+        'udp_443': get_wf_udp_443_enabled(),
+        'udp_all_ports': get_wf_udp_all_ports_enabled(),
+        'raw_discord_media': get_wf_raw_discord_media_enabled(),
+        'raw_stun': get_wf_raw_stun_enabled(),
+        'raw_wireguard': get_wf_raw_wireguard_enabled(),
+        'raw_quic_initial': get_wf_raw_quic_initial_enabled(),
+    }
+
+def set_all_wf_filters(filters: dict) -> bool:
+    """Устанавливает все настройки фильтров WinDivert"""
+    success = True
+    if 'tcp_80' in filters:
+        success &= set_wf_tcp_80_enabled(filters['tcp_80'])
+    if 'tcp_443' in filters:
+        success &= set_wf_tcp_443_enabled(filters['tcp_443'])
+    if 'udp_443' in filters:
+        success &= set_wf_udp_443_enabled(filters['udp_443'])
+    if 'raw_discord_media' in filters:
+        success &= set_wf_raw_discord_media_enabled(filters['raw_discord_media'])
+    if 'raw_stun' in filters:
+        success &= set_wf_raw_stun_enabled(filters['raw_stun'])
+    if 'raw_wireguard' in filters:
+        success &= set_wf_raw_wireguard_enabled(filters['raw_wireguard'])
+    if 'raw_quic_initial' in filters:
+        success &= set_wf_raw_quic_initial_enabled(filters['raw_quic_initial'])
+    return success
+
+
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
 
 def _category_to_reg_key(category_key: str) -> str:
@@ -358,28 +491,60 @@ def _category_to_reg_key(category_key: str) -> str:
 
 
 def get_direct_strategy_selections() -> dict:
-    """Возвращает сохраненные выборы стратегий для прямого запуска"""
+    """
+    Возвращает сохраненные выборы стратегий для прямого запуска.
+    
+    ✅ Валидирует каждый сохранённый strategy_id:
+    - Если стратегия не найдена в реестре, использует значение по умолчанию
+    - Логирует предупреждения о замене невалидных стратегий
+    """
     from .strategies_registry import registry
     
     try:
         selections = {}
+        default_selections = registry.get_default_selections()
+        invalid_count = 0
         
         for category_key in registry.get_all_category_keys():
             reg_key = _category_to_reg_key(category_key)
             value = reg(DIRECT_STRATEGY_KEY, reg_key)
+            
             if value:
-                selections[category_key] = value
+                # ✅ Валидация: проверяем существование стратегии
+                if value == "none":
+                    # "none" - специальное значение, всегда валидно
+                    selections[category_key] = value
+                else:
+                    # Проверяем что стратегия существует в реестре
+                    args = registry.get_strategy_args_safe(category_key, value)
+                    if args is not None:
+                        # Стратегия найдена
+                        selections[category_key] = value
+                    else:
+                        # ⚠️ Стратегия не найдена - используем значение по умолчанию
+                        default_value = default_selections.get(category_key, "none")
+                        selections[category_key] = default_value
+                        invalid_count += 1
+                        # Логируем только один раз за сессию
+                        warn_key = f"{category_key}:{value}"
+                        if warn_key not in _warned_invalid_strategies:
+                            _warned_invalid_strategies.add(warn_key)
+                            log(f"⚠️ Стратегия '{value}' не найдена в категории '{category_key}', "
+                                f"заменена на '{default_value}'", "WARNING")
         
         # Заполняем недостающие значения по умолчанию
-        default_selections = registry.get_default_selections()
         for key, default_value in default_selections.items():
             if key not in selections:
                 selections[key] = default_value
+        
+        # Не спамим логи повторными сообщениями о невалидных стратегиях
                 
         return selections
         
     except Exception as e:
         log(f"Ошибка загрузки выборов стратегий: {e}", "❌ ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
         from .strategies_registry import registry
         return registry.get_default_selections()
 
@@ -447,6 +612,92 @@ from .strategies_registry import (
 )
 
 
+# ==================== ОЦЕНКИ СТРАТЕГИЙ (РАБОЧАЯ/НЕРАБОЧАЯ) ====================
+
+STRATEGY_RATINGS_PATH = r"Software\ZapretReg2\StrategyRatings"
+
+# Кэш оценок
+_ratings_cache = None
+
+def invalidate_ratings_cache():
+    """Сбрасывает кэш оценок"""
+    global _ratings_cache
+    _ratings_cache = None
+
+def get_all_strategy_ratings() -> dict:
+    """Возвращает все оценки стратегий {strategy_id: rating}
+    rating: 'working' - рабочая, 'broken' - нерабочая, None - без оценки
+    """
+    global _ratings_cache
+    
+    if _ratings_cache is not None:
+        return _ratings_cache
+    
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STRATEGY_RATINGS_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "Ratings")
+            _ratings_cache = json.loads(value) if value else {}
+            return _ratings_cache
+    except FileNotFoundError:
+        _ratings_cache = {}
+        return {}
+    except Exception as e:
+        log(f"Ошибка загрузки оценок стратегий: {e}", "⚠ WARNING")
+        _ratings_cache = {}
+        return {}
+
+def _save_strategy_ratings(ratings: dict) -> bool:
+    """Сохраняет оценки стратегий в реестр"""
+    global _ratings_cache
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, STRATEGY_RATINGS_PATH) as key:
+            winreg.SetValueEx(key, "Ratings", 0, winreg.REG_SZ, json.dumps(ratings))
+            _ratings_cache = ratings
+            return True
+    except Exception as e:
+        log(f"Ошибка сохранения оценок стратегий: {e}", "❌ ERROR")
+        return False
+
+def get_strategy_rating(strategy_id: str) -> str:
+    """Возвращает оценку стратегии: 'working', 'broken' или None"""
+    ratings = get_all_strategy_ratings()
+    return ratings.get(strategy_id)
+
+def set_strategy_rating(strategy_id: str, rating: str) -> bool:
+    """Устанавливает оценку стратегии
+    rating: 'working' - рабочая, 'broken' - нерабочая, None - убрать оценку
+    """
+    ratings = get_all_strategy_ratings().copy()
+    
+    if rating is None:
+        # Убираем оценку
+        if strategy_id in ratings:
+            del ratings[strategy_id]
+    else:
+        ratings[strategy_id] = rating
+    
+    return _save_strategy_ratings(ratings)
+
+def toggle_strategy_rating(strategy_id: str, rating: str) -> str:
+    """Переключает оценку стратегии. Если уже установлена такая же - убирает.
+    Возвращает новую оценку или None если убрана.
+    """
+    current = get_strategy_rating(strategy_id)
+    
+    if current == rating:
+        # Убираем оценку
+        set_strategy_rating(strategy_id, None)
+        return None
+    else:
+        # Устанавливаем новую оценку
+        set_strategy_rating(strategy_id, rating)
+        return rating
+
+def clear_all_strategy_ratings() -> bool:
+    """Очищает все оценки стратегий"""
+    return _save_strategy_ratings({})
+
+
 # ==================== ЭКСПОРТ ====================
 
 __all__ = [
@@ -505,4 +756,48 @@ __all__ = [
     'set_direct_strategy_selections',
     'get_direct_strategy_for_category',
     'set_direct_strategy_for_category',
+    
+    # Оценки стратегий
+    'get_all_strategy_ratings',
+    'get_strategy_rating',
+    'set_strategy_rating',
+    'toggle_strategy_rating',
+    'clear_all_strategy_ratings',
+    'invalidate_ratings_cache',
+    
+    # Фильтры WinDivert
+    'get_wf_tcp_80_enabled',
+    'set_wf_tcp_80_enabled',
+    'get_wf_tcp_443_enabled',
+    'set_wf_tcp_443_enabled',
+    'get_wf_tcp_all_ports_enabled',
+    'set_wf_tcp_all_ports_enabled',
+    'get_wf_udp_443_enabled',
+    'set_wf_udp_443_enabled',
+    'get_wf_udp_all_ports_enabled',
+    'set_wf_udp_all_ports_enabled',
+    'get_wf_raw_discord_media_enabled',
+    'set_wf_raw_discord_media_enabled',
+    'get_wf_raw_stun_enabled',
+    'set_wf_raw_stun_enabled',
+    'get_wf_raw_wireguard_enabled',
+    'set_wf_raw_wireguard_enabled',
+    'get_wf_raw_quic_initial_enabled',
+    'set_wf_raw_quic_initial_enabled',
+    'get_all_wf_filters',
+    'set_all_wf_filters',
+    
+    # Алиасы для совместимости
+    'save_direct_strategy_selection',
+    'save_direct_strategy_selections',
+    
+    # Комбинирование стратегий
+    'combine_strategies',
 ]
+
+# Алиасы для совместимости со старым кодом
+save_direct_strategy_selection = set_direct_strategy_for_category
+save_direct_strategy_selections = set_direct_strategy_selections
+
+# Импорт combine_strategies из strategy_lists_separated
+from strategy_menu.strategy_lists_separated import combine_strategies

@@ -152,8 +152,8 @@ class StrategyRunner:
         resolved_args = []
         
         for arg in args:
-            # Обработка --wf-raw
-            if arg.startswith("--wf-raw="):
+            # Обработка --wf-raw-part (новый формат для winws2)
+            if arg.startswith("--wf-raw-part="):
                 value = arg.split("=", 1)[1]
                 
                 # Если значение начинается с @, это означает файл
@@ -170,9 +170,9 @@ class StrategyRunner:
                         if not os.path.exists(full_path):
                             log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
                         
-                        resolved_args.append(f'--wf-raw=@{full_path}')
+                        resolved_args.append(f'--wf-raw-part=@{full_path}')
                     else:
-                        resolved_args.append(f'--wf-raw=@{filename}')
+                        resolved_args.append(f'--wf-raw-part=@{filename}')
                 else:
                     # Если не файл, оставляем как есть
                     resolved_args.append(arg)
@@ -288,14 +288,118 @@ class StrategyRunner:
         except Exception as e:
             log(f"Ошибка при принудительной очистке: {e}", "DEBUG")
 
-    def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "Пользовательская стратегия") -> bool:
+    def _is_windivert_conflict_error(self, stderr: str, exit_code: int) -> bool:
+        """Проверяет, является ли ошибка конфликтом WinDivert (GUID/LUID уже существует)"""
+        windivert_error_signatures = [
+            "GUID or LUID already exists",
+            "object with that GUID",
+            "error opening filter",
+            "WinDivert",
+            "access denied"
+        ]
+        
+        # Код 9 - типичный код ошибки WinDivert при конфликте
+        if exit_code == 9:
+            return True
+        
+        stderr_lower = stderr.lower()
+        return any(sig.lower() in stderr_lower for sig in windivert_error_signatures)
+
+    def _aggressive_windivert_cleanup(self):
+        """Агрессивная очистка WinDivert - для случаев когда обычная не помогает"""
+        import time
+        
+        log("🔧 Выполняем агрессивную очистку WinDivert...", "INFO")
+        
+        # 1. Сначала убиваем все процессы
+        for exe_name in ["winws.exe", "winws2.exe"]:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", exe_name, "/T"],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+            except:
+                pass
+        
+        time.sleep(0.5)
+        
+        # 2. Останавливаем все связанные службы
+        services = ["WinDivert", "WinDivert14", "windivert", "Monkey"]
+        for service in services:
+            try:
+                # Останавливаем
+                subprocess.run(
+                    ["sc", "stop", service],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+            except:
+                pass
+        
+        time.sleep(1)
+        
+        # 3. Удаляем службы
+        for service in services:
+            try:
+                subprocess.run(
+                    ["sc", "delete", service],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+            except:
+                pass
+        
+        time.sleep(0.5)
+        
+        # 4. Выгружаем драйверы через fltmc
+        drivers = ["WinDivert", "WinDivert14", "Monkey"]
+        for driver in drivers:
+            try:
+                subprocess.run(
+                    ["fltmc", "unload", driver],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=5
+                )
+            except:
+                pass
+        
+        # 5. Пробуем через pnputil (удаление драйвера)
+        try:
+            # Ищем и удаляем драйвер WinDivert
+            result = subprocess.run(
+                ["pnputil", "/enum-drivers"],
+                capture_output=True,
+                text=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=10
+            )
+            
+            if result.stdout and "windivert" in result.stdout.lower():
+                log("Найден драйвер WinDivert в системе", "DEBUG")
+        except:
+            pass
+        
+        # 6. Финальная пауза для полной выгрузки
+        time.sleep(2)
+        
+        log("✅ Агрессивная очистка завершена", "INFO")
+
+    def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "Пользовательская стратегия", _retry_count: int = 0) -> bool:
         """
         Запускает стратегию с произвольными аргументами
         
         Args:
             custom_args: Список аргументов командной строки
             strategy_name: Название стратегии для логов
+            _retry_count: Внутренний счетчик попыток (не передавать извне)
         """
+        MAX_RETRIES = 2  # Максимум 2 повторные попытки при ошибке WinDivert
+        
         conflicting = check_conflicting_processes()
         if conflicting:
             warning_report = get_conflicting_processes_report()
@@ -307,14 +411,17 @@ class StrategyRunner:
                 log("Останавливаем предыдущий процесс перед запуском нового", "INFO")
                 self.stop()
             
-            # Очистка WinDivert
-            self._force_cleanup_multiple_services(
-                service_names=["WinDivert", "Monkey"],
-                processes_to_kill=["winws.exe"],
-                drivers_to_unload=["WinDivert", "Monkey"]
-            )
-            import time
-            time.sleep(0.5)
+            # Очистка WinDivert (более агрессивная при retry)
+            if _retry_count > 0:
+                self._aggressive_windivert_cleanup()
+            else:
+                self._force_cleanup_multiple_services(
+                    service_names=["WinDivert", "Monkey"],
+                    processes_to_kill=["winws.exe", "winws2.exe"],
+                    drivers_to_unload=["WinDivert", "Monkey"]
+                )
+                import time
+                time.sleep(1.5)
             
             if not custom_args:
                 log("Нет аргументов для запуска", "ERROR")
@@ -329,18 +436,19 @@ class StrategyRunner:
             # Формируем команду
             cmd = [self.winws_exe] + resolved_args
             
-            log(f"Запуск стратегии '{strategy_name}'", "INFO")
+            log(f"Запуск стратегии '{strategy_name}'" + (f" (попытка {_retry_count + 1})" if _retry_count > 0 else ""), "INFO")
             log(f"Количество аргументов: {len(resolved_args)}", "DEBUG")
             
             # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ
             log_full_command(cmd, strategy_name)
             
             # Запускаем процесс
+            # Примечание: stdin=subprocess.DEVNULL вместо PIPE - Cygwin программы могут крашиться с PIPE
             self.running_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
                 startupinfo=self._create_startup_info(),
                 creationflags=CREATE_NO_WINDOW,
                 cwd=self.work_dir
@@ -350,42 +458,48 @@ class StrategyRunner:
             self.current_strategy_name = strategy_name
             self.current_strategy_args = resolved_args.copy()
             
-            # ✅ НОВАЯ ПРОВЕРКА ЗДОРОВЬЯ ПРОЦЕССА
-            log("Ожидание инициализации процесса...", "INFO")
-            time.sleep(1)  # Даем процессу время на инициализацию
+            # ⚡ БЫСТРАЯ ПРОВЕРКА ЗАПУСКА (без блокировки на 5 сек)
+            # Фоновый ProcessMonitorThread следит за состоянием постоянно
+            import time
+            time.sleep(0.5)  # Короткая пауза для инициализации
             
-            from dpi.process_health_check import check_process_health, get_last_crash_info, check_common_crash_causes
-            
-            is_healthy, error_message = check_process_health(
-                process_name="winws.exe",
-                monitor_duration=5,
-                check_interval=0.5
-            )
-            
-            if is_healthy:
-                log(f"✅ Стратегия '{strategy_name}' успешно запущена и работает стабильно (PID: {self.running_process.pid})", "SUCCESS")
+            # Проверяем что процесс не упал сразу после запуска
+            if self.running_process.poll() is None:
+                # Процесс запущен и работает
+                log(f"✅ Стратегия '{strategy_name}' запущена (PID: {self.running_process.pid})", "SUCCESS")
                 return True
             else:
-                log(f"❌ Стратегия '{strategy_name}' запустилась, но завершилась: {error_message}", "ERROR")
+                # Процесс уже завершился - это ошибка
+                exit_code = self.running_process.returncode
+                log(f"❌ Стратегия '{strategy_name}' завершилась сразу (код: {exit_code})", "ERROR")
                 
-                # Показываем дополнительную информацию
-                crash_info = get_last_crash_info()
-                if crash_info:
-                    log("📋 История падений из Event Log:", "INFO")
-                    for line in crash_info.split('\n'):
-                        log(f"  {line}", "INFO")
-                
-                # Проверяем типичные причины
-                causes = check_common_crash_causes()
-                if causes:
-                    log("💡 Возможные причины падения:", "INFO")
-                    for line in causes.split('\n'):
-                        log(f"  {line}", "INFO")
+                # Получаем вывод ошибки
+                stderr_output = ""
+                try:
+                    stderr_output = self.running_process.stderr.read().decode('utf-8', errors='ignore')
+                    if stderr_output:
+                        log(f"Ошибка: {stderr_output[:500]}", "ERROR")
+                except:
+                    pass
                 
                 # Очищаем состояние
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
+                
+                # 🔄 АВТОМАТИЧЕСКИЙ RETRY при ошибке WinDivert
+                if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
+                    log(f"🔄 Обнаружен конфликт WinDivert, автоматическая повторная попытка ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
+                    return self.start_strategy_custom(custom_args, strategy_name, _retry_count + 1)
+                
+                # Проверяем типичные причины падения
+                from dpi.process_health_check import check_common_crash_causes
+                causes = check_common_crash_causes()
+                if causes:
+                    log("💡 Возможные причины:", "INFO")
+                    for line in causes.split('\n')[:5]:  # Только первые 5 строк
+                        log(f"  {line}", "INFO")
+                
                 return False
                 
         except Exception as e:
@@ -489,18 +603,19 @@ class StrategyRunner:
             log(f"Ошибка при остановке службы Monkey: {e}", "DEBUG")
 
     def _kill_all_winws_processes(self):
-        """Принудительно завершает все процессы winws.exe"""
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "winws.exe", "/T"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
-            log("Все процессы winws.exe завершены", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при завершении процессов winws.exe: {e}", "DEBUG")
+        """Принудительно завершает все процессы winws.exe и winws2.exe"""
+        for exe_name in ["winws.exe", "winws2.exe"]:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", exe_name, "/T"],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW,
+                    timeout=10
+                )
+                log(f"Процессы {exe_name} завершены", "DEBUG")
+                
+            except Exception as e:
+                log(f"Ошибка при завершении процессов {exe_name}: {e}", "DEBUG")
     
     def is_running(self) -> bool:
         """Проверяет, запущен ли процесс"""

@@ -78,7 +78,7 @@ class Logger:
         
         # Создаем новый лог файл для текущей сессии
         with open(self.log_file, "w", encoding="utf-8-sig") as f:
-            f.write(f"=== Zapret GUI Log - Started {datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
+            f.write(f"=== Zapret 2 GUI Log - Started {datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
             f.write(f"Log file: {os.path.basename(self.log_file)}\n")
             f.write(f"Total log files in folder: {len(glob.glob(os.path.join(log_dir, 'zapret_log_*.txt')))}\n")
             f.write("="*60 + "\n\n")

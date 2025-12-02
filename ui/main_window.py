@@ -1,25 +1,101 @@
 # ui/main_window.py
-from PyQt6.QtCore import Qt, QEvent
+"""
+Главное окно приложения в стиле Windows 11 Settings
+"""
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QComboBox, QSpacerItem, QSizePolicy, QFrame, QStackedWidget
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QComboBox, QFrame, QStackedWidget, QSizePolicy
 )
-from PyQt6.QtGui import QIcon, QFont, QMouseEvent
-from PyQt6.QtCore import QSize
+from PyQt6.QtGui import QIcon, QFont
 
-from ui.theme import (THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT,
-                      STYLE_SHEET, RippleButton, DualActionRippleButton)
+from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
+from ui.sidebar import SideNavBar, SettingsCard, ActionButton
+from ui.pages import (
+    HomePage, ControlPage, StrategiesPage, HostlistPage, IpsetPage, EditorPage, DpiSettingsPage,
+    AutostartPage, NetworkPage, AppearancePage, AboutPage, LogsPage, PremiumPage
+)
 
-import qtawesome as qta, sys, os
+import qtawesome as qta
+import sys, os
 from config import APP_VERSION, CHANNEL
+
+
+# Новый стиль для Windows 11 Settings
+WIN11_STYLE = """
+QWidget {
+    font-family: 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif;
+    background-color: transparent;
+}
+
+/* Главный контейнер */
+QFrame#mainContainer {
+    background-color: rgba(32, 32, 32, 0.98);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Область контента */
+QWidget#contentArea {
+    background-color: rgba(39, 39, 39, 0.95);
+}
+
+/* Скроллбары */
+QScrollBar:vertical {
+    background: rgba(255, 255, 255, 0.03);
+    width: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+/* Кастомный titlebar */
+QWidget#customTitleBar {
+    background-color: rgba(32, 32, 32, 0.98);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+
+QLabel#titleLabel {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: transparent;
+}
+
+/* Прозрачный фон для контента */
+QStackedWidget {
+    background-color: transparent;
+}
+
+QFrame {
+    background-color: transparent;
+}
+"""
+
 
 class MainWindowUI:
     """
-    Чистый миксин-класс: создаёт только интерфейс, без бизнес-логики.
+    Миксин-класс для создания UI главного окна в стиле Windows 11 Settings.
     """
 
     def build_ui(self: QWidget, width: int, height: int):
-        # Проверяем, работаем ли мы с main_widget или напрямую с self
+        """Строит UI с боковой навигацией и страницами контента"""
+        
+        # Определяем целевой виджет
         target_widget = self
         if hasattr(self, 'main_widget'):
             target_widget = self.main_widget
@@ -31,435 +107,442 @@ class MainWindowUI:
                 item = old_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
-            QWidget().setLayout(old_layout)
+            # ✅ Удаляем layout напрямую (НЕ через QWidget() - это создаёт призрачное окно!)
+            old_layout.deleteLater()
         
-        target_widget.setStyleSheet(STYLE_SHEET)
-        target_widget.setMinimumSize(width, height)
+        # Применяем стили
+        target_widget.setStyleSheet(WIN11_STYLE)
+        target_widget.setMinimumWidth(width)
         
-        root = QVBoxLayout(target_widget)
-        root.setContentsMargins(15, 15, 15, 15)
-        root.setSpacing(10)
-
-        # ---------- Заголовок ------------------------------------------
-        title = f"Zapret GUI {APP_VERSION} ({CHANNEL})"
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
-        root.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("QFrame { color: #e0e0e0; }")
-        root.addWidget(line)
-
-        # ---------- Статус программы -----------------------------------
-        proc_lbl = QLabel("Статус программы:")
-        proc_lbl.setStyleSheet("font-weight: bold; font-size: 10pt;")
-        self.process_status_value = QLabel("проверка…")
-        self.process_status_value.setStyleSheet("font-size: 10pt;")
-
-        proc_lay = QHBoxLayout()
-        proc_lay.addWidget(proc_lbl)
-        proc_lay.addWidget(self.process_status_value)
-        proc_lay.addStretch()
-        root.addLayout(proc_lay)
-
-        # ---------- Текущая стратегия ----------------------------------
-        cur_hdr = QLabel("Текущая стратегия:")
-        cur_hdr.setStyleSheet(f"{COMMON_STYLE} font-weight: bold; font-size: 11pt;")
-        cur_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(cur_hdr)
-
-        self.current_strategy_label = QLabel("Автостарт DPI отключен")
-        self.current_strategy_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_strategy_label.setWordWrap(True)
-        self.current_strategy_label.setMinimumHeight(40)
-        self.current_strategy_label.setStyleSheet(
-            f"{COMMON_STYLE} font-weight: bold; font-size: 12pt;")
-
-        # ✅ ДОБАВЛЯЕМ: Делаем label кликабельным
-        self.current_strategy_label.setCursor(Qt.CursorShape.WhatsThisCursor)  # Курсор вопроса
-        self.current_strategy_label.installEventFilter(self)  # Устанавливаем фильтр событий
-
-        root.addWidget(self.current_strategy_label)
-
+        # Главный горизонтальный layout
+        root = QHBoxLayout(target_widget)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        
+        # ────────────────────────────────────────────────────────────
+        # БОКОВАЯ ПАНЕЛЬ НАВИГАЦИИ
+        # ────────────────────────────────────────────────────────────
+        self.side_nav = SideNavBar(self)
+        self.side_nav.section_changed.connect(self._on_section_changed)
+        root.addWidget(self.side_nav)
+        
+        # ────────────────────────────────────────────────────────────
+        # ОБЛАСТЬ КОНТЕНТА
+        # ────────────────────────────────────────────────────────────
+        content_area = QWidget(target_widget)  # ✅ Явный родитель
+        content_area.setObjectName("contentArea")
+        content_area.setStyleSheet("""
+            QWidget#contentArea {
+                background-color: rgba(32, 32, 32, 0.75);
+                border-top-right-radius: 10px;
+                border-bottom-right-radius: 10px;
+            }
+        """)
+        
+        content_layout = QVBoxLayout(content_area)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        
+        # Стек страниц
+        self.pages_stack = QStackedWidget()
+        self.pages_stack.setStyleSheet("background-color: transparent;")
+        
+        # Создаем страницы
+        self._create_pages()
+        
+        content_layout.addWidget(self.pages_stack)
+        root.addWidget(content_area, 1)  # stretch=1 для растягивания
+        
+        # ────────────────────────────────────────────────────────────
+        # СОВМЕСТИМОСТЬ СО СТАРЫМ КОДОМ
+        # ────────────────────────────────────────────────────────────
+        self._setup_compatibility_attrs()
+        
+        # Подключаем сигналы
+        self._connect_page_signals()
+        
+    def _create_pages(self):
+        """Создает все страницы контента"""
+        
+        # Главная страница (индекс 0)
+        self.home_page = HomePage(self)
+        self.pages_stack.addWidget(self.home_page)
+        
+        # Управление (индекс 1)
+        self.control_page = ControlPage(self)
+        self.pages_stack.addWidget(self.control_page)
+        
+        # Стратегии (индекс 2)
+        self.strategies_page = StrategiesPage(self)
+        self.pages_stack.addWidget(self.strategies_page)
+        
+        # Hostlist (индекс 3)
+        self.hostlist_page = HostlistPage(self)
+        self.pages_stack.addWidget(self.hostlist_page)
+        
+        # IPset (индекс 4)
+        self.ipset_page = IpsetPage(self)
+        self.pages_stack.addWidget(self.ipset_page)
+        
+        # Редактор стратегий (индекс 5)
+        self.editor_page = EditorPage(self)
+        self.pages_stack.addWidget(self.editor_page)
+        
+        # Настройки DPI (индекс 6)
+        self.dpi_settings_page = DpiSettingsPage(self)
+        self.pages_stack.addWidget(self.dpi_settings_page)
+        
+        # Автозапуск (индекс 7)
+        self.autostart_page = AutostartPage(self)
+        self.pages_stack.addWidget(self.autostart_page)
+        
+        # Сеть (индекс 8)
+        self.network_page = NetworkPage(self)
+        self.pages_stack.addWidget(self.network_page)
+        
+        # Оформление (индекс 9)
+        self.appearance_page = AppearancePage(self)
+        self.pages_stack.addWidget(self.appearance_page)
+        
+        # Premium (индекс 10)
+        self.premium_page = PremiumPage(self)
+        self.pages_stack.addWidget(self.premium_page)
+        
+        # Логи (индекс 11)
+        self.logs_page = LogsPage(self)
+        self.pages_stack.addWidget(self.logs_page)
+        
+        # О программе (индекс 12)
+        self.about_page = AboutPage(self)
+        self.pages_stack.addWidget(self.about_page)
+        
+    def _setup_compatibility_attrs(self):
+        """Создает атрибуты для совместимости со старым кодом"""
+        
+        # Основные кнопки - ссылки на реальные кнопки в страницах
+        self.start_btn = self.home_page.start_btn
+        self.stop_btn = self.home_page.stop_btn
+        
+        # Кнопки управления
+        # select_strategy_btn теперь скрытая заглушка (стратегии выбираются на странице)
+        self.select_strategy_btn = self.strategies_page.select_strategy_btn
+        self.test_connection_btn = self.home_page.test_btn
+        self.open_folder_btn = self.home_page.folder_btn
+        
+        # Кнопки сети
+        self.proxy_button = self.network_page.proxy_toggle_btn
+        
+        # Кнопки о программе
+        self.server_status_btn = self.about_page.update_btn
+        self.subscription_btn = self.about_page.premium_btn
+        
+        # Комбо-бокс темы
+        self.theme_combo = self.appearance_page.theme_combo
+        
+        # Метка текущей стратегии
+        self.current_strategy_label = self.strategies_page.current_strategy_label
+        
         # Списки для тематических элементов
         self.themed_buttons = []
         self.themed_labels = [self.current_strategy_label]
-
-        # ---------- Кнопка выбора стратегии ----------------------------------
-        self.select_strategy_btn = DualActionRippleButton(" Если не открывается то что тебе нужно - тыкай", self, "0, 119, 255")
-        self.select_strategy_btn.setIcon(qta.icon('fa5s.cog', color='white'))
-        self.select_strategy_btn.setIconSize(QSize(16, 16))
-        self.select_strategy_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.select_strategy_btn.set_right_click_callback(self._show_instruction)
-        self.select_strategy_btn.setToolTip("Левый клик - открыть настройки\nПравый клик - открыть инструкцию (PDF)")
-        self.themed_buttons.append(self.select_strategy_btn)
-        root.addWidget(self.select_strategy_btn)
-
-        # ---------- Grid-кнопки ----------------------------------------
-        grid = QGridLayout()
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        grid.setSpacing(10)
-        grid.setContentsMargins(0, 0, 0, 0)  # Убираем отступы у самого grid
-        self.button_grid = grid
-
-        # Создание основных кнопок
-        self._create_main_buttons()
-
-        # ✅ НОВАЯ СТРУКТУРА: Добавляем кнопки напрямую в grid (БЕЗ стеков!)
-        # Строка 0, колонка 0 - кнопки запуска/остановки (накладываются друг на друга)
-        grid.addWidget(self.start_btn, 0, 0)
-        grid.addWidget(self.stop_btn, 0, 0)  # Та же ячейка! Qt позволяет это
-
-        # Строка 0, колонка 1 - кнопки автозапуска (накладываются друг на друга)
-        grid.addWidget(self.autostart_enable_btn, 0, 1)
-        grid.addWidget(self.autostart_disable_btn, 0, 1)  # Та же ячейка!
-
-        # Создание дополнительных кнопок
-        self._create_additional_buttons(grid)
-
-        root.addLayout(grid)
-
-        # ---------- Тема оформления -----------------------------------
-        theme_lbl = QLabel("Тема оформления:")
-        theme_lbl.setStyleSheet(f"{COMMON_STYLE} font-size: 10pt;")
-        root.addWidget(theme_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(THEMES.keys())
-        self.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center; font-size: 10pt;")
-        root.addWidget(self.theme_combo)
-
-        # ---------- Статус-строка -------------------------------------
-        self.status_label = QLabel("")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 9pt; color: #666;")
-        root.addWidget(self.status_label)
         
-        root.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
-
-        # ---------- сигналы-прокси (для main.py) ----------------------
-        self._setup_signals()
-
-    def eventFilter(self, obj, event: QEvent) -> bool:
-        """Обработчик событий для кликабельных элементов"""
-        if obj == self.current_strategy_label:
-            if event.type() == QEvent.Type.MouseButtonPress:
-                mouse_event = event
-                if mouse_event.button() == Qt.MouseButton.LeftButton:
-                    # Анимируем кнопку, чтобы привлечь внимание
-                    self._show_wrong_click_warning()
-                    return True  # Событие обработано
-            elif event.type() == QEvent.Type.Enter:
-                # При наведении показываем подсказку
-                self.current_strategy_label.setToolTip(
-                    "Это текущая стратегия.\n"
-                    "Для изменения используйте кнопку ниже! 👇"
-                )
+    def _connect_page_signals(self):
+        """Подключает сигналы от страниц"""
         
-        # ✅ ИСПРАВЛЕНИЕ: Возвращаем False для необработанных событий
-        return False  # Пропускаем событие дальше
-
-    def _show_wrong_click_warning(self):
-        """Показывает предупреждение и подсвечивает правильную кнопку"""
+        # Сигналы-прокси для основного класса
+        # select_strategy_clicked теперь не нужен - стратегии выбираются на странице
+        self.start_clicked = self.home_page.start_btn.clicked
+        self.stop_clicked = self.home_page.stop_btn.clicked
+        self.theme_changed = self.appearance_page.theme_combo.currentTextChanged
+        
+        # Подключаем сигнал выбора стратегии из новой страницы
+        if hasattr(self.strategies_page, 'strategy_selected'):
+            self.strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+        
+        # Сигналы от страницы автозапуска
+        self.autostart_page.autostart_enabled.connect(self._on_autostart_enabled)
+        self.autostart_page.autostart_disabled.connect(self._on_autostart_disabled)
+        
+        # Дублируем кнопки на страницу управления
+        self.control_page.start_btn.clicked.connect(self._proxy_start_click)
+        self.control_page.stop_btn.clicked.connect(self._proxy_stop_click)
+        self.control_page.test_btn.clicked.connect(self._proxy_test_click)
+        self.control_page.folder_btn.clicked.connect(self._proxy_folder_click)
+        
+        # Подключаем кнопку Premium на главной странице
+        if hasattr(self.home_page, 'premium_link_btn'):
+            self.home_page.premium_link_btn.clicked.connect(self._open_subscription_dialog)
+        
+        # Подключаем кнопку "Управление подпиской" на странице оформления
+        if hasattr(self.appearance_page, 'subscription_btn'):
+            self.appearance_page.subscription_btn.clicked.connect(self._open_subscription_dialog)
+        
+        # Подключаем кнопку Premium на странице "О программе"
+        if hasattr(self.about_page, 'premium_btn'):
+            self.about_page.premium_btn.clicked.connect(self._open_subscription_dialog)
+        
+        # Подключаем сигнал обновления подписки от PremiumPage
+        if hasattr(self.premium_page, 'subscription_updated'):
+            self.premium_page.subscription_updated.connect(self._on_subscription_updated)
+        
+        # Подключаем смену метода запуска стратегий (от страницы настроек DPI)
+        self.dpi_settings_page.launch_method_changed.connect(self._on_launch_method_changed)
+        
+        # Подключаем изменение фильтров - перезагружаем страницу стратегий
+        if hasattr(self.dpi_settings_page, 'filters_changed'):
+            self.dpi_settings_page.filters_changed.connect(self._on_filters_changed)
+        
+        # Для совместимости - если strategies_page также имеет сигнал
+        if hasattr(self.strategies_page, 'launch_method_changed'):
+            self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
+        
+    def _on_filters_changed(self):
+        """Обработчик изменения фильтров - перезагружаем страницу стратегий"""
+        from log import log
+        log("Фильтры изменены, перезагружаем страницу стратегий", "DEBUG")
+        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'reload_for_mode_change'):
+            self.strategies_page.reload_for_mode_change()
+        
+    def _on_launch_method_changed(self, method: str):
+        """Обработчик смены метода запуска стратегий"""
         from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtCore import QTimer
+        from log import log
+        from config import WINWS_EXE, WINWS2_EXE
         
-        # Показываем сообщение
-        msg = QMessageBox(self)
-        msg.setWindowTitle("АТАТА! Не ломай меня! Не туда! 😅")
-        msg.setText("Вы нажали на ТЕКСТ с названием стратегии!")
-        msg.setInformativeText(
-            "Это просто информационная надпись.\n\n"
-            "Для смены стратегии нажмите на КНОПКУ:\n"
-            "🔧 «Если не открывается то что тебе нужно - тыкай»\n\n" 
-            "Она замигает для Вас! ✨"
-        )
-        msg.setIcon(QMessageBox.Icon.Warning)
+        log(f"Метод запуска изменён на: {method}", "INFO")
+        
+        # ✅ Обновляем путь к exe в dpi_starter
+        if hasattr(self, 'dpi_starter'):
+            if method == "direct":
+                self.dpi_starter.winws_exe = WINWS2_EXE
+                log(f"dpi_starter.winws_exe обновлён на: {WINWS2_EXE}", "INFO")
+            else:
+                self.dpi_starter.winws_exe = WINWS_EXE
+                log(f"dpi_starter.winws_exe обновлён на: {WINWS_EXE}", "INFO")
+        
+        # ✅ Сбрасываем глобальный StrategyRunner чтобы он пересоздался с новым путём
+        try:
+            from strategy_menu.strategy_runner import reset_strategy_runner
+            reset_strategy_runner()
+            log("StrategyRunner сброшен для использования нового exe", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка сброса StrategyRunner: {e}", "WARNING")
+        
+        # ✅ Перезагружаем страницу стратегий для нового режима
+        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'reload_for_mode_change'):
+            self.strategies_page.reload_for_mode_change()
+            log("Страница стратегий перезагружена для нового режима", "DEBUG")
+        
+        # Показываем уведомление
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Метод запуска изменён")
+        msg.setText(f"Метод запуска: {'Zapret 2 (рекомендуется)' if method == 'direct' else 'Zapret 1 (через .bat)'}")
+        msg.setInformativeText("Перезапустите DPI для применения.")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
         
-        # Анимируем кнопку выбора стратегии
-        if hasattr(self, 'select_strategy_btn'):
-            # Сохраняем оригинальный стиль
-            original_style = self.select_strategy_btn.styleSheet()
-            
-            # Функция мигания
-            def blink(count=0):
-                if count >= 6:  # 3 мигания
-                    self.select_strategy_btn.setStyleSheet(original_style)
-                    return
-                
-                if count % 2 == 0:
-                    # Подсвечиваем красным
-                    self.select_strategy_btn.setStyleSheet(
-                        original_style + 
-                        "QPushButton { border: 3px solid red; background-color: rgba(255, 0, 0, 0.2); }"
-                    )
-                else:
-                    # Возвращаем обычный вид
-                    self.select_strategy_btn.setStyleSheet(original_style)
-                
-                QTimer.singleShot(300, lambda: blink(count + 1))
-            
-            # Запускаем анимацию
-            blink()
-
+    def _proxy_start_click(self):
+        """Прокси для сигнала start от control_page"""
+        self.home_page.start_btn.click()
+        
+    def _proxy_stop_click(self):
+        """Прокси для сигнала stop от control_page"""
+        self.home_page.stop_btn.click()
+        
+    def _proxy_test_click(self):
+        """Прокси для теста соединения"""
+        self.home_page.test_btn.click()
+        
+    def _proxy_folder_click(self):
+        """Прокси для открытия папки"""
+        self.home_page.folder_btn.click()
+    
+    def _open_subscription_dialog(self):
+        """Переключается на страницу Premium"""
+        # Индекс страницы Premium в sidebar
+        # Главная(0), Управление(1), Стратегии(2), Hostlist(3), IPset(4), Настройки DPI(5),
+        # Автозапуск(6), Сеть(7), Оформление(8), Premium(9), Логи(10), О программе(11)
+        premium_index = 10
+        self.side_nav.set_section(premium_index)
+        
+    def _on_section_changed(self, index: int):
+        """Обработчик смены раздела в навигации"""
+        self.pages_stack.setCurrentIndex(index)
+        
     def _show_instruction(self):
         """Открывает PDF инструкцию по использованию Zapret"""
         try:
             from config import HELP_FOLDER
-            import os
             from log import log
             
-            # Путь к PDF файлу
             pdf_path = os.path.join(HELP_FOLDER, "Как пользоваться Zapret.pdf")
             
-            # Проверяем существование файла
             if not os.path.exists(pdf_path):
                 log(f"PDF инструкция не найдена: {pdf_path}", "❌ ERROR")
-                
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self,
                     "Файл не найден",
-                    f"Инструкция не найдена:\n{pdf_path}\n\n"
-                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                    f"Инструкция не найдена:\n{pdf_path}"
                 )
                 return
             
-            # Открываем PDF файл
             log(f"Открываем PDF инструкцию: {pdf_path}", "INFO")
             os.startfile(pdf_path)
             
-            log("PDF инструкция успешно открыта", "✅ SUCCESS")
-            
         except Exception as e:
+            from log import log
             log(f"Ошибка при открытии PDF инструкции: {e}", "❌ ERROR")
-            
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось открыть инструкцию:\n{str(e)}\n\n"
-                "Попробуйте открыть файл вручную из папки Help."
-            )
 
     def _show_premium_info(self):
-        """Открывает PDF с информацией о Premium функциях и тарифах"""
+        """Открывает PDF с информацией о Premium функциях"""
         try:
             from config import HELP_FOLDER
-            import os
-            import sys
             from log import log
             
-            # Путь к PDF файлу
             pdf_path = os.path.join(HELP_FOLDER, "Всё о Zapret Premium и Zapret VPN (подробная инструкция).pdf")
             
-            # Проверяем существование файла
             if not os.path.exists(pdf_path):
                 log(f"PDF с тарифами не найден: {pdf_path}", "❌ ERROR")
-                
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self,
                     "Файл не найден",
-                    f"Информация о тарифах не найдена:\n{pdf_path}\n\n"
-                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                    f"Информация о тарифах не найдена:\n{pdf_path}"
                 )
                 return
             
-            # Открываем PDF файл
             log(f"Открываем PDF с тарифами: {pdf_path}", "INFO")
             
-            # Используем os.startfile для Windows
             if sys.platform == 'win32':
                 os.startfile(pdf_path)
             else:
-                # Для других ОС используем QDesktopServices
                 from PyQt6.QtCore import QUrl
                 from PyQt6.QtGui import QDesktopServices
                 QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path))
             
-            log("PDF с тарифами Premium успешно открыт", "✅ SUCCESS")
-            
         except Exception as e:
+            from log import log
             log(f"Ошибка при открытии PDF с тарифами: {e}", "❌ ERROR")
-            
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось открыть информацию о тарифах:\n{str(e)}\n\n"
-                "Попробуйте открыть файл вручную из папки Help."
-            )
 
     def _show_download_instruction(self):
-        """Открывает PDF инструкцию по скачиванию Zapret GUI"""
+        """Открывает PDF инструкцию по скачиванию"""
         try:
             from config import HELP_FOLDER
-            import os
             from log import log
             
-            # Путь к PDF файлу
             pdf_path = os.path.join(HELP_FOLDER, "Как скачать Zapret.pdf")
             
-            # Проверяем существование файла
             if not os.path.exists(pdf_path):
                 log(f"PDF инструкция не найдена: {pdf_path}", "❌ ERROR")
-                
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self,
                     "Файл не найден",
-                    f"Инструкция не найдена:\n{pdf_path}\n\n"
-                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
+                    f"Инструкция не найдена:\n{pdf_path}"
                 )
                 return
             
-            # Открываем PDF файл
             log(f"Открываем PDF инструкцию по скачиванию: {pdf_path}", "INFO")
             os.startfile(pdf_path)
             
-            log("PDF инструкция по скачиванию успешно открыта", "✅ SUCCESS")
-            
         except Exception as e:
+            from log import log
             log(f"Ошибка при открытии PDF инструкции: {e}", "❌ ERROR")
+
+    # ────────────────────────────────────────────────────────────
+    # МЕТОДЫ ОБНОВЛЕНИЯ UI (для совместимости со старым кодом)
+    # ────────────────────────────────────────────────────────────
+    
+    def update_process_status(self, is_running: bool, strategy_name: str = None):
+        """Обновляет статус процесса на всех страницах"""
+        # Обновляем главную страницу
+        self.home_page.update_dpi_status(is_running, strategy_name)
+        
+        # Обновляем страницу управления
+        self.control_page.update_status(is_running)
+        if strategy_name:
+            self.control_page.update_strategy(strategy_name)
             
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось открыть инструкцию:\n{str(e)}\n\n"
-                "Попробуйте открыть файл вручную из папки Help."
-            )
-
-    def _create_main_buttons(self):
-        """Создает основные кнопки управления"""
-        self.start_btn = RippleButton(" Запустить Zapret", self, "54, 153, 70")
-        self.start_btn.setIcon(qta.icon('fa5s.play', color='white'))
-        self.start_btn.setIconSize(QSize(16, 16))
-        self.start_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
-        self.start_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.start_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        self.stop_btn = RippleButton(" Остановить Zapret", self, "255, 93, 174")
-        self.stop_btn.setIcon(qta.icon('fa5s.stop', color='white'))
-        self.stop_btn.setIconSize(QSize(16, 16))
-        self.stop_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
-        self.stop_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.stop_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # По умолчанию скрыта
-        self.stop_btn.hide()
-        
-        self.autostart_enable_btn = RippleButton(" Вкл. автозапуск", self, "54, 153, 70")
-        self.autostart_enable_btn.setIcon(qta.icon('fa5s.check', color='white'))
-        self.autostart_enable_btn.setIconSize(QSize(16, 16))
-        self.autostart_enable_btn.setStyleSheet(BUTTON_STYLE.format("54, 153, 70"))
-        self.autostart_enable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_enable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        self.autostart_disable_btn = RippleButton(" Выкл. автозапуск", self, "255, 93, 174")
-        self.autostart_disable_btn.setIcon(qta.icon('fa5s.times', color='white'))
-        self.autostart_disable_btn.setIconSize(QSize(16, 16))
-        self.autostart_disable_btn.setStyleSheet(BUTTON_STYLE.format("255, 93, 174"))
-        self.autostart_disable_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.autostart_disable_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # По умолчанию скрыта
-        self.autostart_disable_btn.hide()
-
-    def _create_additional_buttons(self, grid):
-        """Создает дополнительные кнопки и добавляет их в сетку"""
-        self.open_folder_btn = RippleButton(" Папка Zapret", self, "0, 119, 255")
-        self.open_folder_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
-        self.open_folder_btn.setIconSize(QSize(16, 16))
-        self.open_folder_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.open_folder_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.open_folder_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        self.test_connection_btn = RippleButton(" Тест соединения", self, "0, 119, 255")
-        self.test_connection_btn.setIcon(qta.icon('fa5s.wifi', color='white'))
-        self.test_connection_btn.setIconSize(QSize(16, 16))
-        self.test_connection_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.test_connection_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.test_connection_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        self.subscription_btn = DualActionRippleButton(' Premium и VPN', self, "224, 132, 0")
-        self.subscription_btn.setIcon(qta.icon('fa5s.user-check', color='white'))
-        self.subscription_btn.setIconSize(QSize(16, 16))
-        self.subscription_btn.set_right_click_callback(self._show_premium_info)
-        self.subscription_btn.setToolTip(
-            "Левый клик - управление подпиской\n"
-            "Правый клик - открыть информацию о тарифах (PDF)"
-        )
-        self.subscription_btn.setStyleSheet(BUTTON_STYLE.format("224, 132, 0"))
-        self.subscription_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.subscription_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        self.dns_settings_btn = RippleButton(" Настройка DNS", self, "0, 119, 255")
-        self.dns_settings_btn.setIcon(qta.icon('fa5s.network-wired', color='white'))
-        self.dns_settings_btn.setIconSize(QSize(16, 16))
-        self.dns_settings_btn.setStyleSheet(BUTTON_STYLE.format("0, 119, 255"))
-        self.dns_settings_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.dns_settings_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        self.proxy_button = RippleButton(" Разблокировать популярные сервисы", self, "218, 165, 32")
-        self.proxy_button.setIcon(qta.icon('fa5s.unlock', color='white'))
-        self.proxy_button.setIconSize(QSize(16, 16))
-        self.proxy_button.setStyleSheet(BUTTON_STYLE.format("218, 165, 32"))
-        self.proxy_button.setMinimumHeight(BUTTON_HEIGHT)
-        self.proxy_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        self.help_btn = RippleButton(" Справка", self, "76, 175, 80")
-        self.help_btn.setIcon(qta.icon('fa5s.question-circle', color='white'))
-        self.help_btn.setIconSize(QSize(16, 16))
-        self.help_btn.setStyleSheet(BUTTON_STYLE.format("76, 175, 80"))
-        self.help_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.help_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.help_btn.setToolTip(
-            "Открыть центр помощи\n"
-            "• Документация\n"
-            "• Поддержка в Telegram\n"
-            "• Локальные инструкции"
+        # Обновляем старую метку статуса
+        if is_running:
+            self.process_status_value.setText("работает")
+            self.process_status_value.setStyleSheet("color: #6ccb5f; font-size: 9pt;")
+        else:
+            self.process_status_value.setText("остановлен")
+            self.process_status_value.setStyleSheet("color: #ff6b6b; font-size: 9pt;")
+            
+    def update_current_strategy_display(self, strategy_name: str):
+        """Обновляет отображение текущей стратегии"""
+        self.current_strategy_label.setText(strategy_name)
+        self.strategies_page.update_current_strategy(strategy_name)
+        self.control_page.update_strategy(strategy_name)
+        self.home_page.strategy_card.set_value(
+            strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
         )
         
-        self.server_status_btn = DualActionRippleButton(" Обновления", self, "38, 38, 38")
-        self.server_status_btn.setIcon(qta.icon('fa5s.sync-alt', color='white'))
-        self.server_status_btn.setIconSize(QSize(16, 16))
-        self.server_status_btn.setStyleSheet(BUTTON_STYLE.format("38, 38, 38"))
-        self.server_status_btn.setMinimumHeight(BUTTON_HEIGHT)
-        self.server_status_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.server_status_btn.set_right_click_callback(self._show_download_instruction)
-        self.server_status_btn.setToolTip(
-            "Левый клик - показать статус серверов обновлений\n"
-            "Правый клик - открыть инструкцию по скачиванию (PDF)\n\n"
-            "• Проверить доступность серверов\n"
-            "• Посмотреть последние версии\n"
-            "• Запустить обновление"
-        )
+    def update_autostart_display(self, enabled: bool, strategy_name: str = None):
+        """Обновляет отображение статуса автозапуска"""
+        self.home_page.update_autostart_status(enabled)
+        self.autostart_page.update_status(enabled, strategy_name)
         
-        # Добавляем в themed_buttons
-        self.themed_buttons.extend([
-            self.open_folder_btn,
-            self.test_connection_btn,
-            self.dns_settings_btn,
-            self.help_btn
-        ])
-
-        # Добавляем в сетку (начинаем со строки 2, т.к. строки 0-1 заняты)
-        grid.addWidget(self.open_folder_btn, 2, 0)
-        grid.addWidget(self.test_connection_btn, 2, 1)
-        grid.addWidget(self.subscription_btn, 3, 0)
-        grid.addWidget(self.dns_settings_btn, 3, 1)
-        grid.addWidget(self.proxy_button, 4, 0, 1, 2)  # На 2 колонки
-        grid.addWidget(self.help_btn, 5, 0)
-        grid.addWidget(self.server_status_btn, 5, 1)
-
-    def _setup_signals(self):
-        """Настраивает сигналы-прокси для основного класса"""
-        self.select_strategy_clicked = self.select_strategy_btn.clicked
-        self.start_clicked = self.start_btn.clicked
-        self.stop_clicked = self.stop_btn.clicked
-        self.autostart_enable_clicked = self.autostart_enable_btn.clicked
-        self.autostart_disable_clicked = self.autostart_disable_btn.clicked
-        self.theme_changed = self.theme_combo.currentTextChanged
+    def update_subscription_display(self, is_premium: bool, days: int = None):
+        """Обновляет отображение статуса подписки"""
+        self.home_page.update_subscription_status(is_premium, days)
+        self.about_page.update_subscription_status(is_premium, days)
+        
+    def update_proxy_button_state(self):
+        """Обновляет состояние кнопки proxy (hosts)"""
+        try:
+            from hosts.proxy_domains import is_domains_blocked
+            is_blocked = is_domains_blocked()
+            self.network_page.update_proxy_status(is_blocked)
+        except Exception:
+            pass
+            
+    def set_status_text(self, text: str, status: str = "neutral"):
+        """Устанавливает текст статусной строки"""
+        self.status_label.setText(text)
+        self.home_page.set_status(text, status)
+    
+    def _on_autostart_enabled(self):
+        """Обработчик включения автозапуска"""
+        from log import log
+        log("Автозапуск включён через страницу настроек", "INFO")
+        self.update_autostart_display(True)
+        
+    def _on_autostart_disabled(self):
+        """Обработчик отключения автозапуска"""
+        from log import log
+        log("Автозапуск отключён через страницу настроек", "INFO")
+        self.update_autostart_display(False)
+    
+    def _on_subscription_updated(self, is_premium: bool, days_remaining: int):
+        """Обработчик обновления статуса подписки"""
+        from log import log
+        log(f"Статус подписки обновлён: premium={is_premium}, days={days_remaining}", "INFO")
+        self.update_subscription_display(is_premium, days_remaining if days_remaining > 0 else None)
+    
+    def _on_strategy_selected_from_page(self, strategy_id: str, strategy_name: str):
+        """Обработчик выбора стратегии из новой страницы"""
+        from log import log
+        log(f"Стратегия выбрана из страницы: {strategy_id} - {strategy_name}", "INFO")
+        
+        # Обновляем отображение
+        self.update_current_strategy_display(strategy_name)
+        
+        # Вызываем обработчик в главном приложении если есть
+        if hasattr(self, 'parent_app') and hasattr(self.parent_app, 'on_strategy_selected_from_dialog'):
+            self.parent_app.on_strategy_selected_from_dialog(strategy_id, strategy_name)
+    
+    def init_autostart_page(self, app_instance, bat_folder: str, json_folder: str, strategy_name: str = None):
+        """Инициализирует страницу автозапуска с необходимыми параметрами"""
+        self.autostart_page.set_app_instance(app_instance)
+        self.autostart_page.set_folders(bat_folder, json_folder)
+        if strategy_name:
+            self.autostart_page.set_strategy_name(strategy_name)
+    
+    def show_autostart_page(self):
+        """Переключается на страницу автозапуска"""
+        self.side_nav.set_section(6)  # Индекс страницы автозапуска

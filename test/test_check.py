@@ -6,7 +6,7 @@ def test_download_speed():
     print("\n📋 Тест 8: Проверка скорости скачивания")
     
     # URL большого файла для тестирования
-    download_url = "https://nozapret.ru/ZapretSetup.exe"
+    download_url = "https://nozapret.ru/Zapret2Setup.exe"
     
     headers = {
         'User-Agent': 'Zapret-App/1.0',
@@ -95,7 +95,7 @@ def test_small_vs_large_requests():
     
     urls = {
         "GitHub JSON (маленький)": "https://raw.githubusercontent.com/youtubediscord/src/refs/heads/main/index.json",
-        "GitFlic EXE (большой)": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=ZapretSetup.exe"
+        "GitFlic EXE (большой)": "https://gitflic.ru/project/main1234/main1234/blob/raw?file=Zapret2Setup.exe"
     }
     
     headers = {

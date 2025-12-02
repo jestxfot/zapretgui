@@ -55,7 +55,7 @@ class SystemTrayManager:
             print(f"ОШИБКА: Файл иконки {icon_path} не найден")
 
         # tooltip с версией
-        self.tray_icon.setToolTip(f"Zapret v{self.app_version}")
+        self.tray_icon.setToolTip(f"Zapret2 v{self.app_version}")
 
     # ------------------------------------------------------------------
     #  КОНТЕКСТНОЕ МЕНЮ

@@ -149,18 +149,30 @@ class APIClient:
             else:
                 response = requests.get(url, timeout=REQUEST_TIMEOUT)
             
+            # Пытаемся получить JSON даже при ошибке (сервер может вернуть описание ошибки)
+            try:
+                result = response.json()
+            except:
+                result = None
+            
             if response.status_code == 200:
-                return response.json()
+                return result
             else:
                 logger.error(f"HTTP {response.status_code}: {endpoint}")
-                return None
+                # Возвращаем результат с ошибкой если он есть
+                if result:
+                    return result
+                return {'success': False, 'error': f'Ошибка сервера: {response.status_code}'}
                 
         except requests.exceptions.ConnectionError:
             logger.error(f"Connection error: {url}")
+            return {'success': False, 'error': 'Нет подключения к серверу'}
         except requests.exceptions.Timeout:
             logger.error(f"Timeout: {url}")
+            return {'success': False, 'error': 'Превышено время ожидания'}
         except Exception as e:
             logger.error(f"Request error: {e}")
+            return {'success': False, 'error': f'Ошибка запроса: {e}'}
         
         return None
     

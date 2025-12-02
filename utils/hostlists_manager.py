@@ -71,26 +71,6 @@ PREDEFINED_DOMAINS = {
             'fortnite.com',
             'rockstargames.com'
         ]
-    },
-    'whatsapp': {
-        'name': '💬 WhatsApp', 
-        'domains': [
-            'whatsapp.com',
-            'whatsapp.net',
-            'wa.me',
-            'web.whatsapp.com',
-            'www.whatsapp.com',
-            'api.whatsapp.com',
-            'chat.whatsapp.com',
-            'w1.web.whatsapp.com',
-            'w2.web.whatsapp.com',
-            'w3.web.whatsapp.com',
-            'w4.web.whatsapp.com',
-            'w5.web.whatsapp.com',
-            'w6.web.whatsapp.com',
-            'w7.web.whatsapp.com',
-            'w8.web.whatsapp.com'
-        ]
     }
 }
 

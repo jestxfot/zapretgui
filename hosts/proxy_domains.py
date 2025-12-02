@@ -27,7 +27,7 @@ PROXY_DOMAINS = {
     "android.chat.openai.com": "134.0.118.88",
     "api.openai.com": "134.0.118.88",
 
-    "gemini.google.com": "134.0.118.88", # 84.21.191.240 138.201.204.218     89.108.98.20
+    "gemini.google.com": "84.21.191.240", # 84.21.191.240 138.201.204.218     89.108.98.20
     #"aistudio.google.com": "84.21.191.240", # 89.108.98.20
     #"generativelanguage.googleapis.com": "84.21.191.240",
     "alkalimakersuite-pa.clients6.google.com": "84.21.191.240", # 84.21.191.240  89.108.98.20
@@ -123,7 +123,7 @@ PROXY_DOMAINS = {
     "frontend-api-v3.pump.fun": "84.21.191.240",
     "images.pump.fun": "84.21.191.240",
     "swap-api.pump.fun": "84.21.191.240",
-    "us.posthog.com": "134.0.118.88",
+    "us.posthog.com": "84.21.191.240",
     "www.elgato.com": "84.21.191.240",
 
     "deepl.com": "45.95.233.23",

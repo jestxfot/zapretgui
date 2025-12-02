@@ -167,21 +167,27 @@ def check_mitmproxy() -> tuple[bool, str]:
     if has_cache:
         return cached_result, ""
     
-    CONFLICTING_PROCESSES = [
-        "mitmproxy",
-        "mitmdump", 
-        "mitmweb",
+    # Имена исполняемых файлов mitmproxy (точное совпадение)
+    MITMPROXY_EXECUTABLES = [
         "mitmproxy.exe",
-        "mitmdump.exe",
-        "mitmweb.exe"
+        "mitmdump.exe", 
+        "mitmweb.exe",
     ]
     
+    # Получаем PID текущего процесса для исключения
+    current_pid = os.getpid()
+    
     try:
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
             try:
+                # Пропускаем текущий процесс
+                if proc.info['pid'] == current_pid:
+                    continue
+                    
                 proc_name = proc.info['name'].lower() if proc.info['name'] else ""
                 
-                if any(name.lower() in proc_name for name in CONFLICTING_PROCESSES):
+                # Точное совпадение имени процесса с mitmproxy
+                if proc_name in [exe.lower() for exe in MITMPROXY_EXECUTABLES]:
                     err = (
                         f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
                         "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
@@ -194,24 +200,25 @@ def check_mitmproxy() -> tuple[bool, str]:
                     except ImportError:
                         print(f"ERROR: Найден конфликтующий процесс mitmproxy: {proc.info['name']}")
                     
-                    # Кэшируем отрицательный результат (найден конфликт)
                     startup_cache.cache_result("mitmproxy_check", True)
                     return True, err
                 
-                if proc.info['cmdline']:
-                    cmdline = ' '.join(proc.info['cmdline']).lower()
-                    if any(name.lower() in cmdline for name in CONFLICTING_PROCESSES):
+                # Проверка пути исполняемого файла
+                proc_exe = proc.info.get('exe', '') or ''
+                if proc_exe:
+                    exe_basename = os.path.basename(proc_exe).lower()
+                    if exe_basename in [exe.lower() for exe in MITMPROXY_EXECUTABLES]:
                         err = (
-                            f"Обнаружен запущенный процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
+                            f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
                             "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
                             "Одновременная работа этих программ невозможна.\n\n"
                             "Пожалуйста, завершите все процессы mitmproxy и перезапустите Zapret."
                         )
                         try:
                             from log import log
-                            log(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']} (PID: {proc.info['pid']})", level="❌ ERROR")
+                            log(f"ERROR: Найден конфликтующий процесс mitmproxy по пути: {proc_exe} (PID: {proc.info['pid']})", level="❌ ERROR")
                         except ImportError:
-                            print(f"ERROR: Найден конфликтующий процесс mitmproxy в командной строке: {proc.info['name']}")
+                            print(f"ERROR: Найден конфликтующий процесс mitmproxy по пути: {proc_exe}")
                         
                         startup_cache.cache_result("mitmproxy_check", True)
                         return True, err
@@ -593,9 +600,78 @@ def _service_exists_sc(name: str) -> bool:
     # Неопределённое состояние, но вывод всё-таки посмотрим:
     return "STATE" in proc.stdout.upper()
 
+def _stop_and_delete_service(name: str) -> tuple[bool, str]:
+    """
+    Останавливает и удаляет службу Windows.
+    Возвращает (успех, сообщение).
+    """
+    sc_exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe")
+    errors = []
+    
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
+    
+    # 1. Останавливаем службу
+    try:
+        log(f"Останавливаем службу {name}...", level="INFO")
+        proc = run_hidden(
+            [sc_exe, "stop", name],
+            capture_output=True,
+            text=True,
+            encoding="cp866",
+            errors="ignore",
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=30
+        )
+        if proc.returncode == 0:
+            log(f"Служба {name} остановлена", level="INFO")
+        elif proc.returncode == 1062:  # служба не запущена
+            log(f"Служба {name} уже остановлена", level="INFO")
+        else:
+            log(f"Код возврата sc stop: {proc.returncode}", level="DEBUG")
+    except Exception as e:
+        errors.append(f"Ошибка остановки: {e}")
+        log(f"Ошибка остановки службы {name}: {e}", level="WARNING")
+    
+    # Небольшая пауза
+    import time
+    time.sleep(0.5)
+    
+    # 2. Удаляем службу
+    try:
+        log(f"Удаляем службу {name}...", level="INFO")
+        proc = run_hidden(
+            [sc_exe, "delete", name],
+            capture_output=True,
+            text=True,
+            encoding="cp866",
+            errors="ignore",
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=30
+        )
+        if proc.returncode == 0:
+            log(f"Служба {name} удалена", level="INFO")
+            return True, f"Служба {name} успешно удалена"
+        elif proc.returncode == 1060:  # служба не существует
+            log(f"Служба {name} уже удалена", level="INFO")
+            return True, f"Служба {name} уже была удалена"
+        else:
+            errors.append(f"Код возврата sc delete: {proc.returncode}")
+            log(f"Код возврата sc delete: {proc.returncode}, stderr: {proc.stderr}", level="WARNING")
+    except Exception as e:
+        errors.append(f"Ошибка удаления: {e}")
+        log(f"Ошибка удаления службы {name}: {e}", level="WARNING")
+    
+    if errors:
+        return False, "; ".join(errors)
+    return True, "OK"
+
+
 def check_goodbyedpi() -> tuple[bool, str]:
     """
-    Проверяет службы GoodbyeDPI с кэшированием.
+    Проверяет службы GoodbyeDPI и автоматически удаляет их.
     """
     
     SERVICE_NAMES = [
@@ -604,30 +680,65 @@ def check_goodbyedpi() -> tuple[bool, str]:
         "GoodbyeDPI_x64",
         "GoodbyeDPI_x86",
     ]
+    
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
 
+    found_services = []
+    
+    # Сначала находим все существующие службы
     for svc in SERVICE_NAMES:
         if _service_exists_reg(svc) or _service_exists_sc(svc):
-            err = (
-                "Обнаружена установленная служба ГудБайДипиАй "
-                f"её название - {svc}.\n\n"
-                "Zapret GUI несовместим с GoodbyeDPI.\n"
-                "Полностью удалите службу ДВУМЯ отдельными командами\n"
-                "(запускать консоль от ИМЕНИ АДМИНИСТРАТОРА!):\n"
-                "    sc stop GoodbyeDPI\n"
-                "А потом\n"
-                "    sc delete GoodbyeDPI\n"
-                "Затем перезагрузите ПК и запустите программу снова."
-            )
-            try:
-                from log import log
-                log(f"ERROR: Найдена служба {svc}", level="❌ ERROR")
-            except ImportError:
-                print(f"ERROR: Найдена служба {svc}")
-            
-            # Кэшируем отрицательный результат
-            startup_cache.cache_result("goodbyedpi_check", True)
-            return True, err
+            found_services.append(svc)
+            log(f"Обнаружена служба GoodbyeDPI: {svc}", level="WARNING")
     
-    # Кэшируем положительный результат
+    if not found_services:
+        # Кэшируем положительный результат
+        startup_cache.cache_result("goodbyedpi_check", False)
+        return False, ""
+    
+    # Пытаемся автоматически удалить найденные службы
+    log(f"Автоматическое удаление служб GoodbyeDPI: {found_services}", level="INFO")
+    
+    failed_services = []
+    success_services = []
+    
+    for svc in found_services:
+        success, msg = _stop_and_delete_service(svc)
+        if success:
+            success_services.append(svc)
+            log(f"Служба {svc}: {msg}", level="INFO")
+        else:
+            failed_services.append((svc, msg))
+            log(f"Не удалось удалить службу {svc}: {msg}", level="ERROR")
+    
+    # Проверяем, остались ли службы после удаления
+    still_exists = []
+    for svc in found_services:
+        if _service_exists_reg(svc) or _service_exists_sc(svc):
+            still_exists.append(svc)
+    
+    if still_exists:
+        # Не все службы удалены - возвращаем ошибку
+        err = (
+            f"Обнаружены службы GoodbyeDPI: {', '.join(still_exists)}\n\n"
+            "Автоматическое удаление не удалось.\n"
+            "Zapret 2 GUI несовместим с GoodbyeDPI.\n\n"
+            "Удалите службы вручную командами (от администратора):\n"
+        )
+        for svc in still_exists:
+            err += f"    sc stop {svc}\n    sc delete {svc}\n"
+        err += "\nЗатем перезагрузите ПК и запустите программу снова."
+        
+        startup_cache.cache_result("goodbyedpi_check", True)
+        return True, err
+    
+    # Все службы успешно удалены
+    if success_services:
+        log(f"Все службы GoodbyeDPI удалены: {success_services}", level="INFO")
+    
+    # Сбрасываем кэш так как состояние изменилось
     startup_cache.cache_result("goodbyedpi_check", False)
     return False, ""

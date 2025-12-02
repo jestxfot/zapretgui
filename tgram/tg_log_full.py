@@ -145,7 +145,7 @@ class FullLogDaemon(QObject):
 
         caption_parts = [
             "📄 Полный лог Zapret",
-            f"Zapret v{APP_VERSION}",
+            f"Zapret2 v{APP_VERSION}",
             f"Host: {platform.node()}",
             f"🆔 {get_client_id()}",
             f"🕒 {time.strftime('%d.%m.%Y %H:%M:%S')}",

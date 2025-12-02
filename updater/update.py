@@ -293,7 +293,7 @@ class UpdateWorker(QObject):
             log(f"UpdateWorker: retry - используем существующий диалог", "🔁 UPDATE")
         
         tmp_dir = tempfile.mkdtemp(prefix="zapret_upd_")
-        setup_exe = os.path.join(tmp_dir, "ZapretSetup.exe")
+        setup_exe = os.path.join(tmp_dir, "Zapret2Setup.exe")
         
         def _prog(done, total):
             percent = done * 100 // total if total > 0 else 0
@@ -399,8 +399,8 @@ class UpdateWorker(QObject):
             self._emit(error_msg)
             log(f"⏱️ Проверка заблокирована rate limiter: {error_msg}", "🔁 UPDATE")
             
-            # Для ручных проверок показываем сообщение
-            if not self._silent:
+            # Для ручных проверок показываем сообщение (кроме dev/test версий)
+            if not self._silent and CHANNEL not in ('dev', 'test'):
                 self.show_no_updates.emit(f"Rate limit: {error_msg}")
             
             return False

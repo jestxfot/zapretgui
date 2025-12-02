@@ -1,0 +1,288 @@
+# ui/pages/about_page.py
+"""Страница О программе - справка, обновления, информация"""
+
+import os
+import webbrowser
+import subprocess
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+import qtawesome as qta
+
+from .base_page import BasePage
+from ui.sidebar import SettingsCard, ActionButton
+from log import log
+
+
+class AboutPage(BasePage):
+    """Страница О программе"""
+    
+    def __init__(self, parent=None):
+        super().__init__("О программе", "Справка, обновления и информация", parent)
+        
+        self._build_ui()
+        
+    def _build_ui(self):
+        from config import APP_VERSION
+        
+        # Информация о версии
+        self.add_section_title("Версия")
+        
+        version_card = SettingsCard()
+        
+        version_layout = QHBoxLayout()
+        version_layout.setSpacing(16)
+        
+        # Иконка
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.shield-alt', color='#60cdff').pixmap(40, 40))
+        icon_label.setFixedSize(48, 48)
+        version_layout.addWidget(icon_label)
+        
+        # Текст
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        
+        name_label = QLabel("Zapret 2 GUI")
+        name_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 16px;
+                font-weight: 600;
+            }
+        """)
+        text_layout.addWidget(name_label)
+        
+        version_label = QLabel(f"Версия {APP_VERSION}")
+        version_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 12px;
+            }
+        """)
+        text_layout.addWidget(version_label)
+        
+        version_layout.addLayout(text_layout, 1)
+        
+        # Кнопка обновления
+        self.update_btn = ActionButton("Проверить обновления", "fa5s.sync-alt")
+        self.update_btn.setFixedHeight(36)
+        version_layout.addWidget(self.update_btn)
+        
+        version_card.add_layout(version_layout)
+        self.add_widget(version_card)
+        
+        self.add_spacing(16)
+        
+        # Подписка
+        self.add_section_title("Подписка")
+        
+        sub_card = SettingsCard()
+        
+        sub_layout = QVBoxLayout()
+        sub_layout.setSpacing(12)
+        
+        # Статус подписки
+        sub_status_layout = QHBoxLayout()
+        sub_status_layout.setSpacing(8)
+        
+        self.sub_status_icon = QLabel()
+        self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color='#888888').pixmap(18, 18))
+        self.sub_status_icon.setFixedSize(22, 22)
+        sub_status_layout.addWidget(self.sub_status_icon)
+        
+        self.sub_status_label = QLabel("Free версия")
+        self.sub_status_label.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;")
+        sub_status_layout.addWidget(self.sub_status_label, 1)
+        
+        sub_layout.addLayout(sub_status_layout)
+        
+        sub_desc = QLabel(
+            "Подписка Zapret Premium открывает доступ к дополнительным темам, "
+            "приоритетной поддержке и VPN-сервису."
+        )
+        sub_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        sub_desc.setWordWrap(True)
+        sub_layout.addWidget(sub_desc)
+        
+        sub_btns = QHBoxLayout()
+        sub_btns.setSpacing(8)
+        
+        self.premium_btn = ActionButton("Premium и VPN", "fa5s.star", accent=True)
+        self.premium_btn.setFixedHeight(36)
+        sub_btns.addWidget(self.premium_btn)
+        
+        sub_btns.addStretch()
+        sub_layout.addLayout(sub_btns)
+        
+        sub_card.add_layout(sub_layout)
+        self.add_widget(sub_card)
+        
+        self.add_spacing(16)
+        
+        # Ссылки (объединённый виджет)
+        self.add_section_title("Ссылки")
+        
+        links_card = SettingsCard()
+        links_layout = QVBoxLayout()
+        links_layout.setSpacing(4)
+        
+        # --- Подзаголовок: Документация ---
+        self._add_section_header(links_layout, "Документация")
+        
+        self._add_link_item(links_layout, "fa5s.folder-open", "Папка с инструкциями", 
+                           "Открыть локальную папку help", self._open_help_folder)
+        
+        self._add_link_item(links_layout, "fa5b.github", "Wiki на GitHub", 
+                           "Документация и руководства", self._open_wiki)
+        
+        # --- Подзаголовок: Поддержка ---
+        self._add_section_header(links_layout, "Поддержка")
+        
+        self._add_link_item(links_layout, "fa5b.telegram", "Telegram канал поддержки", 
+                           "Помощь и вопросы по использованию", self._open_telegram)
+        
+        self._add_link_item(links_layout, "fa5b.discord", "Discord сервер", 
+                           "Сообщество и живое общение", self._open_discord)
+        
+        # --- Подзаголовок: Новости и исходный код ---
+        self._add_section_header(links_layout, "Новости и исходный код")
+        
+        self._add_link_item(links_layout, "fa5b.telegram", "Telegram канал", 
+                           "Новости и обновления", self._open_telegram_news)
+        
+        self._add_link_item(links_layout, "fa5b.github", "GitHub", 
+                           "Исходный код и багрепорты", self._open_github)
+            
+        links_card.add_layout(links_layout)
+        self.add_widget(links_card)
+    
+    def _add_section_header(self, layout, title):
+        """Добавляет подзаголовок внутри виджета"""
+        header = QLabel(title)
+        header.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.5);
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                padding: 12px 4px 4px 4px;
+            }
+        """)
+        layout.addWidget(header)
+    
+    def _add_link_item(self, layout, icon_name, title, desc, callback):
+        """Добавляет кликабельный элемент ссылки"""
+        from PyQt6.QtWidgets import QFrame
+        
+        # Легкая строка ссылки без рамок
+        link_widget = QFrame()
+        link_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        link_widget.setStyleSheet("""
+            QFrame { 
+                background: transparent; 
+                border-radius: 6px; 
+                padding: 2px;
+            }
+            QFrame QLabel {
+                background: transparent;
+            }
+        """)
+        link_widget.mousePressEvent = lambda e: callback()
+        
+        link_layout = QHBoxLayout(link_widget)
+        link_layout.setContentsMargins(12, 8, 12, 8)
+        link_layout.setSpacing(12)
+        
+        # Прозрачная иконка без рамки
+        link_icon = QLabel()
+        link_icon.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(20, 20))
+        link_icon.setFixedSize(24, 24)
+        link_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        link_layout.addWidget(link_icon)
+        
+        link_text_layout = QVBoxLayout()
+        link_text_layout.setSpacing(2)
+        link_text_layout.setContentsMargins(0, 0, 0, 0)
+        
+        link_title = QLabel(title)
+        link_title.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 500;")
+        link_text_layout.addWidget(link_title)
+        
+        link_desc = QLabel(desc)
+        link_desc.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 10px;")
+        link_text_layout.addWidget(link_desc)
+        
+        link_layout.addLayout(link_text_layout, 1)
+        layout.addWidget(link_widget)
+        
+    def update_subscription_status(self, is_premium: bool, days: int = None):
+        """Обновляет отображение статуса подписки"""
+        if is_premium:
+            self.sub_status_icon.setPixmap(qta.icon('fa5s.star', color='#ffc107').pixmap(18, 18))
+            if days:
+                self.sub_status_label.setText(f"Premium (осталось {days} дней)")
+            else:
+                self.sub_status_label.setText("Premium активен")
+        else:
+            self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color='#888888').pixmap(18, 18))
+            self.sub_status_label.setText("Free версия")
+    
+    def _open_help_folder(self):
+        """Открывает папку help с инструкциями"""
+        try:
+            from config import HELP_FOLDER
+            if os.path.exists(HELP_FOLDER):
+                subprocess.Popen(f'explorer "{HELP_FOLDER}"')
+                log(f"Открыта папка: {HELP_FOLDER}", "INFO")
+            else:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self.window(), "Ошибка", "Папка с инструкциями не найдена")
+        except Exception as e:
+            log(f"Ошибка открытия папки: {e}", "ERROR")
+    
+    def _open_wiki(self):
+        """Открывает Wiki на GitHub"""
+        try:
+            url = "https://github.com/youtubediscord/zapret"
+            webbrowser.open(url)
+            log(f"Открыта Wiki: {url}", "INFO")
+        except Exception as e:
+            log(f"Ошибка открытия Wiki: {e}", "ERROR")
+    
+    def _open_telegram(self):
+        """Открывает Telegram канал поддержки"""
+        try:
+            url = "https://t.me/zaprethelp"
+            webbrowser.open(url)
+            log(f"Открыт Telegram: {url}", "INFO")
+        except Exception as e:
+            log(f"Ошибка открытия Telegram: {e}", "ERROR")
+    
+    def _open_telegram_news(self):
+        """Открывает Telegram канал новостей"""
+        try:
+            url = "https://t.me/bypassblock"
+            webbrowser.open(url)
+            log(f"Открыт Telegram: {url}", "INFO")
+        except Exception as e:
+            log(f"Ошибка открытия Telegram: {e}", "ERROR")
+    
+    def _open_discord(self):
+        """Открывает Discord сервер"""
+        try:
+            url = "https://discord.gg/kkcBDG2uws"
+            webbrowser.open(url)
+            log(f"Открыт Discord: {url}", "INFO")
+        except Exception as e:
+            log(f"Ошибка открытия Discord: {e}", "ERROR")
+    
+    def _open_github(self):
+        """Открывает GitHub репозиторий"""
+        try:
+            url = "https://github.com/youtubediscord/zapret"
+            webbrowser.open(url)
+            log(f"Открыт GitHub: {url}", "INFO")
+        except Exception as e:
+            log(f"Ошибка открытия GitHub: {e}", "ERROR")
+

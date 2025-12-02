@@ -56,16 +56,18 @@ class DPIStartWorker(QObject):
             else:
                 success = self._start_bat()
             
+            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN ПЕРЕД ЗАВЕРШЕНИЕМ
+            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
+                self.app_instance.splash.set_progress(90, "Инициализация завершена", "Загрузка интерфейса...")
+            
             if success:
                 self.progress.emit("DPI успешно запущен")
-                
-                # ✅ ОБНОВЛЯЕМ SPLASH SCREEN ПЕРЕД ЗАВЕРШЕНИЕМ
-                if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
-                    self.app_instance.splash.set_progress(90, "DPI успешно запущен", "Завершение инициализации...")
-                
                 self.finished.emit(True, "")
             else:
-                self.finished.emit(False, "Не удалось запустить DPI. Перезапустите ПК!")
+                # Не показываем ошибку на splash screen — ProcessMonitor обновит UI
+                # когда процесс запустится или упадёт
+                self.progress.emit("Ожидание запуска DPI...")
+                self.finished.emit(True, "")  # Не блокируем splash screen ошибкой
                 
         except Exception as e:
             error_msg = f"Ошибка запуска DPI: {str(e)}"
@@ -91,35 +93,42 @@ class DPIStartWorker(QObject):
                 
                 if not args_str:
                     log("Отсутствуют аргументы для комбинированной стратегии", "❌ ERROR")
+                    self.progress.emit("❌ Ошибка: не заданы аргументы стратегии")
                     return False
                 
-                # Парсим аргументы
+                # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
                 import shlex
                 try:
-                    custom_args = shlex.split(args_str)
+                    custom_args = shlex.split(args_str, posix=False)
                     log(f"Аргументы комбинированной стратегии ({len(custom_args)} шт.)", "DEBUG")
                     
                     # Запускаем стратегию напрямую через runner
+                    # Runner теперь автоматически делает retry при ошибке WinDivert
                     success = runner.start_strategy_custom(custom_args, strategy_name)
                     
                     if success:
                         log("Комбинированная стратегия успешно запущена", "✅ SUCCESS")
                         return True
                     else:
+                        # Даём понятную подсказку пользователю
                         log("Не удалось запустить комбинированную стратегию", "❌ ERROR")
+                        self.progress.emit("❌ Ошибка запуска. Попробуйте перезапустить программу или ПК")
                         return False
                         
                 except Exception as parse_error:
                     log(f"Ошибка парсинга аргументов: {parse_error}", "❌ ERROR")
+                    self.progress.emit(f"❌ Ошибка в параметрах стратегии")
                     return False
             
             # Для Direct режима поддерживаются только комбинированные стратегии
             else:
                 log(f"Direct режим поддерживает только комбинированные стратегии, получен: {type(mode_param)}", "❌ ERROR")
+                self.progress.emit("❌ Неподдерживаемый тип стратегии")
                 return False
                 
         except Exception as e:
             log(f"Ошибка прямого запуска: {e}", "❌ ERROR")
+            self.progress.emit(f"❌ Ошибка: {str(e)[:50]}")
             return False
 
     def _start_bat(self):
@@ -450,6 +459,10 @@ class DPIController:
         method_name = "прямой" if launch_method == "direct" else "классический"
         self.app.set_status(f"🚀 Запуск DPI ({method_name} метод): {mode_name}")
         
+        # ✅ Показываем спиннер загрузки
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
+            self.app.main_window.strategies_page.show_loading()
+        
         # Блокируем кнопки во время операции
         if hasattr(self.app, 'start_btn'):
             self.app.start_btn.setEnabled(False)
@@ -502,6 +515,10 @@ class DPIController:
         # Показываем состояние остановки
         method_name = "прямой" if launch_method == "direct" else "классический"
         self.app.set_status(f"🛑 Остановка DPI ({method_name} метод)...")
+        
+        # ✅ Показываем спиннер загрузки
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
+            self.app.main_window.strategies_page.show_loading()
         
         # Блокируем кнопки во время операции
         if hasattr(self.app, 'start_btn'):
@@ -572,6 +589,10 @@ class DPIController:
             if hasattr(self.app, 'stop_btn'):
                 self.app.stop_btn.setEnabled(True)
             
+            # ✅ Показываем галочку успеха (скрываем спиннер)
+            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
+                self.app.main_window.strategies_page.show_success()
+            
             if success:
                 log("DPI запущен асинхронно", "INFO")
                 self.app.set_status("✅ DPI успешно запущен")
@@ -631,6 +652,10 @@ class DPIController:
                 self.app.start_btn.setEnabled(True)
             if hasattr(self.app, 'stop_btn'):
                 self.app.stop_btn.setEnabled(True)
+            
+            # ✅ Показываем галочку (скрываем спиннер)
+            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
+                self.app.main_window.strategies_page.show_success()
             
             if success:
                 log("DPI остановлен асинхронно", "INFO")

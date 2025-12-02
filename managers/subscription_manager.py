@@ -111,6 +111,14 @@ class SubscriptionManager:
                 sub_info['is_premium'],
                 sub_info['days_remaining']
             )
+        
+        # ✅ ОБНОВЛЯЕМ КАРТОЧКИ НА ГЛАВНОЙ И СТРАНИЦЕ "О ПРОГРАММЕ"
+        if hasattr(self.app, 'update_subscription_display'):
+            self.app.update_subscription_display(
+                sub_info['is_premium'],
+                sub_info['days_remaining'] if sub_info['days_remaining'] and sub_info['days_remaining'] > 0 else None
+            )
+            log(f"Обновлены карточки подписки: premium={sub_info['is_premium']}", "DEBUG")
 
         # Обновляем темы через UI Manager
         if hasattr(self.app, 'theme_manager') and hasattr(self.app, 'ui_manager'):
@@ -290,6 +298,13 @@ class SubscriptionManager:
                     
                     if current_selection in available_themes:
                         self.app.theme_combo.setCurrentText(current_selection)
+            
+            # ✅ ОБНОВЛЯЕМ КАРТОЧКИ НА ГЛАВНОЙ И СТРАНИЦЕ "О ПРОГРАММЕ"
+            if hasattr(self.app, 'update_subscription_display'):
+                self.app.update_subscription_display(
+                    is_premium,
+                    days_remaining if days_remaining and days_remaining > 0 else None
+                )
             
             self.app.set_status(f"Статус подписки: {status_msg}")
             log(f"Статус подписки обновлен: {'Premium' if is_premium else 'Free'}", "INFO")

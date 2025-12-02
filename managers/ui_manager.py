@@ -70,15 +70,15 @@ class UIManager:
 
     def update_proxy_button_state(self, is_enabled: bool = None) -> None:
         """Обновляет состояние кнопки proxy на основе статуса hosts"""
-        if not hasattr(self.app, 'proxy_button'):
-            log("proxy_button не найден, пропускаем обновление", "DEBUG")
+        # ✅ Используем новый интерфейс NetworkPage
+        if not hasattr(self.app, 'network_page'):
+            log("network_page не найден, пропускаем обновление", "DEBUG")
             return
         
-        # ✅ УПРОЩЕННАЯ ЛОГИКА: Используем hosts_ui_manager
+        # Определяем статус если не передан
         if is_enabled is None:
             if hasattr(self.app, 'hosts_ui_manager'):
                 try:
-                    # ✅ ВЫЗЫВАЕМ ПРАВИЛЬНЫЙ МЕТОД
                     is_enabled = self.app.hosts_ui_manager.check_hosts_entries_status()
                     log(f"Статус hosts записей: {is_enabled}", "DEBUG")
                 except Exception as e:
@@ -87,29 +87,15 @@ class UIManager:
             else:
                 log("hosts_ui_manager не найден", "⚠ WARNING")
                 is_enabled = False
-            
-        config = self.get_proxy_button_config()
         
         try:
-            if is_enabled:
-                # Кнопка показывает "отключить"
-                state = config['enabled_state']
-            else:
-                # Кнопка показывает "включить"
-                state = config['disabled_state']
-            
-            # Обновляем текст, иконку и стиль
-            self.app.proxy_button.setIcon(qta.icon(state['icon'], color='white'))
-            self.app.proxy_button.setIconSize(QSize(16, 16))
-            self.app.proxy_button.setToolTip(state['tooltip'])
-            
-            from ui.theme import BUTTON_STYLE
-            self.app.proxy_button.setStyleSheet(BUTTON_STYLE.format(state['color']))
-            
-            log(f"Кнопка proxy обновлена: {'включено' if is_enabled else 'выключено'}", "DEBUG")
+            # ✅ Обновляем через метод страницы (новый дизайн)
+            # is_blocked = НЕ is_enabled (если доступ включён, значит НЕ заблокирован)
+            self.app.network_page.update_proxy_status(is_blocked=not is_enabled)
+            log(f"Статус proxy обновлён: {'доступ включён' if is_enabled else 'доступ отключён'}", "DEBUG")
             
         except Exception as e:
-            log(f"Ошибка при обновлении кнопки proxy: {e}", "❌ ERROR")
+            log(f"Ошибка при обновлении статуса proxy: {e}", "❌ ERROR")
 
     def force_enable_combos(self) -> bool:
         """Принудительно включает комбо-боксы тем"""
@@ -141,48 +127,23 @@ class UIManager:
                 service_running = is_autostart_enabled()
                 log(f"Быстрая проверка автозапуска через реестр: {service_running}", "DEBUG")
 
-            # ✅ НОВАЯ ПРОСТАЯ ЛОГИКА: show/hide вместо стеков
-            if service_running:
-                # АВТОЗАПУСК АКТИВЕН
-                # Показываем кнопку отключения автозапуска, скрываем кнопку включения
-                if hasattr(self.app, 'autostart_enable_btn'):
-                    self.app.autostart_enable_btn.hide()
-                if hasattr(self.app, 'autostart_disable_btn'):
-                    self.app.autostart_disable_btn.show()
-                
-                # Показываем кнопку остановки, скрываем кнопку запуска
-                if hasattr(self.app, 'start_btn'):
-                    self.app.start_btn.hide()
-                if hasattr(self.app, 'stop_btn'):
-                    self.app.stop_btn.show()
-            else:
-                # АВТОЗАПУСК ВЫКЛЮЧЕН
-                # Показываем кнопку включения автозапуска, скрываем кнопку отключения
-                if hasattr(self.app, 'autostart_enable_btn'):
-                    self.app.autostart_enable_btn.show()
-                if hasattr(self.app, 'autostart_disable_btn'):
-                    self.app.autostart_disable_btn.hide()
-                
-                # Проверяем статус процесса для кнопок запуска/остановки
-                process_running = False
-                if hasattr(self.app, 'dpi_starter'):
-                    process_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
-                
-                if process_running:
-                    # Процесс запущен - показываем кнопку остановки
-                    if hasattr(self.app, 'start_btn'):
-                        self.app.start_btn.hide()
-                    if hasattr(self.app, 'stop_btn'):
-                        self.app.stop_btn.show()
-                else:
-                    # Процесс остановлен - показываем кнопку запуска
-                    if hasattr(self.app, 'start_btn'):
-                        self.app.start_btn.show()
-                    if hasattr(self.app, 'stop_btn'):
-                        self.app.stop_btn.hide()
+            # Обновляем страницу автозапуска
+            if hasattr(self.app, 'autostart_page'):
+                strategy_name = None
+                if hasattr(self.app, 'current_strategy_label'):
+                    strategy_name = self.app.current_strategy_label.text()
+                self.app.autostart_page.update_status(service_running, strategy_name)
+
+            # Обновляем кнопки запуска/остановки на страницах
+            process_running = service_running
+            if not service_running and hasattr(self.app, 'dpi_starter'):
+                process_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
             
-            # Легкое обновление UI
-            QApplication.processEvents()
+            # Обновляем страницы
+            if hasattr(self.app, 'home_page'):
+                self.app.home_page.update_dpi_status(process_running)
+            if hasattr(self.app, 'control_page'):
+                self.app.control_page.update_status(process_running)
             
             log(f"✅ update_autostart_ui завершен: автозапуск={'включен' if service_running else 'выключен'}", "DEBUG")
                 
@@ -198,22 +159,43 @@ class UIManager:
             if hasattr(self.app, 'service_manager'):
                 autostart_active = self.app.service_manager.check_autostart_exists()
             
-            # Если автозапуск НЕ активен, управляем кнопками запуска/остановки
-            if not autostart_active:
-                if running:
-                    # Показываем кнопку остановки
-                    if hasattr(self.app, 'start_btn'):
-                        self.app.start_btn.hide()
-                    if hasattr(self.app, 'stop_btn'):
-                        self.app.stop_btn.show()
-                else:
-                    # Показываем кнопку запуска
-                    if hasattr(self.app, 'start_btn'):
-                        self.app.start_btn.show()
-                    if hasattr(self.app, 'stop_btn'):
-                        self.app.stop_btn.hide()
+            # ✅ Обновляем новый интерфейс (страницы)
+            self._update_pages_state(running, autostart_active)
+            
         except Exception as e:
             log(f"Ошибка в update_ui_state: {e}", "❌ ERROR")
+    
+    def _update_pages_state(self, is_running: bool, autostart_active: bool) -> None:
+        """Обновляет состояние страниц нового интерфейса"""
+        try:
+            # Получаем текущую стратегию
+            strategy_name = None
+            if hasattr(self.app, 'current_strategy_label'):
+                strategy_name = self.app.current_strategy_label.text()
+                if strategy_name == "Автостарт DPI отключен":
+                    from config import get_last_strategy
+                    strategy_name = get_last_strategy()
+            
+            # Обновляем главную страницу
+            if hasattr(self.app, 'home_page'):
+                self.app.home_page.update_dpi_status(is_running, strategy_name)
+                
+            # Обновляем страницу управления
+            if hasattr(self.app, 'control_page'):
+                self.app.control_page.update_status(is_running)
+                if strategy_name:
+                    self.app.control_page.update_strategy(strategy_name)
+                    
+            # Обновляем страницу стратегий
+            if hasattr(self.app, 'strategies_page') and strategy_name:
+                self.app.strategies_page.update_current_strategy(strategy_name)
+                
+            # Обновляем страницу автозапуска
+            if hasattr(self.app, 'autostart_page'):
+                self.app.autostart_page.update_status(autostart_active, strategy_name)
+                
+        except Exception as e:
+            log(f"Ошибка в _update_pages_state: {e}", "DEBUG")
 
     def update_button_visibility(self, is_running: bool, autostart_active: bool) -> None:
         """Обновляет видимость кнопок запуска/остановки"""
@@ -231,21 +213,18 @@ class UIManager:
             log(f"Ошибка в update_button_visibility: {e}", "❌ ERROR")
 
     def update_process_status_display(self, is_running: bool, autostart_active: bool) -> None:
-        """Обновляет отображение статуса процесса"""
+        """Обновляет отображение статуса процесса через страницы"""
         try:
-            if not hasattr(self.app, 'process_status_value'):
-                return
-                
-            if autostart_active:
-                self.app.process_status_value.setText("АВТОЗАПУСК АКТИВЕН")
-                self.app.process_status_value.setStyleSheet("color: purple; font-weight: bold;")
-            else:
-                if is_running:
-                    self.app.process_status_value.setText("ВКЛЮЧЕН")
-                    self.app.process_status_value.setStyleSheet("color: green; font-weight: bold;")
-                else:
-                    self.app.process_status_value.setText("ВЫКЛЮЧЕН")
-                    self.app.process_status_value.setStyleSheet("color: red; font-weight: bold;")
+            # Обновляем через страницы нового интерфейса
+            if hasattr(self.app, 'home_page'):
+                self.app.home_page.update_dpi_status(is_running)
+            if hasattr(self.app, 'control_page'):
+                self.app.control_page.update_status(is_running)
+            if hasattr(self.app, 'autostart_page'):
+                strategy_name = None
+                if hasattr(self.app, 'current_strategy_label'):
+                    strategy_name = self.app.current_strategy_label.text()
+                self.app.autostart_page.update_status(autostart_active, strategy_name)
         except Exception as e:
             log(f"Ошибка в update_process_status_display: {e}", "❌ ERROR")
 
@@ -263,7 +242,7 @@ class UIManager:
         try:
             from config import APP_VERSION
             
-            base_title = f"Zapret v{APP_VERSION}"
+            base_title = f"Zapret2 v{APP_VERSION}"
             
             if is_premium:
                 # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
@@ -405,25 +384,3 @@ class UIManager:
                     self.app.theme_combo.setStyleSheet(style)
             except Exception as e:
                 log(f"Ошибка применения fallback стилей: {e}", "❌ ERROR")
-
-    def get_proxy_button_config(self) -> dict:
-        """
-        Возвращает конфигурацию для различных состояний кнопки proxy.
-        
-        Returns:
-            dict: Конфигурация состояний кнопки
-        """
-        return {
-            'enabled_state': {
-                'full_text': 'Отключить доступ к ChatGPT, Spotify, Twitch',
-                'color': "255, 93, 174",
-                'icon': 'fa5s.lock',
-                'tooltip': 'Нажмите чтобы отключить разблокировку сервисов через hosts-файл'
-            },
-            'disabled_state': {
-                'full_text': 'Разблокировать ChatGPT, Spotify, Twitch и др.',
-                'color': "218, 165, 32",
-                'icon': 'fa5s.unlock',
-                'tooltip': 'Нажмите чтобы разблокировать популярные сервисы через hosts-файл'
-            }
-        }

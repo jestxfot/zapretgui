@@ -194,12 +194,39 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             "--include-package=donater",
             "--include-package=dpi",
             "--include-package=hosts",
+            "--include-package=log",
+            "--include-package=managers",
             "--include-package=startup",
             "--include-package=strategy_menu",
             "--include-package=tgram",
             "--include-package=ui",
+            "--include-package=ui.pages",  # ✅ Явно включаем подпакет pages
             "--include-package=updater",
             "--include-package=utils",
+            
+            # ============= ЯВНЫЕ ВКЛЮЧЕНИЯ UI МОДУЛЕЙ =============
+            # (Nuitka иногда пропускает модули в пакетах)
+            "--include-module=ui.splash_screen",
+            "--include-module=ui.main_window",
+            "--include-module=ui.theme",
+            "--include-module=ui.theme_subscription_manager",
+            "--include-module=ui.sidebar",
+            "--include-module=ui.custom_titlebar",
+            "--include-module=ui.help_dialog",
+            "--include-module=ui.acrylic",
+            "--include-module=ui.fluent_icons",
+            "--include-module=ui.pages.home_page",
+            "--include-module=ui.pages.control_page",
+            "--include-module=ui.pages.strategies_page",
+            "--include-module=ui.pages.network_page",
+            "--include-module=ui.pages.autostart_page",
+            "--include-module=ui.pages.appearance_page",
+            "--include-module=ui.pages.about_page",
+            "--include-module=ui.pages.base_page",
+            
+            # ============= ЯВНЫЕ ВКЛЮЧЕНИЯ LOG МОДУЛЕЙ =============
+            "--include-module=log.log",
+            "--include-module=log.crash_handler",
             
             # Основные системные модули
             "--include-module=queue", 
@@ -241,9 +268,9 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             f"--include-data-files={root_path / 'Zapret1.ico'}=Zapret1.ico",
             f"--include-data-files={root_path / 'ZapretDevLogo3.ico'}=ZapretDevLogo3.ico",
             
-            # Папки с данными (если есть)
-            f"--include-data-dir={root_path / 'config'}=config",
-            f"--include-data-dir={root_path / 'ui'}=ui",
+            # ⚠️ НЕ используем --include-data-dir для Python пакетов!
+            # Пакеты ui, config и др. уже включены через --include-package выше.
+            # --include-data-dir конфликтует с --include-package и мешает компиляции.
             
             # ============= ИСКЛЮЧЕНИЯ =============
             "--nofollow-import-to=test",

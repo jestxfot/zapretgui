@@ -8,56 +8,108 @@ from log import log
 from typing import Optional, Tuple
 import time
 
-# Константы (без изменений)
+# Константы - Windows 11 style мягкие цвета
 THEMES = {
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "0, 125, 242"},
-    "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "14, 152, 211"},
-    "Темная янтарная": {"file": "dark_amber.xml", "status_color": "#ffffff", "button_color": "224, 132, 0"},
-    "Темная розовая": {"file": "dark_pink.xml", "status_color": "#ffffff", "button_color": "255, 93, 174"},
-    "Светлая синяя": {"file": "light_blue.xml", "status_color": "#000000", "button_color": "25, 118, 210"},
-    "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "0, 172, 193"},
-    "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "63, 85, 182"},
+    # Мягкие пастельные оттенки в стиле Windows 11
+    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231"},
+    "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205"},
+    "Темная янтарная": {"file": "dark_amber.xml", "status_color": "#ffffff", "button_color": "234, 162, 62"},
+    "Темная розовая": {"file": "dark_pink.xml", "status_color": "#ffffff", "button_color": "232, 121, 178"},
+    "Светлая синяя": {"file": "light_blue.xml", "status_color": "#000000", "button_color": "68, 136, 217"},
+    "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "48, 185, 206"},
+    "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "99, 117, 198"},
     
-    # Новые премиум темы
-    "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "0, 150, 255", "amoled": True},
-    "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "0, 255, 127", "amoled": True},
-    "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "187, 134, 252", "amoled": True},
-    "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "255, 82, 82", "amoled": True},
+    # Премиум AMOLED темы с мягкими градиентными цветами
+    "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "62, 148, 255", "amoled": True},
+    "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "76, 217, 147", "amoled": True},
+    "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "178, 142, 246", "amoled": True},
+    "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "235, 108, 108", "amoled": True},
     
     # Полностью черная тема (премиум)
     "Полностью черная": {
         "file": "dark_blue.xml", 
         "status_color": "#ffffff", 
-        "button_color": "32, 32, 32",
+        "button_color": "48, 48, 48",
         "pure_black": True
     },
 }
 
+# Windows 11 style gradient button
 BUTTON_STYLE = """
 QPushButton {{
     border: none;
-    background-color: rgb({0});
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba({0}, 255),
+        stop:0.4 rgba({0}, 230),
+        stop:1 rgba({0}, 200)
+    );
     color: #fff;
-    border-radius: 6px;
-    padding: 10px;
-    font-weight: bold;
-    font-size: 10pt;
-    min-height: 35px;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-weight: 600;
+    font-size: 9pt;
+    min-height: 28px;
 }}
 QPushButton:hover {{
-    background-color: rgba({0}, 0.8);
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba({0}, 255),
+        stop:0.3 rgba({0}, 255),
+        stop:1 rgba({0}, 220)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.15);
 }}
 QPushButton:pressed {{
-    background-color: rgba({0}, 0.6);
+    background: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba({0}, 180),
+        stop:1 rgba({0}, 160)
+    );
 }}
 """
 
-COMMON_STYLE = "font-family: 'Segoe UI', Arial, sans-serif;"
-BUTTON_HEIGHT = 35
+COMMON_STYLE = "font-family: 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif;"
+BUTTON_HEIGHT = 28
+
+# Радиус скругления углов окна
+WINDOW_BORDER_RADIUS = 10
 
 STYLE_SHEET = """
 QWidget {
     font-family: 'Segoe UI', Arial, sans-serif;
+    background-color: transparent;
+}
+
+/* Стили для кастомного контейнера со скругленными углами */
+QFrame#mainContainer {
+    background-color: rgba(30, 30, 30, 240);
+    border-radius: 10px;
+    border: 1px solid rgba(80, 80, 80, 200);
+}
+
+/* Кастомный titlebar */
+QWidget#customTitleBar {
+    background-color: rgba(26, 26, 26, 240);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    border-bottom: 1px solid rgba(80, 80, 80, 200);
+}
+
+QLabel#titleLabel {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: transparent;
+}
+
+/* Прозрачный фон для контента */
+QStackedWidget {
+    background-color: transparent;
+}
+
+QFrame {
+    background-color: transparent;
 }
 """
 
@@ -65,7 +117,7 @@ QWidget {
 
 AMOLED_OVERRIDE_STYLE = """
 QWidget {
-    background-color: #000000;
+    background-color: transparent;
     color: #ffffff;
 }
 
@@ -75,7 +127,7 @@ QWidget[hasCustomBackground="true"] {
 }
 
 QMainWindow {
-    background-color: #000000;
+    background-color: transparent;
 }
 
 /* НЕ применяем фон к главному окну с кастомным фоном */
@@ -83,8 +135,13 @@ QMainWindow[hasCustomBackground="true"] {
     background-color: transparent;
 }
 
+QFrame#mainContainer {
+    background-color: rgba(0, 0, 0, 245);
+    border: 1px solid rgba(30, 30, 30, 220);
+}
+
 QFrame {
-    background-color: #000000;
+    background-color: transparent;
     border: none;
 }
 
@@ -95,7 +152,7 @@ QLabel {
 }
 
 QComboBox {
-    background-color: #1a1a1a;
+    background-color: rgba(26, 26, 26, 250);
     border: 1px solid #333333;
     color: #ffffff;
     padding: 5px;
@@ -103,19 +160,19 @@ QComboBox {
 }
 
 QComboBox::drop-down {
-    background-color: #1a1a1a;
+    background-color: transparent;
     border: none;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #000000;
+    background-color: rgba(0, 0, 0, 250);
     border: 1px solid #333333;
     selection-background-color: #333333;
     color: #ffffff;
 }
 
 QStackedWidget {
-    background-color: #000000;
+    background-color: transparent;
     border: none;
 }
 
@@ -131,7 +188,7 @@ QFrame[frameShape="4"] {
 
 PURE_BLACK_OVERRIDE_STYLE = """
 QWidget {
-    background-color: #000000;
+    background-color: transparent;
     color: #ffffff;
 }
 
@@ -141,7 +198,7 @@ QWidget[hasCustomBackground="true"] {
 }
 
 QMainWindow {
-    background-color: #000000;
+    background-color: transparent;
 }
 
 /* НЕ применяем фон к главному окну с кастомным фоном */
@@ -149,8 +206,13 @@ QMainWindow[hasCustomBackground="true"] {
     background-color: transparent;
 }
 
+QFrame#mainContainer {
+    background-color: rgba(0, 0, 0, 245);
+    border: 1px solid rgba(30, 30, 30, 220);
+}
+
 QFrame {
-    background-color: #000000;
+    background-color: transparent;
     border: none;
 }
 
@@ -160,7 +222,7 @@ QLabel {
 }
 
 QComboBox {
-    background-color: #000000;
+    background-color: rgba(0, 0, 0, 250);
     border: none;
     color: #ffffff;
     padding: 5px;
@@ -168,19 +230,19 @@ QComboBox {
 }
 
 QComboBox::drop-down {
-    background-color: #000000;
+    background-color: transparent;
     border: none;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #000000;
+    background-color: rgba(0, 0, 0, 250);
     border: none;
     selection-background-color: #1a1a1a;
     color: #ffffff;
 }
 
 QStackedWidget {
-    background-color: #000000;
+    background-color: transparent;
 }
 
 QPushButton {
@@ -347,13 +409,67 @@ class DualActionRippleButton(RippleButton):
             super().mousePressEvent(event)
 
 
+class HoverTextButton(DualActionRippleButton):
+    """Кнопка с изменением текста при наведении курсора.
+    
+    Поддерживает массив hover-текстов, которые пролистываются при каждом наведении.
+    """
+    
+    def __init__(self, default_text: str, hover_texts: list | str, parent=None, color="0, 119, 255"):
+        """
+        Args:
+            default_text: Текст по умолчанию (когда курсор не на кнопке)
+            hover_texts: Один текст или список текстов для показа при наведении
+            parent: Родительский виджет
+            color: RGB цвет кнопки
+        """
+        super().__init__(default_text, parent, color)
+        self._default_text = default_text
+        
+        # Поддержка как одного текста, так и списка
+        if isinstance(hover_texts, str):
+            self._hover_texts = [hover_texts]
+        else:
+            self._hover_texts = list(hover_texts)
+        
+        self._current_hover_index = 0
+        
+    def set_texts(self, default_text: str, hover_texts: list | str):
+        """Устанавливает тексты для обычного состояния и при наведении"""
+        self._default_text = default_text
+        
+        if isinstance(hover_texts, str):
+            self._hover_texts = [hover_texts]
+        else:
+            self._hover_texts = list(hover_texts)
+        
+        self._current_hover_index = 0
+        self.setText(self._default_text)
+        
+    def enterEvent(self, event):
+        """При наведении курсора показываем текущий hover текст"""
+        if self._hover_texts:
+            self.setText(self._hover_texts[self._current_hover_index])
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        """При уходе курсора возвращаем обычный текст и переключаем индекс"""
+        self.setText(self._default_text)
+        
+        # Переключаем на следующий hover текст для следующего наведения
+        if self._hover_texts:
+            self._current_hover_index = (self._current_hover_index + 1) % len(self._hover_texts)
+        
+        super().leaveEvent(event)
+
+
 class ThemeManager:
     """Класс для управления темами приложения"""
 
-    def __init__(self, app, widget, status_label, theme_folder, donate_checker=None):
+    def __init__(self, app, widget, status_label=None, theme_folder=None, donate_checker=None):
         self.app = app
         self.widget = widget
-        self.status_label = status_label
+        # status_label больше не используется в новом интерфейсе
         self.theme_folder = theme_folder
         self.donate_checker = donate_checker
         self._fallback_due_to_premium: str | None = None
@@ -631,7 +747,7 @@ class ThemeManager:
                 theme_info.get("pure_black", False))
 
     def apply_theme(self, theme_name: str | None = None, *, persist: bool = True) -> tuple[bool, str]:
-        """Применяет тему с поддержкой всех специальных тем"""
+        """Применяет тему (оптимизированная версия без блокировки UI)"""
         import qt_material
 
         if theme_name is None:
@@ -639,86 +755,52 @@ class ThemeManager:
 
         clean = self.get_clean_theme_name(theme_name)
         
-        # ✅ ИСПРАВЛЕНИЕ: Определяем правильный виджет для сброса фона
+        # Определяем правильный виджет для сброса фона
         target_widget = self.widget
         if hasattr(self.widget, 'main_widget'):
             target_widget = self.widget.main_widget
-        
-        # Сбрасываем фон только если это НЕ РКН Тян
-        if clean != "РКН Тян":
-            target_widget.setAutoFillBackground(False)
-            target_widget.setProperty("hasCustomBackground", False)
 
-        # проверка премиум для всех премиум тем (используем кеш)
+        # Проверка премиум (используем кеш, не блокируем UI)
         if self._is_premium_theme(clean):
-            # Проверяем кешированный результат
-            is_available = False
-            if self._premium_cache:
-                is_available = self._premium_cache[0]
-            
+            is_available = self._premium_cache[0] if self._premium_cache else False
             if not is_available:
                 theme_type = self._get_theme_type_name(clean)
                 QMessageBox.information(
                     self.widget, f"{theme_type}",
                     f"{theme_type} «{clean}» доступна только для подписчиков Zapret Premium."
                 )
-                # Запускаем асинхронную проверку на случай если кеш устарел
                 self._start_async_premium_check()
                 return False, "need premium"
 
         try:
             info = THEMES[clean]
             
+            # Сбрасываем фон если это НЕ РКН Тян
+            if clean != "РКН Тян":
+                target_widget.setAutoFillBackground(False)
+                target_widget.setProperty("hasCustomBackground", False)
+            
             # Применяем базовую тему
             qt_material.apply_stylesheet(self.app, theme=info["file"])
             
-            # Специальная обработка для РКН Тян
+            # Собираем ВСЕ стили в одну строку для одного setStyleSheet
+            all_styles = [self.app.styleSheet()]
+            
             if clean == "РКН Тян":
-                # Добавляем защитный стиль СРАЗУ
-                rkn_protection_style = """
-                QWidget[hasCustomBackground="true"] {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                }
-                
-                QWidget[hasCustomBackground="true"] > QWidget {
-                    background: transparent;
-                }
-                """
-                current_style = self.app.styleSheet()
-                self.app.setStyleSheet(current_style + "\n" + rkn_protection_style)
-                
-                # Применяем фон с задержкой
-                QTimer.singleShot(100, lambda: self._apply_rkn_with_protection())
+                all_styles.append("""
+                    QWidget[hasCustomBackground="true"] { background: transparent !important; }
+                    QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
+                """)
             
-            # Сначала сбрасываем любой предыдущий кастомный фон
-            self.widget.setAutoFillBackground(False)
-            self.widget.setProperty("hasCustomBackground", False)
-            
-            # Применяем базовую тему
-            qt_material.apply_stylesheet(self.app, theme=info["file"])
-            
-            # Применяем специальные стили в зависимости от типа темы
             if self._is_pure_black_theme(clean):
-                current_style = self.app.styleSheet()
-                pure_black_style = current_style + "\n" + PURE_BLACK_OVERRIDE_STYLE
-                self.app.setStyleSheet(pure_black_style)
-                self.apply_pure_black_enhancements()
-                log(f"Применена полностью черная тема: {clean}", "INFO")
-                
+                all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
             elif self._is_amoled_theme(clean):
-                current_style = self.app.styleSheet()
-                amoled_style = current_style + "\n" + AMOLED_OVERRIDE_STYLE
-                self.app.setStyleSheet(amoled_style)
-                self.apply_amoled_enhancements()
-                log(f"Применена AMOLED тема: {clean}", "INFO")
+                all_styles.append(AMOLED_OVERRIDE_STYLE)
+            
+            # Один вызов setStyleSheet
+            self.app.setStyleSheet("\n".join(all_styles))
 
-            # остальная логика применения темы...
-            self.status_label.setStyleSheet(
-                f"color: {info['status_color']}; font-size: 9pt;"
-            )
-
-            # Переопределяем ВСЕ кнопки для полностью черной темы
+            # Применяем цвета кнопок (только для старого интерфейса)
             if self._is_pure_black_theme(clean):
                 self._apply_pure_black_button_colors()
                 self._apply_pure_black_label_colors()
@@ -726,21 +808,16 @@ class ThemeManager:
                 self._apply_normal_button_colors(info)
                 self._apply_normal_label_colors(info)
 
-            # Обновление заголовка (асинхронно если нужно)
-            self._update_title_async(clean)
-
             if persist:
                 set_selected_theme(clean)
             self.current_theme = clean
             
-            # ✅ ПРИМЕНЯЕМ ФОНЫ В САМОМ КОНЦЕ
+            # Обновление заголовка (отложенно)
+            QTimer.singleShot(10, lambda: self._update_title_async(clean))
+            
+            # Фон РКН Тян
             if clean == "РКН Тян":
-                # Применяем фон РКН Тян после всех стилей с минимальной задержкой
-                QTimer.singleShot(50, lambda: self._apply_rkn_with_protection())
-            else:
-                # Убеждаемся что фон сброшен для других тем
-                self.widget.setAutoFillBackground(False)
-                self.widget.setProperty("hasCustomBackground", False)
+                QTimer.singleShot(50, self._apply_rkn_with_protection)
             
             return True, "ok"
 
@@ -867,53 +944,82 @@ class ThemeManager:
             log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
 
     def _apply_pure_black_button_colors(self):
-        """Применяет цвета кнопок для полностью черной темы"""
+        """Применяет цвета кнопок для полностью черной темы с градиентами Windows 11"""
         try:
-            # Для полностью черной темы все кнопки становятся темно-серыми с белым текстом
-            pure_black_button_color = "32, 32, 32"  # Очень темно-серый
-            pure_black_special_color = "64, 64, 64"  # Чуть светлее для accent кнопок
+            # ✅ НОВЫЙ ИНТЕРФЕЙС: Кнопки сами управляют своими стилями
+            if hasattr(self.widget, 'side_nav'):
+                log("Новый интерфейс обнаружен, пропускаем pure black стили кнопок", "DEBUG")
+                return
             
-            # Стиль для обычных кнопок в черной теме
+            # Для полностью черной темы - элегантные серые градиенты
+            pure_black_button_color = "48, 48, 48"  # Мягкий темно-серый
+            pure_black_special_color = "72, 72, 72"  # Чуть светлее для accent кнопок
+            
+            # Стиль для обычных кнопок в черной теме с градиентом
             pure_black_button_style = f"""
             QPushButton {{
-                border: 1px solid #333333;
-                background-color: rgb({pure_black_button_color});
+                border: 1px solid rgba(80, 80, 80, 0.5);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(56, 56, 56),
+                    stop:0.4 rgb(48, 48, 48),
+                    stop:1 rgb(38, 38, 38)
+                );
                 color: #ffffff;
-                border-radius: 6px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 10pt;
-                min-height: 35px;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-weight: 600;
+                font-size: 9pt;
+                min-height: 28px;
             }}
             QPushButton:hover {{
-                background-color: rgb({pure_black_special_color});
-                border: 1px solid #555555;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(72, 72, 72),
+                    stop:1 rgb(56, 56, 56)
+                );
+                border: 1px solid rgba(100, 100, 100, 0.6);
             }}
             QPushButton:pressed {{
-                background-color: rgb(16, 16, 16);
-                border: 1px solid #777777;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(28, 28, 28),
+                    stop:1 rgb(20, 20, 20)
+                );
             }}
             """
             
-            # Стиль для accent кнопок (start, stop и т.д.)
+            # Стиль для accent кнопок (start, stop и т.д.) с градиентом
             pure_black_accent_style = f"""
             QPushButton {{
-                border: 1px solid #444444;
-                background-color: rgb({pure_black_special_color});
+                border: 1px solid rgba(100, 100, 100, 0.4);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(80, 80, 80),
+                    stop:0.4 rgb(72, 72, 72),
+                    stop:1 rgb(58, 58, 58)
+                );
                 color: #ffffff;
-                border-radius: 6px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 10pt;
-                min-height: 35px;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-weight: 600;
+                font-size: 9pt;
+                min-height: 28px;
             }}
             QPushButton:hover {{
-                background-color: rgb(96, 96, 96);
-                border: 1px solid #666666;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(100, 100, 100),
+                    stop:1 rgb(80, 80, 80)
+                );
+                border: 1px solid rgba(120, 120, 120, 0.5);
             }}
             QPushButton:pressed {{
-                background-color: rgb(16, 16, 16);
-                border: 1px solid #888888;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(40, 40, 40),
+                    stop:1 rgb(28, 28, 28)
+                );
             }}
             """
 
@@ -948,7 +1054,14 @@ class ThemeManager:
     def _apply_normal_button_colors(self, theme_info):
         """Применяет обычные цвета кнопок для всех тем кроме полностью черной"""
         try:
-            # Обычные themed кнопки
+            # ✅ НОВЫЙ ИНТЕРФЕЙС: Кнопки сами управляют своими стилями
+            # НЕ применяем цветные стили к кнопкам в новом Windows 11 интерфейсе
+            # Проверяем наличие нового интерфейса
+            if hasattr(self.widget, 'side_nav'):
+                log("Новый интерфейс обнаружен, пропускаем старые цвета кнопок", "DEBUG")
+                return
+            
+            # Обычные themed кнопки (только для старого интерфейса)
             if hasattr(self.widget, "themed_buttons"):
                 btn_color = theme_info.get("button_color", "0, 119, 255")
                 for btn in self.widget.themed_buttons:
@@ -958,22 +1071,6 @@ class ThemeManager:
                     else:
                         btn.setStyleSheet(BUTTON_STYLE.format(btn_color))
                     btn._bgcolor = btn_color
-
-            # Специальные кнопки с их оригинальными цветами
-            special_button_colors = {
-                'start_btn': "54, 153, 70",
-                'autostart_enable_btn': "54, 153, 70", 
-                'stop_btn': "255, 93, 174",
-                'autostart_disable_btn': "255, 93, 174",
-                'subscription_btn': "224, 132, 0",
-                'server_status_btn': "38, 38, 38"
-            }
-            
-            for btn_name, color in special_button_colors.items():
-                if hasattr(self.widget, btn_name):
-                    btn = getattr(self.widget, btn_name)
-                    btn.setStyleSheet(BUTTON_STYLE.format(color))
-                    btn._bgcolor = color
 
             # Обновляем состояние proxy кнопки
             if hasattr(self.widget, 'update_proxy_button_state'):
@@ -1025,108 +1122,123 @@ class ThemeManager:
             return "Премиум-тема"
 
     def _get_pure_black_button_style(self, color: str) -> str:
-        """Возвращает специальный стиль кнопок для полностью черной темы"""
+        """Возвращает специальный стиль кнопок с градиентом для полностью черной темы"""
         return f"""
         QPushButton {{
-            border: 1px solid #333333;
-            background-color: rgb(32, 32, 32);
+            border: 1px solid rgba(80, 80, 80, 0.5);
+            background: qlineargradient(
+                x1:0, y1:0, x2:0, y2:1,
+                stop:0 rgb(56, 56, 56),
+                stop:0.4 rgb(48, 48, 48),
+                stop:1 rgb(38, 38, 38)
+            );
             color: #ffffff;
-            border-radius: 6px;
-            padding: 10px;
-            font-weight: bold;
-            font-size: 10pt;
-            min-height: 35px;
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-weight: 600;
+            font-size: 9pt;
+            min-height: 28px;
         }}
         QPushButton:hover {{
-            background-color: rgb(64, 64, 64);
-            border: 1px solid #555555;
+            background: qlineargradient(
+                x1:0, y1:0, x2:0, y2:1,
+                stop:0 rgb(72, 72, 72),
+                stop:1 rgb(56, 56, 56)
+            );
+            border: 1px solid rgba(100, 100, 100, 0.6);
         }}
         QPushButton:pressed {{
-            background-color: rgb(16, 16, 16);
-            border: 1px solid #777777;
+            background: qlineargradient(
+                x1:0, y1:0, x2:0, y2:1,
+                stop:0 rgb(28, 28, 28),
+                stop:1 rgb(20, 20, 20)
+            );
         }}
         """
 
+    def _apply_pure_black_enhancements_inline(self):
+        """Возвращает CSS для улучшений полностью черной темы (для inline применения)"""
+        # Применяется через combined_style в apply_theme
+        pass
+
     def apply_pure_black_enhancements(self):
-        """Применяет дополнительные улучшения для полностью черной темы"""
+        """Применяет дополнительные улучшения для полностью черной темы (legacy)"""
         try:
-            additional_style = """
+            additional_style = self._get_pure_black_enhancement_css()
+            current_style = self.app.styleSheet()
+            self.app.setStyleSheet(current_style + additional_style)
+            log("Pure Black улучшения применены", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка при применении Pure Black улучшений: {e}", "DEBUG")
+    
+    def _get_pure_black_enhancement_css(self) -> str:
+        """Возвращает CSS улучшений для Pure Black темы"""
+        return """
             QFrame[frameShape="4"] {
                 color: #1a1a1a;
             }
-            
             QPushButton:focus {
                 border: 2px solid rgba(255, 255, 255, 0.2);
             }
-            
             QComboBox:focus {
                 border: 2px solid rgba(255, 255, 255, 0.2);
             }
-            
             QLabel[objectName="title_label"] {
                 text-shadow: 0px 0px 5px rgba(255, 255, 255, 0.1);
             }
             """
-            
-            current_style = self.app.styleSheet()
-            self.app.setStyleSheet(current_style + additional_style)
-            
-            log("Pure Black улучшения применены", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при применении Pure Black улучшений: {e}", "DEBUG")
 
+
+    def _apply_amoled_enhancements_inline(self):
+        """Возвращает CSS для улучшений AMOLED темы (для inline применения)"""
+        # Применяется через combined_style в apply_theme
+        pass
 
     def apply_amoled_enhancements(self):
-        """Применяет дополнительные улучшения для AMOLED тем"""
+        """Применяет дополнительные улучшения для AMOLED тем (legacy)"""
         try:
-            additional_style = """
+            additional_style = self._get_amoled_enhancement_css()
+            current_style = self.app.styleSheet()
+            self.app.setStyleSheet(current_style + additional_style)
+            log("AMOLED улучшения применены", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка при применении AMOLED улучшений: {e}", "DEBUG")
+    
+    def _get_amoled_enhancement_css(self) -> str:
+        """Возвращает CSS улучшений для AMOLED темы"""
+        return """
             /* Убираем все лишние рамки */
             QFrame {
                 border: none;
             }
-            
             /* Рамка только при наведении на кнопки */
             QPushButton:hover {
                 border: 1px solid rgba(255, 255, 255, 0.1);
             }
-            
             /* Убираем text-shadow который создает размытие */
             QLabel {
                 text-shadow: none;
             }
-            
             /* Фокус на комбобоксе */
             QComboBox:focus {
                 border: 1px solid rgba(255, 255, 255, 0.3);
             }
-            
             /* Только горизонтальные линии оставляем видимыми */
             QFrame[frameShape="4"] {
                 color: #222222;
                 max-height: 1px;
                 border: none;
             }
-            
             /* Убираем отступы где возможно */
             QWidget {
                 outline: none;
             }
-            
             /* Компактные отступы для контейнеров */
             QStackedWidget {
                 margin: 0;
                 padding: 0;
             }
             """
-            
-            current_style = self.app.styleSheet()
-            self.app.setStyleSheet(current_style + additional_style)
-            
-            log("AMOLED улучшения применены", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при применении AMOLED улучшений: {e}", "DEBUG")
 
     def _update_color_in_style(self, current_style, new_color):
         """Обновляет цвет в существующем стиле"""
@@ -1138,9 +1250,9 @@ class ThemeManager:
         return updated_style
     
     def _set_status(self, text):
-        """Устанавливает текст статуса"""
-        if self.status_label:
-            self.status_label.setText(text)
+        """Устанавливает текст статуса (через главное окно)"""
+        if hasattr(self.widget, 'set_status'):
+            self.widget.set_status(text)
 
 
 class ThemeHandler:
@@ -1214,57 +1326,161 @@ class ThemeHandler:
                 pass  # Игнорируем вторичные ошибки
     
     def change_theme(self, theme_name):
-        """Обработчик изменения темы"""
+        """Обработчик изменения темы (быстрая версия)"""
         try:
-            # ✅ ИСПРАВЛЕНИЕ: используем theme_manager напрямую или через app_window
             if not self.theme_manager:
-                if hasattr(self.app_window, 'theme_manager'):
-                    self.theme_manager = self.app_window.theme_manager
-                else:
-                    log("theme_manager не доступен", "❌ ERROR")
+                self.theme_manager = getattr(self.app_window, 'theme_manager', None)
+                if not self.theme_manager:
                     return
             
-            # Проверяем, не является ли тема заблокированной
-            if any(suffix in theme_name for suffix in ["(заблокировано)", "(AMOLED Premium)", "(Pure Black Premium)"]):
-                clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
-                
-                # Показываем предупреждение о заблокированной теме
-                success, message = self.theme_manager.apply_theme(clean_theme_name)
-                
-                if not success:
-                    # Возвращаемся к текущей теме
-                    available_themes = self.theme_manager.get_available_themes()
-                    for theme in available_themes:
-                        if self.theme_manager.get_clean_theme_name(theme) == self.theme_manager.current_theme:
-                            if hasattr(self.app_window, 'theme_combo'):
-                                self.app_window.theme_combo.blockSignals(True)
-                                self.app_window.theme_combo.setCurrentText(theme)
-                                self.app_window.theme_combo.blockSignals(False)
-                            break
-                    return
+            clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
             
             # Применяем тему
-            success, message = self.theme_manager.apply_theme(theme_name)
+            success, message = self.theme_manager.apply_theme(clean_theme_name)
             
-            if success:
-                log(f"Тема изменена на: {theme_name}", level="INFO")
-                if hasattr(self.app_window, 'set_status'):
-                    self.app_window.set_status(f"Тема изменена: {theme_name}")
-                
-                # Обновляем стили комбо-бокса после смены темы
-                QTimer.singleShot(50, self.update_theme_combo_styles)
-                
-                # Обновляем статус подписки с новой темой (асинхронно)
-                QTimer.singleShot(100, self.update_subscription_status_in_title)
-            else:
-                log(f"Ошибка при изменении темы: {message}", level="❌ ERROR")
-                if hasattr(self.app_window, 'set_status'):
-                    self.app_window.set_status(f"Ошибка изменения темы: {message}")
+            if not success:
+                # Возвращаем комбо на текущую тему
+                if hasattr(self.app_window, 'theme_combo'):
+                    self.app_window.theme_combo.blockSignals(True)
+                    for theme in self.theme_manager.get_available_themes():
+                        if self.theme_manager.get_clean_theme_name(theme) == self.theme_manager.current_theme:
+                            self.app_window.theme_combo.setCurrentText(theme)
+                            break
+                    self.app_window.theme_combo.blockSignals(False)
+                return
+            
+            # Отложенное обновление UI
+            QTimer.singleShot(100, lambda: self._post_theme_change_update(theme_name))
                 
         except Exception as e:
-            log(f"Ошибка при обработке изменения темы: {e}", level="❌ ERROR")
-            if hasattr(self.app_window, 'set_status'):
-                self.app_window.set_status(f"Ошибка: {e}")
+            log(f"Ошибка смены темы: {e}", "ERROR")
+    
+    def _post_theme_change_update(self, theme_name: str):
+        """Выполняет все обновления UI после смены темы за один раз"""
+        try:
+            # Обновляем стили комбо-бокса
+            self.update_theme_combo_styles()
+            
+            # Обновляем цвета кастомного titlebar
+            self._update_titlebar_theme(theme_name)
+            
+            # Обновляем статус подписки
+            self.update_subscription_status_in_title()
+        except Exception as e:
+            log(f"Ошибка в _post_theme_change_update: {e}", "DEBUG")
+
+    def _update_titlebar_theme(self, theme_name: str):
+        """Обновляет цвета кастомного titlebar в соответствии с темой"""
+        try:
+            if not hasattr(self.app_window, 'title_bar'):
+                return
+            
+            if not hasattr(self.app_window, 'container'):
+                return
+            
+            clean_name = self.theme_manager.get_clean_theme_name(theme_name) if self.theme_manager else theme_name
+            
+            # Определяем цвета в зависимости от темы (без прозрачности для совместимости с Windows 10)
+            is_light = "Светлая" in clean_name
+            is_amoled = "AMOLED" in clean_name or clean_name == "Полностью черная"
+            
+            if is_amoled:
+                # AMOLED и полностью черная тема (почти непрозрачный)
+                bg_color = "rgba(0, 0, 0, 250)"
+                text_color = "#ffffff"
+                container_bg = "rgba(0, 0, 0, 245)"
+                border_color = "rgba(30, 30, 30, 220)"
+                menubar_bg = "rgba(0, 0, 0, 245)"
+                menu_text = "#ffffff"
+                hover_bg = "#222222"
+                menu_dropdown_bg = "rgba(10, 10, 10, 250)"
+            elif is_light:
+                # Светлые темы (полупрозрачные)
+                bg_color = "rgba(230, 230, 230, 240)"
+                text_color = "#000000"
+                container_bg = "rgba(245, 245, 245, 235)"
+                border_color = "rgba(200, 200, 200, 220)"
+                menubar_bg = "rgba(235, 235, 235, 240)"
+                menu_text = "#000000"
+                hover_bg = "#d0d0d0"
+                menu_dropdown_bg = "rgba(245, 245, 245, 250)"
+            else:
+                # Темные темы (по умолчанию) - полупрозрачные
+                bg_color = "rgba(26, 26, 26, 240)"
+                text_color = "#ffffff"
+                container_bg = "rgba(30, 30, 30, 240)"
+                border_color = "rgba(80, 80, 80, 200)"
+                menubar_bg = "rgba(20, 20, 20, 240)"
+                menu_text = "#ffffff"
+                hover_bg = "#333333"
+                menu_dropdown_bg = "rgba(37, 37, 37, 250)"
+            
+            # Обновляем titlebar
+            self.app_window.title_bar.set_theme_colors(bg_color, text_color)
+            
+            # Обновляем контейнер
+            self.app_window.container.setStyleSheet(f"""
+                QFrame#mainContainer {{
+                    background-color: {container_bg};
+                    border-radius: 10px;
+                    border: 1px solid {border_color};
+                }}
+            """)
+            
+            # Обновляем стиль menubar если есть
+            if hasattr(self.app_window, 'menubar_widget'):
+                self.app_window.menubar_widget.setStyleSheet(f"""
+                    QWidget#menubarWidget {{
+                        background-color: {menubar_bg};
+                        border-bottom: 1px solid {border_color};
+                    }}
+                """)
+                
+                # Обновляем стиль самого меню
+                if hasattr(self.app_window, 'menu_bar'):
+                    self.app_window.menu_bar.setStyleSheet(f"""
+                        QMenuBar {{
+                            background-color: transparent;
+                            color: {menu_text};
+                            border: none;
+                            font-size: 11px;
+                            font-family: 'Segoe UI', Arial, sans-serif;
+                        }}
+                        QMenuBar::item {{
+                            background-color: transparent;
+                            color: {menu_text};
+                            padding: 4px 10px;
+                            border-radius: 4px;
+                            margin: 2px 1px;
+                        }}
+                        QMenuBar::item:selected {{
+                            background-color: {hover_bg};
+                        }}
+                        QMenu {{
+                            background-color: {menu_dropdown_bg};
+                            border: 1px solid {border_color};
+                            border-radius: 6px;
+                            padding: 4px;
+                        }}
+                        QMenu::item {{
+                            padding: 6px 24px 6px 12px;
+                            border-radius: 4px;
+                            color: {menu_text};
+                        }}
+                        QMenu::item:selected {{
+                            background-color: {hover_bg};
+                        }}
+                        QMenu::separator {{
+                            height: 1px;
+                            background-color: {border_color};
+                            margin: 4px 8px;
+                        }}
+                    """)
+            
+            log(f"Цвета titlebar обновлены для темы: {clean_name}", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка обновления titlebar: {e}", "DEBUG")
 
     def update_theme_combo_styles(self):
         """Применяет стили к комбо-боксу тем для выделения заблокированных элементов"""

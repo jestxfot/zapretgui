@@ -29,8 +29,8 @@ def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
     bin_dir = os.path.join(work_dir, "bin")
     
     for arg in args:
-        # Обработка --wf-raw
-        if arg.startswith("--wf-raw="):
+        # Обработка --wf-raw-part (новый формат для winws2)
+        if arg.startswith("--wf-raw-part="):
             value = arg.split("=", 1)[1]
             
             # Если значение начинается с @, это означает файл
@@ -46,9 +46,9 @@ def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
                     if not os.path.exists(full_path):
                         log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
                     
-                    resolved_args.append(f'--wf-raw=@{full_path}')
+                    resolved_args.append(f'--wf-raw-part=@{full_path}')
                 else:
-                    resolved_args.append(f'--wf-raw=@{filename}')
+                    resolved_args.append(f'--wf-raw-part=@{filename}')
             else:
                 # Если не файл, оставляем как есть
                 resolved_args.append(arg)
@@ -175,6 +175,7 @@ def setup_direct_autostart_task(
         
         log(f"Создание задачи: {DIRECT_TASK_NAME}", "INFO")
         log(f"Длина команды: {len(cmd_line)} символов", "DEBUG")
+        log(f"Команда schtasks: {' '.join(create_cmd)}", "DEBUG")
         
         result = run_hidden(
             create_cmd,
@@ -184,13 +185,17 @@ def setup_direct_autostart_task(
             errors="ignore"
         )
         
+        log(f"schtasks returncode: {result.returncode}", "DEBUG")
+        log(f"schtasks stdout: {result.stdout}", "DEBUG")
+        log(f"schtasks stderr: {result.stderr}", "DEBUG")
+        
         if result.returncode == 0:
             log(f"Задача {DIRECT_TASK_NAME} создана", "✅ SUCCESS")
             # Обновляем статус в реестре
             set_autostart_enabled(True, "direct_task")
             return True
         else:
-            error_msg = f"Ошибка создания задачи. Код: {result.returncode}\n{result.stderr}"
+            error_msg = f"Ошибка создания задачи (код {result.returncode}):\n{result.stderr or result.stdout}"
             log(error_msg, "❌ ERROR")
             if ui_error_cb:
                 ui_error_cb(error_msg)
@@ -394,6 +399,8 @@ cd /d "{work_dir}"
             "/F"
         ]
         
+        log(f"Выполняем команду: {' '.join(create_cmd)}", "DEBUG")
+        
         result = run_hidden(
             create_cmd,
             capture_output=True,
@@ -402,6 +409,10 @@ cd /d "{work_dir}"
             errors="ignore"
         )
         
+        log(f"schtasks returncode: {result.returncode}", "DEBUG")
+        log(f"schtasks stdout: {result.stdout}", "DEBUG")
+        log(f"schtasks stderr: {result.stderr}", "DEBUG")
+        
         if result.returncode == 0:
             log(f"Задача {task_name} создана через .bat файл", "✅ SUCCESS")
             # Обновляем статус в реестре
@@ -409,9 +420,10 @@ cd /d "{work_dir}"
             set_autostart_enabled(True, method)
             return True
         else:
-            log(f"Ошибка создания задачи: {result.stderr}", "❌ ERROR")
+            error_msg = f"Ошибка создания задачи (код {result.returncode}):\n{result.stderr or result.stdout}"
+            log(error_msg, "❌ ERROR")
             if ui_error_cb:
-                ui_error_cb(f"Ошибка: {result.stderr}")
+                ui_error_cb(error_msg)
             return False
             
     except Exception as e:
@@ -480,12 +492,13 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     try:
         from strategy_menu import get_direct_strategy_selections
         from strategy_menu.strategy_lists_separated import combine_strategies
+        from config import WINWS2_EXE
         
-        # Получаем путь к winws.exe
+        # Для прямого запуска всегда используем winws2.exe
         if hasattr(app_instance, 'dpi_starter') and hasattr(app_instance.dpi_starter, 'winws_exe'):
             winws_exe = app_instance.dpi_starter.winws_exe
         else:
-            winws_exe = str(Path.cwd() / "bin" / "winws.exe")
+            winws_exe = WINWS2_EXE  # Zapret 2 для прямого запуска
         
         # Получаем выборы стратегий
         selections = get_direct_strategy_selections()
@@ -493,9 +506,9 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         # Комбинируем стратегии
         combined = combine_strategies(**selections)
         
-        # Парсим аргументы
+        # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
         import shlex
-        args = shlex.split(combined['args'])
+        args = shlex.split(combined['args'], posix=False)
         
         log(f"Собрано {len(args)} аргументов", "INFO")
         

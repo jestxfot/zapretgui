@@ -237,32 +237,54 @@ def compare_versions(v1: str, v2: str) -> int:
         # Fallback на строковое сравнение
         return -1 if v1 < v2 else (1 if v1 > v2 else 0)
 
+# Кэш для полного списка релизов (отдельно от кэша запросов)
+_all_releases_cache: Tuple[List[Dict[str, Any]], float] = ([], 0)
+ALL_RELEASES_CACHE_TTL = 600  # 10 минут - не дёргаем GitHub слишком часто
+
+
 def get_all_releases_with_exe() -> List[Dict[str, Any]]:
     """
-    Получает все релизы с .exe файлами с умной обработкой rate limits
+    Получает все релизы с .exe файлами с умной обработкой rate limits.
+    
+    ✅ ОПТИМИЗИРОВАНО: 
+    - Кэширует полный результат на 10 минут
+    - НЕ делает отдельный запрос check_rate_limit()
+    - Максимум 2 страницы для dev канала (200 релизов = достаточно)
     """
-    # Загружаем кэш при первом запуске
+    global _all_releases_cache
+    
+    # ═══════════════════════════════════════════════════════════
+    # ✅ ПРОВЕРЯЕМ КЭШ ПОЛНОГО СПИСКА РЕЛИЗОВ
+    # ═══════════════════════════════════════════════════════════
+    cached_releases, cache_time = _all_releases_cache
+    if cached_releases and (time.time() - cache_time) < ALL_RELEASES_CACHE_TTL:
+        age_sec = int(time.time() - cache_time)
+        log(f"✅ Используем кэш релизов ({len(cached_releases)} шт., возраст {age_sec}с)", "🔄 CACHE")
+        return cached_releases
+    
+    # Загружаем кэш запросов при первом запуске
     if not _github_cache:
         _load_persistent_cache()
     
-    # Сначала проверяем rate limit
-    rate_info = check_rate_limit()
-    if rate_info['remaining'] < 5:
-        log(f"⚠️ Очень мало запросов осталось ({rate_info['remaining']}). Используем только кэш.", "⚠️ RATE_LIMIT")
-        # Пытаемся собрать данные из кэша
+    # ═══════════════════════════════════════════════════════════
+    # ✅ НЕ ДЕЛАЕМ ОТДЕЛЬНЫЙ check_rate_limit() - экономим запрос!
+    # Проверяем rate limit из кэшированного файла
+    # ═══════════════════════════════════════════════════════════
+    is_limited, reset_dt = is_rate_limited()
+    if is_limited:
+        log(f"⏳ Rate limit до {reset_dt}, используем кэш", "⚠️ RATE_LIMIT")
+        if cached_releases:
+            return cached_releases
         return _get_cached_releases()
     
     releases_with_exe = []
     
     page = 1
-    max_pages = 10 if rate_info['remaining'] > 20 else 3  # Ограничиваем страницы при малом лимите
+    # ✅ ОГРАНИЧЕНО: максимум 2 страницы (200 релизов - более чем достаточно)
+    max_pages = 2
     
     while page <= max_pages:
         url = f"{GITHUB_API_URL}?per_page=100&page={page}"
-        
-        # Добавляем небольшую задержку между запросами
-        if page > 1:
-            time.sleep(0.2)
         
         try:
             releases_page = _get_cached_or_fetch(url, TIMEOUT)
@@ -271,7 +293,7 @@ def get_all_releases_with_exe() -> List[Dict[str, Any]]:
                 log(f"⚠️ Не удалось получить страницу {page}", "🔁 UPDATE")
                 break
             
-            if not releases_page:  # Пустая страница = конец
+            if len(releases_page) == 0:  # Пустая страница = конец
                 break
                 
             for release in releases_page:
@@ -295,17 +317,21 @@ def get_all_releases_with_exe() -> List[Dict[str, Any]]:
                 except ValueError as e:
                     log(f"❌ Неверный формат версии {release['tag_name']}: {e}", "🔁 UPDATE")
                     continue
-                    
-            page += 1
             
-            # Если запросов мало, останавливаемся раньше
-            if rate_info['remaining'] < 10 and page > 2:
-                log("⚠️ Останавливаем поиск из-за лимита запросов", "⚠️ RATE_LIMIT")
+            # Если получили меньше 100, значит страниц больше нет
+            if len(releases_page) < 100:
                 break
+                
+            page += 1
             
         except Exception as e:
             log(f"Ошибка получения страницы {page}: {e}", "🔁 UPDATE")
             break
+    
+    # ✅ КЭШИРУЕМ ПОЛНЫЙ РЕЗУЛЬТАТ
+    if releases_with_exe:
+        _all_releases_cache = (releases_with_exe, time.time())
+        log(f"💾 Закэшировано {len(releases_with_exe)} релизов на {ALL_RELEASES_CACHE_TTL}с", "🔄 CACHE")
     
     return releases_with_exe
 

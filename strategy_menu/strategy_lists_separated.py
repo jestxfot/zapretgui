@@ -98,9 +98,100 @@ Censorliber, [08.08.2025 1:02]
 """
 
 import re
+import os
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
 from log import log
 from .strategies_registry import registry
+from .strategies.blobs import build_args_with_deduped_blobs
+
+
+def _build_base_args_from_filters(
+    lua_init: str,
+    windivert_filter_folder: str,
+    tcp_80: bool,
+    tcp_443: bool,
+    tcp_all_ports: bool,
+    udp_443: bool,
+    udp_all_ports: bool,
+    raw_discord_media: bool,
+    raw_stun: bool,
+    raw_wireguard: bool,
+    raw_quic_initial: bool,
+) -> str:
+    """
+    Собирает базовые аргументы WinDivert из отдельных фильтров.
+    
+    Логика:
+    - TCP порты перехватываются целиком через --wf-tcp-out
+    - UDP порты перехватываются целиком через --wf-udp-out (нагружает CPU!)
+    - Raw-part фильтры перехватывают только конкретные пакеты (экономят CPU)
+    
+    Args:
+        lua_init: Строка инициализации Lua библиотек
+        windivert_filter_folder: Путь к папке с фильтрами WinDivert
+        tcp_80: Включён ли TCP порт 80
+        tcp_443: Включён ли TCP порт 443
+        tcp_all_ports: Включены ли TCP порты 444-65535 (высокая нагрузка!)
+        udp_443: Включён ли UDP порт 443 (полный перехват)
+        udp_all_ports: Включены ли UDP порты 444-65535 (очень высокая нагрузка!)
+        raw_discord_media: Включён ли raw-part фильтр Discord Media
+        raw_stun: Включён ли raw-part фильтр STUN
+        raw_wireguard: Включён ли raw-part фильтр WireGuard
+        raw_quic_initial: Включён ли raw-part фильтр QUIC Initial
+    
+    Returns:
+        Строка базовых аргументов для winws2
+    """
+    parts = [lua_init]
+    
+    # === TCP порты ===
+    tcp_port_parts = []
+    if tcp_80:
+        tcp_port_parts.append("80")
+    if tcp_443:
+        tcp_port_parts.append("443")
+    if tcp_all_ports:
+        tcp_port_parts.append("444-65535")
+    
+    if tcp_port_parts:
+        parts.append(f"--wf-tcp-out={','.join(tcp_port_parts)}")
+    
+    # === UDP порты ===
+    udp_port_parts = []
+    if udp_443:
+        udp_port_parts.append("443")
+    if udp_all_ports:
+        udp_port_parts.append("444-65535")
+    
+    if udp_port_parts:
+        parts.append(f"--wf-udp-out={','.join(udp_port_parts)}")
+    
+    # === Raw-part фильтры (экономят CPU) ===
+    # Эти фильтры перехватывают только конкретные пакеты по сигнатуре
+    
+    if raw_discord_media:
+        filter_path = os.path.join(windivert_filter_folder, "windivert_part.discord_media.txt")
+        parts.append(f"--wf-raw-part=@{filter_path}")
+    
+    if raw_stun:
+        filter_path = os.path.join(windivert_filter_folder, "windivert_part.stun.txt")
+        parts.append(f"--wf-raw-part=@{filter_path}")
+    
+    if raw_wireguard:
+        filter_path = os.path.join(windivert_filter_folder, "windivert_part.wireguard.txt")
+        parts.append(f"--wf-raw-part=@{filter_path}")
+    
+    if raw_quic_initial:
+        filter_path = os.path.join(windivert_filter_folder, "windivert_part.quic_initial_ietf.txt")
+        parts.append(f"--wf-raw-part=@{filter_path}")
+    
+    result = " ".join(parts)
+    log(f"Собраны базовые аргументы: TCP=[80={tcp_80}, 443={tcp_443}, all={tcp_all_ports}], "
+        f"UDP=[443={udp_443}, all={udp_all_ports}], "
+        f"raw=[discord={raw_discord_media}, stun={raw_stun}, wg={raw_wireguard}, quic={raw_quic_initial}]", "DEBUG")
+    
+    return result
+
 
 def combine_strategies(*args, **kwargs) -> dict:
     """
@@ -125,18 +216,42 @@ def combine_strategies(*args, **kwargs) -> dict:
         raise ValueError("Нельзя одновременно использовать позиционные и именованные аргументы")
     
     # ==================== БАЗОВЫЕ АРГУМЕНТЫ ====================
-    from strategy_menu import get_base_args_selection
-    base_args_type = get_base_args_selection()
+    from strategy_menu import (
+        get_wf_tcp_80_enabled,
+        get_wf_tcp_443_enabled,
+        get_wf_tcp_all_ports_enabled,
+        get_wf_udp_443_enabled,
+        get_wf_udp_all_ports_enabled,
+        get_wf_raw_discord_media_enabled,
+        get_wf_raw_stun_enabled,
+        get_wf_raw_wireguard_enabled,
+        get_wf_raw_quic_initial_enabled,
+    )
+    from config import LUA_FOLDER, WINDIVERT_FILTER
     
-    BASE_ARGS_OPTIONS = {
-        "windivert_all": "--wf-raw=@windivert.all.txt",
-        "windivert-discord-media-stun-sites": "--wf-raw=@windivert.discord_media+stun+sites.txt",
-        "wf-l3": "--wf-l3=ipv4,ipv6 --wf-tcp=80,443,2053,2083,2087,2096,8080,8443 --wf-udp=443,1400,19294-19344,50000-50100",
-        "wf-l3-all": "--wf-l3=ipv4,ipv6 --wf-tcp=80,443,444-65535 --wf-udp=443,444-65535",
-        "none": ""
-    }
+    # Lua библиотеки должны загружаться первыми (обязательно для Zapret 2)
+    # Порядок загрузки важен:
+    # 1. zapret-lib.lua - базовые функции
+    # 2. zapret-antidpi.lua - функции десинхронизации  
+    lua_lib_path = os.path.join(LUA_FOLDER, "zapret-lib.lua")
+    lua_antidpi_path = os.path.join(LUA_FOLDER, "zapret-antidpi.lua")
+    # Пути БЕЗ кавычек - subprocess.Popen с списком аргументов сам правильно обрабатывает пути
+    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path}'
     
-    base_args = BASE_ARGS_OPTIONS.get(base_args_type, BASE_ARGS_OPTIONS["windivert_all"])
+    # Собираем базовые аргументы из включённых фильтров
+    base_args = _build_base_args_from_filters(
+        LUA_INIT, 
+        WINDIVERT_FILTER,
+        get_wf_tcp_80_enabled(),
+        get_wf_tcp_443_enabled(),
+        get_wf_tcp_all_ports_enabled(),
+        get_wf_udp_443_enabled(),
+        get_wf_udp_all_ports_enabled(),
+        get_wf_raw_discord_media_enabled(),
+        get_wf_raw_stun_enabled(),
+        get_wf_raw_wireguard_enabled(),
+        get_wf_raw_quic_initial_enabled(),
+    )
     
     # ==================== СБОР АКТИВНЫХ КАТЕГОРИЙ ====================
     category_keys_ordered = registry.get_all_category_keys_by_command_order()
@@ -169,24 +284,31 @@ def combine_strategies(*args, **kwargs) -> dict:
                 descriptions.append(f"{category_info.emoji} {strategy_name}")
     
     # ==================== СБОРКА КОМАНДНОЙ СТРОКИ ====================
-    args_parts = []
+    # Собираем аргументы категорий с разделителями --new
+    category_args_parts = []
     
-    # Добавляем базовые аргументы
-    if base_args:
-        args_parts.append(base_args)
-    
-    # Добавляем категории с правильными разделителями
     for i, (category_key, args, category_info) in enumerate(active_categories):
-        args_parts.append(args)
+        category_args_parts.append(args)
         
         # ✅ ИСПРАВЛЕНО: Добавляем --new только если:
         # 1. Категория требует разделитель (needs_new_separator=True)
         # 2. И это НЕ последняя активная категория
         is_last = (i == len(active_categories) - 1)
         if category_info and category_info.needs_new_separator and not is_last:
-            args_parts.append("--new")
+            category_args_parts.append("--new")
     
-    # Объединяем все части
+    # ✅ Дедуплицируем блобы: извлекаем все --blob=... из категорий,
+    # убираем дубликаты и выносим в начало командной строки
+    category_args_str = " ".join(category_args_parts)
+    deduped_args = build_args_with_deduped_blobs([category_args_str])
+    
+    # Собираем финальную командную строку
+    args_parts = []
+    if base_args:
+        args_parts.append(base_args)
+    if deduped_args:
+        args_parts.append(deduped_args)
+    
     combined_args = " ".join(args_parts)
     
     # ==================== ПРИМЕНЕНИЕ НАСТРОЕК ====================

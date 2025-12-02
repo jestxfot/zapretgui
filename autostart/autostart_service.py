@@ -1,14 +1,29 @@
+"""
+Создание Windows службы для BAT-режима (Zapret 1).
+Использует прямой Windows API вместо sc.exe для скорости.
+"""
+
 from __future__ import annotations
 from pathlib import Path
-import subprocess, json, sys, traceback
+import json
+import traceback
 from typing import Callable, Optional
 
 from log import log
-from .autostart_strategy import _resolve_bat_folder     # переиспользуем
+from .autostart_strategy import _resolve_bat_folder
 from .registry_check import set_autostart_enabled
-from utils import run_hidden # обёртка для subprocess.run
+from .service_api import (
+    create_bat_service,
+    delete_service,
+    start_service,
+    service_exists,
+    stop_service
+)
 
 SERVICE_NAME = "ZapretCensorliber"
+SERVICE_DISPLAY_NAME = "Zapret DPI Bypass"
+SERVICE_DESCRIPTION = "Автоматический запуск Zapret для обхода DPI-блокировок"
+
 
 def setup_service_for_strategy(
     selected_mode: str,
@@ -18,6 +33,7 @@ def setup_service_for_strategy(
 ) -> bool:
     """
     Создаёт (или пере-создаёт) службу Windows, запускающую .bat-файл стратегии.
+    Использует прямой Windows API для максимальной скорости.
 
     Args:
         selected_mode : отображаемое имя стратегии (поле "name" в index.json)
@@ -56,31 +72,24 @@ def setup_service_for_strategy(
         if not bat_path.is_file():
             return _fail(f".bat отсутствует: {bat_path}", ui_error_cb)
 
-        # ---------- 2. (Пере)создаём службу --------------------------------
-        # Останавливаем и удаляем, если уже существует
-        _run_sc(["stop",  SERVICE_NAME], ignore_errors=True)
-        _run_sc(["delete", SERVICE_NAME], ignore_errors=True)
-
-        # binPath= должен содержать кавычки внутри, а sc требует пробел ПОСЛЕ '='
-        bin_path = f'C:\\Windows\\System32\\cmd.exe /c "{bat_path}"'
-
-        create_cmd = [
-            "create", SERVICE_NAME,
-            "binPath=", bin_path,
-            "obj=", "LocalSystem",
-            "start=", "auto",
-        ]
-        if _run_sc(create_cmd):
-            _run_sc(["description", SERVICE_NAME,
-                     f"Запуск стратегии {selected_mode}"])
-            log(f'Служба "{SERVICE_NAME}" создана/обновлена', "INFO")
+        # ---------- 2. Создаём службу через API --------------------------------
+        log(f"Создание службы для стратегии: {selected_mode}", "INFO")
+        
+        if create_bat_service(
+            service_name=SERVICE_NAME,
+            display_name=SERVICE_DISPLAY_NAME,
+            bat_path=str(bat_path),
+            description=f"{SERVICE_DESCRIPTION} (стратегия: {selected_mode})",
+            auto_start=True
+        ):
+            log(f'Служба "{SERVICE_NAME}" создана через API', "✅ SUCCESS")
             
             # Обновляем статус автозапуска в реестре
             set_autostart_enabled(True, "service")
             
             return True
         else:
-            return _fail("Не удалось создать службу", ui_error_cb)
+            return _fail("Не удалось создать службу через API", ui_error_cb)
 
     except Exception as exc:
         msg = f"setup_service_for_strategy: {exc}\n{traceback.format_exc()}"
@@ -89,30 +98,23 @@ def setup_service_for_strategy(
 
 def remove_service() -> bool:
     """
-    Удаляет службу Windows
+    Удаляет службу Windows через API.
     
     Returns:
         True если служба была удалена, False если её не было
     """
     try:
-        # Проверяем существование службы
-        query_result = _run_sc(["query", SERVICE_NAME], ignore_errors=True)
-        if not query_result:
-            # Службы нет
+        if not service_exists(SERVICE_NAME):
+            log(f"Служба {SERVICE_NAME} не существует", "DEBUG")
             return False
         
-        # Останавливаем службу
-        _run_sc(["stop", SERVICE_NAME], ignore_errors=True)
-        
-        # Удаляем службу
-        if _run_sc(["delete", SERVICE_NAME], ignore_errors=True):
+        if delete_service(SERVICE_NAME):
             log(f'Служба "{SERVICE_NAME}" удалена', "INFO")
             
             # Проверяем остались ли другие методы автозапуска
             from .checker import CheckerManager
             checker = CheckerManager(None)
             if not checker.check_autostart_exists_full():
-                # Если ничего не осталось - отключаем в реестре
                 set_autostart_enabled(False)
             
             return True
@@ -124,29 +126,19 @@ def remove_service() -> bool:
         return False
 
 
-# -------------------------------------------------------------------------
-# Вспомогательные функции
-# -------------------------------------------------------------------------
-def _run_sc(args: list[str], ignore_errors: bool = False) -> bool:
-    """
-    Запускает `sc.exe` с указанными аргументами.
+def start_service_now() -> bool:
+    """Запускает службу"""
+    return start_service(SERVICE_NAME)
 
-    Returns True, если returncode == 0.
-    """
-    cmd = ["C:\\Windows\\System32\\sc.exe"] + args
-    res = run_hidden(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="cp866",
-        errors="ignore",
-    )
-    if res.returncode == 0:
-        return True
-    if not ignore_errors:
-        err = f'sc {" ".join(args)} | code {res.returncode}\n{res.stderr.strip()}'
-        log(err, "❌ ERROR")
-    return False
+
+def stop_service_now() -> bool:
+    """Останавливает службу"""
+    return stop_service(SERVICE_NAME)
+
+
+def is_service_installed() -> bool:
+    """Проверяет установлена ли служба"""
+    return service_exists(SERVICE_NAME)
 
 
 def _fail(msg: str, ui_error_cb: Optional[Callable[[str], None]]) -> bool:
