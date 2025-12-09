@@ -2,99 +2,301 @@
 
 """
 Определения блобов для стратегий Zapret 2.
-Блобы загружаются один раз и могут использоваться в нескольких стратегиях.
+Блобы загружаются из JSON файла и могут использоваться в нескольких стратегиях.
 
-Подход:
-1. Все блобы определены в словаре BLOBS (имя -> путь/hex)
-2. При сборке командной строки функция extract_and_dedupe_blobs() 
-   извлекает --blob=... из args, дедуплицирует их, и возвращает 
-   уникальные блобы отдельно от остальных аргументов
+Поддерживает:
+1. Системные блобы из json/blobs.json (секция "blobs")
+2. Пользовательские блобы из json/blobs.json (секция "user_blobs")
+3. Автоматическую дедупликацию при сборке командной строки
 """
 
 import re
 import os
+import json
+
+from log import log
 
 # Кэш для блобов - заполняется при первом вызове get_blobs()
 _BLOBS_CACHE = None
+_BLOBS_JSON_PATH = None
+
+
+def _get_blobs_json_path() -> str:
+    """Возвращает путь к JSON файлу блобов"""
+    global _BLOBS_JSON_PATH
+    if _BLOBS_JSON_PATH is None:
+        from config import INDEXJSON_FOLDER
+        _BLOBS_JSON_PATH = os.path.join(INDEXJSON_FOLDER, "blobs.json")
+    return _BLOBS_JSON_PATH
+
+
+def _load_blobs_from_json() -> dict:
+    """
+    Загружает блобы из JSON файла.
+    Объединяет системные блобы (blobs) и пользовательские (user_blobs).
+    
+    Returns:
+        Словарь {имя_блоба: значение_для_командной_строки}
+    """
+    from config import BIN_FOLDER
+    
+    json_path = _get_blobs_json_path()
+    result = {}
+    
+    def _process_blob(name: str, data: dict) -> str | None:
+        """Обрабатывает один блоб из JSON"""
+        if not isinstance(data, dict):
+            return None
+            
+        # Hex значение
+        if "hex" in data:
+            return data["hex"]
+            
+        # Путь к файлу
+        if "path" in data:
+            path = data["path"]
+            # Если путь относительный - добавляем BIN_FOLDER
+            if not os.path.isabs(path):
+                path = os.path.join(BIN_FOLDER, path)
+            return f"@{path}"
+            
+        return None
+    
+    try:
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Загружаем системные блобы
+            if "blobs" in data and isinstance(data["blobs"], dict):
+                for name, blob_data in data["blobs"].items():
+                    if name.startswith("_"):  # Пропускаем комментарии
+                        continue
+                    value = _process_blob(name, blob_data)
+                    if value:
+                        result[name] = value
+            
+            # Загружаем пользовательские блобы (перезаписывают системные)
+            if "user_blobs" in data and isinstance(data["user_blobs"], dict):
+                for name, blob_data in data["user_blobs"].items():
+                    if name.startswith("_"):  # Пропускаем комментарии
+                        continue
+                    value = _process_blob(name, blob_data)
+                    if value:
+                        result[name] = value
+                        log(f"Загружен пользовательский блоб: {name}", "DEBUG")
+            
+            log(f"Загружено {len(result)} блобов из {json_path}", "DEBUG")
+        else:
+            log(f"⚠️ Файл блобов не найден: {json_path}", "WARNING")
+            
+    except json.JSONDecodeError as e:
+        log(f"❌ Ошибка парсинга JSON блобов: {e}", "ERROR")
+    except Exception as e:
+        log(f"❌ Ошибка загрузки блобов: {e}", "ERROR")
+    
+    return result
+
+
 
 
 def get_blobs() -> dict:
     """
     Возвращает словарь блобов с правильными путями.
-    Ленивая инициализация - пути вычисляются при первом вызове.
+    Ленивая инициализация - загрузка происходит при первом вызове.
     """
     global _BLOBS_CACHE
     if _BLOBS_CACHE is not None:
         return _BLOBS_CACHE
     
+    _BLOBS_CACHE = _load_blobs_from_json()
+    return _BLOBS_CACHE
+
+
+def reload_blobs() -> dict:
+    """
+    Перезагружает блобы из JSON файла (сбрасывает кэш).
+    Полезно после редактирования пользователем.
+    
+    Returns:
+        Обновлённый словарь блобов
+    """
+    global _BLOBS_CACHE
+    _BLOBS_CACHE = None
+    return get_blobs()
+
+
+def get_blobs_info() -> dict:
+    """
+    Возвращает расширенную информацию о блобах для UI.
+    
+    Returns:
+        Словарь {имя_блоба: {value, description, is_user, exists}}
+    """
     from config import BIN_FOLDER
     
-    def _bin(filename: str) -> str:
-        """Создаёт путь к файлу в BIN_FOLDER с префиксом @"""
-        path = os.path.join(BIN_FOLDER, filename)
-        return f"@{path}"
+    json_path = _get_blobs_json_path()
+    result = {}
     
-    _BLOBS_CACHE = {
-        # ============== TLS ClientHello ==============
-        "tls_google": _bin("tls_clienthello_www_google_com.bin"),
-        "tls1": _bin("tls_clienthello_1.bin"),
-        "tls2": _bin("tls_clienthello_2.bin"),
-        "tls2n": _bin("tls_clienthello_2n.bin"),
-        "tls3": _bin("tls_clienthello_3.bin"),
-        "tls4": _bin("tls_clienthello_4.bin"),
-        "tls5": _bin("tls_clienthello_5.bin"),
-        "tls6": _bin("tls_clienthello_6.bin"),
-        "tls7": _bin("tls_clienthello_7.bin"),
-        "tls8": _bin("tls_clienthello_8.bin"),
-        "tls9": _bin("tls_clienthello_9.bin"),
-        "tls10": _bin("tls_clienthello_10.bin"),
-        "tls11": _bin("tls_clienthello_11.bin"),
-        "tls12": _bin("tls_clienthello_12.bin"),
-        "tls13": _bin("tls_clienthello_13.bin"),
-        "tls14": _bin("tls_clienthello_14.bin"),
-        "tls17": _bin("tls_clienthello_17.bin"),
-        "tls18": _bin("tls_clienthello_18.bin"),
-        
-        # ============== TLS ClientHello (специальные) ==============
-        "tls_sber": _bin("tls_clienthello_sberbank_ru.bin"),
-        "tls_vk": _bin("tls_clienthello_vk_com.bin"),
-        "tls_vk_kyber": _bin("tls_clienthello_vk_com_kyber.bin"),
-        "tls_deepseek": _bin("tls_clienthello_chat_deepseek_com.bin"),
-        "dtls_w3": _bin("dtls_clienthello_w3_org.bin"),
-        
-        # ============== Syndata ==============
-        "syndata3": _bin("tls_clienthello_3.bin"),
-        "syn_packet": _bin("syn_packet.bin"),
-        
-        # ============== QUIC Initial ==============
-        "quic_google": _bin("quic_initial_www_google_com.bin"),
-        "quic_vk": _bin("quic_initial_vk_com.bin"),
-        "quic1": _bin("quic_1.bin"),
-        "quic2": _bin("quic_2.bin"),
-        "quic3": _bin("quic_3.bin"),
-        "quic4": _bin("quic_4.bin"),
-        "quic5": _bin("quic_5.bin"),
-        "quic6": _bin("quic_6.bin"),
-        "quic7": _bin("quic_7.bin"),
-        "quic_test": _bin("quic_test_00.bin"),
-        "fake_quic": _bin("fake_quic.bin"),
-        
-        # ============== HTTP ==============
-        "http_req": _bin("http_req.bin"),
-        
-        # ============== Default Fakes (fallback) ==============
-        # Если встроенные блобы в winws2.exe недоступны, используем hex-заглушки
-        "fake_default_udp": "0x00000000000000000000000000000000",  # 16 нулей для UDP
-        
-        # ============== Hex patterns (inline) ==============
-        # Эти блобы задаются как hex-строки, а не файлы
-        "hex_0e0e0f0e": "0x0E0E0F0E",
-        "hex_0f0e0e0f": "0x0F0E0E0F",
-        "hex_0f0f0f0f": "0x0F0F0F0F",
-        "hex_00": "0x00",
-    }
+    try:
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Системные блобы
+            if "blobs" in data and isinstance(data["blobs"], dict):
+                for name, blob_data in data["blobs"].items():
+                    if name.startswith("_"):
+                        continue
+                    if not isinstance(blob_data, dict):
+                        continue
+                        
+                    info = {
+                        "description": blob_data.get("description", ""),
+                        "is_user": False,
+                        "exists": True
+                    }
+                    
+                    if "hex" in blob_data:
+                        info["value"] = blob_data["hex"]
+                        info["type"] = "hex"
+                    elif "path" in blob_data:
+                        path = blob_data["path"]
+                        if not os.path.isabs(path):
+                            full_path = os.path.join(BIN_FOLDER, path)
+                        else:
+                            full_path = path
+                        info["value"] = f"@{full_path}"
+                        info["path"] = full_path
+                        info["type"] = "file"
+                        info["exists"] = os.path.exists(full_path)
+                    
+                    result[name] = info
+            
+            # Пользовательские блобы
+            if "user_blobs" in data and isinstance(data["user_blobs"], dict):
+                for name, blob_data in data["user_blobs"].items():
+                    if name.startswith("_"):
+                        continue
+                    if not isinstance(blob_data, dict):
+                        continue
+                        
+                    info = {
+                        "description": blob_data.get("description", "Пользовательский блоб"),
+                        "is_user": True,
+                        "exists": True
+                    }
+                    
+                    if "hex" in blob_data:
+                        info["value"] = blob_data["hex"]
+                        info["type"] = "hex"
+                    elif "path" in blob_data:
+                        path = blob_data["path"]
+                        if not os.path.isabs(path):
+                            full_path = os.path.join(BIN_FOLDER, path)
+                        else:
+                            full_path = path
+                        info["value"] = f"@{full_path}"
+                        info["path"] = full_path
+                        info["type"] = "file"
+                        info["exists"] = os.path.exists(full_path)
+                    
+                    result[name] = info
+                    
+    except Exception as e:
+        log(f"❌ Ошибка получения информации о блобах: {e}", "ERROR")
     
-    return _BLOBS_CACHE
+    return result
+
+
+def save_user_blob(name: str, blob_type: str, value: str, description: str = "") -> bool:
+    """
+    Сохраняет пользовательский блоб в JSON.
+    
+    Args:
+        name: Имя блоба (без пробелов, латиница и цифры)
+        blob_type: "hex" или "file"
+        value: Hex значение (0x...) или путь к файлу
+        description: Описание блоба
+        
+    Returns:
+        True если успешно
+    """
+    json_path = _get_blobs_json_path()
+    
+    try:
+        # Загружаем текущий JSON
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        else:
+            data = {"blobs": {}, "user_blobs": {}}
+        
+        # Создаём секцию user_blobs если её нет
+        if "user_blobs" not in data:
+            data["user_blobs"] = {}
+        
+        # Добавляем блоб
+        blob_data = {"description": description}
+        if blob_type == "hex":
+            blob_data["hex"] = value
+        else:
+            blob_data["path"] = value
+        
+        data["user_blobs"][name] = blob_data
+        
+        # Сохраняем
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        
+        # Сбрасываем кэш
+        reload_blobs()
+        
+        log(f"Сохранён пользовательский блоб: {name}", "INFO")
+        return True
+        
+    except Exception as e:
+        log(f"Ошибка сохранения блоба {name}: {e}", "ERROR")
+        return False
+
+
+def delete_user_blob(name: str) -> bool:
+    """
+    Удаляет пользовательский блоб из JSON.
+    
+    Args:
+        name: Имя блоба
+        
+    Returns:
+        True если успешно
+    """
+    json_path = _get_blobs_json_path()
+    
+    try:
+        if not os.path.exists(json_path):
+            return False
+            
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if "user_blobs" not in data or name not in data["user_blobs"]:
+            log(f"Блоб {name} не найден в user_blobs", "WARNING")
+            return False
+        
+        del data["user_blobs"][name]
+        
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        
+        # Сбрасываем кэш
+        reload_blobs()
+        
+        log(f"Удалён пользовательский блоб: {name}", "INFO")
+        return True
+        
+    except Exception as e:
+        log(f"Ошибка удаления блоба {name}: {e}", "ERROR")
+        return False
 
 
 # Для обратной совместимости - будет заполнен при первом использовании
@@ -284,4 +486,3 @@ def collect_blobs_from_strategies(strategies: list[dict]) -> list[str]:
             all_blobs.extend(strategy["blobs"])
     # Убираем дубликаты, сохраняя порядок
     return list(dict.fromkeys(all_blobs))
-

@@ -95,19 +95,6 @@ class HeavyInitManager:
         self.app.set_status("✅ Локальные файлы найдены")
         return True
 
-    def start_auto_update(self):
-        """
-        ✅ Запуск автообновления через UpdateManager.
-        Вызывается после успешной heavy init.
-        """
-        if hasattr(self.app, 'update_manager'):
-            log("📦 HeavyInitManager: делегируем проверку обновлений в UpdateManager", "DEBUG")
-            # Запускаем проверку с небольшой задержкой (GUI должен быть полностью готов)
-            self.app.update_manager.start_background_check(delay_ms=2000)
-        else:
-            log("⚠️ HeavyInitManager: UpdateManager не найден, используем fallback", "WARNING")
-            self._start_auto_update_fallback()
-
     def _on_heavy_progress(self, message: str):
         """Обработка прогресса от HeavyInitWorker"""
         log(f"HeavyInit прогресс: {message}", "DEBUG")
@@ -156,12 +143,6 @@ class HeavyInitManager:
         if hasattr(self.app, 'dpi_manager'):
             self.app.dpi_manager.delayed_dpi_start()
         log("🔵 delayed_dpi_start завершен", "DEBUG")
-        
-        # Обновление UI через UI Manager
-        log("🔵 Вызываем update_proxy_button_state через UI Manager", "DEBUG")
-        if hasattr(self.app, 'ui_manager'):
-            self.app.ui_manager.update_proxy_button_state()
-        log("🔵 update_proxy_button_state завершен", "DEBUG")
 
         # combobox-фикс через UI Manager
         for delay in (0, 100, 200):
@@ -172,8 +153,7 @@ class HeavyInitManager:
 
         self.app.set_status("Инициализация завершена")
         
-        # Запускаем проверку обновлений через UpdateManager
-        QTimer.singleShot(1000, self.start_auto_update)
+        # Обновления проверяются вручную на вкладке "Серверы"
         
         log("🔵 HeavyInitManager: успешно завершен", "DEBUG")
 
@@ -184,57 +164,6 @@ class HeavyInitManager:
             self.app.splash.show_error(error_msg)
         
         log(f"HeavyInit завершился с ошибкой: {error_msg}", "❌ ERROR")
-
-    def _start_auto_update_fallback(self):
-        """
-        Fallback метод для проверки обновлений (когда UpdateManager недоступен).
-        Использует старую логику напрямую через updater.
-        """
-        # ✅ ПРОВЕРЯЕМ НАСТРОЙКУ АВТООБНОВЛЕНИЙ
-        from config import get_auto_update_enabled
-        if not get_auto_update_enabled():
-            log("Автоматическая проверка обновлений отключена пользователем", "🔄 UPDATE")
-            self.app.set_status("Автообновления отключены")
-            return
-        
-        self.app.set_status("Плановая проверка обновлений…")
-        
-        # Обновляем splash если он еще есть
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.set_progress(85, "Проверка обновлений...", "")
-
-        try:
-            from updater import run_update_async
-        except Exception as e:
-            log(f"Auto-update fallback: import error {e}", "❌ ERROR")
-            self.app.set_status("Не удалось запустить авто-апдейт")
-            return
-
-        thread = run_update_async(parent=self.app, silent=True)
-        
-        if not hasattr(thread, '_worker'):
-            log("Auto-update fallback: worker not found in thread", "❌ ERROR")
-            self.app.set_status("Ошибка проверки обновлений")
-            return
-            
-        worker = thread._worker
-
-        def _upd_done(ok: bool):
-            if ok:
-                self.app.set_status("🔄 Обновление установлено – Zapret перезапустится")
-            else:
-                self.app.set_status("✅ Обновлений нет")
-            log(f"Auto-update fallback finished, ok={ok}", "DEBUG")
-
-            if hasattr(self.app, "_auto_upd_thread"):
-                del self.app._auto_upd_thread
-            if hasattr(self.app, "_auto_upd_worker"):
-                del self.app._auto_upd_worker
-
-        worker.finished.connect(_upd_done)
-
-        self.app._auto_upd_thread = thread
-        self.app._auto_upd_worker = worker
 
     def cleanup(self):
         """Очистка ресурсов при закрытии приложения"""

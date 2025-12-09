@@ -29,34 +29,79 @@ class InitializationManager:
     # ───────────────────────── запуск и планирование ─────────────────────────
 
     def run_async_init(self):
-        """Полностью асинхронная инициализация"""
-        log("🟡 InitializationManager: начало асинхронной инициализации", "DEBUG")
-
-        # Показываем начальный статус
+        """Полностью асинхронная инициализация с оптимизированным порядком загрузки.
+        
+        Порядок загрузки оптимизирован по зависимостям:
+        
+        ФАЗА 1 (0-50ms): Критичные компоненты UI
+        - DPI Starter → нужен для состояния кнопок
+        - DPI Controller → управление DPI
+        - Меню и сигналы → UI готов к взаимодействию
+        
+        ФАЗА 2 (60-100ms): Менеджеры (параллельно где возможно)
+        - Core: DPI Manager, Process Monitor
+        - Network: Discord, Hosts, DNS
+        - Content: Strategy Manager
+        - Theme: ThemeManager (асинхронная генерация CSS)
+        
+        ФАЗА 3 (100-200ms): Фоновые сервисы
+        - Tray, Logger, Update Manager
+        
+        ФАЗА 4 (200+ms): Отложенные проверки
+        - Hostlists, IPsets (не критичны для UI)
+        - Подписка
+        """
+        log("🟡 InitializationManager: начало оптимизированной инициализации", "DEBUG")
+        
         self.app.set_status("Инициализация компонентов...")
 
-        # Все операции запускаем с небольшой задержкой, чтобы не блокировать UI
+        # ═══════════════════════════════════════════════════════════════
+        # ФАЗА 1: Критичные компоненты UI (быстрые, нужны для отображения)
+        # ═══════════════════════════════════════════════════════════════
         init_tasks = [
-            (0,   self._init_dpi_starter),
-            (10,  self._init_hostlists_check),
-            (20,  self._init_ipsets_check),
-            (30,  self._init_dpi_controller),
-            (40,  self._init_menu),
-            (50,  self._connect_signals),
-            (100, self._initialize_managers_and_services),
-            (150, self._init_tray),
-            (200, self._init_logger),
-            (2000, self._init_subscription_check),  # Фоновая проверка подписки (после инициализации менеджеров)
+            (0,   self._init_dpi_starter),        # Быстро, нужен для кнопок
+            (10,  self._init_dpi_controller),     # Зависит от dpi_starter
+            (20,  self._init_menu),               # UI элементы
+            (30,  self._connect_signals),         # Связываем UI
         ]
+        
+        # ═══════════════════════════════════════════════════════════════
+        # ФАЗА 2: Менеджеры (основная логика приложения)
+        # ═══════════════════════════════════════════════════════════════
+        init_tasks.extend([
+            (50,  self._init_core_managers),      # DPI, Process Monitor
+            (60,  self._init_network_managers),   # Discord, Hosts, DNS
+            (70,  self._init_strategy_manager),   # Стратегии (локально)
+            (80,  self._init_theme_manager),      # Тема (асинхронно)
+            (90,  self._init_service_managers),   # Service, Update
+        ])
+        
+        # ═══════════════════════════════════════════════════════════════
+        # ФАЗА 3: Фоновые сервисы (не критичны для UI)
+        # ═══════════════════════════════════════════════════════════════
+        init_tasks.extend([
+            (100, self._init_tray),               # Системный трей
+            (150, self._init_logger),             # Логирование
+            (200, self._finalize_managers_init),  # Финализация
+        ])
+        
+        # ═══════════════════════════════════════════════════════════════
+        # ФАЗА 4: Отложенные проверки (могут быть медленными)
+        # ═══════════════════════════════════════════════════════════════
+        init_tasks.extend([
+            (300,  self._init_hostlists_check),   # Проверка hostlists
+            (400,  self._init_ipsets_check),      # Проверка ipsets
+            (2000, self._init_subscription_check),# Проверка подписки (сеть)
+        ])
 
         for delay, task in init_tasks:
             log(f"🟡 Планируем {task.__name__} через {delay}ms", "DEBUG")
             QTimer.singleShot(delay, task)
 
-        # Вместо жестких 2 секунд — «мягкая» верификация с повторами
+        # Мягкая верификация с повторами
         if not self._verify_timer_started:
             self._verify_timer_started = True
-            QTimer.singleShot(1500, self._verify_initialization)  # первая попытка через 1.5с
+            QTimer.singleShot(1500, self._verify_initialization)
 
     # ───────────────────────── инициализация подсистем ───────────────────────
 
@@ -266,163 +311,216 @@ class InitializationManager:
     def _connect_signals(self):
         """Подключение всех сигналов"""
         try:
-            # select_strategy_clicked убран - стратегии выбираются на странице StrategiesPage
             self.app.start_clicked.connect(lambda: self.app.dpi_controller.start_dpi_async())
-            self.app.stop_clicked.connect(self.app.show_stop_menu)
-            # Автозапуск теперь управляется через страницу AutostartPage
-            # DNS настройки теперь интегрированы в страницу Сеть
+            self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
             self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
             self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
-            # subscription_btn подключается в main_window._connect_page_signals
-            self.app.proxy_button.clicked.connect(self.app.toggle_proxy_domains)
-            self.app.server_status_btn.clicked.connect(self.app._show_server_status)
+            self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
+            
+            # Сигнал гирлянды (новогоднее оформление)
+            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'garland_changed'):
+                self.app.appearance_page.garland_changed.connect(self.app.set_garland_enabled)
+            
+            # Сигнал снежинок
+            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'snowflakes_changed'):
+                self.app.appearance_page.snowflakes_changed.connect(self.app.set_snowflakes_enabled)
+            
+            self.init_tasks_completed.add('signals')
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
 
-    def _initialize_managers_and_services(self):
-        """Инициализация всех менеджеров и сервисов"""
-        log("🔴 InitializationManager: инициализация менеджеров", "DEBUG")
-
+    # ═══════════════════════════════════════════════════════════════════
+    # ФАЗА 2: Инициализация менеджеров (разбито на логические группы)
+    # ═══════════════════════════════════════════════════════════════════
+    
+    def _init_core_managers(self):
+        """Инициализация ядра: DPI Manager, Process Monitor, файлы"""
         try:
             import time as _t
             t0 = _t.perf_counter()
-
+            
             # Создаем необходимые файлы
             from utils.file_manager import ensure_required_files
             ensure_required_files()
-
+            
             # DPI Manager
             from managers.dpi_manager import DPIManager
             self.app.dpi_manager = DPIManager(self.app)
-            log("✅ DPI Manager создан", "DEBUG")
-
+            
             # Process Monitor
             if hasattr(self.app, 'process_monitor_manager'):
                 self.app.process_monitor_manager.initialize_process_monitor()
             self.app.last_strategy_change_time = __import__('time').time()
-
+            
+            log(f"✅ Core managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
+            self.init_tasks_completed.add('core_managers')
+        except Exception as e:
+            log(f"❌ Ошибка core managers: {e}", "ERROR")
+    
+    def _init_network_managers(self):
+        """Инициализация сетевых менеджеров: Discord, Hosts, DNS"""
+        try:
+            import time as _t
+            t0 = _t.perf_counter()
+            
             # Discord Manager
             from discord.discord import DiscordManager
             self.app.discord_manager = DiscordManager(status_callback=self.app.set_status)
-            log("✅ Discord Manager создан", "DEBUG")
-
+            
             # Hosts Manager
             from hosts.hosts import HostsManager
             self.app.hosts_manager = HostsManager(status_callback=self.app.set_status)
-            log("✅ Hosts Manager создан", "DEBUG")
-
-            # Hosts UI Manager
-            from hosts.hosts_ui import HostsUIManager
-            self.app.hosts_ui_manager = HostsUIManager(
-                parent=self.app,
-                hosts_manager=self.app.hosts_manager,
-                status_callback=self.app.set_status
-            )
-            log("✅ Hosts UI Manager создан", "DEBUG")
-
+            
             # DNS UI Manager
             from dns import DNSUIManager, DNSStartupManager
             self.app.dns_ui_manager = DNSUIManager(
                 parent=self.app,
                 status_callback=self.app.set_status
             )
-            log("✅ DNS UI Manager создан", "DEBUG")
-
+            
             # Применяем DNS при запуске (асинхронно)
             DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
-
-            # Strategy Manager (локально)
-            self._init_strategy_manager()
-
-            # Theme Manager + ThemeHandler
+            
+            log(f"✅ Network managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
+            self.init_tasks_completed.add('network_managers')
+        except Exception as e:
+            log(f"❌ Ошибка network managers: {e}", "ERROR")
+    
+    def _init_theme_manager(self):
+        """Инициализация ThemeManager с асинхронной генерацией темы"""
+        try:
+            import time as _t
+            t0 = _t.perf_counter()
+            
             from ui.theme import ThemeManager, ThemeHandler
             from config import THEME_FOLDER
             from PyQt6.QtWidgets import QApplication
-
+            
+            # Создаём ThemeManager БЕЗ применения темы
             self.app.theme_manager = ThemeManager(
                 app=QApplication.instance(),
                 widget=self.app,
                 theme_folder=THEME_FOLDER,
-                donate_checker=getattr(self.app, 'donate_checker', None)
+                donate_checker=getattr(self.app, 'donate_checker', None),
+                apply_on_init=False
             )
-
+            
             # Handler и привязка
             self.app.theme_handler = ThemeHandler(self.app, target_widget=self.app.main_widget)
             self.app.theme_handler.set_theme_manager(self.app.theme_manager)
             self.app.theme_handler.update_available_themes()
-
-            # Применяем текущую тему
-            if hasattr(self.app, 'theme_combo'):
-                self.app.theme_combo.setCurrentText(self.app.theme_manager.current_theme)
-            self.app.theme_manager.apply_theme()
-            log("✅ Theme Manager создан", "DEBUG")
-
+            
+            # ✅ Проверяем, был ли CSS уже применён синхронно при старте
+            if getattr(self.app, '_css_applied_at_startup', False):
+                startup_theme = getattr(self.app, '_startup_theme', None)
+                current_theme = self.app.theme_manager.current_theme
+                
+                if startup_theme == current_theme:
+                    log(f"⏭️ CSS уже применён при старте для '{current_theme}', пропускаем асинхронное применение", "DEBUG")
+                    self.app._theme_pending = False
+                    
+                    # Помечаем тему как применённую в ThemeManager
+                    self.app.theme_manager._theme_applied = True
+                    self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
+                    
+                    # Устанавливаем текущую тему в галерее
+                    if hasattr(self.app, 'appearance_page'):
+                        self.app.appearance_page.set_current_theme(current_theme)
+                    if hasattr(self.app, 'splash') and self.app.splash:
+                        self.app.splash.set_progress(55, "Тема применена", "theme_done")
+                else:
+                    # Темы разные - применяем асинхронно
+                    log(f"🔄 Тема изменилась: startup='{startup_theme}' -> current='{current_theme}'", "DEBUG")
+                    self.app._theme_pending = True
+                    self.app.theme_manager.apply_theme_async(
+                        persist=True,
+                        progress_callback=self._on_theme_progress,
+                        done_callback=self._on_theme_ready
+                    )
+            else:
+                # CSS не был применён при старте - применяем асинхронно
+                self.app._theme_pending = True
+                
+                if hasattr(self.app, 'splash') and self.app.splash:
+                    self.app.splash.set_progress(40, "Генерация темы...", "qt_material")
+                
+                self.app.theme_manager.apply_theme_async(
+                    persist=True,
+                    progress_callback=self._on_theme_progress,
+                    done_callback=self._on_theme_ready
+                )
+            
+            log(f"✅ Theme manager: {(_t.perf_counter() - t0)*1000:.0f}ms (CSS в фоне)", "DEBUG")
+            self.init_tasks_completed.add('theme_manager')
+        except Exception as e:
+            log(f"❌ Ошибка theme manager: {e}", "ERROR")
+    
+    def _init_service_managers(self):
+        """Инициализация сервисных менеджеров: автозапуск, обновления"""
+        try:
+            import time as _t
+            t0 = _t.perf_counter()
+            
             # Service Manager (автозапуск)
             from autostart.checker import CheckerManager
             from config import WINWS_EXE
-
+            
             self.app.service_manager = CheckerManager(
                 winws_exe=WINWS_EXE,
                 status_callback=self.app.set_status,
                 ui_callback=self._safe_ui_update
             )
-            log("✅ Service Manager создан", "DEBUG")
-
-            # Update Manager (фоновая проверка обновлений)
-            from managers.update_manager import UpdateManager
-            self.app.update_manager = UpdateManager(self.app)
-            log("✅ Update Manager создан", "DEBUG")
-
-            # Обновляем UI состояние через UI Manager
-            try:
-                log("🔴 Начинаем обновление UI", "DEBUG")
-                from autostart.registry_check import is_autostart_enabled
-                autostart_exists = is_autostart_enabled()
-                log(f"🔴 autostart_exists = {autostart_exists}", "DEBUG")
-
-                if hasattr(self.app, 'ui_manager'):
-                    self.app.ui_manager.update_autostart_ui(autostart_exists)
-                    self.app.ui_manager.update_ui_state(running=False)
-
-                log("🔴 UI обновление завершено", "DEBUG")
-            except Exception as ui_error:
-                log(f"❌ Ошибка обновления UI: {ui_error}", "ERROR")
-                import traceback
-                log(traceback.format_exc(), "ERROR")
-
-            # Всё ок — помечаем «managers» как инициализированы
-            log("✅ ВСЕ менеджеры инициализированы", "SUCCESS")
-            self.init_tasks_completed.add('managers')
-
-            # Отдаем управление обработчику «после инициализации менеджеров»
-            self._on_managers_init_done()
-
-            took = (_t.perf_counter() - t0) * 1000
-            log(f"Managers init took {took:.0f} ms", "DEBUG")
-
+            
+            log(f"✅ Service managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
+            self.init_tasks_completed.add('service_managers')
         except Exception as e:
-            log(f"❌ Критическая ошибка инициализации менеджеров: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "ERROR")
+            log(f"❌ Ошибка service managers: {e}", "ERROR")
+    
+    def _finalize_managers_init(self):
+        """Финализация инициализации менеджеров и обновление UI"""
+        try:
+            # Обновляем UI состояние
+            from autostart.registry_check import is_autostart_enabled
+            autostart_exists = is_autostart_enabled()
+            
+            if hasattr(self.app, 'ui_manager'):
+                self.app.ui_manager.update_autostart_ui(autostart_exists)
+                self.app.ui_manager.update_ui_state(running=False)
+            
+            self.init_tasks_completed.add('managers')
+            self._on_managers_init_done()
+            log("✅ Managers init finalized", "DEBUG")
+        except Exception as e:
+            log(f"❌ Ошибка финализации: {e}", "ERROR")
 
-            # Пытаемся показать ошибку пользователю
-            error_msg = f"Не удалось инициализировать компоненты: {str(e)}"
-            try:
-                self.app.set_status(f"❌ {error_msg}")
-            except Exception:
-                pass
-
-            try:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.critical(
-                    self.app,
-                    "Критическая ошибка инициализации",
-                    f"{error_msg}\n\nПриложение может работать нестабильно.\n\n"
-                    f"Техническая информация:\n{str(e)}"
-                )
-            except Exception as msg_error:
-                log(f"Не удалось показать сообщение об ошибке: {msg_error}", "ERROR")
+    def _on_theme_progress(self, status: str):
+        """Обработчик прогресса генерации темы"""
+        try:
+            if hasattr(self.app, 'splash') and self.app.splash:
+                # Обновляем статус в splash screen
+                self.app.splash.set_progress(45, status, "theme")
+        except Exception:
+            pass
+    
+    def _on_theme_ready(self, success: bool, message: str):
+        """Обработчик завершения генерации/применения темы"""
+        try:
+            self.app._theme_pending = False
+            
+            if success:
+                log(f"✅ Тема применена асинхронно: {message}", "DEBUG")
+                # Устанавливаем текущую тему в галерее
+                if hasattr(self.app, 'appearance_page') and hasattr(self.app, 'theme_manager'):
+                    self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
+                    
+                # Обновляем splash screen
+                if hasattr(self.app, 'splash') and self.app.splash:
+                    self.app.splash.set_progress(55, "Тема применена", "theme_done")
+            else:
+                log(f"⚠ Тема не применена: {message}", "WARNING")
+        except Exception as e:
+            log(f"Ошибка в _on_theme_ready: {e}", "ERROR")
 
     def _init_tray(self):
         """Инициализация системного трея"""
@@ -614,15 +712,7 @@ class InitializationManager:
                     if hasattr(self.app, 'dpi_manager'):
                         QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
             
-            # Фоновая проверка обновлений через UpdateManager
-            if hasattr(self.app, 'update_manager'):
-                # Запускаем проверку с задержкой 3 секунды (GUI должен быть готов)
-                self.app.update_manager.start_background_check(delay_ms=3000)
-                log("📦 Фоновая проверка обновлений запланирована", "DEBUG")
-            elif hasattr(self.app, 'heavy_init_manager'):
-                # Fallback на старый метод
-                QTimer.singleShot(2000, self.app.heavy_init_manager.start_auto_update)
-                log("📦 Используем fallback для проверки обновлений", "DEBUG")
+            # Обновления проверяются вручную на вкладке "Серверы"
                 
         except Exception as e:
             log(f"Ошибка post-init задач: {e}", "❌ ERROR")

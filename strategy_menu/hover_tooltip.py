@@ -171,10 +171,10 @@ class StrategyHoverTooltip(QWidget):
     
     def set_data(self, strategy_info, strategy_id):
         """Устанавливает данные"""
-        name = strategy_info.get('name', strategy_id)
+        name = strategy_info.get('name') or strategy_id
         self.title_label.setText(name)
         
-        description = strategy_info.get('description', '')
+        description = strategy_info.get('description') or ''
         if len(description) > 100:
             description = description[:97] + "..."
         
@@ -191,14 +191,18 @@ class StrategyHoverTooltip(QWidget):
                 item.widget().deleteLater()
         
         # Добавляем инфо
-        author = strategy_info.get('author', 'Unknown')
-        if author and author != 'unknown':
+        author = strategy_info.get('author') or None
+        if author and author.lower() != 'unknown':
             self.info_layout.addWidget(self._create_info_row("Автор", author, "#a78bfa"))
         
-        version = strategy_info.get('version', '1.0')
+        version = strategy_info.get('version') or '1.0'
         self.info_layout.addWidget(self._create_info_row("Версия", version, "#4ade80"))
         
-        provider = strategy_info.get('provider', 'universal')
+        date = strategy_info.get('date') or None
+        if date:
+            self.info_layout.addWidget(self._create_info_row("Дата", date, "#fbbf24"))
+        
+        provider = strategy_info.get('provider') or 'universal'
         providers = {'universal': 'All', 'rostelecom': 'РТК', 'mts': 'МТС', 
                     'megafon': 'МФ', 'beeline': 'Билайн'}
         self.info_layout.addWidget(self._create_info_row("Провайдер", providers.get(provider, provider), "#60cdff"))

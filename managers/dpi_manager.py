@@ -37,97 +37,74 @@ class DPIManager(QObject):
         from strategy_menu import get_strategy_launch_method
         launch_method = get_strategy_launch_method()
         
-        # 3. Определяем, какую стратегию запускать
-        from config import get_last_strategy
-        strategy_name = get_last_strategy()
-        
-        # Обновляем прогресс
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.set_progress(65, f"Запуск стратегии '{strategy_name}'...", "")
-        
-        # Проверяем, является ли это комбинированной стратегией
-        if strategy_name == "COMBINED_DIRECT":
-            self._start_combined_strategy(launch_method)
+        # 3. Определяем, какую стратегию запускать (разные ключи реестра для BAT и Direct)
+        if launch_method == "direct":
+            # Direct режим - используем комбинированную стратегию из selections
+            strategy_name = "Прямой запуск"
+            if hasattr(self.app, 'splash') and self.app.splash:
+                self.app.splash.set_progress(65, f"Запуск прямого режима...", "")
+            self._start_direct_mode()
         else:
-            self._start_regular_strategy(strategy_name, launch_method)
+            # BAT режим - используем последнюю BAT стратегию
+            from config.reg import get_last_bat_strategy
+            strategy_name = get_last_bat_strategy()
+            if hasattr(self.app, 'splash') and self.app.splash:
+                self.app.splash.set_progress(65, f"Запуск стратегии '{strategy_name}'...", "")
+            self._start_bat_strategy(strategy_name)
 
         # 5. Обновляем интерфейс через UI Manager
         if hasattr(self.app, 'ui_manager'):
             self.app.ui_manager.update_ui_state(running=True)
 
-    def _start_combined_strategy(self, launch_method: str) -> None:
-        """Запускает комбинированную стратегию"""
-        from strategy_menu import get_strategy_launch_method
+    def _start_direct_mode(self) -> None:
+        """Запускает Direct режим (комбинированная стратегия из selections)"""
+        from strategy_menu import get_direct_strategy_selections
+        from strategy_menu.strategy_lists_separated import combine_strategies
         
-        # Проверяем, что мы в режиме прямого запуска
-        if get_strategy_launch_method() == "direct":
-            from strategy_menu import get_direct_strategy_selections
-            from strategy_menu.strategy_lists_separated import combine_strategies
+        selections = get_direct_strategy_selections()
+        combined = combine_strategies(**selections)
+        
+        # ✅ ПРОВЕРКА: Если нет активных категорий, не запускаем DPI
+        active_categories = combined.get('_active_categories', 0)
+        if active_categories == 0:
+            log("Автозапуск DPI пропущен: нет активных категорий (все выборы = 'none')", level="INFO")
+            self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")
             
-            selections = get_direct_strategy_selections()
-            combined = combine_strategies(**selections)
+            # Обновляем UI как "не запущено"
+            if hasattr(self.app, 'ui_manager'):
+                self.app.ui_manager.update_ui_state(running=False)
             
-            # Создаем объект комбинированной стратегии
-            combined_data = {
-                'id': 'COMBINED_DIRECT',
-                'name': 'Прямой запуск',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': selections
-            }
+            # Закрываем splash если есть
+            if hasattr(self.app, 'splash') and self.app.splash:
+                self.app.splash.set_progress(100, "Готово", "Категории не выбраны")
             
-            log(f"Автозапуск комбинированной стратегии с выборами: {selections}", level="INFO")
-            
-            # Обновляем UI
-            self.app.current_strategy_label.setText("Прямой запуск")
-            self.app.current_strategy_name = "Прямой запуск"
-            
-            # Запускаем с комбинированными данными
-            self.app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-        else:
-            # Если не в режиме прямого запуска, используем fallback
-            log("Комбинированная стратегия недоступна в классическом режиме", level="⚠ WARNING")
-            # Используем стратегию по умолчанию
-            self.app.dpi_controller.start_dpi_async(selected_mode="default")
+            return
+        
+        # Создаем объект для Direct режима
+        combined_data = {
+            'id': 'DIRECT_MODE',
+            'name': 'Прямой запуск',
+            'is_combined': True,
+            'args': combined['args'],
+            'selections': selections
+        }
+        
+        log(f"Автозапуск Direct режима с выборами: {selections}", level="INFO")
+        
+        # Обновляем UI
+        self.app.current_strategy_label.setText("Прямой запуск")
+        self.app.current_strategy_name = "Прямой запуск"
+        
+        # Запускаем с комбинированными данными
+        self.app.dpi_controller.start_dpi_async(selected_mode=combined_data)
 
-    def _start_regular_strategy(self, strategy_name: str, launch_method: str) -> None:
-        """Запускает обычную стратегию"""
-        log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
+    def _start_bat_strategy(self, strategy_name: str) -> None:
+        """Запускает BAT стратегию"""
+        log(f"Автозапуск DPI: BAT стратегия «{strategy_name}»", level="INFO")
         
-        # ✅ ИСПРАВЛЕНИЕ: Если режим Direct, используем комбинированную стратегию по умолчанию
-        if launch_method == "direct":
-            log(f"Обнаружена обычная стратегия '{strategy_name}' в Direct режиме", "INFO")
-            log("Используем комбинированную стратегию по умолчанию вместо переключения режима", "INFO")
-            
-            # Используем комбинированную стратегию с настройками по умолчанию
-            from config import set_last_strategy
-            from strategy_menu import get_direct_strategy_selections
-            from strategy_menu.strategy_lists_separated import combine_strategies
-            
-            selections = get_direct_strategy_selections()
-            combined = combine_strategies(**selections)
-            
-            # Создаем объект комбинированной стратегии
-            combined_data = {
-                'id': 'COMBINED_DIRECT',
-                'name': 'Прямой запуск',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': selections
-            }
-            
-            # Обновляем UI
-            self.app.current_strategy_label.setText("Прямой запуск")
-            self.app.current_strategy_name = "Прямой запуск"
-            
-            # Сохраняем что теперь используется комбинированная стратегия
-            set_last_strategy("COMBINED_DIRECT")
-            
-            # Запускаем с комбинированными данными
-            self.app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-            
-        else:
-            # BAT режим - запускаем как обычно
-            self.app.current_strategy_label.setText(strategy_name)
-            self.app.current_strategy_name = strategy_name
-            self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+        # Обновляем UI
+        self.app.current_strategy_label.setText(strategy_name)
+        self.app.current_strategy_name = strategy_name
+        
+        # Запускаем BAT стратегию
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name)

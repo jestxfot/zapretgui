@@ -22,8 +22,56 @@ from config import INDEXJSON_FOLDER
 # Путь к папке со стратегиями - используем INDEXJSON_FOLDER из конфига
 # Структура: {INDEXJSON_FOLDER}/strategies/builtin/ и {INDEXJSON_FOLDER}/strategies/user/
 STRATEGIES_DIR = Path(INDEXJSON_FOLDER) / "strategies"
-BUILTIN_DIR = STRATEGIES_DIR / "builtin"
-USER_DIR = STRATEGIES_DIR / "user"
+
+# Fallback на локальную папку (для разработки)
+_LOCAL_STRATEGIES_DIR = Path(__file__).parent
+
+# Fallback на соседнюю папку zapret (для разработки из IDE)
+_DEV_ZAPRET_DIR = Path(__file__).parent.parent.parent.parent / "zapret" / "json" / "strategies"
+
+
+def _get_builtin_dir() -> Path:
+    """Возвращает путь к builtin директории (с fallback)"""
+    global_builtin = STRATEGIES_DIR / "builtin"
+    local_builtin = _LOCAL_STRATEGIES_DIR / "builtin"
+    dev_builtin = _DEV_ZAPRET_DIR / "builtin"
+    
+    # 1. Если глобальная папка существует и содержит categories.json - используем её
+    if global_builtin.exists() and (global_builtin / "categories.json").exists():
+        return global_builtin
+    
+    # 2. Проверяем соседнюю папку zapret (для разработки из IDE)
+    if dev_builtin.exists() and (dev_builtin / "categories.json").exists():
+        return dev_builtin
+    
+    # 3. Проверяем локальную папку strategy_menu/strategies/builtin
+    if local_builtin.exists() and (local_builtin / "categories.json").exists():
+        return local_builtin
+    
+    # Возвращаем глобальную по умолчанию
+    return global_builtin
+
+
+def _get_user_dir() -> Path:
+    """Возвращает путь к user директории"""
+    global_user = STRATEGIES_DIR / "user"
+    local_user = _LOCAL_STRATEGIES_DIR / "user"
+    dev_user = _DEV_ZAPRET_DIR / "user"
+    
+    # Определяем откуда загружается builtin
+    builtin_dir = _get_builtin_dir()
+    
+    # Если builtin из dev папки - user тоже оттуда
+    if builtin_dir == _DEV_ZAPRET_DIR / "builtin":
+        return dev_user
+    
+    # Если builtin из локальной папки - user тоже оттуда
+    if builtin_dir == _LOCAL_STRATEGIES_DIR / "builtin":
+        return local_user
+    
+    # Иначе используем глобальную
+    return global_user
+
 
 # Маппинг label строк на константы
 LABEL_MAP = {
@@ -39,8 +87,8 @@ LABEL_MAP = {
 
 def ensure_directories():
     """Создаёт необходимые директории если их нет"""
-    BUILTIN_DIR.mkdir(parents=True, exist_ok=True)
-    USER_DIR.mkdir(parents=True, exist_ok=True)
+    _get_builtin_dir().mkdir(parents=True, exist_ok=True)
+    _get_user_dir().mkdir(parents=True, exist_ok=True)
 
 
 def load_json_file(filepath: Path) -> Optional[Dict]:
@@ -139,7 +187,7 @@ def load_category_strategies(category: str) -> Dict[str, Dict]:
     strategies = {}
     
     # Загружаем builtin стратегии
-    builtin_file = BUILTIN_DIR / f"{category}.json"
+    builtin_file = _get_builtin_dir() / f"{category}.json"
     builtin_data = load_json_file(builtin_file)
     
     if builtin_data and 'strategies' in builtin_data:
@@ -153,7 +201,7 @@ def load_category_strategies(category: str) -> Dict[str, Dict]:
                 log(f"Пропущена невалидная builtin стратегия: {error}", "WARNING")
     
     # Загружаем user стратегии (перезаписывают builtin)
-    user_file = USER_DIR / f"{category}.json"
+    user_file = _get_user_dir() / f"{category}.json"
     user_data = load_json_file(user_file)
     
     if user_data and 'strategies' in user_data:
@@ -187,7 +235,7 @@ def save_user_strategy(category: str, strategy: Dict) -> tuple[bool, str]:
         return False, error
     
     ensure_directories()
-    user_file = USER_DIR / f"{category}.json"
+    user_file = _get_user_dir() / f"{category}.json"
     
     # Загружаем существующие user стратегии
     user_data = load_json_file(user_file) or {'strategies': []}
@@ -224,7 +272,7 @@ def delete_user_strategy(category: str, strategy_id: str) -> tuple[bool, str]:
     Returns:
         (success, error_message)
     """
-    user_file = USER_DIR / f"{category}.json"
+    user_file = _get_user_dir() / f"{category}.json"
     user_data = load_json_file(user_file)
     
     if not user_data or 'strategies' not in user_data:
@@ -250,13 +298,14 @@ def get_all_categories() -> List[str]:
     categories = set()
     
     # Собираем из builtin
-    for f in BUILTIN_DIR.glob("*.json"):
-        if f.name != "schema.json":
+    for f in _get_builtin_dir().glob("*.json"):
+        if f.name != "schema.json" and f.name != "categories.json":
             categories.add(f.stem)
     
     # Собираем из user
-    for f in USER_DIR.glob("*.json"):
-        categories.add(f.stem)
+    for f in _get_user_dir().glob("*.json"):
+        if f.name != "categories.json":
+            categories.add(f.stem)
     
     return sorted(categories)
 
@@ -272,7 +321,7 @@ def export_strategies_to_json(strategies_dict: Dict[str, Dict], category: str, o
         output_dir: Директория для сохранения (по умолчанию builtin)
     """
     if output_dir is None:
-        output_dir = BUILTIN_DIR
+        output_dir = _get_builtin_dir()
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -325,3 +374,122 @@ def load_strategies_as_dict(category: str) -> Dict[str, Dict]:
     
     return result
 
+
+# ==================== ЗАГРУЗКА КАТЕГОРИЙ ====================
+
+def load_categories() -> Dict[str, Dict]:
+    """
+    Загружает категории (вкладки сервисов) из JSON файлов.
+    
+    Порядок загрузки:
+    1. builtin/categories.json - встроенные категории
+    2. user/categories.json - пользовательские категории (добавляются к builtin)
+    
+    Returns:
+        Словарь {category_key: category_data}
+    """
+    ensure_directories()
+    categories = {}
+    
+    # Загружаем builtin категории
+    builtin_file = _get_builtin_dir() / "categories.json"
+    builtin_data = load_json_file(builtin_file)
+    
+    if builtin_data and 'categories' in builtin_data:
+        for cat in builtin_data['categories']:
+            key = cat.get('key')
+            if key:
+                cat['_source'] = 'builtin'
+                categories[key] = cat
+        log(f"Загружено {len(categories)} встроенных категорий", "DEBUG")
+    else:
+        log(f"Не найден файл категорий: {builtin_file}", "WARNING")
+    
+    # Загружаем user категории (добавляются/перезаписывают builtin)
+    user_file = _get_user_dir() / "categories.json"
+    user_data = load_json_file(user_file)
+    
+    if user_data and 'categories' in user_data:
+        user_count = 0
+        for cat in user_data['categories']:
+            key = cat.get('key')
+            if key:
+                cat['_source'] = 'user'
+                # Если категория уже есть - мержим настройки
+                if key in categories:
+                    categories[key].update(cat)
+                else:
+                    categories[key] = cat
+                user_count += 1
+        if user_count > 0:
+            log(f"Загружено {user_count} пользовательских категорий", "DEBUG")
+    
+    return categories
+
+
+def save_user_category(category: Dict) -> tuple[bool, str]:
+    """
+    Сохраняет пользовательскую категорию.
+    
+    Args:
+        category: Словарь с данными категории (обязательно поле 'key')
+        
+    Returns:
+        (success, error_message)
+    """
+    key = category.get('key')
+    if not key:
+        return False, "Отсутствует key категории"
+    
+    if not category.get('full_name'):
+        return False, "Отсутствует full_name категории"
+    
+    ensure_directories()
+    user_file = _get_user_dir() / "categories.json"
+    
+    # Загружаем существующие user категории
+    user_data = load_json_file(user_file) or {'categories': [], 'version': '1.0'}
+    
+    # Ищем существующую категорию с таким же key
+    existing_idx = None
+    for i, c in enumerate(user_data['categories']):
+        if c.get('key') == key:
+            existing_idx = i
+            break
+    
+    if existing_idx is not None:
+        user_data['categories'][existing_idx] = category
+    else:
+        user_data['categories'].append(category)
+    
+    if save_json_file(user_file, user_data):
+        log(f"Сохранена пользовательская категория '{key}'", "INFO")
+        return True, ""
+    else:
+        return False, "Ошибка записи файла"
+
+
+def delete_user_category(key: str) -> tuple[bool, str]:
+    """
+    Удаляет пользовательскую категорию.
+    
+    Returns:
+        (success, error_message)
+    """
+    user_file = _get_user_dir() / "categories.json"
+    user_data = load_json_file(user_file)
+    
+    if not user_data or 'categories' not in user_data:
+        return False, "Файл пользовательских категорий не найден"
+    
+    original_len = len(user_data['categories'])
+    user_data['categories'] = [c for c in user_data['categories'] if c.get('key') != key]
+    
+    if len(user_data['categories']) == original_len:
+        return False, f"Категория '{key}' не найдена"
+    
+    if save_json_file(user_file, user_data):
+        log(f"Удалена пользовательская категория '{key}'", "INFO")
+        return True, ""
+    else:
+        return False, "Ошибка записи файла"

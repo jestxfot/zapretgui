@@ -22,25 +22,30 @@ def get_current_log_filename():
 
 def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
     """Удаляет старые лог файлы, оставляя только последние max_files"""
+    deleted_count = 0
+    errors = []
     try:
         # Получаем список всех лог файлов
         log_pattern = os.path.join(logs_folder, "zapret_log_*.txt")
         log_files = glob.glob(log_pattern)
+        total_found = len(log_files)
         
         # Сортируем по времени модификации (старые первые)
         log_files.sort(key=os.path.getmtime)
         
         # Если файлов больше максимума, удаляем старые
-        if len(log_files) > max_files:
-            files_to_delete = log_files[:len(log_files) - max_files]
+        if total_found > max_files:
+            files_to_delete = log_files[:total_found - max_files]
             for old_file in files_to_delete:
                 try:
                     os.remove(old_file)
-                    print(f"Удален старый лог: {os.path.basename(old_file)}")
+                    deleted_count += 1
                 except Exception as e:
-                    print(f"Ошибка при удалении {old_file}: {e}")
+                    errors.append(f"{os.path.basename(old_file)}: {e}")
     except Exception as e:
-        print(f"Ошибка при очистке старых логов: {e}")
+        errors.append(f"Glob error: {e}")
+    
+    return deleted_count, errors, total_found if 'total_found' in dir() else 0
 
 # Создаем уникальное имя для текущей сессии
 CURRENT_LOG_FILENAME = get_current_log_filename()
@@ -74,7 +79,7 @@ class Logger:
         os.makedirs(log_dir, exist_ok=True)
         
         # Очищаем старые логи
-        cleanup_old_logs(log_dir, MAX_LOG_FILES)
+        cleanup_old_logs(log_dir, MAX_LOG_FILES)  # Результат игнорируется при инициализации
         
         # Создаем новый лог файл для текущей сессии
         with open(self.log_file, "w", encoding="utf-8-sig") as f:

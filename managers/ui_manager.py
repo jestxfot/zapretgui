@@ -13,108 +13,34 @@ class UIManager:
     def __init__(self, app_instance):
         self.app = app_instance
 
-    def update_theme_combo(self, available_themes: list) -> None:
-        """Обновляет список доступных тем в комбо-боксе с учетом подписки"""
+    def update_theme_gallery(self, available_themes: list = None) -> None:
+        """Обновляет галерею тем на странице оформления"""
         # Если theme_handler доступен, используем его
         if hasattr(self.app, 'theme_handler') and self.app.theme_handler is not None:
             self.app.theme_handler.update_available_themes()
             return
         
-        # Fallback - прямое обновление комбо-бокса
-        if not hasattr(self.app, 'theme_combo'):
+        # Fallback - прямое обновление галереи через appearance_page
+        if not hasattr(self.app, 'appearance_page'):
             return
+        
+        try:
+            # Обновляем премиум статус
+            is_premium = False
+            if hasattr(self.app, 'theme_manager') and self.app.theme_manager._premium_cache:
+                is_premium = self.app.theme_manager._premium_cache[0]
             
-        current_theme = self.app.theme_combo.currentText()
-        
-        # Временно отключаем сигналы чтобы избежать лишних срабатываний
-        self.app.theme_combo.blockSignals(True)
-        
-        # Очищаем и заполняем заново
-        self.app.theme_combo.clear()
-        self.app.theme_combo.addItems(available_themes)
-        
-        # Применяем стили для заблокированных элементов
-        self._apply_theme_combo_styles()
-        
-        # Восстанавливаем выбор, если тема доступна
-        clean_current = current_theme
-        if hasattr(self.app, 'theme_manager'):
-            clean_current = self.app.theme_manager.get_clean_theme_name(current_theme)
-        
-        for theme in available_themes:
-            clean_theme = theme
+            self.app.appearance_page.set_premium_status(is_premium)
+            
+            # Обновляем текущую тему
             if hasattr(self.app, 'theme_manager'):
-                clean_theme = self.app.theme_manager.get_clean_theme_name(theme)
-            if clean_theme == clean_current:
-                self.app.theme_combo.setCurrentText(theme)
-                break
-        else:
-            # Если текущая тема недоступна, выбираем первую доступную
-            if available_themes:
-                # Ищем первую незаблокированную тему
-                for theme in available_themes:
-                    if "(заблокировано)" not in theme and "(Premium)" not in theme:
-                        self.app.theme_combo.setCurrentText(theme)
-                        break
-                else:
-                    # Если все темы заблокированы (не должно происходить), выбираем первую
-                    self.app.theme_combo.setCurrentText(available_themes[0])
-        
-        # Включаем сигналы обратно
-        self.app.theme_combo.blockSignals(False)
-        
-        # Если произошло изменение темы, сигнализируем об этом
-        new_theme = self.app.theme_combo.currentText()
-        if new_theme != current_theme:
-            self.app.theme_changed.emit(new_theme)
-
-    def update_proxy_button_state(self, is_enabled: bool = None) -> None:
-        """Обновляет состояние кнопки proxy на основе статуса hosts"""
-        # ✅ Используем новый интерфейс NetworkPage
-        if not hasattr(self.app, 'network_page'):
-            log("network_page не найден, пропускаем обновление", "DEBUG")
-            return
-        
-        # Определяем статус если не передан
-        if is_enabled is None:
-            if hasattr(self.app, 'hosts_ui_manager'):
-                try:
-                    is_enabled = self.app.hosts_ui_manager.check_hosts_entries_status()
-                    log(f"Статус hosts записей: {is_enabled}", "DEBUG")
-                except Exception as e:
-                    log(f"Ошибка при проверке статуса hosts: {e}", "❌ ERROR")
-                    is_enabled = False
-            else:
-                log("hosts_ui_manager не найден", "⚠ WARNING")
-                is_enabled = False
-        
-        try:
-            # ✅ Обновляем через метод страницы (новый дизайн)
-            # is_blocked = НЕ is_enabled (если доступ включён, значит НЕ заблокирован)
-            self.app.network_page.update_proxy_status(is_blocked=not is_enabled)
-            log(f"Статус proxy обновлён: {'доступ включён' if is_enabled else 'доступ отключён'}", "DEBUG")
-            
+                current_theme = self.app.theme_manager.current_theme
+                self.app.appearance_page.set_current_theme(current_theme)
+                
+            log("Галерея тем обновлена", "DEBUG")
         except Exception as e:
-            log(f"Ошибка при обновлении статуса proxy: {e}", "❌ ERROR")
+            log(f"Ошибка обновления галереи тем: {e}", "❌ ERROR")
 
-    def force_enable_combos(self) -> bool:
-        """Принудительно включает комбо-боксы тем"""
-        try:
-            if hasattr(self.app, 'theme_combo'):
-                from ui.theme import COMMON_STYLE
-                # Полное восстановление состояния комбо-бокса тем
-                self.app.theme_combo.setEnabled(True)
-                self.app.theme_combo.show()
-                self.app.theme_combo.setStyleSheet(f"{COMMON_STYLE} text-align: center;")
-
-            # Принудительное обновление UI
-            QApplication.processEvents()
-            
-            # Возвращаем True если комбо-бокс существует и активен
-            return hasattr(self.app, 'theme_combo') and self.app.theme_combo.isEnabled()
-        except Exception as e:
-            log(f"Ошибка при активации комбо-бокса тем: {str(e)}")
-            return False
 
     def update_autostart_ui(self, service_running: bool) -> None:
         """Обновляет интерфейс при включении/выключении автозапуска"""
@@ -322,6 +248,20 @@ class UIManager:
         except Exception as e:
             log(f"Ошибка при обновлении кнопки подписки: {e}", "❌ ERROR")
 
+    def force_enable_combos(self) -> bool:
+        """Принудительно включает комбо-боксы после тяжелой инициализации"""
+        try:
+            # Проверяем и включаем комбобоксы на странице оформления (если есть)
+            if hasattr(self.app, 'appearance_page'):
+                # Карточки тем всегда должны быть активны
+                pass
+            
+            log("Комбо-боксы принудительно активированы", "DEBUG")
+            return True
+        except Exception as e:
+            log(f"Ошибка в force_enable_combos: {e}", "DEBUG")
+            return False
+
     def update_strategies_list(self, force_update: bool = False) -> None:
         """Обновляет список доступных стратегий"""
         log("🔵 update_strategies_list начат", "DEBUG")
@@ -359,28 +299,3 @@ class UIManager:
                 self.app.set_status(error_msg)
         finally:
             log("🔵 update_strategies_list завершен", "DEBUG")
-
-    def _apply_theme_combo_styles(self) -> None:
-        """Применяет стили к комбо-боксу тем для выделения заблокированных элементов"""
-        # Проверяем, что theme_handler инициализирован
-        if hasattr(self.app, 'theme_handler') and self.app.theme_handler is not None:
-            self.app.theme_handler.update_theme_combo_styles()
-        else:
-            # Fallback для случаев когда theme_handler еще не инициализирован
-            log("theme_handler не инициализирован, используем fallback стили", "DEBUG")
-            try:
-                from ui.theme import COMMON_STYLE
-                style = f"""
-                QComboBox {{
-                    {COMMON_STYLE}
-                    text-align: center;
-                    font-size: 10pt;
-                    padding: 5px;
-                    border: 1px solid #ccc;
-                    border-radius: 4px;
-                }}
-                """
-                if hasattr(self.app, 'theme_combo'):
-                    self.app.theme_combo.setStyleSheet(style)
-            except Exception as e:
-                log(f"Ошибка применения fallback стилей: {e}", "❌ ERROR")
