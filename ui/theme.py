@@ -13,7 +13,7 @@ import time
 THEMES = {
     # Мягкие пастельные оттенки в стиле Windows 11
     # Темная синяя - оставляем оригинальный тёмно-серый фон
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231", "bg_color": "32, 32, 32"},
+    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231", "bg_color": "30, 32, 32"},
     # Бирюзовая - тёмный бирюзовый фон
     "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205", "bg_color": "20, 35, 38"},
     # Янтарная - тёмный янтарный/коричневый фон

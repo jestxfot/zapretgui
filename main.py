@@ -561,7 +561,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.container.setObjectName("mainContainer")
         self.container.setStyleSheet("""
             QFrame#mainContainer {
-                background-color: rgba(32, 32, 32, 0.98);
                 border-radius: 10px;
                 border: 1px solid rgba(255, 255, 255, 0.08);
             }
