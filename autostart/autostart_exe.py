@@ -232,10 +232,9 @@ def _save_last_strategy(strategy: str) -> bool:
     """Сохраняет последнюю стратегию в реестр"""
     try:
         import winreg
+        from config import REGISTRY_PATH_GUI
         
-        reg_path = r"Software\ZapretReg2GUI"
-        
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
             winreg.SetValueEx(key, "LastStrategy", 0, winreg.REG_SZ, strategy)
         
         _log(f"Сохранена стратегия в реестр: {strategy}", "INFO")

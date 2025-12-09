@@ -13,8 +13,8 @@ VPS_SERVERS = [
         'id': 'vps1',
         'name': 'VPS Server 1 (Основной)',
         'host': '84.54.30.233',
-        'https_port': 888,
-        'http_port': 887,
+        'https_port': 1094,
+        'http_port': 1093,
         'priority': 1,  # Чем меньше - тем выше приоритет
         'weight': 60,   # Вес для балансировки (60% трафика)
     },

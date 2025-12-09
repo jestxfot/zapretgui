@@ -149,7 +149,7 @@ def _build_base_args_from_filters(
     if tcp_80:
         tcp_port_parts.append("80")
     if tcp_443:
-        tcp_port_parts.append("443")
+        tcp_port_parts.append("443,6568")
     if tcp_all_ports:
         tcp_port_parts.append("444-65535")
     
@@ -199,6 +199,7 @@ def combine_strategies(*args, **kwargs) -> dict:
     
     ✅ Применяет все настройки из UI:
     - Базовые аргументы (windivert)
+    - Debug лог (если включено)
     - Удаление hostlist (если включено)
     - Удаление ipset (если включено)
     - Добавление wssize (если включено)
@@ -226,17 +227,20 @@ def combine_strategies(*args, **kwargs) -> dict:
         get_wf_raw_stun_enabled,
         get_wf_raw_wireguard_enabled,
         get_wf_raw_quic_initial_enabled,
+        get_debug_log_enabled,
     )
-    from config import LUA_FOLDER, WINDIVERT_FILTER
+    from config import LUA_FOLDER, WINDIVERT_FILTER, LOGS_FOLDER
     
     # Lua библиотеки должны загружаться первыми (обязательно для Zapret 2)
     # Порядок загрузки важен:
     # 1. zapret-lib.lua - базовые функции
     # 2. zapret-antidpi.lua - функции десинхронизации  
+    # 3. custom_funcs.lua - пользовательские функции
     lua_lib_path = os.path.join(LUA_FOLDER, "zapret-lib.lua")
     lua_antidpi_path = os.path.join(LUA_FOLDER, "zapret-antidpi.lua")
+    custom_funcs_path = os.path.join(LUA_FOLDER, "custom_funcs.lua")
     # Пути БЕЗ кавычек - subprocess.Popen с списком аргументов сам правильно обрабатывает пути
-    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path}'
+    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{custom_funcs_path}'
     
     # Собираем базовые аргументы из включённых фильтров
     base_args = _build_base_args_from_filters(
@@ -261,6 +265,11 @@ def combine_strategies(*args, **kwargs) -> dict:
     active_categories = []  # [(category_key, args, category_info), ...]
     descriptions = []
     
+    # Загружаем настройки out-range
+    from strategy_menu import get_out_range_discord, get_out_range_youtube
+    out_range_discord = get_out_range_discord()
+    out_range_youtube = get_out_range_youtube()
+    
     for category_key in category_keys_ordered:
         strategy_id = category_strategies.get(category_key)
         
@@ -275,13 +284,21 @@ def combine_strategies(*args, **kwargs) -> dict:
         # ✅ Получаем полные аргументы через registry (base_filter + техника)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
+            # ✅ Заменяем out-range для Discord и YouTube категорий
+            if category_key == "discord" and out_range_discord > 0:
+                args = _replace_out_range(args, out_range_discord)
+            elif category_key == "discord_voice" and out_range_discord > 0:
+                args = _replace_out_range(args, out_range_discord)
+            elif category_key == "youtube" and out_range_youtube > 0:
+                args = _replace_out_range(args, out_range_youtube)
+            
             category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))
             
             # Добавляем в описание
             strategy_name = registry.get_strategy_name_safe(category_key, strategy_id)
             if category_info:
-                descriptions.append(f"{category_info.emoji} {strategy_name}")
+                descriptions.append(f"{category_info.full_name}: {strategy_name}")
     
     # ==================== СБОРКА КОМАНДНОЙ СТРОКИ ====================
     # Собираем аргументы категорий с разделителями --new
@@ -304,6 +321,19 @@ def combine_strategies(*args, **kwargs) -> dict:
     
     # Собираем финальную командную строку
     args_parts = []
+    
+    # ==================== DEBUG LOG ====================
+    # Добавляется в начало командной строки если включено
+    if get_debug_log_enabled():
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"zapret_winws2_debug_{timestamp}.log"
+        log_path = os.path.join(LOGS_FOLDER, log_filename)
+        # Создаём папку logs если её нет
+        os.makedirs(LOGS_FOLDER, exist_ok=True)
+        args_parts.append(f"--debug=@{log_path}")
+        log(f"Debug лог включён: {log_path}", "INFO")
+    
     if base_args:
         args_parts.append(base_args)
     if deduped_args:
@@ -420,6 +450,28 @@ def _apply_settings(args: str) -> str:
     result = re.sub(r'^--new\s+', '', result)  # Leading --new
     
     return result.strip()
+
+
+def _replace_out_range(args: str, value: int) -> str:
+    """
+    Заменяет --out-range в аргументах стратегии.
+    Удаляет существующий --out-range и вставляет новый после --filter-tcp/--filter-udp.
+    """
+    # Удаляем существующий --out-range=...
+    args = re.sub(r'--out-range=[^\s]+\s*', '', args)
+    args = args.strip()
+    
+    # Вставляем новый --out-range после --filter-tcp=... или --filter-udp=...
+    # Ищем паттерн --filter-tcp=... или --filter-udp=...
+    match = re.search(r'(--filter-(?:tcp|udp|l7)=[^\s]+)', args)
+    if match:
+        insert_pos = match.end()
+        args = args[:insert_pos] + f" --out-range=-d{value}" + args[insert_pos:]
+    else:
+        # Если нет filter, добавляем в начало
+        args = f"--out-range=-d{value} {args}"
+    
+    return _clean_spaces(args)
 
 
 def _clean_spaces(text: str) -> str:

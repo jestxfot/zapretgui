@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os, sys, tempfile, subprocess, shutil, time, requests
 import threading
-from typing import Callable
+from typing import Callable, Optional
 from time import sleep
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
@@ -19,8 +19,7 @@ from .release_manager import get_latest_release
 from .github_release import normalize_version
 from config import CHANNEL, APP_VERSION
 from log import log
-from .download_dialog import DownloadDialog
-from .rate_limiter import UpdateRateLimiter  # ✅ НОВОЕ
+from .rate_limiter import UpdateRateLimiter
 
 
 TIMEOUT = 15  # Увеличен с 10 до 15 сек для медленных соединений
@@ -219,10 +218,11 @@ class UpdateWorker(QObject):
     download_failed = pyqtSignal(str)
     retry_download = pyqtSignal()
 
-    def __init__(self, parent=None, silent: bool = False):
+    def __init__(self, parent=None, silent: bool = False, skip_rate_limit: bool = False):
         super().__init__()
         self._parent = parent
         self._silent = silent
+        self._skip_rate_limit = skip_rate_limit
         self._should_continue = True
         self._user_response = None
         self._response_event = threading.Event()
@@ -264,16 +264,88 @@ class UpdateWorker(QObject):
         if self._last_release_info:
             self._download_update(self._last_release_info, is_retry=True)
     
+    def _download_from_telegram(self, release_info: dict, save_dir: str, progress_callback) -> Optional[str]:
+        """
+        Скачивает обновление из Telegram
+        
+        Args:
+            release_info: Информация о релизе с telegram_info
+            save_dir: Директория для сохранения
+            progress_callback: Функция прогресса (done, total)
+            
+        Returns:
+            Путь к скачанному файлу или None
+        """
+        try:
+            from .telegram_updater import download_from_telegram, is_telegram_available
+            
+            if not is_telegram_available():
+                log("❌ Telegram недоступен для скачивания", "🔁 UPDATE")
+                return None
+            
+            tg_info = release_info.get("telegram_info", {})
+            channel = tg_info.get("channel", "zapretnetdiscordyoutube")
+            file_id = tg_info.get("file_id")  # ID файла для быстрого скачивания
+            
+            # Определяем тип канала
+            tg_channel = 'test' if 'dev' in channel or 'test' in channel.lower() else 'stable'
+            
+            log(f"📱 Скачивание из Telegram @{channel}...", "🔁 UPDATE")
+            
+            # Обёртка для прогресса с emit сигналами
+            def tg_progress(current, total):
+                if progress_callback:
+                    progress_callback(current, total)
+            
+            result = download_from_telegram(
+                channel=tg_channel,
+                save_path=save_dir,
+                progress_callback=tg_progress,
+                file_id=file_id
+            )
+            
+            if result and os.path.exists(result):
+                log(f"✅ Telegram скачивание завершено: {result}", "🔁 UPDATE")
+                return result
+            
+            log("❌ Telegram скачивание не удалось", "🔁 UPDATE")
+            return None
+            
+        except Exception as e:
+            log(f"❌ Ошибка Telegram скачивания: {e}", "🔁 UPDATE")
+            return None
+    
     def _get_download_urls(self, release_info: dict) -> list:
-        """Формирует список URL в порядке приоритета"""
+        """Формирует список URL в порядке приоритета со всеми доступными серверами"""
         urls = []
         upd_url = release_info["update_url"]
         verify_ssl = release_info.get("verify_ssl", True)
         
-        # 1. Основной URL
+        # 1. Основной URL (откуда получили информацию о версии)
         urls.append((upd_url, verify_ssl))
         
-        # 2. Если это GitHub, добавляем прокси если есть
+        # 2. Добавляем все VPS серверы как fallback
+        try:
+            from .server_config import VPS_SERVERS, should_verify_ssl
+            
+            # Извлекаем имя файла из URL
+            filename = upd_url.split('/')[-1]  # например Zapret2Setup_TEST.exe
+            
+            for server in VPS_SERVERS:
+                # HTTPS вариант
+                https_url = f"https://{server['host']}:{server['https_port']}/download/{filename}"
+                if https_url != upd_url:  # Не дублируем основной URL
+                    urls.append((https_url, should_verify_ssl()))
+                
+                # HTTP вариант (как fallback)
+                http_url = f"http://{server['host']}:{server['http_port']}/download/{filename}"
+                if http_url != upd_url:
+                    urls.append((http_url, False))
+                    
+        except Exception as e:
+            log(f"Не удалось добавить fallback серверы: {e}", "🔁 UPDATE")
+        
+        # 3. Если это GitHub, добавляем прокси если есть
         if "github.com" in upd_url or "githubusercontent.com" in upd_url:
             proxy_url = os.getenv("ZAPRET_GITHUB_PROXY")
             if proxy_url:
@@ -281,7 +353,40 @@ class UpdateWorker(QObject):
                 proxied = proxied.replace("https://github-releases.githubusercontent.com", proxy_url)
                 urls.append((proxied, False))
         
+        log(f"Сформировано {len(urls)} URL для скачивания", "🔁 UPDATE")
         return urls
+    
+    def _run_installer(self, setup_exe: str, version: str, tmp_dir: str) -> bool:
+        """Запускает установщик и закрывает приложение"""
+        try:
+            self._emit("Запуск установщика…")
+
+            setup_args = [
+                setup_exe,
+                "/SILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+                "/NOCANCEL",
+                "/DIR=" + os.path.dirname(sys.executable)
+            ]
+
+            log(f"🚀 Запуск: {' '.join(setup_args)}", "🔁 UPDATE")
+            
+            run_hidden(
+                ["C:\\Windows\\System32\\cmd.exe", "/c", "start", ""] + setup_args, 
+                shell=False
+            )
+            
+            log("⏳ Закрытие через 2с для установки обновления...", "🔁 UPDATE")
+            QTimer.singleShot(2000, lambda: os._exit(0))
+            
+            return True
+            
+        except Exception as e:
+            self._emit(f"Ошибка запуска: {e}")
+            log(f"❌ Ошибка запуска установщика: {e}", "🔁❌ ERROR")
+            shutil.rmtree(tmp_dir, True)
+            return False
     
     def _download_update(self, release_info: dict, is_retry: bool = False) -> bool:
         new_ver = release_info["version"]
@@ -300,10 +405,23 @@ class UpdateWorker(QObject):
             self.progress_bytes.emit(percent, done, total)
             self._emit(f"Скачивание… {percent}%")
         
+        # Проверяем, есть ли информация о Telegram
+        if release_info.get("telegram_info"):
+            result = self._download_from_telegram(release_info, tmp_dir, _prog)
+            if result:
+                setup_exe = result
+                self.download_complete.emit()
+                return self._run_installer(setup_exe, new_ver, tmp_dir)
+            log("⚠️ Telegram скачивание не удалось, пробуем другие источники", "🔁 UPDATE")
+        
         download_urls = self._get_download_urls(release_info)
         
         download_error = None
         for idx, (url, verify_ssl) in enumerate(download_urls):
+            # Пропускаем telegram:// URL - они обрабатываются выше
+            if url.startswith("telegram://"):
+                continue
+                
             try:
                 log(f"Попытка #{idx+1} с {url} (SSL={verify_ssl})", "🔁 UPDATE")
                 
@@ -344,38 +462,7 @@ class UpdateWorker(QObject):
             return False
         
         # Запуск установщика
-        try:
-            self._emit("Запуск установщика…")
-
-            # ✅ ИСПРАВЛЕНО: убрали /CLOSEAPPLICATIONS чтобы не убивать процесс
-            setup_args = [
-                setup_exe,
-                "/SILENT",              # Тихая установка
-                "/SUPPRESSMSGBOXES",    # Без диалогов
-                "/NORESTART",           # Не перезагружать систему
-                "/NOCANCEL",            # Нельзя отменить
-                "/DIR=" + os.path.dirname(sys.executable)  # Установить в ту же папку
-            ]
-
-            # ✅ Запускаем установщик
-            log(f"🚀 Запуск: {' '.join(setup_args)}", "🔁 UPDATE")
-            
-            run_hidden(
-                ["C:\\Windows\\System32\\cmd.exe", "/c", "start", ""] + setup_args, 
-                shell=False
-            )
-            
-            # ✅ Закрываем приложение через 2 секунды (даем время установщику запуститься)
-            log("⏳ Закрытие через 2с для установки обновления...", "🔁 UPDATE")
-            QTimer.singleShot(2000, lambda: os._exit(0))
-            
-            return True
-            
-        except Exception as e:
-            self._emit(f"Ошибка запуска: {e}")
-            log(f"❌ Ошибка запуска установщика: {e}", "🔁❌ ERROR")
-            shutil.rmtree(tmp_dir, True)
-            return False
+        return self._run_installer(setup_exe, new_ver, tmp_dir)
 
     def run(self):
         try:
@@ -390,23 +477,26 @@ class UpdateWorker(QObject):
         self._emit("Проверка обновлений…")
         
         # ═══════════════════════════════════════════════════════════════
-        # ✅ ПРОВЕРКА RATE LIMIT
+        # ✅ ПРОВЕРКА RATE LIMIT (пропускается если skip_rate_limit=True)
         # ═══════════════════════════════════════════════════════════════
-        is_auto = self._silent
-        can_check, error_msg = UpdateRateLimiter.can_check_update(is_auto=is_auto)
-        
-        if not can_check:
-            self._emit(error_msg)
-            log(f"⏱️ Проверка заблокирована rate limiter: {error_msg}", "🔁 UPDATE")
+        if not self._skip_rate_limit:
+            is_auto = self._silent
+            can_check, error_msg = UpdateRateLimiter.can_check_update(is_auto=is_auto)
             
-            # Для ручных проверок показываем сообщение (кроме dev/test версий)
-            if not self._silent and CHANNEL not in ('dev', 'test'):
-                self.show_no_updates.emit(f"Rate limit: {error_msg}")
+            if not can_check:
+                self._emit(error_msg)
+                log(f"⏱️ Проверка заблокирована rate limiter: {error_msg}", "🔁 UPDATE")
+                
+                # Для ручных проверок показываем сообщение (кроме dev/test версий)
+                if not self._silent and CHANNEL not in ('dev', 'test'):
+                    self.show_no_updates.emit(f"Rate limit: {error_msg}")
+                
+                return False
             
-            return False
-        
-        # Записываем факт проверки
-        UpdateRateLimiter.record_check(is_auto=is_auto)
+            # Записываем факт проверки
+            UpdateRateLimiter.record_check(is_auto=is_auto)
+        else:
+            log("⏭️ Rate limiter пропущен (ручная установка)", "🔁 UPDATE")
         
         # ✅ АВТООБНОВЛЕНИЯ ИСПОЛЬЗУЮТ КЭШ, РУЧНЫЕ - НЕТ
         use_cache = self._silent  # silent=True для автопроверок
@@ -450,111 +540,6 @@ class UpdateWorker(QObject):
         return self._download_update(release_info)
 
 # ──────────────────────────── public-API ──────────────────────────────────
-def run_update_async(parent=None, *, silent: bool = False) -> QThread:
-    """Запускает асинхронное обновление"""
-    thr = QThread(parent)
-    worker = UpdateWorker(parent, silent)
-    worker.moveToThread(thr)
-
-    thr.started.connect(worker.run)
-    worker.finished.connect(thr.quit)
-    worker.finished.connect(worker.deleteLater)
-    thr.finished.connect(thr.deleteLater)
-
-    worker.progress.connect(lambda m: _safe_set_status(parent, m))
-    worker.progress.connect(lambda m: log(f'{m}', "🔁 UPDATE"))
-    
-    download_dialog = None
-    
-    def show_download_dialog(version):
-        nonlocal download_dialog
-        
-        if download_dialog is not None:
-            try:
-                log("Закрываем старый диалог", "🔁 UPDATE")
-                download_dialog.close()
-                download_dialog.deleteLater()
-                download_dialog = None
-            except Exception as e:
-                log(f"Ошибка закрытия: {e}", "🔁 UPDATE")
-        
-        if parent:
-            download_dialog = DownloadDialog(parent, version)
-            
-            worker.progress_bytes.connect(
-                lambda p, d, t: download_dialog.update_progress(p, d, t) if download_dialog else None
-            )
-            
-            download_dialog.retry_requested.connect(worker.request_retry)
-            download_dialog.show()
-            
-            if silent:
-                download_dialog.set_status("🔄 Автообновление Zapret")
-                
-            log(f"Показан диалог для v{version} (silent={silent})", "🔁 UPDATE")
-    
-    def hide_download_dialog():
-        nonlocal download_dialog
-        if download_dialog:
-            download_dialog.accept()
-            download_dialog = None
-    
-    def on_download_complete():
-        if download_dialog:
-            download_dialog.download_complete()
-    
-    def on_download_failed(error):
-        if download_dialog:
-            download_dialog.download_failed(error)
-    
-    def handle_user_dialog(new_ver, notes, is_pre):
-        if not parent or silent:
-            worker.set_user_response(True)
-            return
-        
-        try:  
-            version_type = " (предварительная)" if is_pre else ""
-            txt = (f"Доступна новая версия {new_ver}{version_type} (у вас {APP_VERSION}).\n\n"
-                   f"{notes[:500] if notes else 'Обновление содержит исправления.'}\n\n"
-                   f"Установить?")
-            
-            btn = QMessageBox.question(
-                parent, "Обновление",
-                txt,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            worker.set_user_response(btn == QMessageBox.StandardButton.Yes)
-            
-        except Exception as e:
-            log(f"Ошибка диалога: {e}", "🔁❌ ERROR")
-            worker.set_user_response(False)
-    
-    def handle_no_updates_dialog(current_version):
-        if parent and not silent:
-            try:
-                QMessageBox.information(
-                    parent, 
-                    "Обновление", 
-                    f"У вас последняя версия ({current_version})."
-                )
-            except Exception as e:
-                log(f"Ошибка: {e}", "🔁❌ ERROR")
-    
-    worker.ask_user.connect(handle_user_dialog)
-    worker.show_no_updates.connect(handle_no_updates_dialog)
-    worker.show_download_dialog.connect(show_download_dialog)
-    worker.hide_download_dialog.connect(hide_download_dialog)
-    worker.download_complete.connect(on_download_complete)
-    worker.download_failed.connect(on_download_failed)
-
-    thr._worker = worker
-    thr.start()
-
-    if parent is not None:
-        lst = getattr(parent, "_active_upd_threads", [])
-        lst.append(thr)
-        parent._active_upd_threads = lst
-        thr.finished.connect(lambda *, l=lst, t=thr: l.remove(t) if t in l else None)
-
-    return thr
+# ПРИМЕЧАНИЕ: Автообновление при запуске ОТКЛЮЧЕНО.
+# Обновления проверяются и устанавливаются только через вкладку "Серверы" (ui/pages/servers_page.py)
+# Функция run_update_async оставлена для обратной совместимости, но не используется.

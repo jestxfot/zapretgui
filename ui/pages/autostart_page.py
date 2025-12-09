@@ -1,10 +1,10 @@
 # ui/pages/autostart_page.py
 """Страница настроек автозапуска"""
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QMessageBox, QFrame
+    QPushButton, QFrame
 )
 import qtawesome as qta
 import os
@@ -12,6 +12,49 @@ import os
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from log import log
+
+
+class AutostartDetectorWorker(QThread):
+    """Фоновый поток для определения типа автозапуска"""
+    finished = pyqtSignal(str)  # Передаёт тип автозапуска или None
+    
+    # Маппинг методов из реестра в UI типы
+    METHOD_TO_TYPE = {
+        "exe": "gui",              # GUI автозапуск
+        "direct_task": "logon",    # Direct режим - при входе
+        "direct_boot": "boot",     # Direct режим - при загрузке
+        "direct_service": "service",  # Direct служба Windows
+        "service": "service",      # BAT служба Windows
+        "task": "logon",           # BAT задача при входе
+        "direct_task_bat": "logon",
+        "direct_boot_bat": "boot",
+    }
+    
+    def run(self):
+        try:
+            autostart_type = self._detect_type()
+            self.finished.emit(autostart_type or "")
+        except Exception as e:
+            log(f"AutostartDetectorWorker error: {e}", "WARNING")
+            self.finished.emit("")
+    
+    def _detect_type(self) -> str:
+        """Определяет какой тип автозапуска сейчас активен"""
+        try:
+            from autostart.registry_check import AutostartRegistryChecker
+            
+            # 1. Проверяем статус и метод из реестра (основной источник)
+            if AutostartRegistryChecker.is_autostart_enabled():
+                method = AutostartRegistryChecker.get_autostart_method()
+                if method and method in self.METHOD_TO_TYPE:
+                    return self.METHOD_TO_TYPE[method]
+            
+            # 2. Если реестр пустой, возвращаем None
+            return None
+            
+        except Exception as e:
+            log(f"Error in _detect_type: {e}", "WARNING")
+            return None
 
 
 class AutostartOptionCard(QFrame):
@@ -27,17 +70,20 @@ class AutostartOptionCard(QFrame):
         self._hovered = False
         self._accent = accent
         self._recommended = recommended
+        self._disabled = False
+        self._is_active = False
+        self._icon_name = icon_name
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(14)
         
         # Иконка
-        icon_label = QLabel()
+        self._icon_label = QLabel()
         icon_color = '#60cdff' if accent else '#ffffff'
-        icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(28, 28))
-        icon_label.setFixedSize(36, 36)
-        layout.addWidget(icon_label)
+        self._icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(28, 28))
+        self._icon_label.setFixedSize(36, 36)
+        layout.addWidget(self._icon_label)
         
         # Текст
         text_layout = QVBoxLayout()
@@ -46,19 +92,20 @@ class AutostartOptionCard(QFrame):
         title_layout = QHBoxLayout()
         title_layout.setSpacing(8)
         
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
+        self._title_label = QLabel(title)
+        self._title_label.setStyleSheet(f"""
             QLabel {{
                 color: {'#60cdff' if accent else '#ffffff'};
                 font-size: 14px;
                 font-weight: 600;
             }}
         """)
-        title_layout.addWidget(title_label)
+        title_layout.addWidget(self._title_label)
         
+        self._rec_label = None
         if recommended:
-            rec_label = QLabel("Рекомендуется")
-            rec_label.setStyleSheet("""
+            self._rec_label = QLabel("Рекомендуется")
+            self._rec_label.setStyleSheet("""
                 QLabel {
                     background-color: #2e7d32;
                     color: white;
@@ -68,32 +115,168 @@ class AutostartOptionCard(QFrame):
                     border-radius: 8px;
                 }
             """)
-            title_layout.addWidget(rec_label)
+            title_layout.addWidget(self._rec_label)
             
         title_layout.addStretch()
         text_layout.addLayout(title_layout)
         
-        desc_label = QLabel(description)
-        desc_label.setStyleSheet("""
+        self._desc_label = QLabel(description)
+        self._desc_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
                 font-size: 12px;
             }
         """)
-        desc_label.setWordWrap(True)
-        text_layout.addWidget(desc_label)
+        self._desc_label.setWordWrap(True)
+        text_layout.addWidget(self._desc_label)
         
         layout.addLayout(text_layout, 1)
         
         # Стрелка
-        arrow = QLabel()
-        arrow.setPixmap(qta.icon('fa5s.chevron-right', color='rgba(255,255,255,0.4)').pixmap(16, 16))
-        layout.addWidget(arrow)
+        self._arrow = QLabel()
+        self._arrow.setPixmap(qta.icon('fa5s.chevron-right', color='rgba(255,255,255,0.4)').pixmap(16, 16))
+        layout.addWidget(self._arrow)
         
         self._update_style()
+    
+    def set_disabled(self, disabled: bool, is_active: bool = False):
+        """
+        Устанавливает состояние карточки.
+        
+        Args:
+            disabled: True - карточка заблокирована (не кликабельна)
+            is_active: True - карточка активна (выделена зелёным, но не кликабельна)
+        """
+        self._disabled = disabled
+        self._is_active = is_active
+        
+        if is_active:
+            # Активная карточка - выделена зелёным, но не кликабельна
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Зелёная иконка
+            self._icon_label.setPixmap(
+                qta.icon(self._icon_name, color='#6ccb5f').pixmap(28, 28)
+            )
+            # Зелёный заголовок
+            self._title_label.setStyleSheet("""
+                QLabel {
+                    color: #6ccb5f;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+            """)
+            # Светлое описание
+            self._desc_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 12px;
+                }
+            """)
+            # Бейдж рекомендации (если есть)
+            if self._rec_label:
+                self._rec_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #2e7d32;
+                        color: white;
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                    }
+                """)
+            # Зелёная галочка вместо стрелки
+            self._arrow.setPixmap(
+                qta.icon('fa5s.check-circle', color='#6ccb5f').pixmap(18, 18)
+            )
+        elif disabled:
+            # Заблокированная карточка - затемнена
+            self.setCursor(Qt.CursorShape.ForbiddenCursor)
+            # Затемняем иконку
+            self._icon_label.setPixmap(
+                qta.icon(self._icon_name, color='#404040').pixmap(28, 28)
+            )
+            # Затемняем заголовок
+            self._title_label.setStyleSheet("""
+                QLabel {
+                    color: #404040;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+            """)
+            # Затемняем описание
+            self._desc_label.setStyleSheet("""
+                QLabel {
+                    color: #333333;
+                    font-size: 12px;
+                }
+            """)
+            # Затемняем бейдж рекомендации
+            if self._rec_label:
+                self._rec_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #1a3d1c;
+                        color: #505050;
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                    }
+                """)
+            # Затемняем стрелку
+            self._arrow.setPixmap(
+                qta.icon('fa5s.chevron-right', color='#303030').pixmap(16, 16)
+            )
+        else:
+            # Обычная активная карточка
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Восстанавливаем иконку
+            icon_color = '#60cdff' if self._accent else '#ffffff'
+            self._icon_label.setPixmap(
+                qta.icon(self._icon_name, color=icon_color).pixmap(28, 28)
+            )
+            # Восстанавливаем заголовок
+            self._title_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {'#60cdff' if self._accent else '#ffffff'};
+                    font-size: 14px;
+                    font-weight: 600;
+                }}
+            """)
+            # Восстанавливаем описание
+            self._desc_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(255, 255, 255, 0.6);
+                    font-size: 12px;
+                }
+            """)
+            # Восстанавливаем бейдж рекомендации
+            if self._rec_label:
+                self._rec_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #2e7d32;
+                        color: white;
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                    }
+                """)
+            # Восстанавливаем стрелку
+            self._arrow.setPixmap(
+                qta.icon('fa5s.chevron-right', color='#666666').pixmap(16, 16)
+            )
+        self._update_style()
+        self.update()  # Принудительное обновление виджета
         
     def _update_style(self):
-        if self._accent:
+        if getattr(self, '_is_active', False):
+            # Активная карточка - зелёная подсветка
+            bg = "rgba(108, 203, 95, 0.15)"
+            border = "rgba(108, 203, 95, 0.5)"
+        elif self._disabled:
+            bg = "rgba(255, 255, 255, 0.02)"
+            border = "rgba(255, 255, 255, 0.04)"
+        elif self._accent:
             if self._hovered:
                 bg = "rgba(96, 205, 255, 0.15)"
                 border = "rgba(96, 205, 255, 0.4)"
@@ -117,8 +300,9 @@ class AutostartOptionCard(QFrame):
         """)
         
     def enterEvent(self, event):
-        self._hovered = True
-        self._update_style()
+        if not self._disabled and not self._is_active:
+            self._hovered = True
+            self._update_style()
         super().enterEvent(event)
         
     def leaveEvent(self, event):
@@ -127,7 +311,8 @@ class AutostartOptionCard(QFrame):
         super().leaveEvent(event)
         
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
+        # Не реагируем на клик если карточка заблокирована или активна
+        if event.button() == Qt.MouseButton.LeftButton and not self._disabled and not self._is_active:
             self.clicked.emit()
         super().mousePressEvent(event)
 
@@ -146,8 +331,50 @@ class AutostartPage(BasePage):
         self.strategy_name = None
         self.bat_folder = None
         self.json_folder = None
+        self._current_autostart_type = None  # Текущий активный тип автозапуска
+        self._detector_worker = None  # Фоновый поток для определения типа
+        self._detection_pending = False  # Флаг ожидания результата
         
         self._build_ui()
+    
+    def showEvent(self, event):
+        """Вызывается при показе страницы - запускаем определение в фоне"""
+        super().showEvent(event)
+        # Запускаем определение типа автозапуска в фоновом потоке
+        # с небольшой задержкой чтобы UI успел отрисоваться
+        QTimer.singleShot(50, self._start_autostart_detection)
+    
+    def _start_autostart_detection(self):
+        """Запускает определение типа автозапуска в фоновом потоке"""
+        # Если уже идёт проверка, не запускаем новую
+        if self._detection_pending:
+            return
+        
+        # Если предыдущий поток ещё жив, ждём его завершения
+        if self._detector_worker is not None and self._detector_worker.isRunning():
+            return
+        
+        self._detection_pending = True
+        self._detector_worker = AutostartDetectorWorker()
+        self._detector_worker.finished.connect(self._on_autostart_detected)
+        self._detector_worker.start()
+    
+    def _on_autostart_detected(self, autostart_type: str):
+        """Обработчик результата определения типа автозапуска"""
+        self._detection_pending = False
+        
+        # Пустая строка означает None
+        if not autostart_type:
+            autostart_type = None
+        
+        log(f"Detected autostart type: {autostart_type}", "DEBUG")
+        
+        if autostart_type:
+            self._current_autostart_type = autostart_type
+            self.update_status(True, self.strategy_name, autostart_type)
+        else:
+            self._current_autostart_type = None
+            self.update_status(False)
     
     @property
     def app_instance(self):
@@ -186,8 +413,8 @@ class AutostartPage(BasePage):
                 if hasattr(self._app_instance, 'current_strategy_label'):
                     self.strategy_name = self._app_instance.current_strategy_label.text()
                     if self.strategy_name == "Автостарт DPI отключен":
-                        from config import get_last_strategy
-                        self.strategy_name = get_last_strategy()
+                        from config.reg import get_last_bat_strategy
+                        self.strategy_name = get_last_bat_strategy()
                     self.current_strategy_label.setText(self.strategy_name or "Не выбрана")
                     
         except Exception as e:
@@ -449,44 +676,58 @@ class AutostartPage(BasePage):
             
         if strategy_name:
             self.current_strategy_label.setText(strategy_name)
+        
+        # Обновляем состояние карточек (блокировка/разблокировка)
+        self._update_options_state(enabled, autostart_type)
             
         # Обновляем режим при каждом обновлении статуса
         self._update_mode()
+    
+    def _update_options_state(self, autostart_enabled: bool, active_type: str = None):
+        """Обновляет состояние карточек автозапуска (блокировка неактивных)"""
+        # Если тип не передан но автозапуск включён, используем сохранённый тип
+        if autostart_enabled and not active_type:
+            active_type = self._current_autostart_type
+        
+        log(f"_update_options_state: enabled={autostart_enabled}, type={active_type}", "DEBUG")
+        
+        # Карта типов автозапуска к карточкам
+        type_to_card = {
+            "gui": self.gui_option,
+            "service": self.service_option,
+            "logon": self.logon_option,
+            "boot": self.boot_option
+        }
+        
+        if autostart_enabled and active_type:
+            # Блокируем ВСЕ карточки, активную выделяем особым образом
+            for type_name, card in type_to_card.items():
+                is_active_card = type_name == active_type
+                log(f"  Card '{type_name}': active={is_active_card}", "DEBUG")
+                card.set_disabled(True, is_active=is_active_card)
+        else:
+            # Разблокируем все карточки
+            for type_name, card in type_to_card.items():
+                log(f"  Card '{type_name}': disabled=False", "DEBUG")
+                card.set_disabled(False, is_active=False)
     
     def _on_disable_clicked(self):
         """Отключение автозапуска"""
         try:
             from autostart.autostart_remove import AutoStartCleaner
             
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Question)
-            msg.setWindowTitle("Отключение автозапуска")
-            msg.setText("Отключить автозапуск Zapret?")
-            msg.setInformativeText("Все задачи и службы автозапуска будут удалены.")
-            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            msg.setDefaultButton(QMessageBox.StandardButton.No)
+            cleaner = AutoStartCleaner()
+            removed = cleaner.run()
             
-            if msg.exec() == QMessageBox.StandardButton.Yes:
-                cleaner = AutoStartCleaner()
-                removed = cleaner.run()  # Метод называется run(), не remove_all()
-                
-                if removed:
-                    self.update_status(False)
-                    self.autostart_disabled.emit()
-                    QMessageBox.information(
-                        self, "Успешно",
-                        "✅ Автозапуск отключён!\n\n"
-                        f"Удалено записей: {removed}"
-                    )
-                else:
-                    QMessageBox.information(
-                        self, "Информация",
-                        "Записей автозапуска не найдено."
-                    )
+            self._current_autostart_type = None
+            self.update_status(False)
+            self.autostart_disabled.emit()
+            
+            if removed:
+                log(f"Автозапуск отключён, удалено записей: {removed}", "INFO")
                     
         except Exception as e:
             log(f"Ошибка отключения автозапуска: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось отключить автозапуск:\n{e}")
     
     def _on_gui_autostart(self):
         """Автозапуск GUI программы"""
@@ -499,24 +740,14 @@ class AutostartPage(BasePage):
             )
             
             if ok:
+                self._current_autostart_type = "gui"
                 self.update_status(True, self.strategy_name, "gui")
                 self.autostart_enabled.emit()
-                QMessageBox.information(
-                    self, "Успешно",
-                    "✅ Автозапуск программы настроен!\n\n"
-                    "Программа будет запускаться при входе в Windows\n"
-                    "и будет доступна в системном трее."
-                )
             else:
-                QMessageBox.critical(
-                    self, "Ошибка",
-                    "❌ Не удалось настроить автозапуск.\n\n"
-                    "Проверьте права администратора."
-                )
+                log("Не удалось настроить автозапуск GUI", "ERROR")
                 
         except Exception as e:
             log(f"Ошибка автозапуска GUI: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
     
     def _on_service_autostart(self):
         """Создание службы Windows"""
@@ -531,7 +762,6 @@ class AutostartPage(BasePage):
                 
         except Exception as e:
             log(f"Ошибка создания службы: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
     
     def _on_logon_autostart(self):
         """Задача при входе пользователя"""
@@ -546,7 +776,6 @@ class AutostartPage(BasePage):
                 
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
     
     def _on_boot_autostart(self):
         """Задача при загрузке системы"""
@@ -561,7 +790,6 @@ class AutostartPage(BasePage):
                 
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
     
     def _setup_direct_service(self):
         """Служба Windows для Direct режима"""
@@ -569,193 +797,137 @@ class AutostartPage(BasePage):
         from autostart.autostart_direct_service import setup_direct_service
         
         if not self.app_instance:
-            QMessageBox.critical(self, "Ошибка", "Приложение не инициализировано")
-            return
-        
-        # Подтверждение
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Question)
-        msg.setWindowTitle("Создание службы Windows")
-        msg.setText("Создать службу Windows для Zapret?")
-        msg.setInformativeText(
-            "Текущий процесс будет остановлен и перезапущен как служба.\n\n"
-            "Это обеспечит автоматический запуск при загрузке системы."
-        )
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if msg.exec() != QMessageBox.StandardButton.Yes:
+            log("Приложение не инициализировано", "ERROR")
             return
         
         args, name, winws_exe = collect_direct_strategy_args(self.app_instance)
         
         if not args or not winws_exe:
-            QMessageBox.critical(self, "Ошибка", "Не удалось собрать аргументы стратегии")
+            log("Не удалось собрать аргументы стратегии", "ERROR")
             return
         
         ok = setup_direct_service(
             winws_exe=winws_exe,
             strategy_args=args,
             strategy_name=name,
-            ui_error_cb=lambda msg: QMessageBox.critical(self, "Ошибка", msg)
+            ui_error_cb=lambda msg: log(msg, "ERROR")
         )
         
         if ok:
+            self._current_autostart_type = "service"
             self.update_status(True, name, "service")
             self.autostart_enabled.emit()
-            QMessageBox.information(
-                self, "Успешно",
-                "✅ Служба Windows создана!\n\n"
-                "Zapret будет автоматически запускаться\n"
-                "при загрузке системы.\n\n"
-                "• Работает до входа в систему\n"
-                "• Автоматически перезапускается при сбоях"
-            )
     
     def _setup_direct_logon_task(self):
         """Задача при входе для Direct режима"""
         from autostart.autostart_direct import collect_direct_strategy_args, setup_direct_autostart_task
         
         if not self.app_instance:
-            QMessageBox.critical(self, "Ошибка", "Приложение не инициализировано")
+            log("Приложение не инициализировано", "ERROR")
             return
         
         args, name, winws_exe = collect_direct_strategy_args(self.app_instance)
         
         if not args or not winws_exe:
-            QMessageBox.critical(self, "Ошибка", "Не удалось собрать аргументы стратегии")
+            log("Не удалось собрать аргументы стратегии", "ERROR")
             return
         
         ok = setup_direct_autostart_task(
             winws_exe=winws_exe,
             strategy_args=args,
             strategy_name=name,
-            ui_error_cb=lambda msg: QMessageBox.critical(self, "Ошибка", msg)
+            ui_error_cb=lambda msg: log(msg, "ERROR")
         )
         
         if ok:
+            self._current_autostart_type = "logon"
             self.update_status(True, name, "logon")
             self.autostart_enabled.emit()
-            QMessageBox.information(
-                self, "Успешно",
-                "✅ Задача автозапуска создана!\n\n"
-                "DPI будет запускаться при входе в систему."
-            )
     
     def _setup_direct_boot_task(self):
         """Задача при загрузке для Direct режима"""
         from autostart.autostart_direct import collect_direct_strategy_args, setup_direct_autostart_service
         
         if not self.app_instance:
-            QMessageBox.critical(self, "Ошибка", "Приложение не инициализировано")
+            log("Приложение не инициализировано", "ERROR")
             return
         
         args, name, winws_exe = collect_direct_strategy_args(self.app_instance)
         
         if not args or not winws_exe:
-            QMessageBox.critical(self, "Ошибка", "Не удалось собрать аргументы стратегии")
+            log("Не удалось собрать аргументы стратегии", "ERROR")
             return
         
         ok = setup_direct_autostart_service(
             winws_exe=winws_exe,
             strategy_args=args,
             strategy_name=name,
-            ui_error_cb=lambda msg: QMessageBox.critical(self, "Ошибка", msg)
+            ui_error_cb=lambda msg: log(msg, "ERROR")
         )
         
         if ok:
+            self._current_autostart_type = "boot"
             self.update_status(True, name, "boot")
             self.autostart_enabled.emit()
-            QMessageBox.information(
-                self, "Успешно",
-                "✅ Задача автозапуска создана!\n\n"
-                "DPI будет запускаться при загрузке Windows\n"
-                "(до входа пользователя)."
-            )
     
     def _setup_bat_logon_task(self):
         """Задача при входе для BAT режима"""
-        from pathlib import Path
         from autostart.autostart_strategy import setup_autostart_for_strategy
-        from config import get_last_strategy
+        from config.reg import get_last_bat_strategy
         
         # Инициализируем папки если не установлены
         self._ensure_folders_initialized()
         
-        if not self.bat_folder or not self.json_folder:
-            QMessageBox.critical(self, "Ошибка", "Папки не настроены")
+        if not self.bat_folder:
+            log("Папка стратегий не настроена", "ERROR")
             return
         
-        # Для BAT режима используем сохранённую стратегию, а не "Прямой запуск"
+        # Для BAT режима используем сохранённую стратегию (отдельный ключ реестра)
         bat_strategy_name = self.strategy_name
-        if bat_strategy_name in ("Прямой запуск", "COMBINED_DIRECT", None, ""):
-            bat_strategy_name = get_last_strategy()
-            if bat_strategy_name in ("COMBINED_DIRECT", None, ""):
-                QMessageBox.critical(
-                    self, "Ошибка", 
-                    "Для BAT режима необходимо сначала выбрать стратегию.\n\n"
-                    "Откройте меню 'Стратегии' и выберите BAT стратегию."
-                )
+        if bat_strategy_name in ("Прямой запуск (Запрет 2)", None, "") or "Прямой запуск" in (bat_strategy_name or ""):
+            bat_strategy_name = get_last_bat_strategy()
+            if not bat_strategy_name:
+                log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
                 return
-        
-        index_json_path = (Path(self.json_folder) / "index.json").resolve()
         
         ok = setup_autostart_for_strategy(
             selected_mode=bat_strategy_name,
             bat_folder=self.bat_folder,
-            index_path=str(index_json_path),
-            ui_error_cb=lambda msg: QMessageBox.critical(self, "Ошибка", msg),
+            ui_error_cb=lambda msg: log(msg, "ERROR"),
         )
         
         if ok:
+            self._current_autostart_type = "logon"
             self.update_status(True, bat_strategy_name, "logon")
             self.autostart_enabled.emit()
-            QMessageBox.information(
-                self, "Успешно",
-                f"✅ Автозапуск стратегии настроен!\n\n"
-                f"Стратегия «{bat_strategy_name}» будет\n"
-                "запускаться при входе в Windows."
-            )
     
     def _setup_bat_service(self):
         """Служба для BAT режима"""
-        from pathlib import Path
         from autostart.autostart_service import setup_service_for_strategy
         from config import get_last_strategy
         
         # Инициализируем папки если не установлены
         self._ensure_folders_initialized()
         
-        if not self.bat_folder or not self.json_folder:
-            QMessageBox.critical(self, "Ошибка", "Папки не настроены")
+        if not self.bat_folder:
+            log("Папка стратегий не настроена", "ERROR")
             return
         
-        # Для BAT режима используем сохранённую стратегию, а не "Прямой запуск"
+        # Для BAT режима используем сохранённую стратегию (отдельный ключ реестра)
         bat_strategy_name = self.strategy_name
-        if bat_strategy_name in ("Прямой запуск", "COMBINED_DIRECT", None, ""):
-            bat_strategy_name = get_last_strategy()
-            if bat_strategy_name in ("COMBINED_DIRECT", None, ""):
-                QMessageBox.critical(
-                    self, "Ошибка", 
-                    "Для BAT режима необходимо сначала выбрать стратегию.\n\n"
-                    "Откройте меню 'Стратегии' и выберите BAT стратегию."
-                )
+        if bat_strategy_name in ("Прямой запуск (Запрет 2)", None, "") or "Прямой запуск" in (bat_strategy_name or ""):
+            bat_strategy_name = get_last_bat_strategy()
+            if not bat_strategy_name:
+                log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
                 return
-        
-        index_json_path = (Path(self.json_folder) / "index.json").resolve()
         
         ok = setup_service_for_strategy(
             selected_mode=bat_strategy_name,
             bat_folder=self.bat_folder,
-            index_path=str(index_json_path),
-            ui_error_cb=lambda msg: QMessageBox.critical(self, "Ошибка", msg),
+            ui_error_cb=lambda msg: log(msg, "ERROR"),
         )
         
         if ok:
+            self._current_autostart_type = "service"
             self.update_status(True, bat_strategy_name, "service")
             self.autostart_enabled.emit()
-            QMessageBox.information(
-                self, "Успешно",
-                f"✅ Служба Windows создана!\n\n"
-                f"Стратегия «{bat_strategy_name}» будет\n"
-                "запускаться как служба Windows."
-            )

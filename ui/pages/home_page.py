@@ -1,16 +1,61 @@
 # ui/pages/home_page.py
 """Главная страница - обзор состояния системы"""
 
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout, QSizePolicy
+    QFrame, QGridLayout, QSizePolicy, QProgressBar
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, StatusIndicator, ActionButton
+from log import log
+
+
+class AutostartCheckWorker(QThread):
+    """Быстрая фоновая проверка статуса автозапуска"""
+    finished = pyqtSignal(bool)  # True если автозапуск включён
+    
+    def run(self):
+        try:
+            result = self._check_autostart()
+            self.finished.emit(result)
+        except Exception as e:
+            log(f"AutostartCheckWorker error: {e}", "WARNING")
+            self.finished.emit(False)
+    
+    def _check_autostart(self) -> bool:
+        """Быстрая проверка наличия автозапуска через реестр"""
+        try:
+            from autostart.registry_check import AutostartRegistryChecker
+            return AutostartRegistryChecker.is_autostart_enabled()
+        except Exception:
+            return False
+
+
+# Стиль для индикатора загрузки (бегающая полоска)
+PROGRESS_STYLE = """
+QProgressBar {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: none;
+    border-radius: 2px;
+    height: 4px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 transparent,
+        stop:0.3 #60cdff,
+        stop:0.5 #60cdff,
+        stop:0.7 #60cdff,
+        stop:1 transparent
+    );
+    border-radius: 2px;
+}
+"""
 
 
 class StatusCard(QFrame):
@@ -91,7 +136,79 @@ class StatusCard(QFrame):
         """)
         
     def set_value(self, value: str, info: str = ""):
+        """Устанавливает текстовое значение"""
+        # Скрываем иконки, показываем текст
+        if hasattr(self, 'icons_container'):
+            self.icons_container.hide()
+        self.value_label.show()
         self.value_label.setText(value)
+        self.info_label.setText(info)
+    
+    def set_value_with_icons(self, categories_data: list, info: str = ""):
+        """
+        Устанавливает значение с иконками категорий.
+        
+        Args:
+            categories_data: список кортежей (icon_name, icon_color, is_active)
+            info: текст подписи
+        """
+        # Создаём контейнер для иконок если его нет
+        if not hasattr(self, 'icons_container'):
+            self.icons_container = QWidget()
+            self.icons_layout = QHBoxLayout(self.icons_container)
+            self.icons_layout.setContentsMargins(0, 0, 0, 0)
+            self.icons_layout.setSpacing(4)
+            # Вставляем после value_label
+            self.layout().insertWidget(2, self.icons_container)
+        
+        # Очищаем старые иконки
+        while self.icons_layout.count():
+            item = self.icons_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Скрываем текстовый label, показываем иконки
+        self.value_label.hide()
+        self.icons_container.show()
+        
+        # Добавляем иконки категорий
+        active_count = 0
+        for icon_name, icon_color, is_active in categories_data:
+            if is_active:
+                active_count += 1
+                icon_label = QLabel()
+                try:
+                    pixmap = qta.icon(icon_name, color=icon_color).pixmap(20, 20)
+                    icon_label.setPixmap(pixmap)
+                except:
+                    pixmap = qta.icon('fa5s.globe', color='#60cdff').pixmap(20, 20)
+                    icon_label.setPixmap(pixmap)
+                icon_label.setFixedSize(22, 22)
+                icon_label.setToolTip(icon_name.split('.')[-1].replace('-', ' ').title())
+                self.icons_layout.addWidget(icon_label)
+        
+        # Если слишком много - показываем +N
+        if active_count > 10:
+            # Оставляем первые 9 + счётчик
+            while self.icons_layout.count() > 9:
+                item = self.icons_layout.takeAt(9)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            extra_label = QLabel(f"+{active_count - 9}")
+            extra_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(255, 255, 255, 0.6);
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 2px 6px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: 8px;
+                }
+            """)
+            self.icons_layout.addWidget(extra_label)
+        
+        self.icons_layout.addStretch()
         self.info_label.setText(info)
         
     def set_status_color(self, status: str):
@@ -119,7 +236,27 @@ class HomePage(BasePage):
     def __init__(self, parent=None):
         super().__init__("Главная", "Обзор состояния Zapret", parent)
         
+        self._autostart_worker = None
         self._build_ui()
+    
+    def showEvent(self, event):
+        """При показе страницы обновляем статус автозапуска"""
+        super().showEvent(event)
+        # Запускаем проверку автозапуска в фоне с небольшой задержкой
+        QTimer.singleShot(100, self._check_autostart_status)
+    
+    def _check_autostart_status(self):
+        """Запускает фоновую проверку статуса автозапуска"""
+        if self._autostart_worker is not None and self._autostart_worker.isRunning():
+            return
+        
+        self._autostart_worker = AutostartCheckWorker()
+        self._autostart_worker.finished.connect(self._on_autostart_checked)
+        self._autostart_worker.start()
+    
+    def _on_autostart_checked(self, enabled: bool):
+        """Обработчик результата проверки автозапуска"""
+        self.update_autostart_status(enabled)
         
     def _build_ui(self):
         # Сетка карточек статуса
@@ -192,6 +329,16 @@ class HomePage(BasePage):
         status_card.add_widget(self.status_indicator)
         self.add_widget(status_card)
         
+        # Индикатор загрузки (бегающая полоска)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(0)  # Indeterminate mode
+        self.progress_bar.setVisible(False)
+        self.add_widget(self.progress_bar)
+        
         self.add_spacing(12)
         
         # Блок Premium
@@ -211,7 +358,52 @@ class HomePage(BasePage):
             self.stop_btn.setVisible(False)
             
         if strategy_name:
-            # Обрезаем длинные названия для карточки
+            # Пробуем показать иконки категорий для Direct режима
+            self._update_strategy_card_with_icons(strategy_name)
+    
+    def _update_strategy_card_with_icons(self, strategy_name: str):
+        """Обновляет карточку стратегии с иконками категорий"""
+        try:
+            from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+            from strategy_menu.strategies_registry import registry
+            
+            # Для Direct режима показываем иконки
+            if get_strategy_launch_method() == "direct":
+                selections = get_direct_strategy_selections()
+                
+                # Собираем данные о категориях: (icon_name, icon_color, is_active)
+                categories_data = []
+                active_count = 0
+                
+                for cat_key in registry.get_all_category_keys():
+                    cat_info = registry.get_category_info(cat_key)
+                    if cat_info:
+                        strat_id = selections.get(cat_key, "none")
+                        is_active = strat_id and strat_id != "none"
+                        
+                        if is_active:
+                            active_count += 1
+                            categories_data.append((
+                                cat_info.icon_name or 'fa5s.globe',
+                                cat_info.icon_color or '#60cdff',
+                                True
+                            ))
+                
+                if active_count > 0:
+                    self.strategy_card.set_value_with_icons(
+                        categories_data, 
+                        f"Активно {active_count} категорий"
+                    )
+                    return
+            
+            # Fallback - текстовое отображение для BAT режима
+            display_name = self._truncate_strategy_name(strategy_name)
+            self.strategy_card.set_value(display_name, "Активная стратегия")
+            
+        except Exception as e:
+            from log import log
+            log(f"Ошибка обновления карточки стратегии: {e}", "DEBUG")
+            # Fallback на текст
             display_name = self._truncate_strategy_name(strategy_name)
             self.strategy_card.set_value(display_name, "Активная стратегия")
     
@@ -219,25 +411,32 @@ class HomePage(BasePage):
         """Обрезает длинное название стратегии для карточки"""
         if not name or name in ("Не выбрана", "Прямой запуск"):
             return name
-            
-        # Если это список категорий через запятую
-        if ", " in name:
-            parts = name.split(", ")
-            # Проверяем есть ли "+N" в конце
+        
+        # Определяем разделитель - поддерживаем и " • " (Direct режим) и ", " (старый формат)
+        separator = " • " if " • " in name else ", "
+        
+        # Если это список категорий
+        if separator in name:
+            parts = name.split(separator)
+            # Проверяем есть ли "+N ещё" в конце
             extra = ""
-            if parts and parts[-1].startswith("+"):
-                extra_num = int(parts[-1][1:]) if parts[-1][1:].isdigit() else 0
-                parts = parts[:-1]
-                extra_num += len(parts) - max_items
-                if extra_num > 0:
-                    extra = f" +{extra_num}"
+            if parts and (parts[-1].startswith("+") or "ещё" in parts[-1]):
+                # Извлекаем число из "+N ещё"
+                last_part = parts[-1]
+                if last_part.startswith("+"):
+                    # Формат "+2 ещё"
+                    extra_num = int(''.join(filter(str.isdigit, last_part))) or 0
+                    parts = parts[:-1]
+                    extra_num += len(parts) - max_items
+                    if extra_num > 0:
+                        extra = f"+{extra_num}"
             elif len(parts) > max_items:
-                extra = f" +{len(parts) - max_items}"
+                extra = f"+{len(parts) - max_items}"
                 
             if len(parts) > max_items:
-                return ", ".join(parts[:max_items]) + extra
+                return separator.join(parts[:max_items]) + (f" {extra}" if extra else "")
             elif extra:
-                return ", ".join(parts) + extra
+                return separator.join(parts) + f" {extra}"
                 
         return name
             
@@ -265,6 +464,18 @@ class HomePage(BasePage):
     def set_status(self, text: str, status: str = "neutral"):
         """Устанавливает текст статусной строки"""
         self.status_indicator.set_status(text, status)
+    
+    def set_loading(self, loading: bool, text: str = ""):
+        """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
+        self.progress_bar.setVisible(loading)
+        
+        # Блокируем/разблокируем кнопки
+        self.start_btn.setEnabled(not loading)
+        self.stop_btn.setEnabled(not loading)
+        
+        # Обновляем статус если есть текст
+        if loading and text:
+            self.status_indicator.set_status(text, "neutral")
         
     def _build_premium_block(self):
         """Создает блок Premium на главной странице"""

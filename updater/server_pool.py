@@ -281,6 +281,17 @@ class ServerPool:
             log("⚠️ Нет других доступных серверов", "POOL")
             return False
     
+    # Алиас для совместимости
+    force_switch = force_switch_server
+    
+    def is_server_blocked(self, server_id: str) -> bool:
+        """Проверяет заблокирован ли сервер"""
+        stats = self.stats.get(server_id, {})
+        blocked_until = stats.get('blocked_until')
+        if blocked_until and time.time() < blocked_until:
+            return True
+        return False
+    
     def get_all_stats(self) -> Dict[str, Any]:
         """Возвращает полную статистику всех серверов"""
         result = {}

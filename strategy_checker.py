@@ -89,7 +89,7 @@ class StrategyChecker:
                     
                     if category_info:
                         active_categories.append(category_info.full_name)
-                        strategy_names.append(f"{category_info.emoji} {strategy_name}")
+                        strategy_names.append(f"{category_info.full_name}: {strategy_name}")
             
             # Подсчитываем параметры
             args_list = combined['args'].split() if combined['args'] else []

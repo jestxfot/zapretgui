@@ -22,7 +22,6 @@ class SystemTrayManager:
         self.parent        = parent
         self.tray_icon     = QSystemTrayIcon(parent)
         self.app_version   = app_version
-        self._shown_hint   = False            # показано ли «свернуто в трей»
 
         # иконка + меню + сигналы
         self.set_icon(icon_path)
@@ -222,12 +221,14 @@ class SystemTrayManager:
         # Проверяем флаг разрешения закрытия (устанавливается в exit_only/exit_and_stop)
         if not getattr(self.parent, '_allow_close', False):
             # Обычное закрытие окна (крестик) - сворачиваем в трей
-            if not self._shown_hint:
+            # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
+            from config import get_tray_hint_shown, set_tray_hint_shown
+            if not get_tray_hint_shown():
                 self.show_notification(
                     "Zapret продолжает работать",
                     "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
                 )
-                self._shown_hint = True
+                set_tray_hint_shown(True)
             
             # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
             self._save_window_geometry()
@@ -247,11 +248,14 @@ class SystemTrayManager:
             self._save_window_geometry()
             
             self.parent.hide()
-            if not self._shown_hint:
+            
+            # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
+            from config import get_tray_hint_shown, set_tray_hint_shown
+            if not get_tray_hint_shown():
                 self.show_notification(
                     "Zapret продолжает работать",
                     "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
                 )
-                self._shown_hint = True
+                set_tray_hint_shown(True)
         else:
             self._orig_change(ev)

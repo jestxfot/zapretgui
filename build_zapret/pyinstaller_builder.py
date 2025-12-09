@@ -8,6 +8,44 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+def embed_certificate_in_installer(root_path: Path) -> None:
+    """
+    Встраивает сертификат в certificate_installer.py в формате base64.
+    
+    Args:
+        root_path: Корневая папка проекта
+    """
+    import base64
+    
+    try:
+        cert_file = Path(__file__).parent / "zapret_certificate.cer"
+        installer_file = root_path / "startup" / "certificate_installer.py"
+        
+        if not cert_file.exists() or not installer_file.exists():
+            return
+        
+        # Читаем сертификат
+        cert_data = cert_file.read_bytes()
+        cert_base64 = base64.b64encode(cert_data).decode('ascii')
+        
+        # Читаем installer файл
+        installer_content = installer_file.read_text(encoding='utf-8')
+        
+        # Заменяем встроенный сертификат
+        import re
+        new_content = re.sub(
+            r'EMBEDDED_CERTIFICATE = ""',
+            f'EMBEDDED_CERTIFICATE = "{cert_base64}"',
+            installer_content
+        )
+        
+        # Сохраняем
+        installer_file.write_text(new_content, encoding='utf-8')
+        
+    except Exception:
+        pass  # Не критично
+
+
 def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = None) -> Path:
     """
     Создает spec файл для PyInstaller с исключением папки build_zapret
@@ -20,6 +58,10 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
     Returns:
         Path: Путь к созданному spec файлу
     """
+    
+    # ✅ Встраиваем сертификат перед сборкой
+    embed_certificate_in_installer(root_path)
+    
     icon_file = 'ZapretDevLogo4.ico' if channel == 'test' else 'Zapret2.ico'
     
     # Ищем файл иконки в разных местах
@@ -47,6 +89,14 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Используется иконка: {icon_path}")
     
+    # ✅ Добавляем сертификат в datas (если существует)
+    datas_line = "datas=[]"
+    cert_file = Path(__file__).parent / "zapret_certificate.cer"
+    if cert_file.exists():
+        datas_line = f"datas=[(r'{cert_file}', '.')]"
+        if log_queue:
+            log_queue.put(f"✅ Сертификат будет встроен: {cert_file}")
+    
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 import sys
 from PyInstaller.utils.hooks import collect_submodules
@@ -61,7 +111,7 @@ a = Analysis(
     ['main.py'],
     pathex=[r'{root_path}'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[],  # ✅ Python модули включаются через hiddenimports, НЕ через datas
+    {datas_line},  # ✅ Включаем сертификат и другие data файлы
     hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
         # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
         'ui',
@@ -120,6 +170,18 @@ a = Analysis(
         'threading',
         'atexit',
         'traceback',
+        
+        # ============= STARTUP MODULES =============
+        'startup',
+        'startup.admin_check',
+        'startup.single_instance',
+        'startup.kaspersky',
+        'startup.ipc_manager',
+        'startup.check_start',
+        'startup.bfe_util',
+        'startup.remove_terminal',
+        'startup.admin_check_debug',
+        'startup.certificate_installer',  # ✅ Автоустановка сертификата
         
         # Windows API
         'win32com', 
@@ -298,8 +360,98 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
         if log_queue:
             log_queue.put(f"❌ Ошибка PyInstaller: {e}")
         raise
+    
+    finally:
+        # Очищаем временную рабочую папку
+        try:
+            if work.exists():
+                shutil.rmtree(work, ignore_errors=True)
+                if log_queue:
+                    log_queue.put(f"🧹 Удалена рабочая папка: {work}")
+        except Exception:
+            pass
         
+        # Очищаем старые _MEI* папки в TEMP
+        cleanup_pyinstaller_temp(log_queue)
+        
+        # ✅ Подписываем exe файл если есть сертификат
+        sign_exe_if_available(exe_path, log_queue)
 
+
+def cleanup_pyinstaller_temp(log_queue: Optional[Any] = None, max_age_hours: int = 1) -> int:
+    """
+    Удаляет старые временные папки PyInstaller (_MEI*) из TEMP.
+    
+    Args:
+        log_queue: Очередь для логов (опционально)
+        max_age_hours: Максимальный возраст папок в часах (по умолчанию 1 час)
+        
+    Returns:
+        int: Количество удалённых папок
+    """
+    import os
+    import time
+    
+    try:
+        temp_dir = tempfile.gettempdir()
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        cleaned_count = 0
+        cleaned_size_mb = 0
+        
+        # ✅ Получаем путь к папке ТЕКУЩЕГО процесса (если сборщик запущен через PyInstaller)
+        current_mei_folder = getattr(sys, '_MEIPASS', None)
+        
+        # Находим все папки _MEI*
+        for entry in os.scandir(temp_dir):
+            if entry.is_dir() and entry.name.startswith('_MEI'):
+                try:
+                    # ✅ НЕ УДАЛЯЕМ папку текущего процесса!
+                    if current_mei_folder:
+                        try:
+                            if os.path.samefile(entry.path, current_mei_folder):
+                                continue
+                        except:
+                            pass
+                    
+                    # Проверяем возраст папки
+                    folder_age = current_time - entry.stat().st_mtime
+                    
+                    if folder_age > max_age_seconds:
+                        # Считаем размер перед удалением
+                        folder_size = 0
+                        try:
+                            for root, dirs, files in os.walk(entry.path):
+                                for f in files:
+                                    try:
+                                        folder_size += os.path.getsize(os.path.join(root, f))
+                                    except:
+                                        pass
+                        except:
+                            pass
+                        
+                        # Удаляем папку
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                        
+                        if not os.path.exists(entry.path):
+                            cleaned_count += 1
+                            cleaned_size_mb += folder_size / (1024 * 1024)
+                            
+                except (PermissionError, OSError):
+                    # Папка занята другим процессом - пропускаем
+                    pass
+                except Exception:
+                    pass
+        
+        if cleaned_count > 0 and log_queue:
+            log_queue.put(f"🧹 Очищено {cleaned_count} старых _MEI* папок ({cleaned_size_mb:.1f} MB)")
+            
+        return cleaned_count
+        
+    except Exception as e:
+        if log_queue:
+            log_queue.put(f"⚠️ Ошибка очистки temp папок: {e}")
+        return 0
 
 
 def check_pyinstaller_available() -> bool:
@@ -313,6 +465,96 @@ def check_pyinstaller_available() -> bool:
         import PyInstaller
         return True
     except ImportError:
+        return False
+
+
+def sign_exe_if_available(exe_path: Path, log_queue: Optional[Any] = None) -> bool:
+    """
+    Подписывает exe файл цифровой подписью если доступен сертификат.
+    
+    Args:
+        exe_path: Путь к exe файлу
+        log_queue: Очередь для логов
+        
+    Returns:
+        bool: True если подпись выполнена успешно
+    """
+    import subprocess
+    import glob
+    
+    try:
+        # Ищем signtool.exe (Windows SDK)
+        signtool_patterns = [
+            r"C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe",
+            r"C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe",
+            r"C:\Program Files\Windows Kits\10\bin\*\x64\signtool.exe",
+        ]
+        
+        signtool = None
+        for pattern in signtool_patterns:
+            matches = glob.glob(pattern)
+            if matches:
+                # Берем самую новую версию
+                signtool = sorted(matches, reverse=True)[0]
+                break
+        
+        if not signtool:
+            if log_queue:
+                log_queue.put("⚠️ signtool.exe не найден (Windows SDK не установлен)")
+                log_queue.put("   Скачайте: https://developer.microsoft.com/windows/downloads/windows-sdk/")
+            return False
+        
+        # ✅ Загружаем thumbprint из конфига (если есть)
+        cert_thumbprint = None
+        try:
+            config_file = Path(__file__).parent / "certificate_config.py"
+            if config_file.exists():
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("cert_config", config_file)
+                cert_config = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(cert_config)
+                cert_thumbprint = cert_config.CERTIFICATE_THUMBPRINT
+        except Exception:
+            pass
+        
+        if not cert_thumbprint:
+            if log_queue:
+                log_queue.put("ℹ️ Сертификат не настроен")
+                log_queue.put("   Создайте: python build_zapret/create_certificate.py")
+            return False
+        
+        if log_queue:
+            log_queue.put(f"🔐 Подпись exe файла...")
+            log_queue.put(f"   Сертификат: {cert_thumbprint[:16]}...")
+        
+        # Подписываем файл
+        cmd = [
+            signtool, "sign",
+            "/sha1", cert_thumbprint,
+            "/fd", "sha256",
+            "/tr", "http://timestamp.digicert.com",
+            "/td", "sha256",
+            "/v",
+            str(exe_path)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            if log_queue:
+                log_queue.put(f"✅ Файл успешно подписан цифровой подписью")
+            return True
+        else:
+            if log_queue:
+                log_queue.put(f"⚠️ Ошибка подписи:")
+                for line in result.stderr.strip().split('\n'):
+                    if line.strip():
+                        log_queue.put(f"   {line}")
+            return False
+            
+    except Exception as e:
+        if log_queue:
+            log_queue.put(f"⚠️ Ошибка при подписи exe: {e}")
         return False
 
 

@@ -11,9 +11,11 @@ from PyQt6.QtGui import QIcon, QFont
 
 from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
+from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
-    HomePage, ControlPage, StrategiesPage, HostlistPage, IpsetPage, EditorPage, DpiSettingsPage,
-    AutostartPage, NetworkPage, AppearancePage, AboutPage, LogsPage, PremiumPage
+    HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
+    AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
+    ServersPage, ConnectionTestPage, DNSCheckPage
 )
 
 import qtawesome as qta
@@ -124,12 +126,16 @@ class MainWindowUI:
         # ────────────────────────────────────────────────────────────
         self.side_nav = SideNavBar(self)
         self.side_nav.section_changed.connect(self._on_section_changed)
+        self.side_nav.pin_state_changed.connect(self._on_sidebar_pin_changed)
         root.addWidget(self.side_nav)
         
+        # Сохраняем ссылку на layout для управления плавающим режимом
+        self._root_layout = root
+        
         # ────────────────────────────────────────────────────────────
-        # ОБЛАСТЬ КОНТЕНТА
+        # ОБЛАСТЬ КОНТЕНТА (с поддержкой перетаскивания окна)
         # ────────────────────────────────────────────────────────────
-        content_area = QWidget(target_widget)  # ✅ Явный родитель
+        content_area = DraggableWidget(target_widget)  # ✅ Позволяет перетаскивать окно за пустые области
         content_area.setObjectName("contentArea")
         content_area.setStyleSheet("""
             QWidget#contentArea {
@@ -184,35 +190,73 @@ class MainWindowUI:
         self.ipset_page = IpsetPage(self)
         self.pages_stack.addWidget(self.ipset_page)
         
-        # Редактор стратегий (индекс 5)
+        # Блобы - управление бинарными данными для Zapret 2 (индекс 5)
+        self.blobs_page = BlobsPage(self)
+        self.pages_stack.addWidget(self.blobs_page)
+        
+        # Редактор стратегий (индекс 6)
         self.editor_page = EditorPage(self)
         self.pages_stack.addWidget(self.editor_page)
         
-        # Настройки DPI (индекс 6)
+        # Настройки DPI (индекс 7)
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
         
-        # Автозапуск (индекс 7)
+        # === МОИ СПИСКИ ===
+        # Исключения netrogat.txt (индекс 8)
+        self.netrogat_page = NetrogatPage(self)
+        self.pages_stack.addWidget(self.netrogat_page)
+        
+        # Мои домены - управление other2.txt (индекс 9)
+        self.custom_domains_page = CustomDomainsPage(self)
+        self.pages_stack.addWidget(self.custom_domains_page)
+        
+        # Мои IP - управление my-ipset.txt (индекс 10)
+        self.custom_ipset_page = CustomIpSetPage(self)
+        self.pages_stack.addWidget(self.custom_ipset_page)
+        # === КОНЕЦ МОИ СПИСКИ ===
+        
+        # Автозапуск (индекс 11)
         self.autostart_page = AutostartPage(self)
         self.pages_stack.addWidget(self.autostart_page)
         
-        # Сеть (индекс 8)
+        # Сеть (индекс 12)
         self.network_page = NetworkPage(self)
         self.pages_stack.addWidget(self.network_page)
+
+        # Диагностика соединения (индекс 13)
+        self.connection_page = ConnectionTestPage(self)
+        self.pages_stack.addWidget(self.connection_page)
         
-        # Оформление (индекс 9)
+        # DNS подмена - подпункт диагностики (индекс 14)
+        self.dns_check_page = DNSCheckPage(self)
+        self.pages_stack.addWidget(self.dns_check_page)
+        
+        # Hosts - разблокировка сервисов (индекс 15)
+        self.hosts_page = HostsPage(self)
+        self.pages_stack.addWidget(self.hosts_page)
+        
+        # BlockCheck (индекс 16)
+        self.blockcheck_page = BlockcheckPage(self)
+        self.pages_stack.addWidget(self.blockcheck_page)
+        
+        # Оформление (индекс 17)
         self.appearance_page = AppearancePage(self)
         self.pages_stack.addWidget(self.appearance_page)
         
-        # Premium (индекс 10)
+        # Premium (индекс 18)
         self.premium_page = PremiumPage(self)
         self.pages_stack.addWidget(self.premium_page)
         
-        # Логи (индекс 11)
+        # Логи (индекс 19)
         self.logs_page = LogsPage(self)
         self.pages_stack.addWidget(self.logs_page)
         
-        # О программе (индекс 12)
+        # Серверы обновлений (индекс 20)
+        self.servers_page = ServersPage(self)
+        self.pages_stack.addWidget(self.servers_page)
+        
+        # О программе (индекс 21)
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
         
@@ -229,22 +273,12 @@ class MainWindowUI:
         self.test_connection_btn = self.home_page.test_btn
         self.open_folder_btn = self.home_page.folder_btn
         
-        # Кнопки сети
-        self.proxy_button = self.network_page.proxy_toggle_btn
-        
         # Кнопки о программе
         self.server_status_btn = self.about_page.update_btn
         self.subscription_btn = self.about_page.premium_btn
         
-        # Комбо-бокс темы
-        self.theme_combo = self.appearance_page.theme_combo
-        
         # Метка текущей стратегии
         self.current_strategy_label = self.strategies_page.current_strategy_label
-        
-        # Списки для тематических элементов
-        self.themed_buttons = []
-        self.themed_labels = [self.current_strategy_label]
         
     def _connect_page_signals(self):
         """Подключает сигналы от страниц"""
@@ -253,7 +287,7 @@ class MainWindowUI:
         # select_strategy_clicked теперь не нужен - стратегии выбираются на странице
         self.start_clicked = self.home_page.start_btn.clicked
         self.stop_clicked = self.home_page.stop_btn.clicked
-        self.theme_changed = self.appearance_page.theme_combo.currentTextChanged
+        self.theme_changed = self.appearance_page.theme_changed
         
         # Подключаем сигнал выбора стратегии из новой страницы
         if hasattr(self.strategies_page, 'strategy_selected'):
@@ -265,7 +299,8 @@ class MainWindowUI:
         
         # Дублируем кнопки на страницу управления
         self.control_page.start_btn.clicked.connect(self._proxy_start_click)
-        self.control_page.stop_btn.clicked.connect(self._proxy_stop_click)
+        self.control_page.stop_winws_btn.clicked.connect(self._proxy_stop_click)
+        self.control_page.stop_and_exit_btn.clicked.connect(self._proxy_stop_and_exit)
         self.control_page.test_btn.clicked.connect(self._proxy_test_click)
         self.control_page.folder_btn.clicked.connect(self._proxy_folder_click)
         
@@ -296,6 +331,9 @@ class MainWindowUI:
         if hasattr(self.strategies_page, 'launch_method_changed'):
             self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
         
+        # Подключаем сигнал обновления со страницы серверов
+        # Обновления управляются напрямую на странице servers_page
+    
     def _on_filters_changed(self):
         """Обработчик изменения фильтров - перезагружаем страницу стратегий"""
         from log import log
@@ -305,42 +343,166 @@ class MainWindowUI:
         
     def _on_launch_method_changed(self, method: str):
         """Обработчик смены метода запуска стратегий"""
-        from PyQt6.QtWidgets import QMessageBox
         from log import log
         from config import WINWS_EXE, WINWS2_EXE
         
-        log(f"Метод запуска изменён на: {method}", "INFO")
+        log(f"🔄 Метод запуска изменён на: {method}", "INFO")
+        
+        # ⚠️ СНАЧАЛА ОСТАНАВЛИВАЕМ ВСЕ ПРОЦЕССЫ winws*.exe через Win API
+        if hasattr(self, 'dpi_starter') and self.dpi_starter.check_process_running_wmi(silent=True):
+            log("🛑 Останавливаем все процессы winws*.exe перед переключением режима...", "INFO")
+            
+            try:
+                from utils.process_killer import kill_winws_all
+                
+                # Принудительно завершаем все процессы через Win API
+                killed = kill_winws_all()
+                
+                if killed:
+                    log("✅ Все процессы winws*.exe остановлены через Win API", "INFO")
+                else:
+                    log("Процессы winws*.exe не найдены", "DEBUG")
+                
+                # Очищаем службу WinDivert
+                if hasattr(self, 'dpi_starter'):
+                    self.dpi_starter.cleanup_windivert_service()
+                
+                # Обновляем UI после остановки
+                if hasattr(self, 'ui_manager'):
+                    self.ui_manager.update_ui_state(running=False)
+                if hasattr(self, 'process_monitor_manager'):
+                    self.process_monitor_manager.on_process_status_changed(False)
+                
+                # Небольшая пауза для гарантии остановки
+                import time
+                time.sleep(0.2)
+                
+            except Exception as e:
+                log(f"Ошибка остановки через Win API: {e}", "WARNING")
+        
+        # Сразу переключаемся без ожидания
+        self._complete_method_switch(method)
+    
+    def _complete_method_switch(self, method: str):
+        """Завершает переключение метода после остановки процесса"""
+        from log import log
+        from config import WINWS_EXE, WINWS2_EXE
+        
+        # ✅ Очищаем службы WinDivert через Win API
+        try:
+            from utils.service_manager import cleanup_windivert_services
+            cleanup_windivert_services()
+            log("🧹 Службы WinDivert очищены", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка очистки служб: {e}", "DEBUG")
         
         # ✅ Обновляем путь к exe в dpi_starter
         if hasattr(self, 'dpi_starter'):
             if method == "direct":
                 self.dpi_starter.winws_exe = WINWS2_EXE
-                log(f"dpi_starter.winws_exe обновлён на: {WINWS2_EXE}", "INFO")
+                log("Переключение на winws2.exe (Direct режим)", "DEBUG")
             else:
                 self.dpi_starter.winws_exe = WINWS_EXE
-                log(f"dpi_starter.winws_exe обновлён на: {WINWS_EXE}", "INFO")
+                log("Переключение на winws.exe (BAT режим)", "DEBUG")
         
-        # ✅ Сбрасываем глобальный StrategyRunner чтобы он пересоздался с новым путём
+        # ✅ Помечаем StrategyRunner для пересоздания
         try:
-            from strategy_menu.strategy_runner import reset_strategy_runner
-            reset_strategy_runner()
-            log("StrategyRunner сброшен для использования нового exe", "DEBUG")
+            from strategy_menu.strategy_runner import invalidate_strategy_runner
+            invalidate_strategy_runner()
         except Exception as e:
-            log(f"Ошибка сброса StrategyRunner: {e}", "WARNING")
+            log(f"Ошибка инвалидации StrategyRunner: {e}", "WARNING")
         
         # ✅ Перезагружаем страницу стратегий для нового режима
         if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'reload_for_mode_change'):
             self.strategies_page.reload_for_mode_change()
-            log("Страница стратегий перезагружена для нового режима", "DEBUG")
         
-        # Показываем уведомление
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle("Метод запуска изменён")
-        msg.setText(f"Метод запуска: {'Zapret 2 (рекомендуется)' if method == 'direct' else 'Zapret 1 (через .bat)'}")
-        msg.setInformativeText("Перезапустите DPI для применения.")
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
+        # ✅ Обновляем видимость вкладки "Блобы" в сайдбаре
+        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
+            self.side_nav.update_blobs_visibility()
+        
+        log(f"✅ Переключение на режим '{method}' завершено", "INFO")
+        
+        # ✅ Автоматически запускаем DPI с выбранными стратегиями
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
+    
+    def _auto_start_after_method_switch(self, method: str):
+        """Автоматически запускает DPI после переключения метода"""
+        from log import log
+        
+        try:
+            if not hasattr(self, 'dpi_controller') or not self.dpi_controller:
+                log("DPI контроллер не найден для автозапуска", "WARNING")
+                return
+            
+            # Показываем спиннер на странице стратегий
+            if hasattr(self, 'strategies_page'):
+                self.strategies_page.show_loading()
+            
+            if method == "direct":
+                # Zapret 2 - Direct режим
+                from strategy_menu import get_direct_strategy_selections
+                from strategy_menu.strategy_lists_separated import combine_strategies
+                
+                selections = get_direct_strategy_selections()
+                combined = combine_strategies(**selections)
+                
+                # Формируем данные для запуска
+                selected_mode = {
+                    'is_combined': True,
+                    'name': 'Прямой запуск',
+                    'args': combined.get('args', ''),
+                    'category_strategies': combined.get('category_strategies', {})
+                }
+                
+                log(f"🚀 Автозапуск Zapret 2 (Direct) после переключения режима", "INFO")
+                self.dpi_controller.start_dpi_async(selected_mode=selected_mode)
+                
+                # Обновляем GUI
+                if hasattr(self, 'current_strategy_label'):
+                    self.current_strategy_label.setText("Прямой запуск")
+                if hasattr(self, 'current_strategy_name'):
+                    self.current_strategy_name = "Прямой запуск"
+                
+                # Обновляем отображение на странице стратегий
+                if hasattr(self, 'strategies_page'):
+                    self.strategies_page._update_current_strategies_display()
+                
+            else:
+                # Zapret 1 - BAT режим (отдельный ключ реестра)
+                from config.reg import get_last_bat_strategy
+                
+                last_strategy = get_last_bat_strategy()
+                
+                if last_strategy and last_strategy != "Автостарт DPI отключен":
+                    log(f"🚀 Автозапуск Zapret 1 (BAT): {last_strategy}", "INFO")
+                    self.dpi_controller.start_dpi_async(selected_mode=last_strategy)
+                    
+                    # Обновляем GUI
+                    if hasattr(self, 'current_strategy_label'):
+                        self.current_strategy_label.setText(last_strategy)
+                    if hasattr(self, 'current_strategy_name'):
+                        self.current_strategy_name = last_strategy
+                    
+                    # Обновляем отображение на странице стратегий
+                    if hasattr(self, 'strategies_page'):
+                        self.strategies_page.current_strategy_label.setText(f"🎯 {last_strategy}")
+                else:
+                    log("⏸️ BAT режим: нет сохранённой стратегии для автозапуска", "INFO")
+                    if hasattr(self, 'strategies_page'):
+                        self.strategies_page.show_success()
+                        self.strategies_page.current_strategy_label.setText("Не выбрана")
+            
+            # Запускаем мониторинг процесса
+            if hasattr(self, 'strategies_page'):
+                self.strategies_page._start_process_monitoring()
+                
+        except Exception as e:
+            log(f"Ошибка автозапуска после переключения режима: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            if hasattr(self, 'strategies_page'):
+                self.strategies_page.show_success()
         
     def _proxy_start_click(self):
         """Прокси для сигнала start от control_page"""
@@ -349,6 +511,21 @@ class MainWindowUI:
     def _proxy_stop_click(self):
         """Прокси для сигнала stop от control_page"""
         self.home_page.stop_btn.click()
+    
+    def _proxy_stop_and_exit(self):
+        """Остановка winws и закрытие программы"""
+        from log import log
+        log("Остановка winws и закрытие программы...", "INFO")
+        
+        # Используем dpi_controller для корректной остановки и выхода
+        if hasattr(self, 'dpi_controller') and self.dpi_controller:
+            self._closing_completely = True
+            self.dpi_controller.stop_and_exit_async()
+        else:
+            # Fallback - просто останавливаем и выходим
+            self.home_page.stop_btn.click()
+            from PyQt6.QtWidgets import QApplication
+            QApplication.quit()
         
     def _proxy_test_click(self):
         """Прокси для теста соединения"""
@@ -359,16 +536,29 @@ class MainWindowUI:
         self.home_page.folder_btn.click()
     
     def _open_subscription_dialog(self):
-        """Переключается на страницу Premium"""
-        # Индекс страницы Premium в sidebar
-        # Главная(0), Управление(1), Стратегии(2), Hostlist(3), IPset(4), Настройки DPI(5),
-        # Автозапуск(6), Сеть(7), Оформление(8), Premium(9), Логи(10), О программе(11)
-        premium_index = 10
-        self.side_nav.set_section(premium_index)
+        """Переключается на страницу Premium (донат)"""
+        index = self.pages_stack.indexOf(self.premium_page)
+        if index >= 0:
+            self.side_nav.set_page(index)
         
     def _on_section_changed(self, index: int):
         """Обработчик смены раздела в навигации"""
         self.pages_stack.setCurrentIndex(index)
+    
+    def _on_sidebar_pin_changed(self, is_pinned: bool):
+        """Обработчик смены режима закрепления сайдбара"""
+        from log import log
+        
+        if is_pinned:
+            # Закреплённый режим - сайдбар часть layout (фиксированная ширина)
+            log("Сайдбар закреплён", "DEBUG")
+            self.side_nav.setMinimumWidth(self.side_nav.EXPANDED_WIDTH)
+            self.side_nav.setMaximumWidth(self.side_nav.EXPANDED_WIDTH)
+        else:
+            # Плавающий режим - снимаем ограничения для анимации
+            log("Сайдбар откреплён (плавающий режим)", "DEBUG")
+            self.side_nav.setMinimumWidth(0)
+            self.side_nav.setMaximumWidth(16777215)  # QWIDGETSIZE_MAX
         
     def _show_instruction(self):
         """Открывает PDF инструкцию по использованию Zapret"""
@@ -465,22 +655,17 @@ class MainWindowUI:
         if strategy_name:
             self.control_page.update_strategy(strategy_name)
             
-        # Обновляем старую метку статуса
-        if is_running:
-            self.process_status_value.setText("работает")
-            self.process_status_value.setStyleSheet("color: #6ccb5f; font-size: 9pt;")
-        else:
-            self.process_status_value.setText("остановлен")
-            self.process_status_value.setStyleSheet("color: #ff6b6b; font-size: 9pt;")
-            
     def update_current_strategy_display(self, strategy_name: str):
         """Обновляет отображение текущей стратегии"""
         self.current_strategy_label.setText(strategy_name)
         self.strategies_page.update_current_strategy(strategy_name)
         self.control_page.update_strategy(strategy_name)
-        self.home_page.strategy_card.set_value(
-            strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
-        )
+        
+        # Для главной страницы обрезаем длинное название
+        display_name = strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
+        if hasattr(self.home_page, '_truncate_strategy_name'):
+            display_name = self.home_page._truncate_strategy_name(display_name)
+        self.home_page.strategy_card.set_value(display_name)
         
     def update_autostart_display(self, enabled: bool, strategy_name: str = None):
         """Обновляет отображение статуса автозапуска"""
@@ -492,18 +677,9 @@ class MainWindowUI:
         self.home_page.update_subscription_status(is_premium, days)
         self.about_page.update_subscription_status(is_premium, days)
         
-    def update_proxy_button_state(self):
-        """Обновляет состояние кнопки proxy (hosts)"""
-        try:
-            from hosts.proxy_domains import is_domains_blocked
-            is_blocked = is_domains_blocked()
-            self.network_page.update_proxy_status(is_blocked)
-        except Exception:
-            pass
             
     def set_status_text(self, text: str, status: str = "neutral"):
         """Устанавливает текст статусной строки"""
-        self.status_label.setText(text)
         self.home_page.set_status(text, status)
     
     def _on_autostart_enabled(self):
@@ -523,6 +699,28 @@ class MainWindowUI:
         from log import log
         log(f"Статус подписки обновлён: premium={is_premium}, days={days_remaining}", "INFO")
         self.update_subscription_display(is_premium, days_remaining if days_remaining > 0 else None)
+        
+        # ✅ Обновляем премиум функции в галерее тем
+        if hasattr(self, 'appearance_page') and self.appearance_page:
+            self.appearance_page.set_premium_status(is_premium)
+            log(f"Галерея тем обновлена: premium={is_premium}", "DEBUG")
+        
+        # ✅ Управляем гирляндой и снежинками
+        if hasattr(self, 'garland'):
+            from config.reg import get_garland_enabled
+            should_show = is_premium and get_garland_enabled()
+            self.garland.set_enabled(should_show)
+            if not is_premium:
+                self.garland.set_enabled(False)
+            log(f"Гирлянда: visible={should_show}", "DEBUG")
+        
+        if hasattr(self, 'snowflakes'):
+            from config.reg import get_snowflakes_enabled
+            should_show = is_premium and get_snowflakes_enabled()
+            self.snowflakes.set_enabled(should_show)
+            if not is_premium:
+                self.snowflakes.set_enabled(False)
+            log(f"Снежинки: visible={should_show}", "DEBUG")
     
     def _on_strategy_selected_from_page(self, strategy_id: str, strategy_name: str):
         """Обработчик выбора стратегии из новой страницы"""
@@ -545,4 +743,18 @@ class MainWindowUI:
     
     def show_autostart_page(self):
         """Переключается на страницу автозапуска"""
-        self.side_nav.set_section(6)  # Индекс страницы автозапуска
+        index = self.pages_stack.indexOf(self.autostart_page)
+        if index >= 0:
+            self.side_nav.set_page(index)
+        
+    def show_hosts_page(self):
+        """Переключается на страницу Hosts"""
+        index = self.pages_stack.indexOf(self.hosts_page)
+        if index >= 0:
+            self.side_nav.set_page(index)
+        
+    def show_servers_page(self):
+        """Переключается на страницу серверов обновлений"""
+        index = self.pages_stack.indexOf(self.servers_page)
+        if index >= 0:
+            self.side_nav.set_page(index)

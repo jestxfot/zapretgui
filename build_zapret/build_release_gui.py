@@ -1067,7 +1067,7 @@ class BuildReleaseGUI:
         ]
         
         self.log_queue.put(f"📋 Канал: {channel} → IS_TEST={is_test}")
-        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretDev' if is_test else 'Zapret'}")
+        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretTwoDev' if is_test else 'ZapretTwo'}")
         self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if is_test else 'Zapret2.ico'}")
         
         for attempt in range(1, max_retries + 1):

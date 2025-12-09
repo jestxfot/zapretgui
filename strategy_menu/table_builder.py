@@ -8,13 +8,39 @@ from PyQt6.QtGui import QFont, QColor, QBrush, QCursor
 from .constants import LABEL_TEXTS, LABEL_COLORS
 
 
+class ScrollBlockingTableWidget(QTableWidget):
+    """QTableWidget который не пропускает прокрутку к родителю"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Запрещаем перетаскивание окна при взаимодействии с таблицей
+        self.setProperty("noDrag", True)
+    
+    def wheelEvent(self, event):
+        scrollbar = self.verticalScrollBar()
+        delta = event.angleDelta().y()
+        
+        # Если прокручиваем вверх и уже в начале - блокируем
+        if delta > 0 and scrollbar.value() == scrollbar.minimum():
+            event.accept()
+            return
+        
+        # Если прокручиваем вниз и уже в конце - блокируем
+        if delta < 0 and scrollbar.value() == scrollbar.maximum():
+            event.accept()
+            return
+        
+        super().wheelEvent(event)
+        event.accept()
+
+
 class StrategyTableBuilder:
     """Класс для построения и заполнения таблиц стратегий."""
     
     @staticmethod
     def create_strategies_table():
         """Создает и настраивает таблицу стратегий - современный стиль."""
-        table = QTableWidget()
+        table = ScrollBlockingTableWidget()
         table.setColumnCount(3)  # Звезда, Стратегия, Метка
         table.setHorizontalHeaderLabels(["", "СТРАТЕГИЯ", "МЕТКА"])
         
@@ -178,7 +204,7 @@ class StrategyTableBuilder:
             for strategy_id, strategy_info in favorite_strategies.items():
                 strategies_map[current_row] = {
                     'id': strategy_id,
-                    'name': strategy_info.get('name', strategy_id)
+                    'name': strategy_info.get('name') or strategy_id
                 }
                 
                 StrategyTableBuilder.populate_row(
@@ -223,7 +249,7 @@ class StrategyTableBuilder:
             for strategy_id, strategy_info in strategies_list:
                 strategies_map[current_row] = {
                     'id': strategy_id,
-                    'name': strategy_info.get('name', strategy_id)
+                    'name': strategy_info.get('name') or strategy_id
                 }
                 
                 StrategyTableBuilder.populate_row(
@@ -249,7 +275,7 @@ class StrategyTableBuilder:
         table.setCellWidget(row, 0, star_widget)
         
         # Колонка 1: Имя стратегии
-        strategy_name = strategy_info.get('name', strategy_id)
+        strategy_name = strategy_info.get('name') or strategy_id
         display_name = f"{strategy_number}. {strategy_name}"
         
         all_sites = StrategyTableBuilder.is_strategy_for_all_sites(strategy_info)
@@ -261,7 +287,7 @@ class StrategyTableBuilder:
         table.setItem(row, 1, name_item)
         
         # Колонка 2: Метка
-        label = strategy_info.get('label', None)
+        label = strategy_info.get('label') or None
         if label and label in LABEL_TEXTS:
             label_widget = StrategyTableBuilder.create_label_widget(label)
             table.setCellWidget(row, 2, label_widget)
@@ -288,9 +314,9 @@ class StrategyTableBuilder:
                 color: #ffffff;
                 font-weight: 600;
                 font-size: 10px;
-                padding: 5px 10px;
+            padding: 5px 10px;
                 border: none;
-                border-radius: 4px;
+            border-radius: 4px;
                 background-color: {label_color};
             }}
         """)
@@ -406,12 +432,12 @@ class StrategyTableBuilder:
             if 'all' in host_lists.lower() or 'все' in host_lists.lower():
                 return True
         
-        description = strategy_info.get('description', '').lower()
-        if 'все сайты' in description or 'всех сайтов' in description:
+        description = strategy_info.get('description') or ''
+        if 'все сайты' in description.lower() or 'всех сайтов' in description.lower():
             return True
             
-        name = strategy_info.get('name', '').lower()
-        if 'все сайты' in name or 'всех сайтов' in name:
+        name = strategy_info.get('name') or ''
+        if 'все сайты' in name.lower() or 'всех сайтов' in name.lower():
             return True
             
         return strategy_info.get('all_sites', False)

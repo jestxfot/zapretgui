@@ -1,19 +1,39 @@
 # ui/pages/appearance_page.py
 """Страница настроек оформления - темы"""
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QComboBox, QFrame, QGridLayout
+    QFrame, QGridLayout, QScrollArea, QCheckBox
 )
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
+from ui.sidebar import SettingsCard, ActionButton
+
+
+# Цвета для превью тем
+THEME_COLORS = {
+    "Темная синяя": "#4c8ee7",
+    "Темная бирюзовая": "#38b2cd",
+    "Темная янтарная": "#eaa23e",
+    "Темная розовая": "#e879b2",
+    "Светлая синяя": "#4488d9",
+    "Светлая бирюзовая": "#30b9ce",
+    "РКН Тян": "#6375c6",
+    "РКН Тян 2": "#ba7dba",
+    "AMOLED Синяя": "#3e94ff",
+    "AMOLED Зеленая": "#4cd993",
+    "AMOLED Фиолетовая": "#b28ef6",
+    "AMOLED Красная": "#eb6c6c",
+    "Полностью черная": "#0a0a0a",
+}
 
 
 class ThemeCard(QFrame):
     """Карточка выбора темы"""
+    
+    clicked = pyqtSignal(str)  # Сигнал клика с именем темы
     
     def __init__(self, name: str, color: str, is_premium: bool = False, parent=None):
         super().__init__(parent)
@@ -22,6 +42,7 @@ class ThemeCard(QFrame):
         self.is_premium = is_premium
         self._selected = False
         self._hovered = False
+        self._enabled = True
         
         self.setFixedSize(100, 80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -32,28 +53,35 @@ class ThemeCard(QFrame):
         layout.setSpacing(4)
         
         # Цветовой прямоугольник
-        color_widget = QWidget()
-        color_widget.setFixedHeight(36)
-        color_widget.setStyleSheet(f"""
+        self.color_widget = QWidget()
+        self.color_widget.setFixedHeight(36)
+        self.color_widget.setStyleSheet(f"""
             background-color: {color};
             border-radius: 4px;
         """)
-        layout.addWidget(color_widget)
+        layout.addWidget(self.color_widget)
         
         # Название
         name_layout = QHBoxLayout()
         name_layout.setSpacing(4)
         
-        name_label = QLabel(name)
-        name_label.setStyleSheet("""
+        # Сокращаем длинные названия
+        display_name = name
+        if len(name) > 12:
+            display_name = name[:11] + "…"
+        
+        self.name_label = QLabel(display_name)
+        self.name_label.setStyleSheet("""
             color: rgba(255, 255, 255, 0.9);
             font-size: 10px;
         """)
-        name_layout.addWidget(name_label)
+        self.name_label.setToolTip(name)
+        name_layout.addWidget(self.name_label)
         
         if is_premium:
             premium_icon = QLabel()
             premium_icon.setPixmap(qta.icon('fa5s.star', color='#ffc107').pixmap(10, 10))
+            premium_icon.setToolTip("Премиум-тема")
             name_layout.addWidget(premium_icon)
             
         name_layout.addStretch()
@@ -62,15 +90,23 @@ class ThemeCard(QFrame):
         self._update_style()
         
     def _update_style(self):
-        if self._selected:
+        if not self._enabled:
+            # Disabled состояние - затемнённый вид
+            border = "1px solid rgba(255, 255, 255, 0.05)"
+            bg = "rgba(255, 255, 255, 0.02)"
+            text_color = "rgba(255, 255, 255, 0.3)"
+        elif self._selected:
             border = "2px solid #60cdff"
             bg = "rgba(96, 205, 255, 0.15)"
+            text_color = "rgba(255, 255, 255, 0.9)"
         elif self._hovered:
-            border = "1px solid rgba(255, 255, 255, 0.2)"
-            bg = "rgba(255, 255, 255, 0.08)"
+            border = "1px solid rgba(255, 255, 255, 0.3)"
+            bg = "rgba(255, 255, 255, 0.1)"
+            text_color = "rgba(255, 255, 255, 0.9)"
         else:
             border = "1px solid rgba(255, 255, 255, 0.1)"
             bg = "rgba(255, 255, 255, 0.04)"
+            text_color = "rgba(255, 255, 255, 0.9)"
             
         self.setStyleSheet(f"""
             QFrame#themeCard {{
@@ -80,8 +116,30 @@ class ThemeCard(QFrame):
             }}
         """)
         
+        # Обновляем цвет текста
+        self.name_label.setStyleSheet(f"color: {text_color}; font-size: 10px;")
+        
+        # Затемняем превью цвета если disabled
+        if hasattr(self, 'color_widget'):
+            if self._enabled:
+                self.color_widget.setStyleSheet(f"""
+                    background-color: {self.color};
+                    border-radius: 4px;
+                """)
+            else:
+                self.color_widget.setStyleSheet(f"""
+                    background-color: {self.color};
+                    border-radius: 4px;
+                    opacity: 0.3;
+                """)
+        
     def set_selected(self, selected: bool):
         self._selected = selected
+        self._update_style()
+        
+    def set_enabled(self, enabled: bool):
+        self._enabled = enabled
+        self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ForbiddenCursor)
         self._update_style()
         
     def enterEvent(self, event):
@@ -93,79 +151,84 @@ class ThemeCard(QFrame):
         self._hovered = False
         self._update_style()
         super().leaveEvent(event)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._enabled:
+            self.clicked.emit(self.name)
+        super().mousePressEvent(event)
 
 
 class AppearancePage(BasePage):
     """Страница настроек оформления"""
     
+    # Сигнал смены темы
+    theme_changed = pyqtSignal(str)
+    # Сигнал изменения состояния гирлянды
+    garland_changed = pyqtSignal(bool)
+    # Сигнал изменения состояния снежинок
+    snowflakes_changed = pyqtSignal(bool)
+    
     def __init__(self, parent=None):
         super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
+        
+        self._theme_cards = {}  # name -> ThemeCard
+        self._current_theme = None
+        self._is_premium = False
+        self._garland_checkbox = None
+        self._snowflakes_checkbox = None
+        self._wall_animation_checkbox = None
         
         self._build_ui()
         
     def _build_ui(self):
-        # Выбор темы
-        self.add_section_title("Тема оформления")
+        # ═══════════════════════════════════════════════════════════
+        # СТАНДАРТНЫЕ ТЕМЫ
+        # ═══════════════════════════════════════════════════════════
+        self.add_section_title("Стандартные темы")
         
-        theme_card = SettingsCard()
+        standard_card = SettingsCard()
         
-        theme_layout = QVBoxLayout()
-        theme_layout.setSpacing(12)
+        standard_layout = QVBoxLayout()
+        standard_layout.setSpacing(12)
         
         # Описание
-        desc = QLabel("Выберите тему оформления. Премиум-темы доступны подписчикам.")
+        desc = QLabel("Выберите тему оформления для приложения.")
         desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
         desc.setWordWrap(True)
-        theme_layout.addWidget(desc)
+        standard_layout.addWidget(desc)
         
-        # Комбо-бокс выбора темы
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(12)
+        # Галерея стандартных тем
+        standard_themes_layout = QGridLayout()
+        standard_themes_layout.setSpacing(8)
         
-        combo_label = QLabel("Тема:")
-        combo_label.setStyleSheet("color: #ffffff; font-size: 13px;")
-        combo_layout.addWidget(combo_label)
+        standard_themes = [
+            ("Темная синяя", False),
+            ("Темная бирюзовая", False),
+            ("Темная янтарная", False),
+            ("Темная розовая", False),
+            ("Светлая синяя", False),
+            ("Светлая бирюзовая", False),
+        ]
         
-        self.theme_combo = QComboBox()
-        self.theme_combo.setMinimumWidth(200)
-        self.theme_combo.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 8px 12px;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 24px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border: none;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                selection-background-color: rgba(96, 205, 255, 0.3);
-                color: #ffffff;
-            }
-        """)
-        combo_layout.addWidget(self.theme_combo, 1)
+        for i, (name, is_premium) in enumerate(standard_themes):
+            color = THEME_COLORS.get(name, "#333333")
+            card = ThemeCard(name, color, is_premium=is_premium)
+            card.clicked.connect(self._on_theme_clicked)
+            row = i // 4
+            col = i % 4
+            standard_themes_layout.addWidget(card, row, col)
+            self._theme_cards[name] = card
+            
+        standard_layout.addLayout(standard_themes_layout)
+        standard_card.add_layout(standard_layout)
         
-        theme_layout.addLayout(combo_layout)
-        theme_card.add_layout(theme_layout)
-        
-        self.add_widget(theme_card)
+        self.add_widget(standard_card)
         
         self.add_spacing(16)
         
-        # Премиум темы
+        # ═══════════════════════════════════════════════════════════
+        # ПРЕМИУМ ТЕМЫ
+        # ═══════════════════════════════════════════════════════════
         self.add_section_title("Премиум темы")
         
         premium_card = SettingsCard()
@@ -181,21 +244,31 @@ class AppearancePage(BasePage):
         premium_desc.setWordWrap(True)
         premium_layout.addWidget(premium_desc)
         
-        # Превью премиум тем
-        preview_layout = QGridLayout()
-        preview_layout.setSpacing(8)
+        # Галерея премиум тем
+        premium_themes_layout = QGridLayout()
+        premium_themes_layout.setSpacing(8)
         
         premium_themes = [
-            ("AMOLED", "#000000"),
-            ("РКН Тян", "#6375c6"),
-            ("Pure Black", "#0a0a0a"),
+            ("РКН Тян", True),
+            ("РКН Тян 2", True),
+            ("AMOLED Синяя", True),
+            ("AMOLED Зеленая", True),
+            ("AMOLED Фиолетовая", True),
+            ("AMOLED Красная", True),
+            ("Полностью черная", True),
         ]
         
-        for i, (name, color) in enumerate(premium_themes):
-            card = ThemeCard(name, color, is_premium=True)
-            preview_layout.addWidget(card, 0, i)
+        for i, (name, is_premium) in enumerate(premium_themes):
+            color = THEME_COLORS.get(name, "#333333")
+            card = ThemeCard(name, color, is_premium=is_premium)
+            card.clicked.connect(self._on_theme_clicked)
+            card.set_enabled(False)  # По умолчанию заблокированы до проверки премиума
+            row = i // 4
+            col = i % 4
+            premium_themes_layout.addWidget(card, row, col)
+            self._theme_cards[name] = card
             
-        premium_layout.addLayout(preview_layout)
+        premium_layout.addLayout(premium_themes_layout)
         
         # Кнопка подписки
         from ui.sidebar import ActionButton
@@ -211,16 +284,378 @@ class AppearancePage(BasePage):
         premium_card.add_layout(premium_layout)
         self.add_widget(premium_card)
         
-    def update_themes(self, themes: list, current_theme: str = None):
-        """Обновляет список тем в комбо-боксе"""
-        self.theme_combo.blockSignals(True)
-        self.theme_combo.clear()
-        self.theme_combo.addItems(themes)
+        self.add_spacing(16)
         
-        if current_theme:
-            index = self.theme_combo.findText(current_theme)
-            if index >= 0:
-                self.theme_combo.setCurrentIndex(index)
+        # ═══════════════════════════════════════════════════════════
+        # НОВОГОДНЕЕ ОФОРМЛЕНИЕ (Premium)
+        # ═══════════════════════════════════════════════════════════
+        self.add_section_title("Новогоднее оформление")
+        
+        garland_card = SettingsCard()
+        
+        garland_layout = QVBoxLayout()
+        garland_layout.setSpacing(12)
+        
+        # Описание
+        garland_desc = QLabel(
+            "Праздничная гирлянда с мерцающими огоньками в верхней части окна. "
+            "Доступно только для подписчиков Premium."
+        )
+        garland_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        garland_desc.setWordWrap(True)
+        garland_layout.addWidget(garland_desc)
+        
+        # Переключатель
+        garland_row = QHBoxLayout()
+        garland_row.setSpacing(12)
+        
+        garland_icon = QLabel()
+        garland_icon.setPixmap(qta.icon('fa5s.holly-berry', color='#ff6b6b').pixmap(20, 20))
+        garland_row.addWidget(garland_icon)
+        
+        garland_label = QLabel("Новогодняя гирлянда")
+        garland_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        garland_row.addWidget(garland_label)
+        
+        premium_badge = QLabel("⭐ Premium")
+        premium_badge.setStyleSheet("""
+            color: #ffc107;
+            font-size: 10px;
+            font-weight: bold;
+            background-color: rgba(255, 193, 7, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+        """)
+        garland_row.addWidget(premium_badge)
+        
+        garland_row.addStretch()
+        
+        self._garland_checkbox = QCheckBox()
+        self._garland_checkbox.setEnabled(False)  # Включается только при премиуме
+        self._garland_checkbox.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4cd964;
+                border-color: #4cd964;
+            }
+            QCheckBox::indicator:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #5ce06e;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: rgba(255, 255, 255, 0.05);
+                border-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self._garland_checkbox.stateChanged.connect(self._on_garland_changed)
+        garland_row.addWidget(self._garland_checkbox)
+        
+        garland_layout.addLayout(garland_row)
+        
+        garland_card.add_layout(garland_layout)
+        self.add_widget(garland_card)
+        
+        # ═══════════════════════════════════════════════════════════
+        # СНЕЖИНКИ (Premium)
+        # ═══════════════════════════════════════════════════════════
+        snowflakes_card = SettingsCard()
+        
+        snowflakes_layout = QVBoxLayout()
+        snowflakes_layout.setSpacing(12)
+        
+        # Описание
+        snowflakes_desc = QLabel(
+            "Мягко падающие снежинки по всему окну. "
+            "Создаёт уютную зимнюю атмосферу."
+        )
+        snowflakes_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        snowflakes_desc.setWordWrap(True)
+        snowflakes_layout.addWidget(snowflakes_desc)
+        
+        # Переключатель
+        snowflakes_row = QHBoxLayout()
+        snowflakes_row.setSpacing(12)
+        
+        snowflakes_icon = QLabel()
+        snowflakes_icon.setPixmap(qta.icon('fa5s.snowflake', color='#87ceeb').pixmap(20, 20))
+        snowflakes_row.addWidget(snowflakes_icon)
+        
+        snowflakes_label = QLabel("Снежинки")
+        snowflakes_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        snowflakes_row.addWidget(snowflakes_label)
+        
+        snowflakes_badge = QLabel("⭐ Premium")
+        snowflakes_badge.setStyleSheet("""
+            color: #ffc107;
+            font-size: 10px;
+            font-weight: bold;
+            background-color: rgba(255, 193, 7, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+        """)
+        snowflakes_row.addWidget(snowflakes_badge)
+        
+        snowflakes_row.addStretch()
+        
+        self._snowflakes_checkbox = QCheckBox()
+        self._snowflakes_checkbox.setEnabled(False)  # Включается только при премиуме
+        self._snowflakes_checkbox.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QCheckBox::indicator:checked {
+                background-color: #87ceeb;
+                border-color: #87ceeb;
+            }
+            QCheckBox::indicator:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #9dd5f0;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: rgba(255, 255, 255, 0.05);
+                border-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self._snowflakes_checkbox.stateChanged.connect(self._on_snowflakes_changed)
+        snowflakes_row.addWidget(self._snowflakes_checkbox)
+        
+        snowflakes_layout.addLayout(snowflakes_row)
+        
+        snowflakes_card.add_layout(snowflakes_layout)
+        self.add_widget(snowflakes_card)
+        
+        self.add_spacing(16)
+        
+        # ═══════════════════════════════════════════════════════════
+        # ПРОИЗВОДИТЕЛЬНОСТЬ
+        # ═══════════════════════════════════════════════════════════
+        self.add_section_title("Производительность")
+        
+        wall_card = SettingsCard()
+        
+        wall_layout = QVBoxLayout()
+        wall_layout.setSpacing(12)
+        
+        # Описание
+        wall_desc = QLabel(
+            "Анимация разрушения стены на загрузочном экране. "
+            "Отключите для ускорения запуска на слабых системах."
+        )
+        wall_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        wall_desc.setWordWrap(True)
+        wall_layout.addWidget(wall_desc)
+        
+        # Переключатель
+        wall_row = QHBoxLayout()
+        wall_row.setSpacing(12)
+        
+        wall_icon = QLabel()
+        wall_icon.setPixmap(qta.icon('fa5s.cubes', color='#ff6666').pixmap(20, 20))
+        wall_row.addWidget(wall_icon)
+        
+        wall_label = QLabel("Анимация кирпичей")
+        wall_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        wall_row.addWidget(wall_label)
+        
+        wall_row.addStretch()
+        
+        self._wall_animation_checkbox = QCheckBox()
+        self._wall_animation_checkbox.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4cd964;
+                border-color: #4cd964;
+            }
+            QCheckBox::indicator:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #5ce06e;
+            }
+        """)
+        self._wall_animation_checkbox.stateChanged.connect(self._on_wall_animation_changed)
+        wall_row.addWidget(self._wall_animation_checkbox)
+        
+        wall_layout.addLayout(wall_row)
+        
+        wall_card.add_layout(wall_layout)
+        self.add_widget(wall_card)
+        
+    def _on_wall_animation_changed(self, state):
+        """Обработчик изменения состояния анимации стены"""
+        enabled = state == Qt.CheckState.Checked.value
+        
+        # Сохраняем в реестр
+        from config import set_wall_animation_enabled
+        set_wall_animation_enabled(enabled)
+        
+        from log import log
+        log(f"Анимация стены {'включена' if enabled else 'отключена'}", "DEBUG")
+        
+    def _on_snowflakes_changed(self, state):
+        """Обработчик изменения состояния снежинок"""
+        enabled = state == Qt.CheckState.Checked.value
+        
+        # Сохраняем в реестр
+        from config.reg import set_snowflakes_enabled
+        set_snowflakes_enabled(enabled)
+        
+        # Уведомляем главное окно
+        self.snowflakes_changed.emit(enabled)
+        
+    def _on_garland_changed(self, state):
+        """Обработчик изменения состояния гирлянды"""
+        enabled = state == Qt.CheckState.Checked.value
+        
+        # Сохраняем в реестр
+        from config.reg import set_garland_enabled
+        set_garland_enabled(enabled)
+        
+        # Эмитим сигнал
+        self.garland_changed.emit(enabled)
+        
+    def _on_theme_clicked(self, theme_name: str):
+        """Обработчик клика по карточке темы"""
+        # Проверяем, является ли тема премиум и заблокирована ли она
+        card = self._theme_cards.get(theme_name)
+        if card and card.is_premium and not self._is_premium:
+            # Просто игнорируем клик - карточка уже визуально disabled
+            return
+            
+        # Устанавливаем выбранную тему
+        self._select_theme(theme_name)
+        
+        # Эмитим сигнал смены темы
+        self.theme_changed.emit(theme_name)
+        
+    def _select_theme(self, theme_name: str):
+        """Визуально выделяет выбранную тему"""
+        # Снимаем выделение со старой темы
+        if self._current_theme and self._current_theme in self._theme_cards:
+            self._theme_cards[self._current_theme].set_selected(False)
+            
+        # Выделяем новую тему
+        if theme_name in self._theme_cards:
+            self._theme_cards[theme_name].set_selected(True)
+            self._current_theme = theme_name
+            
+    def set_current_theme(self, theme_name: str):
+        """Устанавливает текущую тему (без эмита сигнала)"""
+        # Очищаем название от суффиксов
+        clean_name = theme_name
+        suffixes = [" (заблокировано)", " (AMOLED Premium)", " (Pure Black Premium)"]
+        for suffix in suffixes:
+            clean_name = clean_name.replace(suffix, "")
+            
+        self._select_theme(clean_name)
+        
+    def set_premium_status(self, is_premium: bool):
+        """Устанавливает статус премиум-подписки"""
+        self._is_premium = is_premium
+        
+        # Обновляем состояние карточек премиум тем
+        premium_themes = ["РКН Тян", "РКН Тян 2", "AMOLED Синяя", "AMOLED Зеленая", 
+                         "AMOLED Фиолетовая", "AMOLED Красная", "Полностью черная"]
+        
+        for name in premium_themes:
+            if name in self._theme_cards:
+                # Включаем/выключаем карточки в зависимости от премиум статуса
+                self._theme_cards[name].set_enabled(is_premium)
+        
+        # Включаем/выключаем чекбоксы новогоднего оформления
+        from config.reg import get_garland_enabled, get_snowflakes_enabled
+        from config import get_wall_animation_enabled
+        
+        # Загружаем настройку анимации стены (не зависит от премиума)
+        if self._wall_animation_checkbox:
+            self._wall_animation_checkbox.blockSignals(True)
+            self._wall_animation_checkbox.setChecked(get_wall_animation_enabled())
+            self._wall_animation_checkbox.blockSignals(False)
+        
+        if self._garland_checkbox:
+            self._garland_checkbox.setEnabled(is_premium)
+            self._garland_checkbox.blockSignals(True)
+            if is_premium:
+                # При появлении премиума - восстанавливаем сохранённое состояние
+                self._garland_checkbox.setChecked(get_garland_enabled())
+            else:
+                # При потере премиума - выключаем визуально
+                self._garland_checkbox.setChecked(False)
+            self._garland_checkbox.blockSignals(False)
                 
-        self.theme_combo.blockSignals(False)
-
+        if self._snowflakes_checkbox:
+            self._snowflakes_checkbox.setEnabled(is_premium)
+            self._snowflakes_checkbox.blockSignals(True)
+            if is_premium:
+                # При появлении премиума - восстанавливаем сохранённое состояние
+                self._snowflakes_checkbox.setChecked(get_snowflakes_enabled())
+            else:
+                # При потере премиума - выключаем визуально
+                self._snowflakes_checkbox.setChecked(False)
+            self._snowflakes_checkbox.blockSignals(False)
+                
+        # Если нет премиума и гирлянда включена - выключаем
+        if not is_premium and self._garland_checkbox and self._garland_checkbox.isChecked():
+            self._garland_checkbox.blockSignals(True)
+            self._garland_checkbox.setChecked(False)
+            self._garland_checkbox.blockSignals(False)
+            from config.reg import set_garland_enabled
+            set_garland_enabled(False)
+            self.garland_changed.emit(False)
+            
+        # Если нет премиума и снежинки включены - выключаем
+        if not is_premium and self._snowflakes_checkbox and self._snowflakes_checkbox.isChecked():
+            self._snowflakes_checkbox.blockSignals(True)
+            self._snowflakes_checkbox.setChecked(False)
+            self._snowflakes_checkbox.blockSignals(False)
+            from config.reg import set_snowflakes_enabled
+            set_snowflakes_enabled(False)
+            self.snowflakes_changed.emit(False)
+            
+    def set_garland_state(self, enabled: bool):
+        """Устанавливает состояние чекбокса гирлянды (без эмита сигнала)"""
+        if self._garland_checkbox:
+            self._garland_checkbox.blockSignals(True)
+            self._garland_checkbox.setChecked(enabled)
+            self._garland_checkbox.blockSignals(False)
+    
+    def set_snowflakes_state(self, enabled: bool):
+        """Устанавливает состояние чекбокса снежинок (без эмита сигнала)"""
+        if self._snowflakes_checkbox:
+            self._snowflakes_checkbox.blockSignals(True)
+            self._snowflakes_checkbox.setChecked(enabled)
+            self._snowflakes_checkbox.blockSignals(False)
+                
+    def update_themes(self, themes: list, current_theme: str = None):
+        """Обновляет текущую выбранную тему (для совместимости)"""
+        if current_theme:
+            self.set_current_theme(current_theme)

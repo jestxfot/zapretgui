@@ -1,18 +1,18 @@
-import subprocess
+"""
+Остановка DPI процессов через Windows API.
+Быстрее и надёжнее чем taskkill и .bat файлы.
+"""
+
 import time
-import psutil, os
-from utils import run_hidden
 from typing import TYPE_CHECKING
 from log import log
 
 if TYPE_CHECKING:
     from main import LupiDPIApp
 
-# Константы для скрытого запуска
-CREATE_NO_WINDOW = 0x08000000
 
 def stop_dpi(app: "LupiDPIApp"):
-    """Останавливает процесс winws.exe напрямую"""
+    """Останавливает процесс winws*.exe через Win API"""
     try:
         log("======================== Stop DPI ========================", level="START")
         
@@ -24,126 +24,60 @@ def stop_dpi(app: "LupiDPIApp"):
             # Используем новый метод остановки
             return stop_dpi_direct(app)
         else:
-            # Используем старый метод через .bat
-            return stop_dpi_bat(app)
+            # Используем универсальный метод через Win API
+            return stop_dpi_universal(app)
             
     except Exception as e:
         log(f"Критическая ошибка в stop_dpi: {e}", level="❌ ERROR")
         app.set_status(f"Ошибка остановки: {e}")
         return False
 
+
 def stop_dpi_direct(app: "LupiDPIApp"):
-    """Останавливает DPI напрямую без .bat файлов"""
+    """Останавливает DPI в Direct режиме через Win API"""
     try:
         # Проверяем, запущен ли процесс
         if not app.dpi_starter.check_process_running_wmi(silent=True):
-            log("Процесс winws.exe не запущен", level="INFO")
+            log("Процесс winws не запущен", level="INFO")
             app.set_status("Zapret уже остановлен")
-            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             return True
         
         app.set_status("Останавливаю Zapret...")
         
-        # 1. Останавливаем через StrategyRunner если он используется
+        # 1. Останавливаем через StrategyRunner
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
             runner = get_strategy_runner(app.dpi_starter.winws_exe)
             if runner.is_running():
                 runner.stop()
-                time.sleep(1)
-        except:
-            pass
-        
-        # 2. Убиваем все процессы winws.exe и winws2.exe
-        killed = False
-        exe_names = ['winws.exe', 'winws2.exe']
-        
-        try:
-            # Используем psutil для более надежного поиска процессов
-            for proc in psutil.process_iter(['pid', 'name']):
-                if proc.info['name'].lower() in exe_names:
-                    try:
-                        psutil.Process(proc.info['pid']).terminate()
-                        killed = True
-                        log(f"Процесс {proc.info['name']} (PID: {proc.info['pid']}) завершен", "INFO")
-                    except:
-                        pass
-            
-            # Даем время на завершение
-            time.sleep(1)
-            
-            # Принудительное завершение если не помогло
-            for proc in psutil.process_iter(['pid', 'name']):
-                if proc.info['name'].lower() in exe_names:
-                    try:
-                        psutil.Process(proc.info['pid']).kill()
-                        log(f"Процесс {proc.info['name']} (PID: {proc.info['pid']}) принудительно завершен", "⚠ WARNING")
-                    except:
-                        pass
-                        
+                time.sleep(0.5)
         except Exception as e:
-            log(f"Ошибка при завершении процессов: {e}", "DEBUG")
-            
-            # Fallback на taskkill
-            for exe_name in exe_names:
-                try:
-                    result = subprocess.run(
-                        ["taskkill", "/F", "/IM", exe_name, "/T"],
-                        capture_output=True,
-                        creationflags=CREATE_NO_WINDOW
-                    )
-                    if result.returncode == 0:
-                        killed = True
-                        log(f"Процессы {exe_name} завершены через taskkill", "INFO")
-                except:
-                    pass
+            log(f"Ошибка остановки через StrategyRunner: {e}", "DEBUG")
         
-        # 3. Останавливаем и удаляем службу WinDivert
-        services_to_stop = ["WinDivert", "Monkey"]
-
-        for service_name in services_to_stop:
-            try:
-                # Останавливаем службу
-                subprocess.run(
-                    ["sc", "stop", service_name],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
-                
-                time.sleep(1)
-                
-                # Удаляем службу
-                subprocess.run(
-                    ["sc", "delete", service_name],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
-                
-                log(f"Служба {service_name} остановлена и удалена", "INFO")
-                
-            except Exception as e:
-                log(f"Ошибка при остановке службы {service_name}: {e}", "DEBUG")
-
+        # 2. Убиваем все процессы через Win API
+        from utils.process_killer import kill_winws_all
+        kill_winws_all()
+        
+        # 3. Очищаем службу WinDivert
+        if hasattr(app.dpi_starter, 'cleanup_windivert_service'):
+            app.dpi_starter.cleanup_windivert_service()
+        
         # Проверяем результат
-        time.sleep(1)
+        time.sleep(0.5)
+        
         if app.dpi_starter.check_process_running_wmi(silent=True):
-            log("Процесс winws.exe все еще работает", level="⚠ WARNING")
+            log("Процесс winws всё ещё работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
-            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(True)
             return False
         else:
             log("Zapret успешно остановлен", level="✅ SUCCESS")
-            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             app.set_status("Zapret успешно остановлен")
-            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(False)
             return True
@@ -152,139 +86,56 @@ def stop_dpi_direct(app: "LupiDPIApp"):
         log(f"Ошибка в stop_dpi_direct: {e}", level="❌ ERROR")
         return False
 
-    
-def stop_dpi_bat(app: "LupiDPIApp"):
-    """Старый метод остановки через .bat"""
+
+def stop_dpi_universal(app: "LupiDPIApp"):
+    """Универсальная остановка DPI через Win API (для BAT режима)"""
     try:
-        log("======================== Stop DPI (BAT) ========================", level="START")
+        log("======================== Stop DPI (Universal Win API) ========================", level="START")
         
         # Проверяем, запущен ли процесс
         if not app.dpi_starter.check_process_running_wmi(silent=True):
-            log("Процесс winws.exe не запущен, нет необходимости в остановке", level="INFO")
+            log("Процесс winws не запущен", level="INFO")
             app.set_status("Zapret уже остановлен")
-            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             return True
         
-        # Получаем абсолютные пути
-        winws_dir = os.path.dirname(os.path.abspath(app.dpi_starter.winws_exe))
-        stop_bat_path = os.path.join(winws_dir, "stop.bat")
-        
-        # Для отладки
-        log(f"Абсолютный путь к winws.exe: {os.path.abspath(app.dpi_starter.winws_exe)}", level="DEBUG")
-        log(f"Рабочая директория: {winws_dir}", level="DEBUG")
-        log(f"Абсолютный путь к stop.bat: {stop_bat_path}", level="DEBUG")
-        log(f"stop.bat существует: {os.path.exists(stop_bat_path)}", level="DEBUG")
-        
-        # Если stop.bat не существует, создаем его
-        if not os.path.exists(stop_bat_path):
-            log("stop.bat не найден!!!!!!!!!!!!!!!!!!!!!!!!!!!!", level="❌ ERROR")
-            return False
-        
-        # Запускаем stop.bat
         app.set_status("Останавливаю Zapret...")
-        log(f"Запускаем {stop_bat_path}...", level="INFO")
         
-        # Настройки для скрытого запуска
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
+        # 1. Завершаем все процессы winws*.exe через Win API
+        from utils.process_killer import kill_winws_all
+        killed = kill_winws_all()
         
-        try:
-            # Запускаем stop.bat
-            result = run_hidden(
-                [stop_bat_path],
-                shell=True,
-                startupinfo=startupinfo,
-                capture_output=True,
-                text=True,
-                encoding='cp866',
-                timeout=10,
-                cwd=winws_dir
-            )
-            
-            if result.returncode == 0:
-                log("stop.bat выполнен успешно", level="✅ SUCCESS")
-            else:
-                log(f"stop.bat вернул код: {result.returncode}", level="⚠ WARNING")
-                if result.stdout:
-                    log(f"Вывод: {result.stdout}", level="DEBUG")
-                if result.stderr:
-                    log(f"Ошибки: {result.stderr}", level="⚠ WARNING")
-                
-                # Если stop.bat не сработал, пробуем выполнить команды напрямую
-                log("Пробуем выполнить команды остановки напрямую...", level="INFO")
-                
-                # Останавливаем процессы (оба варианта)
-                for exe_name in ['winws.exe', 'winws2.exe']:
-                    run_hidden(
-                        ['C:\\Windows\\System32\\taskkill.exe', '/F', '/IM', exe_name, '/T'],
-                        shell=False,
-                        capture_output=True,
-                        timeout=5
-                    )
-                
-                # Останавливаем службу
-                run_hidden(
-                    ['C:\\Windows\\System32\\sc.exe', 'stop', 'windivert'],
-                    shell=False,
-                    capture_output=True,
-                    timeout=5
-                )
-                
-                # Удаляем службу
-                run_hidden(
-                    ['C:\\Windows\\System32\\sc.exe', 'delete', 'windivert'],
-                    shell=False,
-                    capture_output=True,
-                    timeout=5
-                )
-
-                # Останавливаем службу
-                run_hidden(
-                    ['C:\\Windows\\System32\\sc.exe', 'stop', 'Monkey'],
-                    shell=False,
-                    capture_output=True,
-                    timeout=5
-                )
-                
-                # Удаляем службу
-                run_hidden(
-                    ['C:\\Windows\\System32\\sc.exe', 'delete', 'Monkey'],
-                    shell=False,
-                    capture_output=True,
-                    timeout=5
-                )
-
-        except subprocess.TimeoutExpired:
-            log("Таймаут при выполнении stop.bat", level="⚠ WARNING")
-        except Exception as e:
-            log(f"Ошибка при выполнении stop.bat: {e}", level="❌ ERROR")
+        if killed:
+            log("✅ Процессы winws остановлены через Win API", "INFO")
         
-        # Даем время на завершение процессов
-        time.sleep(1)
+        # 2. Очищаем службу WinDivert
+        if hasattr(app.dpi_starter, 'cleanup_windivert_service'):
+            app.dpi_starter.cleanup_windivert_service()
         
         # Проверяем результат
+        time.sleep(0.5)
+        
         if app.dpi_starter.check_process_running_wmi(silent=True):
-            log("Процесс winws.exe все еще работает", level="⚠ WARNING")
+            log("Процесс winws всё ещё работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
-            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(True)
             return False
         else:
             log("Zapret успешно остановлен", level="✅ SUCCESS")
-            # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             app.set_status("Zapret успешно остановлен")
-            # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(False)
             return True
             
     except Exception as e:
-        log(f"Критическая ошибка в stop_dpi_bat: {e}", level="❌ ERROR")
+        log(f"Ошибка в stop_dpi_universal: {e}", level="❌ ERROR")
         app.set_status(f"Ошибка остановки: {e}")
         return False
+
+
+# Алиас для совместимости
+stop_dpi_bat = stop_dpi_universal

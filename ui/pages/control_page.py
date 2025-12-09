@@ -2,11 +2,34 @@
 """Страница управления - запуск/остановка DPI"""
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, SettingsRow, ActionButton, StatusIndicator
+
+
+# Стиль для индикатора загрузки (бегающая полоска)
+PROGRESS_STYLE = """
+QProgressBar {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: none;
+    border-radius: 2px;
+    height: 4px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 transparent,
+        stop:0.3 #60cdff,
+        stop:0.5 #60cdff,
+        stop:0.7 #60cdff,
+        stop:1 transparent
+    );
+    border-radius: 2px;
+}
+"""
 
 
 class BigActionButton(ActionButton):
@@ -139,9 +162,15 @@ class ControlPage(BasePage):
         self.start_btn = BigActionButton("Запустить Zapret", "fa5s.play", accent=True)
         buttons_layout.addWidget(self.start_btn)
         
-        self.stop_btn = StopButton("Остановить Zapret", "fa5s.stop")
-        self.stop_btn.setVisible(False)
-        buttons_layout.addWidget(self.stop_btn)
+        # Кнопка остановки только winws.exe
+        self.stop_winws_btn = StopButton("Остановить только winws.exe", "fa5s.stop")
+        self.stop_winws_btn.setVisible(False)
+        buttons_layout.addWidget(self.stop_winws_btn)
+        
+        # Кнопка полного выхода (остановка + закрытие программы)
+        self.stop_and_exit_btn = StopButton("Остановить и закрыть программу", "fa5s.power-off")
+        self.stop_and_exit_btn.setVisible(False)
+        buttons_layout.addWidget(self.stop_and_exit_btn)
         
         buttons_layout.addStretch()
         control_card.add_layout(buttons_layout)
@@ -215,6 +244,64 @@ class ControlPage(BasePage):
         
         self.add_widget(extra_card)
         
+        # Индикатор загрузки (бегающая полоска)
+        self.add_spacing(16)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(0)  # Indeterminate mode
+        self.progress_bar.setVisible(False)
+        self.add_widget(self.progress_bar)
+        
+        # Метка статуса загрузки
+        self.loading_label = QLabel("")
+        self.loading_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 12px;
+                padding-top: 4px;
+            }
+        """)
+        self.loading_label.setVisible(False)
+        self.add_widget(self.loading_label)
+        
+    def set_loading(self, loading: bool, text: str = ""):
+        """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
+        self.progress_bar.setVisible(loading)
+        self.loading_label.setVisible(loading and bool(text))
+        self.loading_label.setText(text)
+        
+        # Блокируем/разблокируем кнопки
+        self.start_btn.setEnabled(not loading)
+        self.stop_winws_btn.setEnabled(not loading)
+        self.stop_and_exit_btn.setEnabled(not loading)
+        
+        # Обновляем стиль заблокированных кнопок
+        if loading:
+            disabled_style = """
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.03);
+                    border: none;
+                    border-radius: 6px;
+                    color: rgba(255, 255, 255, 0.3);
+                    padding: 0 24px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }
+            """
+            self.start_btn.setStyleSheet(disabled_style)
+            self.stop_winws_btn.setStyleSheet(disabled_style)
+            self.stop_and_exit_btn.setStyleSheet(disabled_style)
+        else:
+            # Восстанавливаем стили
+            self.start_btn._update_style()
+            self.stop_winws_btn._update_style()
+            self.stop_and_exit_btn._update_style()
+        
     def update_status(self, is_running: bool):
         """Обновляет отображение статуса"""
         try:
@@ -231,7 +318,8 @@ class ControlPage(BasePage):
             else:
                 self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#6ccb5f').pixmap(16, 16))
             self.start_btn.setVisible(False)
-            self.stop_btn.setVisible(True)
+            self.stop_winws_btn.setVisible(True)
+            self.stop_and_exit_btn.setVisible(True)
         else:
             self.status_title.setText("Zapret остановлен")
             self.status_desc.setText("Нажмите «Запустить» для активации")
@@ -240,7 +328,8 @@ class ControlPage(BasePage):
             else:
                 self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#ff6b6b').pixmap(16, 16))
             self.start_btn.setVisible(True)
-            self.stop_btn.setVisible(False)
+            self.stop_winws_btn.setVisible(False)
+            self.stop_and_exit_btn.setVisible(False)
             
     def update_strategy(self, name: str):
         """Обновляет отображение текущей стратегии"""

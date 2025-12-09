@@ -38,15 +38,17 @@ except ImportError:
     QTimer = None
 
 def _reg_get() -> Optional[str]:
+    from config import REGISTRY_PATH
     try:
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\ZapretReg2")
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
         cid, _ = winreg.QueryValueEx(k, "ClientID")
         return cid
     except Exception:
         return None
 
 def _reg_set(cid: str):
-    k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\ZapretReg2")
+    from config import REGISTRY_PATH
+    k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
     winreg.SetValueEx(k, "ClientID", 0, winreg.REG_SZ, cid)
 
 def get_client_id() -> str:

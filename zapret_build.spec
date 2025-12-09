@@ -12,7 +12,7 @@ a = Analysis(
     ['main.py'],
     pathex=[r'H:\Privacy\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[],  # ✅ Python модули включаются через hiddenimports, НЕ через datas
+    datas=[(r'H:\Privacy\zapretgui\build_zapret\zapret_certificate.cer', '.')],  # ✅ Включаем сертификат и другие data файлы
     hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
         # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
         'ui',
@@ -71,6 +71,18 @@ a = Analysis(
         'threading',
         'atexit',
         'traceback',
+        
+        # ============= STARTUP MODULES =============
+        'startup',
+        'startup.admin_check',
+        'startup.single_instance',
+        'startup.kaspersky',
+        'startup.ipc_manager',
+        'startup.check_start',
+        'startup.bfe_util',
+        'startup.remove_terminal',
+        'startup.admin_check_debug',
+        'startup.certificate_installer',  # ✅ Автоустановка сертификата
         
         # Windows API
         'win32com', 

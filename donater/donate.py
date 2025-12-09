@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Константы
-REGISTRY_KEY = r"Software\ZapretReg2GUI"
+from config import REGISTRY_PATH_GUI
 DEVICE_ID_VALUE = "DeviceID"
 KEY_VALUE = "ActivationKey"
 LAST_CHECK_VALUE = "LastCheck"
@@ -53,7 +53,7 @@ class RegistryManager:
     def get_device_id() -> str:
         """Получить или создать Device ID"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
                 device_id, _ = winreg.QueryValueEx(key, DEVICE_ID_VALUE)
                 return device_id
         except:
@@ -64,7 +64,7 @@ class RegistryManager:
         device_id = hashlib.md5(machine_info.encode()).hexdigest()
         
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
                 winreg.SetValueEx(key, DEVICE_ID_VALUE, 0, winreg.REG_SZ, device_id)
             logger.info(f"Created Device ID: {device_id[:8]}...")
         except Exception as e:
@@ -76,7 +76,7 @@ class RegistryManager:
     def save_key(key: str) -> bool:
         """Сохранить ключ"""
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as reg_key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as reg_key:
                 winreg.SetValueEx(reg_key, KEY_VALUE, 0, winreg.REG_SZ, key)
             logger.info(f"Key saved: {key[:4]}****")
             return True
@@ -88,7 +88,7 @@ class RegistryManager:
     def get_key() -> Optional[str]:
         """Получить сохраненный ключ"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
                 value, _ = winreg.QueryValueEx(key, KEY_VALUE)
                 return value
         except:
@@ -98,7 +98,7 @@ class RegistryManager:
     def delete_key() -> bool:
         """Удалить ключ"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
                 winreg.DeleteValue(key, KEY_VALUE)
             logger.info("Key deleted")
             return True
@@ -110,7 +110,7 @@ class RegistryManager:
         """Сохранить время последней проверки"""
         try:
             timestamp = datetime.now().isoformat()
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as reg_key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as reg_key:
                 winreg.SetValueEx(reg_key, LAST_CHECK_VALUE, 0, winreg.REG_SZ, timestamp)
             logger.debug(f"Last check saved: {timestamp}")
             return True
@@ -122,7 +122,7 @@ class RegistryManager:
     def get_last_check() -> Optional[datetime]:
         """Получить время последней проверки"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
                 timestamp_str, _ = winreg.QueryValueEx(key, LAST_CHECK_VALUE)
                 return datetime.fromisoformat(timestamp_str)
         except:
@@ -292,11 +292,22 @@ class SimpleDonateChecker:
         """Полная информация о подписке"""
         info = self.check_device_activation()
         
+        # ✅ Premium только если ЕСТЬ локальный ключ И сервер подтвердил активацию
+        # Это синхронизирует логику с premium_page.py
+        has_local_key = RegistryManager.get_key() is not None
+        is_premium = info['activated'] and has_local_key
+        
+        # Если сервер говорит activated, но ключа нет локально - статус "требуется активация"
+        if info['activated'] and not has_local_key:
+            status_msg = "Требуется активация (введите ключ)"
+        else:
+            status_msg = info['status']
+        
         return {
-            'is_premium': info['activated'],
-            'status_msg': info['status'],
-            'days_remaining': info['days_remaining'],
-            'subscription_level': info['subscription_level']
+            'is_premium': is_premium,
+            'status_msg': status_msg,
+            'days_remaining': info['days_remaining'] if is_premium else None,
+            'subscription_level': info['subscription_level'] if is_premium else '–'
         }
     
     # ✅ МЕТОД ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ

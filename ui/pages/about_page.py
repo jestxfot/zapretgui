@@ -5,7 +5,7 @@ import os
 import webbrowser
 import subprocess
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -28,6 +28,13 @@ class AboutPage(BasePage):
         self.add_section_title("Версия")
         
         version_card = SettingsCard()
+        version_card.setStyleSheet("""
+            QFrame#settingsCard {
+                background-color: rgba(255, 255, 255, 0.04);
+                border: none;
+                border-radius: 8px;
+            }
+        """)
         
         version_layout = QHBoxLayout()
         version_layout.setSpacing(16)
@@ -77,6 +84,13 @@ class AboutPage(BasePage):
         self.add_section_title("Подписка")
         
         sub_card = SettingsCard()
+        sub_card.setStyleSheet("""
+            QFrame#settingsCard {
+                background-color: rgba(255, 255, 255, 0.04);
+                border: none;
+                border-radius: 8px;
+            }
+        """)
         
         sub_layout = QVBoxLayout()
         sub_layout.setSpacing(12)
@@ -119,45 +133,63 @@ class AboutPage(BasePage):
         
         self.add_spacing(16)
         
-        # Ссылки (объединённый виджет)
+        # Ссылки - разбиты на 3 отдельных виджета
         self.add_section_title("Ссылки")
         
-        links_card = SettingsCard()
-        links_layout = QVBoxLayout()
-        links_layout.setSpacing(4)
+        # --- Виджет 1: Документация ---
+        docs_card = self._create_links_card("Документация")
+        docs_layout = docs_card.layout()
         
-        # --- Подзаголовок: Документация ---
-        self._add_section_header(links_layout, "Документация")
-        
-        self._add_link_item(links_layout, "fa5s.folder-open", "Папка с инструкциями", 
+        self._add_link_item(docs_layout, "fa5s.folder-open", "Папка с инструкциями", 
                            "Открыть локальную папку help", self._open_help_folder)
         
-        self._add_link_item(links_layout, "fa5b.github", "Wiki на GitHub", 
+        self._add_link_item(docs_layout, "fa5b.github", "Wiki на GitHub", 
                            "Документация и руководства", self._open_wiki)
         
-        # --- Подзаголовок: Поддержка ---
-        self._add_section_header(links_layout, "Поддержка")
+        self.add_widget(docs_card)
+        self.add_spacing(8)
         
-        self._add_link_item(links_layout, "fa5b.telegram", "Telegram канал поддержки", 
+        # --- Виджет 2: Поддержка ---
+        support_card = self._create_links_card("Поддержка")
+        support_layout = support_card.layout()
+        
+        self._add_link_item(support_layout, "fa5b.telegram", "Telegram канал поддержки", 
                            "Помощь и вопросы по использованию", self._open_telegram)
         
-        self._add_link_item(links_layout, "fa5b.discord", "Discord сервер", 
+        self._add_link_item(support_layout, "fa5b.discord", "Discord сервер", 
                            "Сообщество и живое общение", self._open_discord)
         
-        # --- Подзаголовок: Новости и исходный код ---
-        self._add_section_header(links_layout, "Новости и исходный код")
+        self.add_widget(support_card)
+        self.add_spacing(8)
         
-        self._add_link_item(links_layout, "fa5b.telegram", "Telegram канал", 
+        # --- Виджет 3: Новости и исходный код ---
+        news_card = self._create_links_card("Новости и исходный код")
+        news_layout = news_card.layout()
+        
+        self._add_link_item(news_layout, "fa5b.telegram", "Telegram канал", 
                            "Новости и обновления", self._open_telegram_news)
         
-        self._add_link_item(links_layout, "fa5b.github", "GitHub", 
+        self._add_link_item(news_layout, "fa5b.github", "GitHub", 
                            "Исходный код и багрепорты", self._open_github)
-            
-        links_card.add_layout(links_layout)
-        self.add_widget(links_card)
+        
+        self.add_widget(news_card)
     
-    def _add_section_header(self, layout, title):
-        """Добавляет подзаголовок внутри виджета"""
+    def _create_links_card(self, title: str) -> QFrame:
+        """Создаёт карточку для группы ссылок без рамки с собственным фоном"""
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.04);
+                border: none;
+                border-radius: 8px;
+            }
+        """)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(4)
+        
+        # Заголовок секции
         header = QLabel(title)
         header.setStyleSheet("""
             QLabel {
@@ -166,26 +198,30 @@ class AboutPage(BasePage):
                 font-weight: 600;
                 text-transform: uppercase;
                 letter-spacing: 1px;
-                padding: 12px 4px 4px 4px;
+                padding: 0px 4px 8px 4px;
+                background: transparent;
+                border: none;
             }
         """)
         layout.addWidget(header)
+        
+        return card
     
     def _add_link_item(self, layout, icon_name, title, desc, callback):
-        """Добавляет кликабельный элемент ссылки"""
-        from PyQt6.QtWidgets import QFrame
-        
+        """Добавляет кликабельный элемент ссылки без рамок"""
         # Легкая строка ссылки без рамок
         link_widget = QFrame()
         link_widget.setCursor(Qt.CursorShape.PointingHandCursor)
         link_widget.setStyleSheet("""
             QFrame { 
                 background: transparent; 
+                border: none;
                 border-radius: 6px; 
                 padding: 2px;
             }
             QFrame QLabel {
                 background: transparent;
+                border: none;
             }
         """)
         link_widget.mousePressEvent = lambda e: callback()

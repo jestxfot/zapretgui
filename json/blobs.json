@@ -1,0 +1,181 @@
+{
+    "_comment": "Файл определений блобов для Zapret 2. Пользователи могут добавлять свои блобы в секцию user_blobs.",
+    "_format": {
+        "name": "Уникальное имя блоба для использования в стратегиях",
+        "path": "Путь к файлу относительно папки bin/ (или абсолютный путь)",
+        "hex": "Или hex-значение вместо файла (начинается с 0x)",
+        "description": "Описание блоба для UI"
+    },
+    
+    "blobs": {
+        "tls_google": {
+            "path": "tls_clienthello_www_google_com.bin",
+            "description": "TLS ClientHello для www.google.com"
+        },
+        "tls1": {
+            "path": "tls_clienthello_1.bin",
+            "description": "TLS ClientHello вариант 1"
+        },
+        "tls2": {
+            "path": "tls_clienthello_2.bin",
+            "description": "TLS ClientHello вариант 2"
+        },
+        "tls2n": {
+            "path": "tls_clienthello_2n.bin",
+            "description": "TLS ClientHello вариант 2n"
+        },
+        "tls3": {
+            "path": "tls_clienthello_3.bin",
+            "description": "TLS ClientHello вариант 3"
+        },
+        "tls4": {
+            "path": "tls_clienthello_4.bin",
+            "description": "TLS ClientHello вариант 4"
+        },
+        "tls5": {
+            "path": "tls_clienthello_5.bin",
+            "description": "TLS ClientHello вариант 5"
+        },
+        "tls6": {
+            "path": "tls_clienthello_6.bin",
+            "description": "TLS ClientHello вариант 6"
+        },
+        "tls7": {
+            "path": "tls_clienthello_7.bin",
+            "description": "TLS ClientHello вариант 7"
+        },
+        "tls8": {
+            "path": "tls_clienthello_8.bin",
+            "description": "TLS ClientHello вариант 8"
+        },
+        "tls9": {
+            "path": "tls_clienthello_9.bin",
+            "description": "TLS ClientHello вариант 9"
+        },
+        "tls10": {
+            "path": "tls_clienthello_10.bin",
+            "description": "TLS ClientHello вариант 10"
+        },
+        "tls11": {
+            "path": "tls_clienthello_11.bin",
+            "description": "TLS ClientHello вариант 11"
+        },
+        "tls12": {
+            "path": "tls_clienthello_12.bin",
+            "description": "TLS ClientHello вариант 12"
+        },
+        "tls13": {
+            "path": "tls_clienthello_13.bin",
+            "description": "TLS ClientHello вариант 13"
+        },
+        "tls14": {
+            "path": "tls_clienthello_14.bin",
+            "description": "TLS ClientHello вариант 14"
+        },
+        "tls17": {
+            "path": "tls_clienthello_17.bin",
+            "description": "TLS ClientHello вариант 17"
+        },
+        "tls18": {
+            "path": "tls_clienthello_18.bin",
+            "description": "TLS ClientHello вариант 18"
+        },
+        "tls_sber": {
+            "path": "tls_clienthello_sberbank_ru.bin",
+            "description": "TLS ClientHello для sberbank.ru"
+        },
+        "tls_vk": {
+            "path": "tls_clienthello_vk_com.bin",
+            "description": "TLS ClientHello для vk.com"
+        },
+        "tls_vk_kyber": {
+            "path": "tls_clienthello_vk_com_kyber.bin",
+            "description": "TLS ClientHello для vk.com с Kyber"
+        },
+        "tls_deepseek": {
+            "path": "tls_clienthello_chat_deepseek_com.bin",
+            "description": "TLS ClientHello для chat.deepseek.com"
+        },
+        "dtls_w3": {
+            "path": "dtls_clienthello_w3_org.bin",
+            "description": "DTLS ClientHello для w3.org"
+        },
+        "syndata3": {
+            "path": "tls_clienthello_3.bin",
+            "description": "Syndata на основе TLS 3"
+        },
+        "syn_packet": {
+            "path": "syn_packet.bin",
+            "description": "SYN пакет"
+        },
+        "quic_google": {
+            "path": "quic_initial_www_google_com.bin",
+            "description": "QUIC Initial для www.google.com"
+        },
+        "quic_vk": {
+            "path": "quic_initial_vk_com.bin",
+            "description": "QUIC Initial для vk.com"
+        },
+        "quic1": {
+            "path": "quic_1.bin",
+            "description": "QUIC вариант 1"
+        },
+        "quic2": {
+            "path": "quic_2.bin",
+            "description": "QUIC вариант 2"
+        },
+        "quic3": {
+            "path": "quic_3.bin",
+            "description": "QUIC вариант 3"
+        },
+        "quic4": {
+            "path": "quic_4.bin",
+            "description": "QUIC вариант 4"
+        },
+        "quic5": {
+            "path": "quic_5.bin",
+            "description": "QUIC вариант 5"
+        },
+        "quic6": {
+            "path": "quic_6.bin",
+            "description": "QUIC вариант 6"
+        },
+        "quic7": {
+            "path": "quic_7.bin",
+            "description": "QUIC вариант 7"
+        },
+        "quic_test": {
+            "path": "quic_test_00.bin",
+            "description": "QUIC тестовый"
+        },
+        "fake_quic": {
+            "path": "fake_quic.bin",
+            "description": "Fake QUIC пакет"
+        },
+        "fake_default_udp": {
+            "hex": "0x00000000000000000000000000000000",
+            "description": "16 нулевых байт для UDP"
+        },
+        "hex_0e0e0f0e": {
+            "hex": "0x0E0E0F0E",
+            "description": "Hex паттерн 0E0E0F0E"
+        },
+        "hex_0f0e0e0f": {
+            "hex": "0x0F0E0E0F",
+            "description": "Hex паттерн 0F0E0E0F"
+        },
+        "hex_0f0f0f0f": {
+            "hex": "0x0F0F0F0F",
+            "description": "Hex паттерн 0F0F0F0F"
+        },
+        "hex_00": {
+            "hex": "0x00",
+            "description": "Один нулевой байт"
+        }
+    },
+    
+    "user_blobs": {
+        "_comment": "Добавляйте свои блобы здесь по аналогии с blobs выше"
+    }
+}
+

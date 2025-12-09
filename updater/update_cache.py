@@ -13,6 +13,49 @@ from log import log
 CACHE_FILE = os.path.join(LOGS_FOLDER, '.update_cache.json')
 CACHE_DURATION = 3600  # 1 час (3600 секунд)
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ✅ IN-MEMORY кэш для all_versions.json (короткоживущий, для сессии)
+# ═══════════════════════════════════════════════════════════════════════════════
+_all_versions_cache: Optional[Dict[str, Any]] = None
+_all_versions_cache_time: float = 0
+_all_versions_cache_source: str = ""
+ALL_VERSIONS_CACHE_TTL = 30  # 30 секунд - для переиспользования в одной сессии
+
+
+def get_cached_all_versions() -> Optional[Dict[str, Any]]:
+    """
+    Возвращает закэшированный all_versions.json если он свежий.
+    Используется для переиспользования между воркерами.
+    """
+    global _all_versions_cache, _all_versions_cache_time
+    
+    if _all_versions_cache is None:
+        return None
+    
+    age = time.time() - _all_versions_cache_time
+    if age > ALL_VERSIONS_CACHE_TTL:
+        log(f"⏰ In-memory кэш all_versions устарел ({age:.0f}с)", "🔄 CACHE")
+        return None
+    
+    log(f"✅ Используем in-memory кэш all_versions ({ALL_VERSIONS_CACHE_TTL - age:.0f}с до истечения)", "🔄 CACHE")
+    return _all_versions_cache
+
+
+def set_cached_all_versions(data: Dict[str, Any], source: str):
+    """Сохраняет all_versions.json в in-memory кэш"""
+    global _all_versions_cache, _all_versions_cache_time, _all_versions_cache_source
+    
+    _all_versions_cache = data
+    _all_versions_cache_time = time.time()
+    _all_versions_cache_source = source
+    
+    log(f"💾 all_versions закэширован в память из {source} (TTL: {ALL_VERSIONS_CACHE_TTL}с)", "🔄 CACHE")
+
+
+def get_all_versions_source() -> str:
+    """Возвращает источник закэшированного all_versions"""
+    return _all_versions_cache_source
+
 class UpdateCache:
     """Кэш для результатов проверки обновлений"""
     

@@ -102,7 +102,7 @@ class StrategyFilesDownloader(QObject):
                     version_status = self.strategy_manager.check_strategy_version_status(strategy_id)
                     if version_status in ['not_downloaded', 'outdated']:
                         current_file += 1
-                        strategy_name = strategy_info.get('name', strategy_id)
+                        strategy_name = strategy_info.get('name') or strategy_id
                         
                         # Обновляем прогресс
                         progress_percent = int((current_file / total_count) * 100)

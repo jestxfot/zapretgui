@@ -86,18 +86,22 @@ class HeavyInitWorker(QObject):
             return False
 
     def _load_local_strategies(self) -> bool:
-        """Загружает ТОЛЬКО локальные стратегии"""
+        """Загружает ТОЛЬКО локальные стратегии из .bat файлов"""
         try:
-            # Проверяем наличие локального index.json
-            from config import INDEXJSON_FOLDER
-            index_file = os.path.join(INDEXJSON_FOLDER, "index.json")
+            # Проверяем наличие .bat файлов в папке стратегий
+            from config import BAT_FOLDER
             
-            if os.path.exists(index_file):
-                log(f"Локальный index.json найден: {index_file}", "DEBUG")
-                # Стратегии будут загружены через StrategyManager в основном потоке
-                return True
+            if os.path.isdir(BAT_FOLDER):
+                bat_files = [f for f in os.listdir(BAT_FOLDER) if f.lower().endswith('.bat')]
+                if bat_files:
+                    log(f"Найдено {len(bat_files)} .bat файлов стратегий", "DEBUG")
+                    # Стратегии будут загружены через StrategyManager в основном потоке
+                    return True
+                else:
+                    log("В папке стратегий нет .bat файлов", "⚠ WARNING")
+                    return False
             else:
-                log("Локальный index.json не найден", "⚠ WARNING")
+                log(f"Папка стратегий не найдена: {BAT_FOLDER}", "⚠ WARNING")
                 return False
                 
         except Exception as e:

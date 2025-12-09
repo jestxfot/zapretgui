@@ -449,9 +449,10 @@ def remove_direct_autostart() -> bool:
         removed_any = True
     
     # Удаляем .bat файлы
+    from config import PROGRAMDATA_PATH
     for filename in ["zapret_autostart.bat", "zapret_direct.bat", "zapret_boot_task.xml"]:
         try:
-            for base_path in [Path.cwd(), Path(os.environ.get("PROGRAMDATA", "C:\\ProgramData")) / "ZapretDev"]:
+            for base_path in [Path.cwd(), Path(PROGRAMDATA_PATH)]:
                 file_path = base_path / filename
                 if file_path.exists():
                     file_path.unlink()
@@ -546,14 +547,14 @@ def _save_direct_strategy_config(args: List[str], name: str, cmd_line: str):
     """Сохраняет конфигурацию в реестр"""
     try:
         import winreg
+        from config import REGISTRY_PATH_DIRECT
         config = {
             "args": args,
             "name": name,
             "cmd_line": cmd_line
         }
         
-        reg_path = r"Software\ZapretReg2GUI\DirectAutostart"
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_DIRECT) as key:
             winreg.SetValueEx(key, "Config", 0, winreg.REG_SZ, json.dumps(config))
         
         log("Конфигурация сохранена", "DEBUG")
@@ -565,8 +566,8 @@ def _delete_direct_strategy_config() -> bool:
     """Удаляет конфигурацию из реестра"""
     try:
         import winreg
-        reg_path = r"Software\ZapretReg2GUI"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE) as key:
+        from config import REGISTRY_PATH
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_WRITE) as key:
             winreg.DeleteKey(key, "DirectAutostart")
         log("Конфигурация удалена", "DEBUG")
         return True

@@ -40,6 +40,7 @@ class CompactStrategyItem(QFrame):
         self.is_selected = False
         
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self._apply_style(False)
@@ -107,10 +108,12 @@ class CompactStrategyItem(QFrame):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.radio.setChecked(True)
-        elif event.button() == Qt.MouseButton.RightButton:
-            from .args_preview_dialog import preview_manager
-            preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
         super().mousePressEvent(event)
+    
+    def _show_context_menu(self, pos):
+        """Показывает окно информации о стратегии по ПКМ"""
+        from .args_preview_dialog import preview_manager
+        preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
     
     def _on_toggled(self, checked):
         self.is_selected = checked

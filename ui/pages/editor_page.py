@@ -5,13 +5,13 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QLineEdit, QComboBox,
-    QScrollArea, QFrame, QPlainTextEdit, QDialog, 
+    QScrollArea, QFrame, QDialog, 
     QDialogButtonBox, QFormLayout, QMessageBox
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
 
-from .base_page import BasePage
+from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from log import log
 
@@ -105,7 +105,7 @@ class StrategyEditorDialog(QDialog):
         args_label.setStyleSheet("font-weight: 600; margin-top: 8px;")
         layout.addWidget(args_label)
         
-        self.args_edit = QPlainTextEdit()
+        self.args_edit = ScrollBlockingPlainTextEdit()
         self.args_edit.setPlaceholderText(
             "Введите аргументы для winws...\n"
             "Пример: --payload=tls_client_hello --out-range=-d10 --lua-desync=fake:blob=tls_google"

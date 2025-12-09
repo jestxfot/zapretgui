@@ -119,14 +119,8 @@ class HostlistPage(BasePage):
     def _rebuild_hostlists(self):
         """Перестраивает хостлисты"""
         try:
-            # Пытаемся найти функцию перестроения
-            try:
-                from utils.hostlists_manager import rebuild_hostlists
-                rebuild_hostlists()
-            except ImportError:
-                # Альтернативный способ
-                from config import LISTS_FOLDER
-                log(f"Папка списков: {LISTS_FOLDER}", "INFO")
+            from utils.hostlists_manager import startup_hostlists_check
+            startup_hostlists_check()
                 
             QMessageBox.information(self.window(), "Готово", "Хостлисты обновлены")
             self._load_info()

@@ -2,8 +2,60 @@
 """Базовый класс для страниц"""
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QPlainTextEdit, QTextEdit
 from PyQt6.QtGui import QFont
+
+
+class ScrollBlockingPlainTextEdit(QPlainTextEdit):
+    """QPlainTextEdit который не пропускает прокрутку к родителю"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Запрещаем перетаскивание окна при взаимодействии с редактором
+        self.setProperty("noDrag", True)
+    
+    def wheelEvent(self, event):
+        scrollbar = self.verticalScrollBar()
+        delta = event.angleDelta().y()
+        
+        # Если прокручиваем вверх и уже в начале - блокируем
+        if delta > 0 and scrollbar.value() == scrollbar.minimum():
+            event.accept()
+            return
+        
+        # Если прокручиваем вниз и уже в конце - блокируем  
+        if delta < 0 and scrollbar.value() == scrollbar.maximum():
+            event.accept()
+            return
+        
+        super().wheelEvent(event)
+        event.accept()
+
+
+class ScrollBlockingTextEdit(QTextEdit):
+    """QTextEdit который не пропускает прокрутку к родителю"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Запрещаем перетаскивание окна при взаимодействии с редактором
+        self.setProperty("noDrag", True)
+    
+    def wheelEvent(self, event):
+        scrollbar = self.verticalScrollBar()
+        delta = event.angleDelta().y()
+        
+        # Если прокручиваем вверх и уже в начале - блокируем
+        if delta > 0 and scrollbar.value() == scrollbar.minimum():
+            event.accept()
+            return
+        
+        # Если прокручиваем вниз и уже в конце - блокируем  
+        if delta < 0 and scrollbar.value() == scrollbar.maximum():
+            event.accept()
+            return
+        
+        super().wheelEvent(event)
+        event.accept()
 
 
 class BasePage(QScrollArea):
@@ -15,6 +67,7 @@ class BasePage(QScrollArea):
         
         # Настройка ScrollArea
         self.setWidgetResizable(True)
+        # ✅ Отключаем горизонтальный скролл - контент должен вписываться в ширину
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet("""
@@ -44,6 +97,8 @@ class BasePage(QScrollArea):
         # Контейнер контента (с явным родителем!)
         self.content = QWidget(self)  # ✅ Родитель = self (QScrollArea)
         self.content.setStyleSheet("background-color: transparent;")
+        # ✅ Политика размера: предпочитает минимальную ширину, не растягивается бесконечно
+        self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.setWidget(self.content)
         
         # Основной layout
@@ -51,6 +106,8 @@ class BasePage(QScrollArea):
         self.layout.setContentsMargins(32, 24, 32, 24)
         self.layout.setSpacing(16)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # ✅ Ограничиваем ширину контента чтобы не выходил за границы
+        self.layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMaximumSize)
         
         # Заголовок страницы
         self.title_label = QLabel(title)
@@ -78,9 +135,9 @@ class BasePage(QScrollArea):
             self.subtitle_label.setWordWrap(True)
             self.layout.addWidget(self.subtitle_label)
         
-    def add_widget(self, widget: QWidget):
+    def add_widget(self, widget: QWidget, stretch: int = 0):
         """Добавляет виджет на страницу"""
-        self.layout.addWidget(widget)
+        self.layout.addWidget(widget, stretch)
         
     def add_spacing(self, height: int = 16):
         """Добавляет вертикальный отступ"""

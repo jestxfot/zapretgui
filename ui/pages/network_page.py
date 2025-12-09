@@ -14,72 +14,13 @@ from PyQt6.QtWidgets import (
 import qtawesome as qta
 
 from .base_page import BasePage
+from .dpi_settings_page import Win11ToggleRow
 from ui.sidebar import SettingsCard, ActionButton
 from log import log
+from dns import DNS_PROVIDERS
 
 if TYPE_CHECKING:
     from main import LupiDPIApp
-
-# ══════════════════════════════════════════════════════════════════════
-#  DNS провайдеры
-# ══════════════════════════════════════════════════════════════════════
-
-DNS_PROVIDERS = {
-    "Популярные": {
-        "Cloudflare": {
-            "ipv4": ["1.1.1.1", "1.0.0.1"],
-            "desc": "Быстрый",
-            "icon": "fa5s.bolt",
-            "color": "#f48120"
-        },
-        "Google DNS": {
-            "ipv4": ["8.8.8.8", "8.8.4.4"],
-            "desc": "Надёжный",
-            "icon": "fa5b.google",
-            "color": "#4285f4"
-        },
-        "Dns.SB": {
-            "ipv4": ["185.222.222.222", "45.11.45.11"],
-            "desc": "Без цензуры",
-            "icon": "fa5s.shield-alt",
-            "color": "#00bcd4"
-        },
-    },
-    "Безопасные": {
-        "Quad9": {
-            "ipv4": ["9.9.9.9", "149.112.112.112"],
-            "desc": "Антивирус",
-            "icon": "fa5s.shield-virus",
-            "color": "#e91e63"
-        },
-        "AdGuard": {
-            "ipv4": ["94.140.14.14", "94.140.15.15"],
-            "desc": "Без рекламы",
-            "icon": "fa5s.ad",
-            "color": "#68bc71"
-        },
-        "OpenDNS": {
-            "ipv4": ["208.67.222.222", "208.67.220.220"],
-            "desc": "Фильтрация",
-            "icon": "fa5s.user-shield",
-            "color": "#ff9800"
-        },
-    },
-    "Для ИИ": {
-        "Xbox DNS": {
-            "ipv4": ["176.99.11.77", "80.78.247.254"],
-            "desc": "ChatGPT",
-            "icon": "fa5s.robot",
-            "color": "#9c27b0"
-        },
-        "Comss DNS": {
-            "ipv4": ["83.220.169.155", "212.109.195.93"],
-            "desc": "ChatGPT",
-            "icon": "fa5s.brain",
-            "color": "#673ab7"
-        },
-    }
-}
 
 # Стиль для красивого индикатора выбора
 RADIO_STYLE = """
@@ -248,10 +189,15 @@ class AdapterCard(SettingsCard):
         
         layout.addStretch()
         
-        # Текущий DNS
-        current_dns = self.dns_info.get("ipv4", [])
+        # Текущий DNS (первичный + вторичный)
+        current_dns = self._normalize_dns_list(self.dns_info.get("ipv4", []))
         if current_dns:
-            dns_text = current_dns[0]
+            primary = current_dns[0]
+            secondary = current_dns[1] if len(current_dns) > 1 else None
+            if secondary:
+                dns_text = f"{primary}, {secondary}"
+            else:
+                dns_text = primary
         else:
             dns_text = "DHCP"
         
@@ -261,9 +207,39 @@ class AdapterCard(SettingsCard):
         
         self.add_layout(layout)
     
-    def update_dns_display(self, dns_text: str):
+    @staticmethod
+    def _normalize_dns_list(value) -> list:
+        """Нормализует DNS в список адресов"""
+        if isinstance(value, str):
+            return [x.strip() for x in value.replace(',', ' ').split() if x.strip()]
+        if isinstance(value, list):
+            result = []
+            for item in value:
+                if isinstance(item, str):
+                    result.extend([x.strip() for x in item.replace(',', ' ').split() if x.strip()])
+                else:
+                    result.append(str(item))
+            return result
+        return []
+    
+    def update_dns_display(self, dns_list):
         """Обновляет отображение текущего DNS"""
         if self.dns_label:
+            if isinstance(dns_list, str):
+                dns_list = self._normalize_dns_list(dns_list)
+            elif isinstance(dns_list, list):
+                dns_list = self._normalize_dns_list(dns_list)
+            
+            if dns_list:
+                primary = dns_list[0]
+                secondary = dns_list[1] if len(dns_list) > 1 else None
+                if secondary:
+                    dns_text = f"{primary}, {secondary}"
+                else:
+                    dns_text = primary
+            else:
+                dns_text = "DHCP"
+            
             self.dns_label.setText(dns_text)
     
     def _toggle_checkbox(self):
@@ -293,6 +269,7 @@ class NetworkPage(BasePage):
         self._is_loading = True
         self._selected_provider = None
         self._ui_built = False  # Флаг чтобы UI строился только один раз
+        self._force_dns_active = False
         
         self.dns_cards = {}
         self.adapter_cards = []
@@ -302,6 +279,13 @@ class NetworkPage(BasePage):
         
     def _build_ui(self):
         """Строит интерфейс страницы"""
+        
+        # ═══════════════════════════════════════════════════════════════
+        # ПРИНУДИТЕЛЬНЫЙ DNS
+        # ═══════════════════════════════════════════════════════════════
+        self._build_force_dns_card()
+        
+        self.add_spacing(12)
         
         # ═══════════════════════════════════════════════════════════════
         # DNS СЕРВЕРЫ
@@ -410,35 +394,6 @@ class NetworkPage(BasePage):
         self.adapters_layout.setSpacing(4)
         self.adapters_container.hide()
         self.add_widget(self.adapters_container)
-        
-        self.add_spacing(12)
-        
-        # ═══════════════════════════════════════════════════════════════
-        # ДОСТУП К СЕРВИСАМ
-        # ═══════════════════════════════════════════════════════════════
-        self.add_section_title("Доступ к сервисам")
-        
-        proxy_card = SettingsCard()
-        proxy_layout = QHBoxLayout()
-        proxy_layout.setContentsMargins(10, 8, 12, 8)
-        proxy_layout.setSpacing(10)
-        
-        self.proxy_status_icon = QLabel()
-        self.proxy_status_icon.setPixmap(qta.icon('fa5s.unlock', color='#6ccb5f').pixmap(16, 16))
-        proxy_layout.addWidget(self.proxy_status_icon)
-        
-        self.proxy_status_label = QLabel("ChatGPT, Spotify, Twitch")
-        self.proxy_status_label.setStyleSheet("color: #ffffff; font-size: 12px;")
-        proxy_layout.addWidget(self.proxy_status_label)
-        
-        proxy_layout.addStretch()
-        
-        self.proxy_toggle_btn = ActionButton("Отключить", "fa5s.lock")
-        self.proxy_toggle_btn.setFixedHeight(28)
-        proxy_layout.addWidget(self.proxy_toggle_btn)
-        
-        proxy_card.add_layout(proxy_layout)
-        self.add_widget(proxy_card)
         
         self.add_spacing(12)
         
@@ -620,6 +575,11 @@ class NetworkPage(BasePage):
     
     def _on_dns_selected(self, name: str, data: dict):
         """Обработчик выбора DNS - сразу применяем"""
+        # Если Force DNS активен - подсвечиваем карточку Force DNS
+        if self._force_dns_active:
+            self._highlight_force_dns()
+            return
+        
         self._clear_selection()
         self.dns_cards[name].set_selected(True)
         self._selected_provider = name
@@ -629,6 +589,11 @@ class NetworkPage(BasePage):
     
     def _select_auto_dns(self):
         """Выбор автоматического DNS"""
+        # Если Force DNS активен - подсвечиваем карточку Force DNS
+        if self._force_dns_active:
+            self._highlight_force_dns()
+            return
+        
         self._clear_selection()
         self.auto_indicator.setStyleSheet(DNSProviderCard.INDICATOR_ON)
         self.auto_card.setStyleSheet(DNSProviderCard.STYLE_SELECTED)
@@ -642,7 +607,7 @@ class NetworkPage(BasePage):
         return [card.adapter_name for card in self.adapter_cards if card.checkbox.isChecked()]
     
     def _apply_auto_dns_quick(self):
-        """Быстрое применение автоматического DNS"""
+        """Быстрое применение автоматического DNS (IPv4 + IPv6)"""
         if not self._dns_manager:
             return
         
@@ -652,14 +617,16 @@ class NetworkPage(BasePage):
         
         success = 0
         for adapter in adapters:
-            ok, _ = self._dns_manager.set_auto_dns(adapter, "IPv4")
-            if ok:
+            # Сбрасываем и IPv4, и IPv6
+            ok_v4, _ = self._dns_manager.set_auto_dns(adapter, "IPv4")
+            ok_v6, _ = self._dns_manager.set_auto_dns(adapter, "IPv6")
+            if ok_v4 and ok_v6:
                 success += 1
         
         self._dns_manager.flush_dns_cache()
         
         if success == len(adapters):
-            log(f"DNS: Автоматический применён к {success} адаптерам", "INFO")
+            log(f"DNS: Автоматический (IPv4+IPv6) применён к {success} адаптерам", "INFO")
         
         # Обновляем отображение DNS у адаптеров
         self._refresh_adapters_dns()
@@ -696,6 +663,11 @@ class NetworkPage(BasePage):
     
     def _apply_custom_dns_quick(self):
         """Быстрое применение пользовательского DNS"""
+        # Если Force DNS активен - подсвечиваем карточку Force DNS
+        if self._force_dns_active:
+            self._highlight_force_dns()
+            return
+        
         if not self._dns_manager:
             return
         
@@ -750,13 +722,7 @@ class NetworkPage(BasePage):
             for card in self.adapter_cards:
                 clean_name = _normalize_alias(card.adapter_name)
                 adapter_dns = dns_info.get(clean_name, {}).get("ipv4", [])
-                
-                if adapter_dns:
-                    dns_text = adapter_dns[0]
-                else:
-                    dns_text = "DHCP"
-                
-                card.update_dns_display(dns_text)
+                card.update_dns_display(adapter_dns)
                 
             log("DNS информация адаптеров обновлена", "DEBUG")
             
@@ -764,6 +730,146 @@ class NetworkPage(BasePage):
             log(f"Ошибка обновления DNS адаптеров: {e}", "WARNING")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+    
+    def _build_force_dns_card(self):
+        """Строит виджет принудительного DNS в стиле DPI страницы"""
+        from dns import DNSForceManager, ensure_default_force_dns
+        
+        ensure_default_force_dns()
+        manager = DNSForceManager()
+        self._force_dns_active = manager.is_force_dns_enabled()
+        
+        # Секция DNS
+        self.add_section_title("DNS")
+        
+        # Карточка
+        self.force_dns_card = SettingsCard("Принудительно прописывает DNS.SB + OpenDNS для обхода блокировок")
+        dns_layout = QVBoxLayout()
+        dns_layout.setSpacing(8)
+        
+        # Toggle row в стиле Win11
+        self.force_dns_toggle = Win11ToggleRow(
+            "fa5s.shield-alt",
+            "Принудительный DNS",
+            "Устанавливает DNS.SB + OpenDNS на активные адаптеры",
+            "#60cdff"
+        )
+        self.force_dns_toggle.setChecked(self._force_dns_active)
+        self.force_dns_toggle.toggled.connect(self._on_force_dns_toggled)
+        dns_layout.addWidget(self.force_dns_toggle)
+        
+        # Статус
+        self.force_dns_status_label = QLabel("")
+        self.force_dns_status_label.setStyleSheet("color: rgba(255, 255, 255, 0.55); font-size: 11px;")
+        dns_layout.addWidget(self.force_dns_status_label)
+        
+        self.force_dns_card.add_layout(dns_layout)
+        self.add_widget(self.force_dns_card)
+        
+        # Обновляем статус
+        self._update_force_dns_status(self._force_dns_active)
+        self._update_dns_selection_state()
+    
+    def _on_force_dns_toggled(self, enabled: bool):
+        """Обработчик переключения принудительного DNS"""
+        try:
+            from dns import DNSForceManager
+            manager = DNSForceManager()
+            
+            current_state = manager.is_force_dns_enabled()
+            if enabled == current_state:
+                self._update_force_dns_status(enabled)
+                self._update_dns_selection_state()
+                return
+            
+            if enabled:
+                success, ok_count, total, message = manager.enable_force_dns(include_disconnected=False)
+                log(message, "DNS")
+                
+                if success:
+                    self._force_dns_active = True
+                    self._update_force_dns_status(True, f"{ok_count}/{total} адаптеров")
+                else:
+                    self._set_force_dns_toggle(False)
+                    self._update_force_dns_status(False, "Не удалось включить")
+            else:
+                success, message = manager.disable_force_dns(restore_from_backup=True)
+                log(message, "DNS")
+                
+                if success:
+                    self._force_dns_active = False
+                    self._update_force_dns_status(False, "DNS восстановлен")
+                else:
+                    self._set_force_dns_toggle(True)
+                    self._update_force_dns_status(True, "Не удалось отключить")
+            
+            self._update_dns_selection_state()
+            self._refresh_adapters_dns()
+                    
+        except Exception as e:
+            log(f"Ошибка переключения Force DNS: {e}", "ERROR")
+            self._set_force_dns_toggle(not enabled)
+            self._update_force_dns_status(not enabled, "Ошибка применения")
+    
+    def _set_force_dns_toggle(self, checked: bool):
+        """Устанавливает состояние переключателя без триггера сигналов"""
+        self.force_dns_toggle.toggle.blockSignals(True)
+        self.force_dns_toggle.setChecked(checked)
+        self.force_dns_toggle.toggle.blockSignals(False)
+    
+    def _update_force_dns_status(self, enabled: bool, details: str = ""):
+        """Обновляет текст статуса для принудительного DNS"""
+        if not hasattr(self, "force_dns_status_label"):
+            return
+        
+        status = "Принудительный DNS включен" if enabled else "Принудительный DNS отключен"
+        if details:
+            status = f"{status} ({details})"
+        self.force_dns_status_label.setText(status)
+    
+    def _update_dns_selection_state(self):
+        """Обновляет состояние выбора DNS в зависимости от Force DNS"""
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        
+        is_blocked = self._force_dns_active
+        
+        # Применяем эффект прозрачности к DNS карточкам (делает серыми и иконки тоже)
+        if hasattr(self, 'dns_cards_container'):
+            if is_blocked:
+                effect = QGraphicsOpacityEffect()
+                effect.setOpacity(0.35)
+                self.dns_cards_container.setGraphicsEffect(effect)
+            else:
+                self.dns_cards_container.setGraphicsEffect(None)
+        
+        if hasattr(self, 'custom_card'):
+            if is_blocked:
+                effect = QGraphicsOpacityEffect()
+                effect.setOpacity(0.35)
+                self.custom_card.setGraphicsEffect(effect)
+            else:
+                self.custom_card.setGraphicsEffect(None)
+    
+    def _highlight_force_dns(self):
+        """Подсвечивает карточку принудительного DNS при попытке изменить DNS"""
+        if not hasattr(self, 'force_dns_card'):
+            return
+        
+        from PyQt6.QtCore import QTimer
+        
+        # Применяем яркий стиль
+        highlight_style = """
+            SettingsCard {
+                background-color: rgba(96, 205, 255, 0.2);
+                border: 2px solid #60cdff;
+                border-radius: 10px;
+            }
+        """
+        original_style = self.force_dns_card.styleSheet()
+        self.force_dns_card.setStyleSheet(highlight_style)
+        
+        # Возвращаем оригинальный стиль через 700мс
+        QTimer.singleShot(700, lambda: self.force_dns_card.setStyleSheet(original_style))
     
     def _flush_dns_cache(self):
         """Сбрасывает DNS кэш"""
@@ -775,15 +881,3 @@ class NetworkPage(BasePage):
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
     
-    def update_proxy_status(self, is_blocked: bool):
-        """Обновляет отображение статуса доступа к сервисам"""
-        if is_blocked:
-            self.proxy_status_icon.setPixmap(qta.icon('fa5s.lock', color='#ff6b6b').pixmap(16, 16))
-            self.proxy_status_label.setText("ChatGPT, Spotify, Twitch отключены")
-            self.proxy_toggle_btn.setText("Включить")
-            self.proxy_toggle_btn.setIcon(qta.icon('fa5s.unlock', color='white'))
-        else:
-            self.proxy_status_icon.setPixmap(qta.icon('fa5s.unlock', color='#6ccb5f').pixmap(16, 16))
-            self.proxy_status_label.setText("ChatGPT, Spotify, Twitch")
-            self.proxy_toggle_btn.setText("Отключить")
-            self.proxy_toggle_btn.setIcon(qta.icon('fa5s.lock', color='white'))

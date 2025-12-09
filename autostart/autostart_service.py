@@ -5,12 +5,11 @@
 
 from __future__ import annotations
 from pathlib import Path
-import json
 import traceback
 from typing import Callable, Optional
 
 from log import log
-from .autostart_strategy import _resolve_bat_folder
+from .autostart_strategy import _resolve_bat_folder, _find_bat_by_name
 from .registry_check import set_autostart_enabled
 from .service_api import (
     create_bat_service,
@@ -28,7 +27,7 @@ SERVICE_DESCRIPTION = "Автоматический запуск Zapret для �
 def setup_service_for_strategy(
     selected_mode: str,
     bat_folder: str,
-    index_path: str | None = None,
+    index_path: str | None = None,  # Устарел, игнорируется
     ui_error_cb: Optional[Callable[[str], None]] = None,
 ) -> bool:
     """
@@ -36,9 +35,9 @@ def setup_service_for_strategy(
     Использует прямой Windows API для максимальной скорости.
 
     Args:
-        selected_mode : отображаемое имя стратегии (поле "name" в index.json)
-        bat_folder    : каталог, где лежат .bat и index.json
-        index_path    : полный путь к index.json  (опц.)
+        selected_mode : отображаемое имя стратегии (поле REM NAME: в .bat)
+        bat_folder    : каталог с .bat файлами
+        index_path    : устарел, игнорируется
         ui_error_cb   : callback для вывода подробной ошибки в GUI
 
     Returns:
@@ -48,29 +47,17 @@ def setup_service_for_strategy(
     try:
         # ---------- 1. Определяем, какой .bat должен запускаться ----------
         bat_dir = _resolve_bat_folder(bat_folder)
-        idx_path = Path(index_path) if index_path else bat_dir / "index.json"
-        if not idx_path.is_file():
-            return _fail(f"index.json не найден: {idx_path}", ui_error_cb)
+        
+        if not bat_dir.is_dir():
+            return _fail(f"Папка стратегий не найдена: {bat_dir}", ui_error_cb)
 
-        with idx_path.open(encoding="utf-8-sig") as f:
-            data = json.load(f)
+        # Ищем .bat файл по имени стратегии
+        bat_path = _find_bat_by_name(bat_dir, selected_mode)
+        
+        if not bat_path or not bat_path.is_file():
+            return _fail(f"Стратегия «{selected_mode}» не найдена в {bat_dir}", ui_error_cb)
 
-        entry_key, entry_val = next(
-            ((k, v) for k, v in data.items()
-             if isinstance(v, dict) and v.get("name") == selected_mode),
-            (None, None)
-        )
-        if not entry_key:
-            return _fail(f"Стратегия «{selected_mode}» не найдена", ui_error_cb)
-
-        bat_name = (
-            entry_val.get("file_path")
-            if isinstance(entry_val, dict) and entry_val.get("file_path")
-            else (entry_key if entry_key.lower().endswith(".bat") else f"{entry_key}.bat")
-        )
-        bat_path = (bat_dir / bat_name).resolve()
-        if not bat_path.is_file():
-            return _fail(f".bat отсутствует: {bat_path}", ui_error_cb)
+        log(f"Найден .bat файл для стратегии '{selected_mode}': {bat_path}", "DEBUG")
 
         # ---------- 2. Создаём службу через API --------------------------------
         log(f"Создание службы для стратегии: {selected_mode}", "INFO")

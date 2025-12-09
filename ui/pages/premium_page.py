@@ -489,8 +489,10 @@ class PremiumPage(BasePage):
             # Скрываем секцию активации после успешной активации
             self._set_activation_section_visible(False)
             self._check_status()
-            # Эмитим сигнал
-            self.subscription_updated.emit(True, self.checker.get_full_subscription_info())
+            # Эмитим сигнал с корректным days_remaining
+            info = self.checker.get_full_subscription_info()
+            days = info.get('days_remaining', 0) or 0
+            self.subscription_updated.emit(True, days)
         else:
             self.activation_status.setText(f"❌ {message}")
             self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")

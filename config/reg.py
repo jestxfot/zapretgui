@@ -3,8 +3,14 @@ import winreg
 
 HKCU = winreg.HKEY_CURRENT_USER
 HKLM = winreg.HKEY_LOCAL_MACHINE
-REGISTRY_KEY = r"Software\ZapretReg2"
-from log import log
+
+def __log(msg, level="INFO"):
+    """Отложенный импорт log для избежания циклических зависимостей"""
+    try:
+        from log import log
+        _log(msg, level)
+    except ImportError:
+        print(f"[{level}] {msg}")
 
 # Специальная константа для обозначения отсутствующего значения
 class _UnsetType:
@@ -73,43 +79,70 @@ def reg(subkey: str,
         return True
 
     except FileNotFoundError:
+        # Ключ не найден - нормальная ситуация при первом запуске
         return None if value is _UNSET else False
     except Exception as e:
-        # при желании можете залогировать здесь
-        # from log import log; log(f"reg error: {e}", "❌ ERROR")
+        # Логируем неожиданные ошибки
+        try:
+            from log import log
+            log(f"❌ reg() error [{subkey}\\{name}]: {e}", "ERROR")
+        except:
+            print(f"[ERROR] reg error: {e}")
         return None if value is _UNSET else False
 
 
 # ------------------------------------------------------------------
-# Шорткаты вашей программы
+# Шорткаты вашей программы - ОТДЕЛЬНЫЕ КЛЮЧИ ДЛЯ РАЗНЫХ РЕЖИМОВ
 # ------------------------------------------------------------------
+
+# ───────────── BAT режим (Запрет 1) ─────────────
+def get_last_bat_strategy():
+    """Получает последнюю BAT-стратегию из реестра"""
+    from config import DEFAULT_STRAT, REGISTRY_PATH
+    return reg(REGISTRY_PATH, "LastBatStrategy") or DEFAULT_STRAT
+
+
+def set_last_bat_strategy(name: str) -> bool:
+    """Сохраняет последнюю BAT-стратегию в реестр"""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, "LastBatStrategy", name)
+
+
+# ───────────── Direct режим (Запрет 2) ─────────────
+# Для Direct режима selections сохраняются отдельно через get/set_direct_mode_selections
+# Отдельный ключ LastDirectStrategy не нужен, т.к. selections и есть состояние
+
+
+# ───────────── LEGACY - для обратной совместимости ─────────────
 def get_last_strategy():
-    from config import DEFAULT_STRAT, REG_LATEST_STRATEGY
-    return reg(r"Software\ZapretReg2", REG_LATEST_STRATEGY) or DEFAULT_STRAT
+    """УСТАРЕВШАЯ функция - используйте get_last_bat_strategy()"""
+    return get_last_bat_strategy()
 
 
 def set_last_strategy(name: str) -> bool:
-    from config import REG_LATEST_STRATEGY
-    return reg(r"Software\ZapretReg2", REG_LATEST_STRATEGY, name)
+    """УСТАРЕВШАЯ функция - используйте set_last_bat_strategy()"""
+    return set_last_bat_strategy(name)
 
 # ───────────── DPI-автозапуск ─────────────
-_DPI_KEY   = r"Software\ZapretReg2"
 _DPI_NAME  = "DPIAutoStart"          # REG_DWORD (0/1)
 
 def get_dpi_autostart() -> bool:
     """True – запускать DPI автоматически; False – не запускать."""
-    val = reg(_DPI_KEY, _DPI_NAME)
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _DPI_NAME)
     return bool(val) if val is not None else True  # Default to True if not set
 
 def set_dpi_autostart(state: bool) -> bool:
     """Сохраняет флаг автозапуска DPI в реестре."""
-    return reg(_DPI_KEY, _DPI_NAME, 1 if state else 0)
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _DPI_NAME, 1 if state else 0)
 
 
 def get_subscription_check_interval() -> int:
     """Возвращает интервал проверки подписки в минутах (по умолчанию 10)"""
+    from config import REGISTRY_PATH
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "SubscriptionCheckInterval")
             return max(1, int(value))  # Минимум 1 минута
     except FileNotFoundError:
@@ -119,50 +152,53 @@ def get_subscription_check_interval() -> int:
 
 def set_subscription_check_interval(minutes: int):
     """Устанавливает интервал проверки подписки в минутах"""
+    from config import REGISTRY_PATH
     try:
-        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_SET_VALUE) as key:
             winreg.SetValueEx(key, "SubscriptionCheckInterval", 0, winreg.REG_DWORD, int(minutes))
     except Exception as e:
-        log(f"Ошибка записи интервала проверки подписки: {e}", "❌ ERROR")
+        _log(f"Ошибка записи интервала проверки подписки: {e}", "❌ ERROR")
 
 # ───────────── Удаление GitHub API из hosts ─────────────
-_GITHUB_API_KEY  = r"Software\ZapretReg2"
 _GITHUB_API_NAME = "RemoveGitHubAPI"     # REG_DWORD (1/0)
 
 def get_remove_github_api() -> bool:
     """True – удалять api.github.com из hosts при запуске, False – не удалять."""
-    val = reg(_GITHUB_API_KEY, _GITHUB_API_NAME)
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _GITHUB_API_NAME)
     return bool(val) if val is not None else True # По умолчанию True
 
 def set_remove_github_api(enabled: bool) -> bool:
     """Включает/выключает удаление api.github.com из hosts при запуске."""
-    return reg(_GITHUB_API_KEY, _GITHUB_API_NAME, 1 if enabled else 0)
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _GITHUB_API_NAME, 1 if enabled else 0)
 
 # ───────────── Активные домены hosts ─────────────
-_HOSTS_KEY = r"Software\ZapretReg2"
 _HOSTS_DOMAINS_NAME = "ActiveHostsDomains"  # REG_SZ (JSON строка)
 
 def get_active_hosts_domains() -> set:
     """Возвращает множество активных доменов из реестра"""
+    from config import REGISTRY_PATH
     import json
     try:
-        val = reg(_HOSTS_KEY, _HOSTS_DOMAINS_NAME)
+        val = reg(REGISTRY_PATH, _HOSTS_DOMAINS_NAME)
         if val:
             domains_list = json.loads(val)
             return set(domains_list)
     except Exception as e:
-        log(f"Ошибка чтения активных доменов: {e}", "DEBUG")
+        _log(f"Ошибка чтения активных доменов: {e}", "DEBUG")
     return set()
 
 def set_active_hosts_domains(domains: set) -> bool:
     """Сохраняет множество активных доменов в реестр"""
+    from config import REGISTRY_PATH
     import json
     try:
         domains_json = json.dumps(list(domains))
-        return reg(_HOSTS_KEY, _HOSTS_DOMAINS_NAME, domains_json)
+        return reg(REGISTRY_PATH, _HOSTS_DOMAINS_NAME, domains_json)
     except Exception as e:
-        log(f"Ошибка записи активных доменов: {e}", "❌ ERROR")
+        _log(f"Ошибка записи активных доменов: {e}", "❌ ERROR")
         return False
 
 def add_active_hosts_domain(domain: str) -> bool:
@@ -182,14 +218,59 @@ def clear_active_hosts_domains() -> bool:
     return set_active_hosts_domains(set())
 
 # ───────────── Автообновления при старте ─────────────
-_AUTO_UPDATE_KEY = r"Software\ZapretReg2"
 _AUTO_UPDATE_NAME = "AutoUpdateEnabled"  # REG_DWORD (1/0)
 
 def get_auto_update_enabled() -> bool:
     """True – проверять обновления при старте, False – не проверять."""
-    val = reg(_AUTO_UPDATE_KEY, _AUTO_UPDATE_NAME)
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _AUTO_UPDATE_NAME)
     return bool(val) if val is not None else True  # По умолчанию включено
 
 def set_auto_update_enabled(enabled: bool) -> bool:
     """Включает/выключает автоматическую проверку обновлений при старте."""
-    return reg(_AUTO_UPDATE_KEY, _AUTO_UPDATE_NAME, 1 if enabled else 0)
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _AUTO_UPDATE_NAME, 1 if enabled else 0)
+
+# ───────────── Новогодняя гирлянда ─────────────
+_GARLAND_NAME = "GarlandEnabled"  # REG_DWORD (1/0)
+
+def get_garland_enabled() -> bool:
+    """True – показывать новогоднюю гирлянду, False – не показывать."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _GARLAND_NAME)
+    return bool(val) if val is not None else False  # По умолчанию выключено
+
+def set_garland_enabled(enabled: bool) -> bool:
+    """Включает/выключает новогоднюю гирлянду."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _GARLAND_NAME, 1 if enabled else 0)
+
+
+# ───────────── Снежинки ─────────────
+_SNOWFLAKES_NAME = "SnowflakesEnabled"  # REG_DWORD (1/0)
+
+def get_snowflakes_enabled() -> bool:
+    """True – показывать снежинки, False – не показывать."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _SNOWFLAKES_NAME)
+    return bool(val) if val is not None else False  # По умолчанию выключено
+
+def set_snowflakes_enabled(enabled: bool) -> bool:
+    """Включает/выключает снежинки."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _SNOWFLAKES_NAME, 1 if enabled else 0)
+
+
+# ───────────── Уведомление о сворачивании в трей ─────────────
+_TRAY_HINT_SHOWN_NAME = "TrayHintShown"  # REG_DWORD (1/0)
+
+def get_tray_hint_shown() -> bool:
+    """True – уведомление о трее уже показывалось, False – ещё не показывалось."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TRAY_HINT_SHOWN_NAME)
+    return bool(val) if val is not None else False  # По умолчанию не показывалось
+
+def set_tray_hint_shown(shown: bool = True) -> bool:
+    """Отмечает что уведомление о трее было показано."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TRAY_HINT_SHOWN_NAME, 1 if shown else 0)

@@ -439,8 +439,19 @@ class StrategyPreviewManager:
         return cls._instance
     
     def show_preview(self, widget, strategy_id, strategy_data):
-        if self.preview_dialog and self.preview_dialog.isVisible():
-            self.preview_dialog.close()
+        # Проверяем что старый диалог ещё существует и не удалён Qt
+        try:
+            if self.preview_dialog is not None:
+                # Проверяем что C++ объект не удалён
+                try:
+                    if self.preview_dialog.isVisible():
+                        self.preview_dialog.close()
+                except RuntimeError:
+                    # C++ объект уже удалён
+                    pass
+                self.preview_dialog = None
+        except RuntimeError:
+            self.preview_dialog = None
         
         self.preview_dialog = ArgsPreviewDialog(widget)
         self.preview_dialog.closed.connect(self._on_preview_closed)
@@ -459,14 +470,20 @@ class StrategyPreviewManager:
         self.preview_dialog.show_animated(cursor_pos)
     
     def _on_preview_closed(self):
-        if self.preview_dialog:
-            self.preview_dialog.deleteLater()
+        if self.preview_dialog is not None:
+            try:
+                self.preview_dialog.deleteLater()
+            except RuntimeError:
+                pass  # C++ объект уже удалён
             self.preview_dialog = None
     
     def cleanup(self):
-        if self.preview_dialog:
-            self.preview_dialog.close()
-            self.preview_dialog.deleteLater()
+        if self.preview_dialog is not None:
+            try:
+                self.preview_dialog.close()
+                self.preview_dialog.deleteLater()
+            except RuntimeError:
+                pass  # C++ объект уже удалён
             self.preview_dialog = None
 
 

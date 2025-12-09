@@ -222,66 +222,56 @@ class StrategyRunner:
         
         return resolved_args
 
-    def _force_cleanup_multiple_services(self, service_names, processes_to_kill=None, drivers_to_unload=None):
-        """Принудительная очистка списка служб"""
+    def _fast_cleanup_services(self):
+        """Быстрая очистка служб через Win API (для обычного запуска)"""
         try:
+            from utils.service_manager import cleanup_windivert_services
+            
+            # Очищаем все службы WinDivert через Win API
+            cleanup_windivert_services()
+            
+            # Не ждём - winws сам пересоздаст службу если нужно
+            
+        except Exception as e:
+            log(f"Ошибка быстрой очистки: {e}", "DEBUG")
+    
+    def _force_cleanup_multiple_services(self, service_names, processes_to_kill=None, drivers_to_unload=None):
+        """Принудительная очистка списка служб через Win API"""
+        try:
+            from utils.service_manager import stop_and_delete_service, unload_driver
+            from utils.process_killer import kill_process_by_name
             import time
             
-            log(f"Принудительная очистка служб: {', '.join(service_names)}...", "DEBUG")
+            log(f"Принудительная очистка служб через Win API: {', '.join(service_names)}...", "DEBUG")
             
-            # Останавливаем и удаляем все службы
-            for service_name in service_names:
-                try:
-                    subprocess.run(
-                        ["sc", "stop", service_name],
-                        capture_output=True,
-                        creationflags=0x08000000,
-                        timeout=5
-                    )
-                    
-                    time.sleep(0.5)
-                    
-                    subprocess.run(
-                        ["sc", "delete", service_name],
-                        capture_output=True,
-                        creationflags=0x08000000,
-                        timeout=5
-                    )
-                    
-                    log(f"Служба {service_name} остановлена и удалена", "DEBUG")
-                    
-                except Exception as e:
-                    log(f"Ошибка при очистке службы {service_name}: {e}", "DEBUG")
-            
-            time.sleep(0.5)
-            
-            # Убиваем процессы, если указаны
+            # Убиваем процессы сразу, если указаны
             if processes_to_kill:
                 for process_name in processes_to_kill:
                     try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/IM", process_name, "/T"],
-                            capture_output=True,
-                            creationflags=0x08000000,
-                            timeout=5
-                        )
-                        log(f"Процесс {process_name} завершен", "DEBUG")
+                        killed = kill_process_by_name(process_name, kill_all=True)
+                        if killed > 0:
+                            log(f"Процесс {process_name} завершён через Win API", "DEBUG")
                     except Exception as e:
                         log(f"Ошибка при завершении процесса {process_name}: {e}", "DEBUG")
+            
+            time.sleep(0.1)
             
             # Выгружаем драйверы, если указаны
             if drivers_to_unload:
                 for driver_name in drivers_to_unload:
                     try:
-                        subprocess.run(
-                            ["fltmc", "unload", driver_name],
-                            capture_output=True,
-                            creationflags=0x08000000,
-                            timeout=5
-                        )
-                        log(f"Драйвер {driver_name} выгружен", "DEBUG")
+                        unload_driver(driver_name)
                     except Exception as e:
                         log(f"Ошибка при выгрузке драйвера {driver_name}: {e}", "DEBUG")
+            
+            time.sleep(0.1)
+            
+            # Останавливаем и удаляем все службы через Win API
+            for service_name in service_names:
+                try:
+                    stop_and_delete_service(service_name, retry_count=1)
+                except Exception as e:
+                    log(f"Ошибка при очистке службы {service_name}: {e}", "DEBUG")
             
             log("Очистка завершена", "DEBUG")
             
@@ -306,86 +296,38 @@ class StrategyRunner:
         return any(sig.lower() in stderr_lower for sig in windivert_error_signatures)
 
     def _aggressive_windivert_cleanup(self):
-        """Агрессивная очистка WinDivert - для случаев когда обычная не помогает"""
+        """Агрессивная очистка WinDivert через Win API - для случаев когда обычная не помогает"""
+        from utils.service_manager import stop_and_delete_service, unload_driver
         import time
         
-        log("🔧 Выполняем агрессивную очистку WinDivert...", "INFO")
+        log("🔧 Выполняем агрессивную очистку WinDivert через Win API...", "INFO")
         
-        # 1. Сначала убиваем все процессы
-        for exe_name in ["winws.exe", "winws2.exe"]:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", exe_name, "/T"],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
-            except:
-                pass
+        # 1. Сначала убиваем ВСЕ процессы которые могут держать хэндлы
+        self._kill_all_winws_processes()
+        time.sleep(0.3)
         
-        time.sleep(0.5)
-        
-        # 2. Останавливаем все связанные службы
-        services = ["WinDivert", "WinDivert14", "windivert", "Monkey"]
-        for service in services:
-            try:
-                # Останавливаем
-                subprocess.run(
-                    ["sc", "stop", service],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
-            except:
-                pass
-        
-        time.sleep(1)
-        
-        # 3. Удаляем службы
-        for service in services:
-            try:
-                subprocess.run(
-                    ["sc", "delete", service],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
-            except:
-                pass
-        
-        time.sleep(0.5)
-        
-        # 4. Выгружаем драйверы через fltmc
-        drivers = ["WinDivert", "WinDivert14", "Monkey"]
+        # 2. Выгружаем драйверы через fltmc (до удаления служб!)
+        drivers = ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]
         for driver in drivers:
             try:
-                subprocess.run(
-                    ["fltmc", "unload", driver],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=5
-                )
+                unload_driver(driver)
             except:
                 pass
         
-        # 5. Пробуем через pnputil (удаление драйвера)
-        try:
-            # Ищем и удаляем драйвер WinDivert
-            result = subprocess.run(
-                ["pnputil", "/enum-drivers"],
-                capture_output=True,
-                text=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
-            
-            if result.stdout and "windivert" in result.stdout.lower():
-                log("Найден драйвер WinDivert в системе", "DEBUG")
-        except:
-            pass
+        time.sleep(0.2)
         
-        # 6. Финальная пауза для полной выгрузки
-        time.sleep(2)
+        # 3. Останавливаем и удаляем службы через Win API
+        services = ["WinDivert", "WinDivert14", "WinDivert64", "windivert", "Monkey"]
+        for service in services:
+            try:
+                stop_and_delete_service(service, retry_count=3)
+            except:
+                pass
+        
+        time.sleep(0.3)
+        
+        # 4. Финальная очистка процессов
+        self._kill_all_winws_processes()
         
         log("✅ Агрессивная очистка завершена", "INFO")
 
@@ -411,17 +353,25 @@ class StrategyRunner:
                 log("Останавливаем предыдущий процесс перед запуском нового", "INFO")
                 self.stop()
             
-            # Очистка WinDivert (более агрессивная при retry)
+            # Быстрая очистка только при необходимости
+            import time
             if _retry_count > 0:
+                # Агрессивная очистка только при повторной попытке
                 self._aggressive_windivert_cleanup()
             else:
-                self._force_cleanup_multiple_services(
-                    service_names=["WinDivert", "Monkey"],
-                    processes_to_kill=["winws.exe", "winws2.exe"],
-                    drivers_to_unload=["WinDivert", "Monkey"]
-                )
-                import time
-                time.sleep(1.5)
+                # Быстрая очистка - только убиваем процессы через Win API
+                from utils.process_killer import kill_winws_all, is_process_running
+                
+                # Проверяем есть ли вообще запущенные процессы
+                if is_process_running("winws.exe") or is_process_running("winws2.exe"):
+                    kill_winws_all()
+                    time.sleep(0.3)  # Короткая пауза вместо 1.5 сек
+                    
+                    # Быстрая очистка служб (без долгих пауз)
+                    self._fast_cleanup_services()
+                else:
+                    # Если процессов нет - вообще не ждём
+                    time.sleep(0.1)
             
             if not custom_args:
                 log("Нет аргументов для запуска", "ERROR")
@@ -458,10 +408,10 @@ class StrategyRunner:
             self.current_strategy_name = strategy_name
             self.current_strategy_args = resolved_args.copy()
             
-            # ⚡ БЫСТРАЯ ПРОВЕРКА ЗАПУСКА (без блокировки на 5 сек)
-            # Фоновый ProcessMonitorThread следит за состоянием постоянно
+            # ⚡ ОЧЕНЬ БЫСТРАЯ ПРОВЕРКА ЗАПУСКА
+            # ProcessMonitorThread следит за состоянием в фоне
             import time
-            time.sleep(0.5)  # Короткая пауза для инициализации
+            time.sleep(0.2)  # Минимальная пауза для инициализации
             
             # Проверяем что процесс не упал сразу после запуска
             if self.running_process.poll() is None:
@@ -553,69 +503,55 @@ class StrategyRunner:
             return False
     
     def _stop_windivert_service(self):
-        """Останавливает и удаляет службу WinDivert"""
-        try:
-            subprocess.run(
-                ["sc", "stop", "windivert"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
-            
-            import time
-            time.sleep(1)
-            
-            subprocess.run(
-                ["sc", "delete", "windivert"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
-            
-            log("Служба WinDivert остановлена и удалена", "INFO")
-            
-        except Exception as e:
-            log(f"Ошибка при остановке службы WinDivert: {e}", "DEBUG")
+        """Останавливает и удаляет службу WinDivert через Win API"""
+        from utils.service_manager import stop_and_delete_service
+        
+        # Пробуем разные варианты имени службы
+        for service_name in ["WinDivert", "windivert", "WinDivert14", "WinDivert64"]:
+            stop_and_delete_service(service_name, retry_count=3)
 
     def _stop_monkey_service(self):
-        """Останавливает и удаляет службу Monkey"""
+        """Останавливает и удаляет службу Monkey через Win API"""
+        from utils.service_manager import stop_and_delete_service
+        stop_and_delete_service("Monkey", retry_count=3)
+
+    def _force_delete_service(self, service_name: str, max_retries: int = 5):
+        """Принудительно удаляет службу через Win API с повторными попытками"""
+        from utils.service_manager import stop_and_delete_service, service_exists
+        import time
+        
         try:
-            subprocess.run(
-                ["sc", "stop", "Monkey"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
+            # Пробуем удалить через Win API
+            for attempt in range(max_retries):
+                if stop_and_delete_service(service_name, retry_count=1):
+                    log(f"Служба {service_name} удалена через Win API", "INFO")
+                    return True
+                
+                # Если не получилось - убиваем процессы и пробуем снова
+                if attempt < max_retries - 1:
+                    log(f"Попытка {attempt + 1}/{max_retries} удаления {service_name}", "DEBUG")
+                    self._kill_all_winws_processes()
+                    time.sleep(0.3)
             
-            import time
-            time.sleep(1)
-            
-            subprocess.run(
-                ["sc", "delete", "Monkey"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=10
-            )
-            
-            log("Служба Monkey остановлена и удалена", "INFO")
-            
+            # Проверяем результат
+            if not service_exists(service_name):
+                log(f"Служба {service_name} успешно удалена", "INFO")
+                return True
+            else:
+                log(f"Служба {service_name} всё ещё существует", "WARNING")
+                return False
+                
         except Exception as e:
-            log(f"Ошибка при остановке службы Monkey: {e}", "DEBUG")
+            log(f"Ошибка при удалении службы {service_name}: {e}", "DEBUG")
+            return False
 
     def _kill_all_winws_processes(self):
-        """Принудительно завершает все процессы winws.exe и winws2.exe"""
-        for exe_name in ["winws.exe", "winws2.exe"]:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", exe_name, "/T"],
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=10
-                )
-                log(f"Процессы {exe_name} завершены", "DEBUG")
-                
-            except Exception as e:
-                log(f"Ошибка при завершении процессов {exe_name}: {e}", "DEBUG")
+        """Принудительно завершает все процессы winws.exe и winws2.exe через Win API"""
+        try:
+            from utils.process_killer import kill_winws_all
+            kill_winws_all()
+        except Exception as e:
+            log(f"Ошибка при завершении процессов winws: {e}", "DEBUG")
     
     def is_running(self) -> bool:
         """Проверяет, запущен ли процесс"""
@@ -652,8 +588,15 @@ def get_strategy_runner(winws_exe_path: str) -> StrategyRunner:
     return _strategy_runner_instance
 
 def reset_strategy_runner():
-    """Сбрасывает глобальный экземпляр"""
+    """Сбрасывает глобальный экземпляр (синхронно останавливает процесс)"""
     global _strategy_runner_instance
     if _strategy_runner_instance:
         _strategy_runner_instance.stop()
+    _strategy_runner_instance = None
+
+def invalidate_strategy_runner():
+    """Помечает runner для пересоздания без синхронной остановки.
+    Используется при смене метода запуска - UI обновляется мгновенно,
+    а старый процесс будет остановлен при следующем запуске DPI."""
+    global _strategy_runner_instance
     _strategy_runner_instance = None

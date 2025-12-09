@@ -485,20 +485,15 @@ def try_kill_conflicting_processes(auto_kill: bool = False) -> bool:
                     success_count += 1
                     continue
             
-            # Fallback на taskkill
-            result = subprocess.run(
-                ['taskkill', '/F', '/IM', conflict['exe'], '/T'],
-                capture_output=True,
-                text=True,
-                creationflags=0x08000000,
-                timeout=10
-            )
+            # Fallback на Win API
+            from utils.process_killer import kill_process_by_name
+            killed = kill_process_by_name(conflict['exe'], kill_all=True)
             
-            if result.returncode == 0:
-                log(f"✅ Процесс {conflict['name']} успешно закрыт через taskkill", "SUCCESS")
+            if killed > 0:
+                log(f"✅ Процесс {conflict['name']} успешно закрыт через Win API", "SUCCESS")
                 success_count += 1
             else:
-                log(f"❌ Не удалось закрыть {conflict['name']}: {result.stderr}", "ERROR")
+                log(f"❌ Не удалось закрыть {conflict['name']}", "ERROR")
                 
         except Exception as e:
             log(f"Ошибка при закрытии {conflict['name']}: {e}", "ERROR")

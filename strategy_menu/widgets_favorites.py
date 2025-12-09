@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QToolButton
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QPoint
 
 from .widgets import CompactStrategyItem
 
@@ -37,7 +37,7 @@ _STYLE_NORMAL = """
 
 
 class FavoriteCompactStrategyItem(CompactStrategyItem):
-    """Компактный элемент стратегии со звёздочкой избранного слева"""
+    """Компактный элемент стратегии со звёздочкой избранного и hover tooltip"""
     
     favoriteToggled = pyqtSignal(str, bool)
     
@@ -49,6 +49,10 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         
         super().__init__(strategy_id, strategy_data, parent)
         self._add_favorite_button()
+        
+        # Включаем отслеживание мыши для hover tooltip
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
     
     def _apply_style(self, selected):
         """Стиль с учётом избранного"""
@@ -60,21 +64,22 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
             self.setStyleSheet(_STYLE_NORMAL)
     
     def _add_favorite_button(self):
-        """Добавляет звёздочку избранного слева (вместо кружка)"""
+        """Добавляет звёздочку избранного слева (вынесена за пределы основного контента)"""
         self.favorite_btn = QToolButton()
-        self.favorite_btn.setFixedSize(16, 16)
+        self.favorite_btn.setFixedSize(28, 28)
         self.favorite_btn.setCheckable(True)
         self.favorite_btn.setChecked(self.is_favorite)
         self.favorite_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._update_favorite_style()
         self.favorite_btn.clicked.connect(self._toggle_favorite)
         
-        # Вставляем слева (перед текстом)
         if hasattr(self, 'main_layout') and self.main_layout:
+            # Вставляем звезду первой с отрицательным отступом чтобы была левее
             self.main_layout.insertWidget(0, self.favorite_btn)
+            self.main_layout.setContentsMargins(2, 4, 10, 4)  # Меньше слева
     
     def _update_favorite_style(self):
-        """Стиль звёздочки"""
+        """Стиль звёздочки - крупная и заметная"""
         if self.is_favorite:
             self.favorite_btn.setText("★")
             self.favorite_btn.setToolTip("Убрать из избранных")
@@ -82,28 +87,29 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
                 QToolButton {
                     border: none;
                     background: transparent;
-                    color: #ffd700;
-                    font-size: 12px;
+                    color: #ffc107;
+                    font-size: 20px;
+                    padding: 0;
+                    margin: 0;
                 }
                 QToolButton:hover {
-                    background: rgba(255, 215, 0, 0.2);
-                    border-radius: 3px;
+                    color: #ffca28;
                 }
             """)
         else:
             self.favorite_btn.setText("☆")
-            self.favorite_btn.setToolTip("В избранные")
+            self.favorite_btn.setToolTip("Добавить в избранные")
             self.favorite_btn.setStyleSheet("""
                 QToolButton {
                     border: none;
                     background: transparent;
                     color: rgba(255, 255, 255, 0.15);
-                    font-size: 12px;
+                    font-size: 20px;
+                    padding: 0;
+                    margin: 0;
                 }
                 QToolButton:hover {
-                    color: #ffd700;
-                    background: rgba(255, 215, 0, 0.1);
-                    border-radius: 3px;
+                    color: #ffc107;
                 }
             """)
     
@@ -124,19 +130,43 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         if checked:
             self.clicked.emit(self.strategy_id)
     
+    def enterEvent(self, event):
+        """При наведении мыши показываем hover tooltip"""
+        try:
+            from .hover_tooltip import tooltip_manager
+            
+            pos = self.mapToGlobal(QPoint(self.width() + 10, 0))
+            tooltip_manager.show_tooltip(pos, self.strategy_data, self.strategy_id, delay=600)
+        except Exception:
+            pass
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """При уходе мыши скрываем tooltip"""
+        try:
+            from .hover_tooltip import tooltip_manager
+            tooltip_manager.hide_tooltip(delay=100)
+        except Exception:
+            pass
+        super().leaveEvent(event)
+    
     def mousePressEvent(self, event):
         """Клик с учётом кнопки избранного"""
+        # Скрываем tooltip при клике
+        try:
+            from .hover_tooltip import tooltip_manager
+            tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+        
         if event.button() == Qt.MouseButton.LeftButton:
-            # Проверяем не кликнули ли по звёздочке
             if hasattr(self, 'favorite_btn'):
                 btn_rect = self.favorite_btn.geometry()
                 if not btn_rect.contains(event.pos()):
                     self.radio.setChecked(True)
             else:
                 self.radio.setChecked(True)
-        elif event.button() == Qt.MouseButton.RightButton:
-            from .args_preview_dialog import preview_manager
-            preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
+        super().mousePressEvent(event)
 
 
 def get_strategy_widget(strategy_id, strategy_data, category_key, parent=None):

@@ -7,7 +7,7 @@ import os
 import math
 import random
 import threading
-from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH
+from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH, get_wall_animation_enabled
 from log import log
 
 
@@ -55,16 +55,14 @@ class WallBrick:
             self._generate_cracks()
             
     def _generate_cracks(self):
-        """Генерирует линии трещин"""
-        num_cracks = random.randint(2, 5)
+        """Генерирует линии трещин (упрощённо)"""
+        num_cracks = random.randint(1, 3)
         for _ in range(num_cracks):
-            # Трещина от центра к краям
             start_x = self.width / 2 + random.uniform(-self.width/4, self.width/4)
             start_y = self.height / 2 + random.uniform(-self.height/4, self.height/4)
             
-            # Случайное направление
             angle = random.uniform(0, 2 * math.pi)
-            length = random.uniform(self.width/3, self.width)
+            length = random.uniform(self.width/4, self.width * 0.7)
             
             end_x = start_x + math.cos(angle) * length
             end_y = start_y + math.sin(angle) * length
@@ -72,21 +70,19 @@ class WallBrick:
             self.cracks.append((start_x, start_y, end_x, end_y))
             
     def update(self):
-        """Обновляет физику кирпича"""
+        """Обновляет физику кирпича (оптимизировано)"""
         if self.is_flying:
-            # Гравитация
-            self.velocity_y += 0.5
+            # Гравитация сильнее
+            self.velocity_y += 0.7
             
             # Движение
             self.x += self.velocity_x
             self.y += self.velocity_y
             self.rotation += self.rotation_speed
             
-            # Затухание прозрачности
-            self.opacity = max(0, self.opacity - 0.02)
-            
-            # Уменьшение integrity для визуального эффекта
-            self.integrity = max(0, self.integrity - 0.03)
+            # Быстрее исчезают
+            self.opacity = max(0, self.opacity - 0.04)
+            self.integrity = max(0, self.integrity - 0.05)
 
 
 class WallDestructionOverlay(QWidget):
@@ -102,24 +98,28 @@ class WallDestructionOverlay(QWidget):
         self._is_painting = False
         self._is_destroyed = False
         
+        # ⚙️ Настройка анимации кирпичей (можно отключить для производительности)
+        self.animation_enabled = get_wall_animation_enabled()
+        log(f"Анимация стены: {'включена' if self.animation_enabled else 'отключена'}", "DEBUG")
+        
         # Прогресс разрушения (0-100)
         self.progress = 0
         self.displayed_progress = 0.0
         
         # Автономный прогресс разрушения (не зависит от застревания)
         self.autonomous_progress = 0.0
-        self.min_destruction_speed = 0.15  # Минимальная скорость разрушения в секунду
+        self.min_destruction_speed = 0.4  # Минимальная скорость разрушения - БЫСТРЕЕ
         self.frame_time = 16 / 1000.0  # ~16ms в секундах
         
         # Shimmer позиция (энергия разрушения)
         self.shimmer_pos = -0.5
         self.shimmer_speed = 0.015
         
-        # Кирпичи стены
+        # Кирпичи стены (только если анимация включена)
         self.bricks = []
         self.bricks_initialized = False
         
-        # Частицы/осколки
+        # Частицы/осколки (только если анимация включена)
         self.particles = []
         
         # Пульсация энергии
@@ -134,7 +134,7 @@ class WallDestructionOverlay(QWidget):
         self.animation_timer.start(16)  # ~60 FPS
         
     def _init_bricks(self):
-        """Инициализирует кирпичи стены"""
+        """Инициализирует кирпичи стены (оптимизировано)"""
         if self.bricks_initialized:
             return
             
@@ -147,21 +147,19 @@ class WallDestructionOverlay(QWidget):
         self.bricks_initialized = True
         self.bricks = []
         
-        # Параметры сетки кирпичей
-        brick_width = 60
-        brick_height = 25
-        gap = 3
+        # Параметры сетки кирпичей - КРУПНЕЕ для оптимизации
+        brick_width = 90
+        brick_height = 35
+        gap = 4
         
         # Создаём стену в верхней части экрана
-        wall_height = int(height * 0.7)
+        wall_height = int(height * 0.6)
         
         row = 0
         y = 0
         while y < wall_height:
-            # Смещение для кирпичной кладки (каждый второй ряд сдвинут)
             offset = (brick_width // 2 + gap // 2) if row % 2 else 0
             
-            col = 0
             x = -offset
             while x < width + brick_width:
                 brick = WallBrick(
@@ -173,52 +171,49 @@ class WallDestructionOverlay(QWidget):
                 )
                 self.bricks.append(brick)
                 x += brick_width + gap
-                col += 1
             
             y += brick_height + gap
             row += 1
             
-        # Распределяем пороги разрушения равномерно по высоте
-        # Нижние кирпичи разрушаются раньше (от удара снизу)
+        # Распределяем пороги - нижние кирпичи разрушаются раньше
         for brick in self.bricks:
-            # Инвертируем - нижние кирпичи (большой y) разрушаются раньше
-            height_factor = 1.0 - (brick.y / wall_height)  # 1.0 внизу, 0.0 вверху
-            # Равномерное распределение от 0.05 до 0.95 с небольшим шумом
-            brick.destruction_threshold = 0.05 + height_factor * 0.85 + random.uniform(-0.08, 0.08)
-            brick.destruction_threshold = max(0.02, min(0.98, brick.destruction_threshold))
+            height_factor = 1.0 - (brick.y / wall_height)
+            # Начинаем раньше (от 0.02) для быстрого старта
+            brick.destruction_threshold = 0.02 + height_factor * 0.75 + random.uniform(-0.05, 0.05)
+            brick.destruction_threshold = max(0.01, min(0.85, brick.destruction_threshold))
             
-    def _spawn_particles(self, x, y, count=5):
-        """Создаёт частицы в точке"""
+    def _spawn_particles(self, x, y, count=2):
+        """Создаёт частицы в точке (оптимизировано)"""
+        if len(self.particles) > 80:  # Лимит частиц
+            return
         for _ in range(count):
             particle = {
-                'x': x + random.uniform(-20, 20),
-                'y': y + random.uniform(-20, 20),
-                'vx': random.uniform(-4, 4),
-                'vy': random.uniform(-8, 2),
-                'size': random.uniform(2, 6),
+                'x': x + random.uniform(-15, 15),
+                'y': y + random.uniform(-15, 15),
+                'vx': random.uniform(-3, 3),
+                'vy': random.uniform(-6, 2),
+                'size': random.uniform(3, 5),
                 'opacity': 1.0,
-                'color': random.choice(['#ff4444', '#ff6666', '#cc3333', '#ff8888'])
+                'color': random.choice(['#ff4444', '#ff6666', '#cc3333'])
             }
             self.particles.append(particle)
             
     def _update_animation(self):
         """Обновление анимации"""
-        # Инициализируем кирпичи если нужно
-        if not self.bricks_initialized:
+        # Инициализируем кирпичи если нужно (только если анимация включена)
+        if self.animation_enabled and not self.bricks_initialized:
             self._init_bricks()
         
         # Автономное разрушение - продолжается даже если прогресс застыл
-        # Но не опережает реальный прогресс более чем на 15%
         if self.started and self.autonomous_progress < 100:
-            # Базовая скорость + ускорение от реального прогресса
             speed = self.min_destruction_speed
             
             # Если реальный прогресс впереди - догоняем быстрее
             if self.progress > self.autonomous_progress:
-                speed = max(speed, (self.progress - self.autonomous_progress) * 0.08)
+                speed = max(speed, (self.progress - self.autonomous_progress) * 0.15)
             
-            # Ограничиваем чтобы не опережать реальный прогресс слишком сильно
-            max_ahead = 15  # Максимум на 15% впереди реального
+            # Разрешаем опережать на 25% для плавности
+            max_ahead = 25
             if self.autonomous_progress < self.progress + max_ahead:
                 self.autonomous_progress = min(100, self.autonomous_progress + speed)
             
@@ -235,41 +230,41 @@ class WallDestructionOverlay(QWidget):
         # Пульсация энергии
         self.energy_pulse += 0.1
         
-        # Обновляем состояние кирпичей
-        destruction_progress = self.displayed_progress / 100.0
-        
-        for brick in self.bricks:
-            # Проверяем, должен ли кирпич начать разрушаться
-            if not brick.is_flying and destruction_progress >= brick.destruction_threshold:
-                brick.start_destruction()
-                # Создаём частицы при разрушении
-                self._spawn_particles(
-                    brick.x + brick.width/2,
-                    brick.y + brick.height/2,
-                    count=3
-                )
-                
-            # Добавляем трещины до разлёта
-            if not brick.is_flying and destruction_progress > brick.destruction_threshold * 0.7:
-                brick.crack_level = min(1.0, brick.crack_level + 0.02)
-                if len(brick.cracks) == 0 and brick.crack_level > 0.3:
-                    brick._generate_cracks()
+        # Обновляем состояние кирпичей (только если анимация включена)
+        if self.animation_enabled:
+            destruction_progress = self.displayed_progress / 100.0
+            
+            for brick in self.bricks:
+                # Проверяем, должен ли кирпич начать разрушаться
+                if not brick.is_flying and destruction_progress >= brick.destruction_threshold:
+                    brick.start_destruction()
+                    # Создаём частицы при разрушении (меньше)
+                    if random.random() < 0.5:  # Только 50% кирпичей создают частицы
+                        self._spawn_particles(
+                            brick.x + brick.width/2,
+                            brick.y + brick.height/2,
+                            count=2
+                        )
                     
-            brick.update()
-            
-        # Обновляем частицы
-        for particle in self.particles[:]:
-            particle['vy'] += 0.3  # Гравитация
-            particle['x'] += particle['vx']
-            particle['y'] += particle['vy']
-            particle['opacity'] -= 0.015
-            
-            if particle['opacity'] <= 0 or particle['y'] > self.height() + 50:
-                self.particles.remove(particle)
+                # Трещины - упрощённо
+                if not brick.is_flying and destruction_progress > brick.destruction_threshold * 0.8:
+                    brick.crack_level = min(1.0, brick.crack_level + 0.04)
+                    if len(brick.cracks) == 0 and brick.crack_level > 0.5:
+                        brick._generate_cracks()
+                        
+                brick.update()
                 
-        # Ограничиваем количество частиц
-        if len(self.particles) > 200:
-            self.particles = self.particles[-150:]
+            # Обновляем частицы (оптимизировано)
+            new_particles = []
+            for particle in self.particles:
+                particle['vy'] += 0.4  # Гравитация сильнее - быстрее исчезают
+                particle['x'] += particle['vx']
+                particle['y'] += particle['vy']
+                particle['opacity'] -= 0.025  # Быстрее исчезают
+                
+                if particle['opacity'] > 0 and particle['y'] < self.height() + 30:
+                    new_particles.append(particle)
+            self.particles = new_particles[-80:]  # Жёсткий лимит
             
         self.update()
         
@@ -315,76 +310,79 @@ class WallDestructionOverlay(QWidget):
             overlay_opacity = int(30 * (1 - self.displayed_progress / 100.0))
             painter.fillRect(0, 0, width, height, QColor(0, 0, 0, overlay_opacity))
             
-            # === СЛОЙ 1: Рисуем стену из кирпичей ===
-            for brick in self.bricks:
-                if brick.opacity <= 0:
-                    continue
+            # === СЛОЙ 1: Рисуем стену из кирпичей (или упрощённую версию) ===
+            if self.animation_enabled:
+                # Полная анимация с кирпичами
+                for brick in self.bricks:
+                    if brick.opacity <= 0:
+                        continue
                     
-                painter.save()
-                
-                # Трансформация для летящих кирпичей
-                if brick.is_flying:
-                    painter.translate(brick.x + brick.width/2, brick.y + brick.height/2)
-                    painter.rotate(brick.rotation)
-                    painter.translate(-brick.width/2, -brick.height/2)
-                else:
-                    painter.translate(brick.x, brick.y)
+                    painter.save()
                     
-                # Основной цвет кирпича (красный - цвет блокировки)
-                base_r = 180 + int(brick.color_variation)
-                base_g = 50 + int(brick.color_variation * 0.3)
-                base_b = 50 + int(brick.color_variation * 0.3)
-                
-                opacity = int(255 * brick.opacity * brick.integrity)
-                brick_color = QColor(base_r, base_g, base_b, opacity)
-                
-                # Градиент для объёма
-                brick_gradient = QLinearGradient(0, 0, 0, brick.height)
-                brick_gradient.setColorAt(0.0, brick_color.lighter(120))
-                brick_gradient.setColorAt(0.3, brick_color)
-                brick_gradient.setColorAt(1.0, brick_color.darker(130))
-                
-                # Рисуем кирпич
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(brick_gradient)
-                painter.drawRoundedRect(0, 0, int(brick.width), int(brick.height), 2, 2)
-                
-                # Граница кирпича
-                border_color = QColor(100, 30, 30, int(180 * brick.opacity))
-                painter.setPen(QPen(border_color, 1))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRoundedRect(0, 0, int(brick.width), int(brick.height), 2, 2)
-                
-                # Рисуем трещины
-                if brick.cracks and brick.crack_level > 0:
-                    crack_opacity = int(255 * brick.crack_level * brick.opacity)
-                    crack_pen = QPen(QColor(30, 10, 10, crack_opacity), 2)
-                    painter.setPen(crack_pen)
-                    
-                    for crack in brick.cracks:
-                        start_x, start_y, end_x, end_y = crack
-                        # Анимируем длину трещины
-                        current_end_x = start_x + (end_x - start_x) * brick.crack_level
-                        current_end_y = start_y + (end_y - start_y) * brick.crack_level
-                        painter.drawLine(
-                            int(start_x), int(start_y),
-                            int(current_end_x), int(current_end_y)
-                        )
+                    # Трансформация для летящих кирпичей
+                    if brick.is_flying:
+                        painter.translate(brick.x + brick.width/2, brick.y + brick.height/2)
+                        painter.rotate(brick.rotation)
+                        painter.translate(-brick.width/2, -brick.height/2)
+                    else:
+                        painter.translate(brick.x, brick.y)
                         
-                painter.restore()
+                    # Основной цвет кирпича (красный - цвет блокировки)
+                    base_r = 180 + int(brick.color_variation)
+                    base_g = 50 + int(brick.color_variation * 0.3)
+                    base_b = 50 + int(brick.color_variation * 0.3)
+                    
+                    opacity = int(255 * brick.opacity * brick.integrity)
+                    brick_color = QColor(base_r, base_g, base_b, opacity)
+                    
+                    # Градиент для объёма
+                    brick_gradient = QLinearGradient(0, 0, 0, brick.height)
+                    brick_gradient.setColorAt(0.0, brick_color.lighter(120))
+                    brick_gradient.setColorAt(0.3, brick_color)
+                    brick_gradient.setColorAt(1.0, brick_color.darker(130))
+                    
+                    # Рисуем кирпич
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(brick_gradient)
+                    painter.drawRoundedRect(0, 0, int(brick.width), int(brick.height), 2, 2)
+                    
+                    # Граница кирпича
+                    border_color = QColor(100, 30, 30, int(180 * brick.opacity))
+                    painter.setPen(QPen(border_color, 1))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(0, 0, int(brick.width), int(brick.height), 2, 2)
+                    
+                    # Рисуем трещины
+                    if brick.cracks and brick.crack_level > 0:
+                        crack_opacity = int(255 * brick.crack_level * brick.opacity)
+                        crack_pen = QPen(QColor(30, 10, 10, crack_opacity), 2)
+                        painter.setPen(crack_pen)
+                        
+                        for crack in brick.cracks:
+                            start_x, start_y, end_x, end_y = crack
+                            # Анимируем длину трещины
+                            current_end_x = start_x + (end_x - start_x) * brick.crack_level
+                            current_end_y = start_y + (end_y - start_y) * brick.crack_level
+                            painter.drawLine(
+                                int(start_x), int(start_y),
+                                int(current_end_x), int(current_end_y)
+                            )
+                            
+                    painter.restore()
                 
             # === СЛОЙ 2: Частицы/осколки ===
-            for particle in self.particles:
-                color = QColor(particle['color'])
-                color.setAlpha(int(255 * particle['opacity']))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(color)
-                size = particle['size']
-                painter.drawEllipse(
-                    int(particle['x'] - size/2),
-                    int(particle['y'] - size/2),
-                    int(size), int(size)
-                )
+            if self.animation_enabled:
+                for particle in self.particles:
+                    color = QColor(particle['color'])
+                    color.setAlpha(int(255 * particle['opacity']))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(color)
+                    size = particle['size']
+                    painter.drawEllipse(
+                        int(particle['x'] - size/2),
+                        int(particle['y'] - size/2),
+                        int(size), int(size)
+                    )
                 
             # === СЛОЙ 3: Энергия разрушения (shimmer) ===
             if self.displayed_progress > 5:
@@ -434,8 +432,8 @@ class WallDestructionOverlay(QWidget):
             
             painter.fillRect(0, height - glow_height, width, glow_height, glow_gradient)
             
-            # === СЛОЙ 5: Надпись "ТСПУ" на стене (если стена ещё видна) ===
-            if self.displayed_progress < 80:
+            # === СЛОЙ 5: Надпись "БЛОКИРОВКА" на стене (только если анимация включена) ===
+            if self.animation_enabled and self.displayed_progress < 80:
                 # Находим центр оставшейся стены
                 remaining_top = height * (1 - self.displayed_progress / 100.0) * 0.5
                 
@@ -613,69 +611,209 @@ class AnimatedIconWidget(QWidget):
 
 
 class SplashScreen(QWidget):
-    """Загрузочный экран с эффектом разрушения стены блокировок"""
+    """
+    Отдельное окно загрузочного экрана.
+    Не зависит от стилей основного окна - имеет свои захардкоженные стили.
+    Красивый дизайн с рамкой, градиентом и эффектом появления.
+    """
     
     load_complete = pyqtSignal()
-    # Сигнал для потокобезопасного обновления прогресса
     _progress_signal = pyqtSignal(int, str, str)
     
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self):
+        super().__init__(None)
+        
+        # Флаги окна: без рамки, всегда сверху, прозрачный фон для скруглённых углов
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        
+        # Размер и позиция
+        self.setFixedSize(420, 380)
+        self._center_on_screen()
+        
         self.animated_icon = None
         self.wall_overlay = None
-        self.init_ui()
         self._loading_complete = False
-        # Подключаем сигнал к слоту
+        
+        # Параметры для отрисовки
+        self._border_radius = 16
+        self._glow_animation_phase = 0.0
+        
+        self.init_ui()
         self._progress_signal.connect(self._do_set_progress)
         
+        # Анимация свечения рамки
+        self._glow_timer = QTimer(self)
+        self._glow_timer.timeout.connect(self._update_glow)
+        self._glow_timer.start(50)
+        
+        # Эффект появления
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self._fade_in()
+    
+    def _fade_in(self):
+        """Анимация плавного появления"""
+        self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.fade_animation.setDuration(400)
+        self.fade_animation.setStartValue(0.0)
+        self.fade_animation.setEndValue(1.0)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.fade_animation.start()
+    
+    def _update_glow(self):
+        """Обновление анимации свечения рамки"""
+        self._glow_animation_phase += 0.08
+        self.update()  # Перерисовка
+    
+    def _center_on_screen(self):
+        """Центрирует окно на экране"""
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            x = (screen_geometry.width() - self.width()) // 2
+            y = (screen_geometry.height() - self.height()) // 2
+            self.move(x, y)
+    
+    def paintEvent(self, event):
+        """Кастомная отрисовка фона с градиентом и свечением"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        rect = self.rect()
+        radius = self._border_radius
+        
+        # ═══════════════════════════════════════════════════════════
+        # СЛОЙ 1: Внешнее свечение (glow)
+        # ═══════════════════════════════════════════════════════════
+        glow_intensity = (math.sin(self._glow_animation_phase) + 1) / 2  # 0-1
+        glow_alpha = int(40 + 30 * glow_intensity)
+        
+        # Несколько слоёв свечения для мягкости
+        for i, (offset, alpha_mult) in enumerate([(8, 0.3), (5, 0.5), (3, 0.7)]):
+            glow_color = QColor(0, 212, 170, int(glow_alpha * alpha_mult))
+            glow_rect = rect.adjusted(offset, offset, -offset, -offset)
+            
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(glow_rect), radius + offset, radius + offset)
+            painter.fillPath(path, glow_color)
+        
+        # ═══════════════════════════════════════════════════════════
+        # СЛОЙ 2: Основной фон с градиентом
+        # ═══════════════════════════════════════════════════════════
+        bg_rect = rect.adjusted(2, 2, -2, -2)
+        
+        # Градиент фона (тёмный с лёгким оттенком)
+        bg_gradient = QLinearGradient(0, 0, 0, self.height())
+        bg_gradient.setColorAt(0.0, QColor(22, 24, 28))      # Верх - чуть светлее
+        bg_gradient.setColorAt(0.5, QColor(16, 18, 22))      # Середина
+        bg_gradient.setColorAt(1.0, QColor(12, 14, 18))      # Низ - темнее
+        
+        bg_path = QPainterPath()
+        bg_path.addRoundedRect(QRectF(bg_rect), radius, radius)
+        painter.fillPath(bg_path, bg_gradient)
+        
+        # ═══════════════════════════════════════════════════════════
+        # СЛОЙ 3: Рамка с градиентом
+        # ═══════════════════════════════════════════════════════════
+        border_rect = rect.adjusted(1, 1, -1, -1)
+        
+        # Градиент рамки - анимированный
+        phase = self._glow_animation_phase
+        border_gradient = QLinearGradient(0, 0, self.width(), self.height())
+        
+        # Переливающийся градиент
+        offset1 = (math.sin(phase) + 1) / 4  # 0 - 0.5
+        offset2 = 0.5
+        offset3 = 1 - offset1
+        
+        border_gradient.setColorAt(offset1, QColor(0, 212, 170, 180))      # Бирюзовый
+        border_gradient.setColorAt(offset2, QColor(0, 180, 220, 150))      # Голубой
+        border_gradient.setColorAt(offset3, QColor(0, 245, 196, 180))      # Светло-бирюзовый
+        
+        border_pen = QPen(QBrush(border_gradient), 2)
+        painter.setPen(border_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(QRectF(border_rect), radius, radius)
+        
+        # ═══════════════════════════════════════════════════════════
+        # СЛОЙ 4: Блик сверху (стеклянный эффект)
+        # ═══════════════════════════════════════════════════════════
+        highlight_rect = QRectF(bg_rect.x() + 20, bg_rect.y() + 3, 
+                                bg_rect.width() - 40, 40)
+        highlight_gradient = QLinearGradient(0, highlight_rect.top(), 0, highlight_rect.bottom())
+        highlight_gradient.setColorAt(0.0, QColor(255, 255, 255, 15))
+        highlight_gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
+        
+        highlight_path = QPainterPath()
+        highlight_path.addRoundedRect(highlight_rect, radius - 2, radius - 2)
+        painter.fillPath(highlight_path, highlight_gradient)
+        
+        painter.end()
+    
     def init_ui(self):
-        """Инициализация интерфейса"""
+        """Инициализация интерфейса с захардкоженными стилями"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(25, 25, 25, 25)
         
-        # Полупрозрачный тёмный фон
-        self.setStyleSheet("""
-            SplashScreen {
-                background-color: transparent;
-            }
-        """)
-        
-        # Центральный контейнер (с явным родителем!)
+        # Центральный контейнер
         central_container = QWidget(self)
+        central_container.setStyleSheet("background: transparent;")
         central_layout = QVBoxLayout(central_container)
         central_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        central_layout.setSpacing(16)
+        central_layout.setSpacing(12)
         
         # Иконка
         icon_path = ICON_TEST_PATH if CHANNEL.lower() == "test" else ICON_PATH
         
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
-            pixmap = icon.pixmap(120, 120)
-            log(f"Загружена иконка из {icon_path}", "DEBUG")
+            pixmap = icon.pixmap(100, 100)
         else:
-            log(f"Иконка не найдена: {icon_path}, используем fallback", "WARNING")
             icon = qta.icon('fa5s.shield-alt', color='#00d4aa')
-            pixmap = icon.pixmap(120, 120)
+            pixmap = icon.pixmap(100, 100)
         
-        self.animated_icon = AnimatedIconWidget(pixmap, parent=central_container)  # ✅ Явный родитель!
+        self.animated_icon = AnimatedIconWidget(pixmap, parent=central_container)
         central_layout.addWidget(self.animated_icon, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        central_layout.addSpacing(8)
+        central_layout.addSpacing(6)
         
-        # Заголовок
-        title = QLabel(f"Zapret2")
+        # Заголовок с градиентным эффектом
+        title = QLabel("Zapret2")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("""
             QLabel {
-                color: #ffffff;
-                font-size: 32px;
-                font-weight: 600;
-                font-family: 'Segoe UI Semibold', 'Segoe UI', sans-serif;
-                letter-spacing: 1px;
+                color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #ffffff, stop:0.5 #00f5c4, stop:1 #ffffff);
+                font-size: 30px;
+                font-weight: 700;
+                font-family: 'Segoe UI Black', 'Segoe UI', sans-serif;
+                background: transparent;
+                letter-spacing: 2px;
             }
         """)
         central_layout.addWidget(title)
+        
+        # Подзаголовок
+        subtitle = QLabel("Обход блокировок")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.5);
+                font-size: 11px;
+                font-weight: 400;
+                font-family: 'Segoe UI', sans-serif;
+                background: transparent;
+                letter-spacing: 1px;
+            }
+        """)
+        central_layout.addWidget(subtitle)
+        
+        central_layout.addSpacing(4)
         
         # Версия
         version_label = QLabel(f"v{APP_VERSION}")
@@ -683,73 +821,74 @@ class SplashScreen(QWidget):
         version_label.setStyleSheet("""
             QLabel {
                 color: #00d4aa;
-                font-size: 14px;
-                font-weight: 500;
+                font-size: 12px;
+                font-weight: 600;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
-                letter-spacing: 0.5px;
+                background: transparent;
             }
         """)
         central_layout.addWidget(version_label)
         
-        # Канал
+        # Канал (если не release)
         if CHANNEL.lower() != "release":
-            channel_label = QLabel(f"{CHANNEL.upper()}")
+            channel_label = QLabel(f"⚡ {CHANNEL.upper()}")
             channel_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             channel_label.setStyleSheet("""
                 QLabel {
                     color: #1a1a1a;
-                    background: #ffd93d;
-                    font-size: 10px;
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 #ffd93d, stop:1 #ffb830);
+                    font-size: 9px;
                     font-weight: 700;
-                    font-family: 'Segoe UI', sans-serif;
                     padding: 4px 12px;
-                    border-radius: 4px;
-                    letter-spacing: 1px;
+                    border-radius: 10px;
                 }
             """)
             central_layout.addWidget(channel_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        central_layout.addSpacing(40)
+        central_layout.addSpacing(20)
         
-        # Прогресс (с явным родителем!)
+        # Контейнер прогресса
         progress_container = QWidget(central_container)
-        progress_container.setMaximumWidth(380)
+        progress_container.setMaximumWidth(350)
+        progress_container.setStyleSheet("background: transparent;")
         progress_layout = QVBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.setSpacing(12)
-
-        # Статус - теперь тематический
+        progress_layout.setSpacing(10)
+        
+        # Статус
         self.status_label = QLabel("Разрушаем блокировки...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("""
             QLabel {
-                color: #888888;
-                font-size: 13px;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 12px;
                 font-family: 'Segoe UI', sans-serif;
-                font-weight: 400;
+                background: transparent;
             }
         """)
         progress_layout.addWidget(self.status_label)
         
-        # Прогресс-бар
+        # Прогресс-бар с красивым стилем
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setMinimumWidth(320)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setMinimumWidth(280)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                background-color: rgba(42, 42, 42, 200);
-                border: none;
-                border-radius: 2px;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(0, 212, 170, 0.3);
+                border-radius: 3px;
             }
             QProgressBar::chunk {
                 background: qlineargradient(
                     x1: 0, y1: 0, x2: 1, y2: 0,
                     stop: 0 #00d4aa,
-                    stop: 1 #00f5c4
+                    stop: 0.5 #00f5c4,
+                    stop: 1 #00d4aa
                 );
                 border-radius: 2px;
             }
@@ -762,9 +901,10 @@ class SplashScreen(QWidget):
         self.percent_label.setStyleSheet("""
             QLabel {
                 color: #00d4aa;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 600;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
+                background: transparent;
             }
         """)
         progress_layout.addWidget(self.percent_label)
@@ -775,79 +915,75 @@ class SplashScreen(QWidget):
         self.detail_label.setStyleSheet("""
             QLabel {
                 color: #555555;
-                font-size: 11px;
+                font-size: 10px;
                 font-family: 'Segoe UI', sans-serif;
+                background: transparent;
             }
         """)
         progress_layout.addWidget(self.detail_label)
         
         central_layout.addWidget(progress_container, alignment=Qt.AlignmentFlag.AlignCenter)
-        
         layout.addWidget(central_container, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        # Создаём overlay с эффектом разрушения стены
-        self.wall_overlay = WallDestructionOverlay(self)
-        
-        # Анимация появления
-        self.opacity_effect = QGraphicsOpacityEffect()
-        self.setGraphicsEffect(self.opacity_effect)
-        self.fade_in()
-        
+        # Анимация стены (опционально)
+        animation_enabled = get_wall_animation_enabled()
+        if animation_enabled:
+            self.wall_overlay = WallDestructionOverlay(self)
+        else:
+            self.wall_overlay = None
+    
     def resizeEvent(self, event):
-        """Растягиваем overlay на весь экран"""
+        """Растягиваем overlay"""
         super().resizeEvent(event)
         if self.wall_overlay:
             self.wall_overlay.setGeometry(0, 0, self.width(), self.height())
             self.wall_overlay.raise_()
-        
-    def fade_in(self):
-        """Анимация появления"""
-        self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.fade_animation.setDuration(300)
-        self.fade_animation.setStartValue(0.0)
-        self.fade_animation.setEndValue(1.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.fade_animation.start()
-        
+    
     def fade_out(self):
         """Анимация исчезновения"""
         if self._loading_complete:
             return
-            
+        
         self._loading_complete = True
         
+        # Останавливаем анимации
+        if hasattr(self, '_glow_timer'):
+            self._glow_timer.stop()
         if self.animated_icon:
             self.animated_icon.stop_animation()
         if self.wall_overlay:
             self.wall_overlay.stop_animation()
         
         self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.fade_animation.setDuration(500)
+        self.fade_animation.setDuration(350)
         self.fade_animation.setStartValue(1.0)
         self.fade_animation.setEndValue(0.0)
         self.fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.fade_animation.finished.connect(self.load_complete.emit)
+        self.fade_animation.finished.connect(self._on_fade_complete)
         self.fade_animation.start()
-        
+    
+    def _on_fade_complete(self):
+        """Вызывается после завершения анимации исчезновения"""
+        self.load_complete.emit()
+        self.close()
+    
     def set_progress(self, value: int, status: str = "", detail: str = ""):
-        """Обновляет прогресс разрушения (потокобезопасно)"""
-        # Проверяем, вызывается ли из главного потока
+        """Обновляет прогресс (потокобезопасно)"""
+        import threading
         if QApplication.instance() and threading.current_thread() != threading.main_thread():
-            # Вызываем из другого потока — используем сигнал
             self._progress_signal.emit(value, status, detail)
             return
-        
         self._do_set_progress(value, status, detail)
     
     def _do_set_progress(self, value: int, status: str = "", detail: str = ""):
-        """Внутренний метод обновления прогресса (только из главного потока)"""
+        """Внутренний метод обновления прогресса"""
         try:
             self.progress_bar.setValue(min(value, 100))
             self.percent_label.setText(f"{min(value, 100)}%")
             
             if self.animated_icon:
                 self.animated_icon.set_progress(min(value, 100))
-                
+            
             if self.wall_overlay:
                 self.wall_overlay.set_progress(min(value, 100))
             
@@ -856,47 +992,41 @@ class SplashScreen(QWidget):
             if detail:
                 self.detail_label.setText(detail)
             
-            if value == 100 and not self._loading_complete:
-                log(f"SplashScreen: стена разрушена, прогресс 100%", "DEBUG")
-                QTimer.singleShot(500, self.fade_out)
-            elif value > 100:
-                self.progress_bar.setValue(99)
-                self.percent_label.setText("99%")
+            if value >= 100 and not self._loading_complete:
+                log("SplashScreen: прогресс 100%, закрываемся", "DEBUG")
+                QTimer.singleShot(300, self.fade_out)
         except RuntimeError:
-            # Виджет уже уничтожен
             pass
-            
-    def set_status(self, text: str):
-        """Обновляет статус"""
-        self.status_label.setText(text)
-        
-    def set_detail(self, text: str):
-        """Обновляет детали"""
-        self.detail_label.setText(text)
-        
+    
+    def finish(self):
+        """Принудительное завершение splash"""
+        self.set_progress(100, "Готово!", "")
+    
     def show_error(self, error: str):
-        """Показывает ошибку"""
+        """Показывает ошибку и закрывает splash через 3 секунды"""
         if self.animated_icon:
             self.animated_icon.stop_animation()
         if self.wall_overlay:
             self.wall_overlay.stop_animation()
-            
+        
         self.status_label.setText(f"Ошибка: {error}")
         self.status_label.setStyleSheet("""
             QLabel {
                 color: #ff4757;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 500;
                 font-family: 'Segoe UI', sans-serif;
+                background: transparent;
             }
         """)
         self.percent_label.setText("—")
         self.percent_label.setStyleSheet("""
             QLabel {
                 color: #ff4757;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 600;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
+                background: transparent;
             }
         """)
         self.progress_bar.setStyleSheet("""

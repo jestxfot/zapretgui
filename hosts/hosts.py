@@ -5,7 +5,6 @@ from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox
 from .proxy_domains import PROXY_DOMAINS
 from .adobe_domains import ADOBE_DOMAINS
-from .menu import HostsSelectorDialog
 from log import log
 
 HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
@@ -269,19 +268,40 @@ class HostsManager:
 
     # ------------------------- сервис -------------------------
     def get_active_domains(self):
-        """Возвращает множество активных доменов из hosts файла"""
+        """Возвращает множество активных доменов из hosts файла с ПРАВИЛЬНЫМИ IP адресами"""
         current_active = set()
-        if self.is_proxy_domains_active():
-            try:
-                from .proxy_domains import PROXY_DOMAINS
-                content = safe_read_hosts_file()
-                if content:
-                    for domain in PROXY_DOMAINS.keys():
-                        if domain in content:
+        try:
+            from .proxy_domains import PROXY_DOMAINS
+            content = safe_read_hosts_file()
+            if content is None:
+                return current_active
+                
+            lines = content.splitlines()
+            
+            for line in lines:
+                line = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Разбиваем строку на части (IP домен)
+                parts = line.split()
+                if len(parts) >= 2:
+                    ip = parts[0]
+                    domain = parts[1]
+                    
+                    # Проверяем что домен есть в наших PROXY_DOMAINS И IP совпадает
+                    if domain in PROXY_DOMAINS:
+                        expected_ip = PROXY_DOMAINS[domain]
+                        if ip == expected_ip:
                             current_active.add(domain)
-                log(f"Найдено активных доменов: {len(current_active)}", "DEBUG")
-            except Exception as e:
-                log(f"Ошибка при чтении hosts: {e}", "ERROR")
+                        else:
+                            # Домен есть но с другим IP - не считаем его активным
+                            log(f"Домен {domain} найден с другим IP: {ip} (ожидается {expected_ip})", "DEBUG")
+                            
+            log(f"Найдено активных доменов с правильными IP: {len(current_active)}", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка при чтении hosts: {e}", "ERROR")
         return current_active
 
     def set_status(self, message: str):

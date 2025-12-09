@@ -7,11 +7,10 @@
 import winreg
 import json
 from log import log
-from config import reg
+from config import reg, REGISTRY_PATH
 
-REGISTRY_PATH = r"Software\ZapretReg2"
-DIRECT_PATH = r"Software\ZapretReg2\DirectMethod"
-DIRECT_STRATEGY_KEY = r"Software\ZapretReg2\DirectStrategy"
+DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
+DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
 
 # ==================== МЕТОД ЗАПУСКА ====================
 
@@ -354,7 +353,7 @@ def set_remove_ipsets_enabled(enabled: bool) -> bool:
 # ==================== НАСТРОЙКИ ФИЛЬТРОВ WINDIVERT ====================
 
 # Путь для хранения настроек фильтров
-WINDIVERT_FILTERS_PATH = r"Software\ZapretReg2\WinDivertFilters"
+WINDIVERT_FILTERS_PATH = rf"{REGISTRY_PATH}\WinDivertFilters"
 
 def _get_filter_enabled(filter_name: str, default: bool = True) -> bool:
     """Получает состояние отдельного фильтра WinDivert"""
@@ -375,6 +374,35 @@ def _set_filter_enabled(filter_name: str, enabled: bool) -> bool:
         log(f"Ошибка сохранения фильтра {filter_name}: {e}", "❌ ERROR")
         return False
 
+def _reset_disabled_categories_strategies():
+    """
+    Сбрасывает стратегии в 'none' для всех категорий, 
+    которые отключены текущими настройками фильтров.
+    Вызывается при выключении фильтра.
+    """
+    from .strategies_registry import registry
+    
+    reset_count = 0
+    for category_key in registry.get_all_category_keys():
+        if not registry.is_category_enabled_by_filters(category_key):
+            # Категория отключена - проверяем текущую стратегию
+            reg_key = _category_to_reg_key(category_key)
+            current = reg(DIRECT_STRATEGY_KEY, reg_key)
+            if current and current != "none":
+                # Сбрасываем в none
+                reg(DIRECT_STRATEGY_KEY, reg_key, "none")
+                reset_count += 1
+                log(f"⚠️ Категория '{category_key}' отключена фильтром, стратегия сброшена в 'none'", "INFO")
+    
+    if reset_count > 0:
+        log(f"Сброшено {reset_count} стратегий для отключённых категорий", "INFO")
+
+def _category_to_reg_key(category_key: str) -> str:
+    """Преобразует ключ категории в ключ реестра"""
+    # youtube_udp -> YoutubeUdp
+    parts = category_key.split('_')
+    return "DirectStrategy" + ''.join(part.capitalize() for part in parts)
+
 # --- TCP порты ---
 
 def get_wf_tcp_80_enabled() -> bool:
@@ -382,14 +410,20 @@ def get_wf_tcp_80_enabled() -> bool:
     return _get_filter_enabled("TcpPort80", default=True)
 
 def set_wf_tcp_80_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("TcpPort80", enabled)
+    result = _set_filter_enabled("TcpPort80", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 def get_wf_tcp_443_enabled() -> bool:
     """TCP порт 443 (HTTPS/TLS)"""
     return _get_filter_enabled("TcpPort443", default=True)
 
 def set_wf_tcp_443_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("TcpPort443", enabled)
+    result = _set_filter_enabled("TcpPort443", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 # --- UDP порты ---
 
@@ -398,7 +432,10 @@ def get_wf_udp_443_enabled() -> bool:
     return _get_filter_enabled("UdpPort443", default=False)
 
 def set_wf_udp_443_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("UdpPort443", enabled)
+    result = _set_filter_enabled("UdpPort443", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 # --- Raw-part фильтры (эффективные по CPU) ---
 
@@ -407,28 +444,40 @@ def get_wf_raw_discord_media_enabled() -> bool:
     return _get_filter_enabled("RawDiscordMedia", default=True)
 
 def set_wf_raw_discord_media_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("RawDiscordMedia", enabled)
+    result = _set_filter_enabled("RawDiscordMedia", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 def get_wf_raw_stun_enabled() -> bool:
     """STUN (raw-part фильтр для голосовых звонков)"""
     return _get_filter_enabled("RawStun", default=True)
 
 def set_wf_raw_stun_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("RawStun", enabled)
+    result = _set_filter_enabled("RawStun", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 def get_wf_raw_wireguard_enabled() -> bool:
     """WireGuard (raw-part фильтр для VPN)"""
     return _get_filter_enabled("RawWireguard", default=True)
 
 def set_wf_raw_wireguard_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("RawWireguard", enabled)
+    result = _set_filter_enabled("RawWireguard", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 def get_wf_raw_quic_initial_enabled() -> bool:
     """QUIC Initial (raw-part фильтр, перехватывает только initial пакеты)"""
     return _get_filter_enabled("RawQuicInitial", default=False)
 
 def set_wf_raw_quic_initial_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("RawQuicInitial", enabled)
+    result = _set_filter_enabled("RawQuicInitial", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 # --- Расширенные порты (высокая нагрузка на CPU!) ---
 
@@ -437,14 +486,20 @@ def get_wf_tcp_all_ports_enabled() -> bool:
     return _get_filter_enabled("TcpAllPorts", default=False)
 
 def set_wf_tcp_all_ports_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("TcpAllPorts", enabled)
+    result = _set_filter_enabled("TcpAllPorts", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 def get_wf_udp_all_ports_enabled() -> bool:
     """UDP порты 444-65535 (ВСЕ остальные порты, очень высокая нагрузка!)"""
     return _get_filter_enabled("UdpAllPorts", default=False)
 
 def set_wf_udp_all_ports_enabled(enabled: bool) -> bool:
-    return _set_filter_enabled("UdpAllPorts", enabled)
+    result = _set_filter_enabled("UdpAllPorts", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
 
 
 def get_all_wf_filters() -> dict:
@@ -481,14 +536,68 @@ def set_all_wf_filters(filters: dict) -> bool:
     return success
 
 
+# ==================== DEBUG LOG НАСТРОЙКИ ====================
+
+def get_debug_log_enabled() -> bool:
+    """Получает настройку включения логирования --debug"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "DebugLogEnabled")
+            return bool(value)
+    except:
+        return False
+
+def set_debug_log_enabled(enabled: bool) -> bool:
+    """Сохраняет настройку логирования --debug"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            winreg.SetValueEx(key, "DebugLogEnabled", 0, winreg.REG_DWORD, int(enabled))
+            return True
+    except:
+        return False
+
+
+# ==================== OUT-RANGE НАСТРОЙКИ ====================
+
+OUT_RANGE_PATH = rf"{REGISTRY_PATH}\OutRange"
+
+def _get_out_range_value(key_name: str, default: int = 10) -> int:
+    """Получает значение out-range из реестра"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, OUT_RANGE_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, key_name)
+            return int(value)
+    except:
+        return default
+
+def _set_out_range_value(key_name: str, value: int) -> bool:
+    """Сохраняет значение out-range в реестр"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, OUT_RANGE_PATH) as key:
+            winreg.SetValueEx(key, key_name, 0, winreg.REG_DWORD, max(0, int(value)))
+            return True
+    except Exception as e:
+        log(f"Ошибка сохранения OutRange {key_name}: {e}", "❌ ERROR")
+        return False
+
+def get_out_range_discord() -> int:
+    """Возвращает значение out-range для Discord (по умолчанию 10)"""
+    return _get_out_range_value("Discord", default=10)
+
+def set_out_range_discord(value: int) -> bool:
+    """Устанавливает значение out-range для Discord"""
+    return _set_out_range_value("Discord", value)
+
+def get_out_range_youtube() -> int:
+    """Возвращает значение out-range для YouTube (по умолчанию 10)"""
+    return _get_out_range_value("YouTube", default=10)
+
+def set_out_range_youtube(value: int) -> bool:
+    """Устанавливает значение out-range для YouTube"""
+    return _set_out_range_value("YouTube", value)
+
+
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
-
-def _category_to_reg_key(category_key: str) -> str:
-    """Преобразует ключ категории в ключ реестра"""
-    # youtube_udp -> YoutubeUdp
-    parts = category_key.split('_')
-    return "DirectStrategy" + ''.join(part.capitalize() for part in parts)
-
 
 def get_direct_strategy_selections() -> dict:
     """
@@ -607,14 +716,14 @@ from .strategies_registry import (
     get_tab_tooltips,
     get_default_selections,
     get_category_icon,
-    CATEGORIES_REGISTRY,
     CategoryInfo,
+    reload_categories,
 )
 
 
 # ==================== ОЦЕНКИ СТРАТЕГИЙ (РАБОЧАЯ/НЕРАБОЧАЯ) ====================
 
-STRATEGY_RATINGS_PATH = r"Software\ZapretReg2\StrategyRatings"
+STRATEGY_RATINGS_PATH = rf"{REGISTRY_PATH}\StrategyRatings"
 
 # Кэш оценок
 _ratings_cache = None
@@ -710,8 +819,8 @@ __all__ = [
     'get_tab_tooltips',
     'get_default_selections',
     'get_category_icon',
-    'CATEGORIES_REGISTRY',
     'CategoryInfo',
+    'reload_categories',
     
     # Настройки UI
     'get_tabs_pinned',
@@ -750,6 +859,16 @@ __all__ = [
     'set_remove_hostlists_enabled',
     'get_remove_ipsets_enabled',
     'set_remove_ipsets_enabled',
+    
+    # Out-range настройки
+    'get_out_range_discord',
+    'set_out_range_discord',
+    'get_out_range_youtube',
+    'set_out_range_youtube',
+    
+    # Debug log настройки
+    'get_debug_log_enabled',
+    'set_debug_log_enabled',
     
     # Выборы стратегий
     'get_direct_strategy_selections',

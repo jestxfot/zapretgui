@@ -340,6 +340,64 @@ def check_path_for_onedrive() -> tuple[bool, str]:
     return False, ""
 
 import re
+import platform
+
+def check_windows_version() -> tuple[bool, str]:
+    """
+    Проверяет версию Windows. Если Windows 7 или 8 - возвращает ошибку.
+    Windows 7 = 6.1, Windows 8 = 6.2, Windows 8.1 = 6.3
+    """
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
+    
+    try:
+        version = sys.getwindowsversion()
+        major = version.major
+        minor = version.minor
+        
+        log(f"Версия Windows: {major}.{minor}", level="DEBUG")
+        
+        # Windows 7 = 6.1, Windows 8 = 6.2, Windows 8.1 = 6.3
+        if major == 6 and minor in (1, 2, 3):
+            if minor == 1:
+                os_name = "Windows 7"
+            elif minor == 2:
+                os_name = "Windows 8"
+            else:
+                os_name = "Windows 8.1"
+            
+            error_message = (
+                f"Обнаружена устаревшая версия Windows: {os_name}\n\n"
+                "Данная GUI-версия программы не поддерживает Windows 7/8/8.1.\n\n"
+                "Для вашей операционной системы доступна консольная версия:\n"
+                "https://t.me/bypassblock/666\n\n"
+                "Рекомендуем обновить Windows до версии 10 или 11 для использования GUI-версии."
+            )
+            
+            log(f"ERROR: Неподдерживаемая версия Windows: {os_name}", level="❌ ERROR")
+            return True, error_message
+        
+        # Windows XP/Vista (major < 6) тоже не поддерживаются
+        if major < 6:
+            error_message = (
+                "Обнаружена неподдерживаемая версия Windows.\n\n"
+                "Данная GUI-версия программы требует Windows 10 или новее.\n\n"
+                "Для старых версий Windows доступна консольная версия:\n"
+                "https://t.me/bypassblock/666"
+            )
+            
+            log(f"ERROR: Неподдерживаемая версия Windows: {major}.{minor}", level="❌ ERROR")
+            return True, error_message
+        
+        return False, ""
+        
+    except Exception as e:
+        log(f"Ошибка определения версии Windows: {e}", level="WARNING")
+        return False, ""
+
+
 def contains_special_chars(path: str) -> bool:
     """
     True, если путь содержит:
@@ -387,119 +445,6 @@ def check_path_for_special_chars():
     startup_cache.cache_result("special_chars", False, paths_context)
     return False, ""
 
-def check_win10_tweaker() -> tuple[bool, str]:
-    """
-    Проверяет наличие Win 10 Tweaker в реестре с кэшированием.
-    Отказ в доступе также считается признаком наличия твикера.
-    """
-
-    has_cache, cached_found = startup_cache.is_cached_and_valid("win10_tweaker_check")
-    if has_cache:
-        # если твикер найден – восстановим текст ошибки
-        return cached_found, (_get_tweaker_error_message() if cached_found else "")
-    
-    try:
-        # Проверяем наличие ключа Win 10 Tweaker в реестре
-        try:
-            key = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Win 10 Tweaker",
-            )
-            winreg.CloseKey(key)
-            
-            # Ключ найден - система модифицирована
-            try:
-                from log import log
-                log("CRITICAL ERROR: Обнаружен Win 10 Tweaker в системе!", level="❌ ERROR")
-            except ImportError:
-                print("CRITICAL ERROR: Обнаружен Win 10 Tweaker в системе!")
-            
-            # Кэшируем отрицательный результат (система заражена)
-            startup_cache.cache_result("win10_tweaker_check", True)
-            return True, _get_tweaker_error_message()
-            
-        except PermissionError as e:
-            # Отказ в доступе - твикер блокирует доступ к своему ключу!
-            try:
-                from log import log
-                log(f"CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру! Error: {e}", level="❌ ERROR")
-            except ImportError:
-                print(f"CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру! Error: {e}")
-            
-            # Кэшируем отрицательный результат (система заражена)
-            startup_cache.cache_result("win10_tweaker_check", True)
-            return True, _get_tweaker_error_message(access_denied=True)
-            
-        except OSError as e:
-            # WinError 5 - Access is denied
-            if e.winerror == 5:
-                try:
-                    from log import log
-                    log("CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру (WinError 5)!", level="❌ ERROR")
-                except ImportError:
-                    print("CRITICAL ERROR: Win 10 Tweaker блокирует доступ к реестру (WinError 5)!")
-                
-                # Кэшируем отрицательный результат (система заражена)
-                startup_cache.cache_result("win10_tweaker_check", True)
-                return True, _get_tweaker_error_message(access_denied=True)
-            else:
-                # Другая OSError - не связана с твикером
-                raise
-                
-        except FileNotFoundError:
-            # Ключ не найден - система чистая, это нормально
-            try:
-                from log import log
-                log("Win 10 Tweaker не обнаружен", level="☑ INFO")
-            except ImportError:
-                print("INFO: Win 10 Tweaker не обнаружен")
-            
-            # Кэшируем положительный результат
-            startup_cache.cache_result("win10_tweaker_check", False)
-            return False, ""
-            
-    except Exception as e:
-        # При любой другой ошибке считаем, что твикера нет (это нормально)
-        try:
-            from log import log
-            log(f"Проверка Win 10 Tweaker: {e}", level="DEBUG")
-        except ImportError:
-            print(f"DEBUG: Проверка Win 10 Tweaker: {e}")
-        
-        # При неизвестной ошибке не кэшируем
-        return False, ""
-
-def _get_tweaker_error_message(access_denied=False) -> str:
-    """
-    Возвращает сообщение об ошибке для Win 10 Tweaker.
-    """
-    if access_denied:
-        header = (
-            "КРИТИЧЕСКАЯ ОШИБКА: Win 10 Tweaker блокирует доступ к реестру!\n\n"
-            "Программа Win 10 Tweaker активно защищает себя от обнаружения, "
-            "что является признаком вредоносного ПО.\n\n"
-        )
-    else:
-        header = (
-            "КРИТИЧЕСКАЯ ОШИБКА: Обнаружен Win 10 Tweaker!\n\n"
-            "Ваша система была модифицирована программой Win 10 Tweaker.\n\n"
-        )
-    
-    return header + (
-        "Win 10 Tweaker - это опасная программа, которая:\n"
-        "• Часто распространяется вместе с вирусами\n"
-        "• Вносит критические изменения в систему\n"
-        "• Нарушает работу сетевых компонентов Windows\n"
-        "• Отключает критически важные службы\n"
-        "• Изменяет политики безопасности\n"
-        "• Может содержать скрытый вредоносный код\n\n"
-        "Zapret НЕ МОЖЕТ работать в системе, где применялись твикеры!\n\n"
-        "ЕДИНСТВЕННОЕ РЕШЕНИЕ:\n"
-        "1. Сохраните важные данные\n"
-        "2. Переустановите Windows начисто с официального образа\n"
-        "3. НИКОГДА не используйте твикеры и подобные программы!\n\n"
-    )
-
 def display_startup_warnings():
     """
     Выполняет НЕКРИТИЧЕСКИЕ проверки запуска и отображает предупреждения
@@ -510,6 +455,19 @@ def display_startup_warnings():
 
     from log import log
     try:
+        # ❌ КРИТИЧЕСКАЯ ПРОВЕРКА: версия Windows
+        has_old_windows, win_error = check_windows_version()
+        if has_old_windows:
+            app_exists = QApplication.instance() is not None
+            if app_exists:
+                try:
+                    QMessageBox.critical(None, "Ошибка", win_error)
+                except Exception:
+                    _native_message("Ошибка", win_error, 0x10)  # MB_ICONERROR
+            else:
+                _native_message("Ошибка", win_error, 0x10)
+            return False  # Не продолжаем запуск
+        
         warnings = []
         
         # ✅ ТОЛЬКО НЕКРИТИЧЕСКИЕ ПРОВЕРКИ
@@ -533,6 +491,11 @@ def display_startup_warnings():
         has_special_chars, error_message = check_path_for_special_chars()
         if has_special_chars:
             warnings.append(error_message)
+        
+        # Проверяем и отключаем прокси-сервер
+        proxy_was_disabled, proxy_msg = check_and_disable_proxy()
+        if proxy_was_disabled and proxy_msg:
+            warnings.append(proxy_msg)
         
         # Если есть предупреждения - показываем
         if warnings:
@@ -667,6 +630,155 @@ def _stop_and_delete_service(name: str) -> tuple[bool, str]:
     if errors:
         return False, "; ".join(errors)
     return True, "OK"
+
+
+def _is_proxy_enabled() -> tuple[bool, str, str]:
+    """
+    Проверяет, включен ли ручной прокси-сервер в Windows.
+    
+    Возвращает:
+    - (is_enabled, proxy_server, error_message)
+    """
+    INTERNET_SETTINGS_KEY = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_KEY, 0, winreg.KEY_READ)
+        try:
+            proxy_enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
+            
+            # Получаем адрес прокси, если есть
+            try:
+                proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
+            except FileNotFoundError:
+                proxy_server = ""
+            
+            winreg.CloseKey(key)
+            return bool(proxy_enable), proxy_server, ""
+            
+        except FileNotFoundError:
+            # Ключ ProxyEnable не найден - значит прокси выключен
+            winreg.CloseKey(key)
+            return False, "", ""
+            
+    except Exception as e:
+        return False, "", f"Ошибка чтения реестра: {e}"
+
+
+def _disable_proxy() -> tuple[bool, str]:
+    """
+    Отключает ручной прокси-сервер в Windows.
+    
+    Возвращает:
+    - (success, error_message)
+    """
+    INTERNET_SETTINGS_KEY = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    
+    # Константы для InternetSetOption
+    INTERNET_OPTION_SETTINGS_CHANGED = 39
+    INTERNET_OPTION_REFRESH = 37
+    
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
+    
+    try:
+        # Открываем ключ для записи
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, 
+            INTERNET_SETTINGS_KEY, 
+            0, 
+            winreg.KEY_SET_VALUE
+        )
+        
+        # Устанавливаем ProxyEnable = 0
+        winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
+        winreg.CloseKey(key)
+        
+        log("Прокси-сервер отключен в реестре", level="INFO")
+        
+        # Уведомляем систему об изменении настроек
+        try:
+            wininet = ctypes.windll.wininet
+            # InternetSetOptionW(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0)
+            wininet.InternetSetOptionW(0, INTERNET_OPTION_SETTINGS_CHANGED, 0, 0)
+            # InternetSetOptionW(NULL, INTERNET_OPTION_REFRESH, NULL, 0)
+            wininet.InternetSetOptionW(0, INTERNET_OPTION_REFRESH, 0, 0)
+            log("Система уведомлена об изменении настроек прокси", level="DEBUG")
+        except Exception as e:
+            log(f"Предупреждение: не удалось уведомить систему об изменениях: {e}", level="WARNING")
+            # Не критично - изменения в реестре уже сделаны
+        
+        return True, ""
+        
+    except PermissionError:
+        return False, "Нет прав для изменения настроек прокси"
+    except Exception as e:
+        return False, f"Ошибка отключения прокси: {e}"
+
+
+def check_and_disable_proxy() -> tuple[bool, str]:
+    """
+    Проверяет и отключает ручной прокси-сервер Windows.
+    
+    Прокси-сервер (Настройки → Сеть и Интернет → Прокси-сервер → "Использовать прокси-сервер")
+    может конфликтовать с работой Zapret.
+    
+    Возвращает:
+    - (was_enabled_and_disabled, message)
+    - was_enabled_and_disabled = True если прокси был включен и мы его отключили
+    """
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
+    
+    # Проверяем, включен ли прокси
+    is_enabled, proxy_server, error = _is_proxy_enabled()
+    
+    if error:
+        log(f"Ошибка проверки прокси: {error}", level="WARNING")
+        return False, ""
+    
+    if not is_enabled:
+        log("Ручной прокси-сервер не включен", level="DEBUG")
+        return False, ""
+    
+    # Прокси включен - логируем и отключаем
+    proxy_info = f" ({proxy_server})" if proxy_server else ""
+    log(f"Обнаружен включенный ручной прокси-сервер{proxy_info}", level="WARNING")
+    
+    # Пытаемся отключить
+    success, disable_error = _disable_proxy()
+    
+    if success:
+        log(f"Ручной прокси-сервер{proxy_info} автоматически отключен", level="INFO")
+        
+        # Проверяем, действительно ли отключился
+        is_still_enabled, _, _ = _is_proxy_enabled()
+        if is_still_enabled:
+            log("Предупреждение: прокси всё ещё включен после попытки отключения", level="WARNING")
+            return True, (
+                f"Обнаружен включенный прокси-сервер{proxy_info}.\n\n"
+                "Попытка автоматического отключения не удалась.\n"
+                "Пожалуйста, отключите его вручную:\n"
+                "Настройки → Сеть и Интернет → Прокси-сервер → "
+                "\"Использовать прокси-сервер\" → Выкл"
+            )
+        
+        return True, (
+            f"Был включен ручной прокси-сервер{proxy_info}.\n"
+            "Прокси автоматически отключен для корректной работы Zapret."
+        )
+    else:
+        log(f"Не удалось отключить прокси: {disable_error}", level="ERROR")
+        return True, (
+            f"Обнаружен включенный прокси-сервер{proxy_info}.\n\n"
+            f"Автоматическое отключение не удалось: {disable_error}\n\n"
+            "Пожалуйста, отключите прокси вручную:\n"
+            "Настройки → Сеть и Интернет → Прокси-сервер → "
+            "\"Использовать прокси-сервер\" → Выкл"
+        )
 
 
 def check_goodbyedpi() -> tuple[bool, str]:

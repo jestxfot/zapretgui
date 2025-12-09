@@ -21,14 +21,14 @@
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
   #define OutputName "Zapret2Setup_TEST"
   #define GroupName "Zapret Dev"
-  #define DataFolder "ZapretDev"
+  #define DataFolder "ZapretTwoDev"
   #define IconFile "ZapretDevLogo4.ico"
 #else
   #define AppName "Zapret"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
   #define OutputName "Zapret2Setup"
   #define GroupName "Zapret"
-  #define DataFolder "Zapret"
+  #define DataFolder "ZapretTwo"
   #define IconFile "Zapret2.ico"
 #endif
 
@@ -80,7 +80,14 @@ Source: "{#SourcePath}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignor
 Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем lists, но исключаем пользовательские файлы (other2.txt, my-ipset.txt, netrogat.txt)
+Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ other2.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские домены при обновлении)
+Source: "{#SourcePath}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ my-ipset.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
+Source: "{#SourcePath}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
+Source: "{#SourcePath}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
@@ -94,10 +101,13 @@ Name: "{commondesktop}\{#AppName}"; Filename: "{app}\Zapret.exe"; Tasks: desktop
 Name: desktopicon; Description: "Создать ярлык на рабочем столе";
 
 [InstallDelete]
-Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
-; ✅ ИСПРАВЛЕНИЕ: Удаляем старые ярлыки перед созданием новых
-Type: files; Name: "{commondesktop}\Zapret.lnk"
-Type: files; Name: "{commondesktop}\Zapret Dev.lnk"
+; Удаляем СТАРЫЕ папки (миграция на новые имена)
+Type: filesandordirs; Name: "{commonappdata}\Zapret2Dev"
+Type: filesandordirs; Name: "{commonappdata}\Zapret2"
+Type: filesandordirs; Name: "{commonappdata}\ZapretDev"
+Type: filesandordirs; Name: "{commonappdata}\Zapret"
+; Удаляем только ярлык ТЕКУЩЕЙ версии перед созданием нового
+Type: files; Name: "{commondesktop}\{#AppName}.lnk"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
@@ -167,13 +177,36 @@ begin
 end;
 
 procedure StopAndDeleteService(const ServiceName: string);
-var R: Integer;
+var 
+  R: Integer;
+  Attempt: Integer;
 begin
+  // Останавливаем службу
   Exec('sc.exe', 'stop "' + ServiceName + '"', '',
        SW_HIDE, ewWaitUntilTerminated, R);
-  Sleep(100);
-  Exec('sc.exe', 'delete "' + ServiceName + '"', '',
-       SW_HIDE, ewWaitUntilTerminated, R);
+  Sleep(200);
+  
+  // Пробуем удалить с повторными попытками (ошибка 1072 - служба помечена для удаления)
+  for Attempt := 1 to 5 do
+  begin
+    Exec('sc.exe', 'delete "' + ServiceName + '"', '',
+         SW_HIDE, ewWaitUntilTerminated, R);
+    
+    // Если успешно удалено или служба не существует - выходим
+    if (R = 0) or (R = 1060) then
+      Break;
+    
+    // Если служба помечена для удаления (1072) - ждём и пробуем снова
+    if R = 1072 then
+    begin
+      // Убиваем процессы которые могут держать хэндлы
+      Exec('taskkill.exe', '/F /IM winws.exe /T', '', SW_HIDE, ewWaitUntilTerminated, R);
+      Exec('taskkill.exe', '/F /IM winws2.exe /T', '', SW_HIDE, ewWaitUntilTerminated, R);
+      Sleep(500);
+    end
+    else
+      Break;
+  end;
 end;
 
 { ✅ ИСПРАВЛЕНО: InitializeSetup БЕЗ прогресс-бара }
@@ -259,6 +292,7 @@ end;
 
 function GetInstallDir(Param: string): string;
 begin
+  // Всегда используем новый путь
   Result := ExpandConstant('{commonappdata}\{#DataFolder}');
 end;
 

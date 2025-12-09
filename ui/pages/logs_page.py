@@ -1,11 +1,11 @@
 # ui/pages/logs_page.py
 """Страница просмотра логов в реальном времени"""
 
-from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QTextEdit, QPushButton, QComboBox, QApplication, QMessageBox,
-    QSplitter
+    QPushButton, QComboBox, QApplication, QMessageBox,
+    QSplitter, QTextEdit
 )
 from PyQt6.QtGui import QFont, QColor, QTextCharFormat
 import qtawesome as qta
@@ -13,32 +13,11 @@ import os
 import glob
 import re
 
-from .base_page import BasePage
+from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
-from log import log, global_logger, LOG_FILE
+from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
 from config import LOGS_FOLDER, MAX_LOG_FILES
-
-
-class ScrollBlockingTextEdit(QTextEdit):
-    """QTextEdit который не пропускает прокрутку к родителю"""
-    
-    def wheelEvent(self, event):
-        scrollbar = self.verticalScrollBar()
-        delta = event.angleDelta().y()
-        
-        # Если прокручиваем вверх и уже в начале - блокируем
-        if delta > 0 and scrollbar.value() == scrollbar.minimum():
-            event.accept()
-            return
-        
-        # Если прокручиваем вниз и уже в конце - блокируем  
-        if delta < 0 and scrollbar.value() == scrollbar.maximum():
-            event.accept()
-            return
-        
-        super().wheelEvent(event)
-        event.accept()
 
 # Паттерны для определения РЕАЛЬНЫХ ошибок (строгие)
 ERROR_PATTERNS = [
@@ -78,6 +57,9 @@ class LogsPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__("Логи", "Просмотр логов приложения в реальном времени", parent)
+        
+        # Отключаем горизонтальную прокрутку страницы
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         self._thread = None
         self._worker = None
@@ -147,9 +129,28 @@ class LogsPage(BasePage):
         self.log_combo.currentIndexChanged.connect(self._on_log_selected)
         row1.addWidget(self.log_combo, 1)
         
-        self.refresh_btn = ActionButton("⟳", "fa5s.sync")
-        self.refresh_btn.setFixedWidth(40)
+        self.refresh_btn = QPushButton()
+        self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color='#ffffff')
+        self._refresh_spin_animation = qta.Spin(self.refresh_btn, interval=10, step=8)
+        self._refresh_icon_spinning = qta.icon('fa5s.sync-alt', color='#60cdff', animation=self._refresh_spin_animation)
+        self.refresh_btn.setIcon(self._refresh_icon_normal)
+        self.refresh_btn.setFixedSize(36, 36)
         self.refresh_btn.setToolTip("Обновить список файлов")
+        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+                border-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.05);
+            }
+        """)
         self.refresh_btn.clicked.connect(self._refresh_logs_list)
         row1.addWidget(self.refresh_btn)
         
@@ -203,7 +204,7 @@ class LogsPage(BasePage):
         self.log_text.setReadOnly(True)
         self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.log_text.setFont(QFont("Consolas", 9))
-        self.log_text.setMinimumHeight(350)
+        self.log_text.setMinimumHeight(260)
         self.log_text.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -248,11 +249,29 @@ class LogsPage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # Панель ошибок
         # ═══════════════════════════════════════════════════════════
-        errors_card = SettingsCard("🔴 Ошибки и предупреждения")
+        errors_card = SettingsCard()  # Без заголовка - добавим свой с иконкой
         errors_layout = QVBoxLayout()
         
-        # Заголовок с кнопкой очистки
+        # Заголовок с иконкой и кнопкой очистки
         errors_header = QHBoxLayout()
+        
+        # Иконка предупреждения
+        warning_icon = QLabel()
+        warning_icon.setPixmap(qta.icon('fa5s.exclamation-triangle', color='#ff6b6b').pixmap(16, 16))
+        errors_header.addWidget(warning_icon)
+        
+        # Заголовок
+        errors_title = QLabel("Ошибки и предупреждения")
+        errors_title.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+        """)
+        errors_header.addWidget(errors_title)
+        errors_header.addSpacing(16)
         
         self.errors_count_label = QLabel("Ошибок: 0")
         self.errors_count_label.setStyleSheet("""
@@ -277,7 +296,7 @@ class LogsPage(BasePage):
         self.errors_text.setReadOnly(True)
         self.errors_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.errors_text.setFont(QFont("Consolas", 9))
-        self.errors_text.setFixedHeight(150)
+        self.errors_text.setFixedHeight(100)
         self.errors_text.setStyleSheet("""
             QTextEdit {
                 background-color: #2a1a1a;
@@ -323,10 +342,21 @@ class LogsPage(BasePage):
         
     def _refresh_logs_list(self):
         """Обновляет список доступных лог-файлов"""
+        # Запускаем анимацию вращения
+        self.refresh_btn.setIcon(self._refresh_icon_spinning)
+        self._refresh_spin_animation.start()
+        
         self.log_combo.blockSignals(True)
         self.log_combo.clear()
         
         try:
+            # Очищаем старые логи перед обновлением списка
+            deleted, errors, total = cleanup_old_logs(LOGS_FOLDER, MAX_LOG_FILES)
+            if deleted > 0:
+                log(f"🗑️ Удалено старых логов: {deleted} из {total}", "INFO")
+            if errors:
+                log(f"⚠️ Ошибки при удалении логов: {errors[:3]}", "DEBUG")
+            
             log_pattern = os.path.join(LOGS_FOLDER, "zapret_log_*.txt")
             log_files = glob.glob(log_pattern)
             log_files.sort(key=os.path.getmtime, reverse=True)
@@ -353,6 +383,13 @@ class LogsPage(BasePage):
             log(f"Ошибка обновления списка логов: {e}", "ERROR")
         finally:
             self.log_combo.blockSignals(False)
+            # Останавливаем анимацию через небольшую задержку для визуального эффекта
+            QTimer.singleShot(500, self._stop_refresh_animation)
+    
+    def _stop_refresh_animation(self):
+        """Останавливает анимацию кнопки обновления"""
+        self._refresh_spin_animation.stop()
+        self.refresh_btn.setIcon(self._refresh_icon_normal)
             
     def _on_log_selected(self, index):
         """Обработчик выбора лог-файла"""

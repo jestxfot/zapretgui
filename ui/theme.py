@@ -2,35 +2,44 @@
 import os
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty, QThread, QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
-from PyQt6.QtWidgets import QPushButton, QMessageBox, QApplication, QMenu
-from config import reg, HKCU
+from PyQt6.QtWidgets import QPushButton, QMessageBox, QApplication, QMenu, QWidget
+from config import reg, HKCU, THEME_FOLDER
 from log import log
 from typing import Optional, Tuple
 import time
 
 # Константы - Windows 11 style мягкие цвета
+# bg_color - цвет фона окна (для цветных тем - тёмный оттенок основного цвета)
 THEMES = {
     # Мягкие пастельные оттенки в стиле Windows 11
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231"},
-    "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205"},
-    "Темная янтарная": {"file": "dark_amber.xml", "status_color": "#ffffff", "button_color": "234, 162, 62"},
-    "Темная розовая": {"file": "dark_pink.xml", "status_color": "#ffffff", "button_color": "232, 121, 178"},
-    "Светлая синяя": {"file": "light_blue.xml", "status_color": "#000000", "button_color": "68, 136, 217"},
-    "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "48, 185, 206"},
-    "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "99, 117, 198"},
+    # Темная синяя - оставляем оригинальный тёмно-серый фон
+    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231", "bg_color": "32, 32, 32"},
+    # Бирюзовая - тёмный бирюзовый фон
+    "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205", "bg_color": "20, 35, 38"},
+    # Янтарная - тёмный янтарный/коричневый фон
+    "Темная янтарная": {"file": "dark_amber.xml", "status_color": "#ffffff", "button_color": "234, 162, 62", "bg_color": "38, 32, 20"},
+    # Розовая - тёмный розовато-фиолетовый фон
+    "Темная розовая": {"file": "dark_pink.xml", "status_color": "#ffffff", "button_color": "232, 121, 178", "bg_color": "38, 24, 32"},
+    # Светлые темы
+    "Светлая синяя": {"file": "light_blue.xml", "status_color": "#000000", "button_color": "68, 136, 217", "bg_color": "230, 235, 245"},
+    "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "48, 185, 206", "bg_color": "225, 242, 245"},
+    # РКН Тян - используют кастомный фон (изображения)
+    "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "99, 117, 198", "bg_color": "32, 32, 32"},
+    "РКН Тян 2": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "186, 125, 186", "bg_color": "32, 32, 32"},
     
-    # Премиум AMOLED темы с мягкими градиентными цветами
-    "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "62, 148, 255", "amoled": True},
-    "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "76, 217, 147", "amoled": True},
-    "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "178, 142, 246", "amoled": True},
-    "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "235, 108, 108", "amoled": True},
+    # Премиум AMOLED темы - чёрный фон для экономии энергии
+    "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "62, 148, 255", "amoled": True, "bg_color": "0, 0, 0"},
+    "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "76, 217, 147", "amoled": True, "bg_color": "0, 0, 0"},
+    "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "178, 142, 246", "amoled": True, "bg_color": "0, 0, 0"},
+    "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "235, 108, 108", "amoled": True, "bg_color": "0, 0, 0"},
     
     # Полностью черная тема (премиум)
     "Полностью черная": {
         "file": "dark_blue.xml", 
         "status_color": "#ffffff", 
         "button_color": "48, 48, 48",
-        "pure_black": True
+        "pure_black": True,
+        "bg_color": "0, 0, 0"
     },
 }
 
@@ -267,12 +276,180 @@ QFrame[frameShape="4"] {
 
 def get_selected_theme(default: str | None = None) -> str | None:
     """Возвращает сохранённую тему или default"""
-    return reg(r"Software\ZapretReg2", "SelectedTheme") or default
+    from config import REGISTRY_PATH
+    from log import log
+    saved = reg(REGISTRY_PATH, "SelectedTheme")
+    log(f"📦 Чтение темы из реестра [{REGISTRY_PATH}]: '{saved}' (default: '{default}')", "DEBUG")
+    return saved or default
 
 def set_selected_theme(theme_name: str) -> bool:
     """Записывает строку SelectedTheme"""
-    return reg(r"Software\ZapretReg2", "SelectedTheme", theme_name)
+    from config import REGISTRY_PATH
+    from log import log
+    result = reg(REGISTRY_PATH, "SelectedTheme", theme_name)
+    log(f"💾 Сохранение темы в реестр [{REGISTRY_PATH}]: '{theme_name}' -> {result}", "DEBUG")
+    return result
+
+def load_cached_css_sync(theme_name: str = None) -> str | None:
+    """
+    Синхронно загружает CSS из кеша для быстрого применения при старте.
+    Возвращает CSS строку или None если кеш не найден.
+    """
+    from config import THEME_FOLDER
+    import os
+    
+    if theme_name is None:
+        theme_name = get_selected_theme("Темная синяя")
+    
+    if theme_name not in THEMES:
+        theme_name = "Темная синяя"
+    
+    info = THEMES[theme_name]
+    cache_dir = os.path.join(THEME_FOLDER, "cache")
+    cache_file = os.path.join(cache_dir, f"{info['file'].replace('.xml', '')}.css")
+    
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                css = f.read()
+            log(f"📦 Загружен CSS из кеша: {len(css)} символов для '{theme_name}'", "DEBUG")
+            return css
+        except Exception as e:
+            log(f"Ошибка чтения кеша CSS: {e}", "WARNING")
+    
+    return None
+
+def get_theme_bg_color(theme_name: str) -> str:
+    """Возвращает цвет фона для указанной темы в формате 'R, G, B'"""
+    theme_info = THEMES.get(theme_name, {})
+    # По умолчанию возвращаем тёмно-серый (как в оригинале)
+    return theme_info.get("bg_color", "32, 32, 32")
+
+def get_theme_content_bg_color(theme_name: str) -> str:
+    """Возвращает цвет фона контентной области (чуть светлее основного)"""
+    bg = get_theme_bg_color(theme_name)
+    try:
+        r, g, b = [int(x.strip()) for x in bg.split(',')]
+        # Делаем чуть светлее для контентной области
+        r = min(255, r + 7)
+        g = min(255, g + 7)
+        b = min(255, b + 7)
+        return f"{r}, {g}, {b}"
+    except:
+        return "39, 39, 39"
    
+class ThemeBuildWorker(QObject):
+    """Воркер для полной подготовки CSS темы в фоновом потоке.
+    
+    Делает ВСЮ тяжёлую работу в фоне:
+    - Чтение кеша
+    - Генерация CSS через qt_material (если кеша нет)
+    - Сборка финального CSS со всеми оверлеями
+    
+    В главном потоке остаётся только setStyleSheet() - одна операция.
+    """
+    
+    finished = pyqtSignal(str, str)  # final_css, theme_name
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str)  # status message
+    
+    def __init__(self, theme_file: str, theme_name: str, cache_file: str, 
+                 is_amoled: bool = False, is_pure_black: bool = False, is_rkn_tyan: bool = False, is_rkn_tyan_2: bool = False):
+        super().__init__()
+        self.theme_file = theme_file
+        self.theme_name = theme_name
+        self.cache_file = cache_file
+        self.is_amoled = is_amoled
+        self.is_pure_black = is_pure_black
+        self.is_rkn_tyan = is_rkn_tyan
+        self.is_rkn_tyan_2 = is_rkn_tyan_2
+    
+    def run(self):
+        """Подготавливает полный CSS в фоновом потоке"""
+        try:
+            import os
+            import re
+            start_time = time.time()
+            base_css = None
+            from_cache = False
+            
+            # 1. Пробуем загрузить из кеша (быстро) - кеш уже оптимизирован
+            if os.path.exists(self.cache_file):
+                try:
+                    self.progress.emit("Загрузка темы из кеша...")
+                    with open(self.cache_file, 'r', encoding='utf-8') as f:
+                        base_css = f.read()
+                    if base_css:
+                        from_cache = True
+                        log(f"🎨 ThemeBuildWorker: загружен CSS из кеша ({len(base_css)} символов)", "DEBUG")
+                except Exception as e:
+                    log(f"⚠ Ошибка чтения кеша: {e}", "WARNING")
+                    base_css = None
+            
+            # 2. Если кеша нет - генерируем через qt_material и оптимизируем
+            if not base_css:
+                import qt_material
+                self.progress.emit("Генерация CSS темы...")
+                log(f"🎨 ThemeBuildWorker: генерация CSS для {self.theme_file}", "DEBUG")
+                
+                base_css = qt_material.build_stylesheet(theme=self.theme_file)
+                original_size = len(base_css)
+                
+                # === ОПТИМИЗАЦИЯ CSS ===
+                self.progress.emit("Оптимизация CSS...")
+                
+                # 2.1 Удаляем проблемные icon:/ ссылки которые замедляют парсинг Qt
+                base_css = re.sub(r'url\(["\']?icon:[^)]+\)', 'none', base_css)
+                
+                # 2.2 Минификация CSS - удаляем лишние пробелы и переносы
+                base_css = re.sub(r'/\*[^*]*\*+([^/*][^*]*\*+)*/', '', base_css)  # Удаляем комментарии
+                base_css = re.sub(r'\s+', ' ', base_css)  # Множественные пробелы -> один
+                base_css = re.sub(r'\s*([{};:,>])\s*', r'\1', base_css)  # Убираем пробелы вокруг символов
+                base_css = base_css.strip()
+                
+                optimized_size = len(base_css)
+                log(f"🎨 CSS оптимизирован: {original_size} -> {optimized_size} байт ({100-optimized_size*100//original_size}% сжатие)", "DEBUG")
+                
+                # Кешируем ОПТИМИЗИРОВАННЫЙ CSS для будущих запусков
+                try:
+                    os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+                    with open(self.cache_file, 'w', encoding='utf-8') as f:
+                        f.write(base_css)
+                    log(f"✅ Оптимизированный CSS закеширован в {self.cache_file}", "DEBUG")
+                except Exception as e:
+                    log(f"⚠ Не удалось закешировать CSS: {e}", "WARNING")
+            
+            # 3. Собираем финальный CSS со всеми оверлеями (тоже в фоне!)
+            self.progress.emit("Подготовка стилей...")
+            all_styles = [base_css]
+            
+            if self.is_rkn_tyan or self.is_rkn_tyan_2:
+                all_styles.append("""
+                    QWidget[hasCustomBackground="true"] { background: transparent !important; }
+                    QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
+                """)
+            
+            if self.is_pure_black:
+                all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
+            elif self.is_amoled:
+                all_styles.append(AMOLED_OVERRIDE_STYLE)
+            
+            # Объединяем всё в одну строку
+            final_css = "\n".join(all_styles)
+            
+            elapsed = time.time() - start_time
+            cache_status = "из кеша" if from_cache else "сгенерирован"
+            log(f"✅ ThemeBuildWorker: CSS {cache_status} за {elapsed:.2f}с ({len(final_css)} символов)", "DEBUG")
+            
+            self.finished.emit(final_css, self.theme_name)
+            
+        except Exception as e:
+            log(f"❌ ThemeBuildWorker ошибка: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "ERROR")
+            self.error.emit(str(e))
+
+
 class PremiumCheckWorker(QObject):
     """Воркер для асинхронной проверки премиум статуса"""
     
@@ -466,13 +643,14 @@ class HoverTextButton(DualActionRippleButton):
 class ThemeManager:
     """Класс для управления темами приложения"""
 
-    def __init__(self, app, widget, status_label=None, theme_folder=None, donate_checker=None):
+    def __init__(self, app, widget, status_label=None, theme_folder=None, donate_checker=None, apply_on_init=True):
         self.app = app
         self.widget = widget
         # status_label больше не используется в новом интерфейсе
         self.theme_folder = theme_folder
         self.donate_checker = donate_checker
         self._fallback_due_to_premium: str | None = None
+        self._theme_applied = False
         
         # Кеш для премиум статуса
         self._premium_cache: Optional[Tuple[bool, str, Optional[int]]] = None
@@ -482,11 +660,20 @@ class ThemeManager:
         # Потоки для асинхронных проверок
         self._check_thread: Optional[QThread] = None
         self._check_worker: Optional[PremiumCheckWorker] = None
+        
+        # Потоки для асинхронной генерации CSS темы
+        self._theme_build_thread: Optional[QThread] = None
+        self._theme_build_worker: Optional[ThemeBuildWorker] = None
+        self._pending_theme_data: Optional[dict] = None  # Данные темы для применения после генерации CSS
+        
+        # Хеш текущего CSS для оптимизации (не применять повторно)
+        self._current_css_hash: Optional[int] = None
 
         # список тем с премиум-статусом
         self.themes = []
         for name, info in THEMES.items():
             is_premium = (name == "РКН Тян" or 
+                         name == "РКН Тян 2" or
                          name.startswith("AMOLED") or 
                          name == "Полностью черная" or
                          info.get("amoled", False) or
@@ -495,6 +682,8 @@ class ThemeManager:
 
         # выбираем стартовую тему
         saved = get_selected_theme()
+        log(f"🎨 ThemeManager: saved='{saved}', in THEMES={saved in THEMES if saved else False}", "DEBUG")
+        
         if saved and saved in THEMES:
             if self._is_premium_theme(saved):
                 # Используем кешированный результат или считаем что нет премиума при старте
@@ -503,13 +692,35 @@ class ThemeManager:
                 log(f"Премиум тема {saved} отложена до проверки подписки", "INFO")
             else:
                 self.current_theme = saved
+                log(f"🎨 Загружена обычная тема: '{saved}'", "DEBUG")
         else:
-            self.current_theme = (
-                "Темная синяя"
-            )
+            self.current_theme = "Темная синяя"
+            log(f"🎨 Тема не найдена, используем 'Темная синяя'", "DEBUG")
 
-        # применяем тему, НО БЕЗ записи в настройки
-        self.apply_theme(self.current_theme, persist=False)
+        # Тема применяется асинхронно через apply_theme_async() после инициализации
+        # apply_on_init больше не используется - всегда False
+        if apply_on_init:
+            # Для обратной совместимости - используем async
+            self.apply_theme_async(self.current_theme, persist=False)
+        # Минимальный CSS теперь применяется в main.py ДО показа окна
+
+    def _apply_minimal_css(self):
+        """Применяет минимальный CSS для предотвращения белого экрана при старте"""
+        try:
+            # Базовый тёмный фон чтобы окно не было белым
+            minimal_css = """
+            QWidget {
+                background-color: #1e1e1e;
+                color: #ffffff;
+            }
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            """
+            self.app.setStyleSheet(minimal_css)
+            log("🎨 Применён минимальный CSS для предотвращения белого экрана", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка применения минимального CSS: {e}", "DEBUG")
 
     def __del__(self):
         """Деструктор для очистки ресурсов"""
@@ -557,7 +768,7 @@ class ThemeManager:
         """Проверяет, является ли тема премиум"""
         clean_name = self.get_clean_theme_name(theme_name)
         theme_info = THEMES.get(clean_name, {})
-        return (clean_name in ["РКН Тян", "Полностью черная"] or 
+        return (clean_name in ["РКН Тян", "РКН Тян 2", "Полностью черная"] or 
                 clean_name.startswith("AMOLED") or
                 theme_info.get("amoled", False) or
                 theme_info.get("pure_black", False))
@@ -673,11 +884,12 @@ class ThemeManager:
             except Exception as e:
                 log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
         
-        # Если есть отложенная премиум тема и премиум доступен, применяем её
+        # Если есть отложенная премиум тема и премиум доступен, применяем её асинхронно
         if self._fallback_due_to_premium and is_premium:
             log(f"Восстанавливаем отложенную премиум тему: {self._fallback_due_to_premium}", "INFO")
-            self.apply_theme(self._fallback_due_to_premium, persist=True)
+            theme_to_restore = self._fallback_due_to_premium
             self._fallback_due_to_premium = None
+            self.apply_theme_async(theme_to_restore, persist=True)
         
         # Обновляем список доступных тем в UI
         if hasattr(self.widget, 'theme_handler'):
@@ -696,6 +908,7 @@ class ThemeManager:
 
     def reapply_saved_theme_if_premium(self):
         """Восстанавливает премиум-тему после инициализации DonateChecker"""
+        log(f"🔄 reapply_saved_theme_if_premium: fallback={self._fallback_due_to_premium}", "DEBUG")
         # Запускаем асинхронную проверку
         self._start_async_premium_check()
 
@@ -746,85 +959,6 @@ class ThemeManager:
         return (clean_name == "Полностью черная" or 
                 theme_info.get("pure_black", False))
 
-    def apply_theme(self, theme_name: str | None = None, *, persist: bool = True) -> tuple[bool, str]:
-        """Применяет тему (оптимизированная версия без блокировки UI)"""
-        import qt_material
-
-        if theme_name is None:
-            theme_name = self.current_theme
-
-        clean = self.get_clean_theme_name(theme_name)
-        
-        # Определяем правильный виджет для сброса фона
-        target_widget = self.widget
-        if hasattr(self.widget, 'main_widget'):
-            target_widget = self.widget.main_widget
-
-        # Проверка премиум (используем кеш, не блокируем UI)
-        if self._is_premium_theme(clean):
-            is_available = self._premium_cache[0] if self._premium_cache else False
-            if not is_available:
-                theme_type = self._get_theme_type_name(clean)
-                QMessageBox.information(
-                    self.widget, f"{theme_type}",
-                    f"{theme_type} «{clean}» доступна только для подписчиков Zapret Premium."
-                )
-                self._start_async_premium_check()
-                return False, "need premium"
-
-        try:
-            info = THEMES[clean]
-            
-            # Сбрасываем фон если это НЕ РКН Тян
-            if clean != "РКН Тян":
-                target_widget.setAutoFillBackground(False)
-                target_widget.setProperty("hasCustomBackground", False)
-            
-            # Применяем базовую тему
-            qt_material.apply_stylesheet(self.app, theme=info["file"])
-            
-            # Собираем ВСЕ стили в одну строку для одного setStyleSheet
-            all_styles = [self.app.styleSheet()]
-            
-            if clean == "РКН Тян":
-                all_styles.append("""
-                    QWidget[hasCustomBackground="true"] { background: transparent !important; }
-                    QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
-                """)
-            
-            if self._is_pure_black_theme(clean):
-                all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
-            elif self._is_amoled_theme(clean):
-                all_styles.append(AMOLED_OVERRIDE_STYLE)
-            
-            # Один вызов setStyleSheet
-            self.app.setStyleSheet("\n".join(all_styles))
-
-            # Применяем цвета кнопок (только для старого интерфейса)
-            if self._is_pure_black_theme(clean):
-                self._apply_pure_black_button_colors()
-                self._apply_pure_black_label_colors()
-            else:
-                self._apply_normal_button_colors(info)
-                self._apply_normal_label_colors(info)
-
-            if persist:
-                set_selected_theme(clean)
-            self.current_theme = clean
-            
-            # Обновление заголовка (отложенно)
-            QTimer.singleShot(10, lambda: self._update_title_async(clean))
-            
-            # Фон РКН Тян
-            if clean == "РКН Тян":
-                QTimer.singleShot(50, self._apply_rkn_with_protection)
-            
-            return True, "ok"
-
-        except Exception as e:
-            log(f"Theme error: {e}", "❌ ERROR")
-            return False, str(e)
-
     def _apply_rkn_with_protection(self):
         """Применяет фон РКН Тян с защитой от перезаписи"""
         try:
@@ -853,13 +987,309 @@ class ThemeManager:
             else:
                 log("Фон РКН Тян успешно сохранён", "DEBUG")
         except Exception as e:
-            log(f"Ошибка при проверке фона РКН Тян: {e}", "❌ ERROR")
+            log(f"Ошибка проверки фона РКН Тян: {e}", "ERROR")
+
+    def _apply_rkn2_with_protection(self):
+        """Применяет фон РКН Тян 2 с защитой от перезаписи"""
+        try:
+            log("Применение фона РКН Тян 2 с защитой", "DEBUG")
+            success = self.apply_rkn2_background()
+            if success:
+                # Дополнительная защита - повторная проверка через 200мс
+                QTimer.singleShot(200, self._verify_rkn2_background)
+                log("Фон РКН Тян 2 успешно применён", "INFO")
+            else:
+                log("Не удалось применить фон РКН Тян 2", "WARNING")
+        except Exception as e:
+            log(f"Ошибка при применении фона РКН Тян 2: {e}", "❌ ERROR")
+
+    def _verify_rkn2_background(self):
+        """Проверяет что фон РКН Тян 2 всё ещё применён"""
+        try:
+            # Определяем правильный виджет
+            target_widget = self.widget
+            if hasattr(self.widget, 'main_widget'):
+                target_widget = self.widget.main_widget
+            
+            if not target_widget.autoFillBackground() or not target_widget.property("hasCustomBackground"):
+                log("Фон РКН Тян 2 был сброшен, восстанавливаем", "WARNING")
+                self.apply_rkn2_background()
+            else:
+                log("Фон РКН Тян 2 успешно сохранён", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка проверки фона РКН Тян 2: {e}", "ERROR")
+
+    def apply_theme_async(self, theme_name: str | None = None, *, persist: bool = True, 
+                          progress_callback=None, done_callback=None) -> None:
+        """
+        Асинхронно применяет тему (не блокирует UI).
+        CSS генерируется в фоновом потоке, применяется в главном.
+        
+        Args:
+            theme_name: Имя темы (если None, используется текущая)
+            persist: Сохранять ли выбор в реестр
+            progress_callback: Функция для обновления прогресса (str)
+            done_callback: Функция вызываемая после завершения (bool success, str message)
+        """
+        if theme_name is None:
+            theme_name = self.current_theme
+            
+        clean = self.get_clean_theme_name(theme_name)
+        
+        # Защита от множественных одновременных вызовов для одной и той же темы
+        if self._theme_build_thread and self._theme_build_thread.isRunning():
+            if hasattr(self, '_pending_theme_data') and self._pending_theme_data:
+                pending_theme = self._pending_theme_data.get('theme_name')
+                if pending_theme == clean:
+                    log(f"⏭️ Тема '{clean}' уже применяется, игнорируем повторный вызов", "DEBUG")
+                    return
+        
+        # Проверка премиум (используем кеш, не блокируем UI)
+        if self._is_premium_theme(clean):
+            is_available = self._premium_cache[0] if self._premium_cache else False
+            if not is_available:
+                theme_type = self._get_theme_type_name(clean)
+                QMessageBox.information(
+                    self.widget, f"{theme_type}",
+                    f"{theme_type} «{clean}» доступна только для подписчиков Zapret Premium."
+                )
+                self._start_async_premium_check()
+                if done_callback:
+                    done_callback(False, "need premium")
+                return
+        
+        try:
+            info = THEMES[clean]
+            
+            # Пути к кешу
+            cache_dir = os.path.join(self.theme_folder or "themes", "cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_file = os.path.join(cache_dir, f"{info['file'].replace('.xml', '')}.css")
+            
+            # ВСЯ работа делается в фоновом потоке (включая чтение кеша!)
+            log(f"🎨 Запуск асинхронной подготовки CSS для темы: {clean}", "DEBUG")
+            
+            if progress_callback:
+                progress_callback("Подготовка темы...")
+            
+            # Сохраняем данные для применения после генерации
+            self._pending_theme_data = {
+                'theme_name': clean,
+                'persist': persist,
+                'done_callback': done_callback,
+                'progress_callback': progress_callback
+            }
+            
+            # Останавливаем предыдущий поток если есть
+            if self._theme_build_thread is not None:
+                try:
+                    if self._theme_build_thread.isRunning():
+                        log("⏸️ Останавливаем предыдущий поток генерации CSS...", "DEBUG")
+                        # Отключаем сигналы чтобы избежать конфликтов
+                        if self._theme_build_worker:
+                            try:
+                                self._theme_build_worker.finished.disconnect()
+                                self._theme_build_worker.error.disconnect()
+                            except:
+                                pass
+                        self._theme_build_thread.quit()
+                        if not self._theme_build_thread.wait(1000):  # Увеличил таймаут
+                            log("⚠️ Поток не остановился за 1 секунду, принудительно завершаем", "WARNING")
+                            self._theme_build_thread.terminate()
+                        self._theme_build_thread.wait(500)
+                except RuntimeError as e:
+                    log(f"RuntimeError при остановке потока: {e}", "DEBUG")
+                except Exception as e:
+                    log(f"Ошибка остановки потока: {e}", "DEBUG")
+                finally:
+                    self._theme_build_thread = None
+                    self._theme_build_worker = None
+            
+            # Создаём воркер с полными параметрами темы
+            self._theme_build_thread = QThread()
+            self._theme_build_worker = ThemeBuildWorker(
+                theme_file=info["file"],
+                theme_name=clean,
+                cache_file=cache_file,
+                is_amoled=self._is_amoled_theme(clean),
+                is_pure_black=self._is_pure_black_theme(clean),
+                is_rkn_tyan=(clean == "РКН Тян"),
+                is_rkn_tyan_2=(clean == "РКН Тян 2")
+            )
+            self._theme_build_worker.moveToThread(self._theme_build_thread)
+            
+            # Подключаем сигналы
+            self._theme_build_thread.started.connect(self._theme_build_worker.run)
+            self._theme_build_worker.finished.connect(self._on_theme_css_ready)
+            self._theme_build_worker.error.connect(self._on_theme_build_error)
+            if progress_callback:
+                self._theme_build_worker.progress.connect(progress_callback)
+            
+            # Очистка после завершения
+            self._theme_build_worker.finished.connect(self._theme_build_thread.quit)
+            self._theme_build_thread.finished.connect(self._cleanup_theme_build_thread)
+            
+            # Запускаем
+            self._theme_build_thread.start()
+            
+        except Exception as e:
+            log(f"Ошибка запуска асинхронного применения темы: {e}", "❌ ERROR")
+            if done_callback:
+                done_callback(False, str(e))
+    
+    def _on_theme_css_ready(self, final_css: str, theme_name: str):
+        """Обработчик готовности CSS (вызывается из главного потока).
+        
+        CSS уже полностью подготовлен в фоне - здесь только setStyleSheet()!
+        """
+        try:
+            if not self._pending_theme_data:
+                log("⚠ CSS готов, но pending_theme_data отсутствует", "WARNING")
+                return
+            
+            data = self._pending_theme_data
+            self._pending_theme_data = None
+            
+            persist = data['persist']
+            done_callback = data.get('done_callback')
+            progress_callback = data.get('progress_callback')
+            
+            if progress_callback:
+                progress_callback("Применяем тему...")
+            
+            log(f"🎨 CSS готов ({len(final_css)} символов), применяем: {theme_name}", "DEBUG")
+            
+            # Применяем готовый CSS - это ЕДИНСТВЕННАЯ синхронная операция!
+            self._apply_css_only(final_css, theme_name, persist)
+            
+            if done_callback:
+                try:
+                    done_callback(True, "ok")
+                except Exception as cb_error:
+                    log(f"Ошибка в done_callback: {cb_error}", "WARNING")
+                
+        except Exception as e:
+            log(f"Ошибка применения готового CSS: {e}", "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            
+            # Безопасно вызываем callback
+            if done_callback:
+                try:
+                    done_callback(False, str(e))
+                except Exception as cb_error:
+                    log(f"Ошибка в error callback: {cb_error}", "WARNING")
+    
+    def _on_theme_build_error(self, error: str):
+        """Обработчик ошибки генерации CSS"""
+        log(f"❌ Ошибка генерации CSS темы: {error}", "ERROR")
+        
+        if self._pending_theme_data:
+            done_callback = self._pending_theme_data.get('done_callback')
+            self._pending_theme_data = None
+            if done_callback:
+                done_callback(False, error)
+    
+    def _cleanup_theme_build_thread(self):
+        """Очистка потока генерации CSS"""
+        try:
+            if self._theme_build_worker:
+                self._theme_build_worker.deleteLater()
+                self._theme_build_worker = None
+            if self._theme_build_thread:
+                self._theme_build_thread.deleteLater()
+                self._theme_build_thread = None
+        except RuntimeError:
+            self._theme_build_worker = None
+            self._theme_build_thread = None
+    
+    def _apply_css_only(self, final_css: str, theme_name: str, persist: bool):
+        """Применяет готовый CSS - ЕДИНСТВЕННАЯ синхронная операция.
+        
+        CSS уже полностью собран в фоновом потоке.
+        Здесь только setStyleSheet() и пост-обработка.
+        """
+        import time as _time
+        
+        try:
+            # Проверяем что виджеты ещё существуют
+            if not self.widget or not self.app:
+                log("⚠️ Виджет или приложение удалены, пропускаем применение темы", "WARNING")
+                return
+            
+            clean = theme_name
+            
+            # Проверяем хеш CSS - не применяем если не изменился
+            css_hash = hash(final_css)
+            if self._current_css_hash == css_hash and self.current_theme == clean:
+                log(f"⏭ CSS не изменился, пропускаем setStyleSheet", "DEBUG")
+                return
+            
+            # Определяем правильный виджет для сброса фона
+            target_widget = self.widget
+            if hasattr(self.widget, 'main_widget') and self.widget.main_widget:
+                target_widget = self.widget.main_widget
+            
+            # Сбрасываем фон если это НЕ РКН Тян и НЕ РКН Тян 2
+            if clean not in ("РКН Тян", "РКН Тян 2"):
+                target_widget.setAutoFillBackground(False)
+                target_widget.setProperty("hasCustomBackground", False)
+            
+            # Оптимизация: отключаем обновления виджетов во время применения стилей
+            main_window = self.widget
+            was_updates_enabled = main_window.updatesEnabled()
+            main_window.setUpdatesEnabled(False)
+            
+            try:
+                # Применяем готовый CSS (единственная тяжёлая операция)
+                _t = _time.perf_counter()
+                self.app.setStyleSheet(final_css)
+                elapsed_ms = (_time.perf_counter()-_t)*1000
+                log(f"  setStyleSheet took {elapsed_ms:.0f}ms", "DEBUG")
+            finally:
+                main_window.setUpdatesEnabled(was_updates_enabled)
+            
+            # Сохраняем хеш примененного CSS
+            self._current_css_hash = css_hash
+            self._theme_applied = True
+            
+            if persist:
+                result = set_selected_theme(clean)
+                log(f"💾 Тема сохранена в реестр: '{clean}' -> {result}", "DEBUG")
+            else:
+                log(f"⏭️ Тема НЕ сохранена в реестр (persist=False): '{clean}'", "DEBUG")
+            self.current_theme = clean
+            
+            # Обновление заголовка (отложенно) - используем слабую ссылку
+            try:
+                import weakref
+                weak_self = weakref.ref(self)
+                QTimer.singleShot(10, lambda: weak_self() and weak_self()._update_title_async(clean))
+            except Exception as e:
+                log(f"Ошибка отложенного обновления заголовка: {e}", "DEBUG")
+            
+            # Фон РКН Тян / РКН Тян 2 - используем слабую ссылку
+            if clean == "РКН Тян":
+                try:
+                    import weakref
+                    weak_self = weakref.ref(self)
+                    QTimer.singleShot(50, lambda: weak_self() and weak_self()._apply_rkn_with_protection())
+                except Exception as e:
+                    log(f"Ошибка отложенного применения фона РКН Тян: {e}", "DEBUG")
+            elif clean == "РКН Тян 2":
+                try:
+                    import weakref
+                    weak_self = weakref.ref(self)
+                    QTimer.singleShot(50, lambda: weak_self() and weak_self()._apply_rkn2_with_protection())
+                except Exception as e:
+                    log(f"Ошибка отложенного применения фона РКН Тян 2: {e}", "DEBUG")
+                
+        except Exception as e:
+            log(f"Ошибка в _apply_css_only: {e}", "❌ ERROR")
 
     def apply_rkn_background(self):
         """Применяет фоновое изображение для темы РКН Тян"""
         try:
-            import requests
-            
             # ✅ ИСПРАВЛЕНИЕ: Определяем правильный виджет для применения фона
             target_widget = self.widget
             
@@ -870,26 +1300,11 @@ class ThemeManager:
             else:
                 log("Применяем фон РКН Тян к основному виджету", "DEBUG")
             
-            temp_dir = os.path.join(self.theme_folder, "rkn_tyan")
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            img_path = os.path.join(temp_dir, "rkn_background.jpg")
+            img_path = os.path.join(self.theme_folder or THEME_FOLDER, "rkn_tyan", "rkn_background.jpg")
             
             if not os.path.exists(img_path):
-                try:
-                    self._set_status("Загрузка фонового изображения...")
-                    img_url = "https://github.com/youtubediscord/src/releases/download/files/rkn_background.jpg"
-                    
-                    response = requests.get(img_url, stream=True, timeout=10)
-                    if response.status_code == 200:
-                        with open(img_path, 'wb') as f:
-                            for chunk in response.iter_content(1024):
-                                f.write(chunk)
-                        self._set_status("Фоновое изображение загружено")
-                        log("Фоновое изображение РКН Тян загружено", "INFO")
-                except Exception as e:
-                    log(f"Ошибка при загрузке фона: {str(e)}", "❌ ERROR")
-                    self._set_status("Ошибка загрузки фона")
+                log(f"Фон РКН Тян не найден по пути: {img_path}", "WARNING")
+                return False
 
             if os.path.exists(img_path):
                 pixmap = QPixmap(img_path)
@@ -926,6 +1341,60 @@ class ThemeManager:
         
         return False
 
+    def apply_rkn2_background(self):
+        """Применяет фоновое изображение для темы РКН Тян 2"""
+        try:
+            # Определяем правильный виджет для применения фона
+            target_widget = self.widget
+            
+            # Если widget имеет main_widget, применяем к нему
+            if hasattr(self.widget, 'main_widget'):
+                target_widget = self.widget.main_widget
+                log("Применяем фон РКН Тян 2 к main_widget", "DEBUG")
+            else:
+                log("Применяем фон РКН Тян 2 к основному виджету", "DEBUG")
+            
+            img_path = os.path.join(self.theme_folder or THEME_FOLDER, "rkn_tyan_2", "rkn_background_2.jpg")
+            
+            if not os.path.exists(img_path):
+                log(f"Фон РКН Тян 2 не найден по пути: {img_path}", "WARNING")
+                return False
+
+            if os.path.exists(img_path):
+                pixmap = QPixmap(img_path)
+                if not pixmap.isNull():
+                    # Помечаем виджет
+                    target_widget.setProperty("hasCustomBackground", True)
+                    
+                    # Устанавливаем палитру для target_widget
+                    palette = target_widget.palette()
+                    brush = QBrush(pixmap.scaled(
+                        target_widget.size(),
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation
+                    ))
+                    palette.setBrush(QPalette.ColorRole.Window, brush)
+                    target_widget.setPalette(palette)
+                    target_widget.setAutoFillBackground(True)
+                    
+                    # Защитный стиль
+                    widget_style = """
+                    QWidget {
+                        background: transparent !important;
+                    }
+                    """
+                    existing_style = target_widget.styleSheet()
+                    if "background: transparent" not in existing_style:
+                        target_widget.setStyleSheet(existing_style + widget_style)
+                    
+                    log(f"Фон РКН Тян 2 успешно установлен на {target_widget.__class__.__name__}", "INFO")
+                    return True
+                    
+        except Exception as e:
+            log(f"Ошибка при применении фона РКН Тян 2: {str(e)}", "❌ ERROR")
+        
+        return False
+
     def _update_title_async(self, current_theme):
         """Асинхронно обновляет заголовок окна"""
         try:
@@ -943,218 +1412,16 @@ class ThemeManager:
         except Exception as e:
             log(f"Ошибка обновления заголовка: {e}", "❌ ERROR")
 
-    def _apply_pure_black_button_colors(self):
-        """Применяет цвета кнопок для полностью черной темы с градиентами Windows 11"""
-        try:
-            # ✅ НОВЫЙ ИНТЕРФЕЙС: Кнопки сами управляют своими стилями
-            if hasattr(self.widget, 'side_nav'):
-                log("Новый интерфейс обнаружен, пропускаем pure black стили кнопок", "DEBUG")
-                return
-            
-            # Для полностью черной темы - элегантные серые градиенты
-            pure_black_button_color = "48, 48, 48"  # Мягкий темно-серый
-            pure_black_special_color = "72, 72, 72"  # Чуть светлее для accent кнопок
-            
-            # Стиль для обычных кнопок в черной теме с градиентом
-            pure_black_button_style = f"""
-            QPushButton {{
-                border: 1px solid rgba(80, 80, 80, 0.5);
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(56, 56, 56),
-                    stop:0.4 rgb(48, 48, 48),
-                    stop:1 rgb(38, 38, 38)
-                );
-                color: #ffffff;
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-weight: 600;
-                font-size: 9pt;
-                min-height: 28px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(72, 72, 72),
-                    stop:1 rgb(56, 56, 56)
-                );
-                border: 1px solid rgba(100, 100, 100, 0.6);
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(28, 28, 28),
-                    stop:1 rgb(20, 20, 20)
-                );
-            }}
-            """
-            
-            # Стиль для accent кнопок (start, stop и т.д.) с градиентом
-            pure_black_accent_style = f"""
-            QPushButton {{
-                border: 1px solid rgba(100, 100, 100, 0.4);
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(80, 80, 80),
-                    stop:0.4 rgb(72, 72, 72),
-                    stop:1 rgb(58, 58, 58)
-                );
-                color: #ffffff;
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-weight: 600;
-                font-size: 9pt;
-                min-height: 28px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(100, 100, 100),
-                    stop:1 rgb(80, 80, 80)
-                );
-                border: 1px solid rgba(120, 120, 120, 0.5);
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgb(40, 40, 40),
-                    stop:1 rgb(28, 28, 28)
-                );
-            }}
-            """
-
-            # Применяем стили ко всем кнопкам
-            buttons_to_style = []
-            
-            # Обычные кнопки (themed_buttons)
-            if hasattr(self.widget, "themed_buttons"):
-                for btn in self.widget.themed_buttons:
-                    btn.setStyleSheet(pure_black_button_style)
-                    btn._bgcolor = pure_black_button_color
-                    buttons_to_style.append(("themed", btn))
-
-            # Специальные кнопки с accent цветом
-            special_buttons = [
-                'start_btn', 'stop_btn', 'autostart_enable_btn', 'autostart_disable_btn',
-                'subscription_btn', 'proxy_button', 'server_status_btn'
-            ]
-            
-            for btn_name in special_buttons:
-                if hasattr(self.widget, btn_name):
-                    btn = getattr(self.widget, btn_name)
-                    btn.setStyleSheet(pure_black_accent_style)
-                    btn._bgcolor = pure_black_special_color
-                    buttons_to_style.append(("special", btn))
-
-            log(f"Применены цвета полностью черной темы к {len(buttons_to_style)} кнопкам", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при применении цветов полностью черной темы: {e}", "❌ ERROR")
-
-    def _apply_normal_button_colors(self, theme_info):
-        """Применяет обычные цвета кнопок для всех тем кроме полностью черной"""
-        try:
-            # ✅ НОВЫЙ ИНТЕРФЕЙС: Кнопки сами управляют своими стилями
-            # НЕ применяем цветные стили к кнопкам в новом Windows 11 интерфейсе
-            # Проверяем наличие нового интерфейса
-            if hasattr(self.widget, 'side_nav'):
-                log("Новый интерфейс обнаружен, пропускаем старые цвета кнопок", "DEBUG")
-                return
-            
-            # Обычные themed кнопки (только для старого интерфейса)
-            if hasattr(self.widget, "themed_buttons"):
-                btn_color = theme_info.get("button_color", "0, 119, 255")
-                for btn in self.widget.themed_buttons:
-                    if self._is_pure_black_theme(self.current_theme):
-                        special_style = self._get_pure_black_button_style(btn_color)
-                        btn.setStyleSheet(special_style)
-                    else:
-                        btn.setStyleSheet(BUTTON_STYLE.format(btn_color))
-                    btn._bgcolor = btn_color
-
-            # Обновляем состояние proxy кнопки
-            if hasattr(self.widget, 'update_proxy_button_state'):
-                self.widget.update_proxy_button_state()
-                
-        except Exception as e:
-            log(f"Ошибка при применении обычных цветов кнопок: {e}", "❌ ERROR")
-
-    def _apply_pure_black_label_colors(self):
-        """Применяет белые цвета для текстовых меток в полностью черной теме"""
-        try:
-            white_color = "#ffffff"
-            
-            if hasattr(self.widget, "themed_labels"):
-                for lbl in self.widget.themed_labels:
-                    current_style = lbl.styleSheet()
-                    new_style = self._update_color_in_style(current_style, white_color)
-                    lbl.setStyleSheet(new_style)
-                    
-            log(f"Применены белые цвета к {len(getattr(self.widget, 'themed_labels', []))} меткам", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка при применении белых цветов меток: {e}", "❌ ERROR")
-
-    def _apply_normal_label_colors(self, theme_info):
-        """Применяет обычные цвета для текстовых меток"""
-        try:
-            if hasattr(self.widget, "themed_labels"):
-                lbl_color = theme_info.get("button_color", "0, 119, 255")
-                if "," in lbl_color:
-                    r, g, b = [int(x) for x in lbl_color.split(",")]
-                    lbl_color = f"#{r:02x}{g:02x}{b:02x}"
-                for lbl in self.widget.themed_labels:
-                    cur = lbl.styleSheet()
-                    lbl.setStyleSheet(self._update_color_in_style(cur, lbl_color))
-                    
-        except Exception as e:
-            log(f"Ошибка при применении обычных цветов меток: {e}", "❌ ERROR")
-
     def _get_theme_type_name(self, theme_name: str) -> str:
         """Возвращает красивое название типа темы"""
         if theme_name.startswith("AMOLED"):
             return "AMOLED тема"
         elif theme_name == "Полностью черная":
             return "Pure Black тема"
-        elif theme_name == "РКН Тян":
+        elif theme_name in ("РКН Тян", "РКН Тян 2"):
             return "Премиум-тема"
         else:
             return "Премиум-тема"
-
-    def _get_pure_black_button_style(self, color: str) -> str:
-        """Возвращает специальный стиль кнопок с градиентом для полностью черной темы"""
-        return f"""
-        QPushButton {{
-            border: 1px solid rgba(80, 80, 80, 0.5);
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 rgb(56, 56, 56),
-                stop:0.4 rgb(48, 48, 48),
-                stop:1 rgb(38, 38, 38)
-            );
-            color: #ffffff;
-            border-radius: 8px;
-            padding: 6px 12px;
-            font-weight: 600;
-            font-size: 9pt;
-            min-height: 28px;
-        }}
-        QPushButton:hover {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 rgb(72, 72, 72),
-                stop:1 rgb(56, 56, 56)
-            );
-            border: 1px solid rgba(100, 100, 100, 0.6);
-        }}
-        QPushButton:pressed {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 rgb(28, 28, 28),
-                stop:1 rgb(20, 20, 20)
-            );
-        }}
-        """
 
     def _apply_pure_black_enhancements_inline(self):
         """Возвращает CSS для улучшений полностью черной темы (для inline применения)"""
@@ -1280,6 +1547,13 @@ class ThemeHandler:
                 log(f"Фон РКН Тян применен через theme_manager", "INFO")
             else:
                 log("theme_manager не доступен для применения фона РКН Тян", "WARNING")
+        elif theme_name == "РКН Тян 2":
+            # Применяем фон РКН Тян 2
+            if self.theme_manager and hasattr(self.theme_manager, 'apply_rkn2_background'):
+                self.theme_manager.apply_rkn2_background()
+                log(f"Фон РКН Тян 2 применен через theme_manager", "INFO")
+            else:
+                log("theme_manager не доступен для применения фона РКН Тян 2", "WARNING")
 
     def update_subscription_status_in_title(self):
         """Обновляет статус подписки в title_label"""
@@ -1326,7 +1600,7 @@ class ThemeHandler:
                 pass  # Игнорируем вторичные ошибки
     
     def change_theme(self, theme_name):
-        """Обработчик изменения темы (быстрая версия)"""
+        """Обработчик изменения темы (асинхронная версия - не блокирует UI)"""
         try:
             if not self.theme_manager:
                 self.theme_manager = getattr(self.app_window, 'theme_manager', None)
@@ -1335,31 +1609,54 @@ class ThemeHandler:
             
             clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
             
-            # Применяем тему
-            success, message = self.theme_manager.apply_theme(clean_theme_name)
+            # Показываем статус
+            if hasattr(self.app_window, 'set_status'):
+                self.app_window.set_status("🎨 Применяем тему...")
             
+            # Применяем тему АСИНХРОННО (не блокирует UI!)
+            self.theme_manager.apply_theme_async(
+                clean_theme_name,
+                persist=True,
+                progress_callback=self._on_theme_progress,
+                done_callback=lambda success, msg: self._on_theme_change_done(success, msg, theme_name)
+            )
+                
+        except Exception as e:
+            log(f"Ошибка смены темы: {e}", "ERROR")
+    
+    def _on_theme_progress(self, status: str):
+        """Обработчик прогресса смены темы"""
+        if hasattr(self.app_window, 'set_status'):
+            self.app_window.set_status(f"🎨 {status}")
+    
+    def _on_theme_change_done(self, success: bool, message: str, theme_name: str):
+        """Обработчик завершения смены темы"""
+        try:
             if not success:
-                # Возвращаем комбо на текущую тему
-                if hasattr(self.app_window, 'theme_combo'):
-                    self.app_window.theme_combo.blockSignals(True)
-                    for theme in self.theme_manager.get_available_themes():
-                        if self.theme_manager.get_clean_theme_name(theme) == self.theme_manager.current_theme:
-                            self.app_window.theme_combo.setCurrentText(theme)
-                            break
-                    self.app_window.theme_combo.blockSignals(False)
+                log(f"Ошибка смены темы: {message}", "WARNING")
+                # Возвращаем выбор на текущую тему в галерее
+                if hasattr(self.app_window, 'appearance_page') and self.theme_manager:
+                    self.app_window.appearance_page.set_current_theme(self.theme_manager.current_theme)
+                if hasattr(self.app_window, 'set_status'):
+                    self.app_window.set_status(f"⚠ {message}")
                 return
+            
+            # Успех - обновляем UI
+            if hasattr(self.app_window, 'set_status'):
+                self.app_window.set_status("✅ Тема применена")
             
             # Отложенное обновление UI
             QTimer.singleShot(100, lambda: self._post_theme_change_update(theme_name))
                 
         except Exception as e:
-            log(f"Ошибка смены темы: {e}", "ERROR")
+            log(f"Ошибка в _on_theme_change_done: {e}", "ERROR")
     
     def _post_theme_change_update(self, theme_name: str):
         """Выполняет все обновления UI после смены темы за один раз"""
         try:
-            # Обновляем стили комбо-бокса
-            self.update_theme_combo_styles()
+            # Обновляем выбранную тему в галерее
+            if hasattr(self.app_window, 'appearance_page'):
+                self.app_window.appearance_page.set_current_theme(theme_name)
             
             # Обновляем цвета кастомного titlebar
             self._update_titlebar_theme(theme_name)
@@ -1380,6 +1677,10 @@ class ThemeHandler:
             
             clean_name = self.theme_manager.get_clean_theme_name(theme_name) if self.theme_manager else theme_name
             
+            # Получаем цвет фона из конфигурации темы
+            theme_bg = get_theme_bg_color(clean_name)
+            theme_content_bg = get_theme_content_bg_color(clean_name)
+            
             # Определяем цвета в зависимости от темы (без прозрачности для совместимости с Windows 10)
             is_light = "Светлая" in clean_name
             is_amoled = "AMOLED" in clean_name or clean_name == "Полностью черная"
@@ -1395,25 +1696,33 @@ class ThemeHandler:
                 hover_bg = "#222222"
                 menu_dropdown_bg = "rgba(10, 10, 10, 250)"
             elif is_light:
-                # Светлые темы (полупрозрачные)
-                bg_color = "rgba(230, 230, 230, 240)"
+                # Светлые темы - используем цвет из конфига
+                bg_color = f"rgba({theme_bg}, 240)"
                 text_color = "#000000"
-                container_bg = "rgba(245, 245, 245, 235)"
+                container_bg = f"rgba({theme_content_bg}, 235)"
                 border_color = "rgba(200, 200, 200, 220)"
-                menubar_bg = "rgba(235, 235, 235, 240)"
+                menubar_bg = f"rgba({theme_bg}, 240)"
                 menu_text = "#000000"
                 hover_bg = "#d0d0d0"
-                menu_dropdown_bg = "rgba(245, 245, 245, 250)"
+                menu_dropdown_bg = f"rgba({theme_content_bg}, 250)"
             else:
-                # Темные темы (по умолчанию) - полупрозрачные
-                bg_color = "rgba(26, 26, 26, 240)"
+                # Темные темы - используем цвет фона из конфига темы
+                bg_color = f"rgba({theme_bg}, 240)"
                 text_color = "#ffffff"
-                container_bg = "rgba(30, 30, 30, 240)"
+                container_bg = f"rgba({theme_bg}, 245)"
                 border_color = "rgba(80, 80, 80, 200)"
-                menubar_bg = "rgba(20, 20, 20, 240)"
+                menubar_bg = f"rgba({theme_bg}, 240)"
                 menu_text = "#ffffff"
-                hover_bg = "#333333"
-                menu_dropdown_bg = "rgba(37, 37, 37, 250)"
+                # Рассчитываем hover_bg как более светлый оттенок
+                try:
+                    r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
+                    hover_r = min(255, r + 20)
+                    hover_g = min(255, g + 20)
+                    hover_b = min(255, b + 20)
+                    hover_bg = f"rgb({hover_r}, {hover_g}, {hover_b})"
+                except:
+                    hover_bg = "#333333"
+                menu_dropdown_bg = f"rgba({theme_content_bg}, 250)"
             
             # Обновляем titlebar
             self.app_window.title_bar.set_theme_colors(bg_color, text_color)
@@ -1424,6 +1733,38 @@ class ThemeHandler:
                     background-color: {container_bg};
                     border-radius: 10px;
                     border: 1px solid {border_color};
+                }}
+            """)
+            
+            # Обновляем область контента (если есть)
+            if hasattr(self.app_window, 'main_widget'):
+                content_area = self.app_window.main_widget.findChild(QWidget, "contentArea")
+                if content_area:
+                    content_area.setStyleSheet(f"""
+                        QWidget#contentArea {{
+                            background-color: rgba({theme_content_bg}, 0.75);
+                            border-top-right-radius: 10px;
+                            border-bottom-right-radius: 10px;
+                        }}
+                    """)
+                
+                # Обновляем боковую панель (sidebar)
+                side_nav = self.app_window.main_widget.findChild(QWidget, "sideNavBar")
+                if side_nav:
+                    # Делаем фон чуть темнее основного
+                    try:
+                        r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
+                        sidebar_r = max(0, r - 4)
+                        sidebar_g = max(0, g - 4)
+                        sidebar_b = max(0, b - 4)
+                        sidebar_bg = f"{sidebar_r}, {sidebar_g}, {sidebar_b}"
+                    except:
+                        sidebar_bg = theme_bg
+                    
+                    side_nav.setStyleSheet(f"""
+                        QWidget#sideNavBar {{
+                            background-color: rgba({sidebar_bg}, 0.85);
+                            border-right: 1px solid rgba(255, 255, 255, 0.06);
                 }}
             """)
             
@@ -1482,13 +1823,13 @@ class ThemeHandler:
         except Exception as e:
             log(f"Ошибка обновления titlebar: {e}", "DEBUG")
 
-    def update_theme_combo_styles(self):
-        """Применяет стили к комбо-боксу тем для выделения заблокированных элементов"""
-        if not hasattr(self.app_window, 'theme_combo'):
-            log("theme_combo не найден в app_window", "DEBUG")
+    def update_theme_gallery(self):
+        """Обновляет галерею тем на странице оформления"""
+        if not hasattr(self.app_window, 'appearance_page'):
+            log("appearance_page не найден в app_window", "DEBUG")
             return
         
-        # ✅ ИСПРАВЛЕНИЕ: проверяем theme_manager правильно
+        # Проверяем theme_manager
         if not self.theme_manager:
             if hasattr(self.app_window, 'theme_manager'):
                 self.theme_manager = self.app_window.theme_manager
@@ -1496,198 +1837,22 @@ class ThemeHandler:
                 log("theme_manager не доступен", "DEBUG")
                 return
         
-        # Проверяем, используется ли полностью черная тема
-        is_pure_black = False
-        if hasattr(self.theme_manager, '_is_pure_black_theme'):
-            current_theme = getattr(self.theme_manager, 'current_theme', '')
-            is_pure_black = self.theme_manager._is_pure_black_theme(current_theme)
-            
-        if is_pure_black:
-            # Стили для полностью черной темы
-            style = f"""
-            QComboBox {{
-                {COMMON_STYLE}
-                text-align: center;
-                font-size: 10pt;
-                padding: 5px;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                background-color: #000000;
-                color: #ffffff;
-            }}
-            
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-                background-color: #000000;
-            }}
-            
-            QComboBox::down-arrow {{
-                width: 12px;
-                height: 12px;
-            }}
-            
-            QComboBox QAbstractItemView {{
-                selection-background-color: #333333;
-                selection-color: white;
-                border: 1px solid #333333;
-                background-color: #000000;
-                color: #ffffff;
-            }}
-            
-            QComboBox QAbstractItemView::item {{
-                padding: 8px;
-                border-bottom: 1px solid #333333;
-                color: #ffffff;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("заблокировано") {{
-                color: #888888;
-                background-color: #1a1a1a;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("AMOLED Premium") {{
-                color: #bb86fc;
-                background-color: #1a1a1a;
-                font-weight: bold;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("Pure Black Premium") {{
-                color: #ffffff;
-                background-color: #1a1a1a;
-                font-weight: bold;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("Полностью черная") {{
-                color: #ffffff;
-                font-weight: bold;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("заблокировано"):hover,
-            QComboBox QAbstractItemView::item:contains("AMOLED Premium"):hover,
-            QComboBox QAbstractItemView::item:contains("Pure Black Premium"):hover {{
-                background-color: #333333;
-                color: #ffffff;
-            }}
-            """
-        else:
-            # Обычные стили для других тем
-            style = f"""
-            QComboBox {{
-                {COMMON_STYLE}
-                text-align: center;
-                font-size: 10pt;
-                padding: 5px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }}
-            
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            
-            QComboBox::down-arrow {{
-                width: 12px;
-                height: 12px;
-            }}
-            
-            QComboBox QAbstractItemView {{
-                selection-background-color: #007ACC;
-                selection-color: white;
-                border: 1px solid #ccc;
-            }}
-            
-            QComboBox QAbstractItemView::item {{
-                padding: 8px;
-                border-bottom: 1px solid #eee;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("заблокировано") {{
-                color: #888888;
-                background-color: #f5f5f5;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("AMOLED Premium") {{
-                color: #6a4c93;
-                background-color: #f0f0f8;
-                font-weight: bold;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("Pure Black Premium") {{
-                color: #2c2c2c;
-                background-color: #f8f8f8;
-                font-weight: bold;
-                font-style: italic;
-            }}
-            
-            QComboBox QAbstractItemView::item:contains("заблокировано"):hover,
-            QComboBox QAbstractItemView::item:contains("AMOLED Premium"):hover,
-            QComboBox QAbstractItemView::item:contains("Pure Black Premium"):hover {{
-                background-color: #e8e8e8;
-                color: #666666;
-            }}
-            """
-        
         try:
-            self.app_window.theme_combo.setStyleSheet(style)
-            log("Стили комбо-бокса тем применены", "DEBUG")
+            # Обновляем премиум статус
+            is_premium = False
+            if self.theme_manager._premium_cache:
+                is_premium = self.theme_manager._premium_cache[0]
+            
+            self.app_window.appearance_page.set_premium_status(is_premium)
+            
+            # Обновляем текущую тему
+            current_theme = self.theme_manager.current_theme
+            self.app_window.appearance_page.set_current_theme(current_theme)
+            
+            log("Галерея тем обновлена", "DEBUG")
         except Exception as e:
-            log(f"Ошибка применения стилей комбо-бокса: {e}", "❌ ERROR")
+            log(f"Ошибка обновления галереи тем: {e}", "❌ ERROR")
 
     def update_available_themes(self):
-        """Обновляет список доступных тем в комбо-боксе"""
-        if not hasattr(self.app_window, 'theme_combo'):
-            return
-        
-        # ✅ ИСПРАВЛЕНИЕ: проверяем theme_manager правильно    
-        if not self.theme_manager:
-            if hasattr(self.app_window, 'theme_manager'):
-                self.theme_manager = self.app_window.theme_manager
-            else:
-                log("theme_manager не доступен для update_available_themes", "DEBUG")
-                return
-            
-        try:
-            available_themes = self.theme_manager.get_available_themes()
-            current_theme = self.app_window.theme_combo.currentText()
-            
-            # Временно отключаем сигналы
-            self.app_window.theme_combo.blockSignals(True)
-            
-            # Обновляем список
-            self.app_window.theme_combo.clear()
-            self.app_window.theme_combo.addItems(available_themes)
-            
-            # Восстанавливаем выбор
-            clean_current = self.theme_manager.get_clean_theme_name(current_theme)
-            for theme in available_themes:
-                clean_theme = self.theme_manager.get_clean_theme_name(theme)
-                if clean_theme == clean_current:
-                    self.app_window.theme_combo.setCurrentText(theme)
-                    break
-            else:
-                # Если текущая тема недоступна, выбираем первую доступную
-                if available_themes:
-                    for theme in available_themes:
-                        if "(заблокировано)" not in theme and "(Premium)" not in theme:
-                            self.app_window.theme_combo.setCurrentText(theme)
-                            break
-                    else:
-                        self.app_window.theme_combo.setCurrentText(available_themes[0])
-            
-            # Включаем сигналы обратно
-            self.app_window.theme_combo.blockSignals(False)
-            
-            # Применяем стили
-            self.update_theme_combo_styles()
-            
-            log("Список доступных тем обновлен", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка обновления списка тем: {e}", "❌ ERROR")
+        """Обновляет галерею тем (для совместимости)"""
+        self.update_theme_gallery()

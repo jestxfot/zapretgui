@@ -244,12 +244,75 @@ def apply_wssize_parameter(args: list) -> list:
     return new_args
 
 
+def ensure_list_files_exist(args: list, lists_dir: str) -> list:
+    """
+    Проверяет и создаёт недостающие файлы hostlist/ipset
+    
+    Если файл не существует - создаёт пустой файл с комментарием,
+    чтобы winws мог запуститься.
+    
+    Args:
+        args: Список аргументов командной строки
+        lists_dir: Путь к директории со списками
+        
+    Returns:
+        Исходный список аргументов (без изменений)
+    """
+    # Префиксы аргументов с путями к файлам
+    file_prefixes = [
+        "--hostlist=",
+        "--hostlist-exclude=",
+        "--ipset=",
+        "--ipset-exclude=",
+    ]
+    
+    created_files = []
+    
+    for arg in args:
+        for prefix in file_prefixes:
+            if arg.startswith(prefix):
+                file_path = arg[len(prefix):]
+                
+                # Убираем @ в начале если есть (формат @filepath)
+                if file_path.startswith("@"):
+                    file_path = file_path[1:]
+                
+                # Если путь относительный - добавляем lists_dir
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(lists_dir, file_path)
+                
+                # Проверяем существование файла
+                if not os.path.exists(file_path):
+                    try:
+                        # Создаём директорию если её нет
+                        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                        
+                        # Создаём пустой файл с комментарием
+                        file_type = "hostlist" if "hostlist" in prefix else "ipset"
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(f"# {file_type} file - add domains/IPs here (one per line)\n")
+                            f.write("# Добавьте домены или IP адреса, по одному на строку\n")
+                        
+                        created_files.append(os.path.basename(file_path))
+                        log(f"✅ Создан файл списка: {file_path}", "INFO")
+                    except Exception as e:
+                        log(f"⚠️ Не удалось создать файл {file_path}: {e}", "WARNING")
+                
+                break  # Файл обработан, переходим к следующему аргументу
+    
+    if created_files:
+        log(f"✅ Созданы недостающие файлы списков: {', '.join(created_files)}", "SUCCESS")
+    
+    return args
+
+
 def apply_all_filters(args: list, lists_dir: str) -> list:
     """
     Применяет все фильтры в правильном порядке
     
     ПОРЯДОК ВАЖЕН:
-    1. Сначала удаляем hostlist (если включено "ко всем сайтам")
+    0. Сначала создаём недостающие файлы hostlist/ipset
+    1. Затем удаляем hostlist (если включено "ко всем сайтам")
     2. Затем удаляем ipset (если включено "ко всем IP-адресам")
     3. Затем заменяем other.txt на allzone.txt (если включено)
     4. Затем применяем Game Filter (расширение портов)
@@ -262,6 +325,9 @@ def apply_all_filters(args: list, lists_dir: str) -> list:
     Returns:
         Полностью обработанный список аргументов
     """
+    # 0. Создаём недостающие файлы списков (ПЕРВЫМ!)
+    args = ensure_list_files_exist(args, lists_dir)
+    
     # 1. Удаляем все hostlist (если включено)
     args = apply_remove_hostlists(args)
     
