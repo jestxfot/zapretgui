@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon, QFont
 
-from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT, STYLE_SHEET
+from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
 from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
@@ -22,71 +22,8 @@ import qtawesome as qta
 import sys, os
 from config import APP_VERSION, CHANNEL
 
-
-# Новый стиль для Windows 11 Settings
-WIN11_STYLE = """
-QWidget {
-    font-family: 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif;
-    background-color: transparent;
-}
-
-/* Главный контейнер */
-QFrame#mainContainer {
-    background-color: rgba(32, 32, 32, 0.98);
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Область контента */
-QWidget#contentArea {
-    background-color: rgba(39, 39, 39, 0.95);
-}
-
-/* Скроллбары */
-QScrollBar:vertical {
-    background: rgba(255, 255, 255, 0.03);
-    width: 8px;
-    border-radius: 4px;
-    margin: 0;
-}
-
-QScrollBar::handle:vertical {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-    min-height: 30px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: rgba(255, 255, 255, 0.25);
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0;
-}
-
-/* Кастомный titlebar */
-QWidget#customTitleBar {
-    background-color: rgba(32, 32, 32, 0.98);
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-}
-
-QLabel#titleLabel {
-    color: #ffffff;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: transparent;
-}
-
-/* Прозрачный фон для контента */
-QStackedWidget {
-    background-color: transparent;
-}
-
-QFrame {
-    background-color: transparent;
-}
-"""
+# ⚠️ WIN11_STYLE удалён - все стили теперь в ui/theme.py (STYLE_SHEET)
+# и применяются динамически через ThemeManager для каждой темы
 
 
 class MainWindowUI:
@@ -112,8 +49,8 @@ class MainWindowUI:
             # ✅ Удаляем layout напрямую (НЕ через QWidget() - это создаёт призрачное окно!)
             old_layout.deleteLater()
         
-        # Применяем стили
-        target_widget.setStyleSheet(WIN11_STYLE)
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
+        # WIN11_STYLE и STYLE_SHEET уже включены в финальный CSS темы
         target_widget.setMinimumWidth(width)
         
         # Главный горизонтальный layout
@@ -137,13 +74,7 @@ class MainWindowUI:
         # ────────────────────────────────────────────────────────────
         content_area = DraggableWidget(target_widget)  # ✅ Позволяет перетаскивать окно за пустые области
         content_area.setObjectName("contentArea")
-        content_area.setStyleSheet("""
-            QWidget#contentArea {
-                background-color: rgba(32, 32, 32, 0.75);
-                border-top-right-radius: 10px;
-                border-bottom-right-radius: 10px;
-            }
-        """)
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         
         content_layout = QVBoxLayout(content_area)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -151,7 +82,7 @@ class MainWindowUI:
         
         # Стек страниц
         self.pages_stack = QStackedWidget()
-        self.pages_stack.setStyleSheet("background-color: transparent;")
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         
         # Создаем страницы
         self._create_pages()

@@ -758,9 +758,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # ✅ Удаляем layout напрямую (НЕ через QWidget() - это создаёт призрачное окно!)
             old_layout.deleteLater()
         
-        # Создаем layout для main_widget
-        from ui.theme import STYLE_SHEET
-        self.main_widget.setStyleSheet(STYLE_SHEET)
+        # ⚠️ НЕ применяем inline стили к main_widget - они будут из темы QApplication
+        # STYLE_SHEET уже включён в финальный CSS темы (см. ui/theme.py)
         
         # Вызываем build_ui но с модификацией - все виджеты создаются как дети main_widget
         # Для этого временно подменяем методы
@@ -806,11 +805,10 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Переключаемся на основной виджет
         self.stacked_widget.setCurrentIndex(self.main_index)
         
-        # ✅ Если CSS был применён синхронно при старте (из кеша), 
-        # принудительно обновляем стили виджетов
+        # ✅ ВСЕГДА принудительно обновляем стили после показа окна
+        # Нужно для того чтобы виджеты подхватили CSS который был применён к QApplication
         from PyQt6.QtCore import QTimer
-        if getattr(self, '_css_applied_at_startup', False):
-            QTimer.singleShot(10, self._force_style_refresh)
+        QTimer.singleShot(10, self._force_style_refresh)
         
         # ✅ Пересчитываем размер окна под контент
         QTimer.singleShot(50, self._adjust_window_size)
@@ -834,14 +832,18 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.splash = None
     
     def _force_style_refresh(self) -> None:
-        """Принудительно обновляет стили всех виджетов (только для синхронного применения CSS из кеша)"""
+        """Принудительно обновляет стили всех виджетов после показа окна
+        
+        Необходимо потому что CSS применяется к QApplication ДО создания/показа виджетов.
+        unpolish/polish заставляет Qt пересчитать стили для каждого виджета.
+        """
         try:
             # unpolish/polish принудительно пересчитывает стили виджета
             for widget in self.findChildren(QWidget):
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
             
-            log("🎨 Принудительное обновление стилей выполнено (синхронный режим)", "DEBUG")
+            log("🎨 Принудительное обновление стилей выполнено после показа окна", "DEBUG")
         except Exception as e:
             log(f"Ошибка обновления стилей: {e}", "DEBUG")
     

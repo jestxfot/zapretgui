@@ -120,6 +120,49 @@ QStackedWidget {
 QFrame {
     background-color: transparent;
 }
+
+/* Скроллбары в стиле Windows 11 */
+QScrollBar:vertical {
+    background: rgba(255, 255, 255, 0.03);
+    width: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QScrollBar:horizontal {
+    background: rgba(255, 255, 255, 0.03);
+    height: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-width: 30px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+}
 """
 
 # В начале файла ui/theme.py добавить защиту для кастомных фонов:
@@ -313,9 +356,9 @@ def load_cached_css_sync(theme_name: str = None) -> str | None:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 css = f.read()
             
-            # ✅ Проверяем что кеш содержит STYLE_SHEET (проверка по mainContainer)
-            if "QFrame#mainContainer" not in css:
-                log(f"⚠️ Кеш CSS устарел (нет STYLE_SHEET), удаляем: {cache_file}", "WARNING")
+            # ✅ Проверяем что кеш содержит STYLE_SHEET (проверка по contentArea и скроллбарам)
+            if "QWidget#contentArea" not in css or "QScrollBar:vertical" not in css:
+                log(f"⚠️ Кеш CSS устарел (нет полного STYLE_SHEET), удаляем: {cache_file}", "WARNING")
                 try:
                     os.remove(cache_file)
                 except:
@@ -435,6 +478,18 @@ class ThemeBuildWorker(QObject):
             
             # ✅ ДОБАВЛЯЕМ базовые стили для кастомных виджетов (mainContainer, titlebar и т.д.)
             all_styles.append(STYLE_SHEET)
+            
+            # ✅ ДОБАВЛЯЕМ динамические стили для contentArea с цветом темы
+            content_bg = get_theme_content_bg_color(self.theme_name)
+            content_area_style = f"""
+/* Область контента с цветом темы */
+QWidget#contentArea {{
+    background-color: rgba({content_bg}, 0.95);
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}}
+"""
+            all_styles.append(content_area_style)
             
             if self.is_rkn_tyan or self.is_rkn_tyan_2:
                 all_styles.append("""
@@ -1241,18 +1296,11 @@ class ThemeManager:
                 self.app.setStyleSheet(final_css)
                 elapsed_ms = (_time.perf_counter()-_t)*1000
                 log(f"  setStyleSheet took {elapsed_ms:.0f}ms", "DEBUG")
-                
-                # ✅ ПРИНУДИТЕЛЬНО обновляем стили всех виджетов
-                # Без этого виджеты могут не подхватить новый CSS если были созданы до setStyleSheet()
-                try:
-                    for widget in main_window.findChildren(QWidget):
-                        widget.style().unpolish(widget)
-                        widget.style().polish(widget)
-                    log("🎨 Принудительное обновление стилей виджетов выполнено", "DEBUG")
-                except Exception as e:
-                    log(f"Ошибка обновления стилей виджетов: {e}", "DEBUG")
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
+            
+            # ⚠️ НЕ обновляем стили здесь - это делается в main.py после показа окна
+            # Обновление до показа окна не эффективно для невидимых виджетов
             
             # Сохраняем хеш примененного CSS
             self._current_css_hash = css_hash
