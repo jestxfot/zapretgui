@@ -643,37 +643,28 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 
                 if cached_css:
                     # ✅ Применяем CSS к QApplication (не к self!) чтобы стиль совпадал с ThemeManager
-                    # Это занимает ~3 секунды, но splash отрисовывается отдельно!
                     QApplication.instance().setStyleSheet(cached_css)
                     elapsed = (_time.perf_counter() - t0) * 1000
                     log(f"🎨 CSS применён к QApplication за {elapsed:.0f}ms для '{saved_theme}'", "DEBUG")
                     self._css_applied_at_startup = True
                     self._startup_theme = saved_theme
+                    self.splash.set_progress(30, "Стили применены", "")
                 else:
-                    QApplication.instance().setStyleSheet("""
-                        QWidget { background-color: #38B2CD; color: #ffffff; }
-                        QMainWindow { background-color: #38B2CD; }
-                    """)
-                    log("🎨 Кеш CSS не найден, применён минимальный стиль к QApplication", "DEBUG")
-                
-                self.splash.set_progress(30, "Стили применены", "")
+                    # Кеша нет - theme_manager сгенерирует CSS асинхронно
+                    log(f"⏳ Кеш CSS не найден для '{saved_theme}', будет сгенерирован асинхронно", "DEBUG")
+                    self._css_applied_at_startup = False
+                    self.splash.set_progress(30, "Генерация темы...", "")
                 
             except Exception as e:
-                log(f"Ошибка применения CSS: {e}", "WARNING")
-                QApplication.instance().setStyleSheet("""
-                    QWidget { background-color: #38B2CD; color: #ffffff; }
-                    QMainWindow { background-color: #38B2CD; }
-                """)
+                log(f"Ошибка загрузки CSS: {e}", "WARNING")
+                self._css_applied_at_startup = False
             
             # Основное окно пока скрыто - покажем после завершения инициализации
         else:
-            # Если в трее - без splash
+            # Если в трее - без splash, theme_manager применит тему асинхронно
             self.splash = None
-            # ✅ Применяем минимальный стиль к QApplication
-            QApplication.instance().setStyleSheet("""
-                QWidget { background-color: #38B2CD; color: #ffffff; }
-                QMainWindow { background-color: #38B2CD; }
-            """)
+            self._css_applied_at_startup = False
+            
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, self._on_splash_complete)
         
