@@ -642,13 +642,17 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 cached_css = load_cached_css_sync(saved_theme)
                 
                 if cached_css:
-                    # ✅ Применяем CSS к QApplication (не к self!) чтобы стиль совпадал с ThemeManager
-                    QApplication.instance().setStyleSheet(cached_css)
+                    # ⏸️ ОТКЛАДЫВАЕМ применение CSS до после закрытия splash
+                    # setStyleSheet() занимает 1-3 секунды и блокирует UI (фризит splash)
+                    self._deferred_css = cached_css
+                    self._deferred_theme_name = saved_theme
+                    self._deferred_persist = False  # Уже сохранено в реестре
+                    
                     elapsed = (_time.perf_counter() - t0) * 1000
-                    log(f"🎨 CSS применён к QApplication за {elapsed:.0f}ms для '{saved_theme}'", "DEBUG")
+                    log(f"🎨 CSS загружен из кеша за {elapsed:.0f}ms для '{saved_theme}' (применение отложено)", "DEBUG")
                     self._css_applied_at_startup = True
                     self._startup_theme = saved_theme
-                    self.splash.set_progress(30, "Стили применены", "")
+                    self.splash.set_progress(30, "Тема готова", "")
                 else:
                     # Кеша нет - theme_manager сгенерирует CSS асинхронно
                     log(f"⏳ Кеш CSS не найден для '{saved_theme}', будет сгенерирован асинхронно", "DEBUG")
@@ -759,7 +763,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             old_layout.deleteLater()
         
         # ⚠️ НЕ применяем inline стили к main_widget - они будут из темы QApplication
-        # STYLE_SHEET уже включён в финальный CSS темы (см. ui/theme.py)
         
         # Вызываем build_ui но с модификацией - все виджеты создаются как дети main_widget
         # Для этого временно подменяем методы
@@ -796,6 +799,42 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             
         self._splash_closed = True
         log("Загрузочный экран завершен, переключаемся на главный интерфейс", "INFO")
+        
+        # ✅ Применяем отложенный CSS если он был сохранён (до показа окна!)
+        if hasattr(self, '_deferred_css'):
+            log("🎨 Применяем отложенный CSS после закрытия splash", "DEBUG")
+            try:
+                import time as _time
+                _t = _time.perf_counter()
+                
+                QApplication.instance().setStyleSheet(self._deferred_css)
+                self.setStyleSheet(self._deferred_css)
+                
+                from PyQt6.QtGui import QPalette
+                self.setPalette(QPalette())
+                
+                elapsed_ms = (_time.perf_counter()-_t)*1000
+                log(f"  setStyleSheet took {elapsed_ms:.0f}ms (отложенное применение)", "DEBUG")
+                
+                # Обновляем theme_manager
+                if hasattr(self, 'theme_manager'):
+                    self.theme_manager._current_css_hash = hash(self.styleSheet())
+                    self.theme_manager._theme_applied = True
+                    self.theme_manager.current_theme = getattr(self, '_deferred_theme_name', self.theme_manager.current_theme)
+                    
+                    if getattr(self, '_deferred_persist', False):
+                        from ui.theme import set_selected_theme
+                        set_selected_theme(self.theme_manager.current_theme)
+                
+                # Очищаем отложенные данные
+                delattr(self, '_deferred_css')
+                if hasattr(self, '_deferred_theme_name'):
+                    delattr(self, '_deferred_theme_name')
+                if hasattr(self, '_deferred_persist'):
+                    delattr(self, '_deferred_persist')
+                    
+            except Exception as e:
+                log(f"Ошибка применения отложенного CSS: {e}", "ERROR")
         
         # ✅ Показываем основное окно (было скрыто пока splash работал)
         if not self.start_in_tray and not self.isVisible():

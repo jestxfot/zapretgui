@@ -22,10 +22,6 @@ import qtawesome as qta
 import sys, os
 from config import APP_VERSION, CHANNEL
 
-# ⚠️ WIN11_STYLE удалён - все стили теперь в ui/theme.py (STYLE_SHEET)
-# и применяются динамически через ThemeManager для каждой темы
-
-
 class MainWindowUI:
     """
     Миксин-класс для создания UI главного окна в стиле Windows 11 Settings.
@@ -50,7 +46,6 @@ class MainWindowUI:
             old_layout.deleteLater()
         
         # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
-        # WIN11_STYLE и STYLE_SHEET уже включены в финальный CSS темы
         target_widget.setMinimumWidth(width)
         
         # Главный горизонтальный layout

@@ -438,9 +438,8 @@ class InitializationManager:
                     
                     # Помечаем тему как применённую в ThemeManager
                     self.app.theme_manager._theme_applied = True
-                    # ✅ Хеш берём от QApplication (не от self.app окна)
-                    from PyQt6.QtWidgets import QApplication
-                    self.app.theme_manager._current_css_hash = hash(QApplication.instance().styleSheet())
+                    # ✅ Хеш берём от главного окна (CSS применяется к нему)
+                    self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
                     
                     if hasattr(self.app, 'splash') and self.app.splash:
                         self.app.splash.set_progress(55, "Тема применена", "theme_done")

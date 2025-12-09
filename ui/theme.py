@@ -84,89 +84,6 @@ BUTTON_HEIGHT = 28
 # Радиус скругления углов окна
 WINDOW_BORDER_RADIUS = 10
 
-STYLE_SHEET = """
-QWidget {
-    font-family: 'Segoe UI', Arial, sans-serif;
-    background-color: transparent;
-}
-
-/* Стили для кастомного контейнера со скругленными углами */
-QFrame#mainContainer {
-    background-color: rgba(30, 30, 30, 240);
-    border-radius: 10px;
-    border: 1px solid rgba(80, 80, 80, 200);
-}
-
-/* Кастомный titlebar */
-QWidget#customTitleBar {
-    background-color: rgba(26, 26, 26, 240);
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-    border-bottom: 1px solid rgba(80, 80, 80, 200);
-}
-
-QLabel#titleLabel {
-    color: #ffffff;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: transparent;
-}
-
-/* Прозрачный фон для контента */
-QStackedWidget {
-    background-color: transparent;
-}
-
-QFrame {
-    background-color: transparent;
-}
-
-/* Скроллбары в стиле Windows 11 */
-QScrollBar:vertical {
-    background: rgba(255, 255, 255, 0.03);
-    width: 8px;
-    border-radius: 4px;
-    margin: 0;
-}
-
-QScrollBar::handle:vertical {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-    min-height: 30px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: rgba(255, 255, 255, 0.25);
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0;
-}
-
-QScrollBar:horizontal {
-    background: rgba(255, 255, 255, 0.03);
-    height: 8px;
-    border-radius: 4px;
-    margin: 0;
-}
-
-QScrollBar::handle:horizontal {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-    min-width: 30px;
-}
-
-QScrollBar::handle:horizontal:hover {
-    background: rgba(255, 255, 255, 0.25);
-}
-
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-    width: 0;
-}
-"""
-
-# В начале файла ui/theme.py добавить защиту для кастомных фонов:
-
 AMOLED_OVERRIDE_STYLE = """
 QWidget {
     background-color: transparent;
@@ -356,9 +273,10 @@ def load_cached_css_sync(theme_name: str = None) -> str | None:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 css = f.read()
             
-            # ✅ Проверяем что кеш содержит STYLE_SHEET (проверка по contentArea и скроллбарам)
-            if "QWidget#contentArea" not in css or "QScrollBar:vertical" not in css:
-                log(f"⚠️ Кеш CSS устарел (нет полного STYLE_SHEET), удаляем: {cache_file}", "WARNING")
+            # ✅ Проверяем что кеш содержит динамические стили (проверка по маркеру версии)
+            # Маркер добавляется в ThemeBuildWorker при генерации CSS
+            if "/* THEME_VERSION:v2 */" not in css:
+                log(f"⚠️ Кеш CSS устарел (нет маркера версии v2), удаляем: {cache_file}", "WARNING")
                 try:
                     os.remove(cache_file)
                 except:
@@ -476,20 +394,125 @@ class ThemeBuildWorker(QObject):
             self.progress.emit("Подготовка стилей...")
             all_styles = [base_css]
             
-            # ✅ ДОБАВЛЯЕМ базовые стили для кастомных виджетов (mainContainer, titlebar и т.д.)
-            all_styles.append(STYLE_SHEET)
-            
-            # ✅ ДОБАВЛЯЕМ динамические стили для contentArea с цветом темы
+            # ✅ ГЕНЕРИРУЕМ динамический STYLE_SHEET с правильными цветами для темы
+            theme_bg = get_theme_bg_color(self.theme_name)
             content_bg = get_theme_content_bg_color(self.theme_name)
-            content_area_style = f"""
+            is_light = "Светлая" in self.theme_name
+            text_color = "#000000" if is_light else "#ffffff"
+            border_color = "200, 200, 200" if is_light else "80, 80, 80"
+            titlebar_bg_adjust = 10 if is_light else -4  # Светлее/темнее для titlebar
+            
+            # Вычисляем цвет titlebar (чуть темнее основного)
+            try:
+                r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
+                tr = max(0, min(255, r + titlebar_bg_adjust))
+                tg = max(0, min(255, g + titlebar_bg_adjust))
+                tb = max(0, min(255, b + titlebar_bg_adjust))
+                titlebar_bg = f"{tr}, {tg}, {tb}"
+            except:
+                titlebar_bg = theme_bg
+            
+            dynamic_style_sheet = f"""
+/* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
+QWidget {{
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background-color: transparent !important;
+}}
+
+QMainWindow {{
+    background-color: rgba({theme_bg}, 255) !important;
+}}
+
+/* Главное окно приложения (LupiDPIApp) */
+LupiDPIApp {{
+    background-color: transparent !important;
+}}
+
+/* Стили для кастомного контейнера со скругленными углами */
+QFrame#mainContainer {{
+    background-color: rgba({theme_bg}, 240) !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba({border_color}, 200) !important;
+}}
+
+/* Кастомный titlebar */
+QWidget#customTitleBar {{
+    background-color: rgba({titlebar_bg}, 240) !important;
+    border-top-left-radius: 10px !important;
+    border-top-right-radius: 10px !important;
+    border-bottom: 1px solid rgba({border_color}, 200) !important;
+}}
+
+QLabel#titleLabel {{
+    color: {text_color} !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    background-color: transparent !important;
+}}
+
 /* Область контента с цветом темы */
 QWidget#contentArea {{
-    background-color: rgba({content_bg}, 0.95);
-    border-top-right-radius: 10px;
-    border-bottom-right-radius: 10px;
+    background-color: rgba({content_bg}, 0.95) !important;
+    border-top-right-radius: 10px !important;
+    border-bottom-right-radius: 10px !important;
+}}
+
+/* Прозрачный фон для остальных виджетов */
+QStackedWidget {{
+    background-color: transparent !important;
+}}
+
+QFrame {{
+    background-color: transparent !important;
+}}
+
+/* Скроллбары в стиле Windows 11 */
+QScrollBar:vertical {{
+    background: rgba(255, 255, 255, 0.03);
+    width: 8px;
+    border-radius: 4px;
+    margin: 0;
+}}
+
+QScrollBar::handle:vertical {{
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-height: 30px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: rgba(255, 255, 255, 0.25);
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+
+QScrollBar:horizontal {{
+    background: rgba(255, 255, 255, 0.03);
+    height: 8px;
+    border-radius: 4px;
+    margin: 0;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-width: 30px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: rgba(255, 255, 255, 0.25);
+}}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0;
 }}
 """
-            all_styles.append(content_area_style)
+            all_styles.append(dynamic_style_sheet)
+            
+            # ✅ Добавляем маркер версии для валидации кеша
+            all_styles.append("/* THEME_VERSION:v2 */")
             
             if self.is_rkn_tyan or self.is_rkn_tyan_2:
                 all_styles.append("""
@@ -1291,11 +1314,32 @@ class ThemeManager:
             main_window.setUpdatesEnabled(False)
             
             try:
-                # Применяем готовый CSS (единственная тяжёлая операция)
+                # ⚙️ Если splash всё ещё виден - ОТКЛАДЫВАЕМ применение CSS до после показа окна
+                from PyQt6.QtWidgets import QApplication
+                splash_visible = hasattr(main_window, 'splash') and main_window.splash and main_window.splash.isVisible()
+                
+                if splash_visible:
+                    # Сохраняем CSS для отложенного применения
+                    main_window._deferred_css = final_css
+                    main_window._deferred_theme_name = clean
+                    main_window._deferred_persist = persist
+                    log(f"⏸️ Splash виден, откладываем setStyleSheet ({len(final_css)} символов)", "DEBUG")
+                    # Не применяем CSS сейчас - применим после закрытия splash
+                    return
+                
+                # Применяем готовый CSS к QApplication И к главному окну
                 _t = _time.perf_counter()
                 self.app.setStyleSheet(final_css)
+                # ✅ Также применяем к главному окну для надёжности
+                main_window.setStyleSheet(final_css)
+                
+                # ✅ Сбрасываем палитру чтобы CSS точно применился
+                # qt_material может устанавливать QPalette которая перекрывает CSS
+                from PyQt6.QtGui import QPalette
+                main_window.setPalette(QPalette())
+                
                 elapsed_ms = (_time.perf_counter()-_t)*1000
-                log(f"  setStyleSheet took {elapsed_ms:.0f}ms", "DEBUG")
+                log(f"  setStyleSheet took {elapsed_ms:.0f}ms (app + window + palette reset)", "DEBUG")
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
             
