@@ -656,8 +656,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                     self._startup_theme = saved_theme
                 else:
                     self.setStyleSheet("""
-                        QWidget { background-color: #1e1e1e; color: #ffffff; }
-                        QMainWindow { background-color: #1e1e1e; }
+                        QWidget { background-color: #38B2CD; color: #ffffff; }
+                        QMainWindow { background-color: #38B2CD; }
                     """)
                     log("🎨 Кеш CSS не найден, применён минимальный стиль", "DEBUG")
                 
@@ -666,8 +666,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             except Exception as e:
                 log(f"Ошибка применения CSS: {e}", "WARNING")
                 self.setStyleSheet("""
-                    QWidget { background-color: #1e1e1e; color: #ffffff; }
-                    QMainWindow { background-color: #1e1e1e; }
+                    QWidget { background-color: #38B2CD; color: #ffffff; }
+                    QMainWindow { background-color: #38B2CD; }
                 """)
             
             # Основное окно пока скрыто - покажем после завершения инициализации
@@ -675,8 +675,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # Если в трее - без splash
             self.splash = None
             self.setStyleSheet("""
-                QWidget { background-color: #1e1e1e; color: #ffffff; }
-                QMainWindow { background-color: #1e1e1e; }
+                QWidget { background-color: #38B2CD; color: #ffffff; }
+                QMainWindow { background-color: #38B2CD; }
             """)
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, self._on_splash_complete)
