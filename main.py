@@ -806,10 +806,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Переключаемся на основной виджет
         self.stacked_widget.setCurrentIndex(self.main_index)
         
-        # ✅ ПРИНУДИТЕЛЬНО обновляем стили всех виджетов после показа окна
-        # Это нужно потому что CSS был применен к QApplication ДО создания виджетов
+        # ✅ Если CSS был применён синхронно при старте (из кеша), 
+        # принудительно обновляем стили виджетов
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(10, self._force_style_refresh)
+        if getattr(self, '_css_applied_at_startup', False):
+            QTimer.singleShot(10, self._force_style_refresh)
         
         # ✅ Пересчитываем размер окна под контент
         QTimer.singleShot(50, self._adjust_window_size)
@@ -833,21 +834,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.splash = None
     
     def _force_style_refresh(self) -> None:
-        """Принудительно обновляет стили всех виджетов"""
+        """Принудительно обновляет стили всех виджетов (только для синхронного применения CSS из кеша)"""
         try:
-            # Метод 1: Обновляем все виджеты
+            # unpolish/polish принудительно пересчитывает стили виджета
             for widget in self.findChildren(QWidget):
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
-                widget.update()
             
-            # Метод 2: Обновляем основные контейнеры
-            if hasattr(self, 'container'):
-                self.container.update()
-            if hasattr(self, 'main_widget'):
-                self.main_widget.update()
-            
-            log("🎨 Принудительное обновление стилей выполнено", "DEBUG")
+            log("🎨 Принудительное обновление стилей выполнено (синхронный режим)", "DEBUG")
         except Exception as e:
             log(f"Ошибка обновления стилей: {e}", "DEBUG")
     

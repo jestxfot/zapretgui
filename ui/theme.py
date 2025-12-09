@@ -1241,6 +1241,16 @@ class ThemeManager:
                 self.app.setStyleSheet(final_css)
                 elapsed_ms = (_time.perf_counter()-_t)*1000
                 log(f"  setStyleSheet took {elapsed_ms:.0f}ms", "DEBUG")
+                
+                # ✅ ПРИНУДИТЕЛЬНО обновляем стили всех виджетов
+                # Без этого виджеты могут не подхватить новый CSS если были созданы до setStyleSheet()
+                try:
+                    for widget in main_window.findChildren(QWidget):
+                        widget.style().unpolish(widget)
+                        widget.style().polish(widget)
+                    log("🎨 Принудительное обновление стилей виджетов выполнено", "DEBUG")
+                except Exception as e:
+                    log(f"Ошибка обновления стилей виджетов: {e}", "DEBUG")
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
             
