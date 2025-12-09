@@ -440,9 +440,6 @@ class InitializationManager:
                     self.app.theme_manager._theme_applied = True
                     # ✅ Хеш берём от главного окна (CSS применяется к нему)
                     self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
-                    
-                    if hasattr(self.app, 'splash') and self.app.splash:
-                        self.app.splash.set_progress(55, "Тема применена", "theme_done")
                 else:
                     # Темы разные - применяем асинхронно
                     log(f"🔄 Тема изменилась: startup='{startup_theme}' -> current='{current_theme}'", "DEBUG")
@@ -455,9 +452,6 @@ class InitializationManager:
             else:
                 # CSS не был применён при старте - применяем асинхронно
                 self.app._theme_pending = True
-                
-                if hasattr(self.app, 'splash') and self.app.splash:
-                    self.app.splash.set_progress(40, "Генерация темы...", "qt_material")
                 
                 self.app.theme_manager.apply_theme_async(
                     persist=True,
@@ -511,9 +505,9 @@ class InitializationManager:
     def _on_theme_progress(self, status: str):
         """Обработчик прогресса генерации темы"""
         try:
-            if hasattr(self.app, 'splash') and self.app.splash:
-                # Обновляем статус в splash screen
-                self.app.splash.set_progress(45, status, "theme")
+            # Обновляем статус в главном окне
+            if hasattr(self.app, 'set_status'):
+                self.app.set_status(f"🎨 {status}")
         except Exception:
             pass
     
@@ -527,10 +521,6 @@ class InitializationManager:
                 # Устанавливаем текущую тему в галерее
                 if hasattr(self.app, 'appearance_page') and hasattr(self.app, 'theme_manager'):
                     self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
-                    
-                # Обновляем splash screen
-                if hasattr(self.app, 'splash') and self.app.splash:
-                    self.app.splash.set_progress(55, "Тема применена", "theme_done")
             else:
                 log(f"⚠ Тема не применена: {message}", "WARNING")
         except Exception as e:

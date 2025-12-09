@@ -1314,20 +1314,8 @@ class ThemeManager:
             main_window.setUpdatesEnabled(False)
             
             try:
-                # ⚙️ Если splash всё ещё виден - ОТКЛАДЫВАЕМ применение CSS до после показа окна
-                from PyQt6.QtWidgets import QApplication
-                splash_visible = hasattr(main_window, 'splash') and main_window.splash and main_window.splash.isVisible()
-                
-                if splash_visible:
-                    # Сохраняем CSS для отложенного применения
-                    main_window._deferred_css = final_css
-                    main_window._deferred_theme_name = clean
-                    main_window._deferred_persist = persist
-                    log(f"⏸️ Splash виден, откладываем setStyleSheet ({len(final_css)} символов)", "DEBUG")
-                    # Не применяем CSS сейчас - применим после закрытия splash
-                    return
-                
-                # Применяем готовый CSS к QApplication И к главному окну
+                # ✅ Применяем готовый CSS к QApplication И к главному окну
+                # Окно уже показано с минимальными стилями, применяем полный CSS
                 _t = _time.perf_counter()
                 self.app.setStyleSheet(final_css)
                 # ✅ Также применяем к главному окну для надёжности

@@ -27,10 +27,6 @@ class DPIManager(QObject):
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_ui_state(running=False)
             
-            # Закрываем splash только если автозапуск отключен
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(100, "Готово", "Автозапуск DPI отключен")
-            
             return
 
         # 2. Получаем метод запуска
@@ -41,15 +37,11 @@ class DPIManager(QObject):
         if launch_method == "direct":
             # Direct режим - используем комбинированную стратегию из selections
             strategy_name = "Прямой запуск"
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(65, f"Запуск прямого режима...", "")
             self._start_direct_mode()
         else:
             # BAT режим - используем последнюю BAT стратегию
             from config.reg import get_last_bat_strategy
             strategy_name = get_last_bat_strategy()
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(65, f"Запуск стратегии '{strategy_name}'...", "")
             self._start_bat_strategy(strategy_name)
 
         # 5. Обновляем интерфейс через UI Manager
@@ -73,10 +65,6 @@ class DPIManager(QObject):
             # Обновляем UI как "не запущено"
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_ui_state(running=False)
-            
-            # Закрываем splash если есть
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(100, "Готово", "Категории не выбраны")
             
             return
         

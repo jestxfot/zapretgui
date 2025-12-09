@@ -99,14 +99,14 @@ class HeavyInitManager:
         """Обработка прогресса от HeavyInitWorker"""
         log(f"HeavyInit прогресс: {message}", "DEBUG")
         
-        if hasattr(self.app, 'splash') and self.app.splash:
+        # Обновляем статус в главном окне
+        if hasattr(self.app, 'set_status'):
+            # Используем красивые сообщения из мапинга
             if message in self.progress_map:
-                value, display_text = self.progress_map[message]
-                self.app.splash.set_progress(value, display_text, message)
+                _, display_text = self.progress_map[message]
+                self.app.set_status(display_text)
             else:
-                self.app.splash.set_detail(message)
-        
-        self.app.set_status(message)
+                self.app.set_status(message)
 
     def _on_heavy_done(self, success: bool, error_msg: str):
         """Обработка завершения HeavyInit"""
@@ -121,9 +121,9 @@ class HeavyInitManager:
 
     def _handle_successful_init(self):
         """Обработка успешной инициализации"""
-        # Обновляем прогресс
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.set_progress(75, "Подготовка к запуску...", "Почти готово...")
+        # Обновляем статус
+        if hasattr(self.app, 'set_status'):
+            self.app.set_status("✅ Подготовка к запуску...")
         
         # Безопасная проверка strategy_manager
         if hasattr(self.app, 'strategy_manager') and self.app.strategy_manager:
@@ -159,11 +159,11 @@ class HeavyInitManager:
 
     def _handle_failed_init(self, error_msg: str):
         """Обработка неуспешной инициализации"""
-        # Показываем ошибку и закрываем splash
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.show_error(error_msg)
-        
         log(f"HeavyInit завершился с ошибкой: {error_msg}", "❌ ERROR")
+        
+        # Показываем ошибку в главном окне
+        if hasattr(self.app, 'set_status'):
+            self.app.set_status(f"❌ Ошибка: {error_msg}")
 
     def cleanup(self):
         """Очистка ресурсов при закрытии приложения"""
