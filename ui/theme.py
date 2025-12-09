@@ -312,6 +312,16 @@ def load_cached_css_sync(theme_name: str = None) -> str | None:
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 css = f.read()
+            
+            # ✅ Проверяем что кеш содержит STYLE_SHEET (проверка по mainContainer)
+            if "QFrame#mainContainer" not in css:
+                log(f"⚠️ Кеш CSS устарел (нет STYLE_SHEET), удаляем: {cache_file}", "WARNING")
+                try:
+                    os.remove(cache_file)
+                except:
+                    pass
+                return None
+            
             log(f"📦 Загружен CSS из кеша: {len(css)} символов для '{theme_name}'", "DEBUG")
             return css
         except Exception as e:
@@ -422,6 +432,9 @@ class ThemeBuildWorker(QObject):
             # 3. Собираем финальный CSS со всеми оверлеями (тоже в фоне!)
             self.progress.emit("Подготовка стилей...")
             all_styles = [base_css]
+            
+            # ✅ ДОБАВЛЯЕМ базовые стили для кастомных виджетов (mainContainer, titlebar и т.д.)
+            all_styles.append(STYLE_SHEET)
             
             if self.is_rkn_tyan or self.is_rkn_tyan_2:
                 all_styles.append("""

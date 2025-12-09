@@ -411,10 +411,26 @@ class InitializationManager:
             self.app.theme_handler.set_theme_manager(self.app.theme_manager)
             self.app.theme_handler.update_available_themes()
             
+            # ✅ Получаем текущую тему из theme_manager
+            current_theme = self.app.theme_manager.current_theme
+            
+            # ✅ ВСЕГДА устанавливаем текущую тему и премиум статус в appearance_page
+            if hasattr(self.app, 'appearance_page'):
+                self.app.appearance_page.set_current_theme(current_theme)
+                
+                # Устанавливаем премиум статус
+                is_premium = False
+                if hasattr(self.app, 'donate_checker') and self.app.donate_checker:
+                    try:
+                        is_premium, _, _ = self.app.donate_checker.check_subscription_status(use_cache=True)
+                    except Exception:
+                        pass
+                self.app.appearance_page.set_premium_status(is_premium)
+                log(f"🎨 Установлена текущая тема в галерее: '{current_theme}' (premium={is_premium})", "DEBUG")
+            
             # ✅ Проверяем, был ли CSS уже применён синхронно при старте
             if getattr(self.app, '_css_applied_at_startup', False):
                 startup_theme = getattr(self.app, '_startup_theme', None)
-                current_theme = self.app.theme_manager.current_theme
                 
                 if startup_theme == current_theme:
                     log(f"⏭️ CSS уже применён при старте для '{current_theme}', пропускаем асинхронное применение", "DEBUG")
@@ -422,11 +438,10 @@ class InitializationManager:
                     
                     # Помечаем тему как применённую в ThemeManager
                     self.app.theme_manager._theme_applied = True
-                    self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
+                    # ✅ Хеш берём от QApplication (не от self.app окна)
+                    from PyQt6.QtWidgets import QApplication
+                    self.app.theme_manager._current_css_hash = hash(QApplication.instance().styleSheet())
                     
-                    # Устанавливаем текущую тему в галерее
-                    if hasattr(self.app, 'appearance_page'):
-                        self.app.appearance_page.set_current_theme(current_theme)
                     if hasattr(self.app, 'splash') and self.app.splash:
                         self.app.splash.set_progress(55, "Тема применена", "theme_done")
                 else:

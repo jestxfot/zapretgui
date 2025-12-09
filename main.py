@@ -559,12 +559,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # ✅ ГЛАВНЫЙ КОНТЕЙНЕР со скругленными углами и полупрозрачным фоном (Windows 11 style)
         self.container = QFrame(self)
         self.container.setObjectName("mainContainer")
-        self.container.setStyleSheet("""
-            QFrame#mainContainer {
-                border-radius: 10px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-            }
-        """)
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
 
         # Инициализируем функционал безрамочного resize
         self.init_frameless()
@@ -597,7 +592,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         # Создаем QStackedWidget для переключения между экранами
         self.stacked_widget = QStackedWidget()
-        self.stacked_widget.setStyleSheet("background-color: transparent;")
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         container_layout.addWidget(self.stacked_widget)
         
         # Главный layout окна
@@ -607,7 +602,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         # Создаем основной виджет (с родителем чтобы не было отдельного окна!)
         self.main_widget = QWidget(self.stacked_widget)  # ✅ Родитель = stacked_widget
-        self.main_widget.setStyleSheet("background-color: transparent;")
+        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         # ✅ Только минимальная ширина, высота динамическая
         self.main_widget.setMinimumWidth(WIDTH)
 
@@ -633,7 +628,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.splash.set_progress(5, "Запуск Zapret...", "Подготовка")
             QApplication.processEvents()
             
-            # ✅ Применяем CSS к основному окну (splash анимируется параллельно)
+            # ✅ Применяем CSS к QApplication (как и при смене темы)
             try:
                 from ui.theme import load_cached_css_sync, get_selected_theme
                 import time as _time
@@ -643,28 +638,29 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 
                 t0 = _time.perf_counter()
                 saved_theme = get_selected_theme("Темная синяя")
+                log(f"🎨 Загрузка темы при старте: '{saved_theme}'", "DEBUG")
                 cached_css = load_cached_css_sync(saved_theme)
                 
                 if cached_css:
-                    # Применяем CSS - это занимает ~3 секунды
-                    # Но splash отрисовывается отдельно!
-                    self.setStyleSheet(cached_css)
+                    # ✅ Применяем CSS к QApplication (не к self!) чтобы стиль совпадал с ThemeManager
+                    # Это занимает ~3 секунды, но splash отрисовывается отдельно!
+                    QApplication.instance().setStyleSheet(cached_css)
                     elapsed = (_time.perf_counter() - t0) * 1000
-                    log(f"🎨 CSS применён за {elapsed:.0f}ms для '{saved_theme}'", "DEBUG")
+                    log(f"🎨 CSS применён к QApplication за {elapsed:.0f}ms для '{saved_theme}'", "DEBUG")
                     self._css_applied_at_startup = True
                     self._startup_theme = saved_theme
                 else:
-                    self.setStyleSheet("""
+                    QApplication.instance().setStyleSheet("""
                         QWidget { background-color: #38B2CD; color: #ffffff; }
                         QMainWindow { background-color: #38B2CD; }
                     """)
-                    log("🎨 Кеш CSS не найден, применён минимальный стиль", "DEBUG")
+                    log("🎨 Кеш CSS не найден, применён минимальный стиль к QApplication", "DEBUG")
                 
                 self.splash.set_progress(30, "Стили применены", "")
                 
             except Exception as e:
                 log(f"Ошибка применения CSS: {e}", "WARNING")
-                self.setStyleSheet("""
+                QApplication.instance().setStyleSheet("""
                     QWidget { background-color: #38B2CD; color: #ffffff; }
                     QMainWindow { background-color: #38B2CD; }
                 """)
@@ -673,7 +669,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         else:
             # Если в трее - без splash
             self.splash = None
-            self.setStyleSheet("""
+            # ✅ Применяем минимальный стиль к QApplication
+            QApplication.instance().setStyleSheet("""
                 QWidget { background-color: #38B2CD; color: #ffffff; }
                 QMainWindow { background-color: #38B2CD; }
             """)
@@ -818,8 +815,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Переключаемся на основной виджет
         self.stacked_widget.setCurrentIndex(self.main_index)
         
-        # ✅ Пересчитываем размер окна под контент
+        # ✅ ПРИНУДИТЕЛЬНО обновляем стили всех виджетов после показа окна
+        # Это нужно потому что CSS был применен к QApplication ДО создания виджетов
         from PyQt6.QtCore import QTimer
+        QTimer.singleShot(10, self._force_style_refresh)
+        
+        # ✅ Пересчитываем размер окна под контент
         QTimer.singleShot(50, self._adjust_window_size)
         
         # ✅ Тема уже применяется асинхронно во время splash screen
@@ -839,6 +840,25 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log("Тема ещё генерируется асинхронно, ожидаем завершения...", "DEBUG")
         
         self.splash = None
+    
+    def _force_style_refresh(self) -> None:
+        """Принудительно обновляет стили всех виджетов"""
+        try:
+            # Метод 1: Обновляем все виджеты
+            for widget in self.findChildren(QWidget):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
+            
+            # Метод 2: Обновляем основные контейнеры
+            if hasattr(self, 'container'):
+                self.container.update()
+            if hasattr(self, 'main_widget'):
+                self.main_widget.update()
+            
+            log("🎨 Принудительное обновление стилей выполнено", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка обновления стилей: {e}", "DEBUG")
     
     def _adjust_window_size(self) -> None:
         """Корректирует размер окна под значения из config.py"""
