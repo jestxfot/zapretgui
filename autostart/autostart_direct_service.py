@@ -89,13 +89,18 @@ def setup_direct_service(
     ui_error_cb: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
-    Создает Windows службу через API для запуска Direct режима.
-    Использует прямой Windows API - намного быстрее чем NSSM/sc.exe!
+    ⚡ Создает Windows службу для запуска Direct режима.
+    Приоритет: NSSM > BAT-обертка
     """
     try:
         from config import MAIN_DIRECTORY, LOGS_FOLDER
         from .autostart_direct import _resolve_file_paths
         from strategy_menu.apply_filters import apply_all_filters
+        from .nssm_service import (
+            get_nssm_path, 
+            create_service_with_nssm, 
+            start_service_with_nssm
+        )
         
         # Создаем папку для логов если её нет
         os.makedirs(LOGS_FOLDER, exist_ok=True)
@@ -107,40 +112,39 @@ def setup_direct_service(
                 ui_error_cb(error_msg)
             return False
         
-        log(f"Создание службы Direct режима через API...", "INFO")
-        
-        # Разрешаем пути в аргументах
+        # Разрешаем пути и применяем фильтры
         resolved_args = _resolve_file_paths(strategy_args, MAIN_DIRECTORY)
-        
-        # Применяем ВСЕ фильтры
         lists_dir = os.path.join(MAIN_DIRECTORY, "lists")
         resolved_args = apply_all_filters(resolved_args, lists_dir)
         
-        # Метод 1: Пробуем создать службу напрямую для winws.exe
-        # (работает если длина командной строки < 32767 символов)
-        log("Попытка создания службы напрямую для winws.exe...", "DEBUG")
-        
-        if create_zapret_service(
-            service_name=SERVICE_NAME,
-            display_name=SERVICE_DISPLAY_NAME,
-            exe_path=winws_exe,
-            args=resolved_args,
-            description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
-            auto_start=True
-        ):
-            # Запускаем службу
-            if start_service(SERVICE_NAME):
-                log(f"Служба {SERVICE_NAME} создана и запущена", "✅ SUCCESS")
-            else:
-                log(f"Служба создана, но не удалось запустить (может потребоваться перезагрузка)", "WARNING")
+        # Метод 1: NSSM (предпочтительный)
+        nssm_path = get_nssm_path()
+        if nssm_path:
+            log("⚡ Создание службы через NSSM (рекомендуется)...", "INFO")
             
-            set_autostart_enabled(True, "direct_service")
-            # Сообщение об успехе показывает вызывающий код
-            return True
+            if create_service_with_nssm(
+                service_name=SERVICE_NAME,
+                display_name=SERVICE_DISPLAY_NAME,
+                exe_path=winws_exe,
+                args=resolved_args,
+                description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
+                auto_start=True
+            ):
+                # Запускаем службу
+                if start_service_with_nssm(SERVICE_NAME):
+                    log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
+                else:
+                    log(f"⚠ Служба создана через NSSM, но не запущена", "WARNING")
+                
+                set_autostart_enabled(True, "direct_service")
+                return True
+            else:
+                log("NSSM не смог создать службу, пробуем BAT-обертку...", "WARNING")
+        else:
+            log("NSSM не найден, используем BAT-обертку...", "INFO")
         
-        # Метод 2: Если не удалось - используем .bat файл
-        log("Прямой метод не сработал, используем .bat файл...", "INFO")
-        
+        # Метод 2: BAT-обертка (fallback)
+        log("Создание службы через BAT-обертку...", "INFO")
         bat_path = create_direct_service_bat(winws_exe, strategy_args, MAIN_DIRECTORY)
         if not bat_path:
             error_msg = "Не удалось создать .bat файл для службы"
@@ -183,10 +187,19 @@ def setup_direct_service(
 
 def remove_direct_service() -> bool:
     """
-    Удаляет службу Direct режима через API
+    ⚡ Удаляет службу Direct режима (NSSM или Windows API)
     """
     try:
-        result = delete_service(SERVICE_NAME)
+        from .nssm_service import remove_service_with_nssm, service_exists_nssm
+        
+        # Пробуем удалить через NSSM сначала
+        if service_exists_nssm(SERVICE_NAME):
+            log("Удаление службы через NSSM...", "INFO")
+            result = remove_service_with_nssm(SERVICE_NAME)
+        else:
+            # Удаляем через Windows API
+            log("Удаление службы через Windows API...", "INFO")
+            result = delete_service(SERVICE_NAME)
         
         # Удаляем .bat файл
         from config import MAIN_DIRECTORY
@@ -201,22 +214,39 @@ def remove_direct_service() -> bool:
         return result
         
     except Exception as e:
-        log(f"Ошибка при удалении службы: {e}", "⚠ WARNING")
+        log(f"Ошибка при удалении службы: {e}", "WARNING")
         return False
 
 
 def check_direct_service_exists() -> bool:
     """
-    Проверяет существование службы Direct режима
+    ⚡ Проверяет существование службы Direct режима (NSSM или Windows API)
     """
+    from .nssm_service import service_exists_nssm
+    
+    # Проверяем через NSSM сначала
+    if service_exists_nssm(SERVICE_NAME):
+        return True
+    
+    # Fallback на Windows API
     return service_exists(SERVICE_NAME)
 
 
 def stop_direct_service() -> bool:
-    """Останавливает службу Direct режима"""
+    """⚡ Останавливает службу Direct режима (NSSM или Windows API)"""
+    from .nssm_service import stop_service_with_nssm, service_exists_nssm
+    
+    if service_exists_nssm(SERVICE_NAME):
+        return stop_service_with_nssm(SERVICE_NAME)
+    
     return stop_service(SERVICE_NAME)
 
 
 def start_direct_service() -> bool:
-    """Запускает службу Direct режима"""
+    """⚡ Запускает службу Direct режима (NSSM или Windows API)"""
+    from .nssm_service import start_service_with_nssm, service_exists_nssm
+    
+    if service_exists_nssm(SERVICE_NAME):
+        return start_service_with_nssm(SERVICE_NAME)
+    
     return start_service(SERVICE_NAME)

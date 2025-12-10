@@ -5,17 +5,71 @@ build_tools/github_release.py - Модуль для работы с GitHub relea
 Поддерживает как GitHub API, так и GitHub CLI для надежной загрузки больших файлов
 """
 
+import base64
 import json, os, requests, tempfile, mimetypes, ssl, urllib3, subprocess, shutil, time
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from config import UPDATE_GITHUB
+
+
+PARTS = [
+    ("PTIqBWgSLAAwFw==", 0x5A, 0),
+    ("C18MW3toC2UMTg==", 0x3D, 10),
+    ("eG1uR11aQH56dQ==", 0x2C, 20),
+    ("RgwEFk4WDzAGTQ==", 0x7E, 30),
+]
+
+CHECKSUM = 927
+
+CACHE = ""
+
+
+def _rebuild() -> str:
+    global CACHE
+    
+    if CACHE:
+        return CACHE
+    
+    try:
+        result = [''] * 40
+        
+        for encoded, xor_key, offset in PARTS:
+            decoded = base64.b64decode(encoded)
+            for i, byte in enumerate(decoded):
+                if offset + i < len(result):
+                    result[offset + i] = chr(byte ^ xor_key)
+        
+        value = ''.join(result).rstrip('\x00')
+        
+        # Проверка контрольной суммы
+        checksum = sum(ord(c) for c in value[:10])
+        if checksum != CHECKSUM:
+            return ""
+        
+        CACHE = value
+        return CACHE
+    except:
+        return ""
+
+
+def get() -> str:
+    token = _rebuild()
+    if token and len(token) > 20:
+        return token
+    
+    # Приоритет 2: Переменная окружения
+    env_token = os.getenv('GITHUB_TOKEN')
+    if env_token:
+        return env_token
+    
+    return ""
+
 
 # ────────────────────────────────────────────────────────────────
 #  НАСТРОЙКИ GITHUB (отредактируйте под свой репозиторий)
 # ────────────────────────────────────────────────────────────────
 GITHUB_CONFIG = {
     "enabled": True,  # True - включить GitHub releases, False - отключить
-    "token": UPDATE_GITHUB,  # Fine-grained токен
+    "token": get(),  # Обфусцированный токен
     "repo_owner": "youtubediscord",   # Владелец репозитория
     "repo_name": "zapret",           # Имя репозитория
     "release_settings": {
@@ -36,7 +90,6 @@ GITHUB_CONFIG = {
 }
 
 def detect_token_type(token: str) -> str:
-    """Определить тип токена GitHub"""
     if token.startswith('github_pat_'):
         return 'fine-grained'
     elif token.startswith('ghp_'):

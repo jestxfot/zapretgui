@@ -15,14 +15,11 @@ from .config import (
 )
 from .build_info import APP_VERSION, CHANNEL
 from .reg import reg, HKCU, get_last_strategy, set_last_strategy, get_last_bat_strategy, set_last_bat_strategy, get_dpi_autostart, set_dpi_autostart, get_subscription_check_interval, get_remove_github_api, get_active_hosts_domains, set_active_hosts_domains, get_auto_update_enabled, set_auto_update_enabled, get_tray_hint_shown, set_tray_hint_shown
-from .tokens import TOKEN_GITHUB, UPDATE_GITHUB
 
 __all__ = [
     # build_info.py
     'APP_VERSION',
     'CHANNEL',
-    'TOKEN_GITHUB',
-    'UPDATE_GITHUB',
     # config.py - папки
     'THEME_FOLDER',
     'EXE_FOLDER',

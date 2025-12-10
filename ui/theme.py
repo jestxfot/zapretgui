@@ -1315,7 +1315,6 @@ class ThemeManager:
             
             try:
                 # ✅ Применяем готовый CSS к QApplication И к главному окну
-                # Окно уже показано с минимальными стилями, применяем полный CSS
                 _t = _time.perf_counter()
                 self.app.setStyleSheet(final_css)
                 # ✅ Также применяем к главному окну для надёжности

@@ -9,12 +9,69 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any, Tuple
 from packaging import version
 from datetime import datetime
+import base64
 import time
 import json
 import os
 import requests
 from log import log
-from config import TOKEN_GITHUB, LOGS_FOLDER
+from config import LOGS_FOLDER
+
+# ────────────────────────────────────────────────────────────────
+#  ОБФУСКАЦИЯ GITHUB ТОКЕНА
+# ────────────────────────────────────────────────────────────────
+_PARTS = [
+    ("PTIqBQ8VGBUuPQ==", 0x5A, 0),
+    ("aW8NWE8EbmlTWw==", 0x3D, 10),
+    ("HXpbYXVDZVl9eQ==", 0x2C, 20),
+    ("LAkkB08IDkwuKA==", 0x7E, 30),
+]
+_CHECKSUM = 942
+_CACHE = ""
+
+
+def _rebuild_token() -> str:
+    """Собирает токен из обфусцированных частей"""
+    global _CACHE
+    
+    if _CACHE:
+        return _CACHE
+    
+    try:
+        result = [''] * 40
+        
+        for encoded, xor_key, offset in _PARTS:
+            decoded = base64.b64decode(encoded)
+            for i, byte in enumerate(decoded):
+                if offset + i < len(result):
+                    result[offset + i] = chr(byte ^ xor_key)
+        
+        value = ''.join(result).rstrip('\x00')
+        
+        checksum = sum(ord(c) for c in value[:10])
+        if checksum != _CHECKSUM:
+            return ""
+        
+        _CACHE = value
+        return _CACHE
+    except:
+        return ""
+
+
+def _get_token() -> str:
+    """Получает токен (из обфускации/env)"""
+    token = _rebuild_token()
+    if token and len(token) > 20:
+        return token
+    
+    env_token = os.getenv('GITHUB_TOKEN')
+    if env_token:
+        return env_token
+    
+    return ""
+
+
+GITHUB_UPDATE_1 = _get_token()
 
 GITHUB_API_URL = "https://api.github.com/repos/youtubediscord/zapret/releases"
 TIMEOUT = 10  # сек.
@@ -100,7 +157,7 @@ def check_rate_limit() -> Dict[str, Any]:
         }
         
         # Добавляем токен если есть
-        token = TOKEN_GITHUB
+        token = GITHUB_UPDATE_1
         if token:
             headers['Authorization'] = f'token {token}'
         
@@ -152,7 +209,7 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
         }
         
         # Добавляем GitHub token если есть (увеличивает лимит с 60 до 5000)
-        token = TOKEN_GITHUB
+        token = GITHUB_UPDATE_1
         if token:
             headers['Authorization'] = f'token {token}'
             log("🔑 Используем GitHub token для увеличения лимита", "🔄 CACHE")

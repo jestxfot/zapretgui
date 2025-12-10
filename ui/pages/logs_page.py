@@ -431,9 +431,15 @@ class LogsPage(BasePage):
                 self._worker.stop()
             if self._thread and self._thread.isRunning():
                 self._thread.quit()
-                self._thread.wait(1000)
-        except Exception:
-            pass
+                if not self._thread.wait(2000):
+                    log("⚠ Log tail worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self._thread.terminate()
+                        self._thread.wait(500)
+                    except:
+                        pass
+        except Exception as e:
+            log(f"Ошибка остановки log tail worker: {e}", "DEBUG")
             
     def _append_text(self, text: str):
         """Добавляет текст в лог"""

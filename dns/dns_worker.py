@@ -139,9 +139,19 @@ class DNSUIManager:
         try:
             if self.dns_worker:
                 if self.dns_worker.isRunning():
+                    log("Останавливаем DNS worker...", "DEBUG")
                     self.dns_worker.quit()
-                    self.dns_worker.wait(1000)
-                self.dns_worker.deleteLater()
+                    if not self.dns_worker.wait(2000):
+                        log("⚠ DNS worker не завершился, принудительно завершаем", "WARNING")
+                        try:
+                            self.dns_worker.terminate()
+                            self.dns_worker.wait(500)
+                        except:
+                            pass
+                try:
+                    self.dns_worker.deleteLater()
+                except:
+                    pass
                 self.dns_worker = None
         except Exception as e:
             log(f"Ошибка очистки DNS worker: {e}", "DEBUG")

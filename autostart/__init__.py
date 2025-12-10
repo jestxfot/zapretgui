@@ -1,6 +1,6 @@
 """
-Модуль автозапуска Zapret.
-Поддерживает: планировщик задач, службы Windows, реестр.
+⚡ Модуль автозапуска Zapret.
+Поддерживает: NSSM, планировщик задач, службы Windows, реестр.
 """
 
 from .service_api import (
@@ -11,6 +11,15 @@ from .service_api import (
     service_exists,
     create_zapret_service,
     create_bat_service,
+)
+
+from .nssm_service import (
+    get_nssm_path,
+    create_service_with_nssm,
+    start_service_with_nssm,
+    stop_service_with_nssm,
+    remove_service_with_nssm,
+    service_exists_nssm,
 )
 
 from .autostart_service import (
@@ -47,6 +56,14 @@ __all__ = [
     'service_exists',
     'create_zapret_service',
     'create_bat_service',
+    
+    # NSSM (preferred)
+    'get_nssm_path',
+    'create_service_with_nssm',
+    'start_service_with_nssm',
+    'stop_service_with_nssm',
+    'remove_service_with_nssm',
+    'service_exists_nssm',
     
     # BAT mode service
     'setup_service_for_strategy',

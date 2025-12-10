@@ -647,3 +647,20 @@ class HostsPage(BasePage):
         """Обновляет страницу (сбрасывает кеш и перечитывает hosts)"""
         self._invalidate_cache()
         self._update_ui()
+    
+    def cleanup(self):
+        """Очистка потоков при закрытии"""
+        from log import log
+        try:
+            if self._thread and self._thread.isRunning():
+                log("Останавливаем hosts worker...", "DEBUG")
+                self._thread.quit()
+                if not self._thread.wait(2000):
+                    log("⚠ Hosts worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self._thread.terminate()
+                        self._thread.wait(500)
+                    except:
+                        pass
+        except Exception as e:
+            log(f"Ошибка при очистке hosts_page: {e}", "DEBUG")

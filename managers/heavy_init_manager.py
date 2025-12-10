@@ -1,179 +1,194 @@
-from PyQt6.QtCore import QThread, QTimer
+from PyQt6.QtCore import QTimer
 from log import log
 import os
+import ctypes
+from ctypes import wintypes
 
 
 class HeavyInitManager:
-    """Менеджер для управления тяжелой инициализацией"""
+    """Быстрый менеджер инициализации через WinAPI (без QThread)"""
     
     def __init__(self, app_instance):
         self.app = app_instance
-        self._heavy_init_started = False
-        self._heavy_init_thread = None
-        self.heavy_worker = None
+        self._init_started = False
         
-        # Мапинг прогресса для splash screen
-        self.progress_map = {
-            "Проверка интернет-соединения...": (15, "🌐 Проверка соединения..."),
-            "Работаем в автономном режиме": (20, "📴 Автономный режим"),
-            "Проверка winws.exe...": (25, "🔍 Проверка winws.exe..."),
-            "Загрузка стратегий...": (30, "📦 Загрузка стратегий..."),
-            "Обновление списка стратегий...": (35, "📋 Обновление списка..."),
-            "Загрузка ресурсов...": (40, "📂 Загрузка ресурсов..."),
-            "Обновление ресурсов...": (50, "🔄 Обновление ресурсов...")
-        }
+        # WinAPI функции для максимальной скорости
+        self._kernel32 = ctypes.windll.kernel32
+        self._wininet = None
+        try:
+            self._wininet = ctypes.windll.wininet
+        except:
+            pass
 
     def start_heavy_init(self):
-        """Запуск тяжелой инициализации с прогресс-баром"""
+        """⚡ Быстрая синхронная инициализация через WinAPI"""
         
         # ЗАЩИТА от двойного вызова
-        if self._heavy_init_started:
-            log("🔵 HeavyInitManager: уже запущен, пропускаем", "⚠ WARNING")
+        if self._init_started:
+            log("HeavyInit уже запущен, пропускаем", "DEBUG")
             return
         
-        self._heavy_init_started = True
-        log("🔵 HeavyInitManager: запуск тяжелой инициализации", "DEBUG")
-        
-        # Показываем прогресс-бар
-        if hasattr(self.app, 'init_progress_bar'):
-            self.app.init_progress_bar.show_animated()
-            self.app.init_progress_bar.set_progress(0, "🚀 Начинаем инициализацию...")
+        self._init_started = True
+        log("⚡ Быстрая инициализация через WinAPI", "DEBUG")
         
         try:
-            log("🔵 Создаем QThread для HeavyInit", "DEBUG")
-            self._heavy_init_thread = QThread()
+            # 1. Проверка winws.exe через WinAPI (~0.1ms)
+            if not self._check_winws_fast():
+                log("winws.exe не найден", "❌ ERROR")
+                self.app.set_status("❌ winws.exe не найден")
+                return
             
-            log("🔵 Создаем HeavyInitWorker", "DEBUG")
-            from heavy_init_worker import HeavyInitWorker
+            log("✅ winws.exe найден", "DEBUG")
             
-            self.heavy_worker = HeavyInitWorker(
-                self.app.dpi_starter if hasattr(self.app, 'dpi_starter') else None,
-                getattr(self.app, 'download_urls', [])
-            )
+            # 2. Быстрая проверка интернета через WinAPI (~10-50ms)
+            has_internet = self._check_internet_fast()
+            if not has_internet:
+                log("Нет интернета - работаем в автономном режиме", "⚠ WARNING")
             
-            log("🔵 Перемещаем worker в поток", "DEBUG")
-            self.heavy_worker.moveToThread(self._heavy_init_thread)
+            # 3. Подсчёт стратегий через WinAPI (~1-5ms)
+            strategy_count = self._count_strategies_fast()
+            log(f"Найдено {strategy_count} стратегий", "DEBUG")
             
-            # Подключаем сигналы
-            self._heavy_init_thread.started.connect(self.heavy_worker.run)
-            self.heavy_worker.progress.connect(self._on_heavy_progress)
-            self.heavy_worker.finished.connect(self._on_heavy_done)
-            self.heavy_worker.finished.connect(self._heavy_init_thread.quit)
-            
-            log("Запускаем HeavyInit поток...", "DEBUG")
-            self._heavy_init_thread.start()
+            # 4. Обновление UI через менеджеры
+            self._finalize_init()
             
         except Exception as e:
-            log(f"🔵 Ошибка в HeavyInitManager: {e}", "❌ ERROR")
-            self._heavy_init_started = False
-            
-            if hasattr(self.app, 'init_progress_bar'):
-                self.app.init_progress_bar.set_progress(0, "❌ Ошибка инициализации")
-                QTimer.singleShot(2000, self.app.init_progress_bar.hide_animated)
-            
+            log(f"Ошибка в HeavyInit: {e}", "❌ ERROR")
             import traceback
             log(f"Traceback: {traceback.format_exc()}", "❌ ERROR")
+        finally:
+            self._init_started = False
 
-    def check_local_files(self):
-        """Проверяет наличие критически важных локальных файлов"""
-        from config import WINWS_EXE, WINWS2_EXE
-        from strategy_menu import get_strategy_launch_method
-        
-        launch_method = get_strategy_launch_method()
-        
-        if launch_method == "direct":
-            # Для прямого запуска нужен winws2.exe
-            if not os.path.exists(WINWS2_EXE):
-                self.app.set_status("❌ winws2.exe не найден - включите автозагрузку")
-                return False
-        else:
-            # Для BAT режима нужен winws.exe
-            if not os.path.exists(WINWS_EXE):
-                self.app.set_status("❌ winws.exe не найден - включите автозагрузку")
-                return False
-        
-        self.app.set_status("✅ Локальные файлы найдены")
-        return True
-
-    def _on_heavy_progress(self, message: str):
-        """Обработка прогресса от HeavyInitWorker"""
-        log(f"HeavyInit прогресс: {message}", "DEBUG")
-        
-        # Обновляем статус в главном окне
-        if hasattr(self.app, 'set_status'):
-            # Используем красивые сообщения из мапинга
-            if message in self.progress_map:
-                _, display_text = self.progress_map[message]
-                self.app.set_status(display_text)
-            else:
-                self.app.set_status(message)
-
-    def _on_heavy_done(self, success: bool, error_msg: str):
-        """Обработка завершения HeavyInit"""
-        log("🔵 HeavyInitManager: завершение тяжелой инициализации", "DEBUG")
-        
-        self._heavy_init_started = False
-        
-        if success:
-            self._handle_successful_init()
-        else:
-            self._handle_failed_init(error_msg)
-
-    def _handle_successful_init(self):
-        """Обработка успешной инициализации"""
-        # Обновляем статус
-        if hasattr(self.app, 'set_status'):
-            self.app.set_status("✅ Подготовка к запуску...")
-        
-        # Безопасная проверка strategy_manager
-        if hasattr(self.app, 'strategy_manager') and self.app.strategy_manager:
-            log(f"🔵 strategy_manager.already_loaded = {self.app.strategy_manager.already_loaded}", "DEBUG")
-            
-            if self.app.strategy_manager.already_loaded:
-                log("🔵 Вызываем update_strategies_list через UI Manager", "DEBUG")
-                # ✅ ИСПОЛЬЗУЕМ UI MANAGER
-                if hasattr(self.app, 'ui_manager'):
-                    self.app.ui_manager.update_strategies_list()
-                log("🔵 update_strategies_list завершен", "DEBUG")
-        else:
-            log("🔵 strategy_manager не инициализирован!", "⚠ WARNING")
-
-        # Автозапуск DPI если настроен через DPI Manager
-        log("🔵 Вызываем delayed_dpi_start через DPI Manager", "DEBUG")
-        if hasattr(self.app, 'dpi_manager'):
-            self.app.dpi_manager.delayed_dpi_start()
-        log("🔵 delayed_dpi_start завершен", "DEBUG")
-
-        # combobox-фикс через UI Manager
-        for delay in (0, 100, 200):
-            QTimer.singleShot(delay, lambda: (
-                self.app.ui_manager.force_enable_combos() 
-                if hasattr(self.app, 'ui_manager') else None
-            ))
-
-        self.app.set_status("Инициализация завершена")
-        
-        # Обновления проверяются вручную на вкладке "Серверы"
-        
-        log("🔵 HeavyInitManager: успешно завершен", "DEBUG")
-
-    def _handle_failed_init(self, error_msg: str):
-        """Обработка неуспешной инициализации"""
-        log(f"HeavyInit завершился с ошибкой: {error_msg}", "❌ ERROR")
-        
-        # Показываем ошибку в главном окне
-        if hasattr(self.app, 'set_status'):
-            self.app.set_status(f"❌ Ошибка: {error_msg}")
-
-    def cleanup(self):
-        """Очистка ресурсов при закрытии приложения"""
+    def _check_winws_fast(self) -> bool:
+        """⚡ Проверка winws.exe через WinAPI GetFileAttributesW (~0.1ms)"""
         try:
-            if self._heavy_init_thread and self._heavy_init_thread.isRunning():
-                self._heavy_init_thread.quit()
-                self._heavy_init_thread.wait(1000)
+            from config import WINWS_EXE, WINWS2_EXE
+            from strategy_menu import get_strategy_launch_method
             
-            if self.heavy_worker:
-                self.heavy_worker.deleteLater()
-                
+            launch_method = get_strategy_launch_method()
+            target_file = WINWS2_EXE if launch_method == "direct" else WINWS_EXE
+            
+            # GetFileAttributesW возвращает -1 если файла нет
+            INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
+            attrs = self._kernel32.GetFileAttributesW(target_file)
+            
+            return attrs != INVALID_FILE_ATTRIBUTES
+            
         except Exception as e:
-            log(f"Ошибка при очистке HeavyInitManager: {e}", "DEBUG")
+            log(f"Ошибка при проверке winws.exe: {e}", "DEBUG")
+            # Fallback на os.path.exists
+            try:
+                from config import WINWS_EXE
+                return os.path.exists(WINWS_EXE)
+            except:
+                return False
+    
+    def _check_internet_fast(self) -> bool:
+        """⚡ Проверка интернета через WinAPI InternetCheckConnection (~10-50ms)"""
+        try:
+            if not self._wininet:
+                return False
+            
+            # InternetCheckConnectionW - быстрая проверка без HTTP запроса
+            result = self._wininet.InternetCheckConnectionW(
+                "https://www.google.com",
+                1,  # FLAG_ICC_FORCE_CONNECTION
+                0
+            )
+            
+            return bool(result)
+            
+        except Exception as e:
+            log(f"Ошибка проверки интернета через WinAPI: {e}", "DEBUG")
+            return False
+    
+    def _count_strategies_fast(self) -> int:
+        """⚡ Подсчёт .bat файлов через WinAPI FindFirstFileW (~1-5ms)"""
+        try:
+            from config import BAT_FOLDER
+            
+            if not os.path.exists(BAT_FOLDER):
+                return 0
+            
+            # Используем FindFirstFileW/FindNextFileW для максимальной скорости
+            search_path = os.path.join(BAT_FOLDER, "*.bat")
+            
+            # Структура WIN32_FIND_DATAW
+            class WIN32_FIND_DATAW(ctypes.Structure):
+                _fields_ = [
+                    ("dwFileAttributes", wintypes.DWORD),
+                    ("ftCreationTime", wintypes.FILETIME),
+                    ("ftLastAccessTime", wintypes.FILETIME),
+                    ("ftLastWriteTime", wintypes.FILETIME),
+                    ("nFileSizeHigh", wintypes.DWORD),
+                    ("nFileSizeLow", wintypes.DWORD),
+                    ("dwReserved0", wintypes.DWORD),
+                    ("dwReserved1", wintypes.DWORD),
+                    ("cFileName", wintypes.WCHAR * 260),
+                    ("cAlternateFileName", wintypes.WCHAR * 14),
+                ]
+            
+            find_data = WIN32_FIND_DATAW()
+            handle = self._kernel32.FindFirstFileW(search_path, ctypes.byref(find_data))
+            
+            INVALID_HANDLE_VALUE = -1
+            if handle == INVALID_HANDLE_VALUE:
+                return 0
+            
+            count = 1
+            while self._kernel32.FindNextFileW(handle, ctypes.byref(find_data)):
+                count += 1
+            
+            self._kernel32.FindClose(handle)
+            return count
+            
+        except Exception as e:
+            log(f"Ошибка подсчёта стратегий: {e}", "DEBUG")
+            # Fallback на обычный подсчёт
+            try:
+                from config import BAT_FOLDER
+                if os.path.exists(BAT_FOLDER):
+                    return len([f for f in os.listdir(BAT_FOLDER) if f.lower().endswith('.bat')])
+            except:
+                pass
+            return 0
+    
+    def _finalize_init(self):
+        """Финализация инициализации - обновление UI и автозапуск"""
+        try:
+            # Обновляем splash
+            if hasattr(self.app, 'splash') and self.app.splash:
+                self.app.splash.set_progress(75, "Подготовка к запуску...", "Почти готово")
+            
+            # Обновление списка стратегий
+            if hasattr(self.app, 'strategy_manager') and self.app.strategy_manager:
+                if self.app.strategy_manager.already_loaded:
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_strategies_list()
+            
+            # Автозапуск DPI если настроен
+            if hasattr(self.app, 'dpi_manager'):
+                self.app.dpi_manager.delayed_dpi_start()
+            
+            # Combobox-фикс через UI Manager
+            for delay in (0, 100, 200):
+                QTimer.singleShot(delay, lambda: (
+                    self.app.ui_manager.force_enable_combos() 
+                    if hasattr(self.app, 'ui_manager') else None
+                ))
+            
+            self.app.set_status("✅ Инициализация завершена")
+            log("⚡ Быстрая инициализация завершена", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка финализации: {e}", "❌ ERROR")
+
+    def check_local_files(self) -> bool:
+        """Быстрая проверка наличия критически важных файлов (для совместимости)"""
+        return self._check_winws_fast()
+    
+    def cleanup(self):
+        """Очистка ресурсов (теперь не требуется - нет потоков)"""
+        # Больше нет QThread, все работает синхронно
+        self._init_started = False
+        log("HeavyInitManager очищен", "DEBUG")

@@ -1448,9 +1448,22 @@ class ServersPage(BasePage):
         log(f"Автопроверка при открытии вкладки: {'включена' if enabled else 'отключена'}", "🔄 UPDATE")
             
     def cleanup(self):
-        if self.server_worker and self.server_worker.isRunning():
-            self.server_worker.terminate()
-            self.server_worker.wait()
-        if self.version_worker and self.version_worker.isRunning():
-            self.version_worker.terminate()
-            self.version_worker.wait()
+        """Очистка потоков при закрытии"""
+        try:
+            if self.server_worker and self.server_worker.isRunning():
+                log("Останавливаем server_worker...", "DEBUG")
+                self.server_worker.quit()
+                if not self.server_worker.wait(2000):
+                    log("⚠ server_worker не завершился, принудительно завершаем", "WARNING")
+                    self.server_worker.terminate()
+                    self.server_worker.wait(500)
+            
+            if self.version_worker and self.version_worker.isRunning():
+                log("Останавливаем version_worker...", "DEBUG")
+                self.version_worker.quit()
+                if not self.version_worker.wait(2000):
+                    log("⚠ version_worker не завершился, принудительно завершаем", "WARNING")
+                    self.version_worker.terminate()
+                    self.version_worker.wait(500)
+        except Exception as e:
+            log(f"Ошибка при очистке servers_page: {e}", "DEBUG")

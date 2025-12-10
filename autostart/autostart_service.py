@@ -59,9 +59,39 @@ def setup_service_for_strategy(
 
         log(f"Найден .bat файл для стратегии '{selected_mode}': {bat_path}", "DEBUG")
 
-        # ---------- 2. Создаём службу через API --------------------------------
+        # ---------- 2. Создаём службу (приоритет: NSSM > API) --------------------------------
         log(f"Создание службы для стратегии: {selected_mode}", "INFO")
         
+        # Метод 1: NSSM (предпочтительный)
+        from .nssm_service import get_nssm_path, create_service_with_nssm, start_service_with_nssm
+        
+        nssm_path = get_nssm_path()
+        if nssm_path:
+            log("⚡ Создание службы через NSSM (рекомендуется)...", "INFO")
+            
+            # NSSM не может запускать .bat напрямую, поэтому используем cmd.exe
+            if create_service_with_nssm(
+                service_name=SERVICE_NAME,
+                display_name=SERVICE_DISPLAY_NAME,
+                exe_path="C:\\Windows\\System32\\cmd.exe",
+                args=["/c", str(bat_path)],
+                description=f"{SERVICE_DESCRIPTION} (стратегия: {selected_mode})",
+                auto_start=True
+            ):
+                # Запускаем службу
+                if start_service_with_nssm(SERVICE_NAME):
+                    log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
+                else:
+                    log(f"⚠ Служба создана через NSSM, но не запущена", "WARNING")
+                
+                set_autostart_enabled(True, "service")
+                return True
+            else:
+                log("NSSM не смог создать службу, пробуем Windows API...", "WARNING")
+        else:
+            log("NSSM не найден, используем Windows API...", "INFO")
+        
+        # Метод 2: Windows API (fallback)
         if create_bat_service(
             service_name=SERVICE_NAME,
             display_name=SERVICE_DISPLAY_NAME,
@@ -69,14 +99,11 @@ def setup_service_for_strategy(
             description=f"{SERVICE_DESCRIPTION} (стратегия: {selected_mode})",
             auto_start=True
         ):
-            log(f'Служба "{SERVICE_NAME}" создана через API', "✅ SUCCESS")
-            
-            # Обновляем статус автозапуска в реестре
+            log(f'Служба "{SERVICE_NAME}" создана через Windows API', "✅ SUCCESS")
             set_autostart_enabled(True, "service")
-            
             return True
         else:
-            return _fail("Не удалось создать службу через API", ui_error_cb)
+            return _fail("Не удалось создать службу ни одним из методов", ui_error_cb)
 
     except Exception as exc:
         msg = f"setup_service_for_strategy: {exc}\n{traceback.format_exc()}"
@@ -85,17 +112,28 @@ def setup_service_for_strategy(
 
 def remove_service() -> bool:
     """
-    Удаляет службу Windows через API.
+    ⚡ Удаляет службу Windows (NSSM или API).
     
     Returns:
         True если служба была удалена, False если её не было
     """
     try:
-        if not service_exists(SERVICE_NAME):
-            log(f"Служба {SERVICE_NAME} не существует", "DEBUG")
-            return False
+        from .nssm_service import remove_service_with_nssm, service_exists_nssm
         
-        if delete_service(SERVICE_NAME):
+        # Пробуем удалить через NSSM сначала
+        if service_exists_nssm(SERVICE_NAME):
+            log("Удаление службы через NSSM...", "INFO")
+            result = remove_service_with_nssm(SERVICE_NAME)
+        else:
+            # Удаляем через Windows API
+            if not service_exists(SERVICE_NAME):
+                log(f"Служба {SERVICE_NAME} не существует", "DEBUG")
+                return False
+            
+            log("Удаление службы через Windows API...", "INFO")
+            result = delete_service(SERVICE_NAME)
+        
+        if result:
             log(f'Служба "{SERVICE_NAME}" удалена', "INFO")
             
             # Проверяем остались ли другие методы автозапуска
@@ -114,17 +152,34 @@ def remove_service() -> bool:
 
 
 def start_service_now() -> bool:
-    """Запускает службу"""
+    """⚡ Запускает службу (NSSM или API)"""
+    from .nssm_service import start_service_with_nssm, service_exists_nssm
+    
+    if service_exists_nssm(SERVICE_NAME):
+        return start_service_with_nssm(SERVICE_NAME)
+    
     return start_service(SERVICE_NAME)
 
 
 def stop_service_now() -> bool:
-    """Останавливает службу"""
+    """⚡ Останавливает службу (NSSM или API)"""
+    from .nssm_service import stop_service_with_nssm, service_exists_nssm
+    
+    if service_exists_nssm(SERVICE_NAME):
+        return stop_service_with_nssm(SERVICE_NAME)
+    
     return stop_service(SERVICE_NAME)
 
 
 def is_service_installed() -> bool:
-    """Проверяет установлена ли служба"""
+    """⚡ Проверяет установлена ли служба (NSSM или API)"""
+    from .nssm_service import service_exists_nssm
+    
+    # Проверяем через NSSM сначала
+    if service_exists_nssm(SERVICE_NAME):
+        return True
+    
+    # Fallback на Windows API
     return service_exists(SERVICE_NAME)
 
 

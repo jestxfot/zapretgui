@@ -6,7 +6,7 @@ import psutil
 from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strategy_menu.strategy_manager import StrategyManager
+    from strategy_menu.bat_zapret1_manager import BatZapret1Manager
     from main import LupiDPIApp
 
 from log import log
@@ -158,7 +158,7 @@ class BatDPIStart:
             "✅ SUCCESS" if ok else "⚠ WARNING")
         return ok
 
-    def _get_strategy_manager(self) -> Optional['StrategyManager']:
+    def _get_strategy_manager(self) -> Optional['BatZapret1Manager']:
         """Получает strategy_manager с правильной типизацией"""
         if not self.app_instance:
             return None

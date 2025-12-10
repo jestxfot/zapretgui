@@ -478,5 +478,35 @@ class ConnectionTestPage(BasePage):
     def _set_status(self, text: str, status: str = "muted"):
         self.status_label.setText(text)
         self.status_badge.set_status(text, status)
+    
+    def cleanup(self):
+        """Очистка потоков при закрытии"""
+        from log import log
+        try:
+            if self.worker_thread and self.worker_thread.isRunning():
+                log("Останавливаем connection test worker...", "DEBUG")
+                if self.worker:
+                    self.worker.stop_gracefully()
+                self.worker_thread.quit()
+                if not self.worker_thread.wait(2000):
+                    log("⚠ Connection test worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self.worker_thread.terminate()
+                        self.worker_thread.wait(500)
+                    except:
+                        pass
+            
+            if self.log_send_thread and self.log_send_thread.isRunning():
+                log("Останавливаем log send worker...", "DEBUG")
+                self.log_send_thread.quit()
+                if not self.log_send_thread.wait(2000):
+                    log("⚠ Log send worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self.log_send_thread.terminate()
+                        self.log_send_thread.wait(500)
+                    except:
+                        pass
+        except Exception as e:
+            log(f"Ошибка при очистке connection_page: {e}", "DEBUG")
 
 

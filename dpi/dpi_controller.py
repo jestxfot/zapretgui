@@ -776,11 +776,30 @@ class DPIController:
         """Очищает все потоки при закрытии приложения"""
         try:
             if self._dpi_start_thread and self._dpi_start_thread.isRunning():
+                log("Останавливаем поток запуска DPI...", "DEBUG")
                 self._dpi_start_thread.quit()
-                self._dpi_start_thread.wait(1000)
+                if not self._dpi_start_thread.wait(2000):
+                    log("⚠ Поток запуска DPI не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self._dpi_start_thread.terminate()
+                        self._dpi_start_thread.wait(500)
+                    except:
+                        pass
             
             if self._dpi_stop_thread and self._dpi_stop_thread.isRunning():
+                log("Останавливаем поток остановки DPI...", "DEBUG")
                 self._dpi_stop_thread.quit()
-                self._dpi_stop_thread.wait(1000)
+                if not self._dpi_stop_thread.wait(2000):
+                    log("⚠ Поток остановки DPI не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self._dpi_stop_thread.terminate()
+                        self._dpi_stop_thread.wait(500)
+                    except:
+                        pass
+            
+            # Обнуляем ссылки
+            self._dpi_start_thread = None
+            self._dpi_stop_thread = None
+            
         except Exception as e:
             log(f"Ошибка при очистке потоков DPI контроллера: {e}", "❌ ERROR")

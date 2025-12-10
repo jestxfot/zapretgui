@@ -422,45 +422,51 @@ class StrategiesRegistry:
         """Получить все ключи категорий в порядке командной строки"""
         return sorted(self._categories.keys(), key=lambda k: self._categories[k].command_order)
     
-    def get_visible_category_keys(self, base_args_mode: str) -> List[str]:
+    def get_all_category_keys_sorted(self) -> List[str]:
         """
-        Получить ключи категорий, видимых для данного режима фильтрации.
+        Получить все ключи категорий, отсортированных по order.
+        Теперь все категории показываются, но некоторые могут быть заблокированы.
+        
+        Returns:
+            Список всех ключей категорий, отсортированных по order
+        """
+        return sorted(self._categories.keys(), key=lambda k: self._categories[k].order)
+    
+    def is_category_blocked(self, category_key: str, base_args_mode: str) -> bool:
+        """
+        Проверяет, заблокирована ли категория для данного режима фильтрации.
+        Заблокированные категории показываются полупрозрачными с курсором 🚫.
         
         Args:
+            category_key: Ключ категории
             base_args_mode: Режим фильтрации ('windivert-discord-media-stun-sites', 'wf-l3', 
                            'windivert_all', 'wf-l3-all')
         
         Returns:
-            Список ключей категорий, отсортированных по order
+            True если категория заблокирована (полупрозрачная, нельзя выбрать)
         """
-        # Аккуратные режимы скрывают категории с requires_all_ports=True
-        is_careful_mode = base_args_mode in CAREFUL_MODES
-        
-        visible_keys = []
-        for key, info in self._categories.items():
-            # Если аккуратный режим и категория требует все порты - скрываем
-            if is_careful_mode and info.requires_all_ports:
-                continue
-            visible_keys.append(key)
-        
-        return sorted(visible_keys, key=lambda k: self._categories[k].order)
-    
-    def is_category_visible(self, category_key: str, base_args_mode: str) -> bool:
-        """Проверяет, видна ли категория для данного режима"""
         category_info = self._categories.get(category_key)
         if not category_info:
-            return False
+            return True  # Неизвестные категории блокируем
         
         is_careful_mode = base_args_mode in CAREFUL_MODES
         
-        # Если аккуратный режим и категория требует все порты - скрываем
+        # Если аккуратный режим и категория требует все порты - блокируем
         if is_careful_mode and category_info.requires_all_ports:
-            return False
+            return True
         
-        return True
+        return False
     
-    def get_hidden_categories_for_mode(self, base_args_mode: str) -> List[str]:
-        """Возвращает список скрытых категорий для данного режима"""
+    def get_blocked_categories_for_mode(self, base_args_mode: str) -> List[str]:
+        """
+        Возвращает список заблокированных категорий для данного режима.
+        
+        Args:
+            base_args_mode: Режим фильтрации
+            
+        Returns:
+            Список ключей заблокированных категорий
+        """
         is_careful_mode = base_args_mode in CAREFUL_MODES
         
         if not is_careful_mode:
@@ -480,7 +486,7 @@ class StrategiesRegistry:
             get_wf_tcp_80_enabled, get_wf_tcp_443_enabled,
             get_wf_udp_443_enabled, get_wf_tcp_all_ports_enabled,
             get_wf_udp_all_ports_enabled, get_wf_raw_discord_media_enabled,
-            get_wf_raw_stun_enabled, get_wf_raw_quic_initial_enabled
+            get_wf_raw_stun_enabled
         )
         
         category_info = self._categories.get(category_key)
@@ -499,9 +505,9 @@ class StrategiesRegistry:
         if category_key == 'discord_voice_udp':
             return get_wf_raw_discord_media_enabled() or get_wf_raw_stun_enabled()
         
-        # YouTube QUIC - зависит от настройки "QUIC Initial (YouTube)"
+        # YouTube QUIC - теперь зависит от UDP 443 (дублирование с QUIC Initial убрано)
         if category_key == 'youtube_udp':
-            return get_wf_raw_quic_initial_enabled()
+            return get_wf_udp_443_enabled()
         
         # UDP категории
         if protocol in ('UDP', 'QUIC/UDP'):
@@ -583,6 +589,8 @@ __all__ = [
     'is_category_enabled_by_filters',
     'get_enabled_category_keys',
     'reload_categories',
+    'is_category_blocked',
+    'get_blocked_categories_for_mode',
 ]
 
 def is_category_enabled_by_filters(category_key: str) -> bool:
@@ -592,3 +600,11 @@ def is_category_enabled_by_filters(category_key: str) -> bool:
 def get_enabled_category_keys() -> List[str]:
     """Совместимость: получить включенные категории"""
     return registry.get_enabled_category_keys()
+
+def is_category_blocked(category_key: str, base_args_mode: str) -> bool:
+    """Совместимость: проверить заблокирована ли категория для режима"""
+    return registry.is_category_blocked(category_key, base_args_mode)
+
+def get_blocked_categories_for_mode(base_args_mode: str) -> List[str]:
+    """Совместимость: получить список заблокированных категорий для режима"""
+    return registry.get_blocked_categories_for_mode(base_args_mode)

@@ -664,8 +664,8 @@ class SplashScreen(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         
-        # Размер и позиция - увеличенное окно
-        self.setFixedSize(550, 500)
+        # Размер и позиция - большое окно для лучшей видимости
+        self.setFixedSize(800, 800)
         self._center_on_screen()
         
         self.animated_icon = None
@@ -884,56 +884,56 @@ class SplashScreen(QWidget):
         
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
-            pixmap = icon.pixmap(120, 120)  # Увеличенная иконка
+            pixmap = icon.pixmap(150, 150)  # Ещё больше иконка
         else:
             icon = qta.icon('fa5s.shield-alt', color='#00d4aa')
-            pixmap = icon.pixmap(120, 120)  # Увеличенная иконка
+            pixmap = icon.pixmap(150, 150)  # Ещё больше иконка
         
         self.animated_icon = AnimatedIconWidget(pixmap, parent=central_container)
         central_layout.addWidget(self.animated_icon, alignment=Qt.AlignmentFlag.AlignCenter)
         
         central_layout.addSpacing(6)
         
-        # Заголовок с градиентным эффектом
+        # Заголовок с градиентным эффектом - увеличен
         title = QLabel("Zapret2")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("""
             QLabel {
                 color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #ffffff, stop:0.5 #00f5c4, stop:1 #ffffff);
-                font-size: 36px;
+                font-size: 44px;
                 font-weight: 700;
                 font-family: 'Segoe UI Black', 'Segoe UI', sans-serif;
                 background: transparent;
-                letter-spacing: 3px;
+                letter-spacing: 4px;
             }
         """)
         central_layout.addWidget(title)
         
-        # Подзаголовок
+        # Подзаголовок - увеличен
         subtitle = QLabel("Обход блокировок")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
-                font-size: 13px;
+                font-size: 16px;
                 font-weight: 400;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-                letter-spacing: 2px;
+                letter-spacing: 3px;
             }
         """)
         central_layout.addWidget(subtitle)
         
         central_layout.addSpacing(4)
         
-        # Версия
+        # Версия - увеличена
         version_label = QLabel(f"v{APP_VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("""
             QLabel {
                 color: #00d4aa;
-                font-size: 14px;
+                font-size: 17px;
                 font-weight: 600;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
                 background: transparent;
@@ -941,7 +941,7 @@ class SplashScreen(QWidget):
         """)
         central_layout.addWidget(version_label)
         
-        # Канал (если не release)
+        # Канал (если не release) - увеличен
         if CHANNEL.lower() != "release":
             channel_label = QLabel(f"⚡ {CHANNEL.upper()}")
             channel_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -950,45 +950,45 @@ class SplashScreen(QWidget):
                     color: #1a1a1a;
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                         stop:0 #ffd93d, stop:1 #ffb830);
-                    font-size: 9px;
+                    font-size: 11px;
                     font-weight: 700;
-                    padding: 4px 12px;
-                    border-radius: 10px;
+                    padding: 6px 16px;
+                    border-radius: 12px;
                 }
             """)
             central_layout.addWidget(channel_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
         central_layout.addSpacing(20)
         
-        # Контейнер прогресса
+        # Контейнер прогресса - шире
         progress_container = QWidget(central_container)
-        progress_container.setMaximumWidth(420)
+        progress_container.setMaximumWidth(550)
         progress_container.setStyleSheet("background: transparent;")
         progress_layout = QVBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
         progress_layout.setSpacing(10)
         
-        # Статус
+        # Статус - увеличен
         self.status_label = QLabel("Разрушаем блокировки...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.8);
-                font-size: 14px;
+                font-size: 17px;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
             }
         """)
         progress_layout.addWidget(self.status_label)
         
-        # Прогресс-бар с красивым стилем
+        # Прогресс-бар с красивым стилем - больше и шире
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(8)
-        self.progress_bar.setMinimumWidth(360)
+        self.progress_bar.setFixedHeight(10)
+        self.progress_bar.setMinimumWidth(480)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 background-color: rgba(255, 255, 255, 0.08);
@@ -1007,13 +1007,13 @@ class SplashScreen(QWidget):
         """)
         progress_layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        # Процент
+        # Процент - увеличен
         self.percent_label = QLabel("0%")
         self.percent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.percent_label.setStyleSheet("""
             QLabel {
                 color: #00d4aa;
-                font-size: 13px;
+                font-size: 16px;
                 font-weight: 600;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
                 background: transparent;
@@ -1021,13 +1021,13 @@ class SplashScreen(QWidget):
         """)
         progress_layout.addWidget(self.percent_label)
         
-        # Детали
+        # Детали - увеличены
         self.detail_label = QLabel("")
         self.detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_label.setStyleSheet("""
             QLabel {
-                color: #555555;
-                font-size: 10px;
+                color: #666666;
+                font-size: 12px;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
             }

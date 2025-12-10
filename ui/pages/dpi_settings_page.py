@@ -557,11 +557,6 @@ class DpiSettingsPage(BasePage):
         raw_section.setStyleSheet("color: #2196F3; font-size: 12px; font-weight: 600; padding-top: 16px;")
         filters_layout.addWidget(raw_section)
         
-        self.raw_quic_toggle = Win11ToggleRow(
-            "mdi.youtube", "QUIC Initial (YouTube)", 
-            "Для YouTube и HTTP/3", "#f44336")
-        filters_layout.addWidget(self.raw_quic_toggle)
-        
         self.raw_discord_toggle = Win11ToggleRow(
             "mdi.discord", "Discord Media", 
             "Голосовые каналы Discord", "#7289da")
@@ -859,7 +854,6 @@ class DpiSettingsPage(BasePage):
                 get_wf_tcp_all_ports_enabled, set_wf_tcp_all_ports_enabled,
                 get_wf_udp_443_enabled, set_wf_udp_443_enabled,
                 get_wf_udp_all_ports_enabled, set_wf_udp_all_ports_enabled,
-                get_wf_raw_quic_initial_enabled, set_wf_raw_quic_initial_enabled,
                 get_wf_raw_discord_media_enabled, set_wf_raw_discord_media_enabled,
                 get_wf_raw_stun_enabled, set_wf_raw_stun_enabled,
                 get_wf_raw_wireguard_enabled, set_wf_raw_wireguard_enabled,
@@ -880,7 +874,6 @@ class DpiSettingsPage(BasePage):
             self.udp_all_ports_toggle.setChecked(get_wf_udp_all_ports_enabled(), block_signals=True)
             
             # Raw-part
-            self.raw_quic_toggle.setChecked(get_wf_raw_quic_initial_enabled(), block_signals=True)
             self.raw_discord_toggle.setChecked(get_wf_raw_discord_media_enabled(), block_signals=True)
             self.raw_stun_toggle.setChecked(get_wf_raw_stun_enabled(), block_signals=True)
             self.raw_wireguard_toggle.setChecked(get_wf_raw_wireguard_enabled(), block_signals=True)
@@ -900,7 +893,6 @@ class DpiSettingsPage(BasePage):
             self.udp_443_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_udp_443_enabled, v))
             self.udp_all_ports_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_udp_all_ports_enabled, v))
             
-            self.raw_quic_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_quic_initial_enabled, v))
             self.raw_discord_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_discord_media_enabled, v))
             self.raw_stun_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_stun_enabled, v))
             self.raw_wireguard_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_wireguard_enabled, v))

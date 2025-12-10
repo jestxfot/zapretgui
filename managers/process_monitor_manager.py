@@ -44,10 +44,9 @@ class ProcessMonitorManager(QObject):
             self.app._prev_running = is_running
             self._is_running = is_running
             
-            # ✅ Обновляем UI через UI Manager (страницы и кнопки)
+            # ✅ Обновляем UI через UI Manager
             if hasattr(self.app, 'ui_manager'):
-                self.app.ui_manager.update_button_visibility(is_running, autostart_active)
-                self.app.ui_manager.update_process_status_display(is_running, autostart_active)
+                self.app.ui_manager._update_all_pages(is_running, autostart_active)
             
         except Exception as e:
             log(f"Ошибка в on_process_status_changed: {e}", level="❌ ERROR")

@@ -803,19 +803,20 @@ class StrategiesPage(QWidget):
             self._strategy_widget._tab_category_keys = []
             self._strategy_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._strategy_widget.add_category_clicked.connect(self._show_add_category_dialog)
+            self._strategy_widget.edit_category_clicked.connect(self._show_edit_category_dialog)
             
             # Получаем данные из реестра
             tab_tooltips = registry.get_tab_tooltips_dict()
             
             self._category_tab_indices = {}
-            # Получаем только включенные категории на основе фильтров
-            category_keys = registry.get_enabled_category_keys()
+            # Получаем ВСЕ категории (больше не скрываем, только блокируем)
+            category_keys = registry.get_all_category_keys_sorted()
             
             # Очищаем существующие вкладки
             self._strategy_widget.clear()
             self._strategy_widget._tab_category_keys = []
             
-            # Создаём вкладки только для включенных категорий (по порядку)
+            # Создаём вкладки для ВСЕХ категорий (по порядку)
             for idx, category_key in enumerate(category_keys):
                 category_info = registry.get_category_info(category_key)
                 if not category_info:
@@ -851,18 +852,29 @@ class StrategiesPage(QWidget):
             self.cmd_widget.setMinimumHeight(200)  # Увеличенная высота
             self.content_layout.addWidget(self.cmd_widget)
             
-            # Принудительно выбираем первую вкладку и загружаем сразу
+            # Применяем блокировку вкладок на основе фильтров (СНАЧАЛА)
+            self._update_tabs_blocking_state()
+            
+            # Обновляем цвета иконок всех вкладок на основе выборов (ПОСЛЕ блокировки)
+            # Заблокированные вкладки будут пропущены
+            self._strategy_widget.update_all_tab_icons(self.category_selections)
+            
+            # Принудительно выбираем первую НЕзаблокированную вкладку и загружаем сразу
             if self._strategy_widget.count() > 0:
+                # Ищем первую незаблокированную вкладку
+                first_unblocked = 0
+                for i in range(self._strategy_widget.count()):
+                    if not self._strategy_widget.is_tab_blocked(i):
+                        first_unblocked = i
+                        break
+                
                 self._strategy_widget.blockSignals(True)  # Блокируем сигналы чтобы избежать двойного вызова
-                self._strategy_widget.setCurrentIndex(0)
+                self._strategy_widget.setCurrentIndex(first_unblocked)
                 self._strategy_widget.blockSignals(False)
-                self._load_category_tab(0)  # Загружаем синхронно
+                self._load_category_tab(first_unblocked)  # Загружаем синхронно
             
             # Добавляем кнопку "+" в конец списка категорий
             self._strategy_widget.add_add_button()
-            
-            # Обновляем цвета иконок всех вкладок на основе выборов
-            self._strategy_widget.update_all_tab_icons(self.category_selections)
             
             # Обновляем отображение и командную строку сразу
             self._update_current_strategies_display()
@@ -875,6 +887,87 @@ class StrategiesPage(QWidget):
             import traceback
             log(traceback.format_exc(), "DEBUG")
             raise
+    
+    def _update_tabs_blocking_state(self):
+        """
+        Обновляет состояние блокировки вкладок на основе текущих настроек фильтров.
+        Заблокированные вкладки показываются темно-серыми с курсором 🚫.
+        """
+        try:
+            from strategy_menu import (
+                get_wf_tcp_all_ports_enabled,
+                get_wf_udp_all_ports_enabled,
+                get_wf_tcp_443_enabled,
+                get_wf_udp_443_enabled,
+                get_wf_tcp_80_enabled
+            )
+            from strategy_menu.strategies_registry import registry
+            
+            # Получаем состояние фильтров
+            tcp_80_enabled = get_wf_tcp_80_enabled()
+            tcp_all_enabled = get_wf_tcp_all_ports_enabled()
+            udp_all_enabled = get_wf_udp_all_ports_enabled()
+            tcp_443_enabled = get_wf_tcp_443_enabled()
+            udp_443_enabled = get_wf_udp_443_enabled()
+            
+            # Проходим по всем вкладкам и устанавливаем блокировку
+            for category_key, tab_index in self._category_tab_indices.items():
+                # Голосовые звонки (Discord Voice UDP) НИКОГДА не блокируются
+                if category_key == 'discord_voice_udp':
+                    self._strategy_widget.set_tab_blocked(tab_index, False)
+                    continue
+                
+                category_info = registry.get_category_info(category_key)
+                if not category_info:
+                    continue
+                
+                should_block = False
+                required_filter_hint = None
+                protocol = category_info.protocol
+                ports = category_info.ports
+                strategy_type = category_info.strategy_type
+                
+                # Логика блокировки:
+                # HTTP порт 80 категории (проверяем по strategy_type)
+                if strategy_type == 'http80':
+                    should_block = not tcp_80_enabled
+                    if should_block:
+                        required_filter_hint = "Включите «TCP порт 80» в настройках DPI"
+                    
+                elif protocol == 'TCP':
+                    # TCP категории
+                    if category_info.requires_all_ports:
+                        # Категории требующие все порты (IPset) - блокируем если не включен TCP all
+                        should_block = not tcp_all_enabled
+                        if should_block:
+                            required_filter_hint = "Включите «TCP 444-65535» в настройках DPI"
+                    else:
+                        # Обычные TCP 443 категории - блокируем если не включен TCP 443
+                        should_block = not tcp_443_enabled
+                        if should_block:
+                            required_filter_hint = "Включите «TCP порт 443» в настройках DPI"
+                        
+                elif protocol in ('UDP', 'QUIC/UDP'):
+                    # UDP категории
+                    if '443' in ports and not any(c in ports for c in ['-', ',']):
+                        # Только UDP 443 (QUIC) - блокируем если не включен UDP 443
+                        should_block = not udp_443_enabled
+                        if should_block:
+                            required_filter_hint = "Включите «UDP 443 (QUIC)» в настройках DPI"
+                    else:
+                        # UDP с другими портами (игры, Roblox 49152-65535) - блокируем если не включен UDP all
+                        should_block = not udp_all_enabled
+                        if should_block:
+                            required_filter_hint = "Включите «UDP 444-65535» в настройках DPI"
+                
+                self._strategy_widget.set_tab_blocked(tab_index, should_block, required_filter_hint)
+            
+            log(f"Обновлено состояние блокировки вкладок (TCP 80={tcp_80_enabled}, TCP 443={tcp_443_enabled}, TCP all={tcp_all_enabled}, UDP 443={udp_443_enabled}, UDP all={udp_all_enabled})", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка обновления блокировки вкладок: {e}", "WARNING")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
             
     def _load_bat_mode(self):
         """Загружает интерфейс для bat режима (Zapret 1)"""
@@ -1162,10 +1255,56 @@ class StrategiesPage(QWidget):
             
             dialog = AddCategoryDialog(self)
             dialog.category_added.connect(self._on_category_added)
+            dialog.category_updated.connect(self._on_category_updated)
+            dialog.category_deleted.connect(self._on_category_deleted)
             dialog.exec()
             
         except Exception as e:
             log(f"Ошибка открытия диалога добавления категории: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+    
+    def _show_edit_category_dialog(self, category_key: str):
+        """Показывает диалог редактирования категории"""
+        try:
+            from ui.dialogs.add_category_dialog import AddCategoryDialog
+            from strategy_menu.strategies_registry import registry
+            
+            # Получаем данные категории
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                log(f"Категория '{category_key}' не найдена", "WARNING")
+                return
+            
+            # Преобразуем CategoryInfo в словарь
+            category_data = {
+                'key': category_info.key,
+                'full_name': category_info.full_name,
+                'description': category_info.description,
+                'tooltip': category_info.tooltip,
+                'color': category_info.color,
+                'default_strategy': category_info.default_strategy,
+                'ports': category_info.ports,
+                'protocol': getattr(category_info, 'protocol', 'TCP'),
+                'order': category_info.order,
+                'command_order': category_info.command_order,
+                'needs_new_separator': category_info.needs_new_separator,
+                'command_group': category_info.command_group,
+                'icon_name': category_info.icon_name,
+                'icon_color': category_info.icon_color,
+                'base_filter': category_info.base_filter,
+                'strategy_type': category_info.strategy_type,
+                'requires_all_ports': getattr(category_info, 'requires_all_ports', False),
+                'strip_payload': getattr(category_info, 'strip_payload', False)
+            }
+            
+            dialog = AddCategoryDialog(self, category_data=category_data)
+            dialog.category_updated.connect(self._on_category_updated)
+            dialog.category_deleted.connect(self._on_category_deleted)
+            dialog.exec()
+            
+        except Exception as e:
+            log(f"Ошибка открытия диалога редактирования категории: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
     
@@ -1183,6 +1322,36 @@ class StrategiesPage(QWidget):
             
         except Exception as e:
             log(f"Ошибка после добавления категории: {e}", "ERROR")
+    
+    def _on_category_updated(self, category_data: dict):
+        """Обработчик обновления категории"""
+        try:
+            from strategy_menu.strategies_registry import reload_categories
+            
+            # Перезагружаем категории
+            reload_categories()
+            log(f"Категории перезагружены после обновления '{category_data.get('key')}'", "INFO")
+            
+            # Перезагружаем страницу
+            self._reload_strategies()
+            
+        except Exception as e:
+            log(f"Ошибка после обновления категории: {e}", "ERROR")
+    
+    def _on_category_deleted(self, category_key: str):
+        """Обработчик удаления категории"""
+        try:
+            from strategy_menu.strategies_registry import reload_categories
+            
+            # Перезагружаем категории
+            reload_categories()
+            log(f"Категории перезагружены после удаления '{category_key}'", "INFO")
+            
+            # Перезагружаем страницу
+            self._reload_strategies()
+            
+        except Exception as e:
+            log(f"Ошибка после удаления категории: {e}", "ERROR")
     
     def _on_bat_strategy_applied(self, strategy_id: str, strategy_name: str):
         """Обработчик автоприменения bat стратегии"""
@@ -1252,6 +1421,34 @@ class StrategiesPage(QWidget):
         
         # Загружаем с небольшой задержкой для плавности UI
         QTimer.singleShot(100, self._load_content)
+    
+    def update_tabs_blocking_on_filter_change(self):
+        """
+        Обновляет блокировку вкладок при изменении фильтров (легковесная операция).
+        Вызывается когда пользователь меняет настройки фильтров на странице DPI.
+        """
+        try:
+            from strategy_menu import get_strategy_launch_method
+            
+            # Обновляем блокировку только в Direct режиме
+            if get_strategy_launch_method() != "direct":
+                return
+            
+            # Проверяем что виджет стратегий существует
+            if not hasattr(self, '_strategy_widget') or self._strategy_widget is None:
+                return
+            
+            # Обновляем состояние блокировки
+            self._update_tabs_blocking_state()
+            
+            # После обновления блокировки обновляем иконки с правильным состоянием
+            # (серые для none, цветные для активных, запрет для заблокированных)
+            self._strategy_widget.update_all_tab_icons(self.category_selections)
+            
+            log("Обновлена блокировка вкладок после изменения фильтров", "DEBUG")
+            
+        except Exception as e:
+            log(f"Ошибка обновления блокировки вкладок: {e}", "WARNING")
             
     def _on_tab_changed(self, index):
         """При смене вкладки загружаем контент (direct режим)"""
@@ -1434,9 +1631,11 @@ class StrategiesPage(QWidget):
             log(f"Выбрана стратегия: {category_key} = {strategy_id}", "INFO")
             
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
+            # НО только если вкладка не заблокирована (у заблокированных своя иконка)
             current_tab_index = self._strategy_widget.currentIndex()
-            is_inactive = (strategy_id == "none" or not strategy_id)
-            self._strategy_widget.update_tab_icon_color(current_tab_index, is_inactive=is_inactive)
+            if not self._strategy_widget.is_tab_blocked(current_tab_index):
+                is_inactive = (strategy_id == "none" or not strategy_id)
+                self._strategy_widget.update_tab_icon_color(current_tab_index, is_inactive=is_inactive)
             
             # Обновляем отображение текущих стратегий (читаем из реестра)
             self._update_current_strategies_display()

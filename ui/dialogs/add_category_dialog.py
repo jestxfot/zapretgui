@@ -70,13 +70,24 @@ class CompactCombo(QComboBox):
 
 
 class AddCategoryDialog(QDialog):
-    """Диалог добавления новой категории"""
+    """Диалог добавления/редактирования категории"""
     
     category_added = pyqtSignal(dict)
+    category_updated = pyqtSignal(dict)
+    category_deleted = pyqtSignal(str)  # key категории
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, category_data=None):
+        """
+        Args:
+            parent: Родительский виджет
+            category_data: Данные категории для редактирования (None = создание новой)
+        """
         super().__init__(parent)
-        self.setWindowTitle("Добавить категорию")
+        self.category_data = category_data
+        self.is_edit_mode = category_data is not None
+        
+        title = "Редактировать категорию" if self.is_edit_mode else "Добавить категорию"
+        self.setWindowTitle(title)
         self.setFixedWidth(420)
         self.setStyleSheet("""
             QDialog {
@@ -104,6 +115,14 @@ class AddCategoryDialog(QDialog):
         """)
         
         self._build_ui()
+        
+        # Заполняем поля если редактируем
+        if self.is_edit_mode:
+            self._populate_fields()
+        else:
+            # Устанавливаем strategy_type по умолчанию на основе протокола
+            self._on_protocol_changed(self.protocol_combo.currentText())
+        
         self.adjustSize()
         
     def _build_ui(self):
@@ -114,10 +133,12 @@ class AddCategoryDialog(QDialog):
         # Заголовок
         header = QHBoxLayout()
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.plus-circle', color='#60cdff').pixmap(20, 20))
+        icon_name = 'fa5s.edit' if self.is_edit_mode else 'fa5s.plus-circle'
+        icon_label.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(20, 20))
         header.addWidget(icon_label)
         
-        title = QLabel("Новая категория")
+        title_text = "Редактирование категории" if self.is_edit_mode else "Новая категория"
+        title = QLabel(title_text)
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
         title.setStyleSheet("color: white;")
         header.addWidget(title)
@@ -142,6 +163,15 @@ class AddCategoryDialog(QDialog):
         basic_layout.addWidget(QLabel("Ключ:"), 0, 0)
         self.key_input = CompactInput("mysite_tcp")
         self.key_input.setToolTip("Уникальный ID (латиница, цифры, _)")
+        # Блокируем изменение ключа при редактировании
+        if self.is_edit_mode:
+            self.key_input.setReadOnly(True)
+            self.key_input.setStyleSheet(self.key_input.styleSheet() + """
+                QLineEdit[readOnly="true"] {
+                    background: rgba(255, 255, 255, 0.03);
+                    color: rgba(255, 255, 255, 0.5);
+                }
+            """)
         basic_layout.addWidget(self.key_input, 0, 1)
         
         # Название
@@ -177,6 +207,7 @@ class AddCategoryDialog(QDialog):
         self.protocol_combo = CompactCombo()
         self.protocol_combo.addItems(["TCP", "UDP"])
         self.protocol_combo.setFixedWidth(70)
+        self.protocol_combo.currentTextChanged.connect(self._on_protocol_changed)
         proto_ports.addWidget(self.protocol_combo)
         
         self.ports_input = CompactInput("80, 443")
@@ -323,6 +354,28 @@ class AddCategoryDialog(QDialog):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(8)
         
+        # Кнопка удаления (только в режиме редактирования)
+        if self.is_edit_mode:
+            delete_btn = QPushButton("  Удалить")
+            delete_btn.setIcon(qta.icon('fa5s.trash', color='white'))
+            delete_btn.setFixedHeight(34)
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background: #d13438;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 0 20px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background: #e13438;
+                }
+            """)
+            delete_btn.clicked.connect(self._delete_category)
+            buttons_layout.addWidget(delete_btn)
+        
         cancel_btn = QPushButton("Отмена")
         cancel_btn.setFixedHeight(34)
         cancel_btn.setStyleSheet("""
@@ -384,11 +437,77 @@ class AddCategoryDialog(QDialog):
         
         for icon_name, display_name in icons:
             self.icon_combo.addItem(display_name, icon_name)
+    
+    def _on_protocol_changed(self, protocol: str):
+        """Автоматически обновляет strategy_type при изменении протокола"""
+        if protocol == "UDP":
+            self.strategy_type_combo.setCurrentText("udp")
+        elif protocol == "TCP":
+            self.strategy_type_combo.setCurrentText("tcp")
+    
+    def _populate_fields(self):
+        """Заполняет поля данными существующей категории"""
+        if not self.category_data:
+            return
+        
+        data = self.category_data
+        
+        # Основные поля
+        self.key_input.setText(data.get('key', ''))
+        self.name_input.setText(data.get('full_name', ''))
+        
+        # Фильтр
+        protocol = data.get('protocol', 'TCP')
+        self.protocol_combo.setCurrentText(protocol)
+        self.ports_input.setText(data.get('ports', '443'))
+        
+        # Парсим base_filter для определения типа и файла
+        base_filter = data.get('base_filter', '')
+        if '--hostlist=' in base_filter:
+            self.filter_type_combo.setCurrentText('hostlist')
+            # Извлекаем имя файла
+            parts = base_filter.split('--hostlist=')
+            if len(parts) > 1:
+                filename = parts[1].split()[0]
+                self.list_file_input.setText(filename)
+        elif '--ipset=' in base_filter:
+            self.filter_type_combo.setCurrentText('ipset')
+            parts = base_filter.split('--ipset=')
+            if len(parts) > 1:
+                filename = parts[1].split()[0]
+                self.list_file_input.setText(filename)
+        elif '--hostlist-domains=' in base_filter:
+            self.filter_type_combo.setCurrentText('hostlist-domains')
+            parts = base_filter.split('--hostlist-domains=')
+            if len(parts) > 1:
+                domain = parts[1].split()[0]
+                self.list_file_input.setText(domain)
+        
+        # Стратегия
+        strategy_type = data.get('strategy_type', 'tcp')
+        self.strategy_type_combo.setCurrentText(strategy_type)
+        self.default_strategy_input.setText(data.get('default_strategy', 'other_seqovl'))
+        
+        # Внешний вид
+        icon_name = data.get('icon_name', 'fa5s.globe')
+        for i in range(self.icon_combo.count()):
+            if self.icon_combo.itemData(i) == icon_name:
+                self.icon_combo.setCurrentIndex(i)
+                break
+        
+        self.color_input.setText(data.get('icon_color', '#60cdff'))
+        self.order_spin.setValue(data.get('order', 100))
+        
+        # Опции
+        self.requires_all_ports_check.setChecked(data.get('requires_all_ports', False))
+        self.strip_payload_check.setChecked(data.get('strip_payload', False))
             
     def _build_base_filter(self):
         """Строит base_filter"""
         protocol = self.protocol_combo.currentText()
-        ports = self.ports_input.text().strip() or "443"
+        ports_raw = self.ports_input.text().strip() or "443"
+        # Убираем все пробелы из портов
+        ports = ports_raw.replace(" ", "")
         filter_type = self.filter_type_combo.currentText()
         list_file = self.list_file_input.text().strip() or "my-sites.txt"
         
@@ -420,15 +539,19 @@ class AddCategoryDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Ошибка", "Введите название")
             return
+        
+        # Нормализуем порты: убираем все пробелы
+        ports_raw = self.ports_input.text().strip() or "443"
+        ports_normalized = ports_raw.replace(" ", "")
             
         category_data = {
             "key": key,
             "full_name": name,
-            "description": f"{name} ({self.ports_input.text()})",
-            "tooltip": f"🌐 {name}\nПорты: {self.ports_input.text()}",
+            "description": f"{name} ({ports_normalized})",
+            "tooltip": f"🌐 {name}\nПорты: {ports_normalized}",
             "color": self.color_input.text().strip() or "#60cdff",
             "default_strategy": self.default_strategy_input.text().strip() or "other_seqovl",
-            "ports": self.ports_input.text().strip() or "443",
+            "ports": ports_normalized,
             "protocol": self.protocol_combo.currentText(),
             "order": self.order_spin.value(),
             "command_order": self.order_spin.value(),
@@ -449,45 +572,99 @@ class AddCategoryDialog(QDialog):
             
             success, error = save_user_category(category_data)
             if success:
-                log(f"Категория '{key}' сохранена", "INFO")
-                self.category_added.emit(category_data)
+                action = "обновлена" if self.is_edit_mode else "сохранена"
+                log(f"Категория '{key}' {action}", "INFO")
                 
-                # ✅ Создаём файл списка автоматически если его нет
-                list_file = self.list_file_input.text().strip() or "my-sites.txt"
-                list_path = os.path.join(LISTS_FOLDER, list_file)
+                # Испускаем соответствующий сигнал
+                if self.is_edit_mode:
+                    self.category_updated.emit(category_data)
+                else:
+                    self.category_added.emit(category_data)
                 
-                file_created = False
-                if not os.path.exists(list_path):
-                    try:
-                        os.makedirs(LISTS_FOLDER, exist_ok=True)
-                        with open(list_path, 'w', encoding='utf-8') as f:
-                            f.write(f"# Список для категории: {name}\n")
-                            f.write("# Добавьте домены, по одному на строку\n")
-                            f.write("# Пример:\n")
-                            f.write("# example.com\n")
-                            f.write("# subdomain.example.org\n")
-                        file_created = True
-                        log(f"Создан файл списка: {list_path}", "INFO")
-                    except Exception as e:
-                        log(f"Не удалось создать файл {list_path}: {e}", "WARNING")
-                
-                if file_created:
-                    QMessageBox.information(
-                        self, "Готово", 
-                        f"✅ Категория «{name}» добавлена!\n\n"
-                        f"Файл lists/{list_file} создан.\n"
-                        f"Добавьте в него домены (по одному на строку)."
-                    )
+                # ✅ Создаём файл списка автоматически если его нет (только при создании)
+                if not self.is_edit_mode:
+                    list_file = self.list_file_input.text().strip() or "my-sites.txt"
+                    list_path = os.path.join(LISTS_FOLDER, list_file)
+                    
+                    file_created = False
+                    if not os.path.exists(list_path):
+                        try:
+                            os.makedirs(LISTS_FOLDER, exist_ok=True)
+                            with open(list_path, 'w', encoding='utf-8') as f:
+                                f.write(f"# Список для категории: {name}\n")
+                                f.write("# Добавьте домены, по одному на строку\n")
+                                f.write("# Пример:\n")
+                                f.write("# example.com\n")
+                                f.write("# subdomain.example.org\n")
+                            file_created = True
+                            log(f"Создан файл списка: {list_path}", "INFO")
+                        except Exception as e:
+                            log(f"Не удалось создать файл {list_path}: {e}", "WARNING")
+                    
+                    if file_created:
+                        QMessageBox.information(
+                            self, "Готово", 
+                            f"✅ Категория «{name}» добавлена!\n\n"
+                            f"Файл lists/{list_file} создан.\n"
+                            f"Добавьте в него домены (по одному на строку)."
+                        )
+                    else:
+                        QMessageBox.information(
+                            self, "Готово", 
+                            f"✅ Категория «{name}» добавлена!\n\n"
+                            f"Файл lists/{list_file} уже существует."
+                        )
                 else:
                     QMessageBox.information(
                         self, "Готово", 
-                        f"✅ Категория «{name}» добавлена!\n\n"
-                        f"Файл lists/{list_file} уже существует."
+                        f"✅ Категория «{name}» обновлена!"
                     )
+                
                 self.accept()
             else:
                 QMessageBox.warning(self, "Ошибка", f"Ошибка: {error}")
                 
         except Exception as e:
             log(f"Ошибка сохранения: {e}", "ERROR")
+            QMessageBox.critical(self, "Ошибка", str(e))
+    
+    def _delete_category(self):
+        """Удаляет категорию"""
+        key = self.key_input.text().strip()
+        name = self.name_input.text().strip()
+        
+        # Подтверждение удаления
+        reply = QMessageBox.question(
+            self, 
+            "Подтверждение удаления",
+            f"Вы уверены, что хотите удалить категорию «{name}»?\n\n"
+            f"Ключ: {key}\n"
+            f"Это действие нельзя отменить.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        try:
+            from strategy_menu.strategies.strategy_loader import delete_user_category
+            
+            success, error = delete_user_category(key)
+            
+            if success:
+                log(f"Категория '{key}' удалена", "INFO")
+                self.category_deleted.emit(key)
+                QMessageBox.information(
+                    self, "Готово", 
+                    f"✅ Категория «{name}» удалена из JSON файла.\n\n"
+                    f"Примечание: файл списка lists/{self.list_file_input.text()} "
+                    f"не был удалён автоматически."
+                )
+                self.accept()
+            else:
+                QMessageBox.warning(self, "Ошибка", f"Не удалось удалить: {error}")
+                
+        except Exception as e:
+            log(f"Ошибка удаления: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", str(e))

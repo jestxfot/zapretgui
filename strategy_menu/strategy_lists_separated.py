@@ -116,7 +116,6 @@ def _build_base_args_from_filters(
     raw_discord_media: bool,
     raw_stun: bool,
     raw_wireguard: bool,
-    raw_quic_initial: bool,
 ) -> str:
     """
     Собирает базовые аргументы WinDivert из отдельных фильтров.
@@ -137,7 +136,6 @@ def _build_base_args_from_filters(
         raw_discord_media: Включён ли raw-part фильтр Discord Media
         raw_stun: Включён ли raw-part фильтр STUN
         raw_wireguard: Включён ли raw-part фильтр WireGuard
-        raw_quic_initial: Включён ли raw-part фильтр QUIC Initial
     
     Returns:
         Строка базовых аргументов для winws2
@@ -181,14 +179,10 @@ def _build_base_args_from_filters(
         filter_path = os.path.join(windivert_filter_folder, "windivert_part.wireguard.txt")
         parts.append(f"--wf-raw-part=@{filter_path}")
     
-    if raw_quic_initial:
-        filter_path = os.path.join(windivert_filter_folder, "windivert_part.quic_initial_ietf.txt")
-        parts.append(f"--wf-raw-part=@{filter_path}")
-    
     result = " ".join(parts)
     log(f"Собраны базовые аргументы: TCP=[80={tcp_80}, 443={tcp_443}, all={tcp_all_ports}], "
         f"UDP=[443={udp_443}, all={udp_all_ports}], "
-        f"raw=[discord={raw_discord_media}, stun={raw_stun}, wg={raw_wireguard}, quic={raw_quic_initial}]", "DEBUG")
+        f"raw=[discord={raw_discord_media}, stun={raw_stun}, wg={raw_wireguard}]", "DEBUG")
     
     return result
 
@@ -226,7 +220,6 @@ def combine_strategies(*args, **kwargs) -> dict:
         get_wf_raw_discord_media_enabled,
         get_wf_raw_stun_enabled,
         get_wf_raw_wireguard_enabled,
-        get_wf_raw_quic_initial_enabled,
         get_debug_log_enabled,
     )
     from config import LUA_FOLDER, WINDIVERT_FILTER, LOGS_FOLDER
@@ -254,7 +247,6 @@ def combine_strategies(*args, **kwargs) -> dict:
         get_wf_raw_discord_media_enabled(),
         get_wf_raw_stun_enabled(),
         get_wf_raw_wireguard_enabled(),
-        get_wf_raw_quic_initial_enabled(),
     )
     
     # ==================== СБОР АКТИВНЫХ КАТЕГОРИЙ ====================

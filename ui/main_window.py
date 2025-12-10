@@ -261,11 +261,11 @@ class MainWindowUI:
         # Обновления управляются напрямую на странице servers_page
     
     def _on_filters_changed(self):
-        """Обработчик изменения фильтров - перезагружаем страницу стратегий"""
+        """Обработчик изменения фильтров - обновляем блокировку вкладок"""
         from log import log
-        log("Фильтры изменены, перезагружаем страницу стратегий", "DEBUG")
-        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'reload_for_mode_change'):
-            self.strategies_page.reload_for_mode_change()
+        log("Фильтры изменены, обновляем блокировку вкладок", "DEBUG")
+        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'update_tabs_blocking_on_filter_change'):
+            self.strategies_page.update_tabs_blocking_on_filter_change()
         
     def _on_launch_method_changed(self, method: str):
         """Обработчик смены метода запуска стратегий"""

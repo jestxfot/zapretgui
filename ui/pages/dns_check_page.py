@@ -311,4 +311,21 @@ class DNSCheckPage(BasePage):
                     "Ошибка",
                     f"Не удалось сохранить файл:\n{str(e)}"
                 )
+    
+    def cleanup(self):
+        """Очистка потоков при закрытии"""
+        from log import log
+        try:
+            if self.thread and self.thread.isRunning():
+                log("Останавливаем DNS check worker...", "DEBUG")
+                self.thread.quit()
+                if not self.thread.wait(2000):
+                    log("⚠ DNS check worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self.thread.terminate()
+                        self.thread.wait(500)
+                    except:
+                        pass
+        except Exception as e:
+            log(f"Ошибка при очистке dns_check_page: {e}", "DEBUG")
 

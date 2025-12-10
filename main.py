@@ -166,7 +166,7 @@ from PyQt6.QtCore    import QTimer
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 from ui.main_window import MainWindowUI
-# from ui.splash_screen import SplashScreen  # ⚠️ Больше не используется - Dummy UI вместо splash
+from ui.splash_screen import SplashScreen
 from ui.custom_titlebar import CustomTitleBar, FramelessWindowMixin
 from ui.garland_widget import GarlandWidget
 from ui.snowflakes_widget import SnowflakesWidget
@@ -280,6 +280,28 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # ✅ Очищаем DNS UI Manager
         if hasattr(self, 'dns_ui_manager'):
             self.dns_ui_manager.cleanup()
+        
+        # ✅ Очищаем Theme Manager
+        if hasattr(self, 'theme_handler') and hasattr(self.theme_handler, 'theme_manager'):
+            try:
+                self.theme_handler.theme_manager.cleanup()
+            except Exception as e:
+                log(f"Ошибка при очистке theme_manager: {e}", "DEBUG")
+        
+        # ✅ Очищаем страницы с потоками
+        try:
+            if hasattr(self, 'logs_page') and hasattr(self.logs_page, 'cleanup'):
+                self.logs_page.cleanup()
+            if hasattr(self, 'servers_page') and hasattr(self.servers_page, 'cleanup'):
+                self.servers_page.cleanup()
+            if hasattr(self, 'connection_page') and hasattr(self.connection_page, 'cleanup'):
+                self.connection_page.cleanup()
+            if hasattr(self, 'dns_check_page') and hasattr(self.dns_check_page, 'cleanup'):
+                self.dns_check_page.cleanup()
+            if hasattr(self, 'hosts_page') and hasattr(self.hosts_page, 'cleanup'):
+                self.hosts_page.cleanup()
+        except Exception as e:
+            log(f"Ошибка при очистке страниц: {e}", "DEBUG")
         
         # ✅ Очищаем потоки через контроллер
         if hasattr(self, 'dpi_controller'):
@@ -520,6 +542,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.start_in_tray = start_in_tray
         
         # Флаги для защиты от двойных вызовов
+        self._splash_closed = False
         self._dpi_autostart_initiated = False
         self._heavy_init_started = False
         self._heavy_init_thread = None
@@ -611,132 +634,27 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.main_index = self.stacked_widget.addWidget(self.main_widget)
         self.stacked_widget.setCurrentIndex(self.main_index)
         
-        # ✅ DUMMY UI: Показываем окно сразу с базовыми стилями темы
+        # ✅ ВОЗВРАЩАЕМ SPLASH но главное окно НЕ показываем пока CSS не готов
         self._css_applied_at_startup = False
         self._startup_theme = None
-        self.splash = None  # Больше не используем splash
         
-        # Применяем минимальные базовые стили с правильным цветом темы
-        try:
-            from ui.theme import get_selected_theme, get_theme_bg_color, get_theme_content_bg_color, THEMES
-            saved_theme = get_selected_theme("Темная синяя")
-            log(f"🎨 Загрузка темы при старте: '{saved_theme}'", "DEBUG")
-            
-            if saved_theme in THEMES:
-                theme_bg = get_theme_bg_color(saved_theme)
-                content_bg = get_theme_content_bg_color(saved_theme)
-                is_light = "Светлая" in saved_theme
-                text_color = "#000000" if is_light else "#ffffff"
-                border_color = "200, 200, 200" if is_light else "80, 80, 80"
-                
-                # Вычисляем цвет titlebar (чуть темнее основного)
-                try:
-                    r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
-                    titlebar_bg_adjust = 10 if is_light else -4
-                    tr = max(0, min(255, r + titlebar_bg_adjust))
-                    tg = max(0, min(255, g + titlebar_bg_adjust))
-                    tb = max(0, min(255, b + titlebar_bg_adjust))
-                    titlebar_bg = f"{tr}, {tg}, {tb}"
-                except:
-                    titlebar_bg = theme_bg
-            else:
-                # Дефолтные цвета
-                theme_bg = "30, 32, 32"
-                content_bg = "37, 39, 39"
-                titlebar_bg = "26, 28, 28"
-                text_color = "#ffffff"
-                border_color = "80, 80, 80"
-            
-            # Минимальный CSS с правильными цветами темы для мгновенного показа
-            minimal_css = f"""
-QWidget {{
-    font-family: 'Segoe UI', Arial, sans-serif;
-    background-color: transparent;
-    color: {text_color};
-}}
-
-QMainWindow {{
-    background-color: rgba({theme_bg}, 255);
-}}
-
-LupiDPIApp {{
-    background-color: transparent;
-}}
-
-QFrame#mainContainer {{
-    background-color: rgba({theme_bg}, 240);
-    border-radius: 10px;
-    border: 1px solid rgba({border_color}, 200);
-}}
-
-QWidget#customTitleBar {{
-    background-color: rgba({titlebar_bg}, 240);
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-    border-bottom: 1px solid rgba({border_color}, 200);
-}}
-
-QLabel#titleLabel {{
-    color: {text_color};
-    font-size: 11px;
-    font-weight: 500;
-    background-color: transparent;
-}}
-
-QWidget#contentArea {{
-    background-color: rgba({content_bg}, 0.95);
-    border-top-right-radius: 10px;
-    border-bottom-right-radius: 10px;
-}}
-
-QStackedWidget {{
-    background-color: transparent;
-}}
-
-QFrame {{
-    background-color: transparent;
-}}
-"""
-            # ✅ Применяем минимальный CSS мгновенно
-            QApplication.instance().setStyleSheet(minimal_css)
-            self.setStyleSheet(minimal_css)
-            
-            from PyQt6.QtGui import QPalette
-            self.setPalette(QPalette())
-            
-            log(f"🎨 Минимальный CSS применён для '{saved_theme}' (полный CSS в фоне)", "DEBUG")
-            
-            # Загружаем полный CSS для отложенного применения
-            from ui.theme import load_cached_css_sync
-            cached_css = load_cached_css_sync(saved_theme)
-            
-            if cached_css:
-                # Сохраняем для отложенного применения через 200ms
-                self._deferred_css = cached_css
-                self._deferred_theme_name = saved_theme
-                self._deferred_persist = False
-                self._css_applied_at_startup = True
-                self._startup_theme = saved_theme
-                log(f"🎨 Полный CSS загружен из кеша, будет применён через 200ms", "DEBUG")
-            else:
-                # Кеша нет - theme_manager сгенерирует CSS асинхронно
-                log(f"⏳ Кеш CSS не найден, будет сгенерирован theme_manager", "DEBUG")
-                self._css_applied_at_startup = False
-                
-        except Exception as e:
-            log(f"Ошибка загрузки темы: {e}", "WARNING")
-            self._css_applied_at_startup = False
-        
-        # ✅ Показываем окно сразу (не в трее)
         if not self.start_in_tray:
-            self.show()
-            log("Основное окно показано с минимальными стилями", "DEBUG")
+            # Создаём splash
+            self.splash = SplashScreen()
+            self.splash.load_complete.connect(self._on_splash_complete)
+            self.splash.show()
             
-            # Применяем полный CSS через 200ms (даём окну отрисоваться)
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(200, self._apply_deferred_css_if_needed)
+            QApplication.processEvents()
+            
+            self.splash.set_progress(5, "Запуск Zapret...", "Подготовка")
+            QApplication.processEvents()
+            
+            # Главное окно НЕ показываем - оно создано но скрыто
+            # Splash анимируется, а главное окно ждёт применения CSS
+            log("Splash показан, главное окно скрыто", "DEBUG")
         else:
-            # Если в трее - theme_manager применит тему асинхронно
+            # Если в трее - без splash
+            self.splash = None
             self._css_applied_at_startup = False
         
         # Splash больше не используется - окно показывается сразу
@@ -749,6 +667,10 @@ QFrame {{
         
         # Теперь строим UI в main_widget (не в self)
         self._build_main_ui()
+        
+        # Обновляем прогресс splash
+        if self.splash:
+            self.splash.set_progress(35, "Создание интерфейса...", "")
         
         # Создаем менеджеры
         from managers.initialization_manager import InitializationManager
@@ -764,6 +686,10 @@ QFrame {{
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
         self.dpi_manager = DPIManager(self)
+        
+        # Обновляем прогресс splash
+        if self.splash:
+            self.splash.set_progress(50, "Проверка подписки...", "")
 
         # Инициализируем donate checker
         self._init_real_donate_checker()  # Упрощенная версия
@@ -850,12 +776,42 @@ QFrame {{
         # Вызываем модифицированный метод
         modified_build_ui(WIDTH, HEIGHT)
 
+    def _on_splash_complete(self) -> None:
+        """Обработчик завершения splash - показываем главное окно"""
+        if self._splash_closed:
+            log("Splash уже закрыт, пропускаем", "DEBUG")
+            return
+        
+        self._splash_closed = True
+        log("Splash завершён, показываем главное окно", "DEBUG")
+        
+        # Показываем главное окно
+        if not self.start_in_tray and not self.isVisible():
+            self.show()
+            log("Основное окно показано", "DEBUG")
+        
+        # Принудительно обновляем стили
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(10, self._force_style_refresh)
+        
+        # Проверяем РКН Тян темы
+        if hasattr(self, 'theme_manager'):
+            current_theme = self.theme_manager.current_theme
+            if current_theme == "РКН Тян":
+                QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn_background())
+            elif current_theme == "РКН Тян 2":
+                QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn2_background())
+        
+        self.splash = None
+    
     def _apply_deferred_css_if_needed(self) -> None:
-        """Применяет отложенный полный CSS (вызывается через 200ms после показа окна)"""
+        """Применяет отложенный полный CSS (вызывается через 300ms после показа окна)"""
+        log(f"🎨 _apply_deferred_css_if_needed вызван, has_deferred={hasattr(self, '_deferred_css')}", "DEBUG")
+        
         if not hasattr(self, '_deferred_css'):
             return
             
-        log("🎨 Применяем полный CSS (200ms после показа окна)", "DEBUG")
+        log("🎨 Применяем полный CSS (300ms после показа окна)", "DEBUG")
         try:
             import time as _time
             _t = _time.perf_counter()

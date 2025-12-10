@@ -467,17 +467,7 @@ def set_wf_raw_wireguard_enabled(enabled: bool) -> bool:
     result = _set_filter_enabled("RawWireguard", enabled)
     if result and not enabled:
         _reset_disabled_categories_strategies()
-    return result
-
-def get_wf_raw_quic_initial_enabled() -> bool:
-    """QUIC Initial (raw-part фильтр, перехватывает только initial пакеты)"""
-    return _get_filter_enabled("RawQuicInitial", default=False)
-
-def set_wf_raw_quic_initial_enabled(enabled: bool) -> bool:
-    result = _set_filter_enabled("RawQuicInitial", enabled)
-    if result and not enabled:
-        _reset_disabled_categories_strategies()
-    return result
+    return result   
 
 # --- Расширенные порты (высокая нагрузка на CPU!) ---
 
@@ -513,7 +503,6 @@ def get_all_wf_filters() -> dict:
         'raw_discord_media': get_wf_raw_discord_media_enabled(),
         'raw_stun': get_wf_raw_stun_enabled(),
         'raw_wireguard': get_wf_raw_wireguard_enabled(),
-        'raw_quic_initial': get_wf_raw_quic_initial_enabled(),
     }
 
 def set_all_wf_filters(filters: dict) -> bool:
@@ -531,8 +520,6 @@ def set_all_wf_filters(filters: dict) -> bool:
         success &= set_wf_raw_stun_enabled(filters['raw_stun'])
     if 'raw_wireguard' in filters:
         success &= set_wf_raw_wireguard_enabled(filters['raw_wireguard'])
-    if 'raw_quic_initial' in filters:
-        success &= set_wf_raw_quic_initial_enabled(filters['raw_quic_initial'])
     return success
 
 
@@ -901,8 +888,6 @@ __all__ = [
     'set_wf_raw_stun_enabled',
     'get_wf_raw_wireguard_enabled',
     'set_wf_raw_wireguard_enabled',
-    'get_wf_raw_quic_initial_enabled',
-    'set_wf_raw_quic_initial_enabled',
     'get_all_wf_filters',
     'set_all_wf_filters',
     

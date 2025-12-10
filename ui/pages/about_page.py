@@ -5,7 +5,7 @@ import os
 import webbrowser
 import subprocess
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -209,25 +209,28 @@ class AboutPage(BasePage):
     
     def _add_link_item(self, layout, icon_name, title, desc, callback):
         """Добавляет кликабельный элемент ссылки без рамок"""
-        # Легкая строка ссылки без рамок
-        link_widget = QFrame()
+        # Используем QPushButton для надежной обработки кликов
+        link_widget = QPushButton()
         link_widget.setCursor(Qt.CursorShape.PointingHandCursor)
         link_widget.setStyleSheet("""
-            QFrame { 
+            QPushButton { 
                 background: transparent; 
                 border: none;
                 border-radius: 6px; 
-                padding: 2px;
+                padding: 12px;
+                text-align: left;
             }
-            QFrame QLabel {
-                background: transparent;
-                border: none;
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.05);
+            }
+            QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.08);
             }
         """)
-        link_widget.mousePressEvent = lambda e: callback()
+        link_widget.clicked.connect(callback)
         
         link_layout = QHBoxLayout(link_widget)
-        link_layout.setContentsMargins(12, 8, 12, 8)
+        link_layout.setContentsMargins(0, 0, 0, 0)
         link_layout.setSpacing(12)
         
         # Прозрачная иконка без рамки
@@ -235,18 +238,30 @@ class AboutPage(BasePage):
         link_icon.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(20, 20))
         link_icon.setFixedSize(24, 24)
         link_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        link_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_layout.addWidget(link_icon)
         
         link_text_layout = QVBoxLayout()
-        link_text_layout.setSpacing(2)
+        link_text_layout.setSpacing(0)
         link_text_layout.setContentsMargins(0, 0, 0, 0)
         
         link_title = QLabel(title)
-        link_title.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 500;")
+        link_title.setStyleSheet("""
+            color: #60cdff; 
+            font-size: 12px; 
+            font-weight: 500;
+            background: transparent;
+        """)
+        link_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_title)
         
         link_desc = QLabel(desc)
-        link_desc.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 10px;")
+        link_desc.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.5); 
+            font-size: 10px;
+            background: transparent;
+        """)
+        link_desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_desc)
         
         link_layout.addLayout(link_text_layout, 1)
