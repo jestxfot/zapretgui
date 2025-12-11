@@ -233,7 +233,13 @@ class MainWindowUI:
         # Подключаем кнопку Premium на главной странице
         if hasattr(self.home_page, 'premium_link_btn'):
             self.home_page.premium_link_btn.clicked.connect(self._open_subscription_dialog)
-        
+
+        # Подключаем навигацию по карточкам на главной странице
+        self.home_page.navigate_to_control.connect(self._navigate_to_control)
+        self.home_page.navigate_to_strategies.connect(self._navigate_to_strategies)
+        self.home_page.navigate_to_autostart.connect(self.show_autostart_page)
+        self.home_page.navigate_to_premium.connect(self._open_subscription_dialog)
+
         # Подключаем кнопку "Управление подпиской" на странице оформления
         if hasattr(self.appearance_page, 'subscription_btn'):
             self.appearance_page.subscription_btn.clicked.connect(self._open_subscription_dialog)
@@ -671,5 +677,17 @@ class MainWindowUI:
     def show_servers_page(self):
         """Переключается на страницу серверов обновлений"""
         index = self.pages_stack.indexOf(self.servers_page)
+        if index >= 0:
+            self.side_nav.set_page(index)
+
+    def _navigate_to_control(self):
+        """Переключается на страницу управления"""
+        index = self.pages_stack.indexOf(self.control_page)
+        if index >= 0:
+            self.side_nav.set_page(index)
+
+    def _navigate_to_strategies(self):
+        """Переключается на страницу стратегий"""
+        index = self.pages_stack.indexOf(self.strategies_page)
         if index >= 0:
             self.side_nav.set_page(index)

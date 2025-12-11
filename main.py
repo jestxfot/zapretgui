@@ -917,8 +917,56 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 BlurEffect.disable(hwnd)
                 log("✅ Эффект размытия выключен", "INFO")
 
+            # Переприменяем тему чтобы обновить все стили с учётом нового состояния blur
+            if hasattr(self, 'theme_manager') and self.theme_manager:
+                current_theme = self.theme_manager.current_theme
+                if current_theme:
+                    self.theme_manager.apply_theme_async(current_theme, persist=False)
+
         except Exception as e:
             log(f"❌ Ошибка при изменении эффекта размытия: {e}", "ERROR")
+
+    def set_window_opacity(self, value: int) -> None:
+        """Устанавливает прозрачность окна (0-100%)"""
+        try:
+            # Преобразуем процент в значение 0.0-1.0
+            opacity = max(0.1, min(1.0, value / 100.0))  # Минимум 0.1 чтобы окно не исчезло
+            self.setWindowOpacity(opacity)
+            log(f"Прозрачность окна установлена: {value}%", "DEBUG")
+        except Exception as e:
+            log(f"❌ Ошибка при установке прозрачности окна: {e}", "ERROR")
+
+    def _update_container_opacity(self, blur_enabled: bool) -> None:
+        """Обновляет прозрачность контейнера в зависимости от состояния blur"""
+        try:
+            if not hasattr(self, 'container'):
+                return
+
+            # Определяем непрозрачность: меньше для blur, полностью непрозрачно без него
+            opacity = 180 if blur_enabled else 255
+
+            # Получаем текущие цвета темы
+            from ui.theme import ThemeManager
+            theme_manager = ThemeManager.instance()
+            if theme_manager and hasattr(theme_manager, '_current_theme'):
+                theme_name = theme_manager._current_theme
+                theme_config = theme_manager._themes.get(theme_name, {})
+                theme_bg = theme_config.get('theme_bg', '30, 30, 30')
+                border_color = "rgba(80, 80, 80, 200)" if 'Светлая' not in theme_name else "rgba(200, 200, 200, 220)"
+            else:
+                theme_bg = '30, 30, 30'
+                border_color = "rgba(80, 80, 80, 200)"
+
+            self.container.setStyleSheet(f"""
+                QFrame#mainContainer {{
+                    background-color: rgba({theme_bg}, {opacity});
+                    border-radius: 10px;
+                    border: 1px solid {border_color};
+                }}
+            """)
+            log(f"Контейнер обновлён: opacity={opacity}", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка обновления контейнера: {e}", "WARNING")
 
     def resizeEvent(self, event):
         """Обновляем декорации при изменении размера окна"""
@@ -972,6 +1020,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 self.set_blur_effect_enabled(True)
             if hasattr(self, 'appearance_page'):
                 self.appearance_page.set_blur_effect_state(blur_saved)
+
+            # Прозрачность окна (не зависит от премиума)
+            from config.reg import get_window_opacity
+            opacity_saved = get_window_opacity()
+            log(f"🔮 Инициализация: opacity={opacity_saved}%", "DEBUG")
+            self.set_window_opacity(opacity_saved)
+            if hasattr(self, 'appearance_page'):
+                self.appearance_page.set_opacity_value(opacity_saved)
 
         except Exception as e:
             log(f"❌ Ошибка загрузки состояния декораций: {e}", "ERROR")

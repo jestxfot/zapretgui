@@ -60,11 +60,14 @@ QProgressBar::chunk {
 
 class StatusCard(QFrame):
     """Большая карточка статуса на главной странице"""
-    
+
+    clicked = pyqtSignal()  # Сигнал клика по карточке
+
     def __init__(self, icon_name: str, title: str, parent=None):
         super().__init__(parent)
         self.setObjectName("statusCard")
         self.setMinimumHeight(120)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)  # Курсор "рука" при наведении
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
@@ -229,15 +232,28 @@ class StatusCard(QFrame):
             }}
         """)
 
+    def mousePressEvent(self, event):
+        """Обработка клика по карточке"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 
 class HomePage(BasePage):
     """Главная страница - обзор состояния"""
-    
+
+    # Сигналы для навигации на другие страницы
+    navigate_to_control = pyqtSignal()
+    navigate_to_strategies = pyqtSignal()
+    navigate_to_autostart = pyqtSignal()
+    navigate_to_premium = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__("Главная", "Обзор состояния Zapret", parent)
-        
+
         self._autostart_worker = None
         self._build_ui()
+        self._connect_card_signals()
     
     def showEvent(self, event):
         """При показе страницы обновляем статус автозапуска"""
@@ -338,11 +354,18 @@ class HomePage(BasePage):
         self.progress_bar.setMaximum(0)  # Indeterminate mode
         self.progress_bar.setVisible(False)
         self.add_widget(self.progress_bar)
-        
+
         self.add_spacing(12)
-        
+
         # Блок Premium
         self._build_premium_block()
+
+    def _connect_card_signals(self):
+        """Подключает клики по карточкам к сигналам навигации"""
+        self.dpi_status_card.clicked.connect(self.navigate_to_control.emit)
+        self.strategy_card.clicked.connect(self.navigate_to_strategies.emit)
+        self.autostart_card.clicked.connect(self.navigate_to_autostart.emit)
+        self.subscription_card.clicked.connect(self.navigate_to_premium.emit)
         
     def update_dpi_status(self, is_running: bool, strategy_name: str = None):
         """Обновляет отображение статуса DPI"""

@@ -289,3 +289,23 @@ def set_tray_hint_shown(shown: bool = True) -> bool:
     """Отмечает что уведомление о трее было показано."""
     from config import REGISTRY_PATH
     return reg(REGISTRY_PATH, _TRAY_HINT_SHOWN_NAME, 1 if shown else 0)
+
+
+# ───────────── Прозрачность окна ─────────────
+_WINDOW_OPACITY_NAME = "WindowOpacity"  # REG_DWORD (0-100)
+
+def get_window_opacity() -> int:
+    """Возвращает прозрачность окна (0-100%). По умолчанию 100 (непрозрачное)."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME)
+    if val is None:
+        return 95  # По умолчанию 95% прозрачности
+    # Ограничиваем значение диапазоном 0-100
+    return max(0, min(100, int(val)))
+
+def set_window_opacity(opacity: int) -> bool:
+    """Устанавливает прозрачность окна (0-100%)."""
+    from config import REGISTRY_PATH
+    # Ограничиваем значение диапазоном 0-100
+    opacity = max(0, min(100, int(opacity)))
+    return reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME, opacity)

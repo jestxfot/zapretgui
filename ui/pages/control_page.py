@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgress
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, SettingsRow, ActionButton, StatusIndicator
+from ui.sidebar import SettingsCard, SettingsRow, ActionButton, StatusIndicator, PulsingDot
 
 
 # Стиль для индикатора загрузки (бегающая полоска)
@@ -111,15 +111,9 @@ class ControlPage(BasePage):
         status_layout = QHBoxLayout()
         status_layout.setSpacing(16)
         
-        # Иконка статуса (объёмная)
-        self.status_icon = QLabel()
-        try:
-            from ui.fluent_icons import status_pixmap
-            self.status_icon.setPixmap(status_pixmap('neutral', 16))
-        except:
-            self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#888888').pixmap(16, 16))
-        self.status_icon.setFixedSize(20, 20)
-        status_layout.addWidget(self.status_icon)
+        # Пульсирующая точка статуса
+        self.status_dot = PulsingDot()
+        status_layout.addWidget(self.status_dot)
         
         # Текст статуса
         status_text_layout = QVBoxLayout()
@@ -304,29 +298,19 @@ class ControlPage(BasePage):
         
     def update_status(self, is_running: bool):
         """Обновляет отображение статуса"""
-        try:
-            from ui.fluent_icons import status_pixmap
-            use_fluent = True
-        except:
-            use_fluent = False
-            
         if is_running:
             self.status_title.setText("Zapret работает")
             self.status_desc.setText("Обход блокировок активен")
-            if use_fluent:
-                self.status_icon.setPixmap(status_pixmap('running', 16))
-            else:
-                self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#6ccb5f').pixmap(16, 16))
+            self.status_dot.set_color('#6ccb5f')
+            self.status_dot.start_pulse()
             self.start_btn.setVisible(False)
             self.stop_winws_btn.setVisible(True)
             self.stop_and_exit_btn.setVisible(True)
         else:
             self.status_title.setText("Zapret остановлен")
             self.status_desc.setText("Нажмите «Запустить» для активации")
-            if use_fluent:
-                self.status_icon.setPixmap(status_pixmap('stopped', 16))
-            else:
-                self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#ff6b6b').pixmap(16, 16))
+            self.status_dot.set_color('#ff6b6b')
+            self.status_dot.stop_pulse()
             self.start_btn.setVisible(True)
             self.stop_winws_btn.setVisible(False)
             self.stop_and_exit_btn.setVisible(False)

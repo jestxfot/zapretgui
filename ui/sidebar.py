@@ -1320,21 +1320,133 @@ class ActionButton(QPushButton):
         super().leaveEvent(event)
 
 
-class StatusIndicator(QWidget):
-    """Индикатор статуса (точка + текст)"""
-    
+class PulsingDot(QWidget):
+    """Пульсирующая точка-индикатор с эффектом свечения"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+        self._color = QColor("#888888")
+        self._pulse_phase = 0.0  # 0.0 - 1.0
+        self._is_pulsing = False
+
+        # Размер виджета (больше для видимости пульсации)
+        self.setFixedSize(28, 28)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        # Таймер для анимации
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.setInterval(30)  # ~33 FPS
+
+    def set_color(self, color: str):
+        """Устанавливает цвет точки"""
+        self._color = QColor(color)
+        self.update()
+
+    def start_pulse(self):
+        """Запускает анимацию пульсации"""
+        if not self._is_pulsing:
+            self._is_pulsing = True
+            self._pulse_phase = 0.0
+            self._timer.start()
+
+    def stop_pulse(self):
+        """Останавливает анимацию пульсации"""
+        self._is_pulsing = False
+        self._timer.stop()
+        self._pulse_phase = 0.0
+        self.update()
+
+    def _animate(self):
+        """Обновление анимации"""
+        self._pulse_phase += 0.025  # Скорость анимации
+        if self._pulse_phase >= 1.0:
+            self._pulse_phase = 0.0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        base_radius = 5
+
+        # Рисуем пульсирующие кольца (если активна анимация)
+        if self._is_pulsing:
+            # Первое кольцо
+            phase1 = self._pulse_phase
+            opacity1 = max(0, 0.5 * (1.0 - phase1))
+            radius1 = base_radius + (10 * phase1)
+
+            pulse_color1 = QColor(self._color)
+            pulse_color1.setAlphaF(opacity1)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(pulse_color1)
+            painter.drawEllipse(
+                int(center_x - radius1),
+                int(center_y - radius1),
+                int(radius1 * 2),
+                int(radius1 * 2)
+            )
+
+            # Второе кольцо (со сдвигом фазы)
+            phase2 = (self._pulse_phase + 0.5) % 1.0
+            opacity2 = max(0, 0.5 * (1.0 - phase2))
+            radius2 = base_radius + (10 * phase2)
+
+            pulse_color2 = QColor(self._color)
+            pulse_color2.setAlphaF(opacity2)
+            painter.setBrush(pulse_color2)
+            painter.drawEllipse(
+                int(center_x - radius2),
+                int(center_y - radius2),
+                int(radius2 * 2),
+                int(radius2 * 2)
+            )
+
+        # Внешнее свечение (статичное)
+        glow_color = QColor(self._color)
+        glow_color.setAlphaF(0.3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(glow_color)
+        painter.drawEllipse(
+            int(center_x - base_radius - 2),
+            int(center_y - base_radius - 2),
+            int((base_radius + 2) * 2),
+            int((base_radius + 2) * 2)
+        )
+
+        # Основная точка
+        painter.setBrush(self._color)
+        painter.drawEllipse(
+            int(center_x - base_radius),
+            int(center_y - base_radius),
+            int(base_radius * 2),
+            int(base_radius * 2)
+        )
+
+        # Блик для объёма
+        highlight = QColor(255, 255, 255, 90)
+        painter.setBrush(highlight)
+        painter.drawEllipse(int(center_x - 2), int(center_y - 3), 3, 3)
+
+
+class StatusIndicator(QWidget):
+    """Индикатор статуса (точка + текст) с эффектом пульсации"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current_status = "neutral"
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        
-        # Точка-индикатор
-        self.dot = QLabel("●")
-        self.dot.setStyleSheet("color: #888888; font-size: 10px;")
+
+        # Пульсирующая точка-индикатор
+        self.dot = PulsingDot()
         layout.addWidget(self.dot)
-        
+
         # Текст статуса
         self.text = QLabel("Проверка...")
         self.text.setStyleSheet("""
@@ -1345,20 +1457,27 @@ class StatusIndicator(QWidget):
         """)
         layout.addWidget(self.text)
         layout.addStretch()
-        
+
     def set_status(self, text: str, status: str = "neutral"):
         """
         Устанавливает статус
         status: 'running', 'stopped', 'warning', 'neutral'
         """
         self.text.setText(text)
-        
+        self._current_status = status
+
         colors = {
             'running': '#6ccb5f',  # Зеленый
             'stopped': '#ff6b6b',  # Красный
             'warning': '#ffc107',  # Желтый
             'neutral': '#888888',  # Серый
         }
-        
+
         color = colors.get(status, colors['neutral'])
-        self.dot.setStyleSheet(f"color: {color}; font-size: 10px;")
+        self.dot.set_color(color)
+
+        # Пульсация только для активного статуса
+        if status == 'running':
+            self.dot.start_pulse()
+        else:
+            self.dot.stop_pulse()

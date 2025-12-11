@@ -1583,49 +1583,71 @@ class ThemeManager:
     
     def _apply_css_only(self, final_css: str, theme_name: str, persist: bool):
         """Применяет готовый CSS - ЕДИНСТВЕННАЯ синхронная операция.
-        
+
         CSS уже полностью собран в фоновом потоке.
         Здесь только setStyleSheet() и пост-обработка.
         """
         import time as _time
-        
+        from PyQt6.QtWidgets import QApplication
+
         try:
             # Проверяем что виджеты ещё существуют
             if not self.widget or not self.app:
                 log("⚠️ Виджет или приложение удалены, пропускаем применение темы", "WARNING")
                 return
-            
+
             clean = theme_name
-            
+
             # Проверяем хеш CSS - не применяем если не изменился
             css_hash = hash(final_css)
             if self._current_css_hash == css_hash and self.current_theme == clean:
                 log(f"⏭ CSS не изменился, пропускаем setStyleSheet", "DEBUG")
                 return
-            
+
             # Определяем правильный виджет для сброса фона
             target_widget = self.widget
             if hasattr(self.widget, 'main_widget') and self.widget.main_widget:
                 target_widget = self.widget.main_widget
-            
+
             # Сбрасываем фон если это НЕ РКН Тян и НЕ РКН Тян 2
             if clean not in ("РКН Тян", "РКН Тян 2"):
                 target_widget.setAutoFillBackground(False)
                 target_widget.setProperty("hasCustomBackground", False)
-            
-            # Оптимизация: отключаем обновления виджетов во время применения стилей
+
             main_window = self.widget
+
+            # Показываем курсор ожидания
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+            # ═══════════════════════════════════════════════════════════════
+            # ОПТИМИЗАЦИЯ: Скрываем тяжёлые виджеты во время применения CSS
+            # Qt быстрее применяет стили к скрытым виджетам
+            # ═══════════════════════════════════════════════════════════════
+            hidden_widgets = []
+
+            # Скрываем pages_stack (основной контент со всеми страницами)
+            if hasattr(main_window, 'pages_stack'):
+                pages_stack = main_window.pages_stack
+                if pages_stack.isVisible():
+                    pages_stack.hide()
+                    hidden_widgets.append(pages_stack)
+
+            # Скрываем side_nav (навигация с кнопками)
+            if hasattr(main_window, 'side_nav'):
+                side_nav = main_window.side_nav
+                if side_nav.isVisible():
+                    side_nav.hide()
+                    hidden_widgets.append(side_nav)
+
             was_updates_enabled = main_window.updatesEnabled()
             main_window.setUpdatesEnabled(False)
-            
+
             try:
                 # ✅ Применяем CSS только к QApplication - виджеты унаследуют стили
-                # (убрано двойное применение к main_window для оптимизации ~2x быстрее)
                 _t = _time.perf_counter()
                 self.app.setStyleSheet(final_css)
 
                 # ✅ Сбрасываем палитру чтобы CSS точно применился
-                # qt_material может устанавливать QPalette которая перекрывает CSS
                 from PyQt6.QtGui import QPalette
                 main_window.setPalette(QPalette())
 
@@ -1633,6 +1655,11 @@ class ThemeManager:
                 log(f"  setStyleSheet took {elapsed_ms:.0f}ms (app only + palette reset)", "DEBUG")
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
+                # Возвращаем видимость скрытых виджетов
+                for widget in hidden_widgets:
+                    widget.show()
+                # Восстанавливаем курсор
+                QApplication.restoreOverrideCursor()
             
             # ⚠️ НЕ обновляем стили здесь - это делается в main.py после показа окна
             # Обновление до показа окна не эффективно для невидимых виджетов
@@ -2064,42 +2091,57 @@ class ThemeHandler:
                 return
             
             clean_name = self.theme_manager.get_clean_theme_name(theme_name) if self.theme_manager else theme_name
-            
+
             # Получаем цвет фона из конфигурации темы
             theme_bg = get_theme_bg_color(clean_name)
             theme_content_bg = get_theme_content_bg_color(clean_name)
-            
-            # Определяем цвета в зависимости от темы (без прозрачности для совместимости с Windows 10)
+
+            # Проверяем состояние blur для определения непрозрачности
+            try:
+                from config.reg import get_blur_effect_enabled
+                blur_enabled = get_blur_effect_enabled()
+            except:
+                blur_enabled = False
+
+            # Непрозрачность: меньше при включённом blur, полностью непрозрачно без него
+            # Базовая непрозрачность для всех элементов
+            base_alpha = 240 if blur_enabled else 255
+            border_alpha = 220 if blur_enabled else 255
+            container_opacity = 180 if blur_enabled else 255
+            container_opacity_light = 160 if blur_enabled else 255
+            container_opacity_amoled = 170 if blur_enabled else 255
+
+            # Определяем цвета в зависимости от темы
             is_light = "Светлая" in clean_name
             is_amoled = "AMOLED" in clean_name or clean_name == "Полностью черная"
-            
+
             if is_amoled:
-                # AMOLED и полностью черная тема (почти непрозрачный)
-                bg_color = "rgba(0, 0, 0, 250)"
+                # AMOLED и полностью черная тема
+                bg_color = f"rgba(0, 0, 0, {base_alpha})"
                 text_color = "#ffffff"
-                container_bg = "rgba(0, 0, 0, 245)"
-                border_color = "rgba(30, 30, 30, 220)"
-                menubar_bg = "rgba(0, 0, 0, 245)"
+                container_bg = f"rgba(0, 0, 0, {container_opacity_amoled})"
+                border_color = f"rgba(30, 30, 30, {border_alpha})"
+                menubar_bg = f"rgba(0, 0, 0, {base_alpha})"
                 menu_text = "#ffffff"
                 hover_bg = "#222222"
-                menu_dropdown_bg = "rgba(10, 10, 10, 250)"
+                menu_dropdown_bg = f"rgba(10, 10, 10, {base_alpha})"
             elif is_light:
                 # Светлые темы - используем цвет из конфига
-                bg_color = f"rgba({theme_bg}, 240)"
+                bg_color = f"rgba({theme_bg}, {base_alpha})"
                 text_color = "#000000"
-                container_bg = f"rgba({theme_content_bg}, 235)"
-                border_color = "rgba(200, 200, 200, 220)"
-                menubar_bg = f"rgba({theme_bg}, 240)"
+                container_bg = f"rgba({theme_content_bg}, {container_opacity_light})"
+                border_color = f"rgba(200, 200, 200, {border_alpha})"
+                menubar_bg = f"rgba({theme_bg}, {base_alpha})"
                 menu_text = "#000000"
                 hover_bg = "#d0d0d0"
-                menu_dropdown_bg = f"rgba({theme_content_bg}, 250)"
+                menu_dropdown_bg = f"rgba({theme_content_bg}, {base_alpha})"
             else:
                 # Темные темы - используем цвет фона из конфига темы
-                bg_color = f"rgba({theme_bg}, 240)"
+                bg_color = f"rgba({theme_bg}, {base_alpha})"
                 text_color = "#ffffff"
-                container_bg = f"rgba({theme_bg}, 245)"
-                border_color = "rgba(80, 80, 80, 200)"
-                menubar_bg = f"rgba({theme_bg}, 240)"
+                container_bg = f"rgba({theme_bg}, {container_opacity})"
+                border_color = f"rgba(80, 80, 80, {border_alpha})"
+                menubar_bg = f"rgba({theme_bg}, {base_alpha})"
                 menu_text = "#ffffff"
                 # Рассчитываем hover_bg как более светлый оттенок
                 try:
@@ -2110,7 +2152,7 @@ class ThemeHandler:
                     hover_bg = f"rgb({hover_r}, {hover_g}, {hover_b})"
                 except:
                     hover_bg = "#333333"
-                menu_dropdown_bg = f"rgba({theme_content_bg}, 250)"
+                menu_dropdown_bg = f"rgba({theme_content_bg}, {base_alpha})"
             
             # Обновляем titlebar
             self.app_window.title_bar.set_theme_colors(bg_color, text_color)

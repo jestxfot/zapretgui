@@ -3,8 +3,8 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout, QScrollArea, QCheckBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider
 )
 import qtawesome as qta
 
@@ -169,6 +169,8 @@ class AppearancePage(BasePage):
     snowflakes_changed = pyqtSignal(bool)
     # Сигнал изменения состояния эффекта размытия
     blur_effect_changed = pyqtSignal(bool)
+    # Сигнал изменения прозрачности окна (0-100)
+    opacity_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
@@ -180,6 +182,8 @@ class AppearancePage(BasePage):
         self._snowflakes_checkbox = None
         self._wall_animation_checkbox = None
         self._blur_effect_checkbox = None
+        self._opacity_slider = None
+        self._opacity_label = None
 
         self._build_ui()
         
@@ -526,6 +530,79 @@ class AppearancePage(BasePage):
         blur_card.add_layout(blur_layout)
         self.add_widget(blur_card)
 
+        # ═══════════════════════════════════════════════════════════
+        # ПРОЗРАЧНОСТЬ ОКНА
+        # ═══════════════════════════════════════════════════════════
+        opacity_card = SettingsCard()
+
+        opacity_layout = QVBoxLayout()
+        opacity_layout.setSpacing(12)
+
+        # Описание
+        opacity_desc = QLabel(
+            "Настройка прозрачности всего окна приложения. "
+            "При 0% окно полностью прозрачное, при 100% — непрозрачное."
+        )
+        opacity_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        opacity_desc.setWordWrap(True)
+        opacity_layout.addWidget(opacity_desc)
+
+        # Строка с иконкой, названием и значением
+        opacity_row = QHBoxLayout()
+        opacity_row.setSpacing(12)
+
+        opacity_icon = QLabel()
+        opacity_icon.setPixmap(qta.icon('fa5s.adjust', color='#60cdff').pixmap(20, 20))
+        opacity_row.addWidget(opacity_icon)
+
+        opacity_title = QLabel("Прозрачность окна")
+        opacity_title.setStyleSheet("color: #ffffff; font-size: 13px;")
+        opacity_row.addWidget(opacity_title)
+
+        opacity_row.addStretch()
+
+        self._opacity_label = QLabel("100%")
+        self._opacity_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 12px; min-width: 40px;")
+        self._opacity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        opacity_row.addWidget(self._opacity_label)
+
+        opacity_layout.addLayout(opacity_row)
+
+        # Слайдер
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.setMinimum(10)  # Минимум 10% чтобы окно не стало невидимым
+        self._opacity_slider.setMaximum(100)
+        self._opacity_slider.setValue(100)
+        self._opacity_slider.setTickPosition(QSlider.TickPosition.NoTicks)
+        self._opacity_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: none;
+                height: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: #60cdff;
+                border: none;
+                width: 16px;
+                height: 16px;
+                margin: -6px 0;
+                border-radius: 8px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #7dd8ff;
+            }
+            QSlider::sub-page:horizontal {
+                background: #60cdff;
+                border-radius: 2px;
+            }
+        """)
+        self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
+        opacity_layout.addWidget(self._opacity_slider)
+
+        opacity_card.add_layout(opacity_layout)
+        self.add_widget(opacity_card)
+
         self.add_spacing(16)
 
         # ═══════════════════════════════════════════════════════════
@@ -616,7 +693,23 @@ class AppearancePage(BasePage):
 
         from log import log
         log(f"Эффект размытия {'включён' if enabled else 'выключен'}", "DEBUG")
-        
+
+    def _on_opacity_changed(self, value: int):
+        """Обработчик изменения прозрачности окна"""
+        # Обновляем лейбл
+        if self._opacity_label:
+            self._opacity_label.setText(f"{value}%")
+
+        # Сохраняем в реестр
+        from config.reg import set_window_opacity
+        set_window_opacity(value)
+
+        # Уведомляем главное окно
+        self.opacity_changed.emit(value)
+
+        from log import log
+        log(f"Прозрачность окна: {value}%", "DEBUG")
+
     def _on_snowflakes_changed(self, state):
         """Обработчик изменения состояния снежинок"""
         enabled = state == Qt.CheckState.Checked.value
@@ -763,6 +856,15 @@ class AppearancePage(BasePage):
             self._blur_effect_checkbox.blockSignals(True)
             self._blur_effect_checkbox.setChecked(enabled)
             self._blur_effect_checkbox.blockSignals(False)
+
+    def set_opacity_value(self, value: int):
+        """Устанавливает значение слайдера прозрачности (без эмита сигнала)"""
+        if self._opacity_slider:
+            self._opacity_slider.blockSignals(True)
+            self._opacity_slider.setValue(value)
+            self._opacity_slider.blockSignals(False)
+        if self._opacity_label:
+            self._opacity_label.setText(f"{value}%")
 
     def update_themes(self, themes: list, current_theme: str = None):
         """Обновляет текущую выбранную тему (для совместимости)"""

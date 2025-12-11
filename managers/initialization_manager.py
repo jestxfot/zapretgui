@@ -348,6 +348,10 @@ class InitializationManager:
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'blur_effect_changed'):
                 self.app.appearance_page.blur_effect_changed.connect(self.app.set_blur_effect_enabled)
 
+            # Сигнал прозрачности окна
+            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'opacity_changed'):
+                self.app.appearance_page.opacity_changed.connect(self.app.set_window_opacity)
+
             self.init_tasks_completed.add('signals')
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
