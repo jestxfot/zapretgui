@@ -437,6 +437,16 @@ def set_wf_udp_443_enabled(enabled: bool) -> bool:
         _reset_disabled_categories_strategies()
     return result
 
+def get_wf_tcp_warp_enabled() -> bool:
+    """TCP порты 443, 853 (WARP) - Cloudflare WARP VPN"""
+    return _get_filter_enabled("TcpWarp", default=False)
+
+def set_wf_tcp_warp_enabled(enabled: bool) -> bool:
+    result = _set_filter_enabled("TcpWarp", enabled)
+    if result and not enabled:
+        _reset_disabled_categories_strategies()
+    return result
+
 # --- Raw-part фильтры (эффективные по CPU) ---
 
 def get_wf_raw_discord_media_enabled() -> bool:
@@ -497,6 +507,7 @@ def get_all_wf_filters() -> dict:
     return {
         'tcp_80': get_wf_tcp_80_enabled(),
         'tcp_443': get_wf_tcp_443_enabled(),
+        'tcp_warp': get_wf_tcp_warp_enabled(),
         'tcp_all_ports': get_wf_tcp_all_ports_enabled(),
         'udp_443': get_wf_udp_443_enabled(),
         'udp_all_ports': get_wf_udp_all_ports_enabled(),
@@ -512,6 +523,8 @@ def set_all_wf_filters(filters: dict) -> bool:
         success &= set_wf_tcp_80_enabled(filters['tcp_80'])
     if 'tcp_443' in filters:
         success &= set_wf_tcp_443_enabled(filters['tcp_443'])
+    if 'tcp_warp' in filters:
+        success &= set_wf_tcp_warp_enabled(filters['tcp_warp'])
     if 'udp_443' in filters:
         success &= set_wf_udp_443_enabled(filters['udp_443'])
     if 'raw_discord_media' in filters:
@@ -876,6 +889,8 @@ __all__ = [
     'set_wf_tcp_80_enabled',
     'get_wf_tcp_443_enabled',
     'set_wf_tcp_443_enabled',
+    'get_wf_tcp_warp_enabled',
+    'set_wf_tcp_warp_enabled',
     'get_wf_tcp_all_ports_enabled',
     'set_wf_tcp_all_ports_enabled',
     'get_wf_udp_443_enabled',

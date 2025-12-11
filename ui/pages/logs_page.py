@@ -657,6 +657,9 @@ class LogsPage(BasePage):
         # Обновляем статус
         strategy_info = runner.get_current_strategy_info()
         strategy_name = strategy_info.get('name', 'winws')
+        # Обрезаем длинные названия стратегий
+        if len(strategy_name) > 35:
+            strategy_name = strategy_name[:32] + "..."
         pid = strategy_info.get('pid', '?')
         self.winws_status_label.setText(f"PID: {pid} | {strategy_name}")
         self.winws_status_label.setStyleSheet("QLabel { color: #60cdff; font-size: 11px; }")

@@ -261,6 +261,21 @@ def set_snowflakes_enabled(enabled: bool) -> bool:
     return reg(REGISTRY_PATH, _SNOWFLAKES_NAME, 1 if enabled else 0)
 
 
+# ───────────── Эффект размытия (Acrylic/Mica) ─────────────
+_BLUR_EFFECT_NAME = "BlurEffectEnabled"  # REG_DWORD (1/0)
+
+def get_blur_effect_enabled() -> bool:
+    """True – включён эффект размытия окна, False – выключен."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _BLUR_EFFECT_NAME)
+    return bool(val) if val is not None else False  # По умолчанию выключено
+
+def set_blur_effect_enabled(enabled: bool) -> bool:
+    """Включает/выключает эффект размытия окна."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _BLUR_EFFECT_NAME, 1 if enabled else 0)
+
+
 # ───────────── Уведомление о сворачивании в трей ─────────────
 _TRAY_HINT_SHOWN_NAME = "TrayHintShown"  # REG_DWORD (1/0)
 

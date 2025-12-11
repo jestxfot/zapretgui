@@ -1,11 +1,17 @@
 # strategy_menu/table_builder.py
 
-from PyQt6.QtWidgets import (QTableWidget, QTableWidgetItem, QWidget, 
+from PyQt6.QtWidgets import (QTableWidget, QTableWidgetItem, QWidget,
                             QHBoxLayout, QLabel, QPushButton, QMenu)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor, QBrush, QCursor
 
 from .constants import LABEL_TEXTS, LABEL_COLORS
+
+# Цвета подсветки рейтинга стратегий (полупрозрачные)
+RATING_COLORS = {
+    'working': QColor(74, 222, 128, 40),   # Зелёный полупрозрачный rgba(74, 222, 128, 0.15)
+    'broken': QColor(248, 113, 113, 40),   # Красный полупрозрачный rgba(248, 113, 113, 0.15)
+}
 
 
 class ScrollBlockingTableWidget(QTableWidget):
@@ -64,7 +70,6 @@ class StrategyTableBuilder:
                 padding: 4px 8px;
                 color: rgba(255, 255, 255, 0.85);
                 border: none;
-                background-color: transparent;
             }
             QTableWidget::item:hover {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -265,50 +270,67 @@ class StrategyTableBuilder:
     @staticmethod
     def populate_row(table, row, strategy_id, strategy_info, strategy_number=None, category_key="bat"):
         """Заполняет одну строку таблицы."""
-        
+        from strategy_menu import get_strategy_rating
+
         table.setRowHeight(row, 42)
-        
+
+        # Получаем рейтинг стратегии для подсветки
+        rating = get_strategy_rating(strategy_id)
+        rating_bg = RATING_COLORS.get(rating) if rating else None
+
         # Колонка 0: Звезда избранного
         star_widget = StrategyTableBuilder.create_favorite_star(
             table, strategy_id, category_key
         )
+        # Если есть рейтинг, добавляем фоновый цвет виджету
+        if rating_bg:
+            star_widget.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")
         table.setCellWidget(row, 0, star_widget)
-        
+
         # Колонка 1: Имя стратегии
         strategy_name = strategy_info.get('name') or strategy_id
         display_name = f"{strategy_number}. {strategy_name}"
-        
+
         all_sites = StrategyTableBuilder.is_strategy_for_all_sites(strategy_info)
         if all_sites:
             display_name += " [ВСЕ]"
-        
+
         name_item = QTableWidgetItem(display_name)
         name_item.setFont(QFont("Segoe UI", 10))
+        # Подсветка рейтинга
+        if rating_bg:
+            name_item.setBackground(QBrush(rating_bg))
         table.setItem(row, 1, name_item)
-        
+
         # Колонка 2: Метка
         label = strategy_info.get('label') or None
         if label and label in LABEL_TEXTS:
-            label_widget = StrategyTableBuilder.create_label_widget(label)
+            label_widget = StrategyTableBuilder.create_label_widget(label, rating_bg)
             table.setCellWidget(row, 2, label_widget)
         else:
             # Пустой виджет для консистентности
             empty_widget = QWidget()
-            empty_widget.setStyleSheet("background: transparent;")
+            if rating_bg:
+                empty_widget.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")
+            else:
+                empty_widget.setStyleSheet("background: transparent;")
             table.setCellWidget(row, 2, empty_widget)
     
     @staticmethod
-    def create_label_widget(label):
+    def create_label_widget(label, rating_bg=None):
         """Создает виджет метки."""
         label_widget = QWidget()
-        label_widget.setStyleSheet("background: transparent;")
+        if rating_bg:
+            label_widget.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")
+        else:
+            label_widget.setStyleSheet("background: transparent;")
         label_layout = QHBoxLayout(label_widget)
         label_layout.setContentsMargins(4, 6, 8, 6)
         label_layout.setSpacing(0)
-        
+
         label_text = QLabel(LABEL_TEXTS[label])
         label_color = LABEL_COLORS[label]
-        
+
         label_text.setStyleSheet(f"""
             QLabel {{
                 color: #ffffff;
@@ -321,10 +343,10 @@ class StrategyTableBuilder:
             }}
         """)
         label_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         label_layout.addWidget(label_text)
         label_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        
+
         return label_widget
     
     @staticmethod

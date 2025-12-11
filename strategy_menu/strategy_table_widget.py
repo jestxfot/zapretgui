@@ -25,8 +25,9 @@ class StrategyTableWidget(QWidget):
         self.selected_strategy_id = None
         self.selected_strategy_name = None
         self._last_hover_row = -1
-        
+
         self._init_ui()
+        self._setup_rating_callback()
     
     def _init_ui(self):
         """Инициализация интерфейса"""
@@ -277,3 +278,14 @@ class StrategyTableWidget(QWidget):
         """При скрытии виджета скрываем tooltip"""
         tooltip_manager.hide_immediately()
         super().hideEvent(event)
+
+    def _setup_rating_callback(self):
+        """Подписываемся на изменение рейтингов"""
+        from .args_preview_dialog import preview_manager
+        preview_manager.add_rating_change_callback(self._on_rating_changed)
+
+    def _on_rating_changed(self, strategy_id, new_rating):
+        """Обновляет таблицу при изменении рейтинга стратегии"""
+        if strategy_id in self.strategies_data:
+            # Перезаполняем таблицу для обновления цветов
+            self.populate_strategies(self.strategies_data)

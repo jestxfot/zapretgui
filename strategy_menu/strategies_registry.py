@@ -492,31 +492,37 @@ class StrategiesRegistry:
         """
         from strategy_menu import (
             get_wf_tcp_80_enabled, get_wf_tcp_443_enabled,
-            get_wf_udp_443_enabled, get_wf_tcp_all_ports_enabled,
-            get_wf_udp_all_ports_enabled, get_wf_raw_discord_media_enabled,
-            get_wf_raw_stun_enabled
+            get_wf_tcp_warp_enabled, get_wf_udp_443_enabled,
+            get_wf_tcp_all_ports_enabled, get_wf_udp_all_ports_enabled,
+            get_wf_raw_discord_media_enabled, get_wf_raw_stun_enabled
         )
-        
+
         category_info = self._categories.get(category_key)
         if not category_info:
             return False
-        
+
         protocol = category_info.protocol
         base_filter = category_info.base_filter
         requires_all = category_info.requires_all_ports
-        
+        strategy_type = category_info.strategy_type if category_info.strategy_type else ""
+
         # HTTP 80 port (все категории с strategy_type="http80")
-        if category_info.strategy_type == "http80":
+        if strategy_type == "http80":
             return get_wf_tcp_80_enabled()
-        
+
+        # WARP категории (TCP 443, 853)
+        is_warp = "warp" in category_key.lower() or strategy_type == "warp"
+        if is_warp and protocol == 'TCP':
+            return get_wf_tcp_warp_enabled()
+
         # Discord Voice UDP (raw filters)
         if category_key == 'discord_voice_udp':
             return get_wf_raw_discord_media_enabled() or get_wf_raw_stun_enabled()
-        
+
         # YouTube QUIC - теперь зависит от UDP 443 (дублирование с QUIC Initial убрано)
         if category_key == 'youtube_udp':
             return get_wf_udp_443_enabled()
-        
+
         # UDP категории
         if protocol in ('UDP', 'QUIC/UDP'):
             # UDP 443 (QUIC) - udp_discord и другие
@@ -524,7 +530,7 @@ class StrategiesRegistry:
                 return get_wf_udp_443_enabled()
             # UDP all ports - игры и ipset (все не-443 порты)
             return get_wf_udp_all_ports_enabled()
-        
+
         # TCP категории
         if protocol == 'TCP':
             # TCP all ports - ipset категории
@@ -532,7 +538,7 @@ class StrategiesRegistry:
                 return get_wf_tcp_all_ports_enabled()
             # TCP 443 - основные категории
             return get_wf_tcp_443_enabled()
-        
+
         return True
     
     def get_enabled_category_keys(self) -> List[str]:

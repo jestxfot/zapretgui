@@ -160,24 +160,27 @@ class ThemeCard(QFrame):
 
 class AppearancePage(BasePage):
     """Страница настроек оформления"""
-    
+
     # Сигнал смены темы
     theme_changed = pyqtSignal(str)
     # Сигнал изменения состояния гирлянды
     garland_changed = pyqtSignal(bool)
     # Сигнал изменения состояния снежинок
     snowflakes_changed = pyqtSignal(bool)
-    
+    # Сигнал изменения состояния эффекта размытия
+    blur_effect_changed = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
-        
+
         self._theme_cards = {}  # name -> ThemeCard
         self._current_theme = None
         self._is_premium = False
         self._garland_checkbox = None
         self._snowflakes_checkbox = None
         self._wall_animation_checkbox = None
-        
+        self._blur_effect_checkbox = None
+
         self._build_ui()
         
     def _build_ui(self):
@@ -443,9 +446,88 @@ class AppearancePage(BasePage):
         
         snowflakes_card.add_layout(snowflakes_layout)
         self.add_widget(snowflakes_card)
-        
+
         self.add_spacing(16)
-        
+
+        # ═══════════════════════════════════════════════════════════
+        # ЭФФЕКТ РАЗМЫТИЯ (Acrylic/Mica)
+        # ═══════════════════════════════════════════════════════════
+        self.add_section_title("Эффект окна")
+
+        blur_card = SettingsCard()
+
+        blur_layout = QVBoxLayout()
+        blur_layout.setSpacing(12)
+
+        # Описание
+        blur_desc = QLabel(
+            "Матовое размытие фона окна (Acrylic). "
+            "Позволяет видеть размытое содержимое за окном. "
+            "Требует Windows 10 1803+ или Windows 11."
+        )
+        blur_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        blur_desc.setWordWrap(True)
+        blur_layout.addWidget(blur_desc)
+
+        # Переключатель
+        blur_row = QHBoxLayout()
+        blur_row.setSpacing(12)
+
+        blur_icon = QLabel()
+        blur_icon.setPixmap(qta.icon('fa5s.magic', color='#60cdff').pixmap(20, 20))
+        blur_row.addWidget(blur_icon)
+
+        blur_label = QLabel("Размытие фона (Acrylic)")
+        blur_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        blur_row.addWidget(blur_label)
+
+        blur_row.addStretch()
+
+        self._blur_effect_checkbox = QCheckBox()
+        self._blur_effect_checkbox.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 40px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            QCheckBox::indicator:checked {
+                background-color: #60cdff;
+                border-color: #60cdff;
+            }
+            QCheckBox::indicator:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #7dd8ff;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: rgba(255, 255, 255, 0.05);
+                border-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self._blur_effect_checkbox.stateChanged.connect(self._on_blur_effect_changed)
+        blur_row.addWidget(self._blur_effect_checkbox)
+
+        blur_layout.addLayout(blur_row)
+
+        # Предупреждение о совместимости
+        from ui.theme import BlurEffect
+        if not BlurEffect.is_supported():
+            warning_label = QLabel("⚠️ Эффект недоступен на вашей системе")
+            warning_label.setStyleSheet("color: #ff9800; font-size: 10px;")
+            blur_layout.addWidget(warning_label)
+            self._blur_effect_checkbox.setEnabled(False)
+
+        blur_card.add_layout(blur_layout)
+        self.add_widget(blur_card)
+
+        self.add_spacing(16)
+
         # ═══════════════════════════════════════════════════════════
         # ПРОИЗВОДИТЕЛЬНОСТЬ
         # ═══════════════════════════════════════════════════════════
@@ -513,13 +595,27 @@ class AppearancePage(BasePage):
     def _on_wall_animation_changed(self, state):
         """Обработчик изменения состояния анимации стены"""
         enabled = state == Qt.CheckState.Checked.value
-        
+
         # Сохраняем в реестр
         from config import set_wall_animation_enabled
         set_wall_animation_enabled(enabled)
-        
+
         from log import log
         log(f"Анимация стены {'включена' if enabled else 'отключена'}", "DEBUG")
+
+    def _on_blur_effect_changed(self, state):
+        """Обработчик изменения состояния эффекта размытия"""
+        enabled = state == Qt.CheckState.Checked.value
+
+        # Сохраняем в реестр
+        from config.reg import set_blur_effect_enabled
+        set_blur_effect_enabled(enabled)
+
+        # Уведомляем главное окно
+        self.blur_effect_changed.emit(enabled)
+
+        from log import log
+        log(f"Эффект размытия {'включён' if enabled else 'выключен'}", "DEBUG")
         
     def _on_snowflakes_changed(self, state):
         """Обработчик изменения состояния снежинок"""
@@ -592,14 +688,20 @@ class AppearancePage(BasePage):
                 self._theme_cards[name].set_enabled(is_premium)
         
         # Включаем/выключаем чекбоксы новогоднего оформления
-        from config.reg import get_garland_enabled, get_snowflakes_enabled
+        from config.reg import get_garland_enabled, get_snowflakes_enabled, get_blur_effect_enabled
         from config import get_wall_animation_enabled
-        
+
         # Загружаем настройку анимации стены (не зависит от премиума)
         if self._wall_animation_checkbox:
             self._wall_animation_checkbox.blockSignals(True)
             self._wall_animation_checkbox.setChecked(get_wall_animation_enabled())
             self._wall_animation_checkbox.blockSignals(False)
+
+        # Загружаем настройку эффекта размытия (не зависит от премиума)
+        if self._blur_effect_checkbox and self._blur_effect_checkbox.isEnabled():
+            self._blur_effect_checkbox.blockSignals(True)
+            self._blur_effect_checkbox.setChecked(get_blur_effect_enabled())
+            self._blur_effect_checkbox.blockSignals(False)
         
         if self._garland_checkbox:
             self._garland_checkbox.setEnabled(is_premium)
@@ -654,7 +756,14 @@ class AppearancePage(BasePage):
             self._snowflakes_checkbox.blockSignals(True)
             self._snowflakes_checkbox.setChecked(enabled)
             self._snowflakes_checkbox.blockSignals(False)
-                
+
+    def set_blur_effect_state(self, enabled: bool):
+        """Устанавливает состояние чекбокса эффекта размытия (без эмита сигнала)"""
+        if self._blur_effect_checkbox:
+            self._blur_effect_checkbox.blockSignals(True)
+            self._blur_effect_checkbox.setChecked(enabled)
+            self._blur_effect_checkbox.blockSignals(False)
+
     def update_themes(self, themes: list, current_theme: str = None):
         """Обновляет текущую выбранную тему (для совместимости)"""
         if current_theme:

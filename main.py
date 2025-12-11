@@ -898,7 +898,28 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # Покрываем всё окно полностью
             self.snowflakes.setGeometry(0, 0, self.width(), self.height())
             self.snowflakes.raise_()
-    
+
+    def set_blur_effect_enabled(self, enabled: bool) -> None:
+        """Включает или выключает эффект размытия окна (Acrylic/Mica)"""
+        try:
+            from ui.theme import BlurEffect
+
+            # Получаем HWND окна
+            hwnd = int(self.winId())
+
+            if enabled:
+                success = BlurEffect.enable(hwnd, blur_type="acrylic")
+                if success:
+                    log("✅ Эффект размытия включён", "INFO")
+                else:
+                    log("⚠️ Не удалось включить эффект размытия", "WARNING")
+            else:
+                BlurEffect.disable(hwnd)
+                log("✅ Эффект размытия выключен", "INFO")
+
+        except Exception as e:
+            log(f"❌ Ошибка при изменении эффекта размытия: {e}", "ERROR")
+
     def resizeEvent(self, event):
         """Обновляем декорации при изменении размера окна"""
         super().resizeEvent(event)
@@ -942,7 +963,16 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 self.set_snowflakes_enabled(True)
             if hasattr(self, 'appearance_page'):
                 self.appearance_page.set_snowflakes_state(should_enable_snowflakes)
-            
+
+            # Эффект размытия (не зависит от премиума)
+            from config.reg import get_blur_effect_enabled
+            blur_saved = get_blur_effect_enabled()
+            log(f"🔮 Инициализация: blur={blur_saved}", "DEBUG")
+            if blur_saved:
+                self.set_blur_effect_enabled(True)
+            if hasattr(self, 'appearance_page'):
+                self.appearance_page.set_blur_effect_state(blur_saved)
+
         except Exception as e:
             log(f"❌ Ошибка загрузки состояния декораций: {e}", "ERROR")
             import traceback

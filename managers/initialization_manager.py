@@ -325,7 +325,11 @@ class InitializationManager:
             # Сигнал снежинок
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'snowflakes_changed'):
                 self.app.appearance_page.snowflakes_changed.connect(self.app.set_snowflakes_enabled)
-            
+
+            # Сигнал эффекта размытия
+            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'blur_effect_changed'):
+                self.app.appearance_page.blur_effect_changed.connect(self.app.set_blur_effect_enabled)
+
             self.init_tasks_completed.add('signals')
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")

@@ -844,6 +844,9 @@ class StrategiesPage(QWidget):
             self._strategy_widget.setMinimumHeight(500)  # Увеличенная высота блока стратегий
             self.content_layout.addWidget(self._strategy_widget, 1)  # stretch=1 - растягивается при увеличении окна
 
+            # Подписываемся на изменение рейтингов для обновления подсветки
+            self._setup_rating_callback()
+
             # Отступ перед командной строкой
             self.content_layout.addSpacing(20)
 
@@ -1495,11 +1498,32 @@ class StrategiesPage(QWidget):
         """Обработчик изменения избранного в Direct режиме - перезагружает вкладку"""
         if not self._strategy_widget:
             return
-        
+
         widget = self._strategy_widget.widget(tab_index)
         if widget:
             widget._loaded = False
             self._load_category_tab(tab_index)
+
+    def _setup_rating_callback(self):
+        """Подписывается на изменение рейтингов стратегий"""
+        try:
+            from strategy_menu.args_preview_dialog import preview_manager
+            preview_manager.add_rating_change_callback(self._on_rating_changed)
+        except Exception as e:
+            log(f"Ошибка подписки на callback рейтинга: {e}", "WARNING")
+
+    def _on_rating_changed(self, strategy_id, new_rating):
+        """Обновляет подсветку при изменении рейтинга стратегии"""
+        if not self._strategy_widget:
+            return
+
+        # Перезагружаем текущую вкладку для обновления подсветки
+        current_index = self._strategy_widget.currentIndex()
+        if current_index >= 0:
+            widget = self._strategy_widget.widget(current_index)
+            if widget:
+                widget._loaded = False
+                self._load_category_tab(current_index)
 
     def _update_dpi_filters_display(self):
         """Обновляет отображение фильтров на странице DPI Settings"""

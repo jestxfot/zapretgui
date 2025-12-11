@@ -378,15 +378,13 @@ class UpdateStatusCard(QFrame):
         
     def _rotate_icon(self):
         """Вращает иконку с плавным стартом и завершением"""
-        from PyQt6.QtGui import QTransform
-        
         self._rotation_tick += 1
-        
+
         if self._rotation_stopping:
             # Режим завершения: замедляемся и доворачиваем до 360°
             self._rotation_speed = max(0.3, self._rotation_speed * 0.96)  # Плавное замедление (60fps)
             self._rotation_angle += self._rotation_speed
-            
+
             # Проверяем, близко ли к полному обороту (360°)
             if self._rotation_angle >= 360:
                 # Анимация завершена - останавливаем и показываем статичную иконку
@@ -400,32 +398,28 @@ class UpdateStatusCard(QFrame):
                 # Ease-in квадратичный для плавного старта
                 progress = min(self._rotation_tick / 90.0, 1.0)
                 self._rotation_speed = 8.0 * (progress ** 2)
-            
+
             self._rotation_angle = (self._rotation_angle + self._rotation_speed) % 360
-        
-        # Поворачиваем pixmap через QTransform (контейнер 64x64, иконка 48x48)
-        from PyQt6.QtGui import QPixmap
-        
+
+        # Вращаем через QPainter (не через QPixmap.transformed - тот меняет размер)
+        from PyQt6.QtGui import QPixmap, QPainter
+
         base_pixmap = qta.icon('fa5s.sync-alt', color='#60cdff').pixmap(48, 48)
-        
-        transform = QTransform()
-        transform.translate(24, 24)
-        transform.rotate(-self._rotation_angle)
-        transform.translate(-24, -24)
-        
-        rotated = base_pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-        
-        # Создаём прозрачный pixmap 64x64 и центрируем повёрнутую иконку
+
+        # Создаём целевой pixmap 64x64
         final = QPixmap(64, 64)
         final.fill(Qt.GlobalColor.transparent)
-        
-        from PyQt6.QtGui import QPainter
+
         painter = QPainter(final)
-        x = (64 - rotated.width()) // 2
-        y = (64 - rotated.height()) // 2
-        painter.drawPixmap(x, y, rotated)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # Перемещаем центр координат в центр pixmap, вращаем, рисуем
+        painter.translate(32, 32)
+        painter.rotate(self._rotation_angle)  # По часовой стрелке
+        painter.drawPixmap(-24, -24, base_pixmap)
         painter.end()
-        
+
         self.icon_label.setPixmap(final)
         
     def _on_check_clicked(self):

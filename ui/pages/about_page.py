@@ -179,9 +179,8 @@ class AboutPage(BasePage):
         card = QFrame()
         card.setStyleSheet("""
             QFrame {
-                background-color: rgba(255, 255, 255, 0.04);
+                background: transparent;
                 border: none;
-                border-radius: 8px;
             }
         """)
         
@@ -244,23 +243,16 @@ class AboutPage(BasePage):
         link_text_layout = QVBoxLayout()
         link_text_layout.setSpacing(0)
         link_text_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         link_title = QLabel(title)
-        link_title.setStyleSheet("""
-            color: #60cdff; 
-            font-size: 12px; 
-            font-weight: 500;
-            background: transparent;
-        """)
+        link_title.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 500;")
+        link_title.setFixedHeight(16)
         link_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_title)
-        
+
         link_desc = QLabel(desc)
-        link_desc.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.5); 
-            font-size: 10px;
-            background: transparent;
-        """)
+        link_desc.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 10px;")
+        link_desc.setFixedHeight(14)
         link_desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_desc)
         

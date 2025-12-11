@@ -66,6 +66,16 @@ FILTERS = {
         'color': '#ff9800',
         'warning': None,
     },
+    'tcp_warp': {
+        'name': 'Ports 443, 853 (WARP)',
+        'description': 'Cloudflare WARP VPN',
+        'protocol': 'TCP',
+        'ports': ['443', '853'],
+        'icon': 'fa5s.cloud',
+        'color': '#F48120',
+        'warning': None,
+        'special_categories': ['warp_tcp'],  # Только для категорий warp
+    },
     'udp_all_ports': {
         'name': 'Ports 444-65535 (game filter)',
         'description': 'Перехват всех UDP портов',
@@ -140,6 +150,12 @@ def get_filter_for_category(category_info) -> Set[str]:
         required_filters.add('raw_discord')
         required_filters.add('raw_stun')
         required_filters.add('raw_wireguard')
+        return required_filters
+
+    # === WARP категории (TCP 443, 853) ===
+    is_warp = "warp" in category_key.lower() or strategy_type == "warp"
+    if is_warp and "TCP" in protocol:
+        required_filters.add('tcp_warp')
         return required_filters
 
     # === Определяем протокол ===

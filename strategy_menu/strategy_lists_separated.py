@@ -143,7 +143,7 @@ def calculate_required_filters(category_strategies: dict) -> dict:
         for filter_key in required_filters:
             filters[filter_key] = True
 
-    log(f"Автоматически определены фильтры: TCP=[80={filters.get('tcp_80')}, 443={filters.get('tcp_443')}, 6568={filters.get('tcp_6568')}, all={filters.get('tcp_all_ports')}], "
+    log(f"Автоматически определены фильтры: TCP=[80={filters.get('tcp_80')}, 443={filters.get('tcp_443')}, 6568={filters.get('tcp_6568')}, warp={filters.get('tcp_warp')}, all={filters.get('tcp_all_ports')}], "
         f"UDP=[443={filters.get('udp_443')}, all={filters.get('udp_all_ports')}], "
         f"raw=[discord={filters.get('raw_discord')}, stun={filters.get('raw_stun')}, wg={filters.get('raw_wireguard')}]", "DEBUG")
 
@@ -156,6 +156,7 @@ def _build_base_args_from_filters(
     tcp_80: bool,
     tcp_443: bool,
     tcp_6568: bool,
+    tcp_warp: bool,
     tcp_all_ports: bool,
     udp_443: bool,
     udp_all_ports: bool,
@@ -179,6 +180,8 @@ def _build_base_args_from_filters(
         tcp_port_parts.append("80")
     if tcp_443:
         tcp_port_parts.append("443")
+    if tcp_warp:
+        tcp_port_parts.append("853")
     if tcp_6568:
         tcp_port_parts.append("6568")
     if tcp_all_ports:
@@ -268,6 +271,7 @@ def combine_strategies(*args, **kwargs) -> dict:
         filters['tcp_80'],
         filters['tcp_443'],
         filters['tcp_6568'],
+        filters['tcp_warp'],
         filters['tcp_all_ports'],
         filters['udp_443'],
         filters['udp_all_ports'],

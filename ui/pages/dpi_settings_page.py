@@ -531,12 +531,17 @@ class DpiSettingsPage(BasePage):
         filters_layout.addWidget(self.tcp_80_toggle)
         
         self.tcp_443_toggle = Win11ToggleRow(
-            "fa5s.lock", "Port 443 (HTTPS/TLS)", 
+            "fa5s.lock", "Port 443 (HTTPS/TLS)",
             "Перехват HTTPS трафика", "#4CAF50")
         filters_layout.addWidget(self.tcp_443_toggle)
-        
+
+        self.tcp_warp_toggle = Win11ToggleRow(
+            "fa5s.cloud", "Ports 443, 853 (WARP)",
+            "Cloudflare WARP VPN", "#F48120")
+        filters_layout.addWidget(self.tcp_warp_toggle)
+
         self.tcp_all_ports_toggle = Win11ToggleRow(
-            "fa5s.bolt", "Ports 444-65535 (game filter)", 
+            "fa5s.bolt", "Ports 444-65535 (game filter)",
             "⚠ Высокая нагрузка на CPU", "#ff9800")
         filters_layout.addWidget(self.tcp_all_ports_toggle)
         
@@ -869,6 +874,7 @@ class DpiSettingsPage(BasePage):
             # Начальное состояние — всё выключено (обновится при выборе категорий)
             self.tcp_80_toggle.setChecked(False, block_signals=True)
             self.tcp_443_toggle.setChecked(False, block_signals=True)
+            self.tcp_warp_toggle.setChecked(False, block_signals=True)
             self.tcp_all_ports_toggle.setChecked(False, block_signals=True)
             self.udp_443_toggle.setChecked(False, block_signals=True)
             self.udp_all_ports_toggle.setChecked(False, block_signals=True)
@@ -879,6 +885,7 @@ class DpiSettingsPage(BasePage):
             # Подключаем сигналы для обработки ручного отключения фильтров
             self.tcp_80_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_80', v))
             self.tcp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_443', v))
+            self.tcp_warp_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_warp', v))
             self.tcp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_all_ports', v))
             self.udp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_443', v))
             self.udp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_all_ports', v))
@@ -956,6 +963,7 @@ class DpiSettingsPage(BasePage):
         try:
             self.tcp_80_toggle.setChecked(filters.get('tcp_80', False), block_signals=True)
             self.tcp_443_toggle.setChecked(filters.get('tcp_443', False), block_signals=True)
+            self.tcp_warp_toggle.setChecked(filters.get('tcp_warp', False), block_signals=True)
             self.tcp_all_ports_toggle.setChecked(filters.get('tcp_all_ports', False), block_signals=True)
             self.udp_443_toggle.setChecked(filters.get('udp_443', False), block_signals=True)
             self.udp_all_ports_toggle.setChecked(filters.get('udp_all_ports', False), block_signals=True)

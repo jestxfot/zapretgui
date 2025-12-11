@@ -25,6 +25,30 @@ _STYLE_NORMAL = """
     }
 """
 
+# Стили для рейтинга стратегий (рабочая/нерабочая)
+_STYLE_RATING_WORKING = """
+    CompactStrategyItem {
+        background: rgba(74, 222, 128, 0.15);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+        border-radius: 4px;
+    }
+    CompactStrategyItem:hover {
+        background: rgba(74, 222, 128, 0.2);
+        border-color: rgba(74, 222, 128, 0.5);
+    }
+"""
+_STYLE_RATING_BROKEN = """
+    CompactStrategyItem {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.3);
+        border-radius: 4px;
+    }
+    CompactStrategyItem:hover {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: rgba(248, 113, 113, 0.5);
+    }
+"""
+
 # Константы стилей для текста (используются как есть, без пересоздания строк)
 _STYLE_NAME = "color: rgba(255, 255, 255, 0.9); font-size: 11px; font-weight: 500;"
 _STYLE_DESC = "color: rgba(255, 255, 255, 0.4); font-size: 10px;"
@@ -64,9 +88,24 @@ class CompactStrategyItem(QFrame):
         self._init_ui()
         self._setup_tooltip()
 
+    def _get_rating_style(self):
+        """Возвращает стиль на основе рейтинга стратегии"""
+        from strategy_menu import get_strategy_rating
+        rating = get_strategy_rating(self.strategy_id)
+        if rating == 'working':
+            return _STYLE_RATING_WORKING
+        elif rating == 'broken':
+            return _STYLE_RATING_BROKEN
+        return None
+
     def _apply_style(self, selected):
         """Применяет стиль (с кэшированием для избежания лишних вызовов)"""
-        new_style = _STYLE_SELECTED if selected else _STYLE_NORMAL
+        if selected:
+            new_style = _STYLE_SELECTED
+        else:
+            # Проверяем рейтинг стратегии
+            rating_style = self._get_rating_style()
+            new_style = rating_style if rating_style else _STYLE_NORMAL
         if self._current_style != new_style:
             self._current_style = new_style
             self.setStyleSheet(new_style)
@@ -144,12 +183,14 @@ class CompactStrategyItem(QFrame):
     def set_checked(self, checked):
         self.radio.setChecked(checked)
     
-    # Для совместимости
     def refresh_rating(self):
-        pass
-    
+        """Обновляет стиль на основе рейтинга"""
+        self._current_style = None  # Сбрасываем кэш
+        self._apply_style(self.is_selected)
+
     def _update_rating_style(self):
-        pass
+        """Обновляет стиль рейтинга"""
+        self.refresh_rating()
 
 
 class ProviderHeaderItem(QListWidgetItem):

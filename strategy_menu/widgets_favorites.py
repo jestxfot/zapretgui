@@ -35,6 +35,30 @@ _STYLE_NORMAL = """
     }
 """
 
+# Стили для рейтинга стратегий (рабочая/нерабочая)
+_STYLE_RATING_WORKING = """
+    FavoriteCompactStrategyItem {
+        background: rgba(74, 222, 128, 0.15);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+        border-radius: 4px;
+    }
+    FavoriteCompactStrategyItem:hover {
+        background: rgba(74, 222, 128, 0.2);
+        border-color: rgba(74, 222, 128, 0.5);
+    }
+"""
+_STYLE_RATING_BROKEN = """
+    FavoriteCompactStrategyItem {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.3);
+        border-radius: 4px;
+    }
+    FavoriteCompactStrategyItem:hover {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: rgba(248, 113, 113, 0.5);
+    }
+"""
+
 # Кэшированные стили для кнопки избранного (оптимизация)
 _FAV_BTN_STYLE_ACTIVE = """
     QToolButton {
@@ -83,14 +107,29 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
 
+    def _get_rating_style(self):
+        """Возвращает стиль на основе рейтинга стратегии"""
+        from strategy_menu import get_strategy_rating
+        rating = get_strategy_rating(self.strategy_id)
+        if rating == 'working':
+            return _STYLE_RATING_WORKING
+        elif rating == 'broken':
+            return _STYLE_RATING_BROKEN
+        return None
+
     def _apply_style(self, selected):
-        """Стиль с учётом избранного (с кэшированием)"""
+        """Стиль с учётом избранного и рейтинга (с кэшированием)"""
         if selected:
             new_style = _STYLE_SELECTED
-        elif self.is_favorite:
-            new_style = _STYLE_FAVORITE
         else:
-            new_style = _STYLE_NORMAL
+            # Сначала проверяем рейтинг (приоритет выше чем избранное)
+            rating_style = self._get_rating_style()
+            if rating_style:
+                new_style = rating_style
+            elif self.is_favorite:
+                new_style = _STYLE_FAVORITE
+            else:
+                new_style = _STYLE_NORMAL
 
         # Применяем только если стиль изменился
         if self._current_style != new_style:

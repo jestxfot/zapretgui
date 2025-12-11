@@ -14,8 +14,9 @@ from log import log
 
 class ArgsPreviewDialog(QDialog):
     """Компактное окно информации о стратегии - Fluent Design"""
-    
+
     closed = pyqtSignal()
+    rating_changed = pyqtSignal(str, str)  # strategy_id, new_rating (или None)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -356,10 +357,12 @@ class ArgsPreviewDialog(QDialog):
         """Переключает оценку"""
         if not hasattr(self, 'current_strategy_id') or not self.current_strategy_id:
             return
-        
+
         from strategy_menu import toggle_strategy_rating
-        toggle_strategy_rating(self.current_strategy_id, rating)
+        new_rating = toggle_strategy_rating(self.current_strategy_id, rating)
         self._update_rating_buttons()
+        # Уведомляем об изменении рейтинга
+        self.rating_changed.emit(self.current_strategy_id, new_rating or "")
     
     def copy_args(self):
         """Копирует аргументы"""
@@ -429,15 +432,35 @@ class ArgsPreviewDialog(QDialog):
 
 class StrategyPreviewManager:
     """Менеджер окна предпросмотра"""
-    
+
     _instance = None
-    
+    _rating_change_callbacks = []  # Callback'и для уведомления об изменении рейтинга
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance.preview_dialog = None
+            cls._instance._rating_change_callbacks = []
         return cls._instance
-    
+
+    def add_rating_change_callback(self, callback):
+        """Добавляет callback для уведомления об изменении рейтинга"""
+        if callback not in self._rating_change_callbacks:
+            self._rating_change_callbacks.append(callback)
+
+    def remove_rating_change_callback(self, callback):
+        """Удаляет callback"""
+        if callback in self._rating_change_callbacks:
+            self._rating_change_callbacks.remove(callback)
+
+    def _on_rating_changed(self, strategy_id, new_rating):
+        """Вызывается при изменении рейтинга стратегии"""
+        for callback in self._rating_change_callbacks:
+            try:
+                callback(strategy_id, new_rating)
+            except Exception as e:
+                log(f"Ошибка в callback рейтинга: {e}", "ERROR")
+
     def show_preview(self, widget, strategy_id, strategy_data):
         # Проверяем что старый диалог ещё существует и не удалён Qt
         try:
@@ -452,13 +475,14 @@ class StrategyPreviewManager:
                 self.preview_dialog = None
         except RuntimeError:
             self.preview_dialog = None
-        
+
         self.preview_dialog = ArgsPreviewDialog(widget)
         self.preview_dialog.closed.connect(self._on_preview_closed)
+        self.preview_dialog.rating_changed.connect(self._on_rating_changed)
         self.preview_dialog.set_strategy_data(strategy_data, strategy_id, source_widget=widget)
-        
+
         cursor_pos = widget.mapToGlobal(widget.rect().center())
-        
+
         screen = QApplication.primaryScreen()
         if screen:
             screen_rect = screen.availableGeometry()
@@ -466,7 +490,7 @@ class StrategyPreviewManager:
                 cursor_pos.setX(screen_rect.right() - self.preview_dialog.width() - 10)
             if cursor_pos.y() + 300 > screen_rect.bottom():
                 cursor_pos.setY(screen_rect.bottom() - 300)
-        
+
         self.preview_dialog.show_animated(cursor_pos)
     
     def _on_preview_closed(self):

@@ -84,6 +84,311 @@ BUTTON_HEIGHT = 28
 # Радиус скругления углов окна
 WINDOW_BORDER_RADIUS = 10
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ЭФФЕКТ РАЗМЫТИЯ (Acrylic/Mica) для Windows 10/11
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class BlurEffect:
+    """Класс для управления эффектом размытия окна (Windows Acrylic/Mica)."""
+
+    # Константы Windows API
+    DWMWA_SYSTEMBACKDROP_TYPE = 38
+    DWMSBT_NONE = 1           # Без эффекта
+    DWMSBT_MAINWINDOW = 2     # Mica
+    DWMSBT_TRANSIENTWINDOW = 3  # Acrylic
+    DWMSBT_TABBEDWINDOW = 4   # Tabbed
+
+    # Для Windows 10 (Acrylic через AccentPolicy)
+    ACCENT_DISABLED = 0
+    ACCENT_ENABLE_BLURBEHIND = 3
+    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
+
+    _enabled = False
+    _hwnd = None
+
+    @classmethod
+    def is_supported(cls) -> bool:
+        """Проверяет поддержку blur эффекта на текущей системе."""
+        import sys
+        if sys.platform != 'win32':
+            return False
+        try:
+            import ctypes
+            # Проверяем версию Windows
+            version = sys.getwindowsversion()
+            # Windows 10 build 17134+ или Windows 11
+            return version.major >= 10 and version.build >= 17134
+        except Exception:
+            return False
+
+    @classmethod
+    def enable(cls, hwnd: int, blur_type: str = "acrylic") -> bool:
+        """
+        Включает эффект размытия для окна.
+
+        Args:
+            hwnd: Handle окна (HWND)
+            blur_type: Тип размытия - "acrylic", "mica" или "blur"
+
+        Returns:
+            True если успешно, False если ошибка
+        """
+        if not cls.is_supported():
+            log("❌ Blur эффект не поддерживается на этой системе", "WARNING")
+            return False
+
+        try:
+            import ctypes
+            from ctypes import windll, byref, c_int, sizeof, Structure, POINTER, c_uint, c_void_p
+            import sys
+
+            cls._hwnd = hwnd
+            version = sys.getwindowsversion()
+
+            # Windows 11 (build 22000+) - используем новый API
+            if version.build >= 22000:
+                return cls._enable_windows11(hwnd, blur_type)
+            else:
+                # Windows 10 - используем AccentPolicy
+                return cls._enable_windows10(hwnd, blur_type)
+
+        except Exception as e:
+            log(f"❌ Ошибка включения blur эффекта: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            return False
+
+    @classmethod
+    def _enable_windows11(cls, hwnd: int, blur_type: str) -> bool:
+        """Включает blur на Windows 11 через DwmSetWindowAttribute."""
+        try:
+            import ctypes
+            from ctypes import windll, byref, c_int, sizeof
+
+            dwmapi = windll.dwmapi
+
+            # Выбираем тип backdrop
+            if blur_type == "mica":
+                backdrop_type = cls.DWMSBT_MAINWINDOW
+            elif blur_type == "acrylic":
+                backdrop_type = cls.DWMSBT_TRANSIENTWINDOW
+            else:
+                backdrop_type = cls.DWMSBT_TRANSIENTWINDOW
+
+            value = c_int(backdrop_type)
+            result = dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                cls.DWMWA_SYSTEMBACKDROP_TYPE,
+                byref(value),
+                sizeof(value)
+            )
+
+            if result == 0:
+                cls._enabled = True
+                log(f"✅ Windows 11 blur эффект ({blur_type}) включён", "INFO")
+                return True
+            else:
+                log(f"⚠️ DwmSetWindowAttribute вернул код {result}", "WARNING")
+                return False
+
+        except Exception as e:
+            log(f"❌ Ошибка Windows 11 blur: {e}", "ERROR")
+            return False
+
+    @classmethod
+    def _enable_windows10(cls, hwnd: int, blur_type: str) -> bool:
+        """Включает blur на Windows 10 через SetWindowCompositionAttribute."""
+        try:
+            import ctypes
+            from ctypes import windll, byref, sizeof, Structure, c_int, POINTER
+            from ctypes.wintypes import DWORD, BOOL
+
+            # Структура ACCENT_POLICY
+            class ACCENT_POLICY(Structure):
+                _fields_ = [
+                    ("AccentState", DWORD),
+                    ("AccentFlags", DWORD),
+                    ("GradientColor", DWORD),
+                    ("AnimationId", DWORD),
+                ]
+
+            # Структура WINDOWCOMPOSITIONATTRIBDATA
+            class WINDOWCOMPOSITIONATTRIBDATA(Structure):
+                _fields_ = [
+                    ("Attribute", DWORD),
+                    ("Data", ctypes.POINTER(ACCENT_POLICY)),
+                    ("SizeOfData", ctypes.c_size_t),
+                ]
+
+            # Получаем функцию SetWindowCompositionAttribute
+            SetWindowCompositionAttribute = windll.user32.SetWindowCompositionAttribute
+            SetWindowCompositionAttribute.argtypes = [ctypes.c_void_p, POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
+            SetWindowCompositionAttribute.restype = BOOL
+
+            # Настраиваем AccentPolicy
+            # AccentFlags: 2 - показывать на неактивном окне тоже
+            # GradientColor: ARGB цвет тонировки (A = прозрачность)
+            accent = ACCENT_POLICY()
+            accent.AccentState = cls.ACCENT_ENABLE_ACRYLICBLURBEHIND
+            accent.AccentFlags = 2
+            # Тёмный полупрозрачный тон: 0xCC1E1E1E (CC = ~80% непрозрачность)
+            accent.GradientColor = 0xCC1E1E1E
+            accent.AnimationId = 0
+
+            # WCA_ACCENT_POLICY = 19
+            data = WINDOWCOMPOSITIONATTRIBDATA()
+            data.Attribute = 19
+            data.Data = ctypes.pointer(accent)
+            data.SizeOfData = sizeof(accent)
+
+            result = SetWindowCompositionAttribute(hwnd, byref(data))
+
+            if result:
+                cls._enabled = True
+                log("✅ Windows 10 Acrylic blur эффект включён", "INFO")
+                return True
+            else:
+                log("⚠️ SetWindowCompositionAttribute не сработал", "WARNING")
+                return False
+
+        except Exception as e:
+            log(f"❌ Ошибка Windows 10 blur: {e}", "ERROR")
+            return False
+
+    @classmethod
+    def disable(cls, hwnd: int = None) -> bool:
+        """Выключает эффект размытия."""
+        if hwnd is None:
+            hwnd = cls._hwnd
+
+        if hwnd is None:
+            return False
+
+        try:
+            import ctypes
+            from ctypes import windll, byref, c_int, sizeof, Structure, POINTER
+            from ctypes.wintypes import DWORD, BOOL
+            import sys
+
+            version = sys.getwindowsversion()
+
+            if version.build >= 22000:
+                # Windows 11
+                dwmapi = windll.dwmapi
+                value = c_int(cls.DWMSBT_NONE)
+                dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    cls.DWMWA_SYSTEMBACKDROP_TYPE,
+                    byref(value),
+                    sizeof(value)
+                )
+            else:
+                # Windows 10
+                class ACCENT_POLICY(Structure):
+                    _fields_ = [
+                        ("AccentState", DWORD),
+                        ("AccentFlags", DWORD),
+                        ("GradientColor", DWORD),
+                        ("AnimationId", DWORD),
+                    ]
+
+                class WINDOWCOMPOSITIONATTRIBDATA(Structure):
+                    _fields_ = [
+                        ("Attribute", DWORD),
+                        ("Data", ctypes.POINTER(ACCENT_POLICY)),
+                        ("SizeOfData", ctypes.c_size_t),
+                    ]
+
+                SetWindowCompositionAttribute = windll.user32.SetWindowCompositionAttribute
+                SetWindowCompositionAttribute.argtypes = [ctypes.c_void_p, POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
+                SetWindowCompositionAttribute.restype = BOOL
+
+                accent = ACCENT_POLICY()
+                accent.AccentState = cls.ACCENT_DISABLED
+                accent.AccentFlags = 0
+                accent.GradientColor = 0
+                accent.AnimationId = 0
+
+                data = WINDOWCOMPOSITIONATTRIBDATA()
+                data.Attribute = 19
+                data.Data = ctypes.pointer(accent)
+                data.SizeOfData = sizeof(accent)
+
+                SetWindowCompositionAttribute(hwnd, byref(data))
+
+            cls._enabled = False
+            log("✅ Blur эффект выключен", "INFO")
+            return True
+
+        except Exception as e:
+            log(f"❌ Ошибка выключения blur: {e}", "ERROR")
+            return False
+
+    @classmethod
+    def is_enabled(cls) -> bool:
+        """Возвращает текущее состояние blur эффекта."""
+        return cls._enabled
+
+    @classmethod
+    def set_tint_color(cls, hwnd: int, argb_color: int) -> bool:
+        """
+        Устанавливает цвет тонировки для blur эффекта (только Windows 10).
+
+        Args:
+            hwnd: Handle окна
+            argb_color: Цвет в формате 0xAARRGGBB
+        """
+        import sys
+        version = sys.getwindowsversion()
+
+        if version.build >= 22000:
+            # Windows 11 не поддерживает тонировку через этот API
+            return False
+
+        # Переприменяем blur с новым цветом
+        try:
+            import ctypes
+            from ctypes import windll, byref, sizeof, Structure, POINTER
+            from ctypes.wintypes import DWORD, BOOL
+
+            class ACCENT_POLICY(Structure):
+                _fields_ = [
+                    ("AccentState", DWORD),
+                    ("AccentFlags", DWORD),
+                    ("GradientColor", DWORD),
+                    ("AnimationId", DWORD),
+                ]
+
+            class WINDOWCOMPOSITIONATTRIBDATA(Structure):
+                _fields_ = [
+                    ("Attribute", DWORD),
+                    ("Data", ctypes.POINTER(ACCENT_POLICY)),
+                    ("SizeOfData", ctypes.c_size_t),
+                ]
+
+            SetWindowCompositionAttribute = windll.user32.SetWindowCompositionAttribute
+            SetWindowCompositionAttribute.argtypes = [ctypes.c_void_p, POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
+            SetWindowCompositionAttribute.restype = BOOL
+
+            accent = ACCENT_POLICY()
+            accent.AccentState = cls.ACCENT_ENABLE_ACRYLICBLURBEHIND
+            accent.AccentFlags = 2
+            accent.GradientColor = argb_color
+            accent.AnimationId = 0
+
+            data = WINDOWCOMPOSITIONATTRIBDATA()
+            data.Attribute = 19
+            data.Data = ctypes.pointer(accent)
+            data.SizeOfData = sizeof(accent)
+
+            return bool(SetWindowCompositionAttribute(hwnd, byref(data)))
+
+        except Exception as e:
+            log(f"Ошибка установки цвета blur: {e}", "ERROR")
+            return False
+
+
 AMOLED_OVERRIDE_STYLE = """
 QWidget {
     background-color: transparent;
