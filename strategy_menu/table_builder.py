@@ -274,8 +274,8 @@ class StrategyTableBuilder:
 
         table.setRowHeight(row, 42)
 
-        # Получаем рейтинг стратегии для подсветки
-        rating = get_strategy_rating(strategy_id)
+        # Получаем рейтинг стратегии для подсветки (с учетом category_key)
+        rating = get_strategy_rating(strategy_id, category_key)
         rating_bg = RATING_COLORS.get(rating) if rating else None
 
         # Колонка 0: Звезда избранного

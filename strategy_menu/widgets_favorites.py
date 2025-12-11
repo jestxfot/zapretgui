@@ -110,7 +110,8 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
     def _get_rating_style(self):
         """Возвращает стиль на основе рейтинга стратегии"""
         from strategy_menu import get_strategy_rating
-        rating = get_strategy_rating(self.strategy_id)
+        # Используем category_key для правильной привязки рейтинга
+        rating = get_strategy_rating(self.strategy_id, self.category_key)
         if rating == 'working':
             return _STYLE_RATING_WORKING
         elif rating == 'broken':
@@ -177,13 +178,19 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         self._apply_style(self.is_selected)
         self.favoriteToggled.emit(self.strategy_id, self.is_favorite)
     
+    def _show_context_menu(self, pos):
+        """Показывает окно информации о стратегии по ПКМ"""
+        from .args_preview_dialog import preview_manager
+        # Передаём category_key для правильной работы рейтингов
+        preview_manager.show_preview(self, self.strategy_id, self.strategy_data, category_key=self.category_key)
+
     def _on_toggled(self, checked):
         """Переопределяем переключение"""
         self.is_selected = checked
         self._apply_style(checked)
         if checked:
             self.clicked.emit(self.strategy_id)
-    
+
     def enterEvent(self, event):
         """При наведении мыши показываем hover tooltip"""
         try:

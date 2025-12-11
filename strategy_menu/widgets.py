@@ -91,7 +91,8 @@ class CompactStrategyItem(QFrame):
     def _get_rating_style(self):
         """Возвращает стиль на основе рейтинга стратегии"""
         from strategy_menu import get_strategy_rating
-        rating = get_strategy_rating(self.strategy_id)
+        # Для CompactStrategyItem category_key не доступен, используем legacy формат
+        rating = get_strategy_rating(self.strategy_id, category_key=None)
         if rating == 'working':
             return _STYLE_RATING_WORKING
         elif rating == 'broken':
@@ -172,7 +173,8 @@ class CompactStrategyItem(QFrame):
     def _show_context_menu(self, pos):
         """Показывает окно информации о стратегии по ПКМ"""
         from .args_preview_dialog import preview_manager
-        preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
+        # Для CompactStrategyItem нет category_key, передаем None
+        preview_manager.show_preview(self, self.strategy_id, self.strategy_data, category_key=None)
     
     def _on_toggled(self, checked):
         self.is_selected = checked

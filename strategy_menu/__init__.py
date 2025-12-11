@@ -734,14 +734,14 @@ def invalidate_ratings_cache():
     _ratings_cache = None
 
 def get_all_strategy_ratings() -> dict:
-    """Возвращает все оценки стратегий {strategy_id: rating}
+    """Возвращает все оценки стратегий {category_key: {strategy_id: rating}}
     rating: 'working' - рабочая, 'broken' - нерабочая, None - без оценки
     """
     global _ratings_cache
-    
+
     if _ratings_cache is not None:
         return _ratings_cache
-    
+
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STRATEGY_RATINGS_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "Ratings")
@@ -767,39 +767,80 @@ def _save_strategy_ratings(ratings: dict) -> bool:
         log(f"Ошибка сохранения оценок стратегий: {e}", "❌ ERROR")
         return False
 
-def get_strategy_rating(strategy_id: str) -> str:
-    """Возвращает оценку стратегии: 'working', 'broken' или None"""
-    ratings = get_all_strategy_ratings()
-    return ratings.get(strategy_id)
+def get_strategy_rating(strategy_id: str, category_key: str = None) -> str:
+    """Возвращает оценку стратегии: 'working', 'broken' или None
 
-def set_strategy_rating(strategy_id: str, rating: str) -> bool:
-    """Устанавливает оценку стратегии
-    rating: 'working' - рабочая, 'broken' - нерабочая, None - убрать оценку
+    Args:
+        strategy_id: ID стратегии
+        category_key: Ключ категории (если None, ищет в legacy формате)
     """
+    ratings = get_all_strategy_ratings()
+
+    if category_key:
+        # Новый формат с категориями
+        category_ratings = ratings.get(category_key, {})
+        return category_ratings.get(strategy_id)
+    else:
+        # Legacy формат - ищем по всем категориям
+        for cat_ratings in ratings.values():
+            if isinstance(cat_ratings, dict) and strategy_id in cat_ratings:
+                return cat_ratings[strategy_id]
+        return None
+
+def set_strategy_rating(strategy_id: str, rating: str, category_key: str = None) -> bool:
+    """Устанавливает оценку стратегии
+
+    Args:
+        strategy_id: ID стратегии
+        rating: 'working' - рабочая, 'broken' - нерабочая, None - убрать оценку
+        category_key: Ключ категории (обязательно для нового формата)
+    """
+    if not category_key:
+        log("⚠️ set_strategy_rating вызван без category_key", "WARNING")
+        return False
+
     ratings = get_all_strategy_ratings().copy()
-    
+
+    # Инициализируем категорию если её нет
+    if category_key not in ratings:
+        ratings[category_key] = {}
+
     if rating is None:
         # Убираем оценку
-        if strategy_id in ratings:
-            del ratings[strategy_id]
+        if strategy_id in ratings[category_key]:
+            del ratings[category_key][strategy_id]
+            # Удаляем пустую категорию
+            if not ratings[category_key]:
+                del ratings[category_key]
     else:
-        ratings[strategy_id] = rating
-    
+        ratings[category_key][strategy_id] = rating
+
     return _save_strategy_ratings(ratings)
 
-def toggle_strategy_rating(strategy_id: str, rating: str) -> str:
+def toggle_strategy_rating(strategy_id: str, rating: str, category_key: str = None) -> str:
     """Переключает оценку стратегии. Если уже установлена такая же - убирает.
-    Возвращает новую оценку или None если убрана.
+
+    Args:
+        strategy_id: ID стратегии
+        rating: 'working' или 'broken'
+        category_key: Ключ категории
+
+    Returns:
+        Новая оценка или None если убрана
     """
-    current = get_strategy_rating(strategy_id)
-    
+    if not category_key:
+        log("⚠️ toggle_strategy_rating вызван без category_key", "WARNING")
+        return None
+
+    current = get_strategy_rating(strategy_id, category_key)
+
     if current == rating:
         # Убираем оценку
-        set_strategy_rating(strategy_id, None)
+        set_strategy_rating(strategy_id, None, category_key)
         return None
     else:
         # Устанавливаем новую оценку
-        set_strategy_rating(strategy_id, rating)
+        set_strategy_rating(strategy_id, rating, category_key)
         return rating
 
 def clear_all_strategy_ratings() -> bool:

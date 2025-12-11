@@ -237,9 +237,10 @@ class ArgsPreviewDialog(QDialog):
         painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
         painter.drawPath(path)
         
-    def set_strategy_data(self, strategy_data, strategy_id=None, source_widget=None):
+    def set_strategy_data(self, strategy_data, strategy_id=None, source_widget=None, category_key=None):
         """Устанавливает данные стратегии"""
         self.current_strategy_id = strategy_id
+        self.current_category_key = category_key
         self.source_widget = source_widget
         
         # Заголовок
@@ -346,10 +347,11 @@ class ArgsPreviewDialog(QDialog):
             self.working_button.setStyleSheet(self._get_rating_button_style(False, 'working'))
             self.broken_button.setStyleSheet(self._get_rating_button_style(False, 'broken'))
             return
-        
+
         from strategy_menu import get_strategy_rating
-        current_rating = get_strategy_rating(self.current_strategy_id)
-        
+        category_key = getattr(self, 'current_category_key', None)
+        current_rating = get_strategy_rating(self.current_strategy_id, category_key)
+
         self.working_button.setStyleSheet(self._get_rating_button_style(current_rating == 'working', 'working'))
         self.broken_button.setStyleSheet(self._get_rating_button_style(current_rating == 'broken', 'broken'))
     
@@ -359,7 +361,8 @@ class ArgsPreviewDialog(QDialog):
             return
 
         from strategy_menu import toggle_strategy_rating
-        new_rating = toggle_strategy_rating(self.current_strategy_id, rating)
+        category_key = getattr(self, 'current_category_key', None)
+        new_rating = toggle_strategy_rating(self.current_strategy_id, rating, category_key)
         self._update_rating_buttons()
         # Уведомляем об изменении рейтинга
         self.rating_changed.emit(self.current_strategy_id, new_rating or "")
@@ -461,7 +464,7 @@ class StrategyPreviewManager:
             except Exception as e:
                 log(f"Ошибка в callback рейтинга: {e}", "ERROR")
 
-    def show_preview(self, widget, strategy_id, strategy_data):
+    def show_preview(self, widget, strategy_id, strategy_data, category_key=None):
         # Проверяем что старый диалог ещё существует и не удалён Qt
         try:
             if self.preview_dialog is not None:
@@ -479,7 +482,7 @@ class StrategyPreviewManager:
         self.preview_dialog = ArgsPreviewDialog(widget)
         self.preview_dialog.closed.connect(self._on_preview_closed)
         self.preview_dialog.rating_changed.connect(self._on_rating_changed)
-        self.preview_dialog.set_strategy_data(strategy_data, strategy_id, source_widget=widget)
+        self.preview_dialog.set_strategy_data(strategy_data, strategy_id, source_widget=widget, category_key=category_key)
 
         cursor_pos = widget.mapToGlobal(widget.rect().center())
 

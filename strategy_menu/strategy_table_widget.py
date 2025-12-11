@@ -25,6 +25,7 @@ class StrategyTableWidget(QWidget):
         self.selected_strategy_id = None
         self.selected_strategy_name = None
         self._last_hover_row = -1
+        self.category_key = "bat"  # По умолчанию для BAT режима
 
         self._init_ui()
         self._setup_rating_callback()
@@ -104,26 +105,28 @@ class StrategyTableWidget(QWidget):
                 
         return super().eventFilter(obj, event)
     
-    def populate_strategies(self, strategies):
+    def populate_strategies(self, strategies, category_key="bat"):
         """Заполняет таблицу стратегиями"""
         self.strategies_data = strategies
-        
+        self.category_key = category_key  # Сохраняем category_key
+
         self.strategies_map = StrategyTableBuilder.populate_table(
-            self.table, 
-            strategies, 
+            self.table,
+            strategies,
             self.strategy_manager,
-            favorite_callback=self._on_favorite_toggled
+            favorite_callback=self._on_favorite_toggled,
+            category_key=category_key
         )
-            
+
         self.table.setEnabled(True)
-        
+
         count = len(strategies)
         self.set_status(f"✅ {count} стратегий")
     
     def _on_favorite_toggled(self, strategy_id, is_favorite):
         """Обработчик переключения избранного через звезду"""
         # Перезаполняем таблицу чтобы избранные переместились вверх
-        self.populate_strategies(self.strategies_data)
+        self.populate_strategies(self.strategies_data, self.category_key)
         # Уведомляем об изменении
         self.favorites_changed.emit()
     
@@ -211,12 +214,12 @@ class StrategyTableWidget(QWidget):
         """Показывает окно с информацией о стратегии"""
         if strategy_id not in self.strategies_data:
             return
-        
+
         strategy_data = self.strategies_data[strategy_id]
-        
+
         try:
             from .args_preview_dialog import preview_manager
-            preview_manager.show_preview(self, strategy_id, strategy_data)
+            preview_manager.show_preview(self, strategy_id, strategy_data, category_key=self.category_key)
         except Exception as e:
             log(f"Ошибка показа информации о стратегии: {e}", "ERROR")
     
@@ -288,4 +291,4 @@ class StrategyTableWidget(QWidget):
         """Обновляет таблицу при изменении рейтинга стратегии"""
         if strategy_id in self.strategies_data:
             # Перезаполняем таблицу для обновления цветов
-            self.populate_strategies(self.strategies_data)
+            self.populate_strategies(self.strategies_data, self.category_key)
