@@ -75,11 +75,17 @@ def set_keep_dialog_open(enabled: bool) -> bool:
     return success
 
 
-# ==================== КЭШИРОВАНИЕ ИЗБРАННЫХ ====================
+# ==================== КЭШИРОВАНИЕ ====================
 
+# Кэш избранных стратегий
 _favorites_cache = {}
 _favorites_cache_time = 0
-FAVORITES_CACHE_TTL = 0.5
+FAVORITES_CACHE_TTL = 5.0  # 5 секунд (было 0.5)
+
+# Кэш выборов стратегий для Direct режима
+_direct_selections_cache = None
+_direct_selections_cache_time = 0
+DIRECT_SELECTIONS_CACHE_TTL = 5.0  # 5 секунд
 
 # Кэш предупреждений о невалидных стратегиях (чтобы не спамить)
 _warned_invalid_strategies = set()
@@ -599,25 +605,41 @@ def set_out_range_youtube(value: int) -> bool:
 
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
 
+def invalidate_direct_selections_cache():
+    """Сбрасывает кэш выборов стратегий"""
+    global _direct_selections_cache_time
+    _direct_selections_cache_time = 0
+
+
 def get_direct_strategy_selections() -> dict:
     """
     Возвращает сохраненные выборы стратегий для прямого запуска.
-    
+
+    ✅ Кэширует результат на 5 секунд для быстрого доступа
     ✅ Валидирует каждый сохранённый strategy_id:
     - Если стратегия не найдена в реестре, использует значение по умолчанию
     - Логирует предупреждения о замене невалидных стратегий
     """
+    import time
+    global _direct_selections_cache, _direct_selections_cache_time
+
+    # Проверяем кэш
+    current_time = time.time()
+    if _direct_selections_cache is not None and \
+       current_time - _direct_selections_cache_time < DIRECT_SELECTIONS_CACHE_TTL:
+        return _direct_selections_cache.copy()
+
     from .strategies_registry import registry
-    
+
     try:
         selections = {}
         default_selections = registry.get_default_selections()
         invalid_count = 0
-        
+
         for category_key in registry.get_all_category_keys():
             reg_key = _category_to_reg_key(category_key)
             value = reg(DIRECT_STRATEGY_KEY, reg_key)
-            
+
             if value:
                 # ✅ Валидация: проверяем существование стратегии
                 if value == "none":
@@ -640,16 +662,18 @@ def get_direct_strategy_selections() -> dict:
                             _warned_invalid_strategies.add(warn_key)
                             log(f"⚠️ Стратегия '{value}' не найдена в категории '{category_key}', "
                                 f"заменена на '{default_value}'", "WARNING")
-        
+
         # Заполняем недостающие значения по умолчанию
         for key, default_value in default_selections.items():
             if key not in selections:
                 selections[key] = default_value
-        
-        # Не спамим логи повторными сообщениями о невалидных стратегиях
-                
+
+        # Сохраняем в кэш
+        _direct_selections_cache = selections
+        _direct_selections_cache_time = current_time
+
         return selections
-        
+
     except Exception as e:
         log(f"Ошибка загрузки выборов стратегий: {e}", "❌ ERROR")
         import traceback
@@ -661,21 +685,22 @@ def get_direct_strategy_selections() -> dict:
 def set_direct_strategy_selections(selections: dict) -> bool:
     """Сохраняет выборы стратегий для прямого запуска"""
     from .strategies_registry import registry
-    
+
     try:
         success = True
-        
+
         for category_key, strategy_id in selections.items():
             if category_key in registry.get_all_category_keys():
                 reg_key = _category_to_reg_key(category_key)
                 result = reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
                 success = success and (result is not False)
-        
+
         if success:
+            invalidate_direct_selections_cache()  # Сбрасываем кэш
             log("Выборы стратегий сохранены", "DEBUG")
-        
+
         return success
-        
+
     except Exception as e:
         log(f"Ошибка сохранения выборов: {e}", "❌ ERROR")
         return False
@@ -702,7 +727,10 @@ def get_direct_strategy_for_category(category_key: str) -> str:
 def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> bool:
     """Сохраняет выбранную стратегию для категории"""
     reg_key = _category_to_reg_key(category_key)
-    return reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+    result = reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+    if result:
+        invalidate_direct_selections_cache()  # Сбрасываем кэш
+    return result
 
 
 # ==================== ИМПОРТ СТРАТЕГИЙ ====================

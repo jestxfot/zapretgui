@@ -81,6 +81,7 @@ class InitializationManager:
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
             (100, self._init_tray),               # Системный трей
+            (120, self._init_strategy_cache),     # Прогрев кэша стратегий
             (150, self._init_logger),             # Логирование
             (200, self._finalize_managers_init),  # Финализация
         ])
@@ -130,6 +131,23 @@ class InitializationManager:
         except Exception as e:
             log(f"Ошибка инициализации Strategy Manager: {e}", "❌ ERROR")
             self.app.set_status(f"Ошибка: {e}")
+
+    def _init_strategy_cache(self):
+        """Прогрев кэша стратегий для быстрого открытия вкладок"""
+        try:
+            from strategy_menu import get_direct_strategy_selections
+            from strategy_menu.strategies_registry import registry
+
+            # Прогреваем кэш отсортированных ключей
+            registry.get_all_category_keys_sorted()
+
+            # Прогреваем кэш выборов стратегий
+            get_direct_strategy_selections()
+
+            log("Кэш стратегий прогрет", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка прогрева кэша стратегий: {e}", "WARNING")
 
     def _init_dpi_starter(self):
         """Инициализация DPI стартера"""

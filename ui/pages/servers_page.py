@@ -1060,14 +1060,17 @@ class ServersPage(BasePage):
         self._found_update = False
         self._remote_version = ""
         self._release_notes = ""
-        
+
         # Cooldown только для автопроверки при открытии вкладки (не спамить)
         self._last_check_time = 0.0
-        self._check_cooldown = 10  # секунд между автопроверками
-        
+        self._check_cooldown = 60  # секунд между автопроверками (было 10)
+
         # Автопроверка при открытии вкладки
         self._auto_check_enabled = True
-        
+
+        # Кэш результатов проверки (не очищать таблицу при повторном открытии)
+        self._has_cached_data = False
+
         self._build_ui()
         
     def _build_ui(self):
@@ -1170,14 +1173,25 @@ class ServersPage(BasePage):
         
     def showEvent(self, event):
         super().showEvent(event)
-        
+
         # Не запускаем проверку если идёт скачивание
         if self.changelog_card._is_downloading:
             return
-            
+
+        # Если есть кэшированные данные и cooldown не прошёл - не перезапускаем
+        elapsed = time.time() - self._last_check_time
+        if self._has_cached_data and elapsed < self._check_cooldown:
+            # Показываем когда была последняя проверка
+            mins_ago = int(elapsed // 60)
+            secs_ago = int(elapsed % 60)
+            if mins_ago > 0:
+                self.update_card.subtitle_label.setText(f"Проверено {mins_ago}м {secs_ago}с назад")
+            else:
+                self.update_card.subtitle_label.setText(f"Проверено {secs_ago}с назад")
+            return
+
         # Автопроверка при открытии страницы (если включена)
         if self._auto_check_enabled:
-            elapsed = time.time() - self._last_check_time
             if elapsed >= self._check_cooldown:
                 QTimer.singleShot(200, self.start_checks)
         else:
@@ -1209,11 +1223,11 @@ class ServersPage(BasePage):
         
         if self.server_worker and self.server_worker.isRunning():
             self.server_worker.terminate()
-            self.server_worker.wait()
-        
+            self.server_worker.wait(500)  # Короткий таймаут после terminate
+
         if self.version_worker and self.version_worker.isRunning():
             self.version_worker.terminate()
-            self.version_worker.wait()
+            self.version_worker.wait(500)  # Короткий таймаут после terminate
         
         self.server_worker = ServerCheckWorker(update_pool_stats=False, telegram_only=telegram_only)
         self.server_worker.server_checked.connect(self._on_server_checked)
@@ -1270,7 +1284,7 @@ class ServersPage(BasePage):
         """После проверки серверов запускаем проверку версий (кэш уже заполнен)"""
         if self.version_worker and self.version_worker.isRunning():
             self.version_worker.terminate()
-            self.version_worker.wait()
+            self.version_worker.wait(500)  # Короткий таймаут после terminate
         
         self.version_worker = VersionCheckWorker()
         self.version_worker.version_found.connect(self._on_version_found)
@@ -1293,8 +1307,9 @@ class ServersPage(BasePage):
                 
     def _on_versions_complete(self):
         self._checking = False
+        self._has_cached_data = True  # Данные закэшированы
         self.update_card.stop_checking(self._found_update, self._remote_version)
-        
+
         # Автоматически показываем changelog если есть обновление
         if self._found_update:
             self.changelog_card.show_update(self._remote_version, self._release_notes)
@@ -1314,14 +1329,14 @@ class ServersPage(BasePage):
         self._release_notes = ""
         
         # Определяем режим проверки:
-        # - В течение 10 сек после последней проверки - только Telegram (быстро)
-        # - После 10 сек - полная проверка всех серверов
+        # - В течение 60 сек после последней проверки - только Telegram (быстро)
+        # - После 60 сек - полная проверка всех серверов
         current_time = time.time()
         elapsed = current_time - self._last_check_time
         telegram_only = elapsed < self._check_cooldown
-        
+
         if telegram_only:
-            log("🔄 Быстрая проверка через Telegram (менее 10 сек с последней)", "🔄 UPDATE")
+            log(f"🔄 Быстрая проверка через Telegram ({int(elapsed)}с с последней)", "🔄 UPDATE")
         else:
             # Инвалидируем кэш только при полной проверке
             from updater import invalidate_cache

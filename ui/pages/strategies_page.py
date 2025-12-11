@@ -1,7 +1,7 @@
 # ui/pages/strategies_page.py
 """Страница выбора стратегий"""
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QComboBox, QFrame, QScrollArea, QPushButton,
                              QSizePolicy, QMessageBox, QApplication,
@@ -1340,51 +1340,116 @@ class StrategiesPage(QWidget):
     def _on_tab_changed(self, index):
         """При смене вкладки загружаем контент (direct режим)"""
         self._load_category_tab(index)
-        
+
     def _load_category_tab(self, index):
-        """Загружает контент вкладки категории (direct режим)"""
+        """Асинхронная загрузка контента вкладки категории (direct режим)"""
         if not self._strategy_widget:
             return
-            
+
+        widget = self._strategy_widget.widget(index)
+        if not widget:
+            return
+
+        # Получаем category_key из property или из списка
+        category_key = widget.property("category_key")
+        if not category_key and hasattr(self._strategy_widget, '_tab_category_keys'):
+            keys = self._strategy_widget._tab_category_keys
+            if 0 <= index < len(keys):
+                category_key = keys[index]
+
+        if not category_key:
+            log(f"Не удалось получить category_key для вкладки {index}", "WARNING")
+            return
+
+        # Проверяем, загружена ли уже вкладка
+        if hasattr(widget, '_loaded') and widget._loaded:
+            return
+
+        # Проверяем, не загружается ли уже
+        if hasattr(widget, '_loading') and widget._loading:
+            return
+
+        widget._loading = True
+
+        # Показываем спиннер загрузки
+        self._show_loading_indicator(widget)
+
+        # Запускаем асинхронную загрузку
+        from strategy_menu.workers import CategoryTabLoader
+
+        loader = CategoryTabLoader(category_key)
+        thread = QThread()
+        loader.moveToThread(thread)
+
+        thread.started.connect(loader.run)
+        loader.finished.connect(lambda cat, strats, favs, sel:
+                               self._on_category_loaded(widget, index, cat, strats, favs, sel))
+        loader.error.connect(lambda cat, err:
+                            self._on_category_error(widget, cat, err))
+        loader.finished.connect(thread.quit)
+        loader.finished.connect(loader.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        # Сохраняем ссылки чтобы не удалились раньше времени
+        widget._loader_thread = thread
+        widget._loader = loader
+
+        thread.start()
+
+    def _show_loading_indicator(self, widget):
+        """Показывает спиннер загрузки на вкладке"""
+        # Очищаем существующий контент
+        old_layout = widget.layout()
+        if old_layout:
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+        else:
+            old_layout = QVBoxLayout(widget)
+
+        old_layout.setContentsMargins(0, 0, 0, 0)
+        old_layout.setSpacing(0)
+
+        # Создаем контейнер со спиннером
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        container_layout = QVBoxLayout(container)
+        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        spinner = Win11Spinner(size=24, color="#60cdff")
+        container_layout.addWidget(spinner, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        old_layout.addWidget(container)
+
+    def _on_category_loaded(self, widget, index, category_key, strategies_dict, favorites_list, current_selection):
+        """Callback после успешной загрузки данных категории"""
+        widget._loading = False
+
+        if not strategies_dict:
+            widget._loaded = True
+            return
+
+        # Строим UI в главном потоке
+        self._build_category_ui(widget, index, category_key, strategies_dict, favorites_list, current_selection)
+
+    def _on_category_error(self, widget, category_key, error_msg):
+        """Callback при ошибке загрузки категории"""
+        widget._loading = False
+        log(f"Ошибка загрузки категории {category_key}: {error_msg}", "ERROR")
+
+    def _build_category_ui(self, widget, index, category_key, strategies_dict, favorites_list, current_selection):
+        """Создаёт UI элементы категории из загруженных данных"""
         try:
-            from strategy_menu.strategies_registry import registry
             from strategy_menu.widgets_favorites import FavoriteCompactStrategyItem
-            from strategy_menu import get_direct_strategy_selections, get_favorite_strategies
-            
-            widget = self._strategy_widget.widget(index)
-            if not widget:
-                return
-            
-            # Получаем category_key из property или из списка
-            category_key = widget.property("category_key")
-            if not category_key and hasattr(self._strategy_widget, '_tab_category_keys'):
-                keys = self._strategy_widget._tab_category_keys
-                if 0 <= index < len(keys):
-                    category_key = keys[index]
-            
-            if not category_key:
-                log(f"Не удалось получить category_key для вкладки {index}", "WARNING")
-                return
-            
-            # Проверяем, загружена ли уже вкладка
-            if hasattr(widget, '_loaded') and widget._loaded:
-                return
-                
-            # Получаем стратегии для категории
-            strategies_dict = registry.get_category_strategies(category_key)
-            if not strategies_dict:
-                return
-            
-            # Получаем избранные для этой категории
-            favorites_list = get_favorite_strategies(category_key) or []
+
             favorites_set = set(favorites_list)
-            
+
             # Разделяем на избранные и остальные
             favorite_strategies = {k: v for k, v in strategies_dict.items() if k in favorites_set}
             regular_strategies = {k: v for k, v in strategies_dict.items() if k not in favorites_set}
-            
-            # Очищаем существующий виджет и сбрасываем отступы/spacing
-            # (плейсхолдер имел большие отступы; без сброса колонка уезжала вправо)
+
+            # Очищаем виджет
             old_layout = widget.layout()
             if old_layout:
                 while old_layout.count():
@@ -1394,36 +1459,28 @@ class StrategiesPage(QWidget):
             else:
                 old_layout = QVBoxLayout(widget)
 
-            # Всегда обнуляем отступы и spacing (плейсхолдер имел крупные отступы)
             old_layout.setContentsMargins(0, 0, 0, 0)
             old_layout.setSpacing(0)
-            
-            # Создаём scroll area (с блокировкой передачи прокрутки родителю)
+
+            # Создаём scroll area
             scroll = ScrollBlockingScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             scroll.setStyleSheet("QScrollArea{background:transparent;border:none}QScrollBar:vertical{background:rgba(255,255,255,0.05);width:6px}QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:3px}")
-            
+
             content = QWidget()
             content.setStyleSheet("background:transparent")
             content_layout = QVBoxLayout(content)
             content_layout.setContentsMargins(8, 8, 8, 8)
             content_layout.setSpacing(4)
-            
-            # Получаем текущий выбор из реестра
-            try:
-                selections = get_direct_strategy_selections()
-                current_selection = selections.get(category_key, "none")
-                log(f"Категория {category_key}: текущий выбор = {current_selection}", "DEBUG")
-            except Exception as e:
-                log(f"Ошибка загрузки выбора для {category_key}: {e}", "WARNING")
-                current_selection = "none"
-            
+
+            log(f"Категория {category_key}: текущий выбор = {current_selection}", "DEBUG")
+
             # Создаём группу радиокнопок
             button_group = QButtonGroup(content)
             button_group.setExclusive(True)
-            
+
             # === ИЗБРАННЫЕ (вверху) ===
             if favorite_strategies:
                 fav_header = QLabel(f"★ Избранные ({len(favorite_strategies)})")
@@ -1439,7 +1496,7 @@ class StrategiesPage(QWidget):
                     }
                 """)
                 content_layout.addWidget(fav_header)
-                
+
                 for strategy_id, strategy_data in favorite_strategies.items():
                     item = FavoriteCompactStrategyItem(
                         strategy_id=strategy_id,
@@ -1450,12 +1507,12 @@ class StrategiesPage(QWidget):
                     button_group.addButton(item.radio)
                     if strategy_id == current_selection:
                         item.radio.setChecked(True)
-                    item.clicked.connect(lambda sid=strategy_id, cat=category_key: 
+                    item.clicked.connect(lambda sid=strategy_id, cat=category_key:
                                        self._on_strategy_item_clicked(cat, sid))
-                    item.favoriteToggled.connect(lambda sid, is_fav, cat=category_key, idx=index: 
+                    item.favoriteToggled.connect(lambda sid, is_fav, cat=category_key, idx=index:
                                                 self._on_favorite_toggled_direct(cat, idx))
                     content_layout.addWidget(item)
-            
+
             # === ОСТАЛЬНЫЕ СТРАТЕГИИ ===
             if regular_strategies:
                 if favorite_strategies:
@@ -1464,7 +1521,7 @@ class StrategiesPage(QWidget):
                     separator.setFixedHeight(1)
                     separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
                     content_layout.addWidget(separator)
-                
+
                 for strategy_id, strategy_data in regular_strategies.items():
                     item = FavoriteCompactStrategyItem(
                         strategy_id=strategy_id,
@@ -1475,22 +1532,22 @@ class StrategiesPage(QWidget):
                     button_group.addButton(item.radio)
                     if strategy_id == current_selection:
                         item.radio.setChecked(True)
-                    item.clicked.connect(lambda sid=strategy_id, cat=category_key: 
+                    item.clicked.connect(lambda sid=strategy_id, cat=category_key:
                                        self._on_strategy_item_clicked(cat, sid))
-                    item.favoriteToggled.connect(lambda sid, is_fav, cat=category_key, idx=index: 
+                    item.favoriteToggled.connect(lambda sid, is_fav, cat=category_key, idx=index:
                                                 self._on_favorite_toggled_direct(cat, idx))
                     content_layout.addWidget(item)
-                
+
             content_layout.addStretch()
             scroll.setWidget(content)
             old_layout.addWidget(scroll)
-            
+
             widget._loaded = True
             widget._category_key = category_key
             log(f"Загружена категория: {category_key}", "DEBUG")
-            
+
         except Exception as e:
-            log(f"Ошибка загрузки категории {index}: {e}", "ERROR")
+            log(f"Ошибка построения UI категории {category_key}: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
     
@@ -1502,6 +1559,7 @@ class StrategiesPage(QWidget):
         widget = self._strategy_widget.widget(tab_index)
         if widget:
             widget._loaded = False
+            widget._loading = False  # Сбрасываем флаг загрузки
             self._load_category_tab(tab_index)
 
     def _setup_rating_callback(self):

@@ -229,7 +229,7 @@ class DNSCheckPage(BasePage):
         # Очистка потока
         if self.thread:
             self.thread.quit()
-            self.thread.wait()
+            self.thread.wait(500)  # Короткий таймаут (поток уже завершается)
             self.thread.deleteLater()
             self.thread = None
         

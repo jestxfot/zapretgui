@@ -248,10 +248,12 @@ def get_category_icon(category_key: str):
 
 class StrategiesRegistry:
     """Главный класс для управления всеми стратегиями"""
-    
+
     def __init__(self):
         # Категории загружаются динамически из JSON
-        pass
+        # Кэш отсортированных ключей категорий
+        self._sorted_keys_cache = None
+        self._sorted_keys_by_command_cache = None
 
     @property
     def _categories(self) -> Dict[str, CategoryInfo]:
@@ -264,14 +266,18 @@ class StrategiesRegistry:
         Очищает кеш и заставляет перечитать файлы с диска.
         """
         global _strategies_cache, _imported_types, _logged_missing_strategies
-        
+
         log("🔄 Перезагрузка стратегий и категорий из JSON...", "INFO")
-        
+
         # Очищаем все кеши
         _strategies_cache.clear()
         _imported_types.clear()
         _logged_missing_strategies.clear()
-        
+
+        # Сбрасываем кэш отсортированных ключей
+        self._sorted_keys_cache = None
+        self._sorted_keys_by_command_cache = None
+
         # Перезагружаем категории
         reload_categories()
         
@@ -427,18 +433,28 @@ class StrategiesRegistry:
         }
 
     def get_all_category_keys_by_command_order(self) -> List[str]:
-        """Получить все ключи категорий в порядке командной строки"""
-        return sorted(self._categories.keys(), key=lambda k: self._categories[k].command_order)
-    
+        """Получить все ключи категорий в порядке командной строки (с кэшем)"""
+        if self._sorted_keys_by_command_cache is None:
+            self._sorted_keys_by_command_cache = sorted(
+                self._categories.keys(),
+                key=lambda k: self._categories[k].command_order
+            )
+        return self._sorted_keys_by_command_cache
+
     def get_all_category_keys_sorted(self) -> List[str]:
         """
-        Получить все ключи категорий, отсортированных по order.
+        Получить все ключи категорий, отсортированных по order (с кэшем).
         Теперь все категории показываются, но некоторые могут быть заблокированы.
-        
+
         Returns:
             Список всех ключей категорий, отсортированных по order
         """
-        return sorted(self._categories.keys(), key=lambda k: self._categories[k].order)
+        if self._sorted_keys_cache is None:
+            self._sorted_keys_cache = sorted(
+                self._categories.keys(),
+                key=lambda k: self._categories[k].order
+            )
+        return self._sorted_keys_cache
     
     def is_category_blocked(self, category_key: str, base_args_mode: str) -> bool:
         """

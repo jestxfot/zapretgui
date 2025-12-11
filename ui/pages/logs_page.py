@@ -620,20 +620,23 @@ class LogsPage(BasePage):
         except Exception as e:
             log(f"Ошибка запуска log tail worker: {e}", "ERROR")
             
-    def _stop_tail_worker(self):
-        """Останавливает worker"""
+    def _stop_tail_worker(self, blocking: bool = False):
+        """Останавливает worker (неблокирующий по умолчанию)"""
         try:
             if self._worker:
                 self._worker.stop()
             if self._thread and self._thread.isRunning():
                 self._thread.quit()
-                if not self._thread.wait(2000):
-                    log("⚠ Log tail worker не завершился, принудительно завершаем", "WARNING")
-                    try:
-                        self._thread.terminate()
-                        self._thread.wait(500)
-                    except:
-                        pass
+                if blocking:
+                    # Блокирующий режим только при закрытии приложения
+                    if not self._thread.wait(2000):
+                        log("⚠ Log tail worker не завершился, принудительно завершаем", "WARNING")
+                        try:
+                            self._thread.terminate()
+                            self._thread.wait(500)
+                        except:
+                            pass
+                # Неблокирующий режим - поток остановится сам
         except Exception as e:
             log(f"Ошибка остановки log tail worker: {e}", "DEBUG")
 
@@ -679,20 +682,23 @@ class LogsPage(BasePage):
         except Exception as e:
             log(f"Ошибка запуска winws output worker: {e}", "ERROR")
 
-    def _stop_winws_output_worker(self):
-        """Останавливает worker чтения вывода winws"""
+    def _stop_winws_output_worker(self, blocking: bool = False):
+        """Останавливает worker чтения вывода winws (неблокирующий по умолчанию)"""
         try:
             if self._winws_worker:
                 self._winws_worker.stop()
             if self._winws_thread and self._winws_thread.isRunning():
                 self._winws_thread.quit()
-                if not self._winws_thread.wait(2000):
-                    log("⚠ Winws output worker не завершился, принудительно завершаем", "WARNING")
-                    try:
-                        self._winws_thread.terminate()
-                        self._winws_thread.wait(500)
-                    except:
-                        pass
+                if blocking:
+                    # Блокирующий режим только при закрытии приложения
+                    if not self._winws_thread.wait(2000):
+                        log("⚠ Winws output worker не завершился, принудительно завершаем", "WARNING")
+                        try:
+                            self._winws_thread.terminate()
+                            self._winws_thread.wait(500)
+                        except:
+                            pass
+                # Неблокирующий режим - поток остановится сам
         except Exception as e:
             log(f"Ошибка остановки winws output worker: {e}", "DEBUG")
 
@@ -847,7 +853,7 @@ class LogsPage(BasePage):
         self.info_label.setText("🧹 Ошибки очищены")
             
     def cleanup(self):
-        """Очистка при закрытии"""
-        self._stop_tail_worker()
-        self._stop_winws_output_worker()
+        """Очистка при закрытии - блокирующий режим"""
+        self._stop_tail_worker(blocking=True)
+        self._stop_winws_output_worker(blocking=True)
 
