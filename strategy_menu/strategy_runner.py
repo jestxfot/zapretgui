@@ -570,12 +570,18 @@ class StrategyRunner:
         """Возвращает информацию о текущей запущенной стратегии"""
         if not self.is_running():
             return {}
-        
+
         return {
             'name': self.current_strategy_name,
             'pid': self.running_process.pid if self.running_process else None,
             'args_count': len(self.current_strategy_args) if self.current_strategy_args else 0
         }
+
+    def get_process(self) -> Optional[subprocess.Popen]:
+        """Возвращает текущий запущенный процесс для чтения вывода"""
+        if self.is_running():
+            return self.running_process
+        return None
 
 # Глобальный экземпляр
 _strategy_runner_instance: Optional[StrategyRunner] = None
@@ -600,3 +606,7 @@ def invalidate_strategy_runner():
     а старый процесс будет остановлен при следующем запуске DPI."""
     global _strategy_runner_instance
     _strategy_runner_instance = None
+
+def get_current_runner() -> Optional[StrategyRunner]:
+    """Возвращает текущий экземпляр runner без создания нового"""
+    return _strategy_runner_instance

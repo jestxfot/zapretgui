@@ -97,14 +97,15 @@ def _safe_api_call(method: str, *, data=None, files=None) -> dict:
     Безопасный вызов Telegram API с обработкой flood-wait.
     """
     from log import log
-    
+    from .tg_sender import _set_flood_cooldown
+
     for attempt in range(MAX_RETRIES + 1):
         try:
             url = f"{_get_log_api()}/{method}"
             response = requests.post(url, data=data, files=files, timeout=TIMEOUT)
             response.raise_for_status()
             return response.json()
-            
+
         except requests.HTTPError as e:
             if e.response and e.response.status_code == 429:
                 # Обработка flood-wait
@@ -113,28 +114,38 @@ def _safe_api_call(method: str, *, data=None, files=None) -> dict:
                     retry_after = result.get("parameters", {}).get("retry_after", 60)
                 except Exception:
                     retry_after = 60
-                    
+
                 wait_time = int(retry_after) + 1
                 log(f"[LogBot] Flood-wait {wait_time}s (попытка {attempt+1})", "⚠ WARNING")
-                
+
                 if attempt < MAX_RETRIES:
                     time.sleep(wait_time)
                     continue
                 else:
+                    _set_flood_cooldown()  # Устанавливаем cooldown
                     raise RuntimeError(f"Превышен лимит ожидания: {wait_time}s")
             raise
-            
+
+    _set_flood_cooldown()  # Устанавливаем cooldown
     raise RuntimeError("Не удалось отправить после всех попыток")
 
 def send_log_file(file_path: str | Path, caption: str = "") -> tuple[bool, Optional[str]]:
     """
     Отправляет файл лога через отдельного бота.
-    
+
     Returns:
         (success, error_message)
     """
     from log import log
-    
+    from .tg_sender import is_in_flood_cooldown, get_flood_cooldown_remaining
+
+    # Проверяем глобальный cooldown
+    if is_in_flood_cooldown():
+        remaining = get_flood_cooldown_remaining()
+        msg = f"Cooldown после flood-wait: ещё {remaining:.0f}с"
+        log(f"[LogBot] {msg}", "⚠ WARNING")
+        return False, msg
+
     try:
         # Проверяем настройки
         key_a = _get_inline_a()

@@ -184,4 +184,6 @@ rdatasrv.net
 playvalorant.com
 pvp.net
 rgpub.io
+#chess
+chess.com
 """

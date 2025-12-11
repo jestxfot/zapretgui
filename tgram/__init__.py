@@ -15,7 +15,8 @@ from __future__ import annotations
 # ────────────────────────────────────────────────────────────────────
 from .tg_log_delta import TOKEN, CHAT_ID, get_client_id
 
-from .tg_sender     import send_file_to_tg, send_log_to_tg
+from .tg_sender     import (send_file_to_tg, send_log_to_tg,
+                            is_in_flood_cooldown, get_flood_cooldown_remaining)
 from .tg_log_full   import FullLogDaemon, TgSendWorker
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "get_client_id",
     "send_file_to_tg",
     "send_log_to_tg",
+    "is_in_flood_cooldown",
+    "get_flood_cooldown_remaining",
     "FullLogDaemon",
     "start_log_daemon",
     "TgSendWorker"

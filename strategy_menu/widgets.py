@@ -1,11 +1,11 @@
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel, 
+from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel,
                             QRadioButton, QWidget, QListWidgetItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
 from .constants import LABEL_TEXTS, LABEL_COLORS
 
-# Константы стилей
+# Константы стилей - оптимизированы для минимизации setStyleSheet вызовов
 _STYLE_SELECTED = """
     CompactStrategyItem {
         background: rgba(96, 205, 255, 0.15);
@@ -24,77 +24,97 @@ _STYLE_NORMAL = """
         border-color: rgba(255, 255, 255, 0.12);
     }
 """
+
+# Константы стилей для текста (используются как есть, без пересоздания строк)
 _STYLE_NAME = "color: rgba(255, 255, 255, 0.9); font-size: 11px; font-weight: 500;"
 _STYLE_DESC = "color: rgba(255, 255, 255, 0.4); font-size: 10px;"
+
+# Кэш стилей для меток (оптимизация - избегаем создания строк)
+_LABEL_STYLE_CACHE = {}
+
+
+def _get_label_style(color: str) -> str:
+    """Получает кэшированный стиль для метки"""
+    if color not in _LABEL_STYLE_CACHE:
+        _LABEL_STYLE_CACHE[color] = f"background:{color};color:#fff;font-size:9px;font-weight:600;padding:3px 8px;border-radius:4px;"
+    return _LABEL_STYLE_CACHE[color]
 
 
 class CompactStrategyItem(QFrame):
     """Компактный виджет стратегии - без кружка, только подсветка"""
-    
+
     clicked = pyqtSignal(str)
-    
+
+    # Статические стили для дочерних элементов (не требуют setStyleSheet)
+    _name_style_applied = False
+    _desc_style_applied = False
+
     def __init__(self, strategy_id, strategy_data, parent=None):
         super().__init__(parent)
         self.strategy_id = strategy_id
         self.strategy_data = strategy_data
         self.is_selected = False
-        
+        self._current_style = None  # Кэш текущего стиля
+
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        
+
         self._apply_style(False)
         self._init_ui()
         self._setup_tooltip()
-        
+
     def _apply_style(self, selected):
-        """Применяет стиль"""
-        self.setStyleSheet(_STYLE_SELECTED if selected else _STYLE_NORMAL)
-    
+        """Применяет стиль (с кэшированием для избежания лишних вызовов)"""
+        new_style = _STYLE_SELECTED if selected else _STYLE_NORMAL
+        if self._current_style != new_style:
+            self._current_style = new_style
+            self.setStyleSheet(new_style)
+
     def _setup_tooltip(self):
         """Tooltip"""
         name = self.strategy_data.get('name', self.strategy_id)
         tip = f"<b>{name}</b><br><i style='color:#888'>ПКМ - показать аргументы</i>"
         self.setToolTip(tip)
-    
+
     def _init_ui(self):
         """UI - компактный без кружка"""
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(10, 4, 10, 4)
         main_layout.setSpacing(6)
         self.main_layout = main_layout
-        
+
         # Скрытая радиокнопка для QButtonGroup
         self.radio = QRadioButton()
         self.radio.hide()
         self.radio.toggled.connect(self._on_toggled)
-        
+
         # Контейнер для текста (вертикальный)
         text_container = QVBoxLayout()
         text_container.setContentsMargins(0, 0, 0, 0)
         text_container.setSpacing(0)
-        
+
         # Верхняя строка: название + метка
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(6)
-        
+
         name = self.strategy_data.get('name', self.strategy_id)
         self.name_label = QLabel(name)
         self.name_label.setStyleSheet(_STYLE_NAME)
         top_row.addWidget(self.name_label)
-        
+
         # Метка (если есть)
         label = self.strategy_data.get('label')
         if label and label in LABEL_TEXTS:
             tag = QLabel(LABEL_TEXTS[label])
             color = LABEL_COLORS[label]
-            tag.setStyleSheet(f"background:{color};color:#fff;font-size:9px;font-weight:600;padding:3px 8px;border-radius:4px;")
+            tag.setStyleSheet(_get_label_style(color))
             top_row.addWidget(tag)
-        
+
         top_row.addStretch()
         text_container.addLayout(top_row)
-        
+
         # Нижняя строка: описание
         desc = self.strategy_data.get('description', '')
         if desc:
@@ -102,7 +122,7 @@ class CompactStrategyItem(QFrame):
             self.desc_label.setWordWrap(True)
             self.desc_label.setStyleSheet(_STYLE_DESC)
             text_container.addWidget(self.desc_label)
-        
+
         main_layout.addLayout(text_container, 1)
     
     def mousePressEvent(self, event):

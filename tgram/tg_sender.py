@@ -19,6 +19,10 @@ from .tg_log_delta import TOKEN, CHAT_ID, _tg_api as _call_tg_api
 
 TIMEOUT = 30           # секунд
 MAX_RETRIES = 3         # сколько раз повторять при flood-wait
+FLOOD_COOLDOWN = 300   # 5 минут cooldown после flood-wait
+
+# Глобальный cooldown после flood-wait (время до которого блокируем отправки)
+_flood_cooldown_until = 0.0
 
 # ------------------------------------------------------------------
 # helpers
@@ -26,6 +30,25 @@ MAX_RETRIES = 3         # сколько раз повторять при flood-
 def _cut_to_4k(text: str, limit: int = 4000) -> str:
     """Обрезаем строку до последних 4 000 символов (лимит Telegram)."""
     return text[-limit:] if len(text) > limit else text
+
+def is_in_flood_cooldown() -> bool:
+    """Проверяет, находимся ли мы в режиме cooldown после flood-wait."""
+    return time.time() < _flood_cooldown_until
+
+
+def get_flood_cooldown_remaining() -> float:
+    """Возвращает оставшееся время cooldown в секундах."""
+    remaining = _flood_cooldown_until - time.time()
+    return max(0.0, remaining)
+
+
+def _set_flood_cooldown():
+    """Устанавливает cooldown после flood-wait."""
+    global _flood_cooldown_until
+    _flood_cooldown_until = time.time() + FLOOD_COOLDOWN
+    from log import log
+    log(f"[TG] Установлен cooldown на {FLOOD_COOLDOWN // 60} мин после flood-wait", "⚠ WARNING")
+
 
 def _safe_call_tg_api(method: str, *, data=None, files=None):
     """
@@ -52,13 +75,21 @@ def _safe_call_tg_api(method: str, *, data=None, files=None):
                 time.sleep(wait)
                 continue      # повторяем запрос
             raise            # если это не 429 → бросаем дальше
-    # если дошли сюда ─ повторы кончились
+    # если дошли сюда ─ повторы кончились, устанавливаем cooldown
+    _set_flood_cooldown()
     raise RuntimeError("Не удалось отправить сообщение после flood-wait")
 
 # ------------------------------------------------------------------
 # public API
 # ------------------------------------------------------------------
 def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
+    # Проверяем cooldown перед отправкой
+    if is_in_flood_cooldown():
+        remaining = get_flood_cooldown_remaining()
+        from log import log
+        log(f"[TG] Пропуск отправки: cooldown ещё {remaining:.0f}с", "⚠ WARNING")
+        return
+
     path = Path(log_path)
     if not path.exists():
         raise FileNotFoundError(f"{path} not found")
@@ -72,6 +103,13 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
 
 def send_file_to_tg(file_path: str | Path, caption: str = "") -> bool:
     """Возвращает True при успешной отправке, False при ошибке"""
+    # Проверяем cooldown перед отправкой
+    if is_in_flood_cooldown():
+        remaining = get_flood_cooldown_remaining()
+        from log import log
+        log(f"[TG] Пропуск отправки: cooldown ещё {remaining:.0f}с", "⚠ WARNING")
+        return False
+
     try:
         path = Path(file_path)
         if not path.exists():
@@ -81,7 +119,7 @@ def send_file_to_tg(file_path: str | Path, caption: str = "") -> bool:
             files = {"document": fh}
             data = {"chat_id": CHAT_ID, "caption": caption or path.name}
             _safe_call_tg_api("sendDocument", data=data, files=files)
-        
+
         return True  # успех
     except Exception as e:
         from log import log

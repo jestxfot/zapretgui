@@ -743,7 +743,7 @@ class StrategiesPage(QWidget):
     def _load_direct_mode(self):
         """Загружает интерфейс для direct режима (Zapret 2)"""
         try:
-            from strategy_menu.simple_tab_panel import SimpleTabPanel
+            from strategy_menu.categories_tab_panel import CategoriesTabPanel
             from strategy_menu.strategies_registry import registry
             from strategy_menu import get_direct_strategy_selections, get_default_selections
             
@@ -799,7 +799,7 @@ class StrategiesPage(QWidget):
                 self.category_selections = get_default_selections()
             
             # Создаём панель с вкладками категорий (с кнопкой добавления)
-            self._strategy_widget = SimpleTabPanel(show_add_button=True)
+            self._strategy_widget = CategoriesTabPanel(show_add_button=True)
             self._strategy_widget._tab_category_keys = []
             self._strategy_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._strategy_widget.add_category_clicked.connect(self._show_add_category_dialog)
@@ -1980,9 +1980,8 @@ class StrategiesPage(QWidget):
                 self.current_strategy_label.hide()
                 self.current_strategy_container.show()
                 
-                # Добавляем иконки (максимум 8)
-                max_icons = 8
-                for i, (icon_name, icon_color, strat_name) in enumerate(icons_data[:max_icons]):
+                # Добавляем все иконки
+                for icon_name, icon_color, strat_name in icons_data:
                     icon_label = QLabel()
                     try:
                         pixmap = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
@@ -1993,24 +1992,8 @@ class StrategiesPage(QWidget):
                     icon_label.setFixedSize(18, 18)
                     icon_label.setToolTip(f"{strat_name}")
                     self.current_icons_layout.addWidget(icon_label)
-                
-                # Если больше max_icons - показываем +N
-                if len(icons_data) > max_icons:
-                    extra_label = QLabel(f"+{len(icons_data) - max_icons}")
-                    extra_label.setStyleSheet("""
-                        QLabel {
-                            color: rgba(255, 255, 255, 0.6);
-                            font-size: 11px;
-                            font-weight: 600;
-                            padding: 2px 6px;
-                            background: rgba(255, 255, 255, 0.1);
-                            border-radius: 8px;
-                        }
-                    """)
-                    self.current_icons_layout.addWidget(extra_label)
-                    self._has_hidden_strategies = True
-                else:
-                    self._has_hidden_strategies = len(icons_data) > 3  # Тултип если > 3
+
+                self._has_hidden_strategies = len(icons_data) > 3  # Тултип если > 3
                 
             else:
                 # Нет активных стратегий

@@ -1314,19 +1314,18 @@ class ThemeManager:
             main_window.setUpdatesEnabled(False)
             
             try:
-                # ✅ Применяем готовый CSS к QApplication И к главному окну
+                # ✅ Применяем CSS только к QApplication - виджеты унаследуют стили
+                # (убрано двойное применение к main_window для оптимизации ~2x быстрее)
                 _t = _time.perf_counter()
                 self.app.setStyleSheet(final_css)
-                # ✅ Также применяем к главному окну для надёжности
-                main_window.setStyleSheet(final_css)
-                
+
                 # ✅ Сбрасываем палитру чтобы CSS точно применился
                 # qt_material может устанавливать QPalette которая перекрывает CSS
                 from PyQt6.QtGui import QPalette
                 main_window.setPalette(QPalette())
-                
+
                 elapsed_ms = (_time.perf_counter()-_t)*1000
-                log(f"  setStyleSheet took {elapsed_ms:.0f}ms (app + window + palette reset)", "DEBUG")
+                log(f"  setStyleSheet took {elapsed_ms:.0f}ms (app only + palette reset)", "DEBUG")
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
             

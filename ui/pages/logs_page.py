@@ -1,9 +1,9 @@
 # ui/pages/logs_page.py
 """Страница просмотра логов в реальном времени"""
 
-from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QApplication, QMessageBox,
     QSplitter, QTextEdit
 )
@@ -12,12 +12,16 @@ import qtawesome as qta
 import os
 import glob
 import re
+import threading
+import queue
+import html
 
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
 from config import LOGS_FOLDER, MAX_LOG_FILES
+from strategy_menu.strategy_runner import get_current_runner
 
 # Паттерны для определения РЕАЛЬНЫХ ошибок (строгие)
 ERROR_PATTERNS = [
@@ -52,6 +56,103 @@ EXCLUDE_PATTERNS = [
 ]
 
 
+class WinwsOutputWorker(QObject):
+    """Worker для чтения stdout/stderr от процесса winws"""
+    new_output = pyqtSignal(str, str)  # (text, stream_type: 'stdout' | 'stderr')
+    process_ended = pyqtSignal(int)     # exit_code
+    finished = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._running = False
+        self._process = None
+
+    def set_process(self, process):
+        """Устанавливает процесс для мониторинга"""
+        self._process = process
+
+    def run(self):
+        """Читает вывод процесса в реальном времени"""
+        self._running = True
+
+        if not self._process:
+            self.finished.emit()
+            return
+
+        def read_stream(stream, stream_type):
+            """Читает поток в отдельном потоке"""
+            try:
+                while self._running and self._process.poll() is None:
+                    line = stream.readline()
+                    if line:
+                        try:
+                            text = line.decode('utf-8', errors='replace').rstrip()
+                        except:
+                            text = str(line).rstrip()
+                        if text:
+                            self.new_output.emit(text, stream_type)
+                    elif not self._running:
+                        break
+
+                # Читаем оставшееся после завершения
+                remaining = stream.read()
+                if remaining:
+                    try:
+                        text = remaining.decode('utf-8', errors='replace').rstrip()
+                    except:
+                        text = str(remaining).rstrip()
+                    if text:
+                        for line in text.split('\n'):
+                            if line.strip():
+                                self.new_output.emit(line.strip(), stream_type)
+            except Exception as e:
+                log(f"Ошибка чтения {stream_type}: {e}", "DEBUG")
+
+        # Запускаем чтение stdout и stderr в отдельных потоках
+        stdout_thread = None
+        stderr_thread = None
+
+        if self._process.stdout:
+            stdout_thread = threading.Thread(
+                target=read_stream,
+                args=(self._process.stdout, 'stdout'),
+                daemon=True
+            )
+            stdout_thread.start()
+
+        if self._process.stderr:
+            stderr_thread = threading.Thread(
+                target=read_stream,
+                args=(self._process.stderr, 'stderr'),
+                daemon=True
+            )
+            stderr_thread.start()
+
+        # Ждём завершения процесса
+        try:
+            while self._running and self._process.poll() is None:
+                QThread.msleep(100)
+
+            # Ждём завершения потоков чтения
+            if stdout_thread and stdout_thread.is_alive():
+                stdout_thread.join(timeout=1.0)
+            if stderr_thread and stderr_thread.is_alive():
+                stderr_thread.join(timeout=1.0)
+
+            if self._process.returncode is not None:
+                self.process_ended.emit(self._process.returncode)
+
+        except Exception as e:
+            log(f"Ошибка мониторинга процесса: {e}", "DEBUG")
+
+        self._running = False
+        self.finished.emit()
+
+    def stop(self):
+        """Останавливает worker"""
+        self._running = False
+
+
 class LogsPage(BasePage):
     """Страница просмотра логов"""
     
@@ -66,7 +167,16 @@ class LogsPage(BasePage):
         self.current_log_file = getattr(global_logger, "log_file", LOG_FILE)
         self._error_pattern = re.compile('|'.join(ERROR_PATTERNS))
         self._exclude_pattern = re.compile('|'.join(EXCLUDE_PATTERNS), re.IGNORECASE)
-        
+
+        # Winws output worker
+        self._winws_thread = None
+        self._winws_worker = None
+        self._winws_lines_count = 0
+
+        # Таймер для обновления статуса winws
+        self._winws_status_timer = QTimer(self)
+        self._winws_status_timer.timeout.connect(self._update_winws_status)
+
         self._build_ui()
         
     def _build_ui(self):
@@ -319,13 +429,94 @@ class LogsPage(BasePage):
             }
         """)
         errors_layout.addWidget(self.errors_text)
-        
+
         errors_card.add_layout(errors_layout)
         self.add_widget(errors_card)
-        
+
+        # ═══════════════════════════════════════════════════════════
+        # Панель вывода winws.exe
+        # ═══════════════════════════════════════════════════════════
+        winws_card = SettingsCard()
+        winws_layout = QVBoxLayout()
+
+        # Заголовок с иконкой
+        winws_header = QHBoxLayout()
+
+        # Иконка терминала
+        terminal_icon = QLabel()
+        terminal_icon.setPixmap(qta.icon('fa5s.terminal', color='#60cdff').pixmap(16, 16))
+        winws_header.addWidget(terminal_icon)
+
+        # Заголовок
+        winws_title = QLabel("Вывод winws.exe")
+        winws_title.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+        """)
+        winws_header.addWidget(winws_title)
+        winws_header.addSpacing(16)
+
+        # Статус процесса
+        self.winws_status_label = QLabel("Процесс не запущен")
+        self.winws_status_label.setStyleSheet("""
+            QLabel {
+                color: #888888;
+                font-size: 11px;
+            }
+        """)
+        winws_header.addWidget(self.winws_status_label)
+
+        winws_header.addStretch()
+
+        # Кнопка очистки
+        self.clear_winws_btn = ActionButton("Очистить", "fa5s.trash")
+        self.clear_winws_btn.clicked.connect(self._clear_winws_output)
+        winws_header.addWidget(self.clear_winws_btn)
+
+        winws_layout.addLayout(winws_header)
+
+        # Текстовое поле для вывода winws
+        self.winws_text = ScrollBlockingTextEdit()
+        self.winws_text.setReadOnly(True)
+        self.winws_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.winws_text.setFont(QFont("Consolas", 9))
+        self.winws_text.setFixedHeight(150)
+        self.winws_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #1a1a2e;
+                color: #00ff88;
+                border: 1px solid #2a2a4a;
+                border-radius: 6px;
+                padding: 8px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+            }
+            QScrollBar:vertical {
+                background: #2d2d30;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #4a4a6a;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #5a5a7a;
+            }
+        """)
+        winws_layout.addWidget(self.winws_text)
+
+        winws_card.add_layout(winws_layout)
+        self.add_widget(winws_card)
+
         # Счётчик ошибок
         self._errors_count = 0
-        
+
         # Инициализация
         self._refresh_logs_list()
         self._update_stats()
@@ -334,11 +525,16 @@ class LogsPage(BasePage):
         """При показе страницы запускаем мониторинг"""
         super().showEvent(event)
         self._start_tail_worker()
-        
+        self._start_winws_output_worker()
+        # Таймер для проверки статуса каждые 2 секунды
+        self._winws_status_timer.start(2000)
+
     def hideEvent(self, event):
         """При скрытии страницы останавливаем мониторинг"""
         super().hideEvent(event)
         self._stop_tail_worker()
+        self._stop_winws_output_worker()
+        self._winws_status_timer.stop()
         
     def _refresh_logs_list(self):
         """Обновляет список доступных лог-файлов"""
@@ -440,7 +636,114 @@ class LogsPage(BasePage):
                         pass
         except Exception as e:
             log(f"Ошибка остановки log tail worker: {e}", "DEBUG")
-            
+
+    def _start_winws_output_worker(self):
+        """Запускает worker для чтения вывода winws"""
+        self._stop_winws_output_worker()
+
+        # Получаем текущий runner и процесс
+        runner = get_current_runner()
+        if not runner:
+            self.winws_status_label.setText("Процесс не запущен")
+            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+            return
+
+        process = runner.get_process()
+        if not process:
+            self.winws_status_label.setText("Процесс не запущен")
+            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+            return
+
+        # Обновляем статус
+        strategy_info = runner.get_current_strategy_info()
+        strategy_name = strategy_info.get('name', 'winws')
+        pid = strategy_info.get('pid', '?')
+        self.winws_status_label.setText(f"PID: {pid} | {strategy_name}")
+        self.winws_status_label.setStyleSheet("QLabel { color: #60cdff; font-size: 11px; }")
+
+        try:
+            self._winws_thread = QThread(self)
+            self._winws_worker = WinwsOutputWorker()
+            self._winws_worker.set_process(process)
+            self._winws_worker.moveToThread(self._winws_thread)
+
+            self._winws_thread.started.connect(self._winws_worker.run)
+            self._winws_worker.new_output.connect(self._append_winws_output)
+            self._winws_worker.process_ended.connect(self._on_winws_process_ended)
+            self._winws_worker.finished.connect(self._winws_thread.quit)
+
+            self._winws_thread.start()
+        except Exception as e:
+            log(f"Ошибка запуска winws output worker: {e}", "ERROR")
+
+    def _stop_winws_output_worker(self):
+        """Останавливает worker чтения вывода winws"""
+        try:
+            if self._winws_worker:
+                self._winws_worker.stop()
+            if self._winws_thread and self._winws_thread.isRunning():
+                self._winws_thread.quit()
+                if not self._winws_thread.wait(2000):
+                    log("⚠ Winws output worker не завершился, принудительно завершаем", "WARNING")
+                    try:
+                        self._winws_thread.terminate()
+                        self._winws_thread.wait(500)
+                    except:
+                        pass
+        except Exception as e:
+            log(f"Ошибка остановки winws output worker: {e}", "DEBUG")
+
+    def _append_winws_output(self, text: str, stream_type: str):
+        """Добавляет вывод winws в текстовое поле"""
+        self._winws_lines_count += 1
+
+        # Экранируем HTML-символы
+        safe_text = html.escape(text)
+
+        # Форматируем текст в зависимости от потока
+        if stream_type == 'stderr':
+            # stderr показываем красным
+            formatted = f'<span style="color: #ff6b6b;">{safe_text}</span>'
+        else:
+            # stdout показываем зелёным
+            formatted = f'<span style="color: #00ff88;">{safe_text}</span>'
+
+        self.winws_text.append(formatted)
+
+        # Автопрокрутка
+        scrollbar = self.winws_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _on_winws_process_ended(self, exit_code: int):
+        """Обработчик завершения процесса winws"""
+        if exit_code == 0:
+            self.winws_status_label.setText(f"Процесс завершён (код: {exit_code})")
+            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+        else:
+            self.winws_status_label.setText(f"Процесс завершён с ошибкой (код: {exit_code})")
+            self.winws_status_label.setStyleSheet("QLabel { color: #ff6b6b; font-size: 11px; }")
+
+    def _update_winws_status(self):
+        """Периодически проверяет статус процесса winws"""
+        runner = get_current_runner()
+
+        # Проверяем есть ли запущенный процесс
+        if runner and runner.is_running():
+            # Если worker не работает, запускаем его
+            if not self._winws_thread or not self._winws_thread.isRunning():
+                self._start_winws_output_worker()
+        else:
+            # Процесс не запущен - обновляем статус если worker не работает
+            if not self._winws_thread or not self._winws_thread.isRunning():
+                self.winws_status_label.setText("Процесс не запущен")
+                self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+
+    def _clear_winws_output(self):
+        """Очищает поле вывода winws"""
+        self.winws_text.clear()
+        self._winws_lines_count = 0
+        self.info_label.setText("🧹 Вывод winws очищен")
+
     def _append_text(self, text: str):
         """Добавляет текст в лог"""
         # Разбиваем на строки (может прийти несколько строк сразу)
@@ -543,4 +846,5 @@ class LogsPage(BasePage):
     def cleanup(self):
         """Очистка при закрытии"""
         self._stop_tail_worker()
+        self._stop_winws_output_worker()
 

@@ -43,33 +43,41 @@ def _load_strategies_from_json(strategy_type: str) -> Dict:
     return {}
 
 
+# Кэш для strip_payload результатов (оптимизация - избегаем повторных regex)
+_strip_payload_cache: Dict[str, str] = {}
+
+
 def _strip_payload_from_args(args: str) -> str:
     """
     Удаляет --payload=... из аргументов стратегии.
-    
+
     Используется для IPset категорий без фильтра портов,
     чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS/HTTP.
-    
+
     Args:
         args: Строка аргументов стратегии
-        
+
     Returns:
         Строка аргументов без --payload=
     """
+    # Кэширование для оптимизации
+    if args in _strip_payload_cache:
+        return _strip_payload_cache[args]
+
     import re
-    
+
     # Убираем --payload=... (например: --payload=tls_client_hello или --payload=http_req)
     result = re.sub(r'--payload=[^\s]+\s*', '', args)
-    
+
     # Также убираем --filter-l7=... если есть (это фильтр по типу трафика)
     result = re.sub(r'--filter-l7=[^\s]+\s*', '', result)
-    
+
     # Очищаем множественные пробелы
     result = ' '.join(result.split())
-    
-    if result != args:
-        log(f"Удалены payload фильтры из аргументов (strip_payload=True)", "DEBUG")
-    
+
+    # Кэшируем результат
+    _strip_payload_cache[args] = result
+
     return result
 
 
