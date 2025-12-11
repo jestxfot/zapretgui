@@ -842,36 +842,26 @@ class StrategiesPage(QWidget):
             
             self._strategy_widget.currentChanged.connect(self._on_tab_changed)
             self._strategy_widget.setMinimumHeight(500)  # Увеличенная высота блока стратегий
-            self.content_layout.addWidget(self._strategy_widget)
-            
+            self.content_layout.addWidget(self._strategy_widget, 1)  # stretch=1 - растягивается при увеличении окна
+
             # Отступ перед командной строкой
             self.content_layout.addSpacing(20)
-            
+
             # Виджет командной строки (отдельный блок внизу)
             self.cmd_widget = CommandLineWidget()
             self.cmd_widget.setMinimumHeight(200)  # Увеличенная высота
-            self.content_layout.addWidget(self.cmd_widget)
-            
-            # Применяем блокировку вкладок на основе фильтров (СНАЧАЛА)
-            self._update_tabs_blocking_state()
-            
-            # Обновляем цвета иконок всех вкладок на основе выборов (ПОСЛЕ блокировки)
-            # Заблокированные вкладки будут пропущены
+            self.cmd_widget.setMaximumHeight(250)  # Ограничение максимальной высоты
+            self.content_layout.addWidget(self.cmd_widget, 0)  # stretch=0 - не растягивается, остаётся внизу
+
+            # Обновляем цвета иконок всех вкладок на основе выборов
             self._strategy_widget.update_all_tab_icons(self.category_selections)
-            
-            # Принудительно выбираем первую НЕзаблокированную вкладку и загружаем сразу
+
+            # Выбираем первую вкладку и загружаем сразу
             if self._strategy_widget.count() > 0:
-                # Ищем первую незаблокированную вкладку
-                first_unblocked = 0
-                for i in range(self._strategy_widget.count()):
-                    if not self._strategy_widget.is_tab_blocked(i):
-                        first_unblocked = i
-                        break
-                
-                self._strategy_widget.blockSignals(True)  # Блокируем сигналы чтобы избежать двойного вызова
-                self._strategy_widget.setCurrentIndex(first_unblocked)
+                self._strategy_widget.blockSignals(True)
+                self._strategy_widget.setCurrentIndex(0)
                 self._strategy_widget.blockSignals(False)
-                self._load_category_tab(first_unblocked)  # Загружаем синхронно
+                self._load_category_tab(0)
             
             # Добавляем кнопку "+" в конец списка категорий
             self._strategy_widget.add_add_button()
@@ -879,7 +869,10 @@ class StrategiesPage(QWidget):
             # Обновляем отображение и командную строку сразу
             self._update_current_strategies_display()
             self._generate_command_line()
-            
+
+            # ✅ Обновляем отображение фильтров на странице DPI Settings
+            self._update_dpi_filters_display()
+
             log("Direct режим загружен", "INFO")
             
         except Exception as e:
@@ -887,88 +880,7 @@ class StrategiesPage(QWidget):
             import traceback
             log(traceback.format_exc(), "DEBUG")
             raise
-    
-    def _update_tabs_blocking_state(self):
-        """
-        Обновляет состояние блокировки вкладок на основе текущих настроек фильтров.
-        Заблокированные вкладки показываются темно-серыми с курсором 🚫.
-        """
-        try:
-            from strategy_menu import (
-                get_wf_tcp_all_ports_enabled,
-                get_wf_udp_all_ports_enabled,
-                get_wf_tcp_443_enabled,
-                get_wf_udp_443_enabled,
-                get_wf_tcp_80_enabled
-            )
-            from strategy_menu.strategies_registry import registry
-            
-            # Получаем состояние фильтров
-            tcp_80_enabled = get_wf_tcp_80_enabled()
-            tcp_all_enabled = get_wf_tcp_all_ports_enabled()
-            udp_all_enabled = get_wf_udp_all_ports_enabled()
-            tcp_443_enabled = get_wf_tcp_443_enabled()
-            udp_443_enabled = get_wf_udp_443_enabled()
-            
-            # Проходим по всем вкладкам и устанавливаем блокировку
-            for category_key, tab_index in self._category_tab_indices.items():
-                # Голосовые звонки (Discord Voice UDP) НИКОГДА не блокируются
-                if category_key == 'discord_voice_udp':
-                    self._strategy_widget.set_tab_blocked(tab_index, False)
-                    continue
-                
-                category_info = registry.get_category_info(category_key)
-                if not category_info:
-                    continue
-                
-                should_block = False
-                required_filter_hint = None
-                protocol = category_info.protocol
-                ports = category_info.ports
-                strategy_type = category_info.strategy_type
-                
-                # Логика блокировки:
-                # HTTP порт 80 категории (проверяем по strategy_type)
-                if strategy_type == 'http80':
-                    should_block = not tcp_80_enabled
-                    if should_block:
-                        required_filter_hint = "Включите «TCP порт 80» в настройках DPI"
-                    
-                elif protocol == 'TCP':
-                    # TCP категории
-                    if category_info.requires_all_ports:
-                        # Категории требующие все порты (IPset) - блокируем если не включен TCP all
-                        should_block = not tcp_all_enabled
-                        if should_block:
-                            required_filter_hint = "Включите «TCP 444-65535» в настройках DPI"
-                    else:
-                        # Обычные TCP 443 категории - блокируем если не включен TCP 443
-                        should_block = not tcp_443_enabled
-                        if should_block:
-                            required_filter_hint = "Включите «TCP порт 443» в настройках DPI"
-                        
-                elif protocol in ('UDP', 'QUIC/UDP'):
-                    # UDP категории
-                    if '443' in ports and not any(c in ports for c in ['-', ',']):
-                        # Только UDP 443 (QUIC) - блокируем если не включен UDP 443
-                        should_block = not udp_443_enabled
-                        if should_block:
-                            required_filter_hint = "Включите «UDP 443 (QUIC)» в настройках DPI"
-                    else:
-                        # UDP с другими портами (игры, Roblox 49152-65535) - блокируем если не включен UDP all
-                        should_block = not udp_all_enabled
-                        if should_block:
-                            required_filter_hint = "Включите «UDP 444-65535» в настройках DPI"
-                
-                self._strategy_widget.set_tab_blocked(tab_index, should_block, required_filter_hint)
-            
-            log(f"Обновлено состояние блокировки вкладок (TCP 80={tcp_80_enabled}, TCP 443={tcp_443_enabled}, TCP all={tcp_all_enabled}, UDP 443={udp_443_enabled}, UDP all={udp_all_enabled})", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка обновления блокировки вкладок: {e}", "WARNING")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-            
+
     def _load_bat_mode(self):
         """Загружает интерфейс для bat режима (Zapret 1)"""
         try:
@@ -1421,35 +1333,7 @@ class StrategiesPage(QWidget):
         
         # Загружаем с небольшой задержкой для плавности UI
         QTimer.singleShot(100, self._load_content)
-    
-    def update_tabs_blocking_on_filter_change(self):
-        """
-        Обновляет блокировку вкладок при изменении фильтров (легковесная операция).
-        Вызывается когда пользователь меняет настройки фильтров на странице DPI.
-        """
-        try:
-            from strategy_menu import get_strategy_launch_method
-            
-            # Обновляем блокировку только в Direct режиме
-            if get_strategy_launch_method() != "direct":
-                return
-            
-            # Проверяем что виджет стратегий существует
-            if not hasattr(self, '_strategy_widget') or self._strategy_widget is None:
-                return
-            
-            # Обновляем состояние блокировки
-            self._update_tabs_blocking_state()
-            
-            # После обновления блокировки обновляем иконки с правильным состоянием
-            # (серые для none, цветные для активных, запрет для заблокированных)
-            self._strategy_widget.update_all_tab_icons(self.category_selections)
-            
-            log("Обновлена блокировка вкладок после изменения фильтров", "DEBUG")
-            
-        except Exception as e:
-            log(f"Ошибка обновления блокировки вкладок: {e}", "WARNING")
-            
+
     def _on_tab_changed(self, index):
         """При смене вкладки загружаем контент (direct режим)"""
         self._load_category_tab(index)
@@ -1616,33 +1500,181 @@ class StrategiesPage(QWidget):
         if widget:
             widget._loaded = False
             self._load_category_tab(tab_index)
-            
+
+    def _update_dpi_filters_display(self):
+        """Обновляет отображение фильтров на странице DPI Settings"""
+        try:
+            from strategy_menu.strategy_lists_separated import calculate_required_filters
+
+            # Вычисляем нужные фильтры по текущим выбранным категориям
+            filters = calculate_required_filters(self.category_selections)
+
+            # Обновляем UI на странице DPI Settings
+            app = self.parent_app
+            if hasattr(app, 'dpi_settings_page') and app.dpi_settings_page:
+                app.dpi_settings_page.update_filter_display(filters)
+        except Exception as e:
+            log(f"Ошибка обновления отображения фильтров: {e}", "WARNING")
+
+    def disable_categories_for_filter(self, filter_key: str, categories_to_disable: list):
+        """
+        Отключает категории при ручном выключении фильтра.
+
+        Вызывается из DpiSettingsPage когда пользователь отключает фильтр.
+        Устанавливает стратегию "none" для всех зависимых категорий.
+
+        Args:
+            filter_key: Ключ фильтра (например 'tcp_443')
+            categories_to_disable: Список ключей категорий для отключения
+        """
+        if not categories_to_disable:
+            return
+
+        log(f"Отключаю {len(categories_to_disable)} категорий из-за отключения фильтра {filter_key}", "INFO")
+
+        try:
+            from strategy_menu import save_direct_strategy_selection, combine_strategies
+            from strategy_menu.strategies_registry import registry
+
+            # Получаем все ключи категорий для определения индексов вкладок
+            all_keys = registry.get_all_category_keys()
+
+            # Отключаем каждую категорию
+            for category_key in categories_to_disable:
+                save_direct_strategy_selection(category_key, "none")
+                self.category_selections[category_key] = "none"
+                log(f"  → Отключена категория: {category_key}", "DEBUG")
+
+            # Обновляем UI вкладок (делаем иконки серыми)
+            self._refresh_all_tab_colors()
+
+            # Перезагружаем содержимое вкладок для отключённых категорий
+            self._reload_category_tabs(categories_to_disable, all_keys)
+
+            # Обновляем отображение текущих стратегий
+            self._update_current_strategies_display()
+
+            # Обновляем отображение фильтров (теперь с меньшим количеством активных)
+            self._update_dpi_filters_display()
+
+            # Обновляем командную строку
+            if self.cmd_widget:
+                self.cmd_widget.generate_command()
+
+            # Проверяем, остались ли активные стратегии
+            if not self._has_any_active_strategy():
+                log("⚠️ Все стратегии отключены - останавливаем DPI", "INFO")
+                app = self.parent_app
+                if hasattr(app, 'dpi_controller') and app.dpi_controller:
+                    app.dpi_controller.stop_dpi_async()
+                return
+
+            # Перезапускаем DPI с новыми настройками
+            combined = combine_strategies(**self.category_selections)
+            combined_data = {
+                'id': 'DIRECT_MODE',
+                'name': 'Прямой запуск (Запрет 2)',
+                'is_combined': True,
+                'args': combined['args'],
+                'selections': self.category_selections.copy()
+            }
+
+            app = self.parent_app
+            if hasattr(app, 'dpi_controller') and app.dpi_controller:
+                app.dpi_controller.start_dpi_async(selected_mode=combined_data)
+
+        except Exception as e:
+            log(f"Ошибка отключения категорий: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+
+    def _reload_category_tabs(self, category_keys: list, all_keys: list):
+        """Перезагружает содержимое вкладок для указанных категорий"""
+        if not self._strategy_widget:
+            return
+
+        for category_key in category_keys:
+            try:
+                # Находим индекс вкладки по ключу категории
+                if category_key in all_keys:
+                    tab_index = all_keys.index(category_key)
+                    widget = self._strategy_widget.widget(tab_index)
+                    if widget:
+                        # Сбрасываем флаг загрузки и перезагружаем
+                        widget._loaded = False
+                        self._load_category_tab(tab_index)
+                        log(f"Перезагружена вкладка: {category_key}", "DEBUG")
+            except Exception as e:
+                log(f"Ошибка перезагрузки вкладки {category_key}: {e}", "WARNING")
+
+    def _refresh_all_tab_colors(self):
+        """Обновляет цвета иконок всех вкладок по текущим выборам"""
+        if not self._strategy_widget:
+            return
+
+        try:
+            from strategy_menu.strategies_registry import registry
+            all_keys = registry.get_all_category_keys()
+
+            for i, category_key in enumerate(all_keys):
+                strategy_id = self.category_selections.get(category_key, "none")
+                is_inactive = (strategy_id == "none" or not strategy_id)
+                self._strategy_widget.update_tab_icon_color(i, is_inactive=is_inactive)
+        except Exception as e:
+            log(f"Ошибка обновления цветов вкладок: {e}", "WARNING")
+
+    def _has_any_active_strategy(self, selections: dict = None) -> bool:
+        """Проверяет, есть ли хотя бы одна активная стратегия (не 'none')"""
+        if selections is None:
+            selections = self.category_selections
+        
+        for strategy_id in selections.values():
+            if strategy_id and strategy_id != "none":
+                return True
+        return False
+    
     def _on_strategy_item_clicked(self, category_key: str, strategy_id: str):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws2"""
         try:
             from strategy_menu import save_direct_strategy_selection, combine_strategies
-            
-            # Показываем спиннер загрузки
-            self.show_loading()
-            
+            from strategy_menu.strategy_lists_separated import calculate_required_filters
+
             # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
             save_direct_strategy_selection(category_key, strategy_id)
             self.category_selections[category_key] = strategy_id
             log(f"Выбрана стратегия: {category_key} = {strategy_id}", "INFO")
-            
+
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
-            # НО только если вкладка не заблокирована (у заблокированных своя иконка)
             current_tab_index = self._strategy_widget.currentIndex()
-            if not self._strategy_widget.is_tab_blocked(current_tab_index):
-                is_inactive = (strategy_id == "none" or not strategy_id)
-                self._strategy_widget.update_tab_icon_color(current_tab_index, is_inactive=is_inactive)
-            
+            is_inactive = (strategy_id == "none" or not strategy_id)
+            self._strategy_widget.update_tab_icon_color(current_tab_index, is_inactive=is_inactive)
+
             # Обновляем отображение текущих стратегий (читаем из реестра)
             self._update_current_strategies_display()
-            
+
+            # ✅ Обновляем отображение фильтров на странице DPI Settings
+            self._update_dpi_filters_display()
+
             # Обновляем командную строку сразу
             if self.cmd_widget:
                 self.cmd_widget.generate_command()
+            
+            # Проверяем, есть ли хотя бы одна активная стратегия
+            if not self._has_any_active_strategy():
+                log("⚠️ Нет активных стратегий - останавливаем DPI", "INFO")
+                # Останавливаем DPI если все стратегии "none"
+                app = self.parent_app
+                if hasattr(app, 'dpi_controller') and app.dpi_controller:
+                    app.dpi_controller.stop_dpi_async()
+                    if hasattr(app, 'current_strategy_label'):
+                        app.current_strategy_label.setText("Не выбрана")
+                    if hasattr(app, 'current_strategy_name'):
+                        app.current_strategy_name = None
+                self.show_success()
+                return
+            
+            # Показываем спиннер загрузки
+            self.show_loading()
             
             # Создаём комбинированную стратегию
             combined = combine_strategies(**self.category_selections)
@@ -1714,19 +1746,32 @@ class StrategiesPage(QWidget):
             log(f"Ошибка открытия папки: {e}", "ERROR")
             
     def _clear_all(self):
-        """Сбрасывает все стратегии в 'none'"""
+        """Сбрасывает все стратегии в 'none' и останавливает DPI"""
         try:
             from strategy_menu import save_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
-            
+
             # Устанавливаем все стратегии в "none"
             none_selections = {key: "none" for key in registry.get_all_category_keys()}
             save_direct_strategy_selections(none_selections)
             self.category_selections = none_selections
-            
+
+            # ✅ Обновляем отображение фильтров (теперь все должны быть выключены)
+            self._update_dpi_filters_display()
+
+            # Останавливаем DPI, так как нет активных стратегий
+            app = self.parent_app
+            if hasattr(app, 'dpi_controller') and app.dpi_controller:
+                app.dpi_controller.stop_dpi_async()
+                log("DPI остановлен после сброса стратегий", "INFO")
+                if hasattr(app, 'current_strategy_label'):
+                    app.current_strategy_label.setText("Не выбрана")
+                if hasattr(app, 'current_strategy_name'):
+                    app.current_strategy_name = None
+
             # Перезагружаем интерфейс (командная строка обновится внутри _load_direct_mode)
             self._reload_strategies()
-            
+
             log("Все стратегии сброшены в 'none'", "INFO")
             
         except Exception as e:
@@ -1739,6 +1784,19 @@ class StrategiesPage(QWidget):
             if not app or not hasattr(app, 'dpi_controller'):
                 log("DPI контроллер не найден", "ERROR")
                 return
+            
+            # В Direct режиме проверяем наличие активных стратегий
+            from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+            if get_strategy_launch_method() == "direct":
+                selections = get_direct_strategy_selections()
+                if not self._has_any_active_strategy(selections):
+                    log("⚠️ Нет активных стратегий - перезапуск невозможен", "WARNING")
+                    QMessageBox.warning(
+                        self,
+                        "Нет стратегий",
+                        "Выберите хотя бы одну стратегию для запуска."
+                    )
+                    return
             
             # Запускаем анимацию вращения иконки
             self._start_restart_animation()
@@ -1806,6 +1864,13 @@ class StrategiesPage(QWidget):
                 from strategy_menu.strategy_lists_separated import combine_strategies
                 
                 selections = get_direct_strategy_selections()
+                
+                # Проверяем, есть ли хотя бы одна активная стратегия
+                if not self._has_any_active_strategy(selections):
+                    log("⚠️ Нет активных стратегий - запуск отменён", "WARNING")
+                    self._stop_restart_animation()
+                    return
+                
                 combined = combine_strategies(**selections)
                 
                 # Формируем данные в правильном формате для start_dpi_async

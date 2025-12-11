@@ -276,17 +276,19 @@ a.binaries = [x for x in a.binaries if not x[0].startswith('build_zapret')]
 
 pyz = PYZ(a.pure)
 
+# ✅ ИЗМЕНЕНО: Переход с --onefile на --onedir (папка с файлами)
+# Это решает проблему "Failed to start embedded python interpreter!"
+# и предотвращает блокировку антивирусами
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],  # ✅ УБРАЛИ a.binaries и a.datas отсюда
+    exclude_binaries=True,  # ✅ ВАЖНО: binaries будут в COLLECT
     name='Zapret',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # ✅ ИЗМЕНЕНО С True НА False
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -297,6 +299,18 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
     {icon_line}
+)
+
+# ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='Zapret',
 )"""
     
     spec_path = root_path / "zapret_build.spec"
@@ -345,16 +359,18 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
             "--noconfirm",
             str(spec_path)
         ])
-        
-        # Проверяем, что exe создан
-        exe_path = out / "Zapret.exe"
+
+        # ✅ ИЗМЕНЕНО: В режиме --onedir exe находится в подпапке
+        exe_path = out / "Zapret" / "Zapret.exe"
         if not exe_path.exists():
             raise FileNotFoundError(f"Исполняемый файл не создан: {exe_path}")
         
         if log_queue:
             log_queue.put(f"✅ PyInstaller завершен успешно")
             log_queue.put(f"📦 Создан: {exe_path}")
-            log_queue.put(f"📏 Размер: {exe_path.stat().st_size / 1024 / 1024:.1f} MB")
+            # ✅ ИЗМЕНЕНО: Подсчитываем размер всей папки в режиме --onedir
+            total_size = sum(f.stat().st_size for f in exe_path.parent.rglob('*') if f.is_file())
+            log_queue.put(f"📏 Размер папки: {total_size / 1024 / 1024:.1f} MB")
             
     except Exception as e:
         if log_queue:
@@ -370,10 +386,7 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
                     log_queue.put(f"🧹 Удалена рабочая папка: {work}")
         except Exception:
             pass
-        
-        # Очищаем старые _MEI* папки в TEMP
-        cleanup_pyinstaller_temp(log_queue)
-        
+
         # ✅ Подписываем exe файл если есть сертификат
         sign_exe_if_available(exe_path, log_queue)
 

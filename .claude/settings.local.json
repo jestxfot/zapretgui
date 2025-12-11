@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"h:\\Privacy\\zapretgui\\json\\strategies\"\" 2>/dev/null || echo \"Directory not found \")",
+      "Bash(find:*)"
+    ]
+  }
+}

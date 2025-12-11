@@ -928,16 +928,16 @@ class FramelessWindowMixin:
             return
         delta = global_pos - self._resize_start_pos
         geo = self._resize_start_geometry
-        
+
         new_x = geo.x()
         new_y = geo.y()
         new_w = geo.width()
         new_h = geo.height()
         min_w = self.minimumWidth()
         min_h = self.minimumHeight()
-        
+
         edge = self._resize_edge
-        
+
         if 'left' in edge:
             new_w = max(min_w, geo.width() - delta.x())
             if new_w != min_w:
@@ -950,8 +950,10 @@ class FramelessWindowMixin:
                 new_y = geo.y() + delta.y()
         if 'bottom' in edge:
             new_h = max(min_h, geo.height() + delta.y())
-        
+
         self.setGeometry(new_x, new_y, new_w, new_h)
+        # ✅ Явно обновляем позиции resize handles во время изменения размера
+        self._update_resize_handles()
     
     def _end_resize(self):
         self._is_resizing = False

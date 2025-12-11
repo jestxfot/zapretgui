@@ -18,48 +18,26 @@ from log import log
 
 class ScrollBlockingListWidget(QListWidget):
     """QListWidget который не пропускает прокрутку к родителю"""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._blocked_tabs = set()
-    
+
     def wheelEvent(self, event):
         scrollbar = self.verticalScrollBar()
         delta = event.angleDelta().y()
-        
+
         # Если прокручиваем вверх и уже в начале - блокируем
         if delta > 0 and scrollbar.value() == scrollbar.minimum():
             event.accept()
             return
-        
+
         # Если прокручиваем вниз и уже в конце - блокируем
         if delta < 0 and scrollbar.value() == scrollbar.maximum():
             event.accept()
             return
-        
+
         super().wheelEvent(event)
         event.accept()
-    
-    def mouseMoveEvent(self, event):
-        """Обработчик движения мыши - меняем курсор для заблокированных вкладок"""
-        item = self.itemAt(event.pos())
-        if item:
-            index = self.row(item)
-            if index in self._blocked_tabs:
-                self.setCursor(Qt.CursorShape.ForbiddenCursor)
-                # Убираем hover эффект для заблокированных
-                self.clearSelection()
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-        else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-        
-        super().mouseMoveEvent(event)
-    
-    def leaveEvent(self, event):
-        """Восстанавливаем курсор при выходе мыши"""
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        super().leaveEvent(event)
 
 
 class SimpleTabPanel(QWidget):
@@ -73,9 +51,6 @@ class SimpleTabPanel(QWidget):
         super().__init__(parent)
         self._tab_category_keys = []
         self._tab_icons = {}  # {index: (icon_name, icon_color)}
-        self._blocked_tabs = set()  # Индексы заблокированных вкладок
-        self._original_icons = {}  # {index: (icon_name, icon_color)} - сохраненные оригинальные иконки
-        self._original_tooltips = {}  # {index: tooltip} - сохраненные оригинальные подсказки
         self._show_add_button = show_add_button
         self._last_selected_index = 0
         self._add_button_added = False
@@ -102,7 +77,6 @@ class SimpleTabPanel(QWidget):
         
         # Список вкладок (с блокировкой передачи прокрутки родителю)
         self.list_widget = ScrollBlockingListWidget()
-        self.list_widget._blocked_tabs = self._blocked_tabs  # Связываем с общим набором
         self.list_widget.setIconSize(QSize(11, 11))
         self.list_widget.setSpacing(0)
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
@@ -188,16 +162,7 @@ class SimpleTabPanel(QWidget):
                 # Эмитим сигнал добавления
                 self.add_category_clicked.emit()
                 return
-        
-        # Проверяем, не заблокирована ли вкладка
-        if index in self._blocked_tabs:
-            # Возвращаемся к последней выбранной вкладке
-            if self._last_selected_index >= 0 and self._last_selected_index not in self._blocked_tabs:
-                # Используем QTimer для отложенного восстановления выделения
-                # Это предотвращает конфликты с обработкой событий Qt
-                QTimer.singleShot(0, lambda: self._restore_selection(self._last_selected_index))
-            return
-        
+
         # Сохраняем последний выбранный индекс (не кнопка добавления)
         self._last_selected_index = index
         
@@ -226,41 +191,33 @@ class SimpleTabPanel(QWidget):
     def _set_tab_icon(self, index, category_key, is_inactive=False):
         """Устанавливает иконку для вкладки"""
         try:
-            # Если вкладка заблокирована - не меняем иконку (у неё иконка запрета)
-            if index in self._blocked_tabs:
-                return
-            
             from strategy_menu.strategies_registry import registry
-            
+
             cat_info = registry.get_category_info(category_key)
             if cat_info:
                 icon_name = cat_info.icon_name or 'fa5s.globe'
                 icon_color = '#888888' if is_inactive else (cat_info.icon_color or '#60cdff')
-                
+
                 self._tab_icons[index] = (icon_name, icon_color, is_inactive)
-                
+
                 item = self.list_widget.item(index)
                 if item:
                     icon = qta.icon(icon_name, color=icon_color)
                     item.setIcon(icon)
         except Exception as e:
             log(f"Ошибка установки иконки: {e}", "DEBUG")
-    
+
     def update_tab_icon_color(self, index, is_inactive=False):
         """Обновляет цвет иконки вкладки"""
         if 0 <= index < len(self._tab_category_keys):
             category_key = self._tab_category_keys[index]
             if category_key:
                 self._set_tab_icon(index, category_key, is_inactive)
-    
+
     def update_all_tab_icons(self, selections_dict):
         """Обновляет цвета всех иконок на основе выборов"""
         for index, category_key in enumerate(self._tab_category_keys):
             if category_key:
-                # Пропускаем заблокированные вкладки - у них своя иконка
-                if index in self._blocked_tabs:
-                    continue
-                    
                 strategy_id = selections_dict.get(category_key, "none")
                 is_inactive = (strategy_id == "none" or not strategy_id)
                 self.update_tab_icon_color(index, is_inactive=is_inactive)
@@ -271,54 +228,7 @@ class SimpleTabPanel(QWidget):
             item = self.list_widget.item(index)
             if item:
                 item.setToolTip(tooltip)
-    
-    def set_tab_blocked(self, index: int, blocked: bool, required_filter_hint: str = None):
-        """
-        Устанавливает состояние блокировки для вкладки.
-        
-        Args:
-            index: Индекс вкладки
-            blocked: True - заблокировать (темный текст, курсор 🚫)
-            required_filter_hint: Подсказка какой фильтр нужно включить для разблокировки
-        """
-        if 0 <= index < self.list_widget.count():
-            item = self.list_widget.item(index)
-            if item:
-                if blocked:
-                    self._blocked_tabs.add(index)
-                    # Помечаем как заблокированный
-                    item.setData(Qt.ItemDataRole.UserRole + 1, "blocked")
-                    # Меняем иконку на "запрещено"
-                    try:
-                        blocked_icon = qta.icon('fa5s.ban', color='#666666')  # Иконка запрета
-                        item.setIcon(blocked_icon)
-                    except Exception as e:
-                        log(f"Ошибка установки иконки запрета: {e}", "DEBUG")
-                    
-                    # Сохраняем оригинальный tooltip и устанавливаем подсказку о фильтре
-                    if index not in self._original_tooltips:
-                        self._original_tooltips[index] = item.toolTip()
-                    
-                    if required_filter_hint:
-                        item.setToolTip(f"🚫 {required_filter_hint}")
-                else:
-                    self._blocked_tabs.discard(index)
-                    item.setData(Qt.ItemDataRole.UserRole + 1, None)
-                    # НЕ восстанавливаем иконку здесь - это будет сделано через update_all_tab_icons
-                    # с правильным состоянием is_inactive на основе category_selections
-                    
-                    # Восстанавливаем оригинальный tooltip
-                    if index in self._original_tooltips:
-                        item.setToolTip(self._original_tooltips[index])
-                        del self._original_tooltips[index]
-                
-                # Принудительно обновляем отображение
-                self.list_widget.update()
-    
-    def is_tab_blocked(self, index: int) -> bool:
-        """Проверяет, заблокирована ли вкладка"""
-        return index in self._blocked_tabs
-    
+
     def clear(self):
         """Очищает все вкладки"""
         self.list_widget.clear()
@@ -329,9 +239,6 @@ class SimpleTabPanel(QWidget):
                 widget.deleteLater()
         self._tab_category_keys = []
         self._tab_icons = {}
-        self._blocked_tabs.clear()
-        self._original_tooltips.clear()
-        self._original_icons.clear()
         self._add_button_added = False
         self._last_selected_index = 0
     

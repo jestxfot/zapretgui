@@ -1092,30 +1092,18 @@ class SideNavBar(QWidget):
     
     def enterEvent(self, event):
         """При наведении - разворачиваем если не закреплено"""
-        from log import log
         self._is_hovering = True
-        log(f"SideNav enterEvent: pinned={self._is_pinned}, floating={self._is_floating}", "DEBUG")
         if not self._is_pinned:
             self._do_expand()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
         """При уходе мыши - сворачиваем если не закреплено"""
-        from log import log
         self._is_hovering = False
-        log(f"SideNav leaveEvent: pinned={self._is_pinned}, floating={self._is_floating}", "DEBUG")
         if not self._is_pinned:
             self._collapse_timer.start(250)
         super().leaveEvent(event)
-    
-    def event(self, event):
-        """Перехватываем все события для отладки hover в floating режиме"""
-        from PyQt6.QtCore import QEvent
-        if self._is_floating and event.type() in (QEvent.Type.Enter, QEvent.Type.Leave, QEvent.Type.HoverEnter, QEvent.Type.HoverLeave):
-            from log import log
-            log(f"SideNav event: {event.type()}", "DEBUG")
-        return super().event(event)
-        
+
     def _on_group_toggled(self, parent_index: int, expanded: bool):
         """Переключает видимость элементов группы (подпункты и заголовки)"""
         if parent_index in self._collapsible_groups:

@@ -95,6 +95,7 @@ Censorliber, [08.08.2025 1:02]
 """
 Модуль объединения стратегий в одну командную строку.
 ✅ Использует новую логику: base_filter из категории + техника из стратегии
+✅ Автоматически определяет нужные фильтры портов по выбранным категориям
 """
 
 import re
@@ -105,11 +106,56 @@ from .strategies_registry import registry
 from .strategies.blobs import build_args_with_deduped_blobs
 
 
+def calculate_required_filters(category_strategies: dict) -> dict:
+    """
+    Автоматически вычисляет нужные фильтры портов на основе выбранных категорий.
+
+    Использует filters_config.py для определения какие фильтры нужны.
+
+    Args:
+        category_strategies: dict {category_key: strategy_id}
+
+    Returns:
+        dict с флагами фильтров
+    """
+    from .filters_config import get_filter_for_category, FILTERS
+
+    # Инициализируем все фильтры как False
+    filters = {key: False for key in FILTERS.keys()}
+
+    none_strategies = registry.get_none_strategies()
+
+    for category_key, strategy_id in category_strategies.items():
+        # Пропускаем неактивные категории
+        if not strategy_id:
+            continue
+        none_id = none_strategies.get(category_key)
+        if strategy_id == none_id or strategy_id == "none":
+            continue
+
+        # Получаем информацию о категории
+        category_info = registry.get_category_info(category_key)
+        if not category_info:
+            continue
+
+        # Получаем нужные фильтры через конфиг
+        required_filters = get_filter_for_category(category_info)
+        for filter_key in required_filters:
+            filters[filter_key] = True
+
+    log(f"Автоматически определены фильтры: TCP=[80={filters.get('tcp_80')}, 443={filters.get('tcp_443')}, 6568={filters.get('tcp_6568')}, all={filters.get('tcp_all_ports')}], "
+        f"UDP=[443={filters.get('udp_443')}, all={filters.get('udp_all_ports')}], "
+        f"raw=[discord={filters.get('raw_discord')}, stun={filters.get('raw_stun')}, wg={filters.get('raw_wireguard')}]", "DEBUG")
+
+    return filters
+
+
 def _build_base_args_from_filters(
     lua_init: str,
     windivert_filter_folder: str,
     tcp_80: bool,
     tcp_443: bool,
+    tcp_6568: bool,
     tcp_all_ports: bool,
     udp_443: bool,
     udp_all_ports: bool,
@@ -119,38 +165,25 @@ def _build_base_args_from_filters(
 ) -> str:
     """
     Собирает базовые аргументы WinDivert из отдельных фильтров.
-    
+
     Логика:
     - TCP порты перехватываются целиком через --wf-tcp-out
     - UDP порты перехватываются целиком через --wf-udp-out (нагружает CPU!)
     - Raw-part фильтры перехватывают только конкретные пакеты (экономят CPU)
-    
-    Args:
-        lua_init: Строка инициализации Lua библиотек
-        windivert_filter_folder: Путь к папке с фильтрами WinDivert
-        tcp_80: Включён ли TCP порт 80
-        tcp_443: Включён ли TCP порт 443
-        tcp_all_ports: Включены ли TCP порты 444-65535 (высокая нагрузка!)
-        udp_443: Включён ли UDP порт 443 (полный перехват)
-        udp_all_ports: Включены ли UDP порты 444-65535 (очень высокая нагрузка!)
-        raw_discord_media: Включён ли raw-part фильтр Discord Media
-        raw_stun: Включён ли raw-part фильтр STUN
-        raw_wireguard: Включён ли raw-part фильтр WireGuard
-    
-    Returns:
-        Строка базовых аргументов для winws2
     """
     parts = [lua_init]
-    
+
     # === TCP порты ===
     tcp_port_parts = []
     if tcp_80:
         tcp_port_parts.append("80")
     if tcp_443:
-        tcp_port_parts.append("443,6568")
+        tcp_port_parts.append("443")
+    if tcp_6568:
+        tcp_port_parts.append("6568")
     if tcp_all_ports:
         tcp_port_parts.append("444-65535")
-    
+
     if tcp_port_parts:
         parts.append(f"--wf-tcp-out={','.join(tcp_port_parts)}")
     
@@ -211,42 +244,36 @@ def combine_strategies(*args, **kwargs) -> dict:
         raise ValueError("Нельзя одновременно использовать позиционные и именованные аргументы")
     
     # ==================== БАЗОВЫЕ АРГУМЕНТЫ ====================
-    from strategy_menu import (
-        get_wf_tcp_80_enabled,
-        get_wf_tcp_443_enabled,
-        get_wf_tcp_all_ports_enabled,
-        get_wf_udp_443_enabled,
-        get_wf_udp_all_ports_enabled,
-        get_wf_raw_discord_media_enabled,
-        get_wf_raw_stun_enabled,
-        get_wf_raw_wireguard_enabled,
-        get_debug_log_enabled,
-    )
+    from strategy_menu import get_debug_log_enabled
     from config import LUA_FOLDER, WINDIVERT_FILTER, LOGS_FOLDER
-    
+
     # Lua библиотеки должны загружаться первыми (обязательно для Zapret 2)
     # Порядок загрузки важен:
     # 1. zapret-lib.lua - базовые функции
-    # 2. zapret-antidpi.lua - функции десинхронизации  
+    # 2. zapret-antidpi.lua - функции десинхронизации
     # 3. custom_funcs.lua - пользовательские функции
     lua_lib_path = os.path.join(LUA_FOLDER, "zapret-lib.lua")
     lua_antidpi_path = os.path.join(LUA_FOLDER, "zapret-antidpi.lua")
     custom_funcs_path = os.path.join(LUA_FOLDER, "custom_funcs.lua")
     # Пути БЕЗ кавычек - subprocess.Popen с списком аргументов сам правильно обрабатывает пути
     LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{custom_funcs_path}'
-    
-    # Собираем базовые аргументы из включённых фильтров
+
+    # ✅ Автоматически определяем нужные фильтры по выбранным категориям
+    filters = calculate_required_filters(category_strategies)
+
+    # Собираем базовые аргументы из автоматически определённых фильтров
     base_args = _build_base_args_from_filters(
-        LUA_INIT, 
+        LUA_INIT,
         WINDIVERT_FILTER,
-        get_wf_tcp_80_enabled(),
-        get_wf_tcp_443_enabled(),
-        get_wf_tcp_all_ports_enabled(),
-        get_wf_udp_443_enabled(),
-        get_wf_udp_all_ports_enabled(),
-        get_wf_raw_discord_media_enabled(),
-        get_wf_raw_stun_enabled(),
-        get_wf_raw_wireguard_enabled(),
+        filters['tcp_80'],
+        filters['tcp_443'],
+        filters['tcp_6568'],
+        filters['tcp_all_ports'],
+        filters['udp_443'],
+        filters['udp_all_ports'],
+        filters['raw_discord'],
+        filters['raw_stun'],
+        filters['raw_wireguard'],
     )
     
     # ==================== СБОР АКТИВНЫХ КАТЕГОРИЙ ====================

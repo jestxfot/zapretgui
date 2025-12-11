@@ -39,6 +39,10 @@ SERVICES = {
     
     "Claude": {
         "claude.ai": "109.69.21.35",
+        "api.claude.ai": "109.69.21.35",
+        "anthropic.com": "109.69.21.35",
+        "www.anthropic.com": "109.69.21.35",
+        "api.anthropic.com": "109.69.21.35",
     },
     
     "Copilot": {

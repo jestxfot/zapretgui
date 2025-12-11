@@ -409,9 +409,10 @@ class Win11NumberRow(QWidget):
 
 class DpiSettingsPage(BasePage):
     """Страница настроек DPI"""
-    
+
     launch_method_changed = pyqtSignal(str)
     filters_changed = pyqtSignal()  # Сигнал при изменении фильтров
+    filter_disabled = pyqtSignal(str, list)  # Сигнал при отключении фильтра: (filter_key, categories_to_disable)
     
     def __init__(self, parent=None):
         super().__init__("Настройки DPI", "Параметры обхода блокировок", parent)
@@ -510,7 +511,13 @@ class DpiSettingsPage(BasePage):
         self.filters_card = SettingsCard("ФИЛЬТРЫ ПЕРЕХВАТА ТРАФИКА")
         filters_layout = QVBoxLayout()
         filters_layout.setSpacing(6)
-        
+
+        # Информационное сообщение
+        auto_info = QLabel("Настройки применяются автоматически при выборе сайтов во вкладке «Стратегия»")
+        auto_info.setStyleSheet("color: #888888; font-size: 11px; padding: 4px 0 8px 0;")
+        auto_info.setWordWrap(True)
+        filters_layout.addWidget(auto_info)
+
         # ─────────────────────────────────────────────────────────────────────
         # TCP ПОРТЫ (HTTP/HTTPS)
         # ─────────────────────────────────────────────────────────────────────
@@ -849,65 +856,114 @@ class DpiSettingsPage(BasePage):
         """Загружает настройки фильтров"""
         try:
             from strategy_menu import (
-                get_wf_tcp_80_enabled, set_wf_tcp_80_enabled,
-                get_wf_tcp_443_enabled, set_wf_tcp_443_enabled,
-                get_wf_tcp_all_ports_enabled, set_wf_tcp_all_ports_enabled,
-                get_wf_udp_443_enabled, set_wf_udp_443_enabled,
-                get_wf_udp_all_ports_enabled, set_wf_udp_all_ports_enabled,
-                get_wf_raw_discord_media_enabled, set_wf_raw_discord_media_enabled,
-                get_wf_raw_stun_enabled, set_wf_raw_stun_enabled,
-                get_wf_raw_wireguard_enabled, set_wf_raw_wireguard_enabled,
                 get_wssize_enabled, set_wssize_enabled,
                 get_allzone_hostlist_enabled, set_allzone_hostlist_enabled,
                 get_remove_hostlists_enabled, set_remove_hostlists_enabled,
                 get_remove_ipsets_enabled, set_remove_ipsets_enabled,
                 get_debug_log_enabled, set_debug_log_enabled
             )
-            
-            # TCP (блокируем сигналы при загрузке)
-            self.tcp_80_toggle.setChecked(get_wf_tcp_80_enabled(), block_signals=True)
-            self.tcp_443_toggle.setChecked(get_wf_tcp_443_enabled(), block_signals=True)
-            self.tcp_all_ports_toggle.setChecked(get_wf_tcp_all_ports_enabled(), block_signals=True)
-            
-            # UDP
-            self.udp_443_toggle.setChecked(get_wf_udp_443_enabled(), block_signals=True)
-            self.udp_all_ports_toggle.setChecked(get_wf_udp_all_ports_enabled(), block_signals=True)
-            
-            # Raw-part
-            self.raw_discord_toggle.setChecked(get_wf_raw_discord_media_enabled(), block_signals=True)
-            self.raw_stun_toggle.setChecked(get_wf_raw_stun_enabled(), block_signals=True)
-            self.raw_wireguard_toggle.setChecked(get_wf_raw_wireguard_enabled(), block_signals=True)
-            
-            # Дополнительные настройки
+
+            # ═══════════════════════════════════════════════════════════════════════
+            # ФИЛЬТРЫ ПОРТОВ — пользователь может ОТКЛЮЧИТЬ для отключения категорий
+            # ═══════════════════════════════════════════════════════════════════════
+            # Начальное состояние — всё выключено (обновится при выборе категорий)
+            self.tcp_80_toggle.setChecked(False, block_signals=True)
+            self.tcp_443_toggle.setChecked(False, block_signals=True)
+            self.tcp_all_ports_toggle.setChecked(False, block_signals=True)
+            self.udp_443_toggle.setChecked(False, block_signals=True)
+            self.udp_all_ports_toggle.setChecked(False, block_signals=True)
+            self.raw_discord_toggle.setChecked(False, block_signals=True)
+            self.raw_stun_toggle.setChecked(False, block_signals=True)
+            self.raw_wireguard_toggle.setChecked(False, block_signals=True)
+
+            # Подключаем сигналы для обработки ручного отключения фильтров
+            self.tcp_80_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_80', v))
+            self.tcp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_443', v))
+            self.tcp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_all_ports', v))
+            self.udp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_443', v))
+            self.udp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_all_ports', v))
+            self.raw_discord_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_discord', v))
+            self.raw_stun_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_stun', v))
+            self.raw_wireguard_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_wireguard', v))
+
+            # ═══════════════════════════════════════════════════════════════════════
+            # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ — остаются активными
+            # ═══════════════════════════════════════════════════════════════════════
             self.wssize_toggle.setChecked(get_wssize_enabled(), block_signals=True)
             self.allzone_toggle.setChecked(get_allzone_hostlist_enabled(), block_signals=True)
             self.remove_hostlists_toggle.setChecked(get_remove_hostlists_enabled(), block_signals=True)
             self.remove_ipsets_toggle.setChecked(get_remove_ipsets_enabled(), block_signals=True)
             self.debug_log_toggle.setChecked(get_debug_log_enabled(), block_signals=True)
-            
-            # Подключаем сигналы сохранения
-            self.tcp_80_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_tcp_80_enabled, v))
-            self.tcp_443_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_tcp_443_enabled, v))
-            self.tcp_all_ports_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_tcp_all_ports_enabled, v))
-            
-            self.udp_443_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_udp_443_enabled, v))
-            self.udp_all_ports_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_udp_all_ports_enabled, v))
-            
-            self.raw_discord_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_discord_media_enabled, v))
-            self.raw_stun_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_stun_enabled, v))
-            self.raw_wireguard_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wf_raw_wireguard_enabled, v))
-            
-            # Дополнительные настройки - сигналы
+
+            # Подключаем сигналы только для дополнительных настроек
             self.wssize_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wssize_enabled, v))
             self.allzone_toggle.toggled.connect(lambda v: self._on_filter_changed(set_allzone_hostlist_enabled, v))
             self.remove_hostlists_toggle.toggled.connect(lambda v: self._on_filter_changed(set_remove_hostlists_enabled, v))
             self.remove_ipsets_toggle.toggled.connect(lambda v: self._on_filter_changed(set_remove_ipsets_enabled, v))
             self.debug_log_toggle.toggled.connect(lambda v: self._on_filter_changed(set_debug_log_enabled, v))
-            
+
         except Exception as e:
             log(f"Ошибка загрузки фильтров: {e}", "WARNING")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+
+    def _on_port_filter_toggled(self, filter_key: str, enabled: bool):
+        """
+        Обработчик переключения фильтра портов.
+
+        Когда пользователь ОТКЛЮЧАЕТ фильтр, автоматически отключаются
+        все категории, которые требуют этот фильтр.
+        """
+        if enabled:
+            # Включение фильтра — ничего не делаем, категории сами определят
+            log(f"Фильтр {filter_key} включён вручную", "DEBUG")
+            return
+
+        # Отключение фильтра — нужно отключить зависимые категории
+        log(f"Фильтр {filter_key} отключён вручную, определяю зависимые категории...", "INFO")
+
+        try:
+            from strategy_menu.filters_config import get_categories_to_disable_on_filter_off
+            from strategy_menu import get_direct_strategy_selections
+
+            # Получаем текущие выборы
+            current_selections = get_direct_strategy_selections()
+
+            # Определяем какие категории нужно отключить
+            categories_to_disable = get_categories_to_disable_on_filter_off(filter_key, current_selections)
+
+            if categories_to_disable:
+                log(f"Отключаю категории: {', '.join(categories_to_disable)}", "INFO")
+                self.filter_disabled.emit(filter_key, categories_to_disable)
+            else:
+                log(f"Нет активных категорий для отключения", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка определения категорий для отключения: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+
+    def update_filter_display(self, filters: dict):
+        """
+        Обновляет отображение фильтров на основе автоматически определённых значений.
+
+        Вызывается из strategies_page при изменении выбранных категорий.
+
+        Args:
+            filters: dict с ключами tcp_80, tcp_443, tcp_all_ports, udp_443, udp_all_ports,
+                     raw_discord, raw_stun, raw_wireguard
+        """
+        try:
+            self.tcp_80_toggle.setChecked(filters.get('tcp_80', False), block_signals=True)
+            self.tcp_443_toggle.setChecked(filters.get('tcp_443', False), block_signals=True)
+            self.tcp_all_ports_toggle.setChecked(filters.get('tcp_all_ports', False), block_signals=True)
+            self.udp_443_toggle.setChecked(filters.get('udp_443', False), block_signals=True)
+            self.udp_all_ports_toggle.setChecked(filters.get('udp_all_ports', False), block_signals=True)
+            self.raw_discord_toggle.setChecked(filters.get('raw_discord', False), block_signals=True)
+            self.raw_stun_toggle.setChecked(filters.get('raw_stun', False), block_signals=True)
+            self.raw_wireguard_toggle.setChecked(filters.get('raw_wireguard', False), block_signals=True)
+        except Exception as e:
+            log(f"Ошибка обновления отображения фильтров: {e}", "WARNING")
                 
     def _on_filter_changed(self, setter_func, value):
         """Обработчик изменения фильтра"""

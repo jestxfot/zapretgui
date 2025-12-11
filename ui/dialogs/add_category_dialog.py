@@ -5,10 +5,10 @@
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-    QPushButton, QComboBox, QFormLayout, QFrame, QMessageBox,
+    QPushButton, QComboBox, QFormLayout, QFrame,
     QWidget, QSpinBox, QCheckBox, QGridLayout
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont
 import qtawesome as qta
 
@@ -67,6 +67,135 @@ class CompactCombo(QComboBox):
                 border: none;
             }
         """)
+
+
+class DeleteButton(QPushButton):
+    """Кнопка удаления с двойным подтверждением и анимацией корзины"""
+    
+    delete_confirmed = pyqtSignal()
+    
+    def __init__(self, text: str = "Удалить", parent=None):
+        super().__init__(text, parent)
+        self._default_text = text
+        self._confirm_text = "Точно?"
+        self._pending = False
+        self._hovered = False
+        
+        # Иконка
+        self._update_icon()
+        self.setIconSize(QSize(14, 14))
+        self.setFixedHeight(34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        # Таймер сброса состояния
+        self._reset_timer = QTimer(self)
+        self._reset_timer.setSingleShot(True)
+        self._reset_timer.timeout.connect(self._reset_state)
+        
+        # Анимация иконки (качание)
+        self._shake_timer = QTimer(self)
+        self._shake_timer.timeout.connect(self._animate_shake)
+        self._shake_step = 0
+        
+        self._update_style()
+        
+    def _update_icon(self, rotation: int = 0):
+        """Обновляет иконку с опциональным углом поворота"""
+        color = '#ff6b6b' if self._pending else 'white'
+        if rotation != 0:
+            self.setIcon(qta.icon('fa5s.trash-alt', color=color, rotated=rotation))
+        else:
+            self.setIcon(qta.icon('fa5s.trash-alt', color=color))
+        
+    def _update_style(self):
+        """Обновляет стили кнопки"""
+        if self._pending:
+            # Состояние подтверждения - красный цвет
+            if self._hovered:
+                bg = "rgba(255, 107, 107, 0.45)"
+            else:
+                bg = "rgba(255, 107, 107, 0.35)"
+            text_color = "#ff6b6b"
+            border = "1px solid rgba(255, 107, 107, 0.6)"
+        else:
+            # Обычное состояние
+            if self._hovered:
+                bg = "rgba(209, 52, 56, 0.9)"
+            else:
+                bg = "#d13438"
+            text_color = "#ffffff"
+            border = "none"
+            
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg};
+                border: {border};
+                border-radius: 4px;
+                color: {text_color};
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 500;
+            }}
+        """)
+        
+    def _animate_shake(self):
+        """Анимация качания иконки"""
+        self._shake_step += 1
+        if self._shake_step > 8:
+            self._shake_timer.stop()
+            self._shake_step = 0
+            self._update_icon(0)
+            return
+            
+        # Качаем иконку влево-вправо
+        rotations = [0, -15, 15, -12, 12, -8, 8, -4, 0]
+        rotation = rotations[min(self._shake_step, len(rotations) - 1)]
+        self._update_icon(rotation)
+        
+    def _start_shake_animation(self):
+        """Запускает анимацию качания"""
+        self._shake_step = 0
+        self._shake_timer.start(50)
+        
+    def _reset_state(self):
+        """Сбрасывает состояние кнопки"""
+        self._pending = False
+        self.setText(self._default_text)
+        self._update_icon()
+        self._update_style()
+        self._shake_timer.stop()
+        
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+        
+    def mousePressEvent(self, event):
+        """Обработка клика"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._pending:
+                # Второй клик - подтверждение
+                self._reset_timer.stop()
+                self._pending = False
+                self.setText("✓ Удалено")
+                self._update_icon()
+                self._update_style()
+                self.delete_confirmed.emit()
+            else:
+                # Первый клик - переход в режим подтверждения
+                self._pending = True
+                self.setText(self._confirm_text)
+                self._update_icon()
+                self._update_style()
+                self._start_shake_animation()
+                # Автосброс через 3 секунды
+                self._reset_timer.start(3000)
+        super().mousePressEvent(event)
 
 
 class AddCategoryDialog(QDialog):
@@ -178,6 +307,12 @@ class AddCategoryDialog(QDialog):
         basic_layout.addWidget(QLabel("Название:"), 1, 0)
         self.name_input = CompactInput("Мой сайт")
         basic_layout.addWidget(self.name_input, 1, 1)
+        
+        # Лейбл ошибки (скрыт по умолчанию)
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #ff6b6b; font-size: 10px; padding: 2px 0;")
+        self.error_label.setVisible(False)
+        basic_layout.addWidget(self.error_label, 2, 0, 1, 2)
         
         layout.addWidget(basic_frame)
         
@@ -356,25 +491,9 @@ class AddCategoryDialog(QDialog):
         
         # Кнопка удаления (только в режиме редактирования)
         if self.is_edit_mode:
-            delete_btn = QPushButton("  Удалить")
-            delete_btn.setIcon(qta.icon('fa5s.trash', color='white'))
-            delete_btn.setFixedHeight(34)
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    background: #d13438;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 0 20px;
-                    font-size: 12px;
-                    font-weight: 500;
-                }
-                QPushButton:hover {
-                    background: #e13438;
-                }
-            """)
-            delete_btn.clicked.connect(self._delete_category)
-            buttons_layout.addWidget(delete_btn)
+            self.delete_btn = DeleteButton("Удалить")
+            self.delete_btn.delete_confirmed.connect(self._delete_category)
+            buttons_layout.addWidget(self.delete_btn)
         
         cancel_btn = QPushButton("Отмена")
         cancel_btn.setFixedHeight(34)
@@ -444,6 +563,13 @@ class AddCategoryDialog(QDialog):
             self.strategy_type_combo.setCurrentText("udp")
         elif protocol == "TCP":
             self.strategy_type_combo.setCurrentText("tcp")
+    
+    def _show_error(self, message: str):
+        """Показывает ошибку в лейбле"""
+        self.error_label.setText(f"⚠ {message}")
+        self.error_label.setVisible(True)
+        # Автоскрытие через 3 секунды
+        QTimer.singleShot(3000, lambda: self.error_label.setVisible(False))
     
     def _populate_fields(self):
         """Заполняет поля данными существующей категории"""
@@ -529,15 +655,18 @@ class AddCategoryDialog(QDialog):
         name = self.name_input.text().strip()
         
         if not key:
-            QMessageBox.warning(self, "Ошибка", "Введите ключ категории")
+            self._show_error("Введите ключ категории")
+            self.key_input.setFocus()
             return
             
         if not all(c.isalnum() or c == '_' for c in key):
-            QMessageBox.warning(self, "Ошибка", "Ключ: только латиница, цифры и _")
+            self._show_error("Ключ: только латиница, цифры и _")
+            self.key_input.setFocus()
             return
             
         if not name:
-            QMessageBox.warning(self, "Ошибка", "Введите название")
+            self._show_error("Введите название")
+            self.name_input.setFocus()
             return
         
         # Нормализуем порты: убираем все пробелы
@@ -581,12 +710,11 @@ class AddCategoryDialog(QDialog):
                 else:
                     self.category_added.emit(category_data)
                 
-                # ✅ Создаём файл списка автоматически если его нет (только при создании)
+                # Создаём файл списка автоматически если его нет (только при создании)
                 if not self.is_edit_mode:
                     list_file = self.list_file_input.text().strip() or "my-sites.txt"
                     list_path = os.path.join(LISTS_FOLDER, list_file)
                     
-                    file_created = False
                     if not os.path.exists(list_path):
                         try:
                             os.makedirs(LISTS_FOLDER, exist_ok=True)
@@ -596,56 +724,21 @@ class AddCategoryDialog(QDialog):
                                 f.write("# Пример:\n")
                                 f.write("# example.com\n")
                                 f.write("# subdomain.example.org\n")
-                            file_created = True
                             log(f"Создан файл списка: {list_path}", "INFO")
                         except Exception as e:
                             log(f"Не удалось создать файл {list_path}: {e}", "WARNING")
-                    
-                    if file_created:
-                        QMessageBox.information(
-                            self, "Готово", 
-                            f"✅ Категория «{name}» добавлена!\n\n"
-                            f"Файл lists/{list_file} создан.\n"
-                            f"Добавьте в него домены (по одному на строку)."
-                        )
-                    else:
-                        QMessageBox.information(
-                            self, "Готово", 
-                            f"✅ Категория «{name}» добавлена!\n\n"
-                            f"Файл lists/{list_file} уже существует."
-                        )
-                else:
-                    QMessageBox.information(
-                        self, "Готово", 
-                        f"✅ Категория «{name}» обновлена!"
-                    )
                 
                 self.accept()
             else:
-                QMessageBox.warning(self, "Ошибка", f"Ошибка: {error}")
+                self._show_error(error)
                 
         except Exception as e:
             log(f"Ошибка сохранения: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", str(e))
+            self._show_error(str(e))
     
     def _delete_category(self):
-        """Удаляет категорию"""
+        """Удаляет категорию (вызывается после подтверждения через анимацию)"""
         key = self.key_input.text().strip()
-        name = self.name_input.text().strip()
-        
-        # Подтверждение удаления
-        reply = QMessageBox.question(
-            self, 
-            "Подтверждение удаления",
-            f"Вы уверены, что хотите удалить категорию «{name}»?\n\n"
-            f"Ключ: {key}\n"
-            f"Это действие нельзя отменить.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply != QMessageBox.StandardButton.Yes:
-            return
         
         try:
             from strategy_menu.strategies.strategy_loader import delete_user_category
@@ -655,16 +748,16 @@ class AddCategoryDialog(QDialog):
             if success:
                 log(f"Категория '{key}' удалена", "INFO")
                 self.category_deleted.emit(key)
-                QMessageBox.information(
-                    self, "Готово", 
-                    f"✅ Категория «{name}» удалена из JSON файла.\n\n"
-                    f"Примечание: файл списка lists/{self.list_file_input.text()} "
-                    f"не был удалён автоматически."
-                )
-                self.accept()
+                # Закрываем диалог через небольшую задержку чтобы было видно "✓ Удалено"
+                QTimer.singleShot(500, self.accept)
             else:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось удалить: {error}")
+                self._show_error(error)
+                # Сбрасываем кнопку
+                if hasattr(self, 'delete_btn'):
+                    self.delete_btn._reset_state()
                 
         except Exception as e:
             log(f"Ошибка удаления: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", str(e))
+            self._show_error(str(e))
+            if hasattr(self, 'delete_btn'):
+                self.delete_btn._reset_state()

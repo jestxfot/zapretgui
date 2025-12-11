@@ -248,25 +248,14 @@ class MainWindowUI:
         
         # Подключаем смену метода запуска стратегий (от страницы настроек DPI)
         self.dpi_settings_page.launch_method_changed.connect(self._on_launch_method_changed)
-        
-        # Подключаем изменение фильтров - перезагружаем страницу стратегий
-        if hasattr(self.dpi_settings_page, 'filters_changed'):
-            self.dpi_settings_page.filters_changed.connect(self._on_filters_changed)
-        
+
+        # Подключаем отключение фильтров → отключение категорий
+        self.dpi_settings_page.filter_disabled.connect(self.strategies_page.disable_categories_for_filter)
+
         # Для совместимости - если strategies_page также имеет сигнал
         if hasattr(self.strategies_page, 'launch_method_changed'):
             self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
-        
-        # Подключаем сигнал обновления со страницы серверов
-        # Обновления управляются напрямую на странице servers_page
-    
-    def _on_filters_changed(self):
-        """Обработчик изменения фильтров - обновляем блокировку вкладок"""
-        from log import log
-        log("Фильтры изменены, обновляем блокировку вкладок", "DEBUG")
-        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'update_tabs_blocking_on_filter_change'):
-            self.strategies_page.update_tabs_blocking_on_filter_change()
-        
+
     def _on_launch_method_changed(self, method: str):
         """Обработчик смены метода запуска стратегий"""
         from log import log

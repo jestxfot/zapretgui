@@ -177,17 +177,19 @@ a.binaries = [x for x in a.binaries if not x[0].startswith('build_zapret')]
 
 pyz = PYZ(a.pure)
 
+# ✅ ИЗМЕНЕНО: Переход с --onefile на --onedir (папка с файлами)
+# Это решает проблему "Failed to start embedded python interpreter!"
+# и предотвращает блокировку антивирусами
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],  # ✅ УБРАЛИ a.binaries и a.datas отсюда
+    exclude_binaries=True,  # ✅ ВАЖНО: binaries будут в COLLECT
     name='Zapret',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # ✅ ИЗМЕНЕНО С True НА False
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -198,4 +200,16 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
     icon=r'H:\Privacy\zapretgui\ZapretDevLogo4.ico',
+)
+
+# ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='Zapret',
 )

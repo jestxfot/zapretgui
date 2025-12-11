@@ -45,79 +45,10 @@ Directory contents: {os.listdir(app_dir) if os.path.exists(app_dir) else 'N/A'}
 _set_workdir_to_app()
 
 # ──────────────────────────────────────────────────────────────
-# Очистка старых временных папок PyInstaller (_MEI*)
-# Эти папки создаются при каждом запуске exe и могут накапливаться
+# ✅ УБРАНО: Очистка _MEI* папок больше не нужна
+# Приложение собирается в режиме --onedir (папка с файлами)
+# вместо --onefile, поэтому временные папки не создаются
 # ──────────────────────────────────────────────────────────────
-def _cleanup_pyinstaller_temp():
-    """
-    Удаляет старые временные папки PyInstaller (_MEI*) из TEMP.
-    
-    PyInstaller при --onefile создает _MEI* папки при каждом запуске.
-    Если приложение завершается некорректно, они не удаляются.
-    Эта функция очищает папки старше 1 часа.
-    """
-    import tempfile
-    import shutil
-    import time
-    
-    # Проверяем только если это PyInstaller exe
-    if not getattr(sys, 'frozen', False):
-        return
-    
-    try:
-        temp_dir = tempfile.gettempdir()
-        current_time = time.time()
-        max_age_seconds = 3600  # 1 час
-        cleaned_count = 0
-        cleaned_size_mb = 0
-        
-        # ✅ Получаем путь к папке ТЕКУЩЕГО процесса (её НЕ трогаем!)
-        current_mei_folder = getattr(sys, '_MEIPASS', None)
-        
-        # Находим все папки _MEI*
-        for entry in os.scandir(temp_dir):
-            if entry.is_dir() and entry.name.startswith('_MEI'):
-                try:
-                    # ✅ НЕ УДАЛЯЕМ папку текущего процесса!
-                    if current_mei_folder and os.path.samefile(entry.path, current_mei_folder):
-                        continue
-                    
-                    # Проверяем возраст папки
-                    folder_age = current_time - entry.stat().st_mtime
-                    
-                    if folder_age > max_age_seconds:
-                        # Считаем размер перед удалением
-                        folder_size = sum(
-                            f.stat().st_size for f in os.scandir(entry.path)
-                            if f.is_file()
-                        )
-                        
-                        # Удаляем папку
-                        shutil.rmtree(entry.path, ignore_errors=True)
-                        
-                        if not os.path.exists(entry.path):
-                            cleaned_count += 1
-                            cleaned_size_mb += folder_size / (1024 * 1024)
-                            
-                except (PermissionError, OSError):
-                    # Папка занята другим процессом - пропускаем
-                    pass
-                except Exception:
-                    pass
-        
-        # Логируем результат в файл (log модуль еще не загружен)
-        if cleaned_count > 0:
-            try:
-                with open("zapret_startup.log", "a", encoding="utf-8") as f:
-                    f.write(f"Cleaned {cleaned_count} old PyInstaller temp folders ({cleaned_size_mb:.1f} MB)\n")
-            except:
-                pass
-                
-    except Exception:
-        # Не прерываем запуск из-за ошибки очистки
-        pass
-
-_cleanup_pyinstaller_temp()
 
 # ──────────────────────────────────────────────────────────────
 # Устанавливаем глобальный обработчик крашей (ДО всех импортов!)

@@ -897,11 +897,12 @@ __all__ = [
     
     # Комбинирование стратегий
     'combine_strategies',
+    'calculate_required_filters',
 ]
 
 # Алиасы для совместимости со старым кодом
 save_direct_strategy_selection = set_direct_strategy_for_category
 save_direct_strategy_selections = set_direct_strategy_selections
 
-# Импорт combine_strategies из strategy_lists_separated
-from strategy_menu.strategy_lists_separated import combine_strategies
+# Импорт combine_strategies и calculate_required_filters из strategy_lists_separated
+from strategy_menu.strategy_lists_separated import combine_strategies, calculate_required_filters

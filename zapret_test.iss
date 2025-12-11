@@ -45,7 +45,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=Zapret2Setup_test_1765396692_tmp
+OutputBaseFilename=Zapret2Setup_test_1765453202_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
@@ -73,7 +73,8 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 ; ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЕ ПУТИ
-Source: "{#SourcePath}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion;
+; ✅ ИЗМЕНЕНО: Копируем всю папку dist\Zapret (режим --onedir PyInstaller)
+Source: "{#SourcePath}\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
 
 ; Копируем папки
 Source: "{#SourcePath}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist

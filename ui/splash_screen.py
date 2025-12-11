@@ -1,7 +1,11 @@
 # ui/splash_screen.py
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
+"""
+Splash Screen в стиле Windows 11 Fluent Design.
+Мягкие цвета, плавные анимации, полупрозрачность.
+"""
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QGraphicsOpacityEffect, QApplication
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QBrush, QColor, QLinearGradient, QIcon, QTransform, QPen, QPainterPath
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QLinearGradient, QIcon, QTransform, QPen, QPainterPath
 import qtawesome as qta
 import os
 import math
@@ -9,6 +13,18 @@ import random
 import threading
 from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH, get_wall_animation_enabled
 from log import log
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ЦВЕТОВАЯ ПАЛИТРА - Windows 11 Fluent (мягкие, приглушённые тона)
+# ═══════════════════════════════════════════════════════════════════════════════
+FLUENT_ACCENT = "#4c8ee7"           # Мягкий синий (как в теме)
+FLUENT_ACCENT_LIGHT = "#6ba3f0"     # Светлее для hover/glow
+FLUENT_ACCENT_DARK = "#3a7bd5"      # Темнее для pressed
+FLUENT_BG = "22, 24, 28"            # Тёмный фон (как в теме)
+FLUENT_BG_LIGHT = "30, 32, 36"      # Чуть светлее для градиента
+FLUENT_BORDER = "60, 63, 68"        # Мягкая рамка
+FLUENT_TEXT = "#ffffff"             # Белый текст
+FLUENT_TEXT_SECONDARY = "rgba(255, 255, 255, 0.6)"  # Вторичный текст
 
 
 class WallBrick:
@@ -183,18 +199,19 @@ class WallDestructionOverlay(QWidget):
             brick.destruction_threshold = max(0.01, min(0.85, brick.destruction_threshold))
             
     def _spawn_particles(self, x, y, count=2):
-        """Создаёт частицы в точке (оптимизировано)"""
-        if len(self.particles) > 80:  # Лимит частиц
+        """Создаёт частицы в точке - мягкие цвета"""
+        if len(self.particles) > 60:  # Меньше лимит для производительности
             return
         for _ in range(count):
             particle = {
-                'x': x + random.uniform(-15, 15),
-                'y': y + random.uniform(-15, 15),
-                'vx': random.uniform(-3, 3),
-                'vy': random.uniform(-6, 2),
-                'size': random.uniform(3, 5),
-                'opacity': 1.0,
-                'color': random.choice(['#ff4444', '#ff6666', '#cc3333'])
+                'x': x + random.uniform(-10, 10),
+                'y': y + random.uniform(-10, 10),
+                'vx': random.uniform(-2, 2),
+                'vy': random.uniform(-4, 2),
+                'size': random.uniform(2, 4),
+                'opacity': 0.8,
+                # Мягкие цвета вместо кислотных красных
+                'color': random.choice(['#e06c75', '#d19a66', '#c67878'])
             }
             self.particles.append(particle)
             
@@ -384,52 +401,54 @@ class WallDestructionOverlay(QWidget):
                         int(size), int(size)
                     )
                 
-            # === СЛОЙ 3: Энергия разрушения (shimmer) ===
+            # === СЛОЙ 3: Энергия разрушения (shimmer) - мягкий синий Fluent ===
             if self.displayed_progress > 5:
                 # Горизонтальная волна энергии
                 wave_y = height * (1 - self.displayed_progress / 100.0)
-                wave_height = 80
-                
+                wave_height = 60  # Меньше высота
+
                 energy_gradient = QLinearGradient(0, wave_y - wave_height, 0, wave_y + wave_height)
                 pulse = (math.sin(self.energy_pulse) + 1) / 2  # 0-1
-                alpha_base = int(40 + 30 * pulse)
-                
-                energy_gradient.setColorAt(0.0, QColor(0, 255, 200, 0))
-                energy_gradient.setColorAt(0.3, QColor(0, 255, 200, alpha_base // 2))
-                energy_gradient.setColorAt(0.5, QColor(0, 255, 220, alpha_base))
-                energy_gradient.setColorAt(0.7, QColor(0, 255, 200, alpha_base // 2))
-                energy_gradient.setColorAt(1.0, QColor(0, 255, 200, 0))
-                
+                alpha_base = int(25 + 20 * pulse)  # Меньше интенсивность
+
+                # Мягкий синий вместо кислотного зелёного
+                energy_gradient.setColorAt(0.0, QColor(76, 142, 231, 0))
+                energy_gradient.setColorAt(0.3, QColor(76, 142, 231, alpha_base // 2))
+                energy_gradient.setColorAt(0.5, QColor(107, 163, 240, alpha_base))
+                energy_gradient.setColorAt(0.7, QColor(76, 142, 231, alpha_base // 2))
+                energy_gradient.setColorAt(1.0, QColor(76, 142, 231, 0))
+
                 painter.fillRect(0, int(wave_y - wave_height), width, int(wave_height * 2), energy_gradient)
-                
-                # Shimmer внутри зоны разрушения
-                shimmer_width = 0.4
+
+                # Shimmer внутри зоны разрушения - мягче
+                shimmer_width = 0.3
                 start_x = (self.shimmer_pos - shimmer_width) * width * 1.5
                 end_x = (self.shimmer_pos + shimmer_width) * width * 1.5
-                
+
                 shimmer_gradient = QLinearGradient(start_x, 0, end_x, 0)
                 shimmer_gradient.setColorAt(0.0, QColor(255, 255, 255, 0))
                 shimmer_gradient.setColorAt(0.4, QColor(255, 255, 255, 0))
-                shimmer_gradient.setColorAt(0.5, QColor(0, 255, 210, 40))
+                shimmer_gradient.setColorAt(0.5, QColor(76, 142, 231, 25))  # Мягкий синий
                 shimmer_gradient.setColorAt(0.6, QColor(255, 255, 255, 0))
                 shimmer_gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
-                
+
                 # Рисуем shimmer только в разрушенной области
                 destroyed_height = int(height * self.displayed_progress / 100.0)
                 painter.setClipRect(0, height - destroyed_height, width, destroyed_height)
                 painter.fillRect(0, 0, width, height, shimmer_gradient)
                 painter.setClipping(False)
-                
-            # === СЛОЙ 4: Свечение снизу (откуда идёт разрушение) ===
-            glow_height = 100
+
+            # === СЛОЙ 4: Свечение снизу - мягкий синий Fluent ===
+            glow_height = 80
             glow_gradient = QLinearGradient(0, height, 0, height - glow_height)
             glow_intensity = min(1.0, self.displayed_progress / 50.0)
-            glow_alpha = int(60 * glow_intensity)
-            
-            glow_gradient.setColorAt(0.0, QColor(0, 212, 170, glow_alpha))
-            glow_gradient.setColorAt(0.5, QColor(0, 255, 200, glow_alpha // 2))
-            glow_gradient.setColorAt(1.0, QColor(0, 255, 200, 0))
-            
+            glow_alpha = int(40 * glow_intensity)  # Меньше интенсивность
+
+            # Мягкий синий
+            glow_gradient.setColorAt(0.0, QColor(76, 142, 231, glow_alpha))
+            glow_gradient.setColorAt(0.5, QColor(107, 163, 240, glow_alpha // 2))
+            glow_gradient.setColorAt(1.0, QColor(76, 142, 231, 0))
+
             painter.fillRect(0, height - glow_height, width, glow_height, glow_gradient)
             
             # === СЛОЙ 5: Надпись "БЛОКИРОВКА" на стене (только если анимация включена) ===
@@ -483,111 +502,98 @@ class WallDestructionOverlay(QWidget):
 
 
 class AnimatedIconWidget(QWidget):
-    """Виджет с анимированной иконкой - пробивает стену блокировок"""
-    
+    """Виджет с анимированной иконкой - минималистичная версия для Fluent Design"""
+
     def __init__(self, pixmap: QPixmap, parent=None):
         super().__init__(parent)
         self.original_pixmap = pixmap
         self.rotation_angle = 0.0
-        self.scale_factor = 0.7
+        self.scale_factor = 0.85
         self.target_scale = 1.0
-        
-        # ✅ Защита от конкурентного рисования
+
+        # Защита от конкурентного рисования
         self._paint_lock = threading.Lock()
         self._is_destroyed = False
-        
-        # Размер виджета с запасом
-        size = int(pixmap.width() * 1.6)
+
+        # Размер виджета с небольшим запасом
+        size = int(pixmap.width() * 1.4)
         self.setFixedSize(size, size)
-        
-        # Таймер анимации
+
+        # Таймер анимации (реже для производительности)
         self.rotation_timer = QTimer(self)
         self.rotation_timer.timeout.connect(self._update_rotation)
-        self.rotation_timer.start(16)
-        
-        # Параметры
-        self.rotation_speed = 1.0
+        self.rotation_timer.start(25)  # ~40 FPS вместо 60
+
+        # Параметры - более плавные
+        self.rotation_speed = 0.3  # Медленнее вращение
         self.pulse_phase = 0.0
         self.shake_offset_x = 0.0
         self.shake_offset_y = 0.0
         self.progress = 0
-        
-        # Энергетический ореол
+
+        # Мягкий ореол
         self.glow_phase = 0.0
-        
-        # Дополнительные кольца энергии
-        self.energy_rings = []
-        for i in range(3):
-            self.energy_rings.append({
-                'phase': i * 2.0,
-                'speed': 0.05 + i * 0.02
-            })
+
+        # Одно кольцо вместо трёх (минимализм)
+        self.energy_rings = [{'phase': 0.0, 'speed': 0.03}]
         
     def _update_rotation(self):
-        """Обновление анимации"""
+        """Обновление анимации - плавная версия"""
         self.rotation_angle = (self.rotation_angle + self.rotation_speed) % 360
-        self.pulse_phase += 0.06
-        self.glow_phase += 0.1
-        
+        self.pulse_phase += 0.04  # Медленнее пульсация
+        self.glow_phase += 0.06
+
         # Обновляем кольца энергии
         for ring in self.energy_rings:
             ring['phase'] += ring['speed']
-        
-        # Эффект тряски при активном разрушении
-        if 20 < self.progress < 90:
-            shake_intensity = 3 * (1 - abs(self.progress - 55) / 35)
-            self.shake_offset_x = random.uniform(-shake_intensity, shake_intensity)
-            self.shake_offset_y = random.uniform(-shake_intensity, shake_intensity)
-        else:
-            self.shake_offset_x = 0
-            self.shake_offset_y = 0
-            
+
+        # Убрана тряска - более спокойная анимация
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+
         self.update()
         
     def set_progress(self, progress: int):
-        """Обновляет состояние в зависимости от прогресса"""
+        """Обновляет состояние в зависимости от прогресса - плавная версия"""
         progress = max(0, min(100, progress))
         self.progress = progress
-        
-        # Масштаб растёт больше
-        self.scale_factor = 0.7 + (progress / 100.0) * 0.4
-        
-        # Вращение ускоряется в середине, затем замедляется
-        if progress < 50:
-            self.rotation_speed = 1.0 + (progress / 50.0) * 0.5
-        else:
-            self.rotation_speed = max(0.4, 1.5 - ((progress - 50) / 50.0) * 1.1)
+
+        # Плавный рост масштаба
+        self.scale_factor = 0.85 + (progress / 100.0) * 0.15
+
+        # Вращение почти постоянное (минимальные изменения)
+        self.rotation_speed = 0.3 + (progress / 100.0) * 0.2
         
     def paintEvent(self, event):
-        """Отрисовка иконки с эффектами"""
-        # ✅ Защита от конкурентного рисования
+        """Отрисовка иконки - минималистичная версия Fluent Design"""
         if self._is_destroyed:
             return
-            
+
         if not self._paint_lock.acquire(blocking=False):
             return
-            
+
         try:
             painter = QPainter(self)
             if not painter.isActive():
                 return
-                
+
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            
-            center_x = self.width() / 2 + self.shake_offset_x
-            center_y = self.height() / 2 + self.shake_offset_y
-            
-            # Энергетические кольца (расширяющиеся волны)
+
+            center_x = self.width() / 2
+            center_y = self.height() / 2
+
+            # Мягкое кольцо (одно, тонкое)
             if self.progress > 5:
                 for ring in self.energy_rings:
-                    ring_progress = (math.sin(ring['phase']) + 1) / 2  # 0-1
+                    ring_progress = (math.sin(ring['phase']) + 1) / 2
                     base_size = self.original_pixmap.width() * self.scale_factor
-                    ring_size = int(base_size * (1.0 + ring_progress * 0.8))
-                    ring_alpha = int(60 * (1 - ring_progress) * min(1.0, self.progress / 30))
-                    
+                    ring_size = int(base_size * (1.0 + ring_progress * 0.4))
+                    ring_alpha = int(30 * (1 - ring_progress) * min(1.0, self.progress / 30))
+
                     if ring_alpha > 0:
-                        ring_pen = QPen(QColor(0, 255, 210, ring_alpha), 2)
+                        # Мягкий синий вместо кислотного зелёного
+                        ring_pen = QPen(QColor(76, 142, 231, ring_alpha), 1)
                         painter.setPen(ring_pen)
                         painter.setBrush(Qt.BrushStyle.NoBrush)
                         painter.drawEllipse(
@@ -595,20 +601,21 @@ class AnimatedIconWidget(QWidget):
                             int(center_y - ring_size/2),
                             ring_size, ring_size
                         )
-            
-            # Энергетический ореол вокруг иконки (усиленный)
+
+            # Мягкий ореол (subtle glow)
             if self.progress > 10:
-                glow_size = int(self.original_pixmap.width() * self.scale_factor * 1.5)
-                glow_alpha = int(50 + 40 * math.sin(self.glow_phase))
-                
+                glow_size = int(self.original_pixmap.width() * self.scale_factor * 1.3)
+                glow_alpha = int(20 + 15 * math.sin(self.glow_phase))
+
                 glow_gradient = QLinearGradient(
                     center_x - glow_size/2, center_y - glow_size/2,
                     center_x + glow_size/2, center_y + glow_size/2
                 )
-                glow_gradient.setColorAt(0.0, QColor(0, 255, 200, 0))
-                glow_gradient.setColorAt(0.5, QColor(0, 255, 210, glow_alpha))
-                glow_gradient.setColorAt(1.0, QColor(0, 255, 200, 0))
-                
+                # Мягкий синий
+                glow_gradient.setColorAt(0.0, QColor(76, 142, 231, 0))
+                glow_gradient.setColorAt(0.5, QColor(76, 142, 231, glow_alpha))
+                glow_gradient.setColorAt(1.0, QColor(76, 142, 231, 0))
+
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(glow_gradient)
                 painter.drawEllipse(
@@ -616,22 +623,22 @@ class AnimatedIconWidget(QWidget):
                     int(center_y - glow_size/2),
                     glow_size, glow_size
                 )
-            
-            # Пульсация
-            pulse = math.sin(self.pulse_phase) * 0.02
+
+            # Минимальная пульсация
+            pulse = math.sin(self.pulse_phase) * 0.01
             current_scale = self.scale_factor + pulse
-            
+
             # Трансформация иконки
             transform = QTransform()
             transform.translate(center_x, center_y)
             transform.rotate(self.rotation_angle)
             transform.scale(current_scale, current_scale)
             transform.translate(-self.original_pixmap.width() / 2, -self.original_pixmap.height() / 2)
-            
+
             painter.setTransform(transform)
             painter.drawPixmap(0, 0, self.original_pixmap)
             painter.end()
-            
+
         except Exception:
             pass
         finally:
@@ -645,17 +652,16 @@ class AnimatedIconWidget(QWidget):
 
 class SplashScreen(QWidget):
     """
-    Отдельное окно загрузочного экрана.
-    Не зависит от стилей основного окна - имеет свои захардкоженные стили.
-    Красивый дизайн с рамкой, градиентом и эффектом появления.
+    Splash Screen в стиле Windows 11 Fluent Design.
+    Мягкие цвета, плавные анимации, минималистичный дизайн.
     """
-    
+
     load_complete = pyqtSignal()
     _progress_signal = pyqtSignal(int, str, str)
-    
+
     def __init__(self):
         super().__init__(None)
-        
+
         # Флаги окна: без рамки, всегда сверху, прозрачный фон для скруглённых углов
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -663,28 +669,28 @@ class SplashScreen(QWidget):
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        
-        # Размер и позиция - большое окно для лучшей видимости
-        self.setFixedSize(800, 800)
+
+        # Размер и позиция - компактное окно в стиле Windows 11
+        self.setFixedSize(480, 520)
         self._center_on_screen()
-        
+
         self.animated_icon = None
         self.wall_overlay = None
         self._loading_complete = False
-        
-        # Параметры для отрисовки
-        self._border_radius = 20
+
+        # Параметры для отрисовки - Windows 11 Fluent стиль
+        self._border_radius = 12  # Меньше радиус как в Windows 11
         self._glow_animation_phase = 0.0
-        self._particle_effects = []  # Декоративные частицы вокруг окна
-        
+        self._particle_effects = []  # Минимум частиц
+
         self.init_ui()
         self._progress_signal.connect(self._do_set_progress)
-        
-        # Анимация свечения рамки и частиц
+
+        # Анимация свечения рамки (медленнее для мягкости)
         self._glow_timer = QTimer(self)
         self._glow_timer.timeout.connect(self._update_glow)
-        self._glow_timer.start(40)  # Чаще для более плавной анимации
-        
+        self._glow_timer.start(50)  # Реже для производительности
+
         # Эффект появления
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
@@ -700,49 +706,12 @@ class SplashScreen(QWidget):
         self.fade_animation.start()
     
     def _update_glow(self):
-        """Обновление анимации свечения рамки"""
-        self._glow_animation_phase += 0.06
-        
-        # Генерируем декоративные частицы вокруг окна
-        if random.random() < 0.3:  # 30% шанс создать частицу
-            side = random.choice(['top', 'bottom', 'left', 'right'])
-            if side == 'top':
-                x = random.randint(50, self.width() - 50)
-                y = 0
-            elif side == 'bottom':
-                x = random.randint(50, self.width() - 50)
-                y = self.height()
-            elif side == 'left':
-                x = 0
-                y = random.randint(50, self.height() - 50)
-            else:  # right
-                x = self.width()
-                y = random.randint(50, self.height() - 50)
-            
-            particle = {
-                'x': x,
-                'y': y,
-                'vx': random.uniform(-0.5, 0.5),
-                'vy': random.uniform(-1.5, -0.5),
-                'size': random.uniform(2, 4),
-                'opacity': 1.0,
-                'color': random.choice(['#00d4aa', '#00f5c4', '#00b4d8'])
-            }
-            self._particle_effects.append(particle)
-        
-        # Обновляем существующие частицы
-        new_particles = []
-        for particle in self._particle_effects:
-            particle['x'] += particle['vx']
-            particle['y'] += particle['vy']
-            particle['opacity'] -= 0.02
-            
-            # Оставляем только видимые частицы
-            if particle['opacity'] > 0 and 0 <= particle['x'] <= self.width() and 0 <= particle['y'] <= self.height():
-                new_particles.append(particle)
-        
-        self._particle_effects = new_particles[:50]  # Лимит частиц
-        
+        """Обновление анимации свечения рамки - минималистичная версия"""
+        self._glow_animation_phase += 0.03  # Медленнее для мягкости
+
+        # Частицы отключены для чистого Windows 11 стиля
+        # Только мягкое свечение рамки
+
         self.update()  # Перерисовка
     
     def _center_on_screen(self):
@@ -755,289 +724,234 @@ class SplashScreen(QWidget):
             self.move(x, y)
     
     def paintEvent(self, event):
-        """Кастомная отрисовка фона с градиентом и свечением"""
+        """Кастомная отрисовка в стиле Windows 11 Fluent Design"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         rect = self.rect()
         radius = self._border_radius
-        
+
         # ═══════════════════════════════════════════════════════════
-        # СЛОЙ 1: Внешнее свечение (glow) - улучшенное
+        # СЛОЙ 1: Мягкое внешнее свечение (subtle glow)
         # ═══════════════════════════════════════════════════════════
         glow_intensity = (math.sin(self._glow_animation_phase) + 1) / 2  # 0-1
-        glow_alpha = int(50 + 40 * glow_intensity)
-        
-        # Несколько слоёв свечения для мягкости и глубины
-        for i, (offset, alpha_mult) in enumerate([(12, 0.25), (8, 0.4), (5, 0.6), (3, 0.8)]):
-            glow_color = QColor(0, 212, 170, int(glow_alpha * alpha_mult))
-            glow_rect = rect.adjusted(offset, offset, -offset, -offset)
-            
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(glow_rect), radius + offset, radius + offset)
-            painter.fillPath(path, glow_color)
-        
+        glow_alpha = int(20 + 15 * glow_intensity)  # Меньше интенсивность
+
+        # Только один мягкий слой свечения
+        glow_color = QColor(76, 142, 231, glow_alpha)  # Мягкий синий
+        glow_rect = rect.adjusted(4, 4, -4, -4)
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(glow_rect), radius + 4, radius + 4)
+        painter.fillPath(path, glow_color)
+
         # ═══════════════════════════════════════════════════════════
-        # СЛОЙ 2: Основной фон с градиентом
+        # СЛОЙ 2: Основной фон с градиентом (Windows 11 style)
         # ═══════════════════════════════════════════════════════════
-        bg_rect = rect.adjusted(2, 2, -2, -2)
-        
-        # Градиент фона (тёмный с лёгким оттенком)
+        bg_rect = rect.adjusted(1, 1, -1, -1)
+
+        # Градиент фона - тёмный, как в основном окне
         bg_gradient = QLinearGradient(0, 0, 0, self.height())
-        bg_gradient.setColorAt(0.0, QColor(22, 24, 28))      # Верх - чуть светлее
-        bg_gradient.setColorAt(0.5, QColor(16, 18, 22))      # Середина
-        bg_gradient.setColorAt(1.0, QColor(12, 14, 18))      # Низ - темнее
-        
+        bg_gradient.setColorAt(0.0, QColor(30, 32, 36))      # Верх
+        bg_gradient.setColorAt(0.5, QColor(26, 28, 32))      # Середина
+        bg_gradient.setColorAt(1.0, QColor(22, 24, 28))      # Низ
+
         bg_path = QPainterPath()
         bg_path.addRoundedRect(QRectF(bg_rect), radius, radius)
         painter.fillPath(bg_path, bg_gradient)
-        
+
         # ═══════════════════════════════════════════════════════════
-        # СЛОЙ 3: Рамка с градиентом
+        # СЛОЙ 3: Тонкая рамка (Windows 11 style - 1px)
         # ═══════════════════════════════════════════════════════════
         border_rect = rect.adjusted(1, 1, -1, -1)
-        
-        # Градиент рамки - анимированный
-        phase = self._glow_animation_phase
-        border_gradient = QLinearGradient(0, 0, self.width(), self.height())
-        
-        # Переливающийся градиент
-        offset1 = (math.sin(phase) + 1) / 4  # 0 - 0.5
-        offset2 = 0.5
-        offset3 = 1 - offset1
-        
-        border_gradient.setColorAt(offset1, QColor(0, 212, 170, 180))      # Бирюзовый
-        border_gradient.setColorAt(offset2, QColor(0, 180, 220, 150))      # Голубой
-        border_gradient.setColorAt(offset3, QColor(0, 245, 196, 180))      # Светло-бирюзовый
-        
-        border_pen = QPen(QBrush(border_gradient), 2)
+
+        # Статичная мягкая рамка (без анимации для чистоты)
+        border_color = QColor(60, 63, 68, 180)  # Мягкий серый
+
+        border_pen = QPen(border_color, 1)
         painter.setPen(border_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(QRectF(border_rect), radius, radius)
-        
+
         # ═══════════════════════════════════════════════════════════
-        # СЛОЙ 4: Блик сверху (стеклянный эффект)
+        # СЛОЙ 4: Тонкий блик сверху (subtle glass effect)
         # ═══════════════════════════════════════════════════════════
-        highlight_rect = QRectF(bg_rect.x() + 20, bg_rect.y() + 3, 
-                                bg_rect.width() - 40, 40)
+        highlight_rect = QRectF(bg_rect.x() + 15, bg_rect.y() + 2,
+                                bg_rect.width() - 30, 25)
         highlight_gradient = QLinearGradient(0, highlight_rect.top(), 0, highlight_rect.bottom())
-        highlight_gradient.setColorAt(0.0, QColor(255, 255, 255, 15))
+        highlight_gradient.setColorAt(0.0, QColor(255, 255, 255, 8))
         highlight_gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
-        
+
         highlight_path = QPainterPath()
-        highlight_path.addRoundedRect(highlight_rect, radius - 2, radius - 2)
+        highlight_path.addRoundedRect(highlight_rect, radius - 1, radius - 1)
         painter.fillPath(highlight_path, highlight_gradient)
-        
-        # ═══════════════════════════════════════════════════════════
-        # СЛОЙ 5: Декоративные частицы вокруг окна
-        # ═══════════════════════════════════════════════════════════
-        for particle in self._particle_effects:
-            color = QColor(particle['color'])
-            color.setAlpha(int(255 * particle['opacity']))
-            
-            # Рисуем частицу с свечением
-            glow_size = particle['size'] * 3
-            glow_gradient = QLinearGradient(
-                particle['x'] - glow_size/2, particle['y'] - glow_size/2,
-                particle['x'] + glow_size/2, particle['y'] + glow_size/2
-            )
-            glow_gradient.setColorAt(0.0, QColor(particle['color']))
-            glow_color = QColor(particle['color'])
-            glow_color.setAlpha(int(100 * particle['opacity']))
-            glow_gradient.setColorAt(0.5, glow_color)
-            transparent = QColor(particle['color'])
-            transparent.setAlpha(0)
-            glow_gradient.setColorAt(1.0, transparent)
-            
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(glow_gradient)
-            painter.drawEllipse(
-                int(particle['x'] - glow_size/2),
-                int(particle['y'] - glow_size/2),
-                int(glow_size), int(glow_size)
-            )
-            
-            # Яркое ядро
-            painter.setBrush(color)
-            painter.drawEllipse(
-                int(particle['x'] - particle['size']/2),
-                int(particle['y'] - particle['size']/2),
-                int(particle['size']), int(particle['size'])
-            )
-        
+
         painter.end()
     
     def init_ui(self):
-        """Инициализация интерфейса с захардкоженными стилями"""
+        """Инициализация интерфейса в стиле Windows 11 Fluent"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        
+        layout.setContentsMargins(24, 24, 24, 24)
+
         # Центральный контейнер
         central_container = QWidget(self)
         central_container.setStyleSheet("background: transparent;")
         central_layout = QVBoxLayout(central_container)
         central_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        central_layout.setSpacing(15)
-        
+        central_layout.setSpacing(12)
+
         # Иконка
         icon_path = ICON_TEST_PATH if CHANNEL.lower() == "test" else ICON_PATH
-        
+
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
-            pixmap = icon.pixmap(150, 150)  # Ещё больше иконка
+            pixmap = icon.pixmap(96, 96)  # Компактнее
         else:
-            icon = qta.icon('fa5s.shield-alt', color='#00d4aa')
-            pixmap = icon.pixmap(150, 150)  # Ещё больше иконка
-        
+            icon = qta.icon('fa5s.shield-alt', color=FLUENT_ACCENT)
+            pixmap = icon.pixmap(96, 96)
+
         self.animated_icon = AnimatedIconWidget(pixmap, parent=central_container)
         central_layout.addWidget(self.animated_icon, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        central_layout.addSpacing(6)
-        
-        # Заголовок с градиентным эффектом - увеличен
+
+        central_layout.addSpacing(8)
+
+        # Заголовок - чистый белый без градиента
         title = QLabel("Zapret2")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("""
-            QLabel {
-                color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #ffffff, stop:0.5 #00f5c4, stop:1 #ffffff);
-                font-size: 44px;
-                font-weight: 700;
-                font-family: 'Segoe UI Black', 'Segoe UI', sans-serif;
+        title.setStyleSheet(f"""
+            QLabel {{
+                color: {FLUENT_TEXT};
+                font-size: 32px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 background: transparent;
-                letter-spacing: 4px;
-            }
+                letter-spacing: 1px;
+            }}
         """)
         central_layout.addWidget(title)
-        
-        # Подзаголовок - увеличен
+
+        # Подзаголовок
         subtitle = QLabel("Обход блокировок")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 16px;
+        subtitle.setStyleSheet(f"""
+            QLabel {{
+                color: {FLUENT_TEXT_SECONDARY};
+                font-size: 13px;
                 font-weight: 400;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-                letter-spacing: 3px;
-            }
+                letter-spacing: 1px;
+            }}
         """)
         central_layout.addWidget(subtitle)
-        
+
         central_layout.addSpacing(4)
-        
-        # Версия - увеличена
+
+        # Версия - мягкий синий
         version_label = QLabel(f"v{APP_VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version_label.setStyleSheet("""
-            QLabel {
-                color: #00d4aa;
-                font-size: 17px;
-                font-weight: 600;
-                font-family: 'JetBrains Mono', 'Consolas', monospace;
+        version_label.setStyleSheet(f"""
+            QLabel {{
+                color: {FLUENT_ACCENT};
+                font-size: 13px;
+                font-weight: 500;
+                font-family: 'Segoe UI', 'Consolas', monospace;
                 background: transparent;
-            }
+            }}
         """)
         central_layout.addWidget(version_label)
-        
-        # Канал (если не release) - увеличен
+
+        # Канал (если не release)
         if CHANNEL.lower() != "release":
-            channel_label = QLabel(f"⚡ {CHANNEL.upper()}")
+            channel_label = QLabel(f"{CHANNEL.upper()}")
             channel_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            channel_label.setStyleSheet("""
-                QLabel {
+            channel_label.setStyleSheet(f"""
+                QLabel {{
                     color: #1a1a1a;
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 #ffd93d, stop:1 #ffb830);
-                    font-size: 11px;
-                    font-weight: 700;
-                    padding: 6px 16px;
-                    border-radius: 12px;
-                }
+                    background: {FLUENT_ACCENT};
+                    font-size: 10px;
+                    font-weight: 600;
+                    padding: 4px 12px;
+                    border-radius: 10px;
+                }}
             """)
             central_layout.addWidget(channel_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        central_layout.addSpacing(20)
-        
-        # Контейнер прогресса - шире
+
+        central_layout.addSpacing(16)
+
+        # Контейнер прогресса
         progress_container = QWidget(central_container)
-        progress_container.setMaximumWidth(550)
+        progress_container.setMaximumWidth(360)
         progress_container.setStyleSheet("background: transparent;")
         progress_layout = QVBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.setSpacing(10)
-        
-        # Статус - увеличен
-        self.status_label = QLabel("Разрушаем блокировки...")
+        progress_layout.setSpacing(8)
+
+        # Статус
+        self.status_label = QLabel("Загрузка...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 17px;
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {FLUENT_TEXT_SECONDARY};
+                font-size: 13px;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-            }
+            }}
         """)
         progress_layout.addWidget(self.status_label)
-        
-        # Прогресс-бар с красивым стилем - больше и шире
+
+        # Прогресс-бар в стиле Windows 11
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(10)
-        self.progress_bar.setMinimumWidth(480)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
+        self.progress_bar.setFixedHeight(4)  # Тонкий как в Windows 11
+        self.progress_bar.setMinimumWidth(320)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
                 background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(0, 212, 170, 0.3);
-                border-radius: 3px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 #00d4aa,
-                    stop: 0.5 #00f5c4,
-                    stop: 1 #00d4aa
-                );
+                border: none;
                 border-radius: 2px;
-            }
+            }}
+            QProgressBar::chunk {{
+                background: {FLUENT_ACCENT};
+                border-radius: 2px;
+            }}
         """)
         progress_layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        # Процент - увеличен
+
+        # Процент
         self.percent_label = QLabel("0%")
         self.percent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.percent_label.setStyleSheet("""
-            QLabel {
-                color: #00d4aa;
-                font-size: 16px;
-                font-weight: 600;
-                font-family: 'JetBrains Mono', 'Consolas', monospace;
+        self.percent_label.setStyleSheet(f"""
+            QLabel {{
+                color: {FLUENT_ACCENT};
+                font-size: 12px;
+                font-weight: 500;
+                font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-            }
+            }}
         """)
         progress_layout.addWidget(self.percent_label)
-        
-        # Детали - увеличены
+
+        # Детали
         self.detail_label = QLabel("")
         self.detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_label.setStyleSheet("""
             QLabel {
-                color: #666666;
-                font-size: 12px;
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 11px;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
             }
         """)
         progress_layout.addWidget(self.detail_label)
-        
+
         central_layout.addWidget(progress_container, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(central_container, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        # Анимация стены (опционально)
+
+        # Анимация стены (опционально) - отключена по умолчанию для производительности
         animation_enabled = get_wall_animation_enabled()
         if animation_enabled:
             self.wall_overlay = WallDestructionOverlay(self)
@@ -1120,36 +1034,39 @@ class SplashScreen(QWidget):
             self.animated_icon.stop_animation()
         if self.wall_overlay:
             self.wall_overlay.stop_animation()
-        
+
+        # Цвет ошибки - мягкий красный
+        error_color = "#e06c75"
+
         self.status_label.setText(f"Ошибка: {error}")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #ff4757;
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {error_color};
                 font-size: 12px;
                 font-weight: 500;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-            }
+            }}
         """)
         self.percent_label.setText("—")
-        self.percent_label.setStyleSheet("""
-            QLabel {
-                color: #ff4757;
+        self.percent_label.setStyleSheet(f"""
+            QLabel {{
+                color: {error_color};
                 font-size: 11px;
-                font-weight: 600;
-                font-family: 'JetBrains Mono', 'Consolas', monospace;
+                font-weight: 500;
+                font-family: 'Segoe UI', sans-serif;
                 background: transparent;
-            }
+            }}
         """)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: rgba(42, 42, 42, 200);
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: rgba(255, 255, 255, 0.05);
                 border: none;
                 border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background: #ff4757;
+            }}
+            QProgressBar::chunk {{
+                background: {error_color};
                 border-radius: 2px;
-            }
+            }}
         """)
         QTimer.singleShot(3000, self.fade_out)
