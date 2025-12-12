@@ -9,7 +9,7 @@ from config import BIN_FOLDER
 
 # Добавляем импорт кэша
 from startup.check_cache import startup_cache
-from utils import run_hidden
+from utils import run_hidden, get_system32_path, get_system_exe
 import psutil
 
 def _native_message(title: str, text: str, style=0x00000010):  # MB_ICONERROR
@@ -27,18 +27,19 @@ def check_system_commands() -> tuple[bool, str]:
     has_cache, cached_result = startup_cache.is_cached_and_valid("system_commands")
     if has_cache:
         return cached_result, ""
-    
+
     try:
         from log import log
         log("Проверка системных команд", "DEBUG")
     except ImportError:
         print("DEBUG: Проверка системных команд")
-    
-    # Определяем команды для проверки
+
+    # Определяем команды для проверки с полными путями
+    # Используем get_system_exe для корректной работы на любом диске
     required_commands = [
-        ("tasklist", "tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV /NH"),
-        ("sc", "sc query"),
-        ("netsh", "netsh /?"),
+        ("tasklist", f'"{get_system_exe("tasklist.exe")}" /FI "IMAGENAME eq explorer.exe" /FO CSV /NH'),
+        ("sc", f'"{get_system_exe("sc.exe")}" query'),
+        ("netsh", f'"{get_system_exe("netsh.exe")}" /?'),
     ]
     
     failed_commands = []
@@ -547,7 +548,7 @@ def _service_exists_sc(name: str) -> bool:
     """
     Проверка через `sc query`.  Работает без прав администратора.
     """
-    exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe")
+    exe = get_system_exe("sc.exe")
     proc = run_hidden(
         [exe, "query", name],
         capture_output=True,
@@ -568,7 +569,7 @@ def _stop_and_delete_service(name: str) -> tuple[bool, str]:
     Останавливает и удаляет службу Windows.
     Возвращает (успех, сообщение).
     """
-    sc_exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe")
+    sc_exe = get_system_exe("sc.exe")
     errors = []
     
     try:

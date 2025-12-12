@@ -390,29 +390,30 @@ QMenu::indicator {
 
 class TitleBarButton(QPushButton):
     """Кнопка для titlebar с hover эффектом"""
-    
-    def __init__(self, icon_name: str, hover_color: str = "#555555", parent=None):
+
+    def __init__(self, icon_name: str, hover_color: str = "#555555", parent=None, border_radius: str = "0px"):
         super().__init__(parent)
         self.hover_color = hover_color
         self.normal_color = "transparent"
         self._hovered = False
-        
+        self._border_radius = border_radius
+
         # Устанавливаем иконку
         self.setIcon(qta.icon(icon_name, color='white'))
         self.setIconSize(QSize(12, 12))
-        
+
         # Фиксированный размер кнопки
         self.setFixedSize(36, 28)
-        
+
         self._update_style()
-        
+
     def _update_style(self):
         bg_color = self.hover_color if self._hovered else self.normal_color
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg_color};
                 border: none;
-                border-radius: 0px;
+                {self._border_radius}
             }}
         """)
         
@@ -428,24 +429,25 @@ class TitleBarButton(QPushButton):
 
 
 class CloseButton(TitleBarButton):
-    """Специальная кнопка закрытия с красным hover"""
-    
+    """Специальная кнопка закрытия с красным hover и скруглённым углом"""
+
     def __init__(self, parent=None):
-        super().__init__('fa5s.times', '#e81123', parent)
+        # Скругляем только верхний правый угол (10px как у окна)
+        super().__init__('fa5s.times', '#e81123', parent, border_radius="border-top-right-radius: 10px;")
 
 
 class MinimizeButton(TitleBarButton):
     """Кнопка сворачивания"""
-    
+
     def __init__(self, parent=None):
-        super().__init__('fa5s.minus', '#555555', parent)
+        super().__init__('fa5s.minus', '#555555', parent, border_radius="border-radius: 0px;")
 
 
 class MaximizeButton(TitleBarButton):
     """Кнопка максимизации/восстановления"""
-    
+
     def __init__(self, parent=None):
-        super().__init__('fa5s.square', '#555555', parent)
+        super().__init__('fa5s.square', '#555555', parent, border_radius="border-radius: 0px;")
         self._is_maximized = False
         
     def set_maximized(self, maximized: bool):

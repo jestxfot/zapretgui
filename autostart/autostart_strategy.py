@@ -2,7 +2,7 @@ from pathlib import Path
 import sys, subprocess, traceback
 from log import log
 from typing import Callable, Optional
-from utils import run_hidden # обёртка для subprocess.run
+from utils import run_hidden, get_system_exe  # обёртка для subprocess.run
 from .registry_check import set_autostart_enabled
 
 
@@ -218,8 +218,9 @@ def remove_task_scheduler_job(task_name: str = "ZapretStrategy") -> bool:
         True если задача удалена, False если её не было или ошибка
     """
     try:
+        schtasks = get_system_exe("schtasks.exe")
         # Проверяем существование задачи
-        check_cmd = ["schtasks", "/Query", "/TN", task_name]
+        check_cmd = [schtasks, "/Query", "/TN", task_name]
         check_res = run_hidden(
             check_cmd,
             capture_output=True,
@@ -227,13 +228,13 @@ def remove_task_scheduler_job(task_name: str = "ZapretStrategy") -> bool:
             encoding="cp866",
             errors="ignore"
         )
-        
+
         if check_res.returncode != 0:
             # Задачи нет
             return False
-        
+
         # Удаляем задачу
-        delete_cmd = ["schtasks", "/Delete", "/TN", task_name, "/F"]
+        delete_cmd = [schtasks, "/Delete", "/TN", task_name, "/F"]
         delete_res = run_hidden(
             delete_cmd,
             capture_output=True,

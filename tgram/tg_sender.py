@@ -15,9 +15,15 @@ import time
 # ------------------------------------------------------------------
 # общие данные берём из tg_log_delta
 # ------------------------------------------------------------------
-from .tg_log_delta import TOKEN, CHAT_ID, _tg_api as _call_tg_api
+from .tg_log_delta import TOKEN, CHAT_ID, TOPIC_ID, _tg_api as _call_tg_api
 
 TIMEOUT = 30           # секунд
+
+def _mask_token(text: str) -> str:
+    """Маскирует токен бота в тексте ошибки."""
+    if TOKEN and TOKEN in text:
+        return text.replace(TOKEN, "***MASKED***")
+    return text
 MAX_RETRIES = 3         # сколько раз повторять при flood-wait
 FLOOD_COOLDOWN = 300   # 5 минут cooldown после flood-wait
 
@@ -96,6 +102,7 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
 
     text = _cut_to_4k(path.read_text(encoding="utf-8-sig", errors="replace"))
     data = {"chat_id": CHAT_ID,
+            "message_thread_id": TOPIC_ID,
             "text": f"{caption}\n\n{text}" if caption else text,
             "parse_mode": "HTML"}
     _safe_call_tg_api("sendMessage", data=data)
@@ -117,11 +124,11 @@ def send_file_to_tg(file_path: str | Path, caption: str = "") -> bool:
 
         with path.open("rb") as fh:
             files = {"document": fh}
-            data = {"chat_id": CHAT_ID, "caption": caption or path.name}
+            data = {"chat_id": CHAT_ID, "message_thread_id": TOPIC_ID, "caption": caption or path.name}
             _safe_call_tg_api("sendDocument", data=data, files=files)
 
         return True  # успех
     except Exception as e:
         from log import log
-        log(f"[TG] Ошибка отправки файла: {e}", "❌ ERROR")
+        log(f"[TG] Ошибка отправки файла: {_mask_token(str(e))}", "❌ ERROR")
         return False  # ошибка

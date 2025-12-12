@@ -146,26 +146,30 @@ class StrategiesListTooltip(QWidget):
     def set_strategies(self, strategies: list):
         """
         Устанавливает список стратегий для отображения.
-        
+
         Args:
             strategies: список кортежей (icon_name, icon_color, category_name, strategy_name)
         """
         self._strategies = strategies
-        
-        # Очищаем старые строки
+
+        # Очищаем старые строки - важно отсоединить от родителя сразу
         while self.strategies_layout.count():
             item = self.strategies_layout.takeAt(0)
             if item.widget():
-                item.widget().deleteLater()
-        
+                widget = item.widget()
+                widget.setParent(None)  # Немедленно отсоединяем от layout
+                widget.deleteLater()
+
         # Добавляем новые
         for i, (icon_name, icon_color, cat_name, strat_name) in enumerate(strategies, 1):
             row = self._create_strategy_row(i, icon_name, icon_color, cat_name, strat_name)
             self.strategies_layout.addWidget(row)
-        
+
         # Обновляем заголовок
         self.title_label.setText(f"Все активные стратегии ({len(strategies)})")
-        
+
+        # Пересчитываем размер
+        self.strategies_layout.invalidate()
         self.adjustSize()
     
     def show_at_cursor(self, follow: bool = True):

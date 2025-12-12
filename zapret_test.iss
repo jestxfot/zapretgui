@@ -3,8 +3,8 @@
 ;---------------------------------------------------
 
 ; Определяем дефолтные значения
-#ifndef IS_TEST
-  #define IS_TEST 0
+#ifndef CHANNEL
+  #define CHANNEL "stable"
 #endif
 
 #ifndef VERSION
@@ -15,8 +15,8 @@
 #define SourcePath "H:\Privacy\zapret"
 #define ProjectPath "H:\Privacy\zapretgui"
 
-; ✅ Настройки в зависимости от канала (числовой флаг надёжнее строк!)
-#if IS_TEST
+; ✅ Настройки в зависимости от канала
+#if CHANNEL == "test"
   #define AppName "Zapret 2 Dev"
   #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F1-TEST}}"
   #define OutputName "Zapret2Setup_TEST"
@@ -45,24 +45,11 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=Zapret2Setup_test_1765485447_tmp
+OutputBaseFilename=Zapret2Setup_test_1765547443_tmp
 Compression=lzma2
 SolidCompression=yes
-; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
-#ifexist SourcePath + "\ico\" + IconFile
-  ; Иконка в папке сборки
-  SetupIconFile={#SourcePath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\ico\" + IconFile)
-  ; Иконка в папке проекта
-  SetupIconFile={#ProjectPath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\" + IconFile)
-  ; Иконка в корне проекта
-  SetupIconFile={#ProjectPath}\{#IconFile}
-#else
-  ; Используем стандартную иконку Inno Setup если наша не найдена
-  ; Закомментируйте эту строку, чтобы увидеть ошибку если иконка не найдена
-  ; SetupIconFile=
-#endif
+; ✅ Иконка установщика (используем абсолютный путь)
+SetupIconFile={#SourcePath}\ico\{#IconFile}
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
@@ -94,6 +81,8 @@ Source: "{#SourcePath}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignor
 Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем themes (фоновые изображения для тем), исключаем .exe файлы
+Source: "{#SourcePath}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"

@@ -6,10 +6,24 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider
 )
+from PyQt6.QtGui import QWheelEvent
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+
+
+class PreciseSlider(QSlider):
+    """Слайдер с точным управлением колёсиком мыши (1 шаг за скролл)"""
+
+    def wheelEvent(self, event: QWheelEvent):
+        # Определяем направление скролла
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self.setValue(self.value() + 1)
+        elif delta < 0:
+            self.setValue(self.value() - 1)
+        event.accept()
 
 
 # Цвета для превью тем
@@ -569,10 +583,12 @@ class AppearancePage(BasePage):
         opacity_layout.addLayout(opacity_row)
 
         # Слайдер
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider = PreciseSlider(Qt.Orientation.Horizontal)
         self._opacity_slider.setMinimum(10)  # Минимум 10% чтобы окно не стало невидимым
         self._opacity_slider.setMaximum(100)
         self._opacity_slider.setValue(100)
+        self._opacity_slider.setSingleStep(1)
+        self._opacity_slider.setPageStep(5)  # Page Up/Down меняет на 5%
         self._opacity_slider.setTickPosition(QSlider.TickPosition.NoTicks)
         self._opacity_slider.setStyleSheet("""
             QSlider::groove:horizontal {

@@ -15,19 +15,19 @@
 #define SourcePath "H:\Privacy\zapret"
 #define ProjectPath "H:\Privacy\zapretgui"
 
-; Настройки в зависимости от канала
+; ✅ Настройки в зависимости от канала
 #if CHANNEL == "test"
-  #define AppName "Zapret Dev"
-  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
+  #define AppName "Zapret 2 Dev"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F1-TEST}}"
   #define OutputName "Zapret2Setup_TEST"
-  #define GroupName "Zapret Dev"
+  #define GroupName "Zapret 2 Dev"
   #define DataFolder "ZapretTwoDev"
   #define IconFile "ZapretDevLogo4.ico"
 #else
-  #define AppName "Zapret"
-  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
+  #define AppName "Zapret 2"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F1}}"
   #define OutputName "Zapret2Setup"
-  #define GroupName "Zapret"
+  #define GroupName "Zapret 2"
   #define DataFolder "ZapretTwo"
   #define IconFile "Zapret2.ico"
 #endif
@@ -39,29 +39,17 @@ AppId={#AppId}
 DefaultDirName={code:GetInstallDir}
 DisableDirPage=no
 UsePreviousAppDir=yes
+DirExistsWarning=no
 PrivilegesRequired=admin
 DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=Zapret2Setup_stable_1764164416_tmp
+OutputBaseFilename=Zapret2Setup_stable_1765543206_tmp
 Compression=lzma2
 SolidCompression=yes
-; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
-#ifexist SourcePath + "\ico\" + IconFile
-  ; Иконка в папке сборки
-  SetupIconFile={#SourcePath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\ico\" + IconFile)
-  ; Иконка в папке проекта
-  SetupIconFile={#ProjectPath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\" + IconFile)
-  ; Иконка в корне проекта
-  SetupIconFile={#ProjectPath}\{#IconFile}
-#else
-  ; Используем стандартную иконку Inno Setup если наша не найдена
-  ; Закомментируйте эту строку, чтобы увидеть ошибку если иконка не найдена
-  ; SetupIconFile=
-#endif
+; ✅ Иконка установщика (используем абсолютный путь)
+SetupIconFile={#SourcePath}\ico\{#IconFile}
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
@@ -89,9 +77,12 @@ Source: "{#SourcePath}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifd
 Source: "{#SourcePath}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 ; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
 Source: "{#SourcePath}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "{#SourcePath}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем themes (фоновые изображения для тем), исключаем .exe файлы
+Source: "{#SourcePath}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
@@ -218,6 +209,7 @@ begin
   // ✅ СРАЗУ ЗАКРЫВАЕМ ZAPRET.EXE БЕЗ GUI (WizardForm еще не создана)
   KillProcessWithRetry('Zapret.exe');
   KillProcessWithRetry('winws.exe');
+  KillProcessWithRetry('winws2.exe');
   
   // Определяем режим обновления
   IsUpdateMode := IsAutoUpdate;
@@ -242,6 +234,7 @@ begin
   begin
     KillProcessWithRetry('Zapret.exe');
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     StopAndDeleteService('WinDivert');
     StopAndDeleteService('WinDivert14');
     StopAndDeleteService('WinDivert1.4');
@@ -270,6 +263,7 @@ begin
     ProgressPage.SetText('Проверка процесса winws.exe...', '');
     ProgressPage.SetProgress(CurrentStep, StepCount);
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     CurrentStep := CurrentStep + 1;
     ProgressPage.SetText('Остановка службы Monkey...', '');
@@ -348,6 +342,7 @@ begin
       StopAndDeleteService('WinDivert64');
       StopAndDeleteService('Monkey');
       KillProcessWithRetry('winws.exe');
+      KillProcessWithRetry('winws2.exe');
       KillProcessWithRetry('Zapret.exe');
       Sleep(500);
       Exit;
@@ -365,6 +360,7 @@ begin
     UninstallProgressForm.ProgressBar.Position := 60;
     
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     UninstallProgressForm.ProgressBar.Position := 80;
     

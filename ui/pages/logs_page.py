@@ -815,20 +815,113 @@ class LogsPage(BasePage):
             
     def _send_log(self):
         """Отправляет лог в Telegram"""
+        import time
+        import platform
+        from PyQt6.QtCore import QSettings, QThread
+        from PyQt6.QtWidgets import QDialog
+
         try:
-            # Получаем ссылку на главное окно и menubar
-            main_window = self.window()
-            if hasattr(main_window, 'menubar') and hasattr(main_window.menubar, 'send_log_to_tg_with_report'):
-                main_window.menubar.send_log_to_tg_with_report()
-            else:
-                # Fallback: открываем папку с логами
-                QMessageBox.information(
-                    self, 
-                    "Отправка логов",
-                    "Функция отправки логов недоступна.\n"
-                    "Вы можете вручную отправить файл из папки логов."
-                )
-                self._open_folder()
+            settings = QSettings("Zapret2", "GUI")
+            now = time.time()
+            interval = 1 * 60  # 1 минута
+
+            # Проверяем интервал
+            last = settings.value("last_full_log_send", 0.0, type=float)
+
+            if now - last < interval:
+                remaining = int((interval - (now - last)) // 60) + 1
+                QMessageBox.information(self, "Отправка логов",
+                    f"Лог отправлялся недавно.\n"
+                    f"Следующая отправка возможна через {remaining} мин.")
+                return
+
+            # Проверяем настройки бота
+            from tgram.tg_log_bot import check_bot_connection
+
+            if not check_bot_connection():
+                QMessageBox.warning(self, "Бот не настроен",
+                    "Бот для отправки логов не настроен или недоступен.\n\n"
+                    "Для настройки обратитесь к разработчику.")
+                return
+
+            # Показываем диалог для ввода описания проблемы
+            from altmenu.app_menubar import LogReportDialog
+            report_dialog = LogReportDialog(self)
+            if report_dialog.exec() != QDialog.DialogCode.Accepted:
+                return  # Пользователь отменил отправку
+
+            report_data = report_dialog.get_report_data()
+
+            # Запоминаем время отправки
+            settings.setValue("last_full_log_send", now)
+
+            # Подготовка к отправке
+            from tgram.tg_log_full import TgSendWorker
+            from tgram.tg_log_delta import get_client_id
+            from config.build_info import APP_VERSION
+
+            # Используем текущий лог файл
+            LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
+
+            if not LOG_PATH or not os.path.exists(LOG_PATH):
+                QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
+                return
+
+            # Формируем подпись с информацией о файле и проблеме
+            log_filename = os.path.basename(LOG_PATH)
+
+            caption = f"📋 Ручная отправка лога\n"
+            caption += f"📁 Файл: {log_filename}\n"
+            caption += f"Zapret2 v{APP_VERSION}\n"
+            caption += f"ID: {get_client_id()}\n"
+            caption += f"Host: {platform.node()}\n"
+            caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+
+            # Добавляем описание проблемы и контакты
+            if report_data['problem']:
+                caption += f"\n🔴 Проблема:\n{report_data['problem']}\n"
+
+            if report_data['telegram']:
+                caption += f"\n📱 Telegram: {report_data['telegram']}\n"
+
+            self.info_label.setText("📤 Отправка лога...")
+
+            # Создаем воркер с флагом use_log_bot=True
+            self._send_thread = QThread(self)
+            self._send_worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
+            self._send_worker.moveToThread(self._send_thread)
+            self._send_thread.started.connect(self._send_worker.run)
+
+            def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
+                if ok:
+                    success_msg = "Лог успешно отправлен в канал поддержки.\n"
+                    if report_data['problem'] or report_data['telegram']:
+                        success_msg += "Ваше описание проблемы также отправлено.\n"
+                    success_msg += "Спасибо за помощь в улучшении программы!"
+
+                    QMessageBox.information(self, "Успешно", success_msg)
+                    self.info_label.setText("✅ Лог отправлен")
+                else:
+                    if extra_wait > 0:
+                        QMessageBox.warning(self, "Слишком часто",
+                            f"Слишком частые запросы.\n"
+                            f"Повторите через {int(extra_wait/60)} минут.")
+                    else:
+                        QMessageBox.warning(self, "Ошибка",
+                            f"Не удалось отправить лог.\n\n"
+                            f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
+                            f"Попробуйте позже или обратитесь в поддержку.")
+
+                    self.info_label.setText("❌ Ошибка отправки лога")
+
+                # Очистка
+                self._send_worker.deleteLater()
+                self._send_thread.quit()
+                self._send_thread.wait()
+
+            self._send_worker.finished.connect(_on_done)
+            self._send_thread.start()
+
         except Exception as e:
             log(f"Ошибка отправки лога: {e}", "ERROR")
             QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")

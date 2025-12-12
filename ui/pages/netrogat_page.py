@@ -93,7 +93,7 @@ class NetrogatPage(BasePage):
         add_layout.setSpacing(8)
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Например: example.com или https://site.com/page")
+        self.input.setPlaceholderText("Например: example.com, site.com или через пробел")
         self.input.setStyleSheet(
             """
             QLineEdit {
@@ -262,26 +262,59 @@ class NetrogatPage(BasePage):
         raw = self.input.text().strip()
         if not raw:
             return
-        norm = _normalize_domain(raw)
-        if not norm:
+
+        # Разделяем на несколько доменов
+        parts = split_domains(raw)
+        if not parts:
             QMessageBox.warning(self.window(), "Ошибка", "Не удалось распознать домен.")
             return
-        
-        # Проверяем дубликат
+
+        # Проверяем дубликаты
         current = self.text_edit.toPlainText()
         current_domains = [l.strip().lower() for l in current.split('\n') if l.strip() and not l.strip().startswith('#')]
-        
-        if norm.lower() in current_domains:
-            QMessageBox.information(self.window(), "Информация", f"Домен уже есть:\n{norm}")
+
+        added = []
+        skipped = []
+        invalid = []
+
+        for part in parts:
+            if part.startswith('#'):
+                continue
+            norm = _normalize_domain(part)
+            if not norm:
+                invalid.append(part)
+                continue
+            if norm.lower() in current_domains or norm.lower() in [a.lower() for a in added]:
+                skipped.append(norm)
+                continue
+            added.append(norm)
+
+        if not added and not skipped and invalid:
+            QMessageBox.warning(self.window(), "Ошибка", "Не удалось распознать домены.")
             return
-        
+
+        if not added and skipped:
+            if len(skipped) == 1:
+                QMessageBox.information(self.window(), "Информация", f"Домен уже есть:\n{skipped[0]}")
+            else:
+                QMessageBox.information(self.window(), "Информация", f"Все домены уже есть ({len(skipped)})")
+            return
+
         # Добавляем в конец
         if current and not current.endswith('\n'):
             current += '\n'
-        current += norm
-        
+        current += '\n'.join(added)
+
         self.text_edit.setPlainText(current)
         self.input.clear()
+
+        # Показываем результат если были пропущенные
+        if skipped:
+            QMessageBox.information(
+                self.window(),
+                "Добавлено",
+                f"Добавлено: {len(added)}\nПропущено (дубликаты): {len(skipped)}"
+            )
 
     def _clear_all(self):
         text = self.text_edit.toPlainText().strip()

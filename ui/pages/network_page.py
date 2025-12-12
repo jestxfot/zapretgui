@@ -256,9 +256,10 @@ class AdapterCard(SettingsCard):
 
 class NetworkPage(BasePage):
     """Страница сетевых настроек с интегрированным DNS"""
-    
+
     adapters_loaded = pyqtSignal(list)
     dns_info_loaded = pyqtSignal(dict)
+    test_completed = pyqtSignal(list)  # Результаты теста соединения
     
     def __init__(self, parent=None):
         super().__init__("Сеть", "Настройки DNS и доступа к сервисам", parent)
@@ -370,7 +371,7 @@ class NetworkPage(BasePage):
         custom_layout.addWidget(self.custom_secondary)
         
         self.custom_apply_btn = ActionButton("OK", "fa5s.check")
-        self.custom_apply_btn.setFixedSize(50, 26)
+        self.custom_apply_btn.setFixedSize(70, 26)
         self.custom_apply_btn.clicked.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_apply_btn)
         
@@ -409,6 +410,7 @@ class NetworkPage(BasePage):
         
         self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")
         self.test_btn.setFixedHeight(28)
+        self.test_btn.clicked.connect(self._test_connection)
         tools_layout.addWidget(self.test_btn)
         
         self.dns_flush_btn = ActionButton("Сбросить DNS кэш", "fa5s.sync")
@@ -880,4 +882,71 @@ class NetworkPage(BasePage):
             QMessageBox.information(self, "Готово", "DNS кэш очищен")
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
+
+    def _test_connection(self):
+        """Тестирует соединение с интернетом"""
+        import subprocess
+
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("Проверка...")
+
+        # Подключаем сигнал (однократно)
+        try:
+            self.test_completed.disconnect()
+        except TypeError:
+            pass
+        self.test_completed.connect(self._on_test_complete)
+
+        def run_test():
+            results = []
+            test_hosts = [
+                ("Google DNS", "8.8.8.8"),
+                ("Cloudflare DNS", "1.1.1.1"),
+                ("google.com", "google.com"),
+                ("youtube.com", "youtube.com"),
+            ]
+
+            for name, host in test_hosts:
+                try:
+                    # ping с таймаутом 2 секунды
+                    result = subprocess.run(
+                        ["ping", "-n", "1", "-w", "2000", host],
+                        capture_output=True,
+                        text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    success = result.returncode == 0
+                    results.append((name, host, success))
+                except Exception:
+                    results.append((name, host, False))
+
+            return results
+
+        def thread_func():
+            results = run_test()
+            self.test_completed.emit(results)
+
+        thread = threading.Thread(target=thread_func, daemon=True)
+        thread.start()
+
+    def _on_test_complete(self, results: list):
+        """Вызывается из главного потока после завершения теста"""
+        self.test_btn.setEnabled(True)
+        self.test_btn.setText("Тест соединения")
+
+        # Формируем отчёт
+        report_lines = []
+        all_ok = True
+        for name, host, success in results:
+            status = "✓" if success else "✗"
+            report_lines.append(f"{status} {name} ({host})")
+            if not success:
+                all_ok = False
+
+        report = "\n".join(report_lines)
+
+        if all_ok:
+            QMessageBox.information(self, "Тест соединения", f"Все проверки пройдены:\n\n{report}")
+        else:
+            QMessageBox.warning(self, "Тест соединения", f"Некоторые проверки не пройдены:\n\n{report}")
     

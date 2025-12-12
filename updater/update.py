@@ -13,7 +13,7 @@ from time import sleep
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QMessageBox
 from packaging import version
-from utils import run_hidden
+from utils import run_hidden, get_system_exe
 
 from .release_manager import get_latest_release
 from .github_release import normalize_version
@@ -373,7 +373,7 @@ class UpdateWorker(QObject):
             log(f"🚀 Запуск: {' '.join(setup_args)}", "🔁 UPDATE")
             
             run_hidden(
-                ["C:\\Windows\\System32\\cmd.exe", "/c", "start", ""] + setup_args, 
+                [get_system_exe("cmd.exe"), "/c", "start", ""] + setup_args,
                 shell=False
             )
             

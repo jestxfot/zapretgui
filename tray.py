@@ -6,6 +6,12 @@ from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
 from PyQt6.QtCore    import QEvent
 
+try:
+    import qtawesome as qta
+    HAS_QTAWESOME = True
+except ImportError:
+    HAS_QTAWESOME = False
+
 # ----------------------------------------------------------------------
 #   SystemTrayManager
 # ----------------------------------------------------------------------
@@ -62,8 +68,13 @@ class SystemTrayManager:
     def setup_menu(self):
         menu = QMenu()
 
+        # Применяем стиль меню
+        self._apply_menu_style(menu)
+
         # показать окно
         show_act = QAction("Показать", self.parent)
+        if HAS_QTAWESOME:
+            show_act.setIcon(qta.icon('fa5s.window-restore', color='#60cdff'))
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
@@ -71,6 +82,8 @@ class SystemTrayManager:
 
         # консоль
         console_act = QAction("Консоль", self.parent)
+        if HAS_QTAWESOME:
+            console_act.setIcon(qta.icon('fa5s.terminal', color='#888888'))
         console_act.triggered.connect(self.show_console)
         menu.addAction(console_act)
 
@@ -78,15 +91,79 @@ class SystemTrayManager:
 
         # ─── ДВА ОТДЕЛЬНЫХ ВЫХОДА ──────────────────────────
         exit_only_act = QAction("Выход", self.parent)
+        if HAS_QTAWESOME:
+            exit_only_act.setIcon(qta.icon('fa5s.sign-out-alt', color='#aaaaaa'))
         exit_only_act.triggered.connect(self.exit_only)
         menu.addAction(exit_only_act)
 
         exit_stop_act = QAction("Выход и остановить DPI", self.parent)
+        if HAS_QTAWESOME:
+            exit_stop_act.setIcon(qta.icon('fa5s.power-off', color='#e81123'))
         exit_stop_act.triggered.connect(self.exit_and_stop)
         menu.addAction(exit_stop_act)
         # ───────────────────────────────────────────────────
 
         self.tray_icon.setContextMenu(menu)
+
+    def _apply_menu_style(self, menu: QMenu):
+        """Применяет стиль к меню трея"""
+        # Получаем цвета текущей темы
+        try:
+            from ui.theme import ThemeManager
+            theme_manager = ThemeManager.instance()
+            if theme_manager and hasattr(theme_manager, '_current_theme'):
+                theme_name = theme_manager._current_theme
+                theme_config = theme_manager._themes.get(theme_name, {})
+                theme_bg = theme_config.get('theme_bg', '30, 30, 30')
+                is_light = 'Светлая' in theme_name if theme_name else False
+            else:
+                theme_bg = '30, 30, 30'
+                is_light = False
+        except:
+            theme_bg = '30, 30, 30'
+            is_light = False
+
+        # Цвета в зависимости от темы
+        if is_light:
+            bg_color = f"rgb({theme_bg})"
+            text_color = "#000000"
+            hover_bg = "rgba(0, 0, 0, 0.1)"
+            border_color = "rgba(0, 0, 0, 0.2)"
+            separator_color = "rgba(0, 0, 0, 0.15)"
+        else:
+            bg_color = f"rgb({theme_bg})"
+            text_color = "#ffffff"
+            hover_bg = "rgba(255, 255, 255, 0.1)"
+            border_color = "rgba(255, 255, 255, 0.15)"
+            separator_color = "rgba(255, 255, 255, 0.1)"
+
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 2px 0px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: {text_color};
+                padding: 3px 16px 3px 8px;
+                margin: 0px 3px;
+                border-radius: 3px;
+                font-size: 11px;
+            }}
+            QMenu::item:selected {{
+                background-color: {hover_bg};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {separator_color};
+                margin: 2px 6px;
+            }}
+            QMenu::icon {{
+                padding-left: 4px;
+            }}
+        """)
 
     # ------------------------------------------------------------------
     #  ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ СОХРАНЕНИЯ ГЕОМЕТРИИ

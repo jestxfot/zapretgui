@@ -331,13 +331,17 @@ class ConnectionTestPage(BasePage):
         self.stop_check_attempts = 0
 
         def check_thread():
+            if not self.stop_check_timer:
+                return
             self.stop_check_attempts += 1
             if not self.worker_thread or not self.worker_thread.isRunning():
-                self.stop_check_timer.stop()
+                if self.stop_check_timer:
+                    self.stop_check_timer.stop()
                 self._append("✅ Тест остановлен")
                 self._on_worker_finished()
             elif self.stop_check_attempts > 50:
-                self.stop_check_timer.stop()
+                if self.stop_check_timer:
+                    self.stop_check_timer.stop()
                 self._append("⚠️ Принудительная остановка...")
                 if self.worker_thread:
                     self.worker_thread.terminate()

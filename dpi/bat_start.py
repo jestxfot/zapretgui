@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from main import LupiDPIApp
 
 from log import log
-from utils import run_hidden
+from utils import run_hidden, get_system_exe, get_system32_path
 
 from dpi.process_health_check import (
     check_process_health, 
@@ -102,7 +102,7 @@ class BatDPIStart:
         """
         found = False
         for exe_name in ['winws.exe', 'winws2.exe']:
-            cmd = ['C:\\Windows\\System32\\tasklist.exe', '/FI', f'IMAGENAME eq {exe_name}', '/FO', 'CSV', '/NH']
+            cmd = [get_system_exe('tasklist.exe'), '/FI', f'IMAGENAME eq {exe_name}', '/FO', 'CSV', '/NH']
             try:
                 res = run_hidden(cmd, wait=True, capture_output=True,
                                  text=True, encoding='cp866')
@@ -132,9 +132,9 @@ class BatDPIStart:
         """
         
         try:
+            ps_exe = os.path.join(get_system32_path(), 'WindowsPowerShell', 'v1.0', 'powershell.exe')
             run_hidden(
-                ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 
-                 '-WindowStyle', 'Hidden', '-NoProfile', '-Command', ps_script],
+                [ps_exe, '-WindowStyle', 'Hidden', '-NoProfile', '-Command', ps_script],
                 wait=True
             )
             return True

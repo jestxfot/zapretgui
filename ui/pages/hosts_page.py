@@ -1,6 +1,7 @@
 # ui/pages/hosts_page.py
 """Страница управления Hosts файлом - разблокировка сервисов"""
 
+import os
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -11,6 +12,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from log import log
+from utils import get_system32_path
 
 # Импортируем сервисы и домены
 try:
@@ -160,9 +162,10 @@ class HostsPage(BasePage):
                 self._active_domains_cache = self.hosts_manager.get_active_domains()
                 return self._active_domains_cache
             except PermissionError:
+                hosts_path = os.path.join(get_system32_path(), "drivers", "etc", "hosts")
                 self._show_error(
                     "Нет доступа к файлу hosts. Запустите программу от имени администратора.\n"
-                    f"Путь: C:\\Windows\\System32\\drivers\\etc\\hosts"
+                    f"Путь: {hosts_path}"
                 )
                 return set()
             except Exception as e:

@@ -6,7 +6,7 @@ import logging
 import requests, webbrowser
 from datetime import datetime
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from utils import run_hidden  # Импортируем нашу обертку для subprocess
+from utils import run_hidden, get_system32_path, get_syswow64_path, get_system_exe  # Импортируем нашу обертку для subprocess
 from config import APP_VERSION, LOGS_FOLDER  # Добавляем импорт
 from strategy_checker import StrategyChecker  # Добавляем импорт
 from dns_checker import DNSChecker
@@ -414,10 +414,10 @@ class ConnectionTestWorker(QObject):
             
             self.log_message(f"Тест реального endpoint: {domain}{path}")
             
-            # ✅ ИСПРАВЛЕНИЕ: Ищем curl в разных местах
+            # ✅ ИСПРАВЛЕНИЕ: Ищем curl в разных местах (динамические пути)
             curl_paths = [
-                "C:\\Windows\\System32\\curl.exe",
-                "C:\\Windows\\SysWOW64\\curl.exe",
+                os.path.join(get_system32_path(), "curl.exe"),
+                os.path.join(get_syswow64_path(), "curl.exe"),
                 "curl.exe",
                 "curl"
             ]
@@ -557,8 +557,9 @@ class ConnectionTestWorker(QObject):
         
         try:
             # Проверяем процесс winws.exe
-            command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            
+            tasklist_exe = get_system_exe("tasklist.exe")
+            command = [tasklist_exe, "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
+
             # ✅ ИСПРАВЛЕНИЕ: Используем subprocess напрямую с правильными параметрами
             result = subprocess.run(command, capture_output=True, text=True, timeout=10,
                                   encoding='cp866', errors='replace',
@@ -786,8 +787,8 @@ class ConnectionTestWorker(QObject):
     def _get_curl_path(self):
         """Находит путь к curl"""
         curl_paths = [
-            "C:\\Windows\\System32\\curl.exe",
-            "C:\\Windows\\SysWOW64\\curl.exe",
+            os.path.join(get_system32_path(), "curl.exe"),
+            os.path.join(get_syswow64_path(), "curl.exe"),
             "curl.exe",
             "curl"
         ]
@@ -1067,18 +1068,21 @@ class ConnectionTestWorker(QObject):
             # ✅ ВСЕГДА эмитируем сигнал завершения
             self.finished_signal.emit()
 
+# Топик для логов диагностики соединения
+CONNECTION_TEST_TOPIC_ID = 10852
+
 class LogSendWorker(QObject):
     """Воркер для отправки лога в Telegram в отдельном потоке"""
     finished = pyqtSignal(bool, str)  # success, message
-    
+
     def __init__(self, log_path: str, caption: str):
         super().__init__()
         self.log_path = log_path
         self.caption = caption
-    
+
     def run(self):
         try:
-            success, error_msg = send_log_file(self.log_path, self.caption)
+            success, error_msg = send_log_file(self.log_path, self.caption, topic_id=CONNECTION_TEST_TOPIC_ID)
             if success:
                 self.finished.emit(True, "Лог успешно отправлен!")
             else:

@@ -70,7 +70,7 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         root_path / icon_file,  # В корне проекта
         root_path / 'ico' / icon_file,  # В папке ico
         root_path.parent / 'zapret' / 'ico' / icon_file,  # В папке сборки
-        Path('D:/Privacy/zapret/ico') / icon_file,  # Абсолютный путь к папке сборки
+        Path('H:/Privacy/zapret/ico') / icon_file,  # Абсолютный путь к папке сборки
     ]
     
     for location in possible_locations:

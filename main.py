@@ -264,17 +264,21 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         """Восстанавливает сохраненную позицию и размер окна"""
         try:
             from config import get_window_position, get_window_size, WIDTH, HEIGHT
-            
+
+            # Минимальные размеры окна (фиксированные)
+            MIN_WIDTH = 400
+            MIN_HEIGHT = 400
+
             # Восстанавливаем размер
             saved_size = get_window_size()
             if saved_size:
                 width, height = saved_size
                 # Проверяем что размер не меньше минимального
-                if width >= WIDTH and height >= HEIGHT:
+                if width >= MIN_WIDTH and height >= MIN_HEIGHT:
                     self.resize(width, height)
                     log(f"Восстановлен размер окна: {width}x{height}", "DEBUG")
                 else:
-                    log(f"Сохраненный размер слишком мал, используем по умолчанию", "DEBUG")
+                    log(f"Сохраненный размер слишком мал ({width}x{height}), используем по умолчанию", "DEBUG")
                     self.resize(WIDTH, HEIGHT)
             else:
                 self.resize(WIDTH, HEIGHT)
@@ -979,6 +983,15 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         super().showEvent(event)
         self._update_garland_geometry()
         self._update_snowflakes_geometry()
+
+        # Отключаем системное скругление углов на Windows 11
+        # чтобы избежать белых треугольников по краям при использовании CSS border-radius
+        try:
+            from ui.theme import BlurEffect
+            hwnd = int(self.winId())
+            BlurEffect.disable_window_rounding(hwnd)
+        except Exception:
+            pass
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""

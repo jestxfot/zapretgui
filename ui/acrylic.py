@@ -58,6 +58,13 @@ DWMSBT_MAINWINDOW = 2  # Mica
 DWMSBT_TRANSIENTWINDOW = 3  # Acrylic
 DWMSBT_TABBEDWINDOW = 4  # Tabbed
 
+# Window Corner Preference для Windows 11
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWCP_DEFAULT = 0
+DWMWCP_DONOTROUND = 1
+DWMWCP_ROUND = 2
+DWMWCP_ROUNDSMALL = 3
+
 
 def get_windows_build():
     """Возвращает номер сборки Windows"""
@@ -256,7 +263,16 @@ def apply_acrylic_effect(widget: QWidget, color: QColor = None, dark_mode: bool 
         
         # Windows 11 (build 22000+) - используем новый API
         if build >= 22000:
-            # Пробуем Mica или Acrylic через новый API
+            # Отключаем системное скругление - используем CSS border-radius
+            corner_preference = ctypes.c_int(DWMWCP_DONOTROUND)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                ctypes.byref(corner_preference),
+                ctypes.sizeof(corner_preference)
+            )
+
+            # Пробуем Acrylic через новый API
             backdrop_type = ctypes.c_int(DWMSBT_TRANSIENTWINDOW)  # Acrylic
             result = dwmapi.DwmSetWindowAttribute(
                 hwnd,
@@ -264,7 +280,7 @@ def apply_acrylic_effect(widget: QWidget, color: QColor = None, dark_mode: bool 
                 ctypes.byref(backdrop_type),
                 ctypes.sizeof(backdrop_type)
             )
-            
+
             if result == 0:
                 log(f"Windows 11 Acrylic применён (build {build})", "INFO")
                 return True
@@ -344,6 +360,15 @@ def disable_acrylic(widget: QWidget):
         
         # Windows 11 - отключаем backdrop
         if build >= 22000:
+            # Оставляем отключённое системное скругление (используем CSS)
+            corner_preference = ctypes.c_int(DWMWCP_DONOTROUND)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                ctypes.byref(corner_preference),
+                ctypes.sizeof(corner_preference)
+            )
+
             backdrop_type = ctypes.c_int(0)  # DWMSBT_NONE
             dwmapi.DwmSetWindowAttribute(
                 hwnd,

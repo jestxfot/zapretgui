@@ -11,7 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Optional, Callable, Dict, List
 from log import log
-from utils import run_hidden
+from utils import run_hidden, get_system_exe
 from .registry_check import set_autostart_enabled
 
 # Имена для задач Direct режима
@@ -163,7 +163,7 @@ def setup_direct_autostart_task(
         
         # Создаем задачу с прямым запуском winws.exe
         create_cmd = [
-            "C:\\Windows\\System32\\schtasks.exe",
+            get_system_exe("schtasks.exe"),
             "/Create",
             "/TN", DIRECT_TASK_NAME,
             "/TR", cmd_line,
@@ -298,7 +298,7 @@ def setup_direct_autostart_service(
         
         # Создаем задачу из XML
         create_cmd = [
-            "C:\\Windows\\System32\\schtasks.exe",
+            get_system_exe("schtasks.exe"),
             "/Create",
             "/TN", DIRECT_BOOT_TASK_NAME,
             "/XML", xml_path,
@@ -389,7 +389,7 @@ cd /d "{work_dir}"
         
         # Создаем задачу для .bat файла
         create_cmd = [
-            "C:\\Windows\\System32\\schtasks.exe",
+            get_system_exe("schtasks.exe"),
             "/Create",
             "/TN", task_name,
             "/TR", f'"{bat_path}"',
@@ -523,7 +523,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
 def _delete_task(task_name: str) -> bool:
     """Удаляет задачу планировщика"""
     try:
-        cmd = ["C:\\Windows\\System32\\schtasks.exe", "/Delete", "/TN", task_name, "/F"]
+        cmd = [get_system_exe("schtasks.exe"), "/Delete", "/TN", task_name, "/F"]
         result = run_hidden(cmd, capture_output=True)
         if result.returncode == 0:
             log(f"Задача {task_name} удалена", "INFO")
@@ -536,7 +536,7 @@ def _delete_task(task_name: str) -> bool:
 def _check_task_exists(task_name: str) -> bool:
     """Проверяет существование задачи"""
     try:
-        cmd = ["C:\\Windows\\System32\\schtasks.exe", "/Query", "/TN", task_name]
+        cmd = [get_system_exe("schtasks.exe"), "/Query", "/TN", task_name]
         result = run_hidden(cmd, capture_output=True)
         return result.returncode == 0
     except:

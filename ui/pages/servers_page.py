@@ -16,6 +16,7 @@ from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from config import APP_VERSION, CHANNEL
 from log import log
+from updater.telegram_updater import TELEGRAM_CHANNELS
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -546,6 +547,16 @@ class ServerCheckWorker(QThread):
                         'is_current': True,
                     }
                     self._first_online_server_id = 'telegram'
+
+                    # ✅ Сохраняем версию от Telegram в кэш all_versions
+                    # чтобы VersionCheckWorker использовал её для сравнения
+                    from updater.update_cache import set_cached_all_versions, get_cached_all_versions
+                    all_versions = get_cached_all_versions() or {}
+                    all_versions[tg_channel] = {
+                        'version': tg_info['version'],
+                        'release_notes': tg_info.get('release_notes', ''),
+                    }
+                    set_cached_all_versions(all_versions, f"Telegram @{TELEGRAM_CHANNELS.get(tg_channel, tg_channel)}")
                 else:
                     tg_status = {
                         'status': 'error',

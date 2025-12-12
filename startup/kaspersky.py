@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, sys, ctypes, subprocess
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui  import QDesktopServices
-from  utils import run_hidden
+from utils import run_hidden, get_system_exe
 
 def _open_url(url: str):
     QDesktopServices.openUrl(QUrl(url))
@@ -28,7 +28,7 @@ def _check_kaspersky_antivirus(self):
         
         # Получаем список запущенных процессов
         try:
-            result = run_hidden(['C:\\Windows\\System32\\tasklist.exe'], capture_output=True, text=True, shell=True)
+            result = run_hidden([get_system_exe('tasklist.exe')], capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 running_processes = result.stdout.lower()
                 

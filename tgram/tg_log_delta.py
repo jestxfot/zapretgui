@@ -14,21 +14,41 @@ from config import APP_VERSION, CHANNEL # build_info moved to config/__init__.py
 # ───────────── определяем, test это или нет ─────────────
 IS_DEV_BUILD = True if CHANNEL == "test" else False
 
-# ───────────── cred’ы для двух ботов ───────────────────
-#  прод-бот
-PROD_TOKEN   = "7541112559:AAHS8aqz-Jq_MqbtNGpH9DHq_UfO-jCJtRM"
-PROD_CHAT_ID = 6483277608
+# ───────────── обфусцированные данные ботов ───────────────────
+import base64
 
-#  dev-бот  (создайте своего и вставьте данные)
-DEV_TOKEN    = "7372970253:AAGacs1p_YtbGCisOrH_99o70sr_DBLlW0c"
-DEV_CHAT_ID  = 6483277608
+# прод-бот (stable)
+_PROD_ENC = "c3h+fnp8fn58enEKCgMyHnMRHAZ4fSxmOx4cHCIuMSYxIT8jfQoEfDgAKAAgDg=="
+_PROD_XOR = 0x4B
+_PROD_SUM = 527
 
-#  выбираем
-TOKEN   = DEV_TOKEN   if IS_DEV_BUILD else PROD_TOKEN
-CHAT_ID = DEV_CHAT_ID if IS_DEV_BUILD else PROD_CHAT_ID
+# dev-бот (test)
+_DEV_ENC = "ZGhoZW5tZWVobGYdHRs1ZCopGxgvN2sSHi0EbWwmGDpxamopPnEtbRhqEWowMw=="
+_DEV_XOR = 0x5C
+_DEV_SUM = 530
+
+# Группа для логов
+CHAT_ID = -1003005847271
+
+# Топик зависит от канала: test → 10854, stable → 1
+TOPIC_ID = 10854 if IS_DEV_BUILD else 1
+
+def _decode_token(encoded: str, xor_key: int, checksum: int) -> str:
+    """Деобфусцирует токен"""
+    try:
+        decoded = base64.b64decode(encoded)
+        value = ''.join(chr(b ^ xor_key) for b in decoded)
+        if sum(ord(c) for c in value[:10]) != checksum:
+            return ""
+        return value
+    except:
+        return ""
+
+#  выбираем токен
+TOKEN = _decode_token(_DEV_ENC, _DEV_XOR, _DEV_SUM) if IS_DEV_BUILD else _decode_token(_PROD_ENC, _PROD_XOR, _PROD_SUM)
 
 # интервалы / лимиты
-INTERVAL  = 200 # сек между отправками
+INTERVAL  = 200  # сек между отправками
 MAX_CHUNK = 3500
 
 # ---------- Client-ID (как было) ------------------------------------
@@ -89,6 +109,7 @@ def _send(text: str):
             f"{API}/sendMessage",
             data=dict(
                 chat_id=CHAT_ID,
+                message_thread_id=TOPIC_ID,
                 text=f"<pre>{part}</pre>",
                 parse_mode="HTML",
                 disable_web_page_preview=True
@@ -133,8 +154,9 @@ class LogTailSender:
             header = self._make_header(delta.count("\n") or 1)
             _send(header + delta)
         except Exception as e:
-            print("send_delta error:", e)
-            traceback.print_exc()
+            # Маскируем токен в ошибке
+            err_msg = str(e).replace(TOKEN, "***MASKED***") if TOKEN else str(e)
+            print("send_delta error:", err_msg)
 
 # ---------- Qt-обёртка ----------------------------------------------
 class LogDeltaDaemon:
@@ -163,15 +185,19 @@ def send_log_to_tg(log_path: str | Path, caption: str = "") -> None:
     text = path.read_text(encoding="utf-8-sig", errors="replace")[-4000:]
     data = {
         "chat_id": CHAT_ID,
+        "message_thread_id": TOPIC_ID,
         "text": (caption + "\n\n" if caption else "") + text,
         "parse_mode": "HTML"
     }
     _tg_api("sendMessage", data=data)
 
 def send_file_to_tg(file_path: str | Path, caption: str = "") -> None:
-    from telegram import Bot
-    Bot(token=TOKEN).send_document(
-        chat_id=CHAT_ID,
-        document=open(file_path, "rb"),
-        caption=caption or Path(file_path).name
-    )
+    path = Path(file_path)
+    with path.open("rb") as fh:
+        files = {"document": fh}
+        data = {
+            "chat_id": CHAT_ID,
+            "message_thread_id": TOPIC_ID,
+            "caption": caption or path.name
+        }
+        _tg_api("sendDocument", files=files, data=data)

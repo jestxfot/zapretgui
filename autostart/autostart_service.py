@@ -9,6 +9,7 @@ import traceback
 from typing import Callable, Optional
 
 from log import log
+from utils import get_system_exe
 from .autostart_strategy import _resolve_bat_folder, _find_bat_by_name
 from .registry_check import set_autostart_enabled
 from .service_api import (
@@ -73,7 +74,7 @@ def setup_service_for_strategy(
             if create_service_with_nssm(
                 service_name=SERVICE_NAME,
                 display_name=SERVICE_DISPLAY_NAME,
-                exe_path="C:\\Windows\\System32\\cmd.exe",
+                exe_path=get_system_exe("cmd.exe"),
                 args=["/c", str(bat_path)],
                 description=f"{SERVICE_DESCRIPTION} (стратегия: {selected_mode})",
                 auto_start=True

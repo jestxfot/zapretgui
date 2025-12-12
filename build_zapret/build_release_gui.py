@@ -1058,17 +1058,16 @@ class BuildReleaseGUI:
         if not iscc_path.exists():
             raise FileNotFoundError("Inno Setup не найден!")
         
-        is_test = 1 if channel == "test" else 0
         cmd = [
             str(iscc_path),
-            f'/DIS_TEST={is_test}',  # ✅ Числовой флаг — надёжнее строк
+            f'/DCHANNEL={channel}',  # ✅ Строковый канал: "stable" или "test"
             f'/DVERSION={version}',
             str(target_iss)
         ]
-        
-        self.log_queue.put(f"📋 Канал: {channel} → IS_TEST={is_test}")
-        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretTwoDev' if is_test else 'ZapretTwo'}")
-        self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if is_test else 'Zapret2.ico'}")
+
+        self.log_queue.put(f"📋 Канал: {channel}")
+        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretTwoDev' if channel == 'test' else 'ZapretTwo'}")
+        self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if channel == 'test' else 'Zapret2.ico'}")
         
         for attempt in range(1, max_retries + 1):
             try:

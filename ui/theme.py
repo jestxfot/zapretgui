@@ -104,6 +104,13 @@ class BlurEffect:
     ACCENT_ENABLE_BLURBEHIND = 3
     ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
 
+    # Window Corner Preference для Windows 11 (убирает белые треугольники)
+    DWMWA_WINDOW_CORNER_PREFERENCE = 33
+    DWMWCP_DEFAULT = 0       # Системное поведение
+    DWMWCP_DONOTROUND = 1    # Без скругления (для frameless + CSS border-radius)
+    DWMWCP_ROUND = 2         # Системное скругление
+    DWMWCP_ROUNDSMALL = 3    # Малое скругление
+
     _enabled = False
     _hwnd = None
 
@@ -167,6 +174,16 @@ class BlurEffect:
             from ctypes import windll, byref, c_int, sizeof
 
             dwmapi = windll.dwmapi
+
+            # ВАЖНО: Отключаем системное скругление углов чтобы убрать белые треугольники
+            # Приложение использует frameless окно с CSS border-radius
+            corner_preference = c_int(cls.DWMWCP_DONOTROUND)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                cls.DWMWA_WINDOW_CORNER_PREFERENCE,
+                byref(corner_preference),
+                sizeof(corner_preference)
+            )
 
             # Выбираем тип backdrop
             if blur_type == "mica":
@@ -276,6 +293,16 @@ class BlurEffect:
             if version.build >= 22000:
                 # Windows 11
                 dwmapi = windll.dwmapi
+
+                # Сохраняем отключённое скругление (CSS border-radius)
+                corner_preference = c_int(cls.DWMWCP_DONOTROUND)
+                dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    cls.DWMWA_WINDOW_CORNER_PREFERENCE,
+                    byref(corner_preference),
+                    sizeof(corner_preference)
+                )
+
                 value = c_int(cls.DWMSBT_NONE)
                 dwmapi.DwmSetWindowAttribute(
                     hwnd,
@@ -329,6 +356,45 @@ class BlurEffect:
     def is_enabled(cls) -> bool:
         """Возвращает текущее состояние blur эффекта."""
         return cls._enabled
+
+    @classmethod
+    def disable_window_rounding(cls, hwnd: int) -> bool:
+        """
+        Отключает системное скругление углов на Windows 11.
+        Нужно вызывать для frameless окон с CSS border-radius чтобы избежать
+        белых треугольников по краям.
+
+        Args:
+            hwnd: Handle окна (HWND)
+
+        Returns:
+            True если успешно или не Windows 11, False при ошибке
+        """
+        try:
+            import sys
+            version = sys.getwindowsversion()
+
+            # Только для Windows 11 (build 22000+)
+            if version.build < 22000:
+                return True
+
+            from ctypes import windll, byref, c_int, sizeof
+
+            dwmapi = windll.dwmapi
+            corner_preference = c_int(cls.DWMWCP_DONOTROUND)
+            result = dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                cls.DWMWA_WINDOW_CORNER_PREFERENCE,
+                byref(corner_preference),
+                sizeof(corner_preference)
+            )
+            if result == 0:
+                log("✅ Системное скругление углов отключено", "DEBUG")
+                return True
+            return False
+        except Exception as e:
+            log(f"⚠️ Не удалось отключить скругление углов: {e}", "DEBUG")
+            return False
 
     @classmethod
     def set_tint_color(cls, hwnd: int, argb_color: int) -> bool:
@@ -410,8 +476,8 @@ QMainWindow[hasCustomBackground="true"] {
 }
 
 QFrame#mainContainer {
-    background-color: rgba(0, 0, 0, 245);
-    border: 1px solid rgba(30, 30, 30, 220);
+    background-color: rgba(0, 0, 0, 255);
+    border: 1px solid rgba(30, 30, 30, 255);
 }
 
 QFrame {
@@ -426,7 +492,7 @@ QLabel {
 }
 
 QComboBox {
-    background-color: rgba(26, 26, 26, 250);
+    background-color: rgba(26, 26, 26, 255);
     border: 1px solid #333333;
     color: #ffffff;
     padding: 5px;
@@ -481,8 +547,8 @@ QMainWindow[hasCustomBackground="true"] {
 }
 
 QFrame#mainContainer {
-    background-color: rgba(0, 0, 0, 245);
-    border: 1px solid rgba(30, 30, 30, 220);
+    background-color: rgba(0, 0, 0, 255);
+    border: 1px solid rgba(30, 30, 30, 255);
 }
 
 QFrame {
@@ -706,7 +772,18 @@ class ThemeBuildWorker(QObject):
             text_color = "#000000" if is_light else "#ffffff"
             border_color = "200, 200, 200" if is_light else "80, 80, 80"
             titlebar_bg_adjust = 10 if is_light else -4  # Светлее/темнее для titlebar
-            
+
+            # Проверяем состояние blur для определения прозрачности
+            try:
+                from config.reg import get_blur_effect_enabled
+                blur_enabled = get_blur_effect_enabled()
+            except:
+                blur_enabled = False
+
+            # Непрозрачность: меньше при blur, полностью непрозрачно без него
+            base_alpha = 240 if blur_enabled else 255
+            border_alpha = 200 if blur_enabled else 255
+
             # Вычисляем цвет titlebar (чуть темнее основного)
             try:
                 r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
@@ -716,7 +793,7 @@ class ThemeBuildWorker(QObject):
                 titlebar_bg = f"{tr}, {tg}, {tb}"
             except:
                 titlebar_bg = theme_bg
-            
+
             dynamic_style_sheet = f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
@@ -735,17 +812,17 @@ LupiDPIApp {{
 
 /* Стили для кастомного контейнера со скругленными углами */
 QFrame#mainContainer {{
-    background-color: rgba({theme_bg}, 240) !important;
+    background-color: rgba({theme_bg}, {base_alpha}) !important;
     border-radius: 10px !important;
-    border: 1px solid rgba({border_color}, 200) !important;
+    border: 1px solid rgba({border_color}, {border_alpha}) !important;
 }}
 
 /* Кастомный titlebar */
 QWidget#customTitleBar {{
-    background-color: rgba({titlebar_bg}, 240) !important;
+    background-color: rgba({titlebar_bg}, {base_alpha}) !important;
     border-top-left-radius: 10px !important;
     border-top-right-radius: 10px !important;
-    border-bottom: 1px solid rgba({border_color}, 200) !important;
+    border-bottom: 1px solid rgba({border_color}, {border_alpha}) !important;
 }}
 
 QLabel#titleLabel {{

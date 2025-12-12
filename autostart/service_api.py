@@ -7,6 +7,7 @@ import ctypes
 from ctypes import wintypes
 from typing import Optional, Tuple
 from log import log
+from utils import get_system_exe
 
 # ============================================================================
 # Константы Windows API
@@ -517,7 +518,7 @@ def create_bat_service(
         True если служба создана
     """
     # cmd.exe /c "путь к bat"
-    binary_path = f'C:\\Windows\\System32\\cmd.exe /c "{bat_path}"'
+    binary_path = f'{get_system_exe("cmd.exe")} /c "{bat_path}"'
     
     start_type = SERVICE_AUTO_START if auto_start else SERVICE_DEMAND_START
     

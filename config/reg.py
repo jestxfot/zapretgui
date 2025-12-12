@@ -4,11 +4,11 @@ import winreg
 HKCU = winreg.HKEY_CURRENT_USER
 HKLM = winreg.HKEY_LOCAL_MACHINE
 
-def __log(msg, level="INFO"):
+def _log(msg, level="INFO"):
     """Отложенный импорт log для избежания циклических зависимостей"""
     try:
         from log import log
-        _log(msg, level)
+        log(msg, level)
     except ImportError:
         print(f"[{level}] {msg}")
 
