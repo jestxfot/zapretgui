@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Zapret GUI is a Windows desktop application for bypassing DPI (Deep Packet Inspection) internet censorship. It provides a GUI wrapper around the Zapret DPI bypass tools (winws.exe/winws2.exe). The interface is in Russian.
 
+Документация по Zapret 2 находится здесь F:\doc\zapret2
+
 **Target platform:** Windows only (uses WinDivert kernel driver)
 
 ## Development Commands
@@ -49,6 +51,7 @@ The application uses a manager-based architecture with PyQt6 signals/slots for e
   - `ui/widgets/` - Custom reusable widgets
 - **`managers/`** - Business logic managers
 - **`strategy_menu/`** - Strategy selection system
+- **`orchestra/`** - Auto-learning strategy system (see Orchestra System section)
 - **`startup/`** - Application startup logic (admin check, single instance, certificate installer)
 - **`updater/`** - Auto-update system (GitHub releases + Telegram)
 - **`bat/`** - BAT strategy files (legacy Zapret 1 format)
@@ -97,6 +100,87 @@ Key strategy files:
 - [strategy_menu/strategies_registry.py](strategy_menu/strategies_registry.py) - Strategy definitions
 - [strategy_menu/strategy_runner.py](strategy_menu/strategy_runner.py) - Strategy execution
 - [strategy_menu/filters_config.py](strategy_menu/filters_config.py) - Category filtering
+
+## Orchestra System (Auto-Learning)
+
+Orchestra is an automatic strategy learning system that finds the best bypass strategies for each domain.
+
+> **Detailed documentation:** [orchestra/CLAUDE.md](orchestra/CLAUDE.md) - полное техническое описание circular orchestrator, механизмов LOCK/UNLOCK, форматов файлов и API.
+
+### How It Works (Circular Orchestrator)
+
+1. **LEARNING** - перебирает стратегии (circular rotation), детектит RST injection и silent drop
+2. **LOCKED** - найдена рабочая стратегия (после 3 успехов на одной стратегии)
+3. **UNLOCKED** - возврат в LEARNING (после 2 сбоев на locked стратегии)
+
+### Architecture
+
+```
+orchestra/
+├── __init__.py              # Module exports
+├── orchestra_runner.py      # Main runner class (starts winws2.exe)
+├── strategies_generator.py  # Generates strategies.lua from JSON
+├── config_builder.py        # Builds winws2 config with profiles
+└── profiles.py              # Domain profiles (YouTube, Discord, etc.)
+```
+
+### Key Components
+
+- **`OrchestraRunner`** - Manages winws2.exe process lifecycle
+  - `prepare()` - Generates strategies.lua and config
+  - `start()` - Launches winws2.exe with orchestra config
+  - `stop()` - Terminates the process
+  - `get_learned_data()` - Reads learned domains from files
+  - `clear_learned_data()` - Resets learning
+
+- **`StrategiesGenerator`** - Converts JSON strategies to Lua format
+  - Extracts `--lua-desync=` args from strategy definitions
+  - Generates `TLS_STRATEGIES` and `HTTP_STRATEGIES` arrays
+  - Tracks required blob files
+
+- **`OrchestraConfigBuilder`** - Creates winws2 config file
+  - Adds profiles for each hostlist group (YouTube, Discord, etc.)
+  - Includes all required Lua scripts and blob files
+  - Outputs to `logs/orchestra.conf`
+
+### Profiles
+
+Defined in [orchestra/profiles.py](orchestra/profiles.py):
+- **YouTube**: `youtube.txt`, `russia-youtube.txt`
+- **Discord**: `discord.txt`, `russia-discord.txt`
+- **RuTracker**: `rutracker.txt`
+- **Porn**: `porn.txt`
+- **General**: `list-general.txt`, `russia-blacklist.txt`
+
+### Generated Files
+
+- `logs/strategies.lua` - Lua arrays with all strategies
+- `logs/orchestra.conf` - winws2 configuration file
+- `logs/winws2_debug.log` - Debug output from winws2
+- `learned_tls.txt` - Learned TLS strategies per domain
+- `learned_http.txt` - Learned HTTP strategies per domain
+
+### Lua Scripts (in exe/lua/)
+
+- `mega_circular.lua` - Main orchestra logic (learning/working modes)
+- `zapret-lib.lua` - Core library functions
+- `zapret-antidpi.lua` - DPI bypass functions
+- `zapret-auto.lua` - Auto-detection helpers
+
+### UI Integration
+
+- **OrchestraPage** ([ui/pages/orchestra_page.py](ui/pages/orchestra_page.py)) - Shows logs and learned domains
+- Accessed via DPI Settings → "Оркестр" button (purple brain icon)
+- When orchestra mode is selected, replaces Strategies page in sidebar
+
+### Launch Flow
+
+1. User selects "Оркестр" in DPI Settings
+2. Clicks Start → `DPIStartWorker._start_orchestra()` runs
+3. `OrchestraRunner.prepare()` generates config
+4. `OrchestraRunner.start()` launches winws2.exe with `@orchestra.conf`
+5. OrchestraPage monitors `winws2_debug.log` for status updates
+6. Learned strategies saved to `learned_tls.txt` / `learned_http.txt`
 
 ## Key Dependencies
 

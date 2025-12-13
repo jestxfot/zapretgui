@@ -34,6 +34,8 @@ class DPIManager(QObject):
         # 3. Запускаем соответствующий режим
         if launch_method == "direct":
             self._start_direct_mode()
+        elif launch_method == "orchestra":
+            self._start_orchestra_mode()
         else:
             self._start_bat_mode()
     
@@ -78,24 +80,73 @@ class DPIManager(QObject):
         }
         
         log(f"Автозапуск Direct: {selections}", "INFO")
-        
+
         # Обновляем UI и запускаем
         self.app.current_strategy_label.setText("Прямой запуск")
         self.app.current_strategy_name = "Прямой запуск"
         self._update_splash(65, "Запуск Direct режима...")
-        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data)
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method="direct")
         self._update_ui(running=True)
 
     def _start_bat_mode(self):
         """⚡ Запускает BAT стратегию"""
         from config.reg import get_last_bat_strategy
-        
+
         strategy_name = get_last_bat_strategy()
         log(f"Автозапуск BAT: «{strategy_name}»", "INFO")
-        
+
         # Обновляем UI и запускаем
         self.app.current_strategy_label.setText(strategy_name)
         self.app.current_strategy_name = strategy_name
         self._update_splash(65, f"Запуск '{strategy_name}'...")
-        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
         self._update_ui(running=True)
+
+    def _start_orchestra_mode(self):
+        """⚡ Запускает режим Оркестра (автообучение)"""
+        try:
+            from orchestra import OrchestraRunner
+
+            log("Автозапуск Orchestra: автообучение", "INFO")
+
+            # Создаём runner если его нет
+            if not hasattr(self.app, 'orchestra_runner'):
+                self.app.orchestra_runner = OrchestraRunner()
+
+            # НЕ используем callback - UI обновляется через таймер (чтение лог-файла)
+            # Это безопаснее, т.к. callback вызывается из reader thread
+
+            # Подготавливаем и запускаем
+            self._update_splash(65, "Подготовка оркестратора...")
+
+            if not self.app.orchestra_runner.prepare():
+                log("Ошибка подготовки оркестратора", "ERROR")
+                self.app.set_status("❌ Ошибка подготовки оркестратора")
+                self._finish_splash("Ошибка", "Не удалось подготовить оркестратор")
+                self._update_ui(running=False)
+                return
+
+            self._update_splash(80, "Запуск оркестратора...")
+
+            if not self.app.orchestra_runner.start():
+                log("Ошибка запуска оркестратора", "ERROR")
+                self.app.set_status("❌ Ошибка запуска оркестратора")
+                self._finish_splash("Ошибка", "Не удалось запустить")
+                self._update_ui(running=False)
+                return
+
+            # Обновляем UI
+            self.app.current_strategy_label.setText("Оркестр (автообучение)")
+            self.app.current_strategy_name = "Оркестр"
+            self._update_ui(running=True)
+            self._finish_splash("Готово", "Оркестратор запущен")
+
+            # Запускаем мониторинг на странице оркестра
+            if hasattr(self.app, 'orchestra_page'):
+                self.app.orchestra_page.start_monitoring()
+
+        except Exception as e:
+            log(f"Ошибка запуска Orchestra: {e}", "ERROR")
+            self.app.set_status(f"❌ Ошибка: {e}")
+            self._finish_splash("Ошибка", str(e))
+            self._update_ui(running=False)

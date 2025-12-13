@@ -349,11 +349,14 @@ def combine_strategies(*args, **kwargs) -> dict:
     # Добавляется в начало командной строки если включено
     if get_debug_log_enabled():
         from datetime import datetime
+        from log.log import cleanup_old_logs
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_filename = f"zapret_winws2_debug_{timestamp}.log"
         log_path = os.path.join(LOGS_FOLDER, log_filename)
         # Создаём папку logs если её нет
         os.makedirs(LOGS_FOLDER, exist_ok=True)
+        # Очищаем старые логи (оставляем максимум 50)
+        cleanup_old_logs(LOGS_FOLDER)
         args_parts.append(f"--debug=@{log_path}")
         log(f"Debug лог включён: {log_path}", "INFO")
     

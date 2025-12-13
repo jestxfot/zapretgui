@@ -21,7 +21,6 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 from config import APP_VERSION # build_info moved to config/__init__.py
-from log import log
 from tgram import get_client_id            # UUID устройства
 from .tg_log_bot import send_log_file as send_log_via_bot
 
@@ -66,26 +65,20 @@ class TgSendWorker(QObject):
                 if success:
                     self.finished.emit(True, 0.0, "")
                 else:
-                    # Проверяем на flood-wait
                     is_flood = "wait" in (error_msg or "").lower()
                     extra_wait = 60.0 if is_flood else 0.0
-                    self.finished.emit(False, extra_wait, error_msg or "Ошибка отправки")
+                    self.finished.emit(False, extra_wait, "")
             else:
                 # Используем обычного бота (для автоматической отправки)
                 from tgram import send_file_to_tg
                 ok = send_file_to_tg(self._path, self._cap)
-                if ok:
-                    self.finished.emit(True, 0.0, "")
-                else:
-                    self.finished.emit(False, 0.0, "Ошибка отправки")
-                    
+                self.finished.emit(ok, 0.0, "")
+
         except Exception as e:
             error_msg = str(e)
             is_flood_wait = "429" in error_msg or "Too Many Requests" in error_msg
             extra_wait = 60.0 if is_flood_wait else 0.0
-            
-            log(f"[TgSendWorker] error: {error_msg}", "❌ ERROR")
-            self.finished.emit(False, extra_wait, error_msg)
+            self.finished.emit(False, extra_wait, "")
 
 # ──────────────────────────────────────────────────────────────────
 class FullLogDaemon(QObject):
@@ -96,7 +89,7 @@ class FullLogDaemon(QObject):
       • в caption – доп. инфо + последние ERROR-строки.
     """
 
-    def __init__(self, log_path: str, interval: int = 600, parent=None):
+    def __init__(self, log_path: str, interval: int = 1800, parent=None):
         super().__init__(parent)
 
         self.log_path = Path(log_path).absolute()
@@ -105,7 +98,6 @@ class FullLogDaemon(QObject):
 
         # Проверяем существование файла при инициализации
         if not os.path.exists(self.log_path):
-            log(f"Лог файл не найден при инициализации FullLogDaemon: {self.log_path}", "⚠ WARNING")
             return
         
         # снимок предыдущего состояния
@@ -167,15 +159,9 @@ class FullLogDaemon(QObject):
         thread.started.connect(worker.run)
 
         def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
-            if ok:
-                log("[FullLogDaemon] Лог успешно отправлен в Telegram", "✅ INFO")
-            else:
-                if extra_wait > 0:
-                    log(f"[FullLogDaemon] Flood-wait, пауза {extra_wait}s", "⚠ WARNING")
-                    self._suspend_until = time.time() + extra_wait
-                else:
-                    log(f"[FullLogDaemon] Ошибка отправки: {error_msg}", "❌ ERROR")
-            
+            if not ok and extra_wait > 0:
+                self._suspend_until = time.time() + extra_wait
+
             worker.deleteLater()
             thread.quit()
             thread.wait()

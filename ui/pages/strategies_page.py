@@ -388,13 +388,13 @@ class CommandLineWidget(QFrame):
 
 class ResetActionButton(QPushButton):
     """Кнопка сброса с двойным подтверждением и анимацией"""
-    
+
     reset_confirmed = pyqtSignal()
-    
-    def __init__(self, text: str = "Сбросить", parent=None):
+
+    def __init__(self, text: str = "Сбросить", confirm_text: str = "Подтвердить?", parent=None):
         super().__init__(text, parent)
         self._default_text = text
-        self._confirm_text = "Подтвердить?"
+        self._confirm_text = confirm_text
         self._pending = False
         self._hovered = False
         self._icon_offset = 0.0
@@ -772,9 +772,13 @@ class StrategiesPage(QWidget):
             folder_btn.clicked.connect(self._open_folder)
             actions_layout.addWidget(folder_btn)
             
-            self._clear_btn = ResetActionButton("Сбросить")
+            self._clear_btn = ResetActionButton("Выключить", confirm_text="Всё удалится")
             self._clear_btn.reset_confirmed.connect(self._clear_all)
             actions_layout.addWidget(self._clear_btn)
+
+            self._reset_btn = ResetActionButton("Сбросить", confirm_text="По умолчанию")
+            self._reset_btn.reset_confirmed.connect(self._reset_to_defaults)
+            actions_layout.addWidget(self._reset_btn)
             
             # Кнопка перезапуска с анимацией
             self._restart_btn = ActionButton("Перезапустить", "fa5s.redo-alt")
@@ -1854,11 +1858,55 @@ class StrategiesPage(QWidget):
             # Перезагружаем интерфейс (командная строка обновится внутри _load_direct_mode)
             self._reload_strategies()
 
-            log("Все стратегии сброшены в 'none'", "INFO")
-            
+            log("Все стратегии выключены (установлены в 'none')", "INFO")
+
         except Exception as e:
-            log(f"Ошибка сброса: {e}", "ERROR")
-    
+            log(f"Ошибка выключения стратегий: {e}", "ERROR")
+
+    def _reset_to_defaults(self):
+        """Сбрасывает настройки реестра к значениям по умолчанию"""
+        try:
+            from config.reg import reg_delete_all_values
+            from strategy_menu import DIRECT_STRATEGY_KEY, invalidate_direct_selections_cache
+
+            # Удаляем все значения из реестра (стратегии будут браться по умолчанию)
+            reg_delete_all_values(DIRECT_STRATEGY_KEY)
+            invalidate_direct_selections_cache()
+
+            log("Настройки стратегий очищены из реестра", "INFO")
+
+            # Перезагружаем интерфейс (теперь загрузятся значения по умолчанию)
+            self._reload_strategies()
+
+            # Перезапускаем DPI с настройками по умолчанию
+            app = self.parent_app
+            if hasattr(app, 'dpi_controller') and app.dpi_controller:
+                from strategy_menu import get_direct_strategy_selections, combine_strategies
+
+                # Загружаем настройки по умолчанию
+                self.category_selections = get_direct_strategy_selections()
+
+                # Проверяем, есть ли активные стратегии
+                if self._has_any_active_strategy(self.category_selections):
+                    combined = combine_strategies(**self.category_selections)
+                    combined_data = {
+                        'id': 'DIRECT_MODE',
+                        'name': 'Прямой запуск (Запрет 2)',
+                        'is_combined': True,
+                        'args': combined['args'],
+                        'selections': self.category_selections.copy()
+                    }
+                    app.dpi_controller.start_dpi_async(selected_mode=combined_data)
+                    log("DPI перезапущен с настройками по умолчанию", "INFO")
+                else:
+                    app.dpi_controller.stop_dpi_async()
+                    log("DPI остановлен (нет активных стратегий по умолчанию)", "INFO")
+
+        except Exception as e:
+            log(f"Ошибка сброса к значениям по умолчанию: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+
     def _restart_dpi(self):
         """Перезапускает winws.exe (останавливает и сразу запускает) асинхронно"""
         try:

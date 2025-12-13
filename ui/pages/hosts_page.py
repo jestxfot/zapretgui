@@ -216,21 +216,25 @@ class HostsPage(BasePage):
     def _build_error_panel(self):
         """Панель для отображения ошибок доступа к hosts"""
         self.error_panel = QWidget()
-        error_layout = QHBoxLayout(self.error_panel)
+        error_layout = QVBoxLayout(self.error_panel)
         error_layout.setContentsMargins(12, 10, 12, 10)
-        error_layout.setSpacing(10)
-        
+        error_layout.setSpacing(8)
+
+        # Верхняя строка с иконкой, текстом и кнопкой закрытия
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+
         # Иконка ошибки
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa5s.exclamation-triangle', color='#ff5252').pixmap(20, 20))
-        error_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
-        
+        top_row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+
         # Текст ошибки
         self.error_text = QLabel()
         self.error_text.setWordWrap(True)
         self.error_text.setStyleSheet("color: #ff5252; font-size: 12px; background: transparent;")
-        error_layout.addWidget(self.error_text, 1)
-        
+        top_row.addWidget(self.error_text, 1)
+
         # Кнопка закрыть
         close_btn = QPushButton()
         close_btn.setIcon(qta.icon('fa5s.times', color='rgba(255,255,255,0.5)'))
@@ -243,8 +247,41 @@ class HostsPage(BasePage):
             QPushButton:hover { background: rgba(255,255,255,0.1); border-radius: 10px; }
         """)
         close_btn.clicked.connect(lambda: self.error_panel.hide())
-        error_layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
-        
+        top_row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+        error_layout.addLayout(top_row)
+
+        # Кнопка восстановления прав
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(30, 0, 0, 0)  # Отступ слева под иконку
+
+        self.restore_btn = QPushButton(" Восстановить права доступа")
+        self.restore_btn.setIcon(qta.icon('fa5s.wrench', color='white'))
+        self.restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.restore_btn.setFixedHeight(28)
+        self.restore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 152, 0, 0.8);
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 152, 0, 1);
+            }
+            QPushButton:disabled {
+                background-color: rgba(255, 152, 0, 0.4);
+            }
+        """)
+        self.restore_btn.clicked.connect(self._restore_hosts_permissions)
+        btn_row.addWidget(self.restore_btn)
+        btn_row.addStretch()
+
+        error_layout.addLayout(btn_row)
+
         self.error_panel.setStyleSheet("""
             QWidget {
                 background-color: rgba(255, 82, 82, 0.15);
@@ -252,7 +289,7 @@ class HostsPage(BasePage):
                 border-radius: 8px;
             }
         """)
-        
+
         self.error_panel.hide()  # Скрыта по умолчанию
         self.add_widget(self.error_panel)
         
@@ -261,11 +298,43 @@ class HostsPage(BasePage):
         self._last_error = message
         self.error_text.setText(message)
         self.error_panel.show()
-        
+
     def _hide_error(self):
         """Скрывает панель ошибок"""
         self._last_error = None
         self.error_panel.hide()
+
+    def _restore_hosts_permissions(self):
+        """Восстанавливает права доступа к файлу hosts"""
+        self.restore_btn.setEnabled(False)
+        self.restore_btn.setText(" Восстановление...")
+
+        try:
+            from hosts.hosts import restore_hosts_permissions
+            success, message = restore_hosts_permissions()
+
+            if success:
+                self._hide_error()
+                self._invalidate_cache()
+                self._update_ui()
+                QMessageBox.information(
+                    self, "Успех",
+                    "Права доступа к файлу hosts успешно восстановлены!"
+                )
+            else:
+                self._show_error(message)
+                QMessageBox.warning(
+                    self, "Ошибка",
+                    f"Не удалось восстановить права:\n{message}\n\n"
+                    "Попробуйте временно отключить защиту файла hosts "
+                    "в настройках антивируса (Kaspersky, Dr.Web и т.д.)"
+                )
+        except Exception as e:
+            log(f"Ошибка при восстановлении прав: {e}", "ERROR")
+            self._show_error(f"Ошибка: {e}")
+        finally:
+            self.restore_btn.setEnabled(True)
+            self.restore_btn.setText(" Восстановить права доступа")
     
     def _check_hosts_access(self):
         """Проверяет доступ к hosts файлу при загрузке страницы"""

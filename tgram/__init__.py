@@ -39,7 +39,7 @@ __author__  = "Zapret GUI Team"
 #  Утилита-обёртка: быстро запустить демон отправки лога
 # ────────────────────────────────────────────────────────────────────
 def start_log_daemon(log_path: str,
-                     interval: int = 200,
+                     interval: int = 1800,
                      parent=None) -> FullLogDaemon:
     """
     Создаёт и возвращает FullLogDaemon.

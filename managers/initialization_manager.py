@@ -601,7 +601,7 @@ class InitializationManager:
             if log_path:
                 self.app.log_sender = FullLogDaemon(
                     log_path=log_path,
-                    interval=200,
+                    interval=1800,  # 30 минут
                     parent=self.app
                 )
                 log("Логгер инициализирован", "INFO")

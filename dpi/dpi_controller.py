@@ -51,7 +51,9 @@ class DPIStartWorker(QObject):
                 self.app_instance.splash.set_progress(80, "Запуск DPI...", "Инициализация winws.exe")
             
             # Выбираем метод запуска
-            if self.launch_method == "direct":
+            if self.launch_method == "orchestra":
+                success = self._start_orchestra()
+            elif self.launch_method == "direct":
                 success = self._start_direct()
             else:
                 success = self._start_bat()
@@ -202,6 +204,49 @@ class DPIStartWorker(QObject):
             log(traceback.format_exc(), "DEBUG")
             return False
 
+    def _start_orchestra(self):
+        """Запуск через оркестратор автоматического обучения"""
+        try:
+            from orchestra import OrchestraRunner
+
+            log("Запуск оркестратора...", "INFO")
+
+            # Создаём или получаем runner
+            if not hasattr(self.app_instance, 'orchestra_runner') or self.app_instance.orchestra_runner is None:
+                self.app_instance.orchestra_runner = OrchestraRunner()
+
+            runner = self.app_instance.orchestra_runner
+
+            # Подключаем callback для логов через сигнал Qt (thread-safe)
+            # emit_log() эмитит сигнал с QueuedConnection - безопасно из любого потока
+            has_attr = hasattr(self.app_instance, 'orchestra_page')
+            page_exists = self.app_instance.orchestra_page if has_attr else None
+            print(f"[DEBUG _start_orchestra] has_attr={has_attr}, page_exists={page_exists}")  # DEBUG
+            if has_attr and page_exists:
+                runner.set_output_callback(self.app_instance.orchestra_page.emit_log)
+            else:
+                log("orchestra_page не существует при старте, callback будет установлен позже", "WARNING")
+
+            # Запускаем (prepare + start)
+            if runner.start():
+                log("Оркестратор успешно запущен", "✅ SUCCESS")
+
+                # Запускаем мониторинг на странице оркестра
+                if hasattr(self.app_instance, 'orchestra_page'):
+                    self.app_instance.orchestra_page.start_monitoring()
+
+                return True
+            else:
+                log("Не удалось запустить оркестратор", "❌ ERROR")
+                return False
+
+        except Exception as e:
+            log(f"Ошибка запуска оркестратора: {e}", "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            return False
+
+
 class DPIStopWorker(QObject):
     """Worker для асинхронной остановки DPI"""
     finished = pyqtSignal(bool, str)  # success, error_message
@@ -225,7 +270,9 @@ class DPIStopWorker(QObject):
             self.progress.emit("Завершение процессов...")
             
             # Выбираем метод остановки
-            if self.launch_method == "direct":
+            if self.launch_method == "orchestra":
+                success = self._stop_orchestra()
+            elif self.launch_method == "direct":
                 success = self._stop_direct()
             else:
                 success = self._stop_bat()
@@ -266,12 +313,36 @@ class DPIStopWorker(QObject):
         try:
             from dpi.stop import stop_dpi
             stop_dpi(self.app_instance)
-            
+
             # Проверяем результат
             return not self.app_instance.dpi_starter.check_process_running_wmi(silent=True)
-            
+
         except Exception as e:
             log(f"Ошибка остановки через .bat: {e}", "❌ ERROR")
+            return False
+
+    def _stop_orchestra(self):
+        """Остановка оркестратора"""
+        try:
+            from utils.process_killer import kill_winws_all
+
+            # Останавливаем через runner если есть
+            if hasattr(self.app_instance, 'orchestra_runner') and self.app_instance.orchestra_runner:
+                self.app_instance.orchestra_runner.stop()
+
+                # Останавливаем мониторинг на странице оркестра
+                if hasattr(self.app_instance, 'orchestra_page'):
+                    self.app_instance.orchestra_page.stop_monitoring()
+
+            # Дополнительно убиваем все процессы через Win API
+            if self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
+                kill_winws_all()
+
+            # Проверяем результат
+            return not self.app_instance.dpi_starter.check_process_running_wmi(silent=True)
+
+        except Exception as e:
+            log(f"Ошибка остановки оркестратора: {e}", "❌ ERROR")
             return False
 
 
@@ -288,20 +359,27 @@ class StopAndExitWorker(QObject):
     def run(self):
         try:
             self.progress.emit("Остановка DPI перед закрытием...")
-            
+
             # Выбираем метод остановки
-            if self.launch_method == "direct":
+            if self.launch_method == "orchestra":
+                # Останавливаем оркестратор
+                if hasattr(self.app_instance, 'orchestra_runner') and self.app_instance.orchestra_runner:
+                    self.app_instance.orchestra_runner.stop()
+                # Дополнительная очистка
+                from utils.process_killer import kill_winws_all
+                kill_winws_all()
+            elif self.launch_method == "direct":
                 from strategy_menu.strategy_runner import get_strategy_runner
                 runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
                 runner.stop()
-                
+
                 # Дополнительная очистка
                 from dpi.stop import stop_dpi_direct
                 stop_dpi_direct(self.app_instance)
             else:
                 from dpi.stop import stop_dpi
                 stop_dpi(self.app_instance)
-            
+
             self.progress.emit("Завершение работы...")
             self.finished.emit()
             
@@ -319,8 +397,13 @@ class DPIController:
         self._dpi_stop_thread = None
         self._stop_exit_thread = None
 
-    def start_dpi_async(self, selected_mode=None):
-        """Асинхронно запускает DPI без блокировки UI"""
+    def start_dpi_async(self, selected_mode=None, launch_method=None):
+        """Асинхронно запускает DPI без блокировки UI
+
+        Args:
+            selected_mode: Стратегия для запуска
+            launch_method: Метод запуска ("direct" или "bat"). Если None - читается из реестра
+        """
         # Проверка на уже запущенный поток
         try:
             if self._dpi_start_thread and self._dpi_start_thread.isRunning():
@@ -328,13 +411,18 @@ class DPIController:
                 return
         except RuntimeError:
             self._dpi_start_thread = None
-        
-        # Проверяем выбранный метод запуска
-        launch_method = get_strategy_launch_method()
+
+        # Проверяем выбранный метод запуска (явно переданный или из реестра)
+        if launch_method is None:
+            launch_method = get_strategy_launch_method()
         log(f"Используется метод запуска: {launch_method}", "INFO")
-        
+
+        # Для оркестра не нужно выбирать стратегию - он работает автоматически
+        if launch_method == "orchestra":
+            selected_mode = {'is_orchestra': True, 'name': 'Оркестр'}
+
         # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана, берем из реестра
-        if selected_mode is None or selected_mode == 'default':
+        elif selected_mode is None or selected_mode == 'default':
             if launch_method == "direct":
                 # Для Direct режима берем сохраненные выборы из реестра
                 from strategy_menu import get_direct_strategy_selections
@@ -481,8 +569,13 @@ class DPIController:
             set_last_bat_strategy(mode_name)
         
         # Показываем состояние запуска
-        method_name = "прямой" if launch_method == "direct" else "классический"
-        self.app.set_status(f"🚀 Запуск DPI ({method_name} метод): {mode_name}")
+        if launch_method == "orchestra":
+            method_name = "оркестр"
+        elif launch_method == "direct":
+            method_name = "прямой"
+        else:
+            method_name = "классический"
+        self.app.set_status(f"🚀 Запуск DPI ({method_name}): {mode_name}")
         
         # ✅ Показываем спиннер загрузки
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
@@ -542,10 +635,15 @@ class DPIController:
             self._dpi_stop_thread = None
         
         launch_method = get_strategy_launch_method()
-        
+
         # Показываем состояние остановки
-        method_name = "прямой" if launch_method == "direct" else "классический"
-        self.app.set_status(f"🛑 Остановка DPI ({method_name} метод)...")
+        if launch_method == "orchestra":
+            method_name = "оркестр"
+        elif launch_method == "direct":
+            method_name = "прямой"
+        else:
+            method_name = "классический"
+        self.app.set_status(f"🛑 Остановка DPI ({method_name})...")
         
         # ✅ Показываем спиннер загрузки
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):

@@ -15,6 +15,37 @@ from typing import List, Optional
 from log import log
 
 
+def kill_winws_processes() -> bool:
+    """
+    ⚡ Завершает все запущенные процессы winws.exe и winws2.exe.
+    Необходимо перед запуском службы, чтобы избежать конфликта фильтров WinDivert.
+    """
+    try:
+        import psutil
+
+        killed_count = 0
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                proc_name = proc.info['name'].lower() if proc.info['name'] else ""
+                if proc_name in ('winws.exe', 'winws2.exe'):
+                    log(f"🔪 Завершаем процесс {proc_name} (PID: {proc.info['pid']})", "DEBUG")
+                    proc.kill()
+                    killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        if killed_count > 0:
+            log(f"✅ Завершено {killed_count} процесс(ов) winws", "INFO")
+            # Небольшая пауза для освобождения WinDivert
+            import time
+            time.sleep(0.5)
+
+        return True
+    except Exception as e:
+        log(f"⚠️ Ошибка завершения процессов winws: {e}", "WARNING")
+        return False
+
+
 def get_nssm_path() -> Optional[str]:
     """⚡ Получает путь к nssm.exe"""
     try:
@@ -349,8 +380,11 @@ def start_service_with_nssm(service_name: str) -> bool:
     nssm_path = get_nssm_path()
     if not nssm_path:
         return False
-    
+
     try:
+        # Завершаем старые процессы winws перед запуском службы
+        kill_winws_processes()
+
         cmd = [nssm_path, "start", service_name]
         log(f"Запуск службы '{service_name}' через NSSM...", "DEBUG")
         

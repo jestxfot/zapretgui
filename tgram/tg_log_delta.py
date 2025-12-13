@@ -23,7 +23,7 @@ _PROD_XOR = 0x4B
 _PROD_SUM = 527
 
 # dev-бот (test)
-_DEV_ENC = "ZGhoZW5tZWVobGYdHRs1ZCopGxgvN2sSHi0EbWwmGDpxamopPnEtbRhqEWowMw=="
+_DEV_ENC = "ZGhoZW5tZWVobGYdHRs1ZCopGxgvN2sSHi0EbWwmGDpxamopPnEtbRhqEWoQMw=="
 _DEV_XOR = 0x5C
 _DEV_SUM = 530
 
@@ -32,6 +32,9 @@ CHAT_ID = -1003005847271
 
 # Топик зависит от канала: test → 10854, stable → 1
 TOPIC_ID = 10854 if IS_DEV_BUILD else 1
+
+# Топик для ошибок (error/warning) - общий для всех версий
+ERROR_TOPIC_ID = 12681
 
 def _decode_token(encoded: str, xor_key: int, checksum: int) -> str:
     """Деобфусцирует токен"""
@@ -48,7 +51,7 @@ def _decode_token(encoded: str, xor_key: int, checksum: int) -> str:
 TOKEN = _decode_token(_DEV_ENC, _DEV_XOR, _DEV_SUM) if IS_DEV_BUILD else _decode_token(_PROD_ENC, _PROD_XOR, _PROD_SUM)
 
 # интервалы / лимиты
-INTERVAL  = 200  # сек между отправками
+INTERVAL  = 1800  # 30 минут между отправками
 MAX_CHUNK = 3500
 
 # ---------- Client-ID (как было) ------------------------------------
@@ -103,18 +106,23 @@ def _chunks(txt: str, n: int = MAX_CHUNK):
     for i in range(0, len(txt), n):
         yield txt[i:i+n]
 
-def _send(text: str):
+def _send(text: str, topic_id: int = TOPIC_ID):
     for part in _chunks(text):
         _async_post(
             f"{API}/sendMessage",
             data=dict(
                 chat_id=CHAT_ID,
-                message_thread_id=TOPIC_ID,
+                message_thread_id=topic_id,
                 text=f"<pre>{part}</pre>",
                 parse_mode="HTML",
                 disable_web_page_preview=True
             )
         )
+
+def _has_error_or_warning(text: str) -> bool:
+    """Проверяет наличие error или warning в тексте (case-insensitive)"""
+    lower = text.lower()
+    return "error" in lower or "warning" in lower
 
 # ---------- Tail-sender ---------------------------------------------
 class LogTailSender:
@@ -152,11 +160,14 @@ class LogTailSender:
             if not delta.strip():
                 return
             header = self._make_header(delta.count("\n") or 1)
-            _send(header + delta)
-        except Exception as e:
-            # Маскируем токен в ошибке
-            err_msg = str(e).replace(TOKEN, "***MASKED***") if TOKEN else str(e)
-            print("send_delta error:", err_msg)
+            full_message = header + delta
+            _send(full_message)
+
+            # Если есть error/warning - дополнительно отправляем в error-топик
+            if _has_error_or_warning(delta):
+                _send(full_message, topic_id=ERROR_TOPIC_ID)
+        except Exception:
+            pass  # тихий режим
 
 # ---------- Qt-обёртка ----------------------------------------------
 class LogDeltaDaemon:

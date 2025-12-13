@@ -795,12 +795,12 @@ class NetworkPage(BasePage):
                     self._set_force_dns_toggle(False)
                     self._update_force_dns_status(False, "Не удалось включить")
             else:
-                success, message = manager.disable_force_dns(restore_from_backup=True)
+                success, message = manager.disable_force_dns()
                 log(message, "DNS")
-                
+
                 if success:
                     self._force_dns_active = False
-                    self._update_force_dns_status(False, "DNS восстановлен")
+                    self._update_force_dns_status(False, "DNS сброшен на авто")
                 else:
                     self._set_force_dns_toggle(True)
                     self._update_force_dns_status(True, "Не удалось отключить")

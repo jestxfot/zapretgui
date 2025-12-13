@@ -309,3 +309,86 @@ def set_window_opacity(opacity: int) -> bool:
     # Ограничиваем значение диапазоном 0-100
     opacity = max(0, min(100, int(opacity)))
     return reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME, opacity)
+
+
+# ───────────── Registry Subkey Helpers ─────────────
+
+def reg_enumerate_values(subkey: str, *, root=HKCU) -> dict:
+    """
+    Перечисляет все значения в ключе реестра.
+
+    Returns:
+        {name: value, ...} или {} если ключ не существует
+    """
+    result = {}
+    try:
+        with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as k:
+            i = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(k, i)
+                    result[name] = value
+                    i += 1
+                except OSError:
+                    break  # Больше значений нет
+    except FileNotFoundError:
+        pass  # Ключ не существует
+    except Exception as e:
+        _log(f"reg_enumerate_values error [{subkey}]: {e}", "DEBUG")
+    return result
+
+
+def reg_delete_all_values(subkey: str, *, root=HKCU) -> bool:
+    """
+    Удаляет все значения в ключе реестра (сам ключ остаётся).
+
+    Returns:
+        True если успешно, False при ошибке
+    """
+    try:
+        with winreg.OpenKey(root, subkey, 0, winreg.KEY_ALL_ACCESS) as k:
+            # Сначала получаем список имён
+            names = []
+            i = 0
+            while True:
+                try:
+                    name, _, _ = winreg.EnumValue(k, i)
+                    names.append(name)
+                    i += 1
+                except OSError:
+                    break
+            # Удаляем каждое значение
+            for name in names:
+                try:
+                    winreg.DeleteValue(k, name)
+                except Exception:
+                    pass
+        return True
+    except FileNotFoundError:
+        return True  # Ключ не существует - считаем успехом
+    except Exception as e:
+        _log(f"reg_delete_all_values error [{subkey}]: {e}", "ERROR")
+        return False
+
+
+def reg_set_values(subkey: str, values: dict, *, root=HKCU) -> bool:
+    """
+    Записывает несколько значений в ключ реестра.
+
+    Args:
+        subkey: путь к ключу
+        values: {name: value, ...}
+
+    Returns:
+        True если все записаны успешно
+    """
+    try:
+        k = winreg.CreateKeyEx(root, subkey, 0, winreg.KEY_SET_VALUE)
+        for name, value in values.items():
+            reg_type = _detect_reg_type(value)
+            winreg.SetValueEx(k, name, 0, reg_type, value)
+        winreg.CloseKey(k)
+        return True
+    except Exception as e:
+        _log(f"reg_set_values error [{subkey}]: {e}", "ERROR")
+        return False

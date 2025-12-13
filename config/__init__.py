@@ -24,6 +24,7 @@ __all__ = [
     'THEME_FOLDER',
     'EXE_FOLDER',
     'BIN_FOLDER',
+    'LUA_FOLDER',
     'BAT_FOLDER',
     'LISTS_FOLDER',
     'LOGS_FOLDER',

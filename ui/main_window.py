@@ -15,7 +15,7 @@ from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
     HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    ServersPage, ConnectionTestPage, DNSCheckPage
+    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage
 )
 
 import qtawesome as qta
@@ -107,45 +107,45 @@ class MainWindowUI:
         # Стратегии (индекс 2)
         self.strategies_page = StrategiesPage(self)
         self.pages_stack.addWidget(self.strategies_page)
-        
+
         # Hostlist (индекс 3)
         self.hostlist_page = HostlistPage(self)
         self.pages_stack.addWidget(self.hostlist_page)
-        
+
         # IPset (индекс 4)
         self.ipset_page = IpsetPage(self)
         self.pages_stack.addWidget(self.ipset_page)
-        
+
         # Блобы - управление бинарными данными для Zapret 2 (индекс 5)
         self.blobs_page = BlobsPage(self)
         self.pages_stack.addWidget(self.blobs_page)
-        
+
         # Редактор стратегий (индекс 6)
         self.editor_page = EditorPage(self)
         self.pages_stack.addWidget(self.editor_page)
-        
+
         # Настройки DPI (индекс 7)
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
-        
+
         # === МОИ СПИСКИ ===
         # Исключения netrogat.txt (индекс 8)
         self.netrogat_page = NetrogatPage(self)
         self.pages_stack.addWidget(self.netrogat_page)
-        
+
         # Мои домены - управление other2.txt (индекс 9)
         self.custom_domains_page = CustomDomainsPage(self)
         self.pages_stack.addWidget(self.custom_domains_page)
-        
+
         # Мои IP - управление my-ipset.txt (индекс 10)
         self.custom_ipset_page = CustomIpSetPage(self)
         self.pages_stack.addWidget(self.custom_ipset_page)
         # === КОНЕЦ МОИ СПИСКИ ===
-        
+
         # Автозапуск (индекс 11)
         self.autostart_page = AutostartPage(self)
         self.pages_stack.addWidget(self.autostart_page)
-        
+
         # Сеть (индекс 12)
         self.network_page = NetworkPage(self)
         self.pages_stack.addWidget(self.network_page)
@@ -153,38 +153,42 @@ class MainWindowUI:
         # Диагностика соединения (индекс 13)
         self.connection_page = ConnectionTestPage(self)
         self.pages_stack.addWidget(self.connection_page)
-        
+
         # DNS подмена - подпункт диагностики (индекс 14)
         self.dns_check_page = DNSCheckPage(self)
         self.pages_stack.addWidget(self.dns_check_page)
-        
+
         # Hosts - разблокировка сервисов (индекс 15)
         self.hosts_page = HostsPage(self)
         self.pages_stack.addWidget(self.hosts_page)
-        
+
         # BlockCheck (индекс 16)
         self.blockcheck_page = BlockcheckPage(self)
         self.pages_stack.addWidget(self.blockcheck_page)
-        
+
         # Оформление (индекс 17)
         self.appearance_page = AppearancePage(self)
         self.pages_stack.addWidget(self.appearance_page)
-        
+
         # Premium (индекс 18)
         self.premium_page = PremiumPage(self)
         self.pages_stack.addWidget(self.premium_page)
-        
+
         # Логи (индекс 19)
         self.logs_page = LogsPage(self)
         self.pages_stack.addWidget(self.logs_page)
-        
+
         # Серверы обновлений (индекс 20)
         self.servers_page = ServersPage(self)
         self.pages_stack.addWidget(self.servers_page)
-        
+
         # О программе (индекс 21)
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
+
+        # Оркестр - автообучение (индекс 22, скрытая вкладка)
+        self.orchestra_page = OrchestraPage(self)
+        self.pages_stack.addWidget(self.orchestra_page)
         
     def _setup_compatibility_attrs(self):
         """Создает атрибуты для совместимости со старым кодом"""
@@ -222,7 +226,11 @@ class MainWindowUI:
         # Сигналы от страницы автозапуска
         self.autostart_page.autostart_enabled.connect(self._on_autostart_enabled)
         self.autostart_page.autostart_disabled.connect(self._on_autostart_disabled)
-        
+        self.autostart_page.navigate_to_dpi_settings.connect(self._navigate_to_dpi_settings)
+
+        # Подключаем обновление темы для страницы автозапуска
+        self.appearance_page.theme_changed.connect(self.autostart_page.on_theme_changed)
+
         # Дублируем кнопки на страницу управления
         self.control_page.start_btn.clicked.connect(self._proxy_start_click)
         self.control_page.stop_winws_btn.clicked.connect(self._proxy_stop_click)
@@ -261,6 +269,18 @@ class MainWindowUI:
         # Для совместимости - если strategies_page также имеет сигнал
         if hasattr(self.strategies_page, 'launch_method_changed'):
             self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
+
+        # Подключаем сигналы от OrchestraPage
+        if hasattr(self, 'orchestra_page'):
+            self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
+
+    def _on_clear_learned_requested(self):
+        """Обработчик очистки данных обучения"""
+        from log import log
+        log("Запрошена очистка данных обучения", "INFO")
+        if hasattr(self, 'orchestra_runner') and self.orchestra_runner:
+            self.orchestra_runner.clear_learned_data()
+            log("Данные обучения очищены", "INFO")
 
     def _on_launch_method_changed(self, method: str):
         """Обработчик смены метода запуска стратегий"""
@@ -319,9 +339,9 @@ class MainWindowUI:
         
         # ✅ Обновляем путь к exe в dpi_starter
         if hasattr(self, 'dpi_starter'):
-            if method == "direct":
+            if method in ("direct", "orchestra"):
                 self.dpi_starter.winws_exe = WINWS2_EXE
-                log("Переключение на winws2.exe (Direct режим)", "DEBUG")
+                log(f"Переключение на winws2.exe ({method} режим)", "DEBUG")
             else:
                 self.dpi_starter.winws_exe = WINWS_EXE
                 log("Переключение на winws.exe (BAT режим)", "DEBUG")
@@ -340,7 +360,7 @@ class MainWindowUI:
         # ✅ Обновляем видимость вкладки "Блобы" в сайдбаре
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
             self.side_nav.update_blobs_visibility()
-        
+
         log(f"✅ Переключение на режим '{method}' завершено", "INFO")
         
         # ✅ Автоматически запускаем DPI с выбранными стратегиями
@@ -360,14 +380,29 @@ class MainWindowUI:
             if hasattr(self, 'strategies_page'):
                 self.strategies_page.show_loading()
             
-            if method == "direct":
+            if method == "orchestra":
+                # Оркестр - автоматическое обучение
+                log(f"🚀 Автозапуск Оркестр после переключения режима", "INFO")
+                self.dpi_controller.start_dpi_async(selected_mode=None, launch_method="orchestra")
+
+                # Обновляем GUI
+                if hasattr(self, 'current_strategy_label'):
+                    self.current_strategy_label.setText("Оркестр")
+                if hasattr(self, 'current_strategy_name'):
+                    self.current_strategy_name = "Оркестр"
+
+                # Запускаем мониторинг на странице оркестра
+                if hasattr(self, 'orchestra_page'):
+                    self.orchestra_page.start_monitoring()
+
+            elif method == "direct":
                 # Zapret 2 - Direct режим
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
-                
+
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
-                
+
                 # Формируем данные для запуска
                 selected_mode = {
                     'is_combined': True,
@@ -375,29 +410,29 @@ class MainWindowUI:
                     'args': combined.get('args', ''),
                     'category_strategies': combined.get('category_strategies', {})
                 }
-                
+
                 log(f"🚀 Автозапуск Zapret 2 (Direct) после переключения режима", "INFO")
-                self.dpi_controller.start_dpi_async(selected_mode=selected_mode)
-                
+                self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method="direct")
+
                 # Обновляем GUI
                 if hasattr(self, 'current_strategy_label'):
                     self.current_strategy_label.setText("Прямой запуск")
                 if hasattr(self, 'current_strategy_name'):
                     self.current_strategy_name = "Прямой запуск"
-                
+
                 # Обновляем отображение на странице стратегий
                 if hasattr(self, 'strategies_page'):
                     self.strategies_page._update_current_strategies_display()
-                
+
             else:
                 # Zapret 1 - BAT режим (отдельный ключ реестра)
                 from config.reg import get_last_bat_strategy
-                
+
                 last_strategy = get_last_bat_strategy()
-                
+
                 if last_strategy and last_strategy != "Автостарт DPI отключен":
                     log(f"🚀 Автозапуск Zapret 1 (BAT): {last_strategy}", "INFO")
-                    self.dpi_controller.start_dpi_async(selected_mode=last_strategy)
+                    self.dpi_controller.start_dpi_async(selected_mode=last_strategy, launch_method="bat")
                     
                     # Обновляем GUI
                     if hasattr(self, 'current_strategy_label'):
@@ -464,6 +499,19 @@ class MainWindowUI:
         
     def _on_section_changed(self, index: int):
         """Обработчик смены раздела в навигации"""
+        # Если переключаемся на страницу стратегий (индекс 2) и выбран режим оркестра,
+        # показываем страницу оркестра вместо страницы стратегий
+        strategies_page_index = self.pages_stack.indexOf(self.strategies_page)
+        if index == strategies_page_index:
+            try:
+                from strategy_menu import get_strategy_launch_method
+                if get_strategy_launch_method() == "orchestra":
+                    orchestra_index = self.pages_stack.indexOf(self.orchestra_page)
+                    if orchestra_index >= 0:
+                        self.pages_stack.setCurrentIndex(orchestra_index)
+                        return
+            except Exception:
+                pass
         self.pages_stack.setCurrentIndex(index)
     
     def _on_sidebar_pin_changed(self, is_pinned: bool):
@@ -687,7 +735,21 @@ class MainWindowUI:
             self.side_nav.set_page(index)
 
     def _navigate_to_strategies(self):
-        """Переключается на страницу стратегий"""
+        """Переключается на страницу стратегий (или оркестра если выбран режим оркестра)"""
+        # Всегда переходим на индекс стратегий в sidebar,
+        # _on_section_changed сделает редирект на оркестр если нужно
         index = self.pages_stack.indexOf(self.strategies_page)
         if index >= 0:
+            self.side_nav.set_page(index)
+
+    def _navigate_to_dpi_settings(self):
+        """Переключается на страницу настроек DPI"""
+        from log import log
+        log("_navigate_to_dpi_settings called!", "DEBUG")
+        index = self.pages_stack.indexOf(self.dpi_settings_page)
+        log(f"DPI settings page index: {index}", "DEBUG")
+        if index >= 0:
+            # Сначала переключаем страницу напрямую
+            self.pages_stack.setCurrentIndex(index)
+            # Затем обновляем sidebar для синхронизации выделения
             self.side_nav.set_page(index)

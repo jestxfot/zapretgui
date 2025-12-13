@@ -17,7 +17,7 @@ class StrategyTableWithFavoritesFilter(StrategyTableWidget):
         super().__init__(strategy_manager, parent)
         self._all_strategies = {}
     
-    def populate_strategies(self, strategies):
+    def populate_strategies(self, strategies, category_key="bat"):
         """Сохраняет все стратегии"""
         self._all_strategies = strategies.copy()
-        super().populate_strategies(strategies)
+        super().populate_strategies(strategies, category_key)

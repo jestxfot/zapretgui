@@ -23,6 +23,7 @@ from .custom_ipset_page import CustomIpSetPage  # Страница управл�
 from .netrogat_page import NetrogatPage  # Страница управления netrogat.txt
 from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
+from .orchestra_page import OrchestraPage
 
 __all__ = [
     'HomePage',
@@ -47,5 +48,6 @@ __all__ = [
     'NetrogatPage',  # Страница управления netrogat.txt
     'ConnectionTestPage',
     'DNSCheckPage',  # Страница проверки DNS подмены
+    'OrchestraPage',  # Страница оркестратора автообучения
 ]
 

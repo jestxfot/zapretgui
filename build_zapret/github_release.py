@@ -83,7 +83,7 @@ GITHUB_CONFIG = {
     },
     "upload_settings": {
         "use_cli_for_large_files": True,  # Использовать GitHub CLI для больших файлов
-        "large_file_threshold_mb": 50,    # Порог в МБ для переключения на CLI
+        "large_file_threshold_mb": 40,    # Порог в МБ для переключения на CLI
         "retry_attempts": 3,               # Количество попыток при ошибках
         "chunk_size_mb": 5                # Размер чанка для загрузки
     }
@@ -542,6 +542,7 @@ class GitHubReleaseManager:
                 upload_session = requests.Session()
                 upload_session.headers.update(self.headers)
                 upload_session.headers["Content-Type"] = content_type
+                upload_session.headers["Content-Length"] = str(file_size)
                 
                 # ✅ ИСПРАВЛЕНИЕ: Используем генератор для отслеживания прогресса
                 def file_reader_with_progress(file_obj, chunk_size=8192):

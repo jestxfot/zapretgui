@@ -20,7 +20,7 @@ from .service_api import (
 
 SERVICE_NAME = "ZapretDirectService"
 SERVICE_DISPLAY_NAME = "Zapret Direct Mode Service"
-SERVICE_DESCRIPTION = "Запускает Zapret в Direct режиме при загрузке системы"
+SERVICE_DESCRIPTION = "Позволяет запустить Zapret в Direct режиме при загрузке системы"
 
 
 def create_direct_service_bat(

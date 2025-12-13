@@ -25,7 +25,7 @@ _PROD_XOR = 0x4B
 _PROD_SUM = 527
 
 # dev-бот (test)
-_DEV_ENC = "ZGhoZW5tZWVobGYdHRs1ZCopGxgvN2sSHi0EbWwmGDpxamopPnEtbRhqEWowMw=="
+_DEV_ENC = "ZGhoZW5tZWVobGYdHRs1ZCopGxgvN2sSHi0EbWwmGDpxamopPnEtbRhqEWoQMw=="
 _DEV_XOR = 0x5C
 _DEV_SUM = 530
 
@@ -76,11 +76,10 @@ def _get_log_api() -> str:
     return f"https://api.telegram.org/bot{_get_bot_token()}"
 
 
-def _safe_api_call(method: str, *, data=None, files=None) -> dict:
+def _safe_api_call(method: str, *, data=None, files=None) -> Optional[dict]:
     """
-    Безопасный вызов Telegram API с обработкой flood-wait.
+    Безопасный вызов Telegram API с обработкой flood-wait (тихий режим).
     """
-    from log import log
     from .tg_sender import _set_flood_cooldown
 
     for attempt in range(MAX_RETRIES + 1):
@@ -92,7 +91,6 @@ def _safe_api_call(method: str, *, data=None, files=None) -> dict:
 
         except requests.HTTPError as e:
             if e.response and e.response.status_code == 429:
-                # Обработка flood-wait
                 try:
                     result = e.response.json()
                     retry_after = result.get("parameters", {}).get("retry_after", 60)
@@ -100,23 +98,25 @@ def _safe_api_call(method: str, *, data=None, files=None) -> dict:
                     retry_after = 60
 
                 wait_time = int(retry_after) + 1
-                log(f"[LogBot] Flood-wait {wait_time}s (попытка {attempt+1})", "⚠ WARNING")
-
                 if attempt < MAX_RETRIES:
                     time.sleep(wait_time)
                     continue
                 else:
                     _set_flood_cooldown()
-                    raise RuntimeError(f"Превышен лимит ожидания: {wait_time}s")
-            raise
+                    return None
+            _set_flood_cooldown()
+            return None
+        except Exception:
+            _set_flood_cooldown()
+            return None
 
     _set_flood_cooldown()
-    raise RuntimeError("Не удалось отправить после всех попыток")
+    return None
 
 
 def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None) -> tuple[bool, Optional[str]]:
     """
-    Отправляет файл лога через бота в группу с топиком.
+    Отправляет файл лога через бота в группу с топиком (тихий режим).
 
     Args:
         file_path: путь к файлу лога
@@ -126,36 +126,27 @@ def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None
     Returns:
         (success, error_message)
     """
-    from log import log
-    from .tg_sender import is_in_flood_cooldown, get_flood_cooldown_remaining
+    from .tg_sender import is_in_flood_cooldown, _set_flood_cooldown
 
-    # Определяем топик
     if topic_id is None:
         topic_id = _get_default_topic()
 
-    # Проверяем глобальный cooldown
     if is_in_flood_cooldown():
-        remaining = get_flood_cooldown_remaining()
-        msg = f"Cooldown после flood-wait: ещё {remaining:.0f}с"
-        log(f"[LogBot] {msg}", "⚠ WARNING")
-        return False, msg
+        return False, None
 
     try:
-        # Проверяем токен
         token = _get_bot_token()
         if not token:
-            return False, "Бот для логов не настроен"
+            return False, None
 
         path = Path(file_path)
         if not path.exists():
-            return False, f"Файл не найден: {path}"
+            return False, None
 
-        # Проверяем размер файла
         file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE:
-            return False, f"Файл слишком большой: {file_size / 1024 / 1024:.1f} MB"
+            return False, None
 
-        # Отправляем файл в группу с топиком
         with path.open("rb") as file:
             files = {"document": file}
             data = {
@@ -163,38 +154,27 @@ def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None
                 "message_thread_id": topic_id,
                 "caption": caption[:1024] if caption else path.name
             }
-
             result = _safe_api_call("sendDocument", data=data, files=files)
 
-        if result.get("ok"):
-            log(f"[LogBot] Лог успешно отправлен", "✅ INFO")
+        if result and result.get("ok"):
             return True, None
-        else:
-            error = result.get("description", "Неизвестная ошибка")
-            log(f"[LogBot] Ошибка отправки: {error}", "❌ ERROR")
-            return False, error
+        return False, None
 
-    except RuntimeError as e:
-        error_msg = str(e)
-        log(f"[LogBot] {error_msg}", "❌ ERROR")
-        return False, error_msg
-
-    except Exception as e:
-        error_msg = f"Неожиданная ошибка: {e}"
-        log(f"[LogBot] {error_msg}", "❌ ERROR")
-        return False, error_msg
+    except Exception:
+        _set_flood_cooldown()
+        return False, None
 
 
 def check_bot_connection() -> bool:
     """
-    Проверяет доступность бота для логов.
+    Проверяет доступность бота для логов (тихий режим).
     """
     try:
-        if not _get_bot_token():
+        token = _get_bot_token()
+        if not token:
             return False
 
         result = _safe_api_call("getMe")
-        return result.get("ok", False)
-
+        return result is not None and result.get("ok", False)
     except Exception:
         return False

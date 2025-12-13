@@ -451,7 +451,17 @@ class DpiSettingsPage(BasePage):
         )
         self.method_bat.clicked.connect(lambda: self._select_method("bat"))
         method_layout.addWidget(self.method_bat)
-        
+
+        # Оркестр (auto-learning)
+        self.method_orchestra = Win11RadioOption(
+            "Оркестр",
+            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена.",
+            icon_name="mdi.brain",
+            icon_color="#9c27b0"
+        )
+        self.method_orchestra.clicked.connect(lambda: self._select_method("orchestra"))
+        method_layout.addWidget(self.method_orchestra)
+
         # Разделитель
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
@@ -659,6 +669,7 @@ class DpiSettingsPage(BasePage):
         """Обновляет визуальное состояние выбора метода"""
         self.method_direct.setSelected(method == "direct")
         self.method_bat.setSelected(method == "bat")
+        self.method_orchestra.setSelected(method == "orchestra")
     
     def _select_method(self, method: str):
         """Обработчик выбора метода"""

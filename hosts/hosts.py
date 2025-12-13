@@ -1,6 +1,7 @@
 import ctypes
 import stat
 import os
+import subprocess
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox
 from .proxy_domains import PROXY_DOMAINS
@@ -8,6 +9,233 @@ from .adobe_domains import ADOBE_DOMAINS
 from log import log
 
 HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
+
+
+def _run_cmd(args, description):
+    """Выполняет команду и логирует результат"""
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        if result.returncode == 0:
+            log(f"✅ {description}: успешно")
+            return True
+        else:
+            # Проверяем stderr или stdout на наличие ошибки
+            error = result.stderr.strip() or result.stdout.strip()
+            log(f"⚠ {description}: {error}", "⚠ WARNING")
+            return False
+    except Exception as e:
+        log(f"❌ {description}: {e}", "❌ ERROR")
+        return False
+
+
+def _get_current_username():
+    """Получает имя текущего пользователя"""
+    try:
+        import getpass
+        return getpass.getuser()
+    except:
+        return None
+
+
+def restore_hosts_permissions():
+    """
+    Агрессивно восстанавливает права доступа к файлу hosts.
+    Использует множество методов для обхода блокировок антивирусов.
+
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    hosts_path = str(HOSTS_PATH)
+
+    log("🔧 Начинаем АГРЕССИВНОЕ восстановление прав доступа к файлу hosts...")
+
+    # Well-known SIDs (работают на любой локализации Windows)
+    # S-1-5-32-544 = Administrators / Администраторы
+    # S-1-5-32-545 = Users / Пользователи
+    # S-1-5-18 = SYSTEM
+    # S-1-1-0 = Everyone / Все
+    SID_ADMINISTRATORS = "*S-1-5-32-544"
+    SID_USERS = "*S-1-5-32-545"
+    SID_SYSTEM = "*S-1-5-18"
+    SID_EVERYONE = "*S-1-1-0"
+
+    current_user = _get_current_username()
+
+    try:
+        # ========== ЭТАП 1: Снимаем атрибуты файла ==========
+        log("Этап 1: Снимаем системные атрибуты файла...")
+        _run_cmd(['attrib', '-R', '-S', '-H', hosts_path], "attrib -R -S -H")
+
+        # ========== ЭТАП 2: Забираем владение файлом ==========
+        log("Этап 2: Забираем владение файлом...")
+
+        # Способ 1: takeown для администраторов
+        _run_cmd(['takeown', '/F', hosts_path, '/A'], "takeown /A (для группы администраторов)")
+
+        # Способ 2: takeown для текущего пользователя
+        if current_user:
+            _run_cmd(['takeown', '/F', hosts_path], "takeown (для текущего пользователя)")
+
+        # ========== ЭТАП 3: Сбрасываем ACL ==========
+        log("Этап 3: Сбрасываем ACL...")
+        _run_cmd(['icacls', hosts_path, '/reset'], "icacls /reset")
+
+        # ========== ЭТАП 4: Выдаём права через SID (работает на любой локализации) ==========
+        log("Этап 4: Выдаём права через SID...")
+
+        # Полный доступ для Administrators через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_ADMINISTRATORS}:F'],
+                 "icacls /grant Administrators (SID)")
+
+        # Полный доступ для SYSTEM через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_SYSTEM}:F'],
+                 "icacls /grant SYSTEM (SID)")
+
+        # Чтение для Users через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_USERS}:R'],
+                 "icacls /grant Users (SID)")
+
+        # Полный доступ для Everyone через SID (агрессивно!)
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_EVERYONE}:F'],
+                 "icacls /grant Everyone (SID)")
+
+        # ========== ЭТАП 5: Пробуем с английскими именами (для английской Windows) ==========
+        log("Этап 5: Пробуем с английскими именами групп...")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Administrators:F'], "icacls Administrators:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'SYSTEM:F'], "icacls SYSTEM:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Users:R'], "icacls Users:R")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Everyone:F'], "icacls Everyone:F")
+
+        # ========== ЭТАП 6: Пробуем с русскими именами (для русской Windows) ==========
+        log("Этап 6: Пробуем с русскими именами групп...")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Администраторы:F'], "icacls Администраторы:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Пользователи:R'], "icacls Пользователи:R")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Все:F'], "icacls Все:F")
+
+        # ========== ЭТАП 7: Права для текущего пользователя ==========
+        if current_user:
+            log(f"Этап 7: Выдаём права текущему пользователю ({current_user})...")
+            _run_cmd(['icacls', hosts_path, '/grant', f'{current_user}:F'],
+                     f"icacls /grant {current_user}:F")
+
+        # ========== ЭТАП 8: PowerShell для обхода некоторых блокировок ==========
+        log("Этап 8: Пробуем через PowerShell...")
+        ps_script = f'''
+$acl = Get-Acl "{hosts_path}"
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone","FullControl","Allow")
+$acl.SetAccessRule($rule)
+Set-Acl "{hosts_path}" $acl
+'''
+        _run_cmd(['powershell', '-Command', ps_script], "PowerShell Set-Acl")
+
+        # ========== ЭТАП 9: Наследование от родительской папки ==========
+        log("Этап 9: Включаем наследование прав от родительской папки...")
+        _run_cmd(['icacls', hosts_path, '/inheritance:e'], "icacls /inheritance:e")
+
+        # ========== ЭТАП 10: Финальная проверка ==========
+        log("Этап 10: Проверяем результат...")
+
+        # Пробуем прочитать файл
+        try:
+            content = HOSTS_PATH.read_text(encoding='utf-8')
+            log("✅ Права восстановлены! Файл hosts доступен для ЧТЕНИЯ")
+
+            # Пробуем записать (проверка прав на запись)
+            try:
+                with HOSTS_PATH.open('a', encoding='utf-8') as f:
+                    pass  # Просто открываем на запись
+                log("✅ Файл hosts доступен для ЗАПИСИ")
+                return True, "Права доступа к файлу hosts успешно восстановлены"
+            except PermissionError:
+                log("⚠ Файл доступен для чтения, но НЕ для записи", "⚠ WARNING")
+                return True, "Файл hosts доступен для чтения. Запись может быть заблокирована антивирусом."
+
+        except PermissionError:
+            log("❌ После всех попыток файл все еще недоступен", "❌ ERROR")
+
+            # Последняя попытка - копирование через temp
+            log("Этап 11: Последняя попытка - копирование через временный файл...")
+            success = _try_copy_workaround(hosts_path)
+            if success:
+                return True, "Права восстановлены через копирование"
+
+            return False, "Не удалось восстановить права. Возможно, антивирус блокирует доступ. Попробуйте:\n1. Временно отключить антивирус\n2. Добавить исключение для файла hosts\n3. Запустить программу от имени администратора"
+
+        except Exception as e:
+            log(f"Ошибка при проверке: {e}", "❌ ERROR")
+            return False, f"Ошибка при проверке прав: {e}"
+
+    except FileNotFoundError as e:
+        log(f"Команда не найдена: {e}", "❌ ERROR")
+        return False, f"Системная команда не найдена: {e}"
+    except Exception as e:
+        log(f"Ошибка при восстановлении прав: {e}", "❌ ERROR")
+        return False, f"Ошибка: {e}"
+
+
+def _try_copy_workaround(hosts_path):
+    """
+    Последняя попытка - копируем hosts через временный файл.
+    Иногда помогает обойти блокировку антивируса.
+    """
+    import tempfile
+    import shutil
+
+    try:
+        # Создаём временный файл
+        temp_dir = tempfile.gettempdir()
+        temp_hosts = os.path.join(temp_dir, "hosts_temp_copy")
+
+        # Копируем hosts во временный файл через cmd (обход блокировок)
+        result = subprocess.run(
+            ['cmd', '/c', 'copy', '/Y', hosts_path, temp_hosts],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+
+        if result.returncode == 0:
+            log("✅ Hosts скопирован во временный файл")
+
+            # Удаляем оригинал
+            subprocess.run(
+                ['cmd', '/c', 'del', '/F', '/Q', hosts_path],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+            # Копируем обратно
+            result = subprocess.run(
+                ['cmd', '/c', 'copy', '/Y', temp_hosts, hosts_path],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+            if result.returncode == 0:
+                log("✅ Hosts восстановлен из временного файла")
+
+                # Удаляем временный файл
+                try:
+                    os.remove(temp_hosts)
+                except:
+                    pass
+
+                # Проверяем доступ
+                try:
+                    HOSTS_PATH.read_text(encoding='utf-8')
+                    return True
+                except:
+                    return False
+
+        return False
+
+    except Exception as e:
+        log(f"Ошибка при копировании через temp: {e}", "❌ ERROR")
+        return False
 
 def check_hosts_file_name():
     """Проверяет правильность написания имени файла hosts"""
@@ -109,7 +337,9 @@ def safe_read_hosts_file():
     
     # Если файл существует, пробуем прочитать с разными кодировками
     encodings = ['utf-8', 'utf-8-sig', 'cp1251', 'cp866', 'latin1']
-    
+
+    permission_error_occurred = False
+
     for encoding in encodings:
         try:
             content = hosts_path.read_text(encoding=encoding)
@@ -117,10 +347,33 @@ def safe_read_hosts_file():
             return content
         except UnicodeDecodeError:
             continue
+        except PermissionError as e:
+            log(f"Ошибка при чтении файла hosts с кодировкой {encoding}: {e}")
+            permission_error_occurred = True
+            continue
         except Exception as e:
             log(f"Ошибка при чтении файла hosts с кодировкой {encoding}: {e}")
             continue
-    
+
+    # Если была ошибка доступа, пробуем восстановить права
+    if permission_error_occurred:
+        log("🔧 Обнаружена проблема с правами доступа, пытаемся восстановить...")
+        success, message = restore_hosts_permissions()
+        if success:
+            # Пробуем прочитать снова после восстановления прав
+            for encoding in encodings:
+                try:
+                    content = hosts_path.read_text(encoding=encoding)
+                    log(f"Файл hosts успешно прочитан после восстановления прав с кодировкой: {encoding}")
+                    return content
+                except UnicodeDecodeError:
+                    continue
+                except Exception as e:
+                    log(f"Ошибка при повторном чтении с кодировкой {encoding}: {e}")
+                    continue
+        else:
+            log(f"Не удалось восстановить права: {message}", "❌ ERROR")
+
     # Если ни одна кодировка не подошла, пробуем с игнорированием ошибок
     try:
         content = hosts_path.read_text(encoding='utf-8', errors='ignore')
@@ -139,12 +392,24 @@ def safe_write_hosts_file(content):
             if not remove_readonly_attribute(HOSTS_PATH):
                 log("Не удалось снять атрибут 'только для чтения'")
                 return False
-        
+
         HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
         return True
     except PermissionError:
-        log("Ошибка доступа при записи файла hosts (возможно, нет прав администратора)")
-        return False
+        log("Ошибка доступа при записи файла hosts, пытаемся восстановить права...")
+        # Пробуем восстановить права и записать снова
+        success, message = restore_hosts_permissions()
+        if success:
+            try:
+                HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
+                log("✅ Файл hosts успешно записан после восстановления прав")
+                return True
+            except Exception as e:
+                log(f"Ошибка при повторной записи после восстановления прав: {e}", "❌ ERROR")
+                return False
+        else:
+            log(f"Не удалось восстановить права: {message}", "❌ ERROR")
+            return False
     except Exception as e:
         log(f"Ошибка при записи файла hosts: {e}")
         return False
@@ -154,6 +419,12 @@ class HostsManager:
         self.status_callback = status_callback
         # 🆕 При инициализации проверяем и удаляем api.github.com
         self.check_and_remove_github_api()
+
+    def restore_permissions(self):
+        """Восстанавливает права доступа к файлу hosts"""
+        success, message = restore_hosts_permissions()
+        self.set_status(message)
+        return success
 
     # 🆕 НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С api.github.com
     def check_github_api_in_hosts(self):

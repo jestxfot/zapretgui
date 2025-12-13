@@ -940,10 +940,12 @@ __all__ = [
     'set_debug_log_enabled',
     
     # Выборы стратегий
+    'DIRECT_STRATEGY_KEY',
     'get_direct_strategy_selections',
     'set_direct_strategy_selections',
     'get_direct_strategy_for_category',
     'set_direct_strategy_for_category',
+    'invalidate_direct_selections_cache',
     
     # Оценки стратегий
     'get_all_strategy_ratings',

@@ -500,12 +500,6 @@ class AppMenuBar(QMenuBar):
 
         def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
             if ok:
-                success_msg = "Лог успешно отправлен в канал поддержки.\n"
-                if report_data['problem'] or report_data['telegram']:
-                    success_msg += "Ваше описание проблемы также отправлено.\n"
-                success_msg += "Спасибо за помощь в улучшении программы!"
-                
-                QMessageBox.information(wnd, "Успешно", success_msg)
                 if hasattr(wnd, "set_status"):
                     wnd.set_status("Лог отправлен")
             else:

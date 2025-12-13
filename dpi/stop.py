@@ -43,30 +43,30 @@ def stop_dpi_direct(app: "LupiDPIApp"):
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             return True
-        
+
         app.set_status("Останавливаю Zapret...")
-        
+
         # 1. Останавливаем через StrategyRunner
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
             runner = get_strategy_runner(app.dpi_starter.winws_exe)
             if runner.is_running():
                 runner.stop()
-                time.sleep(0.5)
+                time.sleep(0.3)
         except Exception as e:
             log(f"Ошибка остановки через StrategyRunner: {e}", "DEBUG")
-        
-        # 2. Убиваем все процессы через Win API
-        from utils.process_killer import kill_winws_all
-        kill_winws_all()
-        
+
+        # 2. Убиваем все процессы через Win API с агрессивным методом
+        from utils.process_killer import kill_winws_force
+        kill_winws_force()
+
         # 3. Очищаем службу WinDivert
         if hasattr(app.dpi_starter, 'cleanup_windivert_service'):
             app.dpi_starter.cleanup_windivert_service()
-        
+
         # Проверяем результат
-        time.sleep(0.5)
-        
+        time.sleep(0.3)
+
         if app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws всё ещё работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
@@ -81,7 +81,7 @@ def stop_dpi_direct(app: "LupiDPIApp"):
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(False)
             return True
-            
+
     except Exception as e:
         log(f"Ошибка в stop_dpi_direct: {e}", level="❌ ERROR")
         return False
@@ -91,7 +91,7 @@ def stop_dpi_universal(app: "LupiDPIApp"):
     """Универсальная остановка DPI через Win API (для BAT режима)"""
     try:
         log("======================== Stop DPI (Universal Win API) ========================", level="START")
-        
+
         # Проверяем, запущен ли процесс
         if not app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws не запущен", level="INFO")
@@ -99,23 +99,23 @@ def stop_dpi_universal(app: "LupiDPIApp"):
             if hasattr(app, 'ui_manager'):
                 app.ui_manager.update_ui_state(running=False)
             return True
-        
+
         app.set_status("Останавливаю Zapret...")
-        
-        # 1. Завершаем все процессы winws*.exe через Win API
-        from utils.process_killer import kill_winws_all
-        killed = kill_winws_all()
-        
+
+        # 1. Завершаем все процессы winws*.exe через агрессивный метод
+        from utils.process_killer import kill_winws_force
+        killed = kill_winws_force()
+
         if killed:
-            log("✅ Процессы winws остановлены через Win API", "INFO")
-        
+            log("✅ Процессы winws остановлены", "INFO")
+
         # 2. Очищаем службу WinDivert
         if hasattr(app.dpi_starter, 'cleanup_windivert_service'):
             app.dpi_starter.cleanup_windivert_service()
-        
+
         # Проверяем результат
-        time.sleep(0.5)
-        
+        time.sleep(0.3)
+
         if app.dpi_starter.check_process_running_wmi(silent=True):
             log("Процесс winws всё ещё работает", level="⚠ WARNING")
             app.set_status("Не удалось полностью остановить Zapret")
@@ -130,7 +130,7 @@ def stop_dpi_universal(app: "LupiDPIApp"):
             if hasattr(app, 'process_monitor_manager'):
                 app.process_monitor_manager.on_process_status_changed(False)
             return True
-            
+
     except Exception as e:
         log(f"Ошибка в stop_dpi_universal: {e}", level="❌ ERROR")
         app.set_status(f"Ошибка остановки: {e}")

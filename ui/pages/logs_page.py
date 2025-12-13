@@ -1,11 +1,11 @@
 # ui/pages/logs_page.py
 """Страница просмотра логов в реальном времени"""
 
-from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject, QSettings
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QApplication, QMessageBox,
-    QSplitter, QTextEdit
+    QSplitter, QTextEdit, QStackedWidget, QLineEdit, QFrame
 )
 from PyQt6.QtGui import QFont, QColor, QTextCharFormat
 import qtawesome as qta
@@ -181,6 +181,110 @@ class LogsPage(BasePage):
         
     def _build_ui(self):
         # ═══════════════════════════════════════════════════════════
+        # Переключатель табов (ЛОГИ / ОТПРАВКА)
+        # ═══════════════════════════════════════════════════════════
+        tabs_container = QWidget()
+        tabs_layout = QHBoxLayout(tabs_container)
+        tabs_layout.setContentsMargins(0, 0, 0, 8)
+        tabs_layout.setSpacing(0)
+
+        # Стиль для кнопок табов
+        tab_style_active = """
+            QPushButton {
+                background-color: transparent;
+                color: #60cdff;
+                border: none;
+                border-bottom: 2px solid #60cdff;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+        """
+        tab_style_inactive = """
+            QPushButton {
+                background-color: transparent;
+                color: rgba(255, 255, 255, 0.5);
+                border: none;
+                border-bottom: 2px solid transparent;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                color: rgba(255, 255, 255, 0.8);
+            }
+        """
+
+        self.tab_logs_btn = QPushButton()
+        self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#60cdff'))
+        self.tab_logs_btn.setText(" ЛОГИ")
+        self.tab_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tab_logs_btn.setStyleSheet(tab_style_active)
+        self.tab_logs_btn.clicked.connect(lambda: self._switch_tab(0))
+        tabs_layout.addWidget(self.tab_logs_btn)
+
+        self.tab_send_btn = QPushButton()
+        self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#888888'))
+        self.tab_send_btn.setText(" ОТПРАВКА")
+        self.tab_send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tab_send_btn.setStyleSheet(tab_style_inactive)
+        self.tab_send_btn.clicked.connect(lambda: self._switch_tab(1))
+        tabs_layout.addWidget(self.tab_send_btn)
+
+        tabs_layout.addStretch()
+
+        # Сохраняем стили для переключения
+        self._tab_style_active = tab_style_active
+        self._tab_style_inactive = tab_style_inactive
+
+        self.add_widget(tabs_container)
+
+        # ═══════════════════════════════════════════════════════════
+        # Стек страниц (ЛОГИ / ОТПРАВКА)
+        # ═══════════════════════════════════════════════════════════
+        self.stacked_widget = QStackedWidget()
+
+        # Страница 1: Логи
+        logs_page = QWidget()
+        logs_layout = QVBoxLayout(logs_page)
+        logs_layout.setContentsMargins(0, 0, 0, 0)
+        logs_layout.setSpacing(16)
+
+        self._build_logs_tab(logs_layout)
+
+        # Страница 2: Отправка
+        send_page = QWidget()
+        send_layout = QVBoxLayout(send_page)
+        send_layout.setContentsMargins(0, 0, 0, 0)
+        send_layout.setSpacing(16)
+
+        self._build_send_tab(send_layout)
+
+        self.stacked_widget.addWidget(logs_page)
+        self.stacked_widget.addWidget(send_page)
+
+        self.add_widget(self.stacked_widget)
+
+    def _switch_tab(self, index: int):
+        """Переключает между табами"""
+        self.stacked_widget.setCurrentIndex(index)
+
+        if index == 0:
+            self.tab_logs_btn.setStyleSheet(self._tab_style_active)
+            self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#60cdff'))
+            self.tab_send_btn.setStyleSheet(self._tab_style_inactive)
+            self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#888888'))
+        else:
+            self.tab_logs_btn.setStyleSheet(self._tab_style_inactive)
+            self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#888888'))
+            self.tab_send_btn.setStyleSheet(self._tab_style_active)
+            self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#60cdff'))
+
+    def _build_logs_tab(self, parent_layout):
+        """Строит вкладку с логами"""
+        # ═══════════════════════════════════════════════════════════
         # Панель управления (выбор файла + кнопки в 2 ряда)
         # ═══════════════════════════════════════════════════════════
         controls_card = SettingsCard("Управление логами")
@@ -281,11 +385,7 @@ class LogsPage(BasePage):
         self.folder_btn = ActionButton("Папка", "fa5s.folder-open")
         self.folder_btn.clicked.connect(self._open_folder)
         row2.addWidget(self.folder_btn)
-        
-        self.send_btn = ActionButton("Отправить", "fa5s.paper-plane")
-        self.send_btn.clicked.connect(self._send_log)
-        row2.addWidget(self.send_btn)
-        
+
         row2.addStretch()
         
         # Информационная строка
@@ -301,8 +401,8 @@ class LogsPage(BasePage):
         controls_main.addLayout(row2)
         
         controls_card.add_layout(controls_main)
-        self.add_widget(controls_card)
-        
+        parent_layout.addWidget(controls_card)
+
         # ═══════════════════════════════════════════════════════════
         # Область логов
         # ═══════════════════════════════════════════════════════════
@@ -354,8 +454,8 @@ class LogsPage(BasePage):
         log_layout.addWidget(self.stats_label)
         
         log_card.add_layout(log_layout)
-        self.add_widget(log_card)
-        
+        parent_layout.addWidget(log_card)
+
         # ═══════════════════════════════════════════════════════════
         # Панель ошибок
         # ═══════════════════════════════════════════════════════════
@@ -431,7 +531,7 @@ class LogsPage(BasePage):
         errors_layout.addWidget(self.errors_text)
 
         errors_card.add_layout(errors_layout)
-        self.add_widget(errors_card)
+        parent_layout.addWidget(errors_card)
 
         # ═══════════════════════════════════════════════════════════
         # Панель вывода winws.exe
@@ -512,7 +612,7 @@ class LogsPage(BasePage):
         winws_layout.addWidget(self.winws_text)
 
         winws_card.add_layout(winws_layout)
-        self.add_widget(winws_card)
+        parent_layout.addWidget(winws_card)
 
         # Счётчик ошибок
         self._errors_count = 0
@@ -520,6 +620,224 @@ class LogsPage(BasePage):
         # Инициализация
         self._refresh_logs_list()
         self._update_stats()
+
+    def _build_send_tab(self, parent_layout):
+        """Строит вкладку отправки лога"""
+        import time
+        import platform
+
+        # ═══════════════════════════════════════════════════════════
+        # Форма отправки
+        # ═══════════════════════════════════════════════════════════
+        send_card = SettingsCard("Отправка лога в техподдержку")
+        send_layout = QVBoxLayout()
+        send_layout.setSpacing(16)
+
+        # Описание
+        desc_label = QLabel(
+            "Опишите проблему и оставьте контакты для обратной связи (необязательно):"
+        )
+        desc_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px;")
+        desc_label.setWordWrap(True)
+        send_layout.addWidget(desc_label)
+
+        # Поле "Описание проблемы"
+        problem_header = QLabel("Описание проблемы:")
+        problem_header.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 600;")
+        send_layout.addWidget(problem_header)
+
+        self.problem_text = QTextEdit()
+        self.problem_text.setPlaceholderText(
+            "Опишите, что не работает или какая ошибка возникает."
+        )
+        self.problem_text.setMaximumHeight(150)
+        self.problem_text.setStyleSheet("""
+            QTextEdit {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: rgba(255, 255, 255, 0.9);
+                border: 1px solid #60cdff;
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 12px;
+            }
+            QTextEdit:focus {
+                border-color: #60cdff;
+                background-color: rgba(255, 255, 255, 0.08);
+            }
+        """)
+        send_layout.addWidget(self.problem_text)
+
+        # Поле "Telegram для связи"
+        tg_header = QLabel("Telegram для связи (необязательно):")
+        tg_header.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 600;")
+        send_layout.addWidget(tg_header)
+
+        self.tg_contact = QLineEdit()
+        self.tg_contact.setPlaceholderText("@username или ссылка на профиль")
+        self.tg_contact.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: rgba(255, 255, 255, 0.9);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border-color: #60cdff;
+                background-color: rgba(255, 255, 255, 0.08);
+            }
+        """)
+        send_layout.addWidget(self.tg_contact)
+
+        # Информация
+        info_container = QWidget()
+        info_layout = QHBoxLayout(info_container)
+        info_layout.setContentsMargins(0, 8, 0, 8)
+
+        info_icon = QLabel()
+        info_icon.setPixmap(qta.icon('fa5s.info-circle', color='#60cdff').pixmap(14, 14))
+        info_layout.addWidget(info_icon)
+
+        info_text = QLabel(
+            "Ваши данные будут отправлены только в канал техподдержки.\n"
+            "Лог файл поможет разработчикам найти и исправить проблему."
+        )
+        info_text.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text, 1)
+
+        send_layout.addWidget(info_container)
+
+        # Кнопка отправки
+        buttons_row = QHBoxLayout()
+
+        self.send_log_btn = ActionButton("Отправить лог", "fa5s.paper-plane")
+        self.send_log_btn.clicked.connect(self._do_send_log)
+        buttons_row.addWidget(self.send_log_btn)
+
+        buttons_row.addStretch()
+
+        # Статус отправки
+        self.send_status_label = QLabel()
+        self.send_status_label.setStyleSheet("color: #60cdff; font-size: 11px;")
+        buttons_row.addWidget(self.send_status_label)
+
+        send_layout.addLayout(buttons_row)
+
+        send_card.add_layout(send_layout)
+        parent_layout.addWidget(send_card)
+
+        # Растяжка чтобы форма была вверху
+        parent_layout.addStretch()
+
+    def _do_send_log(self):
+        """Отправляет лог в Telegram (из вкладки отправки)"""
+        import time
+        import platform
+
+        try:
+            settings = QSettings("Zapret2", "GUI")
+            now = time.time()
+            interval = 1 * 60  # 1 минута
+
+            # Проверяем интервал
+            last = settings.value("last_full_log_send", 0.0, type=float)
+
+            if now - last < interval:
+                remaining = int((interval - (now - last)) // 60) + 1
+                QMessageBox.information(self, "Отправка логов",
+                    f"Лог отправлялся недавно.\n"
+                    f"Следующая отправка возможна через {remaining} мин.")
+                return
+
+            # Проверяем настройки бота
+            from tgram.tg_log_bot import check_bot_connection
+
+            if not check_bot_connection():
+                QMessageBox.warning(self, "Бот не настроен",
+                    "Бот для отправки логов не настроен или недоступен.\n\n"
+                    "Для настройки обратитесь к разработчику.")
+                return
+
+            # Получаем данные из формы
+            problem = self.problem_text.toPlainText().strip()
+            telegram = self.tg_contact.text().strip()
+
+            # Запоминаем время отправки
+            settings.setValue("last_full_log_send", now)
+
+            # Подготовка к отправке
+            from tgram.tg_log_full import TgSendWorker
+            from tgram.tg_log_delta import get_client_id
+            from config.build_info import APP_VERSION
+
+            # Используем текущий лог файл
+            LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
+
+            if not LOG_PATH or not os.path.exists(LOG_PATH):
+                QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
+                return
+
+            # Формируем подпись
+            log_filename = os.path.basename(LOG_PATH)
+
+            caption = f"📋 Ручная отправка лога\n"
+            caption += f"📁 Файл: {log_filename}\n"
+            caption += f"Zapret2 v{APP_VERSION}\n"
+            caption += f"ID: {get_client_id()}\n"
+            caption += f"Host: {platform.node()}\n"
+            caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+
+            if problem:
+                caption += f"\n🔴 Проблема:\n{problem}\n"
+
+            if telegram:
+                caption += f"\n📱 Telegram: {telegram}\n"
+
+            self.send_status_label.setText("📤 Отправка лога...")
+            self.send_log_btn.setEnabled(False)
+
+            # Создаем воркер
+            self._send_thread = QThread(self)
+            self._send_worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
+            self._send_worker.moveToThread(self._send_thread)
+            self._send_thread.started.connect(self._send_worker.run)
+
+            def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
+                self.send_log_btn.setEnabled(True)
+
+                if ok:
+                    self.send_status_label.setText("✅ Лог отправлен!")
+                    self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
+                    # Очищаем форму после успешной отправки
+                    self.problem_text.clear()
+                    self.tg_contact.clear()
+                else:
+                    self.send_status_label.setText("❌ Ошибка отправки")
+                    self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
+                    if extra_wait > 0:
+                        QMessageBox.warning(self, "Слишком часто",
+                            f"Слишком частые запросы.\n"
+                            f"Повторите через {int(extra_wait/60)} минут.")
+                    else:
+                        QMessageBox.warning(self, "Ошибка",
+                            f"Не удалось отправить лог.\n\n"
+                            f"Причина: {error_msg or 'Неизвестная ошибка'}")
+
+                # Очистка
+                self._send_worker.deleteLater()
+                self._send_thread.quit()
+                self._send_thread.wait()
+
+            self._send_worker.finished.connect(_on_done)
+            self._send_thread.start()
+
+        except Exception as e:
+            log(f"Ошибка отправки лога: {e}", "ERROR")
+            self.send_log_btn.setEnabled(True)
+            self.send_status_label.setText("❌ Ошибка")
+            QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")
         
     def showEvent(self, event):
         """При показе страницы запускаем мониторинг"""
@@ -553,8 +871,10 @@ class LogsPage(BasePage):
             if errors:
                 log(f"⚠️ Ошибки при удалении логов: {errors[:3]}", "DEBUG")
             
-            log_pattern = os.path.join(LOGS_FOLDER, "zapret_log_*.txt")
-            log_files = glob.glob(log_pattern)
+            # Получаем оба формата логов
+            log_files = []
+            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_log_*.txt")))
+            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_[0-9]*.log")))
             log_files.sort(key=os.path.getmtime, reverse=True)
             
             current_log = getattr(global_logger, "log_file", LOG_FILE)
@@ -800,11 +1120,13 @@ class LogsPage(BasePage):
     def _update_stats(self):
         """Обновляет статистику"""
         try:
-            log_pattern = os.path.join(LOGS_FOLDER, "zapret_log_*.txt")
-            log_files = glob.glob(log_pattern)
-            
+            # Считаем оба формата логов
+            log_files = []
+            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_log_*.txt")))
+            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_[0-9]*.log")))
+
             total_size = sum(os.path.getsize(f) for f in log_files) / 1024 / 1024
-            
+
             self.stats_label.setText(
                 f"📊 Всего логов: {len(log_files)} | "
                 f"💾 Общий размер: {total_size:.2f} MB | "
@@ -812,119 +1134,6 @@ class LogsPage(BasePage):
             )
         except Exception as e:
             self.stats_label.setText(f"Ошибка статистики: {e}")
-            
-    def _send_log(self):
-        """Отправляет лог в Telegram"""
-        import time
-        import platform
-        from PyQt6.QtCore import QSettings, QThread
-        from PyQt6.QtWidgets import QDialog
-
-        try:
-            settings = QSettings("Zapret2", "GUI")
-            now = time.time()
-            interval = 1 * 60  # 1 минута
-
-            # Проверяем интервал
-            last = settings.value("last_full_log_send", 0.0, type=float)
-
-            if now - last < interval:
-                remaining = int((interval - (now - last)) // 60) + 1
-                QMessageBox.information(self, "Отправка логов",
-                    f"Лог отправлялся недавно.\n"
-                    f"Следующая отправка возможна через {remaining} мин.")
-                return
-
-            # Проверяем настройки бота
-            from tgram.tg_log_bot import check_bot_connection
-
-            if not check_bot_connection():
-                QMessageBox.warning(self, "Бот не настроен",
-                    "Бот для отправки логов не настроен или недоступен.\n\n"
-                    "Для настройки обратитесь к разработчику.")
-                return
-
-            # Показываем диалог для ввода описания проблемы
-            from altmenu.app_menubar import LogReportDialog
-            report_dialog = LogReportDialog(self)
-            if report_dialog.exec() != QDialog.DialogCode.Accepted:
-                return  # Пользователь отменил отправку
-
-            report_data = report_dialog.get_report_data()
-
-            # Запоминаем время отправки
-            settings.setValue("last_full_log_send", now)
-
-            # Подготовка к отправке
-            from tgram.tg_log_full import TgSendWorker
-            from tgram.tg_log_delta import get_client_id
-            from config.build_info import APP_VERSION
-
-            # Используем текущий лог файл
-            LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
-
-            if not LOG_PATH or not os.path.exists(LOG_PATH):
-                QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
-                return
-
-            # Формируем подпись с информацией о файле и проблеме
-            log_filename = os.path.basename(LOG_PATH)
-
-            caption = f"📋 Ручная отправка лога\n"
-            caption += f"📁 Файл: {log_filename}\n"
-            caption += f"Zapret2 v{APP_VERSION}\n"
-            caption += f"ID: {get_client_id()}\n"
-            caption += f"Host: {platform.node()}\n"
-            caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
-
-            # Добавляем описание проблемы и контакты
-            if report_data['problem']:
-                caption += f"\n🔴 Проблема:\n{report_data['problem']}\n"
-
-            if report_data['telegram']:
-                caption += f"\n📱 Telegram: {report_data['telegram']}\n"
-
-            self.info_label.setText("📤 Отправка лога...")
-
-            # Создаем воркер с флагом use_log_bot=True
-            self._send_thread = QThread(self)
-            self._send_worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
-            self._send_worker.moveToThread(self._send_thread)
-            self._send_thread.started.connect(self._send_worker.run)
-
-            def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
-                if ok:
-                    success_msg = "Лог успешно отправлен в канал поддержки.\n"
-                    if report_data['problem'] or report_data['telegram']:
-                        success_msg += "Ваше описание проблемы также отправлено.\n"
-                    success_msg += "Спасибо за помощь в улучшении программы!"
-
-                    QMessageBox.information(self, "Успешно", success_msg)
-                    self.info_label.setText("✅ Лог отправлен")
-                else:
-                    if extra_wait > 0:
-                        QMessageBox.warning(self, "Слишком часто",
-                            f"Слишком частые запросы.\n"
-                            f"Повторите через {int(extra_wait/60)} минут.")
-                    else:
-                        QMessageBox.warning(self, "Ошибка",
-                            f"Не удалось отправить лог.\n\n"
-                            f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
-                            f"Попробуйте позже или обратитесь в поддержку.")
-
-                    self.info_label.setText("❌ Ошибка отправки лога")
-
-                # Очистка
-                self._send_worker.deleteLater()
-                self._send_thread.quit()
-                self._send_thread.wait()
-
-            self._send_worker.finished.connect(_on_done)
-            self._send_thread.start()
-
-        except Exception as e:
-            log(f"Ошибка отправки лога: {e}", "ERROR")
-            QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")
             
     def _add_error(self, text: str):
         """Добавляет ошибку в панель ошибок"""

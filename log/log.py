@@ -25,14 +25,20 @@ def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
     deleted_count = 0
     errors = []
     try:
-        # Получаем список всех лог файлов
-        log_pattern = os.path.join(logs_folder, "zapret_log_*.txt")
-        log_files = glob.glob(log_pattern)
+        # Получаем список всех лог файлов (все форматы)
+        log_files = []
+        # Новый формат: zapret_log_2025-12-11_14-33-51.txt
+        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_log_*.txt")))
+        # Старый формат: zapret_20251208_220315.log
+        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_[0-9]*.log")))
+        # Debug логи winws2: zapret_winws2_debug_20251211_122853.log
+        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_winws2_debug_*.log")))
+
         total_found = len(log_files)
-        
+
         # Сортируем по времени модификации (старые первые)
         log_files.sort(key=os.path.getmtime)
-        
+
         # Если файлов больше максимума, удаляем старые
         if total_found > max_files:
             files_to_delete = log_files[:total_found - max_files]
@@ -44,7 +50,7 @@ def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
                     errors.append(f"{os.path.basename(old_file)}: {e}")
     except Exception as e:
         errors.append(f"Glob error: {e}")
-    
+
     return deleted_count, errors, total_found if 'total_found' in dir() else 0
 
 # Создаем уникальное имя для текущей сессии

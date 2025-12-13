@@ -360,13 +360,14 @@ class StrategyRunner:
                 self._aggressive_windivert_cleanup()
             else:
                 # Быстрая очистка - только убиваем процессы через Win API
-                from utils.process_killer import kill_winws_all, is_process_running
-                
+                from utils.process_killer import kill_winws_force, is_process_running
+
                 # Проверяем есть ли вообще запущенные процессы
                 if is_process_running("winws.exe") or is_process_running("winws2.exe"):
-                    kill_winws_all()
-                    time.sleep(0.3)  # Короткая пауза вместо 1.5 сек
-                    
+                    # Используем агрессивный метод с гарантированным ожиданием завершения
+                    kill_winws_force()
+                    time.sleep(0.2)  # Короткая пауза после гарантированной остановки
+
                     # Быстрая очистка служб (без долгих пауз)
                     self._fast_cleanup_services()
                 else:
@@ -548,8 +549,8 @@ class StrategyRunner:
     def _kill_all_winws_processes(self):
         """Принудительно завершает все процессы winws.exe и winws2.exe через Win API"""
         try:
-            from utils.process_killer import kill_winws_all
-            kill_winws_all()
+            from utils.process_killer import kill_winws_force
+            kill_winws_force()
         except Exception as e:
             log(f"Ошибка при завершении процессов winws: {e}", "DEBUG")
     

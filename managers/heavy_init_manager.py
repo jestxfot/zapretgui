@@ -103,54 +103,23 @@ class HeavyInitManager:
             return False
     
     def _count_strategies_fast(self) -> int:
-        """⚡ Подсчёт .bat файлов через WinAPI FindFirstFileW (~1-5ms)"""
+        """⚡ Подсчёт .bat файлов через os.scandir (~1-5ms)"""
         try:
             from config import BAT_FOLDER
-            
+
             if not os.path.exists(BAT_FOLDER):
                 return 0
-            
-            # Используем FindFirstFileW/FindNextFileW для максимальной скорости
-            search_path = os.path.join(BAT_FOLDER, "*.bat")
-            
-            # Структура WIN32_FIND_DATAW
-            class WIN32_FIND_DATAW(ctypes.Structure):
-                _fields_ = [
-                    ("dwFileAttributes", wintypes.DWORD),
-                    ("ftCreationTime", wintypes.FILETIME),
-                    ("ftLastAccessTime", wintypes.FILETIME),
-                    ("ftLastWriteTime", wintypes.FILETIME),
-                    ("nFileSizeHigh", wintypes.DWORD),
-                    ("nFileSizeLow", wintypes.DWORD),
-                    ("dwReserved0", wintypes.DWORD),
-                    ("dwReserved1", wintypes.DWORD),
-                    ("cFileName", wintypes.WCHAR * 260),
-                    ("cAlternateFileName", wintypes.WCHAR * 14),
-                ]
-            
-            find_data = WIN32_FIND_DATAW()
-            handle = self._kernel32.FindFirstFileW(search_path, ctypes.byref(find_data))
-            
-            INVALID_HANDLE_VALUE = -1
-            if handle == INVALID_HANDLE_VALUE:
-                return 0
-            
-            count = 1
-            while self._kernel32.FindNextFileW(handle, ctypes.byref(find_data)):
-                count += 1
-            
-            self._kernel32.FindClose(handle)
+
+            # os.scandir быстрее чем os.listdir и безопаснее чем ctypes
+            count = 0
+            with os.scandir(BAT_FOLDER) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith('.bat'):
+                        count += 1
             return count
-            
+
         except Exception as e:
             log(f"Ошибка подсчёта стратегий: {e}", "DEBUG")
-            # Fallback на обычный подсчёт
-            try:
-                from config import BAT_FOLDER
-                if os.path.exists(BAT_FOLDER):
-                    return len([f for f in os.listdir(BAT_FOLDER) if f.lower().endswith('.bat')])
-            except:
-                pass
             return 0
     
     def _finalize_init(self):

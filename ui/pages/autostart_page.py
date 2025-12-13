@@ -317,12 +317,57 @@ class AutostartOptionCard(QFrame):
         super().mousePressEvent(event)
 
 
+class ClickableModeCard(QFrame):
+    """Кликабельная карточка режима"""
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("clickableModeCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hovered = False
+        self._update_style()
+
+    def _update_style(self):
+        if self._hovered:
+            bg = "rgba(96, 205, 255, 0.12)"
+            border = "rgba(96, 205, 255, 0.3)"
+        else:
+            bg = "rgba(255, 255, 255, 0.04)"
+            border = "rgba(255, 255, 255, 0.08)"
+
+        self.setStyleSheet(f"""
+            QFrame#clickableModeCard {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+            }}
+        """)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            log("ClickableModeCard: clicked!", "DEBUG")
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class AutostartPage(BasePage):
     """Страница настроек автозапуска"""
-    
+
     # Сигналы для связи с main.py
     autostart_enabled = pyqtSignal()
     autostart_disabled = pyqtSignal()
+    navigate_to_dpi_settings = pyqtSignal()  # Переход на страницу настроек DPI
     
     def __init__(self, parent=None):
         super().__init__("Автозапуск", "Настройка автоматического запуска Zapret", parent)
@@ -499,40 +544,58 @@ class AutostartPage(BasePage):
         self.add_spacing(20)
         
         # ═══════════════════════════════════════════════════════════
-        # Режим запуска
+        # Режим запуска (кликабельная карточка)
         # ═══════════════════════════════════════════════════════════
         self.add_section_title("Режим")
-        
-        mode_card = SettingsCard()
+
+        self.mode_card = ClickableModeCard()
+        self.mode_card.clicked.connect(self._on_mode_card_clicked)
+
+        mode_card_layout = QVBoxLayout(self.mode_card)
+        mode_card_layout.setContentsMargins(16, 14, 16, 14)
+        mode_card_layout.setSpacing(0)
+
         mode_layout = QHBoxLayout()
         mode_layout.setSpacing(12)
-        
+
         mode_icon = QLabel()
         mode_icon.setPixmap(qta.icon('fa5s.cog', color='#60cdff').pixmap(18, 18))
         mode_icon.setFixedSize(22, 22)
+        mode_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(mode_icon)
-        
+
         mode_text = QLabel("Текущий режим:")
         mode_text.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        mode_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(mode_text)
-        
+
         self.mode_label = QLabel("Загрузка...")
         self.mode_label.setStyleSheet("color: #60cdff; font-size: 13px; font-weight: 600;")
+        self.mode_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.mode_label)
-        
+
         mode_layout.addSpacing(20)
-        
+
         strategy_text = QLabel("Стратегия:")
         strategy_text.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        strategy_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(strategy_text)
-        
+
         self.current_strategy_label = QLabel("Не выбрана")
         self.current_strategy_label.setWordWrap(True)  # Перенос текста
         self.current_strategy_label.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;")
+        self.current_strategy_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.current_strategy_label, 1)
-        
-        mode_card.add_layout(mode_layout)
-        self.add_widget(mode_card)
+
+        # Стрелка для индикации кликабельности
+        self.mode_arrow = QLabel()
+        self.mode_arrow.setPixmap(qta.icon('fa5s.chevron-right', color='#666666').pixmap(14, 14))
+        self.mode_arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        mode_layout.addWidget(self.mode_arrow)
+
+        mode_card_layout.addLayout(mode_layout)
+
+        self.add_widget(self.mode_card)
         
         self.add_spacing(20)
         
@@ -632,7 +695,7 @@ class AutostartPage(BasePage):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            
+
             if method == "direct":
                 self.mode_label.setText("Прямой запуск (Zapret 2)")
                 # Показываем все опции для Direct
@@ -641,11 +704,46 @@ class AutostartPage(BasePage):
                 self.mode_label.setText("Классический (BAT файлы)")
                 # Для BAT режима скрываем службу Windows
                 self.service_option.setVisible(False)
-                
+
         except Exception as e:
             log(f"Ошибка обновления режима: {e}", "WARNING")
             self.mode_label.setText("Неизвестно")
-    
+
+    def _on_mode_card_clicked(self):
+        """Обработчик клика по карточке режима"""
+        log("AutostartPage: mode_card clicked, emitting navigate_to_dpi_settings", "DEBUG")
+        self.navigate_to_dpi_settings.emit()
+
+    def _is_light_theme(self) -> bool:
+        """Проверяет, является ли текущая тема светлой"""
+        try:
+            # Ищем главное приложение через цепочку parent
+            widget = self.parent()
+            while widget is not None:
+                if hasattr(widget, 'theme_manager'):
+                    theme_name = getattr(widget.theme_manager, 'current_theme', '')
+                    return theme_name.startswith("Светлая")
+                widget = widget.parent() if hasattr(widget, 'parent') else None
+        except Exception:
+            pass
+        return False
+
+    def _update_arrow_color(self):
+        """Обновляет цвет стрелки в зависимости от темы"""
+        if not hasattr(self, 'mode_arrow'):
+            return
+
+        if self._is_light_theme():
+            color = '#000000'  # Черная для светлой темы
+        else:
+            color = '#666666'  # Серая для темной темы
+
+        self.mode_arrow.setPixmap(qta.icon('fa5s.chevron-right', color=color).pixmap(14, 14))
+
+    def on_theme_changed(self):
+        """Вызывается при смене темы"""
+        self._update_arrow_color()
+
     def update_status(self, enabled: bool, strategy_name: str = None, autostart_type: str = None):
         """Обновляет отображение статуса автозапуска"""
         if enabled:

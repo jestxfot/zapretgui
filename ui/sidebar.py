@@ -724,7 +724,7 @@ class SideNavBar(QWidget):
             ("fa5s.sync-alt", "Обновления", False),  # 21 - серверы обновлений
             ("fa5s.info-circle", "О программе", False),# 22
         ]
-        
+
         # Счётчик реальных индексов страниц (без заголовков)
         page_index = 0
         self._section_to_page = {}  # Маппинг индекса секции -> индекс страницы
@@ -784,7 +784,7 @@ class SideNavBar(QWidget):
                 self._section_to_page[i] = page_index
                 page_index += 1
                 current_collapsible_parent = None  # Сбрасываем родителя
-            
+
         # Выбираем первую кнопку
         if self.buttons:
             self.buttons[0].set_selected(True)
@@ -792,7 +792,7 @@ class SideNavBar(QWidget):
         # Загружаем состояния сворачивания групп из реестра
         self._load_collapsible_state()
         
-        # Обновляем видимость вкладки "Блобы" в зависимости от режима
+        # Обновляем видимость вкладок в зависимости от режима
         self.update_blobs_visibility()
         
         # Растягивающий спейсер внутри контейнера
@@ -1150,7 +1150,7 @@ class SideNavBar(QWidget):
         """Обновляет видимость вкладки 'Блобы' в зависимости от режима запуска"""
         if self._blobs_button is None:
             return
-        
+
         try:
             from strategy_menu import get_strategy_launch_method
             is_direct = get_strategy_launch_method() == "direct"
