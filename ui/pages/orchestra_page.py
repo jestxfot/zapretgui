@@ -2,6 +2,7 @@
 """Страница оркестратора автоматического обучения (circular)"""
 
 import os
+from queue import Queue, Empty
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -32,7 +33,7 @@ class OrchestraPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркестр",
+            "Оркест v0.3 (Pre-Alpha)",
             "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!).",
             parent
         )
@@ -47,10 +48,16 @@ class OrchestraPage(BasePage):
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_all)
 
-        # Подключаем сигнал для thread-safe обновления логов
-        # QueuedConnection гарантирует вызов слота в main thread
-        from PyQt6.QtCore import Qt
-        self.log_received.connect(self._on_log_received, Qt.ConnectionType.QueuedConnection)
+        # Thread-safe очередь для логов из runner потока
+        self._log_queue = Queue()
+
+        # Таймер для обработки очереди логов (50ms - быстро, но не блокирует UI)
+        self._log_queue_timer = QTimer(self)
+        self._log_queue_timer.timeout.connect(self._process_log_queue)
+        self._log_queue_timer.start(50)
+
+        # Подключаем сигнал для обновления логов (теперь только из main thread)
+        self.log_received.connect(self._on_log_received)
 
     def _build_ui(self):
         """Строит UI страницы"""
@@ -365,9 +372,21 @@ class OrchestraPage(BasePage):
         self._detect_state_from_line(text)
 
     def emit_log(self, text: str):
-        """Публичный метод для отправки логов (вызывается из callback runner'а)"""
-        print(f"[DEBUG emit_log] {text[:80]}...")  # DEBUG
-        self.log_received.emit(text)
+        """Публичный метод для отправки логов (вызывается из callback runner'а).
+        Thread-safe: использует очередь вместо прямого emit сигнала.
+        """
+        # Кладём в очередь - это thread-safe операция
+        self._log_queue.put(text)
+
+    def _process_log_queue(self):
+        """Обрабатывает очередь логов из main thread (вызывается таймером)"""
+        # Обрабатываем до 20 сообщений за раз чтобы не блокировать UI
+        for _ in range(20):
+            try:
+                text = self._log_queue.get_nowait()
+                self.log_received.emit(text)
+            except Empty:
+                break
 
     def _read_log_file(self):
         """Читает новые строки из лог-файла и определяет состояние"""

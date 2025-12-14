@@ -199,7 +199,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon=r'H:\Privacy\zapretgui\ZapretDevLogo4.ico',
+    icon=r'H:\Privacy\zapret\ico\Zapret2.ico',
 )
 
 # ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами

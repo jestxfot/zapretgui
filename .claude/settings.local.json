@@ -17,7 +17,8 @@
       "Bash(copy \"H:\\Privacy\\zapret\\lua\\mega_circular.lua\" \"C:\\ProgramData\\ZapretTwoDev\\lua\\mega_circular.lua\" /Y)",
       "Bash(cmd /c copy \"H:\\Privacy\\zapret\\lua\\mega_circular.lua\" \"C:\\ProgramData\\ZapretTwoDev\\lua\\mega_circular.lua\" /Y)",
       "Bash(dir /s /b F:doczapret2*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(powershell:*)"
     ]
   }
 }

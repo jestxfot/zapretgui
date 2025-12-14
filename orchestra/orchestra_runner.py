@@ -498,10 +498,18 @@ class OrchestraRunner:
         preload_pattern = re.compile(r"PRELOADED (\S+) = strategy (\d+)(?:\s+\[(tls|http)\])?")
         # HISTORY hostname strategy=N successes=X failures=Y rate=Z%
         history_pattern = re.compile(r"HISTORY (\S+) strategy=(\d+) successes=(\d+) failures=(\d+) rate=(\d+)%")
-        # SUCCESS hostname strategy=N count=X [LOCKED]
-        success_pattern = re.compile(r"strategy-stats: SUCCESS (\S+) strategy=(\d+)")
-        # FAIL hostname strategy=N
-        fail_pattern = re.compile(r"strategy-stats: FAIL (\S+) strategy=(\d+)")
+        # SUCCESS hostname strategy=N count=X [TLS|HTTP] [LOCKED]
+        success_pattern = re.compile(r"strategy-stats: SUCCESS (\S+) strategy=(\d+).*?\[(TLS|HTTP)\]")
+        # FAIL hostname strategy=N [TLS|HTTP]
+        fail_pattern = re.compile(r"strategy-stats: FAIL (\S+) strategy=(\d+).*?\[(TLS|HTTP)\]")
+        # CURRENT hostname strategy=N [TLS|HTTP] [LEARNING|LOCKED] - periodic status
+        current_pattern = re.compile(r"domain-grouping: CURRENT (\S+) strategy=(\d+) \[(TLS|HTTP)\] \[(LEARNING|LOCKED)\]")
+        # RST INJECTION detection
+        rst_pattern = re.compile(r"combined_detector: RST INJECTION.*in_bytes=(\d+)")
+        # NEW domain starting
+        new_domain_pattern = re.compile(r"domain-grouping: NEW (\S+) starting")
+        # UNSTICKY - strategy failed after first success, resuming rotation
+        unsticky_pattern = re.compile(r"strategy-stats: UNSTICKY (\S+)(?:\s+\[(TLS|HTTP)\])?")
 
         # Счётчик для периодического сохранения истории
         history_save_counter = 0
@@ -546,8 +554,8 @@ class OrchestraRunner:
                         if host not in target_dict or target_dict[host] != strat:
                             target_dict[host] = strat
                             timestamp = datetime.now().strftime("%H:%M:%S")
-                            proto_tag = " [HTTP]" if is_http else ""
-                            msg = f"[{timestamp}] LOCKED: {host} = strategy {strat}{proto_tag}"
+                            port = ":80" if is_http else ":443"
+                            msg = f"[{timestamp}] 🔒 LOCKED: {host} {port} = strategy {strat}"
                             log(msg, "INFO")
                             if self.output_callback:
                                 self.output_callback(msg)
@@ -569,8 +577,8 @@ class OrchestraRunner:
                         if host in target_dict:
                             del target_dict[host]
                             timestamp = datetime.now().strftime("%H:%M:%S")
-                            proto_tag = " [HTTP]" if is_http else ""
-                            msg = f"[{timestamp}] UNLOCKED: {host}{proto_tag} - re-learning..."
+                            port = ":80" if is_http else ":443"
+                            msg = f"[{timestamp}] 🔓 UNLOCKED: {host} {port} - re-learning..."
                             log(msg, "INFO")
                             if self.output_callback:
                                 self.output_callback(msg)
@@ -624,14 +632,15 @@ class OrchestraRunner:
                     # Проверяем SUCCESS - обновляем историю в реальном времени
                     match = success_pattern.search(line)
                     if match:
-                        host, strat = match.groups()
+                        host, strat, ptype = match.groups()
                         strat = int(strat)
                         self._increment_history(host, strat, is_success=True)
                         history_save_counter += 1
 
-                        # Выводим в UI
+                        # Выводим в UI с портом (HTTP=80, TLS=443)
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] ✓ SUCCESS: {host} strategy={strat}"
+                        port = "80" if ptype == "HTTP" else "443"
+                        msg = f"[{timestamp}] ✓ SUCCESS: {host} :{port} strategy={strat}"
                         if self.output_callback:
                             self.output_callback(msg)
 
@@ -644,14 +653,15 @@ class OrchestraRunner:
                     # Проверяем FAIL - обновляем историю в реальном времени
                     match = fail_pattern.search(line)
                     if match:
-                        host, strat = match.groups()
+                        host, strat, ptype = match.groups()
                         strat = int(strat)
                         self._increment_history(host, strat, is_success=False)
                         history_save_counter += 1
 
-                        # Выводим в UI
+                        # Выводим в UI с портом (HTTP=80, TLS=443)
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] ✗ FAIL: {host} strategy={strat}"
+                        port = "80" if ptype == "HTTP" else "443"
+                        msg = f"[{timestamp}] ✗ FAIL: {host} :{port} strategy={strat}"
                         if self.output_callback:
                             self.output_callback(msg)
 
@@ -661,8 +671,51 @@ class OrchestraRunner:
                             history_save_counter = 0
                         continue
 
+                    # Проверяем CURRENT - периодический статус домена
+                    match = current_pattern.search(line)
+                    if match:
+                        host, strat, ptype, status = match.groups()
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        icon = "🔒" if status == "LOCKED" else "🔄"
+                        port = ":80" if ptype == "HTTP" else ":443"
+                        msg = f"[{timestamp}] {icon} {host} {port} strategy={strat} [{status}]"
+                        if self.output_callback:
+                            self.output_callback(msg)
+                        continue
+
+                    # Проверяем RST INJECTION - DPI заблокировал
+                    match = rst_pattern.search(line)
+                    if match:
+                        in_bytes = match.group(1)
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        msg = f"[{timestamp}] ⚡ RST INJECTION detected (in_bytes={in_bytes}) - switching strategy"
+                        if self.output_callback:
+                            self.output_callback(msg)
+                        continue
+
+                    # Проверяем NEW domain - новый домен начинает обучение
+                    match = new_domain_pattern.search(line)
+                    if match:
+                        host = match.group(1)
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        msg = f"[{timestamp}] 🆕 NEW: {host} starting learning"
+                        if self.output_callback:
+                            self.output_callback(msg)
+                        continue
+
+                    # Проверяем UNSTICKY - стратегия сфейлилась после первого успеха
+                    match = unsticky_pattern.search(line)
+                    if match:
+                        host = match.group(1)
+                        ptype = match.group(2) if match.lastindex >= 2 else None
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        port = ":80" if (ptype and ptype.upper() == "HTTP") else ":443"
+                        msg = f"[{timestamp}] 🔀 UNSTICKY: {host} {port} - resuming rotation"
+                        if self.output_callback:
+                            self.output_callback(msg)
+                        continue
+
                     # НЕ выводим сырые логи winws2 - только обработанные события выше
-                    # (LOCKED, UNLOCKED, SUCCESS, FAIL)
                     pass
 
             except Exception as e:
