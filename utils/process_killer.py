@@ -383,6 +383,50 @@ def force_kill_via_taskkill(process_name: str) -> bool:
         return False
 
 
+def kill_via_wmi(process_name: str) -> bool:
+    """
+    Завершение процесса через WMI (Windows Management Instrumentation).
+    Работает когда другие методы не помогают.
+
+    Args:
+        process_name: Имя процесса (например "winws.exe")
+
+    Returns:
+        True если команда выполнена успешно
+    """
+    import subprocess
+
+    try:
+        # wmic process where name="winws.exe" delete
+        result = subprocess.run(
+            ['wmic', 'process', 'where', f'name="{process_name}"', 'delete'],
+            capture_output=True,
+            text=True,
+            encoding='cp866',
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            timeout=15
+        )
+
+        # wmic возвращает 0 даже если процесс не найден
+        if "No Instance" in result.stdout or "нет экземпляров" in result.stdout.lower():
+            log(f"WMI: процесс {process_name} не найден", "DEBUG")
+            return True
+
+        if result.returncode == 0:
+            log(f"✅ Процесс {process_name} завершён через WMI", "INFO")
+            return True
+        else:
+            log(f"WMI для {process_name} вернул код {result.returncode}: {result.stderr}", "DEBUG")
+            return False
+
+    except subprocess.TimeoutExpired:
+        log(f"WMI для {process_name} превысил таймаут", "WARNING")
+        return False
+    except Exception as e:
+        log(f"Ошибка WMI для {process_name}: {e}", "DEBUG")
+        return False
+
+
 def kill_winws_force() -> bool:
     """
     Агрессивное завершение всех процессов winws через все доступные методы.
@@ -405,22 +449,43 @@ def kill_winws_force() -> bool:
     remaining = get_process_pids("winws.exe") + get_process_pids("winws2.exe")
 
     if not remaining:
-        return True  # Win API справился, taskkill не нужен
+        return True  # Win API справился
 
     # 3. Win API не справился - применяем taskkill /F /T
     log(f"⚠ Осталось {len(remaining)} процессов, применяем taskkill", "WARNING")
     force_kill_via_taskkill("winws.exe")
     force_kill_via_taskkill("winws2.exe")
 
-    time.sleep(0.5)
+    time.sleep(0.3)
 
-    # 4. Финальная проверка
+    # 4. Проверяем после taskkill
+    remaining = get_process_pids("winws.exe") + get_process_pids("winws2.exe")
+
+    if not remaining:
+        log("✅ Процессы winws завершены через taskkill", "INFO")
+        return True
+
+    # 5. Taskkill не справился - применяем WMI
+    log(f"⚠ Taskkill не справился, осталось {len(remaining)} процессов. Применяем WMI", "WARNING")
+    kill_via_wmi("winws.exe")
+    kill_via_wmi("winws2.exe")
+
+    time.sleep(0.3)
+
+    # 6. Финальная проверка
     remaining = get_process_pids("winws.exe") + get_process_pids("winws2.exe")
 
     if remaining:
         log(f"❌ Не удалось завершить процессы winws: PIDs={remaining}", "ERROR")
+        # Пытаемся собрать диагностику
+        try:
+            for pid in remaining:
+                proc = psutil.Process(pid)
+                log(f"  PID={pid}: name={proc.name()}, status={proc.status()}, username={proc.username()}", "DEBUG")
+        except Exception:
+            pass
         return False
 
-    log("✅ Процессы winws завершены через taskkill", "INFO")
+    log("✅ Процессы winws завершены через WMI", "INFO")
     return True
 

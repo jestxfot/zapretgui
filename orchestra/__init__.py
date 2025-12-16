@@ -9,10 +9,11 @@
 - Группировка субдоменов (googlevideo.com, youtube.com и т.д.)
 """
 
-from .orchestra_runner import OrchestraRunner, DEFAULT_WHITELIST, REGISTRY_ORCHESTRA
+from .orchestra_runner import OrchestraRunner, DEFAULT_WHITELIST, REGISTRY_ORCHESTRA, MAX_ORCHESTRA_LOGS
 
 __all__ = [
     'OrchestraRunner',
     'DEFAULT_WHITELIST',
     'REGISTRY_ORCHESTRA',
+    'MAX_ORCHESTRA_LOGS',
 ]

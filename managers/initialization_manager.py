@@ -158,9 +158,9 @@ class InitializationManager:
 
             # Выбираем исполняемый файл в зависимости от режима запуска
             launch_method = get_strategy_launch_method()
-            if launch_method == "direct":
+            if launch_method in ("direct", "direct_orchestra"):
                 winws_exe = WINWS2_EXE  # Zapret 2 для прямого запуска
-                log("Используется winws2.exe для прямого запуска (Zapret 2)", "INFO")
+                log(f"Используется winws2.exe для режима {launch_method} (Zapret 2)", "INFO")
             else:
                 winws_exe = WINWS_EXE   # Zapret 1 для BAT режима
                 log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
@@ -329,7 +329,7 @@ class InitializationManager:
     def _connect_signals(self):
         """Подключение всех сигналов"""
         try:
-            self.app.start_clicked.connect(lambda: self.app.dpi_controller.start_dpi_async())
+            self.app.start_clicked.connect(self._on_start_clicked)
             self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
             self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
@@ -355,6 +355,49 @@ class InitializationManager:
             self.init_tasks_completed.add('signals')
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
+
+    def _on_start_clicked(self):
+        """Обработчик нажатия кнопки запуска с проверкой выбранной стратегии"""
+        from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+
+        launch_method = get_strategy_launch_method()
+
+        # Для режимов direct/direct_orchestra проверяем выбранные категории
+        if launch_method in ("direct", "direct_orchestra"):
+            selections = get_direct_strategy_selections()
+            # Проверяем есть ли хотя бы одна категория не равная 'none'
+            has_any = any(v and v != 'none' for v in selections.values())
+            if not has_any:
+                # Нет выбранных стратегий - перенаправляем на страницу стратегий
+                self._navigate_to_strategies()
+                self.app.set_status("⚠️ Выберите стратегию для запуска")
+                return
+
+        # Для BAT режима проверяем последнюю выбранную стратегию
+        elif launch_method == "bat":
+            from config.reg import get_last_bat_strategy
+            last_strategy = get_last_bat_strategy()
+            if not last_strategy or last_strategy == "Автостарт DPI отключен":
+                self._navigate_to_strategies()
+                self.app.set_status("⚠️ Выберите стратегию для запуска")
+                return
+
+        # orchestra режим не требует выбора стратегии - работает автоматически
+
+        # Запускаем DPI
+        self.app.dpi_controller.start_dpi_async()
+
+    def _navigate_to_strategies(self):
+        """Перенаправляет на страницу выбора стратегий"""
+        try:
+            if hasattr(self.app, '_navigate_to_strategies'):
+                self.app._navigate_to_strategies()
+            elif hasattr(self.app, 'side_nav') and hasattr(self.app, 'pages_stack') and hasattr(self.app, 'strategies_page'):
+                index = self.app.pages_stack.indexOf(self.app.strategies_page)
+                if index >= 0:
+                    self.app.side_nav.set_page(index)
+        except Exception as e:
+            log(f"Ошибка навигации на страницу стратегий: {e}", "DEBUG")
 
     # ═══════════════════════════════════════════════════════════════════
     # ФАЗА 2: Инициализация менеджеров (разбито на логические группы)

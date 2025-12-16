@@ -16,9 +16,49 @@ from log import log
 
 # ==================== LAZY IMPORTS ====================
 
-_strategies_cache = {}  # {strategy_type: strategies_dict} - кешируем по типу стратегий
-_imported_types = set()  # Какие типы уже загружены
+_strategies_cache = {}  # {(strategy_type, strategy_set): strategies_dict} - кешируем по типу и набору
+_imported_types = set()  # Какие (type, set) пары уже загружены
 _logged_missing_strategies = set()  # Чтобы не спамить логи одними и теми же предупреждениями
+_current_strategy_set = None  # Текущий набор стратегий (None = стандартный, "orchestra" и т.д.)
+
+
+def get_current_strategy_set() -> Optional[str]:
+    """
+    Возвращает текущий набор стратегий на основе метода запуска.
+
+    Returns:
+        None для стандартного набора, "orchestra" для direct_orchestra и т.д.
+    """
+    try:
+        from strategy_menu import get_strategy_launch_method
+        method = get_strategy_launch_method()
+
+        # Маппинг метода запуска на набор стратегий
+        method_to_set = {
+            "direct": None,           # стандартный набор (tcp.json)
+            "direct_orchestra": "orchestra",  # tcp_orchestra.json
+            "bat": None,              # BAT не использует JSON стратегии
+            "orchestra": None,        # Orchestra использует свой механизм
+        }
+        return method_to_set.get(method, None)
+    except Exception:
+        return None
+
+
+def set_strategy_set(strategy_set: Optional[str]):
+    """
+    Принудительно устанавливает набор стратегий (для тестирования).
+    Сбрасывает кэш при смене набора.
+    """
+    global _current_strategy_set, _strategies_cache, _imported_types
+
+    if _current_strategy_set != strategy_set:
+        _current_strategy_set = strategy_set
+        # Сбрасываем кэш при смене набора
+        _strategies_cache.clear()
+        _imported_types.clear()
+        log(f"Набор стратегий изменён на: {strategy_set or 'стандартный'}", "INFO")
+
 
 # ==================== КОНСТАНТЫ ФИЛЬТРОВ ====================
 
@@ -26,20 +66,25 @@ _logged_missing_strategies = set()  # Чтобы не спамить логи о
 DISCORD_VOICE_FILTER = "--filter-l7=discord,stun"
 
 
-def _load_strategies_from_json(strategy_type: str) -> Dict:
+def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> Dict:
     """
     Загружает стратегии из JSON файлов.
     Сначала builtin, потом user (user перезаписывает builtin).
+
+    Args:
+        strategy_type: Тип стратегий (tcp, udp, http80, discord_voice)
+        strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
     """
     try:
         from .strategies.strategy_loader import load_strategies_as_dict
-        strategies = load_strategies_as_dict(strategy_type)
+        strategies = load_strategies_as_dict(strategy_type, strategy_set)
         if strategies:
-            log(f"Загружено {len(strategies)} стратегий типа '{strategy_type}' из JSON", "DEBUG")
+            set_name = strategy_set or "стандартный"
+            log(f"Загружено {len(strategies)} стратегий типа '{strategy_type}' (набор: {set_name})", "DEBUG")
             return strategies
     except Exception as e:
         log(f"Ошибка загрузки JSON стратегий типа '{strategy_type}': {e}", "WARNING")
-    
+
     return {}
 
 
@@ -84,21 +129,26 @@ def _strip_payload_from_args(args: str) -> str:
 def _lazy_import_base_strategies(strategy_type: str) -> Dict:
     """
     Ленивый импорт базовых стратегий по типу из JSON файлов.
+    Учитывает текущий набор стратегий (strategy_set).
     """
     global _strategies_cache, _imported_types
-    
-    if strategy_type in _imported_types:
-        return _strategies_cache.get(strategy_type, {})
-    
-    strategies = _load_strategies_from_json(strategy_type)
-    
+
+    # Получаем текущий набор стратегий
+    strategy_set = get_current_strategy_set()
+    cache_key = (strategy_type, strategy_set)
+
+    if cache_key in _imported_types:
+        return _strategies_cache.get(cache_key, {})
+
+    strategies = _load_strategies_from_json(strategy_type, strategy_set)
+
     if strategies:
-        _strategies_cache[strategy_type] = strategies
-        _imported_types.add(strategy_type)
+        _strategies_cache[cache_key] = strategies
+        _imported_types.add(cache_key)
         return strategies
-    
+
     log(f"Не удалось загрузить стратегии типа '{strategy_type}'", "WARNING")
-    _imported_types.add(strategy_type)
+    _imported_types.add(cache_key)
     return {}
 
 def _lazy_import_all_strategies() -> Dict[str, Dict]:
@@ -280,15 +330,20 @@ class StrategiesRegistry:
 
         # Перезагружаем категории
         reload_categories()
-        
+
+        # Получаем текущий набор стратегий
+        strategy_set = get_current_strategy_set()
+        set_name = strategy_set or "стандартный"
+
         # Принудительно загружаем все типы стратегий
         for strategy_type in ["tcp", "udp", "http80", "discord_voice"]:
-            strategies = _load_strategies_from_json(strategy_type)
+            strategies = _load_strategies_from_json(strategy_type, strategy_set)
             if strategies:
-                _strategies_cache[strategy_type] = strategies
-                _imported_types.add(strategy_type)
-                log(f"✅ Перезагружено {len(strategies)} стратегий типа '{strategy_type}'", "DEBUG")
-        
+                cache_key = (strategy_type, strategy_set)
+                _strategies_cache[cache_key] = strategies
+                _imported_types.add(cache_key)
+                log(f"✅ Перезагружено {len(strategies)} стратегий типа '{strategy_type}' (набор: {set_name})", "DEBUG")
+
         log(f"✅ Перезагрузка завершена, категорий: {len(self._categories)}, типов стратегий: {len(_strategies_cache)}", "INFO")
 
     @property
@@ -367,7 +422,7 @@ class StrategiesRegistry:
                 # Сложная стратегия с полной командой
                 return base_args
             # Простая стратегия - добавляем base_filter
-        
+
         # Склеиваем: base_filter + техника
         if base_filter and base_args:
             return f"{base_filter} {base_args}"
@@ -610,7 +665,7 @@ __all__ = [
     'registry',
     'get_strategies_registry',
     'get_category_strategies',
-    'get_category_info', 
+    'get_category_info',
     'get_all_strategies',
     'get_tab_names',
     'get_tab_tooltips',
@@ -621,6 +676,9 @@ __all__ = [
     'reload_categories',
     'is_category_blocked',
     'get_blocked_categories_for_mode',
+    # Strategy set
+    'get_current_strategy_set',
+    'set_strategy_set',
 ]
 
 def is_category_enabled_by_filters(category_key: str) -> bool:

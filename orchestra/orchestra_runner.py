@@ -2,12 +2,16 @@
 """
 Circular Orchestra Runner - автоматическое обучение стратегий DPI bypass.
 
-Использует circular orchestrator из zapret-auto.lua (файл менять этот нельзя) с:
+Использует circular orchestrator из F:\doc\zapret2\lua\zapret-auto.lua (файл менять этот нельзя) с:
 - combined_failure_detector (RST injection + silent drop)
 - strategy_stats (LOCK механизм после 3 успехов, UNLOCK после 2 failures)
 - domain_grouping (группировка субдоменов)
 
-Логи - только Python (компактные), без огромных winws2 debug логов.
+При этом сам оркестратор (его исходный код) всегда хранится H:\Privacy\zapret\lua
+
+Копировать в Program Data не нужно -  приложение берёт файлы напрямую из H:\Privacy\zapret\lua\.
+
+Логи - только Python - компактные для гуи чтобы не было огромных winws2 debug логов.
 """
 
 import os
@@ -15,7 +19,8 @@ import subprocess
 import threading
 import re
 import json
-from typing import Optional, Callable, Dict
+import glob
+from typing import Optional, Callable, Dict, List
 from datetime import datetime
 
 from log import log
@@ -27,6 +32,9 @@ REGISTRY_ORCHESTRA = f"{REGISTRY_PATH}\\Orchestra"
 REGISTRY_ORCHESTRA_TLS = f"{REGISTRY_ORCHESTRA}\\TLS"      # TLS стратегии: domain=strategy (REG_DWORD)
 REGISTRY_ORCHESTRA_HTTP = f"{REGISTRY_ORCHESTRA}\\HTTP"    # HTTP стратегии: domain=strategy (REG_DWORD)
 REGISTRY_ORCHESTRA_HISTORY = f"{REGISTRY_ORCHESTRA}\\History"  # История: domain=JSON (REG_SZ)
+
+# Максимальное количество лог-файлов оркестратора
+MAX_ORCHESTRA_LOGS = 10
 
 # Белый список по умолчанию - сайты которые НЕ нужно обрабатывать
 # Эти сайты работают без DPI bypass или требуют особой обработки
@@ -72,6 +80,50 @@ SW_HIDE = 0
 CREATE_NO_WINDOW = 0x08000000
 STARTF_USESHOWWINDOW = 0x00000001
 
+# Multi-part TLDs (для корректного NLD-cut)
+MULTI_PART_TLDS = {
+    'co.uk', 'com.au', 'co.nz', 'co.jp', 'co.kr', 'co.in', 'co.za',
+    'com.br', 'com.mx', 'com.ar', 'com.ru', 'com.ua', 'com.cn',
+    'org.uk', 'org.au', 'net.au', 'gov.uk', 'ac.uk', 'edu.au',
+}
+
+def nld_cut(hostname: str, nld: int = 2) -> str:
+    """
+    Обрезает hostname до N-level domain (как standard_hostkey в lua).
+
+    nld=2: "rr1---sn-xxx.googlevideo.com" -> "googlevideo.com"
+    nld=2: "static.xx.fbcdn.net" -> "fbcdn.net"
+    nld=2: "www.bbc.co.uk" -> "bbc.co.uk" (учитывает multi-part TLD)
+
+    Args:
+        hostname: полный hostname
+        nld: количество уровней (по умолчанию 2)
+
+    Returns:
+        Обрезанный hostname
+    """
+    if not hostname:
+        return hostname
+
+    # IP адреса не обрезаем
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
+        return hostname
+
+    parts = hostname.lower().split('.')
+    if len(parts) <= nld:
+        return hostname
+
+    # Проверяем multi-part TLD (например .co.uk)
+    if len(parts) >= 2:
+        last_two = '.'.join(parts[-2:])
+        if last_two in MULTI_PART_TLDS:
+            # Для .co.uk и подобных берём на 1 уровень больше
+            if len(parts) <= nld + 1:
+                return hostname
+            return '.'.join(parts[-(nld + 1):])
+
+    return '.'.join(parts[-nld:])
+
 
 class OrchestraRunner:
     """
@@ -112,7 +164,9 @@ class OrchestraRunner:
         self.whitelist_path = os.path.join(self.lua_path, "whitelist.txt")
 
         # Debug log от winws2 (для детекции LOCKED/UNLOCKING)
-        self.debug_log_path = os.path.join(self.logs_path, "winws2_orchestra.log")
+        # Теперь используем уникальные имена с ID сессии
+        self.current_log_id: Optional[str] = None
+        self.debug_log_path: Optional[str] = None
         # Загружаем настройку сохранения debug файла из реестра
         saved_debug = reg(f"{REGISTRY_PATH}\\Orchestra", "KeepDebugFile")
         self.keep_debug_file = bool(saved_debug)
@@ -154,6 +208,185 @@ class OrchestraRunner:
     def set_unlock_callback(self, callback: Callable[[str], None]):
         """Callback при UNLOCK стратегии (hostname)"""
         self.unlock_callback = callback
+
+    # ==================== LOG ROTATION METHODS ====================
+
+    def _generate_log_id(self) -> str:
+        """
+        Генерирует уникальный ID для лог-файла.
+        Формат: YYYYMMDD_HHMMSS (только timestamp для читаемости)
+        """
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    def _generate_log_path(self, log_id: str) -> str:
+        """Генерирует путь к лог-файлу по ID"""
+        return os.path.join(self.logs_path, f"orchestra_{log_id}.log")
+
+    def _get_all_orchestra_logs(self) -> List[dict]:
+        """
+        Возвращает список всех лог-файлов оркестратора.
+
+        Returns:
+            Список словарей с информацией о логах, отсортированный по дате (новые первые):
+            [{'id': str, 'path': str, 'size': int, 'created': datetime, 'filename': str}, ...]
+        """
+        logs = []
+        pattern = os.path.join(self.logs_path, "orchestra_*.log")
+
+        for filepath in glob.glob(pattern):
+            try:
+                filename = os.path.basename(filepath)
+                # Извлекаем ID из имени файла (orchestra_YYYYMMDD_HHMMSS_XXXX.log)
+                log_id = filename.replace("orchestra_", "").replace(".log", "")
+
+                stat = os.stat(filepath)
+
+                # Парсим дату из ID (YYYYMMDD_HHMMSS)
+                try:
+                    created = datetime.strptime(log_id, "%Y%m%d_%H%M%S")
+                except ValueError:
+                    created = datetime.fromtimestamp(stat.st_mtime)
+
+                logs.append({
+                    'id': log_id,
+                    'path': filepath,
+                    'filename': filename,
+                    'size': stat.st_size,
+                    'created': created
+                })
+            except Exception as e:
+                log(f"Ошибка чтения лог-файла {filepath}: {e}", "DEBUG")
+
+        # Сортируем по дате создания (новые первые)
+        logs.sort(key=lambda x: x['created'], reverse=True)
+        return logs
+
+    def _cleanup_old_logs(self) -> int:
+        """
+        Удаляет старые лог-файлы, оставляя только MAX_ORCHESTRA_LOGS штук.
+
+        Returns:
+            Количество удалённых файлов
+        """
+        logs = self._get_all_orchestra_logs()
+        deleted = 0
+
+        if len(logs) > MAX_ORCHESTRA_LOGS:
+            # Удаляем самые старые (они в конце списка)
+            logs_to_delete = logs[MAX_ORCHESTRA_LOGS:]
+
+            for log_info in logs_to_delete:
+                try:
+                    os.remove(log_info['path'])
+                    deleted += 1
+                    log(f"Удалён старый лог: {log_info['filename']}", "DEBUG")
+                except Exception as e:
+                    log(f"Ошибка удаления лога {log_info['filename']}: {e}", "DEBUG")
+
+        if deleted:
+            log(f"Ротация логов оркестратора: удалено {deleted} файлов", "INFO")
+
+        return deleted
+
+    def get_log_history(self) -> List[dict]:
+        """
+        Возвращает историю логов для UI.
+
+        Returns:
+            Список словарей с информацией о логах (без полного пути)
+        """
+        logs = self._get_all_orchestra_logs()
+        return [{
+            'id': l['id'],
+            'filename': l['filename'],
+            'size': l['size'],
+            'size_str': self._format_size(l['size']),
+            'created': l['created'].strftime("%Y-%m-%d %H:%M:%S"),
+            'is_current': l['id'] == self.current_log_id
+        } for l in logs]
+
+    def _format_size(self, size: int) -> str:
+        """Форматирует размер файла в человекочитаемый вид"""
+        if size < 1024:
+            return f"{size} B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size / (1024 * 1024):.1f} MB"
+
+    def get_log_content(self, log_id: str) -> Optional[str]:
+        """
+        Возвращает содержимое лог-файла по ID.
+
+        Args:
+            log_id: ID лога
+
+        Returns:
+            Содержимое файла или None
+        """
+        log_path = self._generate_log_path(log_id)
+        if not os.path.exists(log_path):
+            return None
+
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                return f.read()
+        except Exception as e:
+            log(f"Ошибка чтения лога {log_id}: {e}", "DEBUG")
+            return None
+
+    def delete_log(self, log_id: str) -> bool:
+        """
+        Удаляет лог-файл по ID.
+
+        Args:
+            log_id: ID лога
+
+        Returns:
+            True если удаление успешно
+        """
+        # Нельзя удалить текущий активный лог
+        if log_id == self.current_log_id and self.is_running():
+            log(f"Нельзя удалить активный лог: {log_id}", "WARNING")
+            return False
+
+        log_path = self._generate_log_path(log_id)
+        if not os.path.exists(log_path):
+            return False
+
+        try:
+            os.remove(log_path)
+            log(f"Удалён лог: orchestra_{log_id}.log", "INFO")
+            return True
+        except Exception as e:
+            log(f"Ошибка удаления лога {log_id}: {e}", "ERROR")
+            return False
+
+    def clear_all_logs(self) -> int:
+        """
+        Удаляет все лог-файлы оркестратора (кроме текущего активного).
+
+        Returns:
+            Количество удалённых файлов
+        """
+        logs = self._get_all_orchestra_logs()
+        deleted = 0
+
+        for log_info in logs:
+            # Пропускаем текущий активный лог
+            if log_info['id'] == self.current_log_id and self.is_running():
+                continue
+
+            try:
+                os.remove(log_info['path'])
+                deleted += 1
+            except Exception:
+                pass
+
+        if deleted:
+            log(f"Удалено {deleted} лог-файлов оркестратора", "INFO")
+
+        return deleted
 
     def _create_startup_info(self):
         """Создает STARTUPINFO для скрытого запуска"""
@@ -337,39 +570,17 @@ class OrchestraRunner:
 
     def _generate_learned_lua(self) -> Optional[str]:
         """
-        Генерирует learned-strategies.lua для предзагрузки стратегий и истории в winws2.
+        Генерирует learned-strategies.lua для предзагрузки в strategy-stats.lua.
+        Вызывает strategy_preload() и strategy_preload_history() для каждого домена.
 
         Returns:
             Путь к файлу или None если нет данных
         """
-        # Авто-LOCK: если в истории есть домен с >= 3 успехов, добавляем в locked_strategies
-        LOCK_THRESHOLD = 3
-        for hostname, strategies in self.strategy_history.items():
-            # Пропускаем если уже есть locked стратегия для этого домена
-            if hostname in self.locked_strategies:
-                continue
-
-            # Ищем стратегию с максимальным числом успехов (>= порога)
-            best_strat = None
-            best_successes = 0
-            for strat_key, data in strategies.items():
-                successes = data.get('successes', 0)
-                if successes >= LOCK_THRESHOLD and successes > best_successes:
-                    best_strat = int(strat_key)
-                    best_successes = successes
-
-            if best_strat is not None:
-                self.locked_strategies[hostname] = best_strat
-                log(f"Авто-LOCK из истории: {hostname} = strategy {best_strat} ({best_successes} успехов)", "INFO")
-
-        # Сохраняем авто-locked стратегии в реестр
-        if self.locked_strategies or self.http_locked_strategies:
-            self.save_strategies()
-
-        has_strategies = self.locked_strategies or self.http_locked_strategies
+        has_tls = bool(self.locked_strategies)
+        has_http = bool(self.http_locked_strategies)
         has_history = bool(self.strategy_history)
 
-        if not has_strategies and not has_history:
+        if not has_tls and not has_http and not has_history:
             return None
 
         lua_path = os.path.join(self.lua_path, "learned-strategies.lua")
@@ -379,31 +590,33 @@ class OrchestraRunner:
 
         try:
             with open(lua_path, 'w', encoding='utf-8') as f:
-                f.write("-- Auto-generated: preload learned strategies and history\n")
+                f.write("-- Auto-generated: preload strategies from registry\n")
                 f.write(f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"-- TLS: {total_tls}, HTTP: {total_http}, History domains: {total_history}\n\n")
+                f.write(f"-- TLS: {total_tls}, HTTP: {total_http}, History: {total_history}\n\n")
 
-                # TLS/HTTP strategy_preload ПОЛНОСТЬЮ ОТКЛЮЧЕН
-                # Проблема: даже без создания autostate, вызовы strategy_preload крашат winws2
-                # Возможные причины:
-                # 1. Слишком много вызовов подряд перегружают Lua
-                # 2. Какой-то конфликт в working_strategies таблице
-                # 3. Проблема в самом winws2 при большом количестве preload записей
-                #
-                # История (strategy_preload_history) работает - она только заполняет статистику
-                # без влияния на runtime поведение circular
+                # Предзагрузка TLS стратегий
+                for hostname, strategy in self.locked_strategies.items():
+                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                    f.write(f'strategy_preload("{safe_host}", {strategy}, "tls")\n')
 
-                # История стратегий (для рейтинга и выбора лучшей)
-                if self.strategy_history:
-                    f.write("\n-- Strategy history (for ratings)\n")
-                    for hostname, strategies in self.strategy_history.items():
-                        safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
-                        for strat_key, data in strategies.items():
-                            s = data.get('successes', 0)
-                            f_count = data.get('failures', 0)
-                            f.write(f'strategy_preload_history("{safe_host}", {strat_key}, {s}, {f_count})\n')
+                # Предзагрузка HTTP стратегий
+                for hostname, strategy in self.http_locked_strategies.items():
+                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                    f.write(f'strategy_preload("{safe_host}", {strategy}, "http")\n')
 
-                f.write(f"\nDLOG(\"learned-strategies: preloaded {total_tls} TLS + {total_http} HTTP + {total_history} history\")\n")
+                # Предзагрузка истории
+                for hostname, strategies in self.strategy_history.items():
+                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                    for strat_key, data in strategies.items():
+                        s = data.get('successes', 0)
+                        f_count = data.get('failures', 0)
+                        f.write(f'strategy_preload_history("{safe_host}", {strat_key}, {s}, {f_count})\n')
+
+                f.write(f'\nDLOG("learned-strategies: loaded {total_tls} TLS + {total_http} HTTP + {total_history} history")\n')
+
+                # Install circular wrapper to apply preloaded strategies
+                f.write('\n-- Install circular wrapper to apply preloaded strategies on first packet\n')
+                f.write('install_circular_wrapper()\n')
 
             log(f"Сгенерирован learned-strategies.lua ({total_tls} TLS + {total_http} HTTP + {total_history} history)", "DEBUG")
             return lua_path
@@ -411,14 +624,6 @@ class OrchestraRunner:
         except Exception as e:
             log(f"Ошибка генерации learned-strategies.lua: {e}", "ERROR")
             return None
-
-    def _clear_debug_log(self):
-        """Очищает предыдущий debug log"""
-        try:
-            if os.path.exists(self.debug_log_path):
-                os.remove(self.debug_log_path)
-        except Exception as e:
-            log(f"Не удалось очистить debug.log: {e}", "DEBUG")
 
     def _generate_single_numbered_file(self, source_path: str, output_path: str, name: str) -> int:
         """
@@ -491,37 +696,53 @@ class OrchestraRunner:
 
     def _read_output(self):
         """Поток чтения stdout от winws2 (debug=1 выводит в консоль)"""
-        # Patterns now include optional [TLS]/[HTTP] tag
+        # === Паттерны для strategy-stats.lua (кастомные события) ===
         lock_pattern = re.compile(r"LOCKED (\S+) to strategy=(\d+)(?:\s+\[(TLS|HTTP)\])?")
         unlock_pattern = re.compile(r"UNLOCKING (\S+)(?:\s+\[(TLS|HTTP)\])?")
         sticky_pattern = re.compile(r"STICKY (\S+) to strategy=(\d+)")
         preload_pattern = re.compile(r"PRELOADED (\S+) = strategy (\d+)(?:\s+\[(tls|http)\])?")
-        # HISTORY hostname strategy=N successes=X failures=Y rate=Z%
         history_pattern = re.compile(r"HISTORY (\S+) strategy=(\d+) successes=(\d+) failures=(\d+) rate=(\d+)%")
-        # SUCCESS hostname strategy=N count=X [TLS|HTTP] [LOCKED]
         success_pattern = re.compile(r"strategy-stats: SUCCESS (\S+) strategy=(\d+).*?\[(TLS|HTTP)\]")
-        # FAIL hostname strategy=N [TLS|HTTP]
         fail_pattern = re.compile(r"strategy-stats: FAIL (\S+) strategy=(\d+).*?\[(TLS|HTTP)\]")
-        # CURRENT hostname strategy=N [TLS|HTTP] [LEARNING|LOCKED] - periodic status
-        current_pattern = re.compile(r"domain-grouping: CURRENT (\S+) strategy=(\d+) \[(TLS|HTTP)\] \[(LEARNING|LOCKED)\]")
-        # RST INJECTION detection
-        rst_pattern = re.compile(r"combined_detector: RST INJECTION.*in_bytes=(\d+)")
-        # NEW domain starting
-        new_domain_pattern = re.compile(r"domain-grouping: NEW (\S+) starting")
-        # UNSTICKY - strategy failed after first success, resuming rotation
         unsticky_pattern = re.compile(r"strategy-stats: UNSTICKY (\S+)(?:\s+\[(TLS|HTTP)\])?")
+
+        # === Паттерны для стандартных детекторов zapret2 ===
+        # automate: success detected / automate: failure detected
+        automate_success_pattern = re.compile(r"automate: success detected")
+        automate_failure_pattern = re.compile(r"automate: failure detected")
+        # circular: rotate strategy to N
+        rotate_pattern = re.compile(r"circular: rotate strategy to (\d+)")
+        # circular: current strategy N
+        current_strategy_pattern = re.compile(r"circular: current strategy (\d+)")
+        # standard_failure_detector: incoming RST
+        std_rst_pattern = re.compile(r"standard_failure_detector: incoming RST")
+        # standard_failure_detector: retransmission N/M
+        std_retrans_pattern = re.compile(r"standard_failure_detector: retransmission (\d+)/(\d+)")
+        # standard_success_detector: treating connection as successful
+        std_success_pattern = re.compile(r"standard_success_detector:.*successful")
+
+        # === Паттерн для hostname из desync profile search ===
+        # desync profile search for tcp ip=... port=443 l7proto=tls ssid='' hostname='youtube.com'
+        hostname_pattern = re.compile(r"desync profile search for tcp ip=[\d.]+ port=(\d+) l7proto=\S+ ssid='[^']*' hostname='([^']+)'")
+
+        # Переменная для текущего протокола (80=HTTP, 443=TLS)
+        current_port = None
+
+        # Для отслеживания текущего хоста и стратегии
+        current_host = None
+        current_strat = 1
 
         # Счётчик для периодического сохранения истории
         history_save_counter = 0
 
-        # Открываем файл для записи если нужно
-        debug_file = None
-        if self.keep_debug_file:
+        # Открываем файл для записи сырого debug лога (для отправки в техподдержку)
+        log_file = None
+        if self.debug_log_path:
             try:
-                os.makedirs(os.path.dirname(self.debug_log_path), exist_ok=True)
-                debug_file = open(self.debug_log_path, 'w', encoding='utf-8')
+                log_file = open(self.debug_log_path, 'w', encoding='utf-8', buffering=1)  # line buffered
+                log_file.write(f"=== Orchestra Debug Log Started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
             except Exception as e:
-                log(f"Не удалось открыть debug файл: {e}", "WARNING")
+                log(f"Не удалось открыть лог-файл: {e}", "WARNING")
 
         if self.running_process and self.running_process.stdout:
             try:
@@ -533,18 +754,30 @@ class OrchestraRunner:
                     if not line:
                         continue
 
-                    # Пишем в файл если нужно
-                    if debug_file:
+                    # Отслеживаем текущий hostname из desync profile search
+                    # desync profile search for tcp ip=... port=443 l7proto=tls hostname='youtube.com'
+                    match = hostname_pattern.search(line)
+                    if match:
+                        current_port, hostname = match.groups()
+                        # Игнорируем пустые hostname и IP-адреса
+                        if hostname and not hostname.replace('.', '').isdigit():
+                            # Применяем NLD-cut для группировки поддоменов
+                            current_host = nld_cut(hostname, 2)
+                        continue
+
+                    # Записываем каждую строку в файл лога
+                    if log_file:
                         try:
-                            debug_file.write(line + '\n')
-                            debug_file.flush()
-                        except:
+                            log_file.write(f"{line}\n")
+                        except Exception:
                             pass
 
                     # Проверяем LOCKED
                     match = lock_pattern.search(line)
                     if match:
                         host, strat, ptype = match.groups()
+                        # Применяем NLD-cut (nld=2) для группировки поддоменов
+                        host = nld_cut(host, 2)
                         strat = int(strat)
                         is_http = (ptype and ptype.upper() == "HTTP")
 
@@ -568,6 +801,8 @@ class OrchestraRunner:
                     match = unlock_pattern.search(line)
                     if match:
                         host = match.group(1)
+                        # Применяем NLD-cut для соответствия с LOCKED
+                        host = nld_cut(host, 2)
                         ptype = match.group(2) if len(match.groups()) > 1 else None
                         is_http = (ptype and ptype.upper() == "HTTP")
 
@@ -600,9 +835,12 @@ class OrchestraRunner:
                     # Проверяем PRELOADED (загрузка из файла при старте)
                     match = preload_pattern.search(line)
                     if match:
-                        host, strat = match.groups()
+                        host = match.group(1)
+                        strat = match.group(2)
+                        ptype = match.group(3)  # tls или http (может быть None)
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] PRELOADED: {host} = strategy {strat}"
+                        ptype_str = f" [{ptype}]" if ptype else ""
+                        msg = f"[{timestamp}] PRELOADED: {host} = strategy {strat}{ptype_str}"
                         if self.output_callback:
                             self.output_callback(msg)
                         continue
@@ -611,6 +849,8 @@ class OrchestraRunner:
                     match = history_pattern.search(line)
                     if match:
                         host, strat, successes, failures, rate = match.groups()
+                        # Применяем NLD-cut для группировки
+                        host = nld_cut(host, 2)
                         strat = int(strat)
                         successes = int(successes)
                         failures = int(failures)
@@ -633,6 +873,8 @@ class OrchestraRunner:
                     match = success_pattern.search(line)
                     if match:
                         host, strat, ptype = match.groups()
+                        # Применяем NLD-cut для группировки
+                        host = nld_cut(host, 2)
                         strat = int(strat)
                         self._increment_history(host, strat, is_success=True)
                         history_save_counter += 1
@@ -654,6 +896,8 @@ class OrchestraRunner:
                     match = fail_pattern.search(line)
                     if match:
                         host, strat, ptype = match.groups()
+                        # Применяем NLD-cut для группировки
+                        host = nld_cut(host, 2)
                         strat = int(strat)
                         self._increment_history(host, strat, is_success=False)
                         history_save_counter += 1
@@ -671,36 +915,73 @@ class OrchestraRunner:
                             history_save_counter = 0
                         continue
 
-                    # Проверяем CURRENT - периодический статус домена
-                    match = current_pattern.search(line)
-                    if match:
-                        host, strat, ptype, status = match.groups()
+                    # Проверяем успех от стандартного детектора
+                    if std_success_pattern.search(line):
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        icon = "🔒" if status == "LOCKED" else "🔄"
-                        port = ":80" if ptype == "HTTP" else ":443"
-                        msg = f"[{timestamp}] {icon} {host} {port} strategy={strat} [{status}]"
+                        # Записываем success в историю если знаем хост и стратегию
+                        if current_host and current_strat:
+                            is_http = (current_port == "80")  # port 80 = HTTP, 443 = TLS
+                            self._increment_history(current_host, current_strat, is_success=True)
+                            history_save_counter += 1
+                            
+                            # Считаем количество успехов для LOCK
+                            host_key = f"{current_host}:{current_strat}"
+                            if not hasattr(self, '_success_counts'):
+                                self._success_counts = {}
+                            self._success_counts[host_key] = self._success_counts.get(host_key, 0) + 1
+                            
+                            # LOCK после 3 успехов
+                            if self._success_counts[host_key] >= 3:
+                                target_dict = self.http_locked_strategies if is_http else self.locked_strategies
+                                if current_host not in target_dict:
+                                    target_dict[current_host] = current_strat
+                                    port = ":80" if is_http else ":443"
+                                    msg = f"[{timestamp}] 🔒 LOCKED: {current_host} {port} = strategy {current_strat}"
+                                    log(msg, "INFO")
+                                    if self.output_callback:
+                                        self.output_callback(msg)
+                                    # Сохраняем стратегии и историю в реестр
+                                    self.save_strategies()
+                                    self.save_history()
+                                    history_save_counter = 0  # Сбрасываем счётчик т.к. только что сохранили
+                            
+                            msg = f"[{timestamp}] ✓ SUCCESS: {current_host} strategy={current_strat}"
+                        else:
+                            msg = f"[{timestamp}] ✓ Connection successful"
+                        if self.output_callback:
+                            self.output_callback(msg)
+                        
+                        # Сохраняем периодически
+                        if history_save_counter >= 5:
+                            self.save_history()
+                            history_save_counter = 0
+                        continue
+                    
+                    # Проверяем RST от стандартного детектора
+                    if std_rst_pattern.search(line):
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        msg = f"[{timestamp}] ⚡ RST detected - DPI block"
                         if self.output_callback:
                             self.output_callback(msg)
                         continue
 
-                    # Проверяем RST INJECTION - DPI заблокировал
-                    match = rst_pattern.search(line)
+                    # DUPLICATE REMOVED: std_success_pattern handler was here
+                    # The correct handler is at lines 877-914 which saves to registry
+
+                    # Проверяем ротацию стратегии
+                    match = rotate_pattern.search(line)
                     if match:
-                        in_bytes = match.group(1)
+                        new_strat = match.group(1)
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] ⚡ RST INJECTION detected (in_bytes={in_bytes}) - switching strategy"
+                        msg = f"[{timestamp}] 🔄 Strategy rotated to {new_strat}"
                         if self.output_callback:
                             self.output_callback(msg)
                         continue
 
-                    # Проверяем NEW domain - новый домен начинает обучение
-                    match = new_domain_pattern.search(line)
+                    # Отслеживаем текущую стратегию
+                    match = current_strategy_pattern.search(line)
                     if match:
-                        host = match.group(1)
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] 🆕 NEW: {host} starting learning"
-                        if self.output_callback:
-                            self.output_callback(msg)
+                        current_strat = int(match.group(1))
                         continue
 
                     # Проверяем UNSTICKY - стратегия сфейлилась после первого успеха
@@ -719,16 +1000,20 @@ class OrchestraRunner:
                     pass
 
             except Exception as e:
+                import traceback
                 log(f"Read output error: {e}", "DEBUG")
+                log(f"Traceback: {traceback.format_exc()}", "DEBUG")
             finally:
+                # Закрываем лог-файл
+                if log_file:
+                    try:
+                        log_file.write(f"=== Orchestra Debug Log Ended {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                        log_file.close()
+                    except Exception:
+                        pass
                 # Сохраняем историю при завершении
                 if self.strategy_history:
                     self.save_history()
-                if debug_file:
-                    try:
-                        debug_file.close()
-                    except:
-                        pass
 
     def prepare(self) -> bool:
         """
@@ -747,7 +1032,6 @@ class OrchestraRunner:
             "zapret-lib.lua",
             "zapret-antidpi.lua",
             "zapret-auto.lua",
-            "domain-grouping.lua",
             "silent-drop-detector.lua",
             "strategy-stats.lua",
             "combined-detector.lua",
@@ -791,29 +1075,54 @@ class OrchestraRunner:
         if not self.prepare():
             return False
 
-        # Загружаем предыдущие стратегии
+        # Загружаем предыдущие стратегии и историю из реестра
         self.load_existing_strategies()
 
-        # Генерируем Lua файл для предзагрузки стратегий
-        # NOTE: strategy_preload отключен, генерируется только history
-        learned_lua = self._generate_learned_lua()
+        # Инициализируем счётчики успехов из истории
+        # Для доменов которые уже в locked - не важно (не будет повторного LOCK)
+        # Для доменов в истории но не locked - продолжаем с сохранённого значения
+        self._success_counts = {}
+        for hostname, strategies in self.strategy_history.items():
+            for strat_key, data in strategies.items():
+                successes = data.get('successes', 0)
+                if successes > 0:
+                    host_key = f"{hostname}:{strat_key}"
+                    self._success_counts[host_key] = successes
+
+        # Логируем загруженные данные
+        total_locked = len(self.locked_strategies) + len(self.http_locked_strategies)
+        total_history = len(self.strategy_history)
+        if total_locked or total_history:
+            log(f"Загружено из реестра: {len(self.locked_strategies)} TLS + {len(self.http_locked_strategies)} HTTP стратегий, история для {total_history} доменов", "INFO")
+
+        # Генерируем уникальный ID для этой сессии логов
+        self.current_log_id = self._generate_log_id()
+        self.debug_log_path = self._generate_log_path(self.current_log_id)
+        log(f"Создан лог-файл: orchestra_{self.current_log_id}.log", "DEBUG")
+
+        # Выполняем ротацию старых логов
+        self._cleanup_old_logs()
 
         # Сбрасываем stop event
         self.stop_event.clear()
 
+        # Генерируем learned-strategies.lua для предзагрузки в strategy-stats.lua
+        learned_lua = self._generate_learned_lua()
+
         try:
-            # Запускаем winws2 с @config_file + debug=1 (вывод в stdout для парсинга)
+            # Запускаем winws2 с @config_file
             cmd = [self.winws_exe, f"@{self.config_path}"]
 
-            # Добавляем предзагрузку стратегий если есть
+            # Добавляем предзагрузку стратегий из реестра
             if learned_lua:
                 cmd.append(f"--lua-init=@{learned_lua}")
 
+            # Debug: выводим в stdout для парсинга, записываем в файл вручную в _read_output
             cmd.append("--debug=1")
 
             log_msg = f"Запуск: winws2.exe @{os.path.basename(self.config_path)}"
-            if learned_lua:
-                log_msg += f" +{len(self.locked_strategies)} preloaded"
+            if total_locked:
+                log_msg += f" ({total_locked} стратегий из реестра)"
             log(log_msg, "INFO")
 
             self.running_process = subprocess.Popen(
@@ -827,7 +1136,7 @@ class OrchestraRunner:
                 bufsize=1
             )
 
-            # Чтение stdout (парсим LOCKED/UNLOCKING, опционально пишем в файл)
+            # Чтение stdout (парсим LOCKED/UNLOCKING для UI)
             self.output_thread = threading.Thread(target=self._read_output, daemon=True)
             self.output_thread.start()
 
@@ -837,6 +1146,7 @@ class OrchestraRunner:
             if self.output_callback:
                 print("[DEBUG start] calling output_callback...")  # DEBUG
                 self.output_callback(f"[INFO] Оркестратор запущен (PID: {self.running_process.pid})")
+                self.output_callback(f"[INFO] Лог сессии: {self.current_log_id}")
                 if self.locked_strategies:
                     self.output_callback(f"[INFO] Загружено {len(self.locked_strategies)} стратегий")
 
@@ -871,15 +1181,20 @@ class OrchestraRunner:
             self.save_strategies()
             self.save_history()
 
-            # Удаляем debug файл если не нужно сохранять
-            if not self.keep_debug_file:
-                self._clear_debug_log()
+            # Лог оркестратора всегда сохраняется (для отправки в техподдержку)
+            # Ротация старых логов выполняется при следующем запуске (_cleanup_old_logs)
 
             log(f"Оркестратор остановлен. Сохранено {len(self.locked_strategies)} стратегий, история для {len(self.strategy_history)} доменов", "INFO")
+            if self.current_log_id:
+                log(f"Лог сессии сохранён: orchestra_{self.current_log_id}.log", "DEBUG")
 
             if self.output_callback:
                 self.output_callback(f"[INFO] Оркестратор остановлен")
+                if self.current_log_id:
+                    self.output_callback(f"[INFO] Лог сохранён: {self.current_log_id}")
 
+            # Сбрасываем ID текущего лога
+            self.current_log_id = None
             self.running_process = None
             return True
 

@@ -13,11 +13,12 @@ from log import log
 from utils import run_hidden, get_system_exe, get_system32_path
 
 from dpi.process_health_check import (
-    check_process_health, 
-    get_last_crash_info, 
+    check_process_health,
+    get_last_crash_info,
     check_common_crash_causes,
     check_conflicting_processes,
-    get_conflicting_processes_report
+    get_conflicting_processes_report,
+    diagnose_startup_error
 )
 
 class BatDPIStart:
@@ -77,45 +78,23 @@ class BatDPIStart:
             return False
         except Exception as e:
             if not silent:
-                log(f"psutil check error: {e}, fallback to tasklist", "DEBUG")
-            # Fallback на tasklist если psutil не работает
-            return self._check_process_running_tasklist(silent)
-    
+                log(f"psutil check error: {e}", "DEBUG")
+            # psutil не работает - возвращаем False (процесс не найден)
+            return False
+
     def check_process_running_wmi(self, silent: bool = False) -> bool:
         """
         Проверка процесса (теперь использует psutil, WMI как резерв)
         ✅ Оставлен для обратной совместимости — внутри вызывает check_process_running_fast()
         """
         return self.check_process_running_fast(silent)
-    
+
     def check_process_running(self, silent: bool = False) -> bool:
         """
         Проверка процесса (теперь использует psutil)
         ✅ Оставлен для обратной совместимости — внутри вызывает check_process_running_fast()
         """
         return self.check_process_running_fast(silent)
-    
-    def _check_process_running_tasklist(self, silent: bool = False) -> bool:
-        """
-        🐢 Резервный метод через tasklist (медленный, ~100-500ms)
-        Используется только как fallback если psutil недоступен
-        """
-        found = False
-        for exe_name in ['winws.exe', 'winws2.exe']:
-            cmd = [get_system_exe('tasklist.exe'), '/FI', f'IMAGENAME eq {exe_name}', '/FO', 'CSV', '/NH']
-            try:
-                res = run_hidden(cmd, wait=True, capture_output=True,
-                                 text=True, encoding='cp866')
-                if exe_name in res.stdout:
-                    found = True
-                    break
-            except Exception as e:
-                if not silent:
-                    log(f"tasklist error for {exe_name}: {e}", "⚠ WARNING")
-        
-        if not silent:
-            log(f"winws/winws2 state → {found} (tasklist fallback)", "DEBUG")
-        return found
 
     def cleanup_windivert_service(self) -> bool:
         """Очистка службы через PowerShell - без окон"""
@@ -311,38 +290,57 @@ class BatDPIStart:
             return False
 
     def _execute_bat_file(self, bat_file: str, strategy_name: str) -> bool:
-        """Запуск через прямой парсинг .bat и CreateProcess (быстрее чем ShellExecuteEx)"""
+        """
+        Запуск стратегии.
+
+        Логика по расширению файла:
+        - .txt → парсинг аргументов, запуск через StrategyRunner
+        - .bat → запуск напрямую как BAT скрипт (fallback)
+        """
         self.set_status(f"Запуск стратегии: {strategy_name}")
-        log(f"Парсим BAT файл: {bat_file}", level="INFO")
+        file_ext = os.path.splitext(bat_file)[1].lower()
+        log(f"Запуск файла: {bat_file} (формат: {file_ext})", level="INFO")
 
         conflicting = check_conflicting_processes()
         if conflicting:
             warning_report = get_conflicting_processes_report()
             log(warning_report, "⚠ WARNING")
-        
+
         # Агрессивная очистка служб WinDivert перед запуском
         try:
             from utils.service_manager import cleanup_windivert_services
             import time
-            
+
             if cleanup_windivert_services():
                 log("🧹 Очистка служб WinDivert выполнена", "DEBUG")
                 time.sleep(0.3)  # Даём Windows время удалить службы
         except Exception as e:
             log(f"Ошибка очистки служб: {e}", "DEBUG")
 
+        # .BAT файлы запускаем напрямую как скрипты (старый формат)
+        if file_ext == '.bat':
+            log("Формат BAT - запуск как скрипт", "INFO")
+            return self._execute_bat_file_fallback(bat_file, strategy_name)
+
+        # .TXT файлы парсим и запускаем через StrategyRunner (новый формат)
         try:
-            # Парсим .bat файл и извлекаем команду winws
             from utils.bat_parser import parse_bat_file, create_process_direct
-            
+
             parsed = parse_bat_file(bat_file)
             if not parsed:
-                log("Не удалось распарсить .bat файл, используем fallback", "WARNING")
-                return self._execute_bat_file_fallback(bat_file, strategy_name)
-            
+                log("Не удалось распарсить файл стратегии", "WARNING")
+                return False
+
             exe_path, args = parsed
+
+            # Новый формат TXT: exe_path = None, используем StrategyRunner
+            if exe_path is None:
+                log(f"Используем StrategyRunner ({len(args)} аргументов)", "INFO")
+                return self._execute_with_strategy_runner(args, strategy_name)
+
+            # Если парсер вернул exe_path - это смешанный формат, запускаем напрямую
             log(f"Извлечена команда: {os.path.basename(exe_path)} с {len(args)} аргументами", "DEBUG")
-            
+
             # Запускаем напрямую через CreateProcess (быстрее чем ShellExecuteEx + bat)
             working_dir = os.path.dirname(exe_path)
             result = create_process_direct(exe_path, args, working_dir)
@@ -380,17 +378,59 @@ class BatDPIStart:
             # Не показываем ошибку сразу — ProcessMonitorThread продолжит следить
             log("DPI ещё не запущен, продолжаем мониторинг...", level="INFO")
             self.set_status("⏳ Ожидание запуска DPI...")
-            
+
             # Возвращаем True чтобы ProcessMonitorThread продолжил работать
             return True
-                
+
         except Exception as e:
-            log(f"Ошибка при запуске: {e}", level="❌ ERROR")
+            # Диагностируем ошибку и выводим понятное сообщение
+            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
             # Последняя попытка - fallback
             return self._execute_bat_file_fallback(bat_file, strategy_name)
-    
+
+    def _execute_with_strategy_runner(self, args: list, strategy_name: str) -> bool:
+        """
+        Запуск через StrategyRunner для НОВОГО формата BAT файлов.
+
+        StrategyRunner автоматически:
+        - Находит winws.exe
+        - Подставляет пути к --hostlist=, --ipset=, --dpi-desync-fake-*=
+        - Запускает процесс
+        """
+        try:
+            from strategy_menu.strategy_runner import get_strategy_runner
+
+            # Получаем runner с путём к winws.exe
+            runner = get_strategy_runner(self.winws_exe)
+
+            log(f"Запуск через StrategyRunner: {strategy_name}", "INFO")
+
+            # Запускаем стратегию
+            success = runner.start_strategy_custom(args, strategy_name)
+
+            if success:
+                log(f"✅ DPI успешно запущен через StrategyRunner: {strategy_name}", "SUCCESS")
+                self.set_status(f"✅ DPI запущен: {strategy_name}")
+                self._update_ui(True)
+                return True
+            else:
+                log(f"❌ Ошибка запуска через StrategyRunner", "ERROR")
+                self.set_status("❌ Ошибка запуска DPI")
+                return False
+
+        except Exception as e:
+            # Диагностируем ошибку и выводим понятное сообщение
+            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            return False
+
     def _execute_bat_file_fallback(self, bat_file: str, strategy_name: str) -> bool:
         """Fallback: запуск через ShellExecuteEx (медленно, но надёжно)"""
         log("Используем fallback метод (ShellExecuteEx)", "WARNING")

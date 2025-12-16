@@ -26,15 +26,16 @@ def _check_kaspersky_antivirus(self):
             'kavfswp.exe', 'kavfswh.exe', 'kavfsslp.exe'
         ]
         
-        # Получаем список запущенных процессов
+        # Получаем список запущенных процессов через psutil (быстрее и надежнее)
         try:
-            result = run_hidden([get_system_exe('tasklist.exe')], capture_output=True, text=True, shell=True)
-            if result.returncode == 0:
-                running_processes = result.stdout.lower()
-                
-                for process in kaspersky_processes:
-                    if process.lower() in running_processes:
+            import psutil
+            for proc in psutil.process_iter(['name']):
+                try:
+                    proc_name = proc.info['name']
+                    if proc_name and proc_name.lower() in kaspersky_processes:
                         return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
         except Exception:
             pass
         

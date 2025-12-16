@@ -296,18 +296,18 @@ class AboutPage(BasePage):
     def _open_telegram(self):
         """Открывает Telegram канал поддержки"""
         try:
-            url = "https://t.me/zaprethelp"
-            webbrowser.open(url)
-            log(f"Открыт Telegram: {url}", "INFO")
+            from config.telegram_links import open_telegram_link
+            open_telegram_link("zaprethelp")
+            log("Открыт Telegram: zaprethelp", "INFO")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
-    
+
     def _open_telegram_news(self):
         """Открывает Telegram канал новостей"""
         try:
-            url = "https://t.me/bypassblock"
-            webbrowser.open(url)
-            log(f"Открыт Telegram: {url}", "INFO")
+            from config.telegram_links import open_telegram_link
+            open_telegram_link("bypassblock")
+            log("Открыт Telegram: bypassblock", "INFO")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
     

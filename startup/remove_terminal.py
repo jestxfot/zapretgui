@@ -81,8 +81,7 @@ def remove_windows_terminal_if_win11():
         for cmd in (ps_remove_user, ps_remove_prov):
             run_hidden(
                 ["powershell", "-NoLogo", "-NoProfile", "-Command", cmd],
-                check=False,                       # ошибки не критичны
-                creationflags=subprocess.CREATE_NO_WINDOW
+                wait=True  # ждём завершения, ошибки игнорируем
             )
 
         log("Windows Terminal удалён (или уже отсутствовал).")

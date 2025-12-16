@@ -17,6 +17,7 @@ from ui.sidebar import SettingsCard, ActionButton
 from config import APP_VERSION, CHANNEL
 from log import log
 from updater.telegram_updater import TELEGRAM_CHANNELS
+from config.telegram_links import open_telegram_link
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1181,6 +1182,56 @@ class ServersPage(BasePage):
         settings_layout.addLayout(toggle_row)
         settings_card.add_layout(settings_layout)
         self.add_widget(settings_card)
+
+        # ═══════════════════════════════════════════════════════════
+        # Карточка с информацией о Telegram канале
+        # ═══════════════════════════════════════════════════════════
+        tg_card = SettingsCard("Проблемы с обновлением?")
+        tg_layout = QVBoxLayout()
+        tg_layout.setSpacing(12)
+
+        # Текст с информацией
+        info_label = QLabel(
+            "Если возникают трудности с автоматическим обновлением, "
+            "все версии программы выкладываются в Telegram канале."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px;")
+        tg_layout.addWidget(info_label)
+
+        # Кнопка открытия Telegram канала
+        tg_btn_row = QHBoxLayout()
+
+        tg_btn = QPushButton("  Открыть Telegram канал")
+        tg_btn.setFixedHeight(36)
+        tg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        tg_btn.setIcon(qta.icon('fa5b.telegram-plane', color='#ffffff'))
+        tg_btn.clicked.connect(self._open_telegram_channel)
+        tg_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #0088cc, stop:1 #00aaee);
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #0099dd, stop:1 #00bbff);
+            }
+            QPushButton:pressed {
+                background: #0077bb;
+            }
+        """)
+        tg_btn_row.addWidget(tg_btn)
+        tg_btn_row.addStretch()
+
+        tg_layout.addLayout(tg_btn_row)
+        tg_card.add_layout(tg_layout)
+        self.add_widget(tg_card)
         
     def showEvent(self, event):
         super().showEvent(event)
@@ -1453,6 +1504,10 @@ class ServersPage(BasePage):
             }
         """)
             
+    def _open_telegram_channel(self):
+        """Открывает Telegram канал с релизами"""
+        open_telegram_link("zapretnetdiscordyoutube")
+
     def _on_auto_check_toggled(self, enabled: bool):
         """Обработчик toggle автопроверки"""
         self._auto_check_enabled = enabled

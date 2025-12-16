@@ -18,7 +18,6 @@ This module implements automatic DPI bypass strategy learning using the `circula
    - `zapret-auto.lua` - Circular orchestrator
    - `combined-detector.lua` - Failure/success detection
    - `strategy-stats.lua` - LOCK/UNLOCK mechanism
-   - `domain-grouping.lua` - Subdomain grouping
    - `silent-drop-detector.lua` - Silent drop detection
 
 3. **Config Files**:
@@ -66,15 +65,6 @@ UNLOCK_THRESHOLD = 2 -- Unlock after 2 failures
 2. fail_count >= 2 → UNLOCK
 3. Clears circular `final`
 4. Circular resumes rotation
-
-### Domain Grouping (domain-grouping.lua)
-
-Subdomains are grouped under base domain:
-- `rr5---sn-xxx.googlevideo.com` → `googlevideo.com`
-- `www.youtube.com` → `youtube.com`
-- `i.ytimg.com` → `ytimg.com`
-
-This allows finding one strategy for entire service.
 
 ### strategies-all.txt
 ```

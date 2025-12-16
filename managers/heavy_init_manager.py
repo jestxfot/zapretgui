@@ -66,7 +66,8 @@ class HeavyInitManager:
             from strategy_menu import get_strategy_launch_method
             
             launch_method = get_strategy_launch_method()
-            target_file = WINWS2_EXE if launch_method == "direct" else WINWS_EXE
+            # direct и direct_orchestra используют winws2.exe
+            target_file = WINWS2_EXE if launch_method in ("direct", "direct_orchestra") else WINWS_EXE
             
             # GetFileAttributesW возвращает -1 если файла нет
             INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF

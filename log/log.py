@@ -13,35 +13,34 @@ from PyQt6.QtCore import Qt
 
 from log_tail import LogTailWorker
 
-from config import LOGS_FOLDER, MAX_LOG_FILES
+from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
 
 def get_current_log_filename():
     """Генерирует имя файла лога с текущей датой и временем"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     return f"zapret_log_{timestamp}.txt"
 
-def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
-    """Удаляет старые лог файлы, оставляя только последние max_files"""
+
+def _cleanup_files_by_pattern(logs_folder: str, pattern: str, max_files: int) -> tuple:
+    """
+    Удаляет старые файлы по паттерну, оставляя только последние max_files.
+
+    Returns:
+        (deleted_count, errors, total_found)
+    """
     deleted_count = 0
     errors = []
+    total_found = 0
+
     try:
-        # Получаем список всех лог файлов (все форматы)
-        log_files = []
-        # Новый формат: zapret_log_2025-12-11_14-33-51.txt
-        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_log_*.txt")))
-        # Старый формат: zapret_20251208_220315.log
-        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_[0-9]*.log")))
-        # Debug логи winws2: zapret_winws2_debug_20251211_122853.log
-        log_files.extend(glob.glob(os.path.join(logs_folder, "zapret_winws2_debug_*.log")))
+        files = glob.glob(os.path.join(logs_folder, pattern))
+        total_found = len(files)
 
-        total_found = len(log_files)
-
-        # Сортируем по времени модификации (старые первые)
-        log_files.sort(key=os.path.getmtime)
-
-        # Если файлов больше максимума, удаляем старые
         if total_found > max_files:
-            files_to_delete = log_files[:total_found - max_files]
+            # Сортируем по времени модификации (старые первые)
+            files.sort(key=os.path.getmtime)
+            files_to_delete = files[:total_found - max_files]
+
             for old_file in files_to_delete:
                 try:
                     os.remove(old_file)
@@ -49,9 +48,41 @@ def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
                 except Exception as e:
                     errors.append(f"{os.path.basename(old_file)}: {e}")
     except Exception as e:
-        errors.append(f"Glob error: {e}")
+        errors.append(f"Glob error ({pattern}): {e}")
 
-    return deleted_count, errors, total_found if 'total_found' in dir() else 0
+    return deleted_count, errors, total_found
+
+
+def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
+    """
+    Удаляет старые лог файлы с раздельными лимитами для каждого типа:
+    - zapret_log_*.txt: max_files (по умолчанию 50)
+    - zapret_winws2_debug_*.log: MAX_DEBUG_LOG_FILES (20)
+    - zapret_[0-9]*.log: старый формат, включается в общий лимит
+    """
+    total_deleted = 0
+    all_errors = []
+    total_found = 0
+
+    # 1. Основные логи приложения (zapret_log_*.txt) - макс 50
+    d, e, t = _cleanup_files_by_pattern(logs_folder, "zapret_log_*.txt", max_files)
+    total_deleted += d
+    all_errors.extend(e)
+    total_found += t
+
+    # 2. Debug логи winws2 (zapret_winws2_debug_*.log) - макс 20
+    d, e, t = _cleanup_files_by_pattern(logs_folder, "zapret_winws2_debug_*.log", MAX_DEBUG_LOG_FILES)
+    total_deleted += d
+    all_errors.extend(e)
+    total_found += t
+
+    # 3. Старый формат логов (zapret_[0-9]*.log) - удаляем все старые
+    d, e, t = _cleanup_files_by_pattern(logs_folder, "zapret_[0-9]*.log", 10)
+    total_deleted += d
+    all_errors.extend(e)
+    total_found += t
+
+    return total_deleted, all_errors, total_found
 
 # Создаем уникальное имя для текущей сессии
 CURRENT_LOG_FILENAME = get_current_log_filename()

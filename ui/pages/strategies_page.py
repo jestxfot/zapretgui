@@ -234,9 +234,9 @@ class CommandLineWidget(QFrame):
         """Генерирует командную строку"""
         try:
             from strategy_menu import get_strategy_launch_method
-            
-            if get_strategy_launch_method() != "direct":
-                self.text_edit.setPlainText("Командная строка доступна только в режиме 'Прямой запуск'")
+
+            if get_strategy_launch_method() not in ("direct", "direct_orchestra"):
+                self.text_edit.setPlainText("Командная строка доступна только в режиме Zapret 2")
                 self.info_label.setText("BAT режим")
                 return
                 
@@ -582,6 +582,12 @@ class StrategiesPage(QWidget):
             }
         """)
         header_layout.addWidget(subtitle)
+
+        # Кнопка для добавления своего сайта
+        from config.telegram_links import open_telegram_link
+        add_site_btn = ActionButton("Добавить свой сайт", "fa5b.telegram")
+        add_site_btn.clicked.connect(lambda: open_telegram_link("zaprethelp", post=18408))
+        header_layout.addWidget(add_site_btn)
         
         self.main_layout.addWidget(header)
         
@@ -722,7 +728,7 @@ class StrategiesPage(QWidget):
             self._current_mode = mode
             self._clear_content()
             
-            if mode == "direct":
+            if mode in ("direct", "direct_orchestra"):
                 self.stop_watching()  # Останавливаем мониторинг для экономии ресурсов
                 self._load_direct_mode()
             else:
@@ -914,7 +920,15 @@ class StrategiesPage(QWidget):
                 self._bat_table.favorites_changed.connect(self._update_favorites_count)
             
             self.content_layout.addWidget(self._bat_table, 1)
-            
+
+            # Виджет превью командной строки
+            self._cmd_preview_widget = self._create_cmd_preview_widget()
+            self.content_layout.addWidget(self._cmd_preview_widget)
+
+            # Подключаем обновление превью при выборе стратегии
+            if hasattr(self._bat_table, 'table') and hasattr(self._bat_table.table, 'itemSelectionChanged'):
+                self._bat_table.table.itemSelectionChanged.connect(self._update_cmd_preview)
+
             # Загружаем локальные стратегии сразу
             if strategy_manager:
                 self._load_bat_strategies()
@@ -922,7 +936,7 @@ class StrategiesPage(QWidget):
                 QTimer.singleShot(300, self._auto_select_last_bat_strategy)
             else:
                 log("strategy_manager недоступен для bat режима", "WARNING")
-            
+
             log("Bat режим загружен", "INFO")
             
         except Exception as e:
@@ -963,7 +977,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_favorite_strategies
             favorites = get_favorite_strategies("bat")
             count = len(favorites) if favorites else 0
-            
+
             if count > 0:
                 self.favorites_count_label.setText(f"★ {count} избранных")
                 self.favorites_count_label.show()
@@ -972,7 +986,178 @@ class StrategiesPage(QWidget):
         except Exception as e:
             log(f"Ошибка обновления счётчика избранных: {e}", "DEBUG")
             self.favorites_count_label.hide()
-    
+
+    def _create_cmd_preview_widget(self) -> QWidget:
+        """Создаёт виджет для превью командной строки"""
+        widget = QWidget()
+        widget.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 16, 0, 0)
+        layout.setSpacing(8)
+
+        # Заголовок
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
+
+        label = QLabel("Командная строка:")
+        label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 12px;
+                font-weight: 500;
+            }
+        """)
+        header_layout.addWidget(label)
+
+        # Кнопка копирования
+        copy_btn = QPushButton()
+        copy_btn.setIcon(qta.icon('fa5s.copy', color='#60cdff'))
+        copy_btn.setFixedSize(24, 24)
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.05);
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,0.1);
+            }
+        """)
+        copy_btn.setToolTip("Копировать команду")
+        copy_btn.clicked.connect(self._copy_cmd_to_clipboard)
+        header_layout.addWidget(copy_btn)
+
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+
+        # Текстовое поле для команды
+        self._cmd_preview_text = ScrollBlockingTextEdit()
+        self._cmd_preview_text.setReadOnly(True)
+        self._cmd_preview_text.setMinimumHeight(80)
+        self._cmd_preview_text.setMaximumHeight(150)
+        self._cmd_preview_text.setStyleSheet("""
+            QTextEdit {
+                background: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                color: #b0b0b0;
+                font-family: 'Cascadia Code', 'Consolas', monospace;
+                font-size: 11px;
+                padding: 8px;
+            }
+        """)
+        self._cmd_preview_text.setPlaceholderText("Выберите стратегию для просмотра команды...")
+        self._cmd_preview_text.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        layout.addWidget(self._cmd_preview_text)
+
+        return widget
+
+    def _update_cmd_preview(self):
+        """Обновляет превью командной строки для выбранной стратегии"""
+        try:
+            if not hasattr(self, '_cmd_preview_text') or not self._cmd_preview_text:
+                return
+
+            if not self._bat_table:
+                return
+
+            # Получаем выбранную стратегию (возвращает tuple: id, name)
+            selected = self._bat_table.get_selected_strategy()
+            if not selected or not selected[0]:
+                self._cmd_preview_text.setPlainText("")
+                return
+
+            strategy_id, strategy_name = selected
+
+            # Получаем полную информацию о стратегии из менеджера
+            strategy_manager = None
+            if hasattr(self, 'parent_app') and hasattr(self.parent_app, 'strategy_manager'):
+                strategy_manager = self.parent_app.strategy_manager
+            elif hasattr(self, 'parent_app') and hasattr(self.parent_app, 'parent_app'):
+                if hasattr(self.parent_app.parent_app, 'strategy_manager'):
+                    strategy_manager = self.parent_app.parent_app.strategy_manager
+
+            if not strategy_manager:
+                self._cmd_preview_text.setPlainText(f"# Менеджер стратегий не доступен")
+                return
+
+            strategies = strategy_manager.get_strategies_list()
+            strategy_info = strategies.get(strategy_id, {})
+            file_path = strategy_info.get('file_path', '')
+
+            if not file_path:
+                self._cmd_preview_text.setPlainText(f"# Файл стратегии не найден: {strategy_name}")
+                return
+
+            # Полный путь к BAT файлу
+            from config import BAT_FOLDER
+            full_path = os.path.join(BAT_FOLDER, file_path)
+
+            if not os.path.exists(full_path):
+                self._cmd_preview_text.setPlainText(f"# Файл не существует: {full_path}")
+                return
+
+            # Парсим BAT файл
+            from utils.bat_parser import parse_bat_file
+
+            parsed = parse_bat_file(full_path, debug=False)
+            if not parsed:
+                self._cmd_preview_text.setPlainText(f"# Не удалось распарсить: {file_path}")
+                return
+
+            exe_path, args = parsed
+
+            # Формируем командную строку для отображения
+            if exe_path is None:
+                # Новый формат - показываем winws.exe + аргументы
+                cmd_parts = ["winws.exe"] + args
+            else:
+                # Старый формат
+                cmd_parts = [os.path.basename(exe_path)] + args
+
+            # Форматируем для удобного чтения (каждый --new на новой строке)
+            formatted_cmd = self._format_cmd_for_display(cmd_parts)
+
+            self._cmd_preview_text.setPlainText(formatted_cmd)
+
+        except Exception as e:
+            log(f"Ошибка обновления превью команды: {e}", "DEBUG")
+            if hasattr(self, '_cmd_preview_text') and self._cmd_preview_text:
+                self._cmd_preview_text.setPlainText(f"# Ошибка: {e}")
+
+    def _format_cmd_for_display(self, cmd_parts: list) -> str:
+        """Форматирует командную строку для удобного отображения"""
+        lines = []
+        current_line = []
+
+        for part in cmd_parts:
+            if part == '--new':
+                # Сохраняем текущую строку
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = []
+                lines.append('--new')
+            else:
+                current_line.append(part)
+
+        # Добавляем последнюю строку
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        return '\n'.join(lines)
+
+    def _copy_cmd_to_clipboard(self):
+        """Копирует командную строку в буфер обмена"""
+        try:
+            if hasattr(self, '_cmd_preview_text') and self._cmd_preview_text:
+                text = self._cmd_preview_text.toPlainText()
+                if text:
+                    clipboard = QApplication.clipboard()
+                    clipboard.setText(text)
+                    log("Команда скопирована в буфер обмена", "INFO")
+        except Exception as e:
+            log(f"Ошибка копирования команды: {e}", "DEBUG")
+
     def _auto_select_last_bat_strategy(self):
         """Автоматически выбирает и применяет последнюю BAT-стратегию из реестра (асинхронно)"""
         try:
@@ -1915,9 +2100,9 @@ class StrategiesPage(QWidget):
                 log("DPI контроллер не найден", "ERROR")
                 return
             
-            # В Direct режиме проверяем наличие активных стратегий
+            # В Direct режимах проверяем наличие активных стратегий
             from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
-            if get_strategy_launch_method() == "direct":
+            if get_strategy_launch_method() in ("direct", "direct_orchestra"):
                 selections = get_direct_strategy_selections()
                 if not self._has_any_active_strategy(selections):
                     log("⚠️ Нет активных стратегий - перезапуск невозможен", "WARNING")
@@ -1988,19 +2173,19 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method == "direct":
+            if launch_method in ("direct", "direct_orchestra"):
                 # Прямой запуск - берём текущие настройки и формируем правильный формат
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
-                
+
                 selections = get_direct_strategy_selections()
-                
+
                 # Проверяем, есть ли хотя бы одна активная стратегия
                 if not self._has_any_active_strategy(selections):
                     log("⚠️ Нет активных стратегий - запуск отменён", "WARNING")
                     self._stop_restart_animation()
                     return
-                
+
                 combined = combine_strategies(**selections)
                 
                 # Формируем данные в правильном формате для start_dpi_async
@@ -2066,8 +2251,8 @@ class StrategiesPage(QWidget):
         try:
             from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
-            
-            if get_strategy_launch_method() != "direct":
+
+            if get_strategy_launch_method() not in ("direct", "direct_orchestra"):
                 self.current_strategy_label.setToolTip("")
                 self.current_strategy_label.show()
                 self.current_strategy_container.hide()
@@ -2174,7 +2359,7 @@ class StrategiesPage(QWidget):
         """Обновляет отображение текущей стратегии"""
         try:
             from strategy_menu import get_strategy_launch_method
-            if get_strategy_launch_method() == "direct":
+            if get_strategy_launch_method() in ("direct", "direct_orchestra"):
                 self._update_current_strategies_display()
             elif name and name != "Автостарт DPI отключен":
                 self.current_strategy_label.setText(name)

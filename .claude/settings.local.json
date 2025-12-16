@@ -18,7 +18,12 @@
       "Bash(cmd /c copy \"H:\\Privacy\\zapret\\lua\\mega_circular.lua\" \"C:\\ProgramData\\ZapretTwoDev\\lua\\mega_circular.lua\" /Y)",
       "Bash(dir /s /b F:doczapret2*)",
       "Bash(cat:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(python convert_to_txt.py:*)",
+      "Bash(curl:*)",
+      "Bash(dir \"c:\\ProgramData\\ZapretTwoDev\\logs\\orchestra*.log\")",
+      "Bash(dir c:ProgramDataZapretTwoDevlogs)",
+      "Bash(findstr:*)"
     ]
   }
 }

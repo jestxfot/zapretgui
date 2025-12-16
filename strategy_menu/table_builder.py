@@ -302,23 +302,72 @@ class StrategyTableBuilder:
             name_item.setBackground(QBrush(rating_bg))
         table.setItem(row, 1, name_item)
 
-        # Колонка 2: Метка
+        # Колонка 2: Метка + формат файла
         label = strategy_info.get('label') or None
-        if label and label in LABEL_TEXTS:
-            label_widget = StrategyTableBuilder.create_label_widget(label, rating_bg)
-            table.setCellWidget(row, 2, label_widget)
-        else:
-            # Пустой виджет для консистентности
-            empty_widget = QWidget()
-            if rating_bg:
-                empty_widget.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")
-            else:
-                empty_widget.setStyleSheet("background: transparent;")
-            table.setCellWidget(row, 2, empty_widget)
+        format_label = strategy_info.get('format_label')  # TXT или BAT
+
+        label_widget = StrategyTableBuilder.create_label_with_format(
+            label, format_label, rating_bg
+        )
+        table.setCellWidget(row, 2, label_widget)
     
     @staticmethod
+    def create_label_with_format(label, format_label, rating_bg=None):
+        """Создает виджет с меткой и форматом файла (TXT/BAT)."""
+        container = QWidget()
+        if rating_bg:
+            container.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")
+        else:
+            container.setStyleSheet("background: transparent;")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 6, 8, 6)
+        layout.setSpacing(6)
+
+        # Метка формата файла (TXT/BAT)
+        if format_label:
+            format_color = "#4ade80" if format_label == "TXT" else "#60a5fa"  # Зелёный для TXT, синий для BAT
+            format_lbl = QLabel(format_label)
+            format_lbl.setStyleSheet(f"""
+                QLabel {{
+                    color: {format_color};
+                    font-weight: 600;
+                    font-size: 9px;
+                    padding: 3px 6px;
+                    border: 1px solid {format_color};
+                    border-radius: 3px;
+                    background: transparent;
+                }}
+            """)
+            format_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(format_lbl)
+
+        # Основная метка (recommended, deprecated, etc.)
+        if label and label in LABEL_TEXTS:
+            label_text = QLabel(LABEL_TEXTS[label])
+            label_color = LABEL_COLORS[label]
+            label_text.setStyleSheet(f"""
+                QLabel {{
+                    color: #ffffff;
+                    font-weight: 600;
+                    font-size: 10px;
+                    padding: 5px 10px;
+                    border: none;
+                    border-radius: 4px;
+                    background-color: {label_color};
+                }}
+            """)
+            label_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(label_text)
+
+        layout.addStretch()
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        return container
+
+    @staticmethod
     def create_label_widget(label, rating_bg=None):
-        """Создает виджет метки."""
+        """Создает виджет метки (устаревший, используйте create_label_with_format)."""
         label_widget = QWidget()
         if rating_bg:
             label_widget.setStyleSheet(f"background: rgba({rating_bg.red()}, {rating_bg.green()}, {rating_bg.blue()}, {rating_bg.alpha() / 255:.2f});")

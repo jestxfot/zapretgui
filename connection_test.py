@@ -556,37 +556,29 @@ class ConnectionTestWorker(QObject):
         self.log_message("=" * 40)
         
         try:
-            # Проверяем процесс winws.exe
-            tasklist_exe = get_system_exe("tasklist.exe")
-            command = [tasklist_exe, "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
+            # Проверяем процесс winws.exe через psutil (быстрее и надежнее tasklist)
+            import psutil
+            winws_found = False
+            for proc in psutil.process_iter(['pid', 'name', 'memory_info']):
+                try:
+                    proc_name = proc.info['name']
+                    if proc_name and proc_name.lower() in ('winws.exe', 'winws2.exe'):
+                        winws_found = True
+                        pid = proc.info['pid']
+                        try:
+                            memory_mb = proc.info['memory_info'].rss / (1024 * 1024)
+                            memory_str = f"{memory_mb:.1f} MB"
+                        except:
+                            memory_str = "N/A"
+                        self.log_message(f"✅ Процесс {proc_name} запущен")
+                        self.log_message(f"   PID: {pid}, Память: {memory_str}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
 
-            # ✅ ИСПРАВЛЕНИЕ: Используем subprocess напрямую с правильными параметрами
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10,
-                                  encoding='cp866', errors='replace',
-                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            if not winws_found:
+                self.log_message("❌ Процесс winws.exe НЕ запущен")
+                self.log_message("   Zapret не работает!")
 
-            # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем stdout
-            if result and result.stdout:
-                output = result.stdout
-                    
-                if "winws.exe" in output:
-                    self.log_message("✅ Процесс winws.exe запущен")
-                    
-                    # Извлекаем PID и память
-                    lines = output.strip().split('\n')
-                    for line in lines[1:]:  # Пропускаем заголовок
-                        if 'winws.exe' in line:
-                            parts = line.split(',')
-                            if len(parts) >= 2:
-                                pid = parts[1].strip('"')
-                                memory = parts[4].strip('"') if len(parts) > 4 else "N/A"
-                                self.log_message(f"   PID: {pid}, Память: {memory}")
-                else:
-                    self.log_message("❌ Процесс winws.exe НЕ запущен")
-                    self.log_message("   Zapret не работает!")
-            else:
-                self.log_message("❌ Не удалось проверить процесс winws.exe")
-            
             # ДОБАВЛЯЕМ проверку выбранной стратегии
             self.check_current_strategy()
                 

@@ -14,8 +14,9 @@
 
 import json
 import os
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from log import log
 from config import INDEXJSON_FOLDER
 
@@ -156,8 +157,63 @@ def validate_strategy(strategy: Dict, strategy_id: str = None) -> tuple[bool, st
     return True, ""
 
 
-def normalize_strategy(strategy: Dict) -> Dict:
+def _process_args(args: Union[str, List[str]], auto_number: bool = False) -> str:
+    """
+    Обрабатывает args:
+    1. Если это список - склеивает в строку через пробел
+    2. Если auto_number=True - добавляет :strategy=N ко ВСЕМ --lua-desync= на каждой строке
+       (для combo стратегий все --lua-desync на одной строке получают одинаковый N)
+    """
+    if not args:
+        return ''
+
+    # Авто-нумерация стратегий (только для orchestra)
+    if auto_number and isinstance(args, list):
+        strategy_counter = 0
+        processed_lines = []
+
+        for line in args:
+            # Пропускаем строки без lua-desync
+            if '--lua-desync=' not in line:
+                processed_lines.append(line)
+                continue
+
+            # Проверяем первый lua-desync на строке
+            match = re.search(r'--lua-desync=([^\s]+)', line)
+            if match:
+                content = match.group(1)
+                # circular/pass - это управление, не нумеруем
+                if content.startswith('circular') or content == 'pass':
+                    processed_lines.append(line)
+                    continue
+                # Если уже есть :strategy= - не добавляем
+                if ':strategy=' in line:
+                    processed_lines.append(line)
+                    continue
+
+                # Добавляем ОДИНАКОВЫЙ :strategy=N ко ВСЕМ lua-desync на строке (combo)
+                strategy_counter += 1
+                new_line = re.sub(
+                    r'(--lua-desync=[^\s]+)',
+                    rf'\1:strategy={strategy_counter}',
+                    line
+                )
+                processed_lines.append(new_line)
+            else:
+                processed_lines.append(line)
+
+        args = ' '.join(processed_lines)
+    elif isinstance(args, list):
+        args = ' '.join(args)
+
+    return args
+
+
+def normalize_strategy(strategy: Dict, auto_number: bool = False) -> Dict:
     """Нормализует стратегию, добавляя значения по умолчанию"""
+    raw_args = strategy.get('args', '')
+    processed_args = _process_args(raw_args, auto_number=auto_number)
+
     return {
         'id': strategy.get('id', ''),
         'name': strategy.get('name', 'Без названия'),
@@ -166,49 +222,65 @@ def normalize_strategy(strategy: Dict) -> Dict:
         'version': strategy.get('version', '1.0'),
         'label': LABEL_MAP.get(strategy.get('label'), None),
         'blobs': strategy.get('blobs', []),
-        'args': strategy.get('args', ''),
+        'args': processed_args,
         'enabled': strategy.get('enabled', True),
         'user_created': strategy.get('user_created', False),
     }
 
 
-def load_category_strategies(category: str) -> Dict[str, Dict]:
+def load_category_strategies(category: str, strategy_set: str = None) -> Dict[str, Dict]:
     """
     Загружает стратегии для категории из builtin и user директорий.
     User стратегии имеют приоритет (перезаписывают builtin с тем же id).
-    
+
     Args:
         category: Имя категории (tcp, udp, http80, discord_voice)
-        
+        strategy_set: Набор стратегий (None = стандартный, "orchestra" = tcp_orchestra.json и т.д.)
+
     Returns:
         Словарь {strategy_id: strategy_dict}
     """
     ensure_directories()
     strategies = {}
-    
+
+    # Определяем имя файла на основе strategy_set
+    if strategy_set:
+        filename = f"{category}_{strategy_set}.json"
+    else:
+        filename = f"{category}.json"
+
     # Загружаем builtin стратегии
-    builtin_file = _get_builtin_dir() / f"{category}.json"
+    builtin_file = _get_builtin_dir() / filename
+
+    # Если файл с суффиксом не найден, fallback на стандартный
+    if strategy_set and not builtin_file.exists():
+        log(f"Файл {filename} не найден, используем стандартный {category}.json", "DEBUG")
+        builtin_file = _get_builtin_dir() / f"{category}.json"
+
     builtin_data = load_json_file(builtin_file)
-    
+
+    # Авто-нумерация :strategy=N только для orchestra
+    auto_number = (strategy_set == "orchestra")
+
     if builtin_data and 'strategies' in builtin_data:
         for strategy in builtin_data['strategies']:
             is_valid, error = validate_strategy(strategy)
             if is_valid:
-                normalized = normalize_strategy(strategy)
+                normalized = normalize_strategy(strategy, auto_number=auto_number)
                 normalized['_source'] = 'builtin'
                 strategies[normalized['id']] = normalized
             else:
                 log(f"Пропущена невалидная builtin стратегия: {error}", "WARNING")
-    
+
     # Загружаем user стратегии (перезаписывают builtin)
     user_file = _get_user_dir() / f"{category}.json"
     user_data = load_json_file(user_file)
-    
+
     if user_data and 'strategies' in user_data:
         for strategy in user_data['strategies']:
             is_valid, error = validate_strategy(strategy)
             if is_valid:
-                normalized = normalize_strategy(strategy)
+                normalized = normalize_strategy(strategy, auto_number=auto_number)
                 normalized['_source'] = 'user'
                 normalized['user_created'] = True
                 strategies[normalized['id']] = normalized
@@ -349,14 +421,18 @@ def export_strategies_to_json(strategies_dict: Dict[str, Dict], category: str, o
 
 
 # Для обратной совместимости - загрузка в старый формат
-def load_strategies_as_dict(category: str) -> Dict[str, Dict]:
+def load_strategies_as_dict(category: str, strategy_set: str = None) -> Dict[str, Dict]:
     """
     Загружает стратегии и возвращает в формате совместимом со старым кодом.
-    
+
+    Args:
+        category: Имя категории (tcp, udp, http80, discord_voice)
+        strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
+
     Returns:
         Словарь {strategy_id: {name, description, author, label, blobs, args}}
     """
-    strategies = load_category_strategies(category)
+    strategies = load_category_strategies(category, strategy_set)
     result = {}
     
     for sid, data in strategies.items():

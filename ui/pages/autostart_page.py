@@ -698,7 +698,9 @@ class AutostartPage(BasePage):
 
             if method == "direct":
                 self.mode_label.setText("Прямой запуск (Zapret 2)")
-                # Показываем все опции для Direct
+                self.service_option.setVisible(True)
+            elif method == "direct_orchestra":
+                self.mode_label.setText("Оркестратор Zapret 2")
                 self.service_option.setVisible(True)
             else:
                 self.mode_label.setText("Классический (BAT файлы)")
@@ -852,40 +854,40 @@ class AutostartPage(BasePage):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            
-            if method == "direct":
+
+            if method in ("direct", "direct_orchestra"):
                 self._setup_direct_service()
             else:
                 self._setup_bat_service()
-                
+
         except Exception as e:
             log(f"Ошибка создания службы: {e}", "ERROR")
-    
+
     def _on_logon_autostart(self):
         """Задача при входе пользователя"""
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            
-            if method == "direct":
+
+            if method in ("direct", "direct_orchestra"):
                 self._setup_direct_logon_task()
             else:
                 self._setup_bat_logon_task()
-                
+
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
-    
+
     def _on_boot_autostart(self):
         """Задача при загрузке системы"""
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            
-            if method == "direct":
+
+            if method in ("direct", "direct_orchestra"):
                 self._setup_direct_boot_task()
             else:
                 self._setup_bat_service()  # Для BAT это служба
-                
+
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
     

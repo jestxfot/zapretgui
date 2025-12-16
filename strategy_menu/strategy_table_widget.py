@@ -131,76 +131,21 @@ class StrategyTableWidget(QWidget):
         self.favorites_changed.emit()
     
     def _show_context_menu(self, pos: QPoint):
-        """Показывает контекстное меню"""
+        """Показывает превью аргументов стратегии при ПКМ"""
         tooltip_manager.hide_immediately()
-        
+
         item = self.table.itemAt(pos)
         if not item:
             return
-        
+
         row = item.row()
         if row not in self.strategies_map:
             return
-        
+
         strategy_id = self.strategies_map[row]['id']
-        strategy_name = self.strategies_map[row]['name']
-        
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: rgba(44, 44, 44, 0.98);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 6px;
-                padding: 2px;
-            }
-            QMenu::item {
-                color: rgba(255, 255, 255, 0.85);
-                padding: 4px 10px;
-                border-radius: 3px;
-                font-size: 11px;
-                margin: 1px;
-            }
-            QMenu::item:selected {
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-            QMenu::separator {
-                height: 1px;
-                background: rgba(255, 255, 255, 0.05);
-                margin: 2px 6px;
-            }
-        """)
-        
-        # Действия меню
-        info_action = menu.addAction("ℹ️  Подробная информация")
-        menu.addSeparator()
-        apply_action = menu.addAction("▶️  Применить стратегию")
-        
-        if strategy_id in self.strategies_data:
-            from strategy_menu import is_favorite_strategy
-            is_fav = is_favorite_strategy(strategy_id, "bat")
-            
-            menu.addSeparator()
-            if is_fav:
-                fav_action = menu.addAction("☆  Убрать из избранных")
-            else:
-                fav_action = menu.addAction("★  Добавить в избранные")
-        else:
-            fav_action = None
-        
-        # Показываем меню
-        action = menu.exec(self.table.viewport().mapToGlobal(pos))
-        
-        if action == info_action:
-            self._show_strategy_info(strategy_id)
-        elif action == apply_action:
-            self.table.selectRow(row)
-        elif action == fav_action and fav_action:
-            from strategy_menu import toggle_favorite_strategy
-            toggle_favorite_strategy(strategy_id, "bat")
-            # Перезаполняем таблицу для обновления звезд
-            self.populate_strategies(self.strategies_data)
-            # Уведомляем об изменении избранных
-            self.favorites_changed.emit()
+
+        # Показываем превью аргументов
+        self._show_args_preview(strategy_id, pos)
     
     def _on_double_click(self, index):
         """Обработчик двойного клика - показ информации"""
@@ -222,7 +167,62 @@ class StrategyTableWidget(QWidget):
             preview_manager.show_preview(self, strategy_id, strategy_data, category_key=self.category_key)
         except Exception as e:
             log(f"Ошибка показа информации о стратегии: {e}", "ERROR")
-    
+
+    def _show_args_preview(self, strategy_id, pos: QPoint):
+        """Показывает превью аргументов стратегии (при ПКМ)"""
+        import os
+        from config import BAT_FOLDER
+        from utils.bat_parser import parse_bat_file
+
+        if strategy_id not in self.strategies_data:
+            return
+
+        strategy_data = self.strategies_data[strategy_id]
+        file_path = strategy_data.get('file_path', '')
+
+        if not file_path:
+            return
+
+        full_path = os.path.join(BAT_FOLDER, file_path)
+
+        if not os.path.exists(full_path):
+            return
+
+        # Парсим файл
+        parsed = parse_bat_file(full_path, debug=False)
+        if not parsed:
+            return
+
+        exe_path, args = parsed
+
+        # Формируем текст для превью
+        if exe_path is None:
+            cmd_parts = ["winws.exe"] + args
+        else:
+            cmd_parts = [os.path.basename(exe_path)] + args
+
+        # Форматируем: каждый --new на новой строке
+        lines = []
+        current_line = []
+
+        for part in cmd_parts:
+            if part == '--new':
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = []
+                lines.append('--new')
+            else:
+                current_line.append(part)
+
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        preview_text = '\n'.join(lines)
+
+        # Показываем через args_preview_dialog
+        from .args_preview_dialog import preview_manager
+        preview_manager.show_preview(self, strategy_id, strategy_data, category_key=self.category_key)
+
     def set_status(self, message, status_type="info"):
         """Устанавливает статус"""
         colors = {

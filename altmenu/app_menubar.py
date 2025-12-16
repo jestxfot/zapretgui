@@ -256,7 +256,8 @@ class AppMenuBar(QMenuBar):
         premium_menu.addSeparator()
         
         telegram_action = premium_menu.addAction("🌐 Открыть Telegram")
-        telegram_action.triggered.connect(lambda: webbrowser.open("https://t.me/zapretvpns_bot"))
+        from config.telegram_links import open_telegram_link
+        telegram_action.triggered.connect(lambda: open_telegram_link("zapretvpns_bot"))
         
         return premium_menu
 
@@ -372,8 +373,8 @@ class AppMenuBar(QMenuBar):
 
     def open_support(self):
         try:
-            import webbrowser
-            webbrowser.open("https://t.me/zaprethelp")
+            from config.telegram_links import open_telegram_link
+            open_telegram_link("zaprethelp")
             self._set_status("Открываю поддержку...")
         except Exception as e:
             err = f"Ошибка при открытии поддержки: {e}"

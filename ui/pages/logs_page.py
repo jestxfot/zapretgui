@@ -20,7 +20,7 @@ from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
-from config import LOGS_FOLDER, MAX_LOG_FILES
+from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
 from strategy_menu.strategy_runner import get_current_runner
 
 # Паттерны для определения РЕАЛЬНЫХ ошибок (строгие)
@@ -281,6 +281,8 @@ class LogsPage(BasePage):
             self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#888888'))
             self.tab_send_btn.setStyleSheet(self._tab_style_active)
             self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#60cdff'))
+            # Обновляем видимость индикатора оркестратора
+            self._update_orchestra_indicator()
 
     def _build_logs_tab(self, parent_layout):
         """Строит вкладку с логами"""
@@ -633,6 +635,30 @@ class LogsPage(BasePage):
         send_layout = QVBoxLayout()
         send_layout.setSpacing(16)
 
+        # Индикатор режима оркестратора (скрыт по умолчанию)
+        self.orchestra_mode_container = QWidget()
+        orchestra_layout = QHBoxLayout(self.orchestra_mode_container)
+        orchestra_layout.setContentsMargins(12, 8, 12, 8)
+        orchestra_layout.setSpacing(8)
+
+        orchestra_icon = QLabel()
+        orchestra_icon.setPixmap(qta.icon('fa5s.brain', color='#a855f7').pixmap(16, 16))
+        orchestra_layout.addWidget(orchestra_icon)
+
+        orchestra_text = QLabel("Режим оркестратора активен — будут отправлены 2 файла")
+        orchestra_text.setStyleSheet("color: #a855f7; font-size: 12px; font-weight: 600; background: transparent;")
+        orchestra_layout.addWidget(orchestra_text)
+        orchestra_layout.addStretch()
+
+        self.orchestra_mode_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(168, 85, 247, 0.15);
+                border-radius: 8px;
+            }
+        """)
+        self.orchestra_mode_container.setVisible(False)
+        send_layout.addWidget(self.orchestra_mode_container)
+
         # Описание
         desc_label = QLabel(
             "Опишите проблему и оставьте контакты для обратной связи (необязательно):"
@@ -731,6 +757,67 @@ class LogsPage(BasePage):
         # Растяжка чтобы форма была вверху
         parent_layout.addStretch()
 
+    def _is_orchestra_mode(self) -> bool:
+        """Проверяет, активен ли режим оркестратора"""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            return get_strategy_launch_method() == "orchestra"
+        except Exception:
+            return False
+
+    def _get_orchestra_log_path(self) -> str:
+        """
+        Возвращает путь к логу оркестратора.
+
+        Приоритет:
+        1. Текущий активный лог (если оркестратор запущен)
+        2. Последний сохранённый лог из истории
+        """
+        try:
+            app = QApplication.instance()
+            if app and hasattr(app, 'activeWindow'):
+                main_window = app.activeWindow()
+                if main_window and hasattr(main_window, 'orchestra_runner') and main_window.orchestra_runner:
+                    runner = main_window.orchestra_runner
+
+                    # 1. Пробуем текущий активный лог
+                    if runner.current_log_id and runner.debug_log_path:
+                        if os.path.exists(runner.debug_log_path):
+                            return runner.debug_log_path
+
+                    # 2. Если текущего нет - берём последний из истории
+                    logs = runner.get_log_history()
+                    if logs:
+                        # Логи отсортированы по дате (новые первые)
+                        latest_log = logs[0]
+                        log_path = os.path.join(LOGS_FOLDER, latest_log['filename'])
+                        if os.path.exists(log_path):
+                            return log_path
+
+        except Exception as e:
+            log(f"Ошибка получения пути лога оркестратора: {e}", "DEBUG")
+
+        # 3. Fallback: ищем любой orchestra_*.log в папке логов
+        try:
+            import glob as glob_module
+            pattern = os.path.join(LOGS_FOLDER, "orchestra_*.log")
+            log(f"Поиск лога оркестратора (fallback): {pattern}", "DEBUG")
+            files = sorted(glob_module.glob(pattern), key=os.path.getmtime, reverse=True)
+            log(f"Найдено файлов: {len(files)}", "DEBUG")
+            if files:
+                log(f"Найден лог оркестратора (fallback): {os.path.basename(files[0])}", "DEBUG")
+                return files[0]
+        except Exception as e:
+            log(f"Ошибка fallback поиска лога: {e}", "DEBUG")
+
+        log("Лог оркестратора не найден для отправки", "WARNING")
+        return None
+
+    def _update_orchestra_indicator(self):
+        """Обновляет видимость индикатора режима оркестратора"""
+        is_orchestra = self._is_orchestra_mode()
+        self.orchestra_mode_container.setVisible(is_orchestra)
+
     def _do_send_log(self):
         """Отправляет лог в Telegram (из вкладки отправки)"""
         import time
@@ -779,10 +866,16 @@ class LogsPage(BasePage):
                 QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
                 return
 
+            # Проверяем режим оркестратора
+            is_orchestra = self._is_orchestra_mode()
+            orchestra_log_path = self._get_orchestra_log_path() if is_orchestra else None
+
             # Формируем подпись
             log_filename = os.path.basename(LOG_PATH)
 
             caption = f"📋 Ручная отправка лога\n"
+            if is_orchestra:
+                caption += f"🧠 Режим: Оркестратор\n"
             caption += f"📁 Файл: {log_filename}\n"
             caption += f"Zapret2 v{APP_VERSION}\n"
             caption += f"ID: {get_client_id()}\n"
@@ -795,49 +888,164 @@ class LogsPage(BasePage):
             if telegram:
                 caption += f"\n📱 Telegram: {telegram}\n"
 
-            self.send_status_label.setText("📤 Отправка лога...")
             self.send_log_btn.setEnabled(False)
 
-            # Создаем воркер
-            self._send_thread = QThread(self)
-            self._send_worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
-            self._send_worker.moveToThread(self._send_thread)
-            self._send_thread.started.connect(self._send_worker.run)
-
-            def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
-                self.send_log_btn.setEnabled(True)
-
-                if ok:
-                    self.send_status_label.setText("✅ Лог отправлен!")
-                    self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
-                    # Очищаем форму после успешной отправки
-                    self.problem_text.clear()
-                    self.tg_contact.clear()
-                else:
-                    self.send_status_label.setText("❌ Ошибка отправки")
-                    self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
-                    if extra_wait > 0:
-                        QMessageBox.warning(self, "Слишком часто",
-                            f"Слишком частые запросы.\n"
-                            f"Повторите через {int(extra_wait/60)} минут.")
-                    else:
-                        QMessageBox.warning(self, "Ошибка",
-                            f"Не удалось отправить лог.\n\n"
-                            f"Причина: {error_msg or 'Неизвестная ошибка'}")
-
-                # Очистка
-                self._send_worker.deleteLater()
-                self._send_thread.quit()
-                self._send_thread.wait()
-
-            self._send_worker.finished.connect(_on_done)
-            self._send_thread.start()
+            # Если режим оркестратора - отправляем 2 файла
+            if is_orchestra and orchestra_log_path:
+                self.send_status_label.setText("📤 Отправка 2 файлов (оркестратор)...")
+                self._send_orchestra_logs(LOG_PATH, orchestra_log_path, caption, problem, telegram)
+            else:
+                self.send_status_label.setText("📤 Отправка лога...")
+                self._send_single_log(LOG_PATH, caption)
 
         except Exception as e:
             log(f"Ошибка отправки лога: {e}", "ERROR")
             self.send_log_btn.setEnabled(True)
             self.send_status_label.setText("❌ Ошибка")
             QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")
+
+    def _send_single_log(self, log_path: str, caption: str):
+        """Отправляет один файл лога"""
+        from tgram.tg_log_full import TgSendWorker
+
+        self._send_thread = QThread(self)
+        self._send_worker = TgSendWorker(log_path, caption, use_log_bot=True)
+        self._send_worker.moveToThread(self._send_thread)
+        self._send_thread.started.connect(self._send_worker.run)
+
+        def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
+            self.send_log_btn.setEnabled(True)
+
+            if ok:
+                self.send_status_label.setText("✅ Лог отправлен!")
+                self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
+                self.problem_text.clear()
+                self.tg_contact.clear()
+            else:
+                short_error = error_msg[:50] + "..." if error_msg and len(error_msg) > 50 else error_msg
+                self.send_status_label.setText(f"❌ {short_error or 'Ошибка отправки'}")
+                self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
+                if extra_wait > 0:
+                    QMessageBox.warning(self, "Слишком часто",
+                        f"Слишком частые запросы.\n"
+                        f"Повторите через {int(extra_wait/60)} минут.")
+                elif error_msg:
+                    QMessageBox.warning(self, "Ошибка отправки",
+                        f"Не удалось отправить лог.\n\n"
+                        f"Причина: {error_msg}")
+                else:
+                    QMessageBox.warning(self, "Ошибка",
+                        "Не удалось отправить лог.\n\n"
+                        "Проверьте подключение к интернету.")
+
+            self._send_worker.deleteLater()
+            self._send_thread.quit()
+            self._send_thread.wait()
+
+        self._send_worker.finished.connect(_on_done)
+        self._send_thread.start()
+
+    def _send_orchestra_logs(self, app_log_path: str, orchestra_log_path: str, caption: str, problem: str, telegram: str):
+        """Отправляет два файла: лог приложения и лог оркестратора в топик 43927"""
+        import time
+        import platform
+        from tgram.tg_log_full import TgSendWorker
+        from tgram.tg_log_delta import get_client_id
+        from config.build_info import APP_VERSION
+
+        # Топик для логов оркестратора
+        ORCHESTRA_TOPIC_ID = 43927
+
+        # Счётчик успешных отправок
+        self._orchestra_send_success = 0
+        self._orchestra_send_total = 2
+        self._orchestra_errors = []
+
+        def _check_complete():
+            """Проверяет завершение отправки всех файлов"""
+            if self._orchestra_send_success + len(self._orchestra_errors) >= self._orchestra_send_total:
+                self.send_log_btn.setEnabled(True)
+
+                if self._orchestra_send_success == self._orchestra_send_total:
+                    self.send_status_label.setText("✅ 2 файла отправлены!")
+                    self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
+                    self.problem_text.clear()
+                    self.tg_contact.clear()
+                elif self._orchestra_send_success > 0:
+                    self.send_status_label.setText(f"⚠️ Отправлено {self._orchestra_send_success} из 2")
+                    self.send_status_label.setStyleSheet("color: #fbbf24; font-size: 11px;")
+                else:
+                    self.send_status_label.setText("❌ Ошибка отправки")
+                    self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
+                    if self._orchestra_errors:
+                        QMessageBox.warning(self, "Ошибка отправки",
+                            f"Не удалось отправить логи.\n\n"
+                            f"Ошибки:\n" + "\n".join(self._orchestra_errors[:3]))
+
+        # 1. Отправляем лог оркестратора (сырой debug) в топик 43927
+        orchestra_filename = os.path.basename(orchestra_log_path)
+        orchestra_caption = f"🧠 Лог оркестратора (debug)\n"
+        orchestra_caption += f"📁 Файл: {orchestra_filename}\n"
+        orchestra_caption += f"Zapret2 v{APP_VERSION}\n"
+        orchestra_caption += f"ID: {get_client_id()}\n"
+        orchestra_caption += f"Host: {platform.node()}\n"
+        orchestra_caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+        if problem:
+            orchestra_caption += f"\n🔴 Проблема:\n{problem}\n"
+        if telegram:
+            orchestra_caption += f"\n📱 Telegram: {telegram}\n"
+
+        self._send_thread1 = QThread(self)
+        self._send_worker1 = TgSendWorker(orchestra_log_path, orchestra_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID)
+        self._send_worker1.moveToThread(self._send_thread1)
+        self._send_thread1.started.connect(self._send_worker1.run)
+
+        def _on_orchestra_done(ok: bool, extra_wait: float, error_msg: str = ""):
+            if ok:
+                self._orchestra_send_success += 1
+            else:
+                self._orchestra_errors.append(f"Лог оркестратора: {error_msg or 'неизвестная ошибка'}")
+
+            self._send_worker1.deleteLater()
+            self._send_thread1.quit()
+            self._send_thread1.wait()
+            _check_complete()
+
+        self._send_worker1.finished.connect(_on_orchestra_done)
+        self._send_thread1.start()
+
+        # 2. Отправляем лог приложения в тот же топик 43927
+        app_filename = os.path.basename(app_log_path)
+        app_caption = f"📋 Лог приложения\n"
+        app_caption += f"🧠 Режим: Оркестратор (файл 2/2)\n"
+        app_caption += f"📁 Файл: {app_filename}\n"
+        app_caption += f"Zapret2 v{APP_VERSION}\n"
+        app_caption += f"ID: {get_client_id()}\n"
+        app_caption += f"Host: {platform.node()}\n"
+        app_caption += f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+        if problem:
+            app_caption += f"\n🔴 Проблема:\n{problem}\n"
+        if telegram:
+            app_caption += f"\n📱 Telegram: {telegram}\n"
+
+        self._send_thread2 = QThread(self)
+        self._send_worker2 = TgSendWorker(app_log_path, app_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID)
+        self._send_worker2.moveToThread(self._send_thread2)
+        self._send_thread2.started.connect(self._send_worker2.run)
+
+        def _on_app_done(ok: bool, extra_wait: float, error_msg: str = ""):
+            if ok:
+                self._orchestra_send_success += 1
+            else:
+                self._orchestra_errors.append(f"Лог приложения: {error_msg or 'неизвестная ошибка'}")
+
+            self._send_worker2.deleteLater()
+            self._send_thread2.quit()
+            self._send_thread2.wait()
+            _check_complete()
+
+        self._send_worker2.finished.connect(_on_app_done)
+        self._send_thread2.start()
         
     def showEvent(self, event):
         """При показе страницы запускаем мониторинг"""
@@ -1121,16 +1329,19 @@ class LogsPage(BasePage):
         """Обновляет статистику"""
         try:
             # Считаем оба формата логов
-            log_files = []
-            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_log_*.txt")))
-            log_files.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_[0-9]*.log")))
+            # Основные логи приложения
+            app_logs = glob.glob(os.path.join(LOGS_FOLDER, "zapret_log_*.txt"))
+            app_logs.extend(glob.glob(os.path.join(LOGS_FOLDER, "zapret_[0-9]*.log")))
+            # Debug логи winws2
+            debug_logs = glob.glob(os.path.join(LOGS_FOLDER, "zapret_winws2_debug_*.log"))
 
-            total_size = sum(os.path.getsize(f) for f in log_files) / 1024 / 1024
+            all_files = app_logs + debug_logs
+            total_size = sum(os.path.getsize(f) for f in all_files) / 1024 / 1024
 
             self.stats_label.setText(
-                f"📊 Всего логов: {len(log_files)} | "
-                f"💾 Общий размер: {total_size:.2f} MB | "
-                f"🔧 Максимум файлов: {MAX_LOG_FILES}"
+                f"📊 Логи: {len(app_logs)} (макс {MAX_LOG_FILES}) | "
+                f"🔧 Debug: {len(debug_logs)} (макс {MAX_DEBUG_LOG_FILES}) | "
+                f"💾 Размер: {total_size:.2f} MB"
             )
         except Exception as e:
             self.stats_label.setText(f"Ошибка статистики: {e}")

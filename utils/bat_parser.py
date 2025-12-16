@@ -1,5 +1,29 @@
 """
-Быстрый парсер .bat файлов для извлечения команды winws.exe
+Парсер файлов стратегий для извлечения команды winws.exe
+
+Поддерживает два формата:
+
+1. НОВЫЙ ФОРМАТ (.txt) - только аргументы winws:
+   # NAME: Название стратегии
+   # LABEL: recommended
+   # DESCRIPTION: Описание
+
+   # === YouTube ===
+   --filter-tcp=443 --hostlist=youtube.txt --dpi-desync=fake,multidisorder
+   # === Discord ===
+   --filter-tcp=443 --hostlist=discord.txt --dpi-desync=fake,multisplit
+   --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11
+
+   Программа автоматически:
+   - Собирает --wf-tcp= и --wf-udp= из --filter-tcp= и --filter-udp=
+   - Добавляет --new между блоками
+   - Подставляет пути к hostlist, bin файлам
+   - Находит и запускает winws.exe
+
+2. СТАРЫЙ ФОРМАТ (.bat) - полный BAT скрипт (для совместимости):
+   @echo off
+   set "LISTS=%~dp0..\lists"
+   start "..." /b "%EXE%\winws.exe" --wf-tcp=80,443 ...
 """
 
 import os
@@ -14,18 +38,287 @@ except ImportError:
         print(f"[{level}] {msg}")
 
 
+def parse_bat_args_only(bat_file_path: str, debug: bool = False) -> Optional[List[str]]:
+    """
+    Парсит файл стратегии в НОВОМ формате - извлекает только аргументы winws.
+
+    Новый формат (.txt):
+        # NAME: Название
+        # LABEL: recommended
+
+        --filter-tcp=80 --dpi-desync=fake,multisplit
+        --filter-tcp=443 --hostlist=youtube.txt --dpi-desync=fake
+        --filter-udp=443 --dpi-desync=fake
+
+    Программа сама:
+    - Найдёт winws.exe
+    - Подставит пути к hostlist, bin файлам
+    - Добавит --new между блоками --filter
+
+    Args:
+        bat_file_path: Путь к файлу стратегии (.txt или .bat)
+        debug: Включить подробный вывод
+
+    Returns:
+        Список аргументов или None
+    """
+    try:
+        if not os.path.exists(bat_file_path):
+            log(f"Файл стратегии не найден: {bat_file_path}", "ERROR")
+            return None
+
+        with open(bat_file_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            lines = f.readlines()
+
+        args_lines = []
+
+        for line in lines:
+            line = line.strip()
+
+            # Пропускаем пустые строки
+            if not line:
+                continue
+            # Пропускаем @echo off (для совместимости со старыми файлами)
+            if line.lower().startswith('@echo'):
+                continue
+            # Пропускаем # комментарии (новый формат .txt)
+            if line.startswith('#'):
+                continue
+            # Пропускаем REM комментарии (старый формат .bat)
+            if line.upper().startswith('REM'):
+                continue
+            # Пропускаем :: комментарии
+            if line.startswith('::'):
+                continue
+
+            # Убираем символ продолжения строки ^ если есть
+            line = line.rstrip('^').strip()
+
+            # Строка с аргументами должна начинаться с -- или содержать --filter
+            if line.startswith('--') or '--filter' in line:
+                args_lines.append(line)
+                if debug:
+                    log(f"Найдена строка аргументов: {line[:80]}...", "DEBUG")
+
+        if not args_lines:
+            if debug:
+                log("Не найдено строк с аргументами в новом формате", "DEBUG")
+            return None
+
+        # Собираем все аргументы и добавляем --new между блоками --filter
+        all_args = []
+
+        for i, line in enumerate(args_lines):
+            # Парсим аргументы из строки
+            parts = _split_args_line(line)
+
+            # Если это не первый блок и начинается с --filter, добавляем --new
+            if i > 0 and any(p.startswith('--filter') for p in parts):
+                all_args.append('--new')
+
+            all_args.extend(parts)
+
+        if debug:
+            log(f"Собрано {len(all_args)} аргументов", "DEBUG")
+
+        if not all_args:
+            return None
+
+        # Автоматически собираем --wf-tcp= и --wf-udp= из --filter-tcp= и --filter-udp=
+        wf_tcp, wf_udp = _build_wf_filters_from_args(all_args)
+
+        # Собираем финальные аргументы: сначала wf фильтры, потом всё остальное
+        final_args = []
+
+        if wf_tcp:
+            final_args.append(wf_tcp)
+            log(f"Автогенерация: {wf_tcp}", "DEBUG")
+
+        if wf_udp:
+            final_args.append(wf_udp)
+            log(f"Автогенерация: {wf_udp}", "DEBUG")
+
+        final_args.extend(all_args)
+
+        return final_args
+
+    except Exception as e:
+        log(f"Ошибка парсинга BAT (новый формат): {e}", "ERROR")
+        return None
+
+
+def _split_args_line(line: str) -> List[str]:
+    """
+    Разбивает строку аргументов на отдельные части.
+    Учитывает кавычки и пробелы.
+    """
+    parts = []
+    current = []
+    in_quotes = False
+
+    for char in line:
+        if char == '"':
+            in_quotes = not in_quotes
+            current.append(char)
+        elif char == ' ' and not in_quotes:
+            if current:
+                parts.append(''.join(current))
+                current = []
+        else:
+            current.append(char)
+
+    if current:
+        parts.append(''.join(current))
+
+    return [p for p in parts if p]  # Убираем пустые
+
+
+def _build_wf_filters_from_args(args: List[str]) -> Tuple[str, str]:
+    """
+    Автоматически собирает --wf-tcp= и --wf-udp= из --filter-tcp= и --filter-udp=
+
+    Пример:
+        --filter-tcp=80 ... --filter-tcp=443 ... --filter-udp=443 ...
+        →
+        --wf-tcp=80,443  --wf-udp=443
+
+    Returns:
+        Tuple[wf_tcp, wf_udp] - строки фильтров или пустые строки
+    """
+    tcp_ports = set()
+    udp_ports = set()
+
+    for arg in args:
+        # --filter-tcp=80 или --filter-tcp=443,444-65535
+        if arg.startswith('--filter-tcp='):
+            ports_str = arg.split('=', 1)[1]
+            # Может быть несколько портов через запятую
+            for port in ports_str.split(','):
+                port = port.strip()
+                if port:
+                    tcp_ports.add(port)
+
+        # --filter-udp=443 или --filter-udp=443,50000-50100
+        elif arg.startswith('--filter-udp='):
+            ports_str = arg.split('=', 1)[1]
+            for port in ports_str.split(','):
+                port = port.strip()
+                if port:
+                    udp_ports.add(port)
+
+    # Собираем строки фильтров
+    wf_tcp = ""
+    wf_udp = ""
+
+    if tcp_ports:
+        # Сортируем порты: сначала числа, потом диапазоны
+        sorted_ports = _sort_ports(tcp_ports)
+        wf_tcp = f"--wf-tcp={','.join(sorted_ports)}"
+
+    if udp_ports:
+        sorted_ports = _sort_ports(udp_ports)
+        wf_udp = f"--wf-udp={','.join(sorted_ports)}"
+
+    return (wf_tcp, wf_udp)
+
+
+def _sort_ports(ports: set) -> List[str]:
+    """
+    Сортирует порты: сначала одиночные числа, потом диапазоны.
+    80, 443 сначала, потом 444-65535, 50000-50100
+    """
+    single_ports = []
+    ranges = []
+
+    for p in ports:
+        if '-' in p:
+            ranges.append(p)
+        else:
+            try:
+                single_ports.append((int(p), p))
+            except ValueError:
+                single_ports.append((99999, p))
+
+    # Сортируем одиночные порты по числу
+    single_ports.sort(key=lambda x: x[0])
+    single_sorted = [p[1] for p in single_ports]
+
+    # Сортируем диапазоны по начальному порту
+    def range_key(r):
+        try:
+            return int(r.split('-')[0])
+        except:
+            return 99999
+
+    ranges.sort(key=range_key)
+
+    return single_sorted + ranges
+
+
+def is_new_format_bat(bat_file_path: str) -> bool:
+    """
+    Проверяет, использует ли BAT файл новый формат (только аргументы).
+
+    Новый формат: НЕ содержит 'winws.exe', 'start ', 'set "LISTS'
+    """
+    try:
+        with open(bat_file_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            content = f.read().lower()
+
+        # Старый формат содержит эти паттерны
+        old_format_markers = ['winws.exe', 'winws2.exe', 'start ', 'set "lists', 'set "bin', 'set "exe']
+
+        for marker in old_format_markers:
+            if marker in content:
+                return False
+
+        # Проверяем что есть строки с --filter или --
+        return '--filter' in content or '\n--' in content
+
+    except Exception:
+        return False
+
+
 def parse_bat_file(bat_file_path: str, debug: bool = False) -> Optional[Tuple[str, List[str]]]:
     """
     Парсит .bat файл и извлекает команду запуска winws.exe
-    
+
+    Автоматически определяет формат:
+    - Новый формат: только аргументы → возвращает (None, args)
+    - Старый формат: полный BAT → возвращает (exe_path, args)
+
     Args:
         bat_file_path: Путь к .bat файлу
         debug: Включить подробный вывод отладки
-        
+
+    Returns:
+        Tuple[exe_path, args] или None если не найдено
+        - exe_path: Полный путь к winws.exe (или None для нового формата)
+        - args: Список аргументов командной строки
+    """
+    # Сначала пробуем новый формат
+    if is_new_format_bat(bat_file_path):
+        log(f"Определён НОВЫЙ формат BAT: {os.path.basename(bat_file_path)}", "INFO")
+        args = parse_bat_args_only(bat_file_path, debug)
+        if args:
+            return (None, args)  # exe_path = None означает новый формат
+
+    # Старый формат - ищем winws.exe в файле
+    return _parse_bat_file_old_format(bat_file_path, debug)
+
+
+def _parse_bat_file_old_format(bat_file_path: str, debug: bool = False) -> Optional[Tuple[str, List[str]]]:
+    """
+    Парсит .bat файл СТАРОГО формата (с полной командой winws.exe)
+
+    Args:
+        bat_file_path: Путь к .bat файлу
+        debug: Включить подробный вывод отладки
+
     Returns:
         Tuple[exe_path, args] или None если не найдено
         - exe_path: Полный путь к winws.exe
-        - args: Список аргументов команднойстроки
+        - args: Список аргументов командной строки
     """
     try:
         if not os.path.exists(bat_file_path):

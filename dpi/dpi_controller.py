@@ -2,9 +2,10 @@
 Контроллер для управления DPI - содержит всю логику запуска и остановки
 """
 
-from PyQt6.QtCore import QThread, QObject, pyqtSignal
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMetaObject, Qt, Q_ARG
 from strategy_menu import get_strategy_launch_method
 from log import log
+from dpi.process_health_check import diagnose_startup_error
 import time
 
 class DPIStartWorker(QObject):
@@ -36,7 +37,7 @@ class DPIStartWorker(QObject):
                     self.app_instance.splash.set_progress(75, "Останавливаем предыдущий процесс...", "")
                 
                 # Останавливаем через соответствующий метод
-                if self.launch_method == "direct":
+                if self.launch_method in ("direct", "direct_orchestra"):
                     from strategy_menu.strategy_runner import get_strategy_runner
                     runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
                     runner.stop()
@@ -53,7 +54,8 @@ class DPIStartWorker(QObject):
             # Выбираем метод запуска
             if self.launch_method == "orchestra":
                 success = self._start_orchestra()
-            elif self.launch_method == "direct":
+            elif self.launch_method in ("direct", "direct_orchestra"):
+                # direct_orchestra работает так же как direct, но с другим набором стратегий
                 success = self._start_direct()
             else:
                 success = self._start_bat()
@@ -72,9 +74,12 @@ class DPIStartWorker(QObject):
                 self.finished.emit(True, "")  # Не блокируем splash screen ошибкой
                 
         except Exception as e:
-            error_msg = f"Ошибка запуска DPI: {str(e)}"
-            log(error_msg, "❌ ERROR")
-            self.finished.emit(False, error_msg)
+            # Диагностируем ошибку и выводим понятное сообщение
+            exe_path = getattr(self.dpi_starter, 'winws_exe', None)
+            diagnosis = diagnose_startup_error(e, exe_path)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
+            self.finished.emit(False, diagnosis.split('\n')[0])  # Первая строка как краткое сообщение
 
     def _start_direct(self):
         """Запуск через прямой метод (StrategyRunner)"""
@@ -136,8 +141,12 @@ class DPIStartWorker(QObject):
                 return False
                 
         except Exception as e:
-            log(f"Ошибка прямого запуска: {e}", "❌ ERROR")
-            self.progress.emit(f"❌ Ошибка: {str(e)[:50]}")
+            # Диагностируем ошибку и выводим понятное сообщение
+            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            diagnosis = diagnose_startup_error(e, exe_path)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
+            self.progress.emit(diagnosis.split('\n')[0])  # Первая строка как статус
             return False
 
     def _start_bat(self):
@@ -199,7 +208,11 @@ class DPIStartWorker(QObject):
             return result
             
         except Exception as e:
-            log(f"Ошибка запуска через .bat: {e}", "❌ ERROR")
+            # Диагностируем ошибку и выводим понятное сообщение
+            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            diagnosis = diagnose_startup_error(e, exe_path)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
             return False
@@ -231,9 +244,14 @@ class DPIStartWorker(QObject):
             if runner.start():
                 log("Оркестратор успешно запущен", "✅ SUCCESS")
 
-                # Запускаем мониторинг на странице оркестра
-                if hasattr(self.app_instance, 'orchestra_page'):
-                    self.app_instance.orchestra_page.start_monitoring()
+                # Запускаем мониторинг на странице оркестра (через main thread!)
+                # ВАЖНО: start_monitoring() запускает QTimer, который нельзя создавать из другого потока
+                if hasattr(self.app_instance, 'orchestra_page') and self.app_instance.orchestra_page:
+                    QMetaObject.invokeMethod(
+                        self.app_instance.orchestra_page,
+                        "start_monitoring",
+                        Qt.ConnectionType.QueuedConnection
+                    )
 
                 return True
             else:
@@ -241,7 +259,11 @@ class DPIStartWorker(QObject):
                 return False
 
         except Exception as e:
-            log(f"Ошибка запуска оркестратора: {e}", "❌ ERROR")
+            # Диагностируем ошибку и выводим понятное сообщение
+            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            diagnosis = diagnose_startup_error(e, exe_path)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
             return False
@@ -272,7 +294,7 @@ class DPIStopWorker(QObject):
             # Выбираем метод остановки
             if self.launch_method == "orchestra":
                 success = self._stop_orchestra()
-            elif self.launch_method == "direct":
+            elif self.launch_method in ("direct", "direct_orchestra"):
                 success = self._stop_direct()
             else:
                 success = self._stop_bat()
@@ -368,7 +390,7 @@ class StopAndExitWorker(QObject):
                 # Дополнительная очистка
                 from utils.process_killer import kill_winws_all
                 kill_winws_all()
-            elif self.launch_method == "direct":
+            elif self.launch_method in ("direct", "direct_orchestra"):
                 from strategy_menu.strategy_runner import get_strategy_runner
                 runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
                 runner.stop()
@@ -423,7 +445,7 @@ class DPIController:
 
         # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана, берем из реестра
         elif selected_mode is None or selected_mode == 'default':
-            if launch_method == "direct":
+            if launch_method in ("direct", "direct_orchestra"):
                 # Для Direct режима берем сохраненные выборы из реестра
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -573,6 +595,8 @@ class DPIController:
             method_name = "оркестр"
         elif launch_method == "direct":
             method_name = "прямой"
+        elif launch_method == "direct_orchestra":
+            method_name = "оркестратор Z2"
         else:
             method_name = "классический"
         self.app.set_status(f"🚀 Запуск DPI ({method_name}): {mode_name}")
@@ -641,6 +665,8 @@ class DPIController:
             method_name = "оркестр"
         elif launch_method == "direct":
             method_name = "прямой"
+        elif launch_method == "direct_orchestra":
+            method_name = "оркестратор Z2"
         else:
             method_name = "классический"
         self.app.set_status(f"🛑 Остановка DPI ({method_name})...")

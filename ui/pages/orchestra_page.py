@@ -3,7 +3,7 @@
 
 import os
 from queue import Queue, Empty
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QFrame, QCheckBox,
@@ -17,7 +17,7 @@ from ui.sidebar import SettingsCard, ActionButton
 from log import log
 from config import LOGS_FOLDER, REGISTRY_PATH
 from config.reg import reg
-from orchestra import DEFAULT_WHITELIST, REGISTRY_ORCHESTRA
+from orchestra import DEFAULT_WHITELIST, REGISTRY_ORCHESTRA, MAX_ORCHESTRA_LOGS
 
 
 class OrchestraPage(BasePage):
@@ -33,7 +33,7 @@ class OrchestraPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркест v0.3 (Pre-Alpha)",
+            "Оркестратор v0.5 (Pre-Alpha)",
             "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!).",
             parent
         )
@@ -183,6 +183,73 @@ class OrchestraPage(BasePage):
         log_layout.addLayout(btn_row)
         log_card.add_layout(log_layout)
         self.layout.addWidget(log_card)
+
+        # === История логов ===
+        log_history_card = SettingsCard(f"История логов (макс. {MAX_ORCHESTRA_LOGS})")
+        log_history_layout = QVBoxLayout()
+
+        # Описание
+        log_history_desc = QLabel("Каждый запуск оркестратора создаёт новый лог с уникальным ID. Старые логи автоматически удаляются.")
+        log_history_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        log_history_desc.setWordWrap(True)
+        log_history_layout.addWidget(log_history_desc)
+
+        # Список логов
+        self.log_history_list = QListWidget()
+        self.log_history_list.setMaximumHeight(150)
+        self.log_history_list.setStyleSheet("""
+            QListWidget {
+                background-color: rgba(0,0,0,0.2);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 4px;
+                color: rgba(255,255,255,0.8);
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+            }
+            QListWidget::item {
+                padding: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: rgba(138,43,226,0.3);
+            }
+        """)
+        self.log_history_list.itemDoubleClicked.connect(self._view_log_history)
+        log_history_layout.addWidget(self.log_history_list)
+
+        # Кнопки управления историей логов
+        log_history_buttons = QHBoxLayout()
+
+        view_log_btn = ActionButton("Просмотреть", "fa5s.eye")
+        view_log_btn.clicked.connect(self._view_log_history)
+        log_history_buttons.addWidget(view_log_btn)
+
+        delete_log_btn = ActionButton("Удалить", "fa5s.trash-alt")
+        delete_log_btn.clicked.connect(self._delete_log_history)
+        log_history_buttons.addWidget(delete_log_btn)
+
+        log_history_buttons.addStretch()
+
+        clear_all_logs_btn = QPushButton("Очистить все")
+        clear_all_logs_btn.setIcon(qta.icon("mdi.delete-sweep", color="#ff6b6b"))
+        clear_all_logs_btn.clicked.connect(self._clear_all_log_history)
+        clear_all_logs_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 107, 107, 0.1);
+                border: 1px solid rgba(255, 107, 107, 0.3);
+                border-radius: 6px;
+                color: #ff6b6b;
+                padding: 6px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 107, 107, 0.2);
+            }
+        """)
+        log_history_buttons.addWidget(clear_all_logs_btn)
+
+        log_history_layout.addLayout(log_history_buttons)
+        log_history_card.add_layout(log_history_layout)
+        self.layout.addWidget(log_history_card)
 
         # === Обученные домены ===
         domains_card = SettingsCard("Обученные домены")
@@ -360,8 +427,9 @@ class OrchestraPage(BasePage):
                 # Обновляем данные обучения и историю
                 self._update_learned_domains()
 
-            # Обновляем whitelist (всегда, даже если runner не запущен)
+            # Обновляем whitelist и историю логов (всегда, даже если runner не запущен)
             self._update_whitelist()
+            self._update_log_history()
         except Exception:
             pass
 
@@ -555,6 +623,7 @@ class OrchestraPage(BasePage):
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.log_text.setTextCursor(cursor)
 
+    @pyqtSlot()
     def start_monitoring(self):
         """Запускает мониторинг"""
         # Подключаем callback к runner если он уже запущен (при автозапуске callback не устанавливается)
@@ -671,3 +740,96 @@ class OrchestraPage(BasePage):
                     self.append_log(f"[INFO] Удалён из whitelist: {domain}")
         except Exception as e:
             log(f"Ошибка удаления из whitelist: {e}", "DEBUG")
+
+    # ==================== LOG HISTORY METHODS ====================
+
+    def _update_log_history(self):
+        """Обновляет список истории логов"""
+        self.log_history_list.clear()
+
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                logs = app.orchestra_runner.get_log_history()
+
+                for log_info in logs:
+                    # Форматируем отображение
+                    is_current = log_info.get('is_current', False)
+                    prefix = "▶ " if is_current else "  "
+                    suffix = " (текущий)" if is_current else ""
+
+                    text = f"{prefix}{log_info['created']} | {log_info['size_str']}{suffix}"
+                    item = QListWidgetItem(text)
+                    item.setData(Qt.ItemDataRole.UserRole, log_info['id'])
+
+                    if is_current:
+                        item.setForeground(Qt.GlobalColor.green)
+
+                    self.log_history_list.addItem(item)
+
+                if not logs:
+                    item = QListWidgetItem("  Нет сохранённых логов")
+                    item.setForeground(Qt.GlobalColor.gray)
+                    self.log_history_list.addItem(item)
+
+        except Exception as e:
+            log(f"Ошибка обновления истории логов: {e}", "DEBUG")
+
+    def _view_log_history(self):
+        """Просматривает выбранный лог из истории"""
+        current = self.log_history_list.currentItem()
+        if not current:
+            return
+
+        log_id = current.data(Qt.ItemDataRole.UserRole)
+        if not log_id:
+            return
+
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                content = app.orchestra_runner.get_log_content(log_id)
+                if content:
+                    # Очищаем текущий лог и показываем содержимое выбранного
+                    self.log_text.clear()
+                    self.log_text.setPlainText(content)
+                    self.append_log(f"\n[INFO] === Загружен лог: {log_id} ===")
+                else:
+                    self.append_log(f"[ERROR] Не удалось прочитать лог: {log_id}")
+        except Exception as e:
+            log(f"Ошибка просмотра лога: {e}", "DEBUG")
+
+    def _delete_log_history(self):
+        """Удаляет выбранный лог из истории"""
+        current = self.log_history_list.currentItem()
+        if not current:
+            return
+
+        log_id = current.data(Qt.ItemDataRole.UserRole)
+        if not log_id:
+            return
+
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                if app.orchestra_runner.delete_log(log_id):
+                    self._update_log_history()
+                    self.append_log(f"[INFO] Удалён лог: {log_id}")
+                else:
+                    self.append_log(f"[WARNING] Не удалось удалить лог (возможно, активный)")
+        except Exception as e:
+            log(f"Ошибка удаления лога: {e}", "DEBUG")
+
+    def _clear_all_log_history(self):
+        """Удаляет все логи из истории"""
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                deleted = app.orchestra_runner.clear_all_logs()
+                self._update_log_history()
+                if deleted > 0:
+                    self.append_log(f"[INFO] Удалено {deleted} лог-файлов")
+                else:
+                    self.append_log("[INFO] Нет логов для удаления")
+        except Exception as e:
+            log(f"Ошибка очистки истории логов: {e}", "DEBUG")

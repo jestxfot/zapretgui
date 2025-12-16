@@ -10,11 +10,12 @@ from datetime import datetime
 from .apply_filters import apply_all_filters
 from .constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
 from dpi.process_health_check import (
-    check_process_health, 
-    get_last_crash_info, 
+    check_process_health,
+    get_last_crash_info,
     check_common_crash_causes,
     check_conflicting_processes,
-    get_conflicting_processes_report
+    get_conflicting_processes_report,
+    diagnose_startup_error
 )
 
 def log_full_command(cmd_list: List[str], strategy_name: str):
@@ -353,26 +354,34 @@ class StrategyRunner:
                 log("Останавливаем предыдущий процесс перед запуском нового", "INFO")
                 self.stop()
             
-            # Быстрая очистка только при необходимости
+            # Агрессивная очистка перед запуском
             import time
+            from utils.process_killer import kill_winws_force
+
             if _retry_count > 0:
                 # Агрессивная очистка только при повторной попытке
                 self._aggressive_windivert_cleanup()
             else:
-                # Быстрая очистка - только убиваем процессы через Win API
-                from utils.process_killer import kill_winws_force, is_process_running
+                # ✅ ВСЕГДА вызываем kill_winws_force - psutil может не видеть процесс
+                # но WinDivert драйвер всё ещё может быть занят
+                log("Очистка предыдущих процессов winws...", "DEBUG")
+                kill_winws_force()
 
-                # Проверяем есть ли вообще запущенные процессы
-                if is_process_running("winws.exe") or is_process_running("winws2.exe"):
-                    # Используем агрессивный метод с гарантированным ожиданием завершения
-                    kill_winws_force()
-                    time.sleep(0.2)  # Короткая пауза после гарантированной остановки
+                # Быстрая очистка служб
+                self._fast_cleanup_services()
 
-                    # Быстрая очистка служб (без долгих пауз)
-                    self._fast_cleanup_services()
-                else:
-                    # Если процессов нет - вообще не ждём
-                    time.sleep(0.1)
+                # ✅ Выгружаем драйверы WinDivert для полной очистки
+                try:
+                    from utils.service_manager import unload_driver
+                    for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
+                        try:
+                            unload_driver(driver)
+                        except:
+                            pass
+                except:
+                    pass
+
+                time.sleep(0.3)  # Пауза для освобождения ресурсов WinDivert
             
             if not custom_args:
                 log("Нет аргументов для запуска", "ERROR")
@@ -454,7 +463,11 @@ class StrategyRunner:
                 return False
                 
         except Exception as e:
-            log(f"Ошибка запуска стратегии: {e}", "❌ ERROR")
+            # Диагностируем ошибку и выводим понятное сообщение
+            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            for line in diagnosis.split('\n'):
+                log(line, "❌ ERROR")
+
             import traceback
             log(traceback.format_exc(), "DEBUG")
             self.running_process = None

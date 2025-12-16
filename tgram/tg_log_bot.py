@@ -76,9 +76,12 @@ def _get_log_api() -> str:
     return f"https://api.telegram.org/bot{_get_bot_token()}"
 
 
-def _safe_api_call(method: str, *, data=None, files=None) -> Optional[dict]:
+def _safe_api_call(method: str, *, data=None, files=None) -> tuple[Optional[dict], Optional[str]]:
     """
     Безопасный вызов Telegram API с обработкой flood-wait (тихий режим).
+
+    Returns:
+        (result_dict, error_message) - result_dict если успех, иначе (None, error_message)
     """
     from .tg_sender import _set_flood_cooldown
 
@@ -87,7 +90,7 @@ def _safe_api_call(method: str, *, data=None, files=None) -> Optional[dict]:
             url = f"{_get_log_api()}/{method}"
             response = requests.post(url, data=data, files=files, timeout=TIMEOUT)
             response.raise_for_status()
-            return response.json()
+            return response.json(), None
 
         except requests.HTTPError as e:
             if e.response and e.response.status_code == 429:
@@ -103,15 +106,37 @@ def _safe_api_call(method: str, *, data=None, files=None) -> Optional[dict]:
                     continue
                 else:
                     _set_flood_cooldown()
-                    return None
+                    return None, f"Слишком много запросов. Подождите {retry_after} секунд"
+
+            # Другие HTTP ошибки
+            status_code = e.response.status_code if e.response else "неизвестен"
             _set_flood_cooldown()
-            return None
-        except Exception:
+            return None, f"Ошибка HTTP {status_code}"
+
+        except requests.ConnectionError as e:
+            error_str = str(e).lower()
+            # Проверяем признаки блокировки Telegram
+            if "api.telegram.org" in error_str or "connection refused" in error_str:
+                _set_flood_cooldown()
+                return None, "Telegram заблокирован или недоступен. Включите VPN или DPI bypass"
             _set_flood_cooldown()
-            return None
+            return None, "Нет подключения к интернету"
+
+        except requests.Timeout:
+            _set_flood_cooldown()
+            return None, "Превышено время ожидания. Возможно Telegram заблокирован"
+
+        except Exception as e:
+            error_str = str(e).lower()
+            # Проверяем признаки блокировки
+            if "connection" in error_str and ("refused" in error_str or "reset" in error_str or "timeout" in error_str):
+                _set_flood_cooldown()
+                return None, "Telegram заблокирован или недоступен. Включите VPN или DPI bypass"
+            _set_flood_cooldown()
+            return None, f"Ошибка сети: {str(e)[:100]}"
 
     _set_flood_cooldown()
-    return None
+    return None, "Превышено количество попыток"
 
 
 def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None) -> tuple[bool, Optional[str]]:
@@ -132,20 +157,24 @@ def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None
         topic_id = _get_default_topic()
 
     if is_in_flood_cooldown():
-        return False, None
+        return False, "Слишком частые запросы. Подождите несколько минут"
 
     try:
         token = _get_bot_token()
         if not token:
-            return False, None
+            return False, "Ошибка конфигурации бота"
 
         path = Path(file_path)
         if not path.exists():
-            return False, None
+            return False, f"Файл лога не найден: {path.name}"
 
         file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE:
-            return False, None
+            size_mb = file_size / (1024 * 1024)
+            return False, f"Файл слишком большой ({size_mb:.1f} МБ). Максимум: 50 МБ"
+
+        if file_size == 0:
+            return False, "Файл лога пуст"
 
         with path.open("rb") as file:
             files = {"document": file}
@@ -154,15 +183,23 @@ def send_log_file(file_path: str | Path, caption: str = "", topic_id: int = None
                 "message_thread_id": topic_id,
                 "caption": caption[:1024] if caption else path.name
             }
-            result = _safe_api_call("sendDocument", data=data, files=files)
+            result, error_msg = _safe_api_call("sendDocument", data=data, files=files)
 
         if result and result.get("ok"):
             return True, None
-        return False, None
 
-    except Exception:
+        # API вернул ошибку
+        if result and not result.get("ok"):
+            api_error = result.get("description", "Неизвестная ошибка API")
+            return False, f"Telegram API: {api_error}"
+
+        return False, error_msg or "Не удалось отправить файл"
+
+    except PermissionError:
+        return False, "Нет доступа к файлу лога"
+    except Exception as e:
         _set_flood_cooldown()
-        return False, None
+        return False, f"Ошибка: {str(e)[:100]}"
 
 
 def check_bot_connection() -> bool:
@@ -174,7 +211,7 @@ def check_bot_connection() -> bool:
         if not token:
             return False
 
-        result = _safe_api_call("getMe")
+        result, _ = _safe_api_call("getMe")
         return result is not None and result.get("ok", False)
     except Exception:
         return False

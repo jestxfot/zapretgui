@@ -32,7 +32,7 @@ class DPIManager(QObject):
         launch_method = get_strategy_launch_method()
         
         # 3. Запускаем соответствующий режим
-        if launch_method == "direct":
+        if launch_method in ("direct", "direct_orchestra"):
             self._start_direct_mode()
         elif launch_method == "orchestra":
             self._start_orchestra_mode()
@@ -55,9 +55,19 @@ class DPIManager(QObject):
 
     def _start_direct_mode(self):
         """⚡ Запускает Direct режим (комбинированные стратегии)"""
-        from strategy_menu import get_direct_strategy_selections
+        from strategy_menu import (
+            get_direct_strategy_selections, get_strategy_launch_method,
+            is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
+        )
         from strategy_menu.strategy_lists_separated import combine_strategies
-        
+
+        # ✅ При ПЕРВОМ запуске в режиме direct_orchestra - сбрасываем все стратегии в "none"
+        launch_method = get_strategy_launch_method()
+        if launch_method == "direct_orchestra" and not is_direct_orchestra_initialized():
+            log("🆕 Первая инициализация DirectOrchestra при автозапуске - сброс всех стратегий в 'none'", "INFO")
+            clear_direct_orchestra_strategies()
+            set_direct_orchestra_initialized(True)
+
         # Получаем выборы пользователя и комбинируем стратегии
         selections = get_direct_strategy_selections()
         combined = combine_strategies(**selections)

@@ -11,6 +11,62 @@ from config import reg, REGISTRY_PATH
 
 DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
 DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
+DIRECT_ORCHESTRA_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
+
+
+# ==================== ФЛАГ ИНИЦИАЛИЗАЦИИ ОРКЕСТРАТОРА ====================
+
+def is_direct_orchestra_initialized() -> bool:
+    """Проверяет, был ли режим direct_orchestra уже инициализирован (первый запуск)"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "DirectOrchestraInitialized")
+            return bool(value)
+    except:
+        return False
+
+
+def set_direct_orchestra_initialized(initialized: bool = True) -> bool:
+    """Устанавливает флаг инициализации режима direct_orchestra"""
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
+            winreg.SetValueEx(key, "DirectOrchestraInitialized", 0, winreg.REG_DWORD, 1 if initialized else 0)
+            log(f"Флаг инициализации DirectOrchestra: {initialized}", "DEBUG")
+            return True
+    except Exception as e:
+        log(f"Ошибка установки флага DirectOrchestraInitialized: {e}", "ERROR")
+        return False
+
+
+def clear_direct_orchestra_strategies() -> bool:
+    """Очищает все сохранённые стратегии для режима direct_orchestra (устанавливает все в 'none')"""
+    from .strategies_registry import registry
+
+    try:
+        log("🧹 Очистка стратегий DirectOrchestra (первая инициализация)...", "INFO")
+
+        # Устанавливаем все категории в "none"
+        for category_key in registry.get_all_category_keys():
+            reg_key = _category_to_reg_key(category_key)
+            reg(DIRECT_ORCHESTRA_STRATEGY_KEY, reg_key, "none")
+
+        # Сбрасываем кэш
+        invalidate_direct_selections_cache()
+
+        log("✅ Все стратегии DirectOrchestra установлены в 'none'", "INFO")
+        return True
+
+    except Exception as e:
+        log(f"Ошибка очистки стратегий DirectOrchestra: {e}", "ERROR")
+        return False
+
+
+def _get_current_strategy_key() -> str:
+    """Возвращает ключ реестра для выборов стратегий в зависимости от метода запуска"""
+    method = get_strategy_launch_method()
+    if method == "direct_orchestra":
+        return DIRECT_ORCHESTRA_STRATEGY_KEY
+    return DIRECT_STRATEGY_KEY
 
 # ==================== МЕТОД ЗАПУСКА ====================
 
@@ -636,9 +692,10 @@ def get_direct_strategy_selections() -> dict:
         default_selections = registry.get_default_selections()
         invalid_count = 0
 
+        strategy_key = _get_current_strategy_key()
         for category_key in registry.get_all_category_keys():
             reg_key = _category_to_reg_key(category_key)
-            value = reg(DIRECT_STRATEGY_KEY, reg_key)
+            value = reg(strategy_key, reg_key)
 
             if value:
                 # ✅ Валидация: проверяем существование стратегии
@@ -653,7 +710,12 @@ def get_direct_strategy_selections() -> dict:
                         selections[category_key] = value
                     else:
                         # ⚠️ Стратегия не найдена - используем значение по умолчанию
-                        default_value = default_selections.get(category_key, "none")
+                        # Для direct_orchestra всегда "none", для direct - default из категории
+                        method = get_strategy_launch_method()
+                        if method == "direct_orchestra":
+                            default_value = "none"
+                        else:
+                            default_value = default_selections.get(category_key, "none")
                         selections[category_key] = default_value
                         invalid_count += 1
                         # Логируем только один раз за сессию
@@ -663,10 +725,15 @@ def get_direct_strategy_selections() -> dict:
                             log(f"⚠️ Стратегия '{value}' не найдена в категории '{category_key}', "
                                 f"заменена на '{default_value}'", "WARNING")
 
-        # Заполняем недостающие значения по умолчанию
+        # Заполняем недостающие значения
+        method = get_strategy_launch_method()
         for key, default_value in default_selections.items():
             if key not in selections:
-                selections[key] = default_value
+                # Для direct_orchestra по умолчанию все категории отключены
+                if method == "direct_orchestra":
+                    selections[key] = "none"
+                else:
+                    selections[key] = default_value
 
         # Сохраняем в кэш
         _direct_selections_cache = selections
@@ -688,11 +755,12 @@ def set_direct_strategy_selections(selections: dict) -> bool:
 
     try:
         success = True
+        strategy_key = _get_current_strategy_key()
 
         for category_key, strategy_id in selections.items():
             if category_key in registry.get_all_category_keys():
                 reg_key = _category_to_reg_key(category_key)
-                result = reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+                result = reg(strategy_key, reg_key, strategy_id)
                 success = success and (result is not False)
 
         if success:
@@ -709,25 +777,33 @@ def set_direct_strategy_selections(selections: dict) -> bool:
 def get_direct_strategy_for_category(category_key: str) -> str:
     """Получает выбранную стратегию для конкретной категории"""
     from .strategies_registry import registry
-    
+
+    strategy_key = _get_current_strategy_key()
     reg_key = _category_to_reg_key(category_key)
-    value = reg(DIRECT_STRATEGY_KEY, reg_key)
-    
+    value = reg(strategy_key, reg_key)
+
     if value:
         return value
-    
-    # Возвращаем значение по умолчанию
+
+    # Для direct_orchestra по умолчанию все категории отключены
+    # (пользователь должен явно выбрать что включить)
+    method = get_strategy_launch_method()
+    if method == "direct_orchestra":
+        return "none"
+
+    # Для обычного direct возвращаем значение по умолчанию из категории
     category_info = registry.get_category_info(category_key)
     if category_info:
         return category_info.default_strategy
-    
+
     return "none"
 
 
 def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> bool:
     """Сохраняет выбранную стратегию для категории"""
+    strategy_key = _get_current_strategy_key()
     reg_key = _category_to_reg_key(category_key)
-    result = reg(DIRECT_STRATEGY_KEY, reg_key, strategy_id)
+    result = reg(strategy_key, reg_key, strategy_id)
     if result:
         invalidate_direct_selections_cache()  # Сбрасываем кэш
     return result
@@ -946,7 +1022,12 @@ __all__ = [
     'get_direct_strategy_for_category',
     'set_direct_strategy_for_category',
     'invalidate_direct_selections_cache',
-    
+
+    # Инициализация DirectOrchestra
+    'is_direct_orchestra_initialized',
+    'set_direct_orchestra_initialized',
+    'clear_direct_orchestra_strategies',
+
     # Оценки стратегий
     'get_all_strategy_ratings',
     'get_strategy_rating',

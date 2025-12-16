@@ -36,13 +36,26 @@ def check_system_commands() -> tuple[bool, str]:
 
     # Определяем команды для проверки с полными путями
     # Используем get_system_exe для корректной работы на любом диске
+    # ВАЖНО: tasklist убран - вместо него используем psutil который уже проверен при импорте
     required_commands = [
-        ("tasklist", f'"{get_system_exe("tasklist.exe")}" /FI "IMAGENAME eq explorer.exe" /FO CSV /NH'),
         ("sc", f'"{get_system_exe("sc.exe")}" query'),
         ("netsh", f'"{get_system_exe("netsh.exe")}" /?'),
     ]
-    
+
     failed_commands = []
+
+    # Проверяем psutil отдельно (основной инструмент вместо tasklist)
+    try:
+        import psutil
+        # Тестовый вызов psutil
+        list(psutil.process_iter(['name']))
+    except Exception as e:
+        failed_commands.append(f"psutil (ошибка: {e})")
+        try:
+            from log import log
+            log(f"ERROR: psutil не работает: {e}", level="❌ ERROR")
+        except ImportError:
+            print(f"ERROR: psutil не работает: {e}")
     
     # Определяем параметры для разных систем
     run_params = {
@@ -71,28 +84,9 @@ def check_system_commands() -> tuple[bool, str]:
     for cmd_name, test_command in required_commands:
         try:
             result = run_hidden(test_command, **run_params)
-            
-            if cmd_name == "tasklist":
-                if result.returncode != 0:
-                    stderr_text = result.stderr.strip().lower()
-                    # Проверяем на разных языках
-                    error_indicators = [
-                        "не является", "not recognized", "not found",
-                        "command not found", "nicht gefunden", "introuvable",
-                        "no se reconoce", "não é reconhecido"
-                    ]
-                    if any(indicator in stderr_text for indicator in error_indicators):
-                        failed_commands.append(f"{cmd_name} (команда недоступна)")
-                        try:
-                            from log import log
-                            log(f"ERROR: Команда {cmd_name} недоступна: {result.stderr.strip()}", level="❌ ERROR")
-                        except ImportError:
-                            print(f"ERROR: Команда {cmd_name} недоступна")
-                        continue
-            
+
             # Для разных команд разные допустимые коды возврата
             acceptable_codes = {
-                "tasklist": [0, 1],  # 1 = процесс не найден
                 "sc": [0, 1, 2],     # 1,2 = сервис не найден/остановлен
                 "netsh": [0, 1]      # 1 = помощь показана
             }

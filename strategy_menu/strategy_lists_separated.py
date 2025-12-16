@@ -171,8 +171,12 @@ def _build_base_args_from_filters(
     - TCP порты перехватываются целиком через --wf-tcp-out
     - UDP порты перехватываются целиком через --wf-udp-out (нагружает CPU!)
     - Raw-part фильтры перехватывают только конкретные пакеты (экономят CPU)
+    - Для режима direct_orchestra также добавляется --wf-tcp-in с теми же портами
     """
+    from strategy_menu import get_strategy_launch_method
+
     parts = [lua_init]
+    launch_method = get_strategy_launch_method()
 
     # === TCP порты ===
     tcp_port_parts = []
@@ -188,7 +192,11 @@ def _build_base_args_from_filters(
         tcp_port_parts.append("444-65535")
 
     if tcp_port_parts:
-        parts.append(f"--wf-tcp-out={','.join(tcp_port_parts)}")
+        tcp_ports_str = ','.join(tcp_port_parts)
+        parts.append(f"--wf-tcp-out={tcp_ports_str}")
+        # ✅ Для режима Оркестратор Zapret 2 также перехватываем входящий TCP
+        if launch_method == "direct_orchestra":
+            parts.append(f"--wf-tcp-in={tcp_ports_str}")
     
     # === UDP порты ===
     udp_port_parts = []
@@ -257,9 +265,10 @@ def combine_strategies(*args, **kwargs) -> dict:
     # 3. custom_funcs.lua - пользовательские функции
     lua_lib_path = os.path.join(LUA_FOLDER, "zapret-lib.lua")
     lua_antidpi_path = os.path.join(LUA_FOLDER, "zapret-antidpi.lua")
+    lua_auto_path = os.path.join(LUA_FOLDER, "zapret-auto.lua")
     custom_funcs_path = os.path.join(LUA_FOLDER, "custom_funcs.lua")
     # Пути БЕЗ кавычек - subprocess.Popen с списком аргументов сам правильно обрабатывает пути
-    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{custom_funcs_path}'
+    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{lua_auto_path} --lua-init=@{custom_funcs_path}'
 
     # ✅ Автоматически определяем нужные фильтры по выбранным категориям
     filters = calculate_required_filters(category_strategies)
@@ -308,12 +317,17 @@ def combine_strategies(*args, **kwargs) -> dict:
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
             # ✅ Заменяем out-range для Discord и YouTube категорий
-            if category_key == "discord" and out_range_discord > 0:
-                args = _replace_out_range(args, out_range_discord)
-            elif category_key == "discord_voice" and out_range_discord > 0:
-                args = _replace_out_range(args, out_range_discord)
-            elif category_key == "youtube" and out_range_youtube > 0:
-                args = _replace_out_range(args, out_range_youtube)
+            # ⚠️ НО: для direct_orchestra НЕ заменяем - стратегии уже содержат правильные out-range
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+
+            if launch_method != "direct_orchestra":
+                if category_key == "discord" and out_range_discord > 0:
+                    args = _replace_out_range(args, out_range_discord)
+                elif category_key == "discord_voice" and out_range_discord > 0:
+                    args = _replace_out_range(args, out_range_discord)
+                elif category_key == "youtube" and out_range_youtube > 0:
+                    args = _replace_out_range(args, out_range_youtube)
             
             category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))

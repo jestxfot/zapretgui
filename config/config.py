@@ -35,8 +35,9 @@ THEME_FOLDER = os.path.join(MAIN_DIRECTORY, "themes")
 LOGS_FOLDER = os.path.join(MAIN_DIRECTORY, "logs")
 HELP_FOLDER = os.path.join(MAIN_DIRECTORY, "help")
 
-# Настройка количества сохраняемых лог-файлов (опционально)
-MAX_LOG_FILES = 50  # можно сделать настраиваемым через реестр
+# Настройка количества сохраняемых лог-файлов
+MAX_LOG_FILES = 50           # zapret_log_*.txt - основные логи приложения
+MAX_DEBUG_LOG_FILES = 20     # zapret_winws2_debug_*.log - debug логи winws2
 
 WINDIVERT_FILTER = os.path.join(MAIN_DIRECTORY, "windivert.filter")
 

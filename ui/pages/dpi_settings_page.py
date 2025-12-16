@@ -433,7 +433,7 @@ class DpiSettingsPage(BasePage):
         
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
-            "Zapret 2", 
+            "Zapret 2",
             "Прямой запуск с гибкими настройками. Поддерживает фильтры трафика, out-range и раздельные стратегии.",
             icon_name="mdi.rocket-launch",
             icon_color="#60cdff",
@@ -441,7 +441,17 @@ class DpiSettingsPage(BasePage):
         )
         self.method_direct.clicked.connect(lambda: self._select_method("direct"))
         method_layout.addWidget(self.method_direct)
-        
+
+        # Оркестратор Zapret 2 (direct с другим набором стратегий)
+        self.method_direct_orchestra = Win11RadioOption(
+            "Оркестраторный Zapret 2",
+            "Запуск Zapret 2 со стратегиями оркестратора внутри каждого профиля. Позволяет настроить для каждого сайта свой оркерстратор. Не сохраняет состояние для повышенной агрессии обхода.",
+            icon_name="mdi.brain",
+            icon_color="#9c27b0"
+        )
+        self.method_direct_orchestra.clicked.connect(lambda: self._select_method("direct_orchestra"))
+        method_layout.addWidget(self.method_direct_orchestra)
+
         # Zapret 1 (bat)
         self.method_bat = Win11RadioOption(
             "Zapret 1", 
@@ -454,8 +464,8 @@ class DpiSettingsPage(BasePage):
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
-            "Оркест v0.3 (Pre-Alpha)",
-            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена.",
+            "Оркестратор v0.5 (Pre-Alpha)",
+            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками. ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!",
             icon_name="mdi.brain",
             icon_color="#9c27b0"
         )
@@ -668,16 +678,42 @@ class DpiSettingsPage(BasePage):
     def _update_method_selection(self, method: str):
         """Обновляет визуальное состояние выбора метода"""
         self.method_direct.setSelected(method == "direct")
+        self.method_direct_orchestra.setSelected(method == "direct_orchestra")
         self.method_bat.setSelected(method == "bat")
         self.method_orchestra.setSelected(method == "orchestra")
     
     def _select_method(self, method: str):
         """Обработчик выбора метода"""
         try:
-            from strategy_menu import set_strategy_launch_method
+            from strategy_menu import (
+                set_strategy_launch_method, get_strategy_launch_method, invalidate_direct_selections_cache,
+                is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
+            )
+            from strategy_menu.strategies_registry import registry
+
+            # Запоминаем предыдущий метод для определения необходимости перезагрузки стратегий
+            previous_method = get_strategy_launch_method()
+
+            # ✅ При ПЕРВОМ переключении на direct_orchestra - сбрасываем все стратегии в "none"
+            if method == "direct_orchestra" and not is_direct_orchestra_initialized():
+                log("🆕 Первая инициализация режима DirectOrchestra - сброс всех стратегий в 'none'", "INFO")
+                clear_direct_orchestra_strategies()
+                set_direct_orchestra_initialized(True)
+
             set_strategy_launch_method(method)
             self._update_method_selection(method)
             self._update_filters_visibility()
+
+            # Перезагружаем стратегии если меняется набор стратегий
+            # (например с direct на direct_orchestra или наоборот)
+            direct_methods = ("direct", "direct_orchestra")
+            if previous_method in direct_methods or method in direct_methods:
+                if previous_method != method:
+                    log(f"Смена метода {previous_method} -> {method}, перезагрузка стратегий...", "INFO")
+                    # Сбрасываем кэш выборов - они будут перечитаны из реестра
+                    invalidate_direct_selections_cache()
+                    registry.reload_strategies()
+
             self.launch_method_changed.emit(method)
         except Exception as e:
             log(f"Ошибка смены метода: {e}", "ERROR")
@@ -843,14 +879,14 @@ class DpiSettingsPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method == "direct":
+            if launch_method in ("direct", "direct_orchestra"):
                 # Прямой запуск - берём текущие настройки
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
-                
+
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
-                
+
                 # Формируем данные в правильном формате
                 selected_mode = {
                     'is_combined': True,
@@ -994,9 +1030,10 @@ class DpiSettingsPage(BasePage):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            is_direct = method == "direct"
-            self.filters_card.setVisible(is_direct)
-            self.advanced_card.setVisible(is_direct)
-            self.out_range_container.setVisible(is_direct)
+            # Показываем фильтры для direct и direct_orchestra (оба используют Zapret 2)
+            is_direct_mode = method in ("direct", "direct_orchestra")
+            self.filters_card.setVisible(is_direct_mode)
+            self.advanced_card.setVisible(is_direct_mode)
+            self.out_range_container.setVisible(is_direct_mode)
         except:
             pass

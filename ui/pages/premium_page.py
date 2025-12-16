@@ -249,9 +249,10 @@ class PremiumPage(BasePage):
         activation_layout.addWidget(instructions)
         
         # Кнопка открытия бота
+        from config.telegram_links import open_telegram_link
         open_bot_btn = ActionButton("Открыть Telegram бота", "fa5b.telegram")
         open_bot_btn.setFixedHeight(40)
-        open_bot_btn.clicked.connect(lambda: webbrowser.open("https://t.me/zapretvpns_bot"))
+        open_bot_btn.clicked.connect(lambda: open_telegram_link("zapretvpns_bot"))
         activation_layout.addWidget(open_bot_btn)
         
         # ═══════════════════════════════════════════════════════════
@@ -402,7 +403,7 @@ class PremiumPage(BasePage):
         
         self.extend_btn = ActionButton("Продлить подписку", "fa5b.telegram", accent=True)
         self.extend_btn.setFixedHeight(36)
-        self.extend_btn.clicked.connect(lambda: webbrowser.open("https://t.me/zapretvpns_bot"))
+        self.extend_btn.clicked.connect(lambda: open_telegram_link("zapretvpns_bot"))
         row2.addWidget(self.extend_btn)
         
         row2.addStretch()
