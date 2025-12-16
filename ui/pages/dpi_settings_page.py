@@ -464,7 +464,7 @@ class DpiSettingsPage(BasePage):
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
-            "Оркестратор v0.5 (Pre-Alpha)",
+            "Оркестратор v0.7 (Alpha)",
             "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками. ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!",
             icon_name="mdi.brain",
             icon_color="#9c27b0"

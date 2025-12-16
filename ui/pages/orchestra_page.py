@@ -15,7 +15,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from log import log
-from config import LOGS_FOLDER, REGISTRY_PATH
+from config import REGISTRY_PATH
 from config.reg import reg
 from orchestra import DEFAULT_WHITELIST, REGISTRY_ORCHESTRA, MAX_ORCHESTRA_LOGS
 
@@ -27,22 +27,23 @@ class OrchestraPage(BasePage):
     log_received = pyqtSignal(str)  # Сигнал для получения логов из потока runner'а
 
     # Состояния оркестратора
-    STATE_STOPPED = "stopped"
-    STATE_LEARNING = "learning"
-    STATE_WORKING = "working"
+    STATE_IDLE = "idle"          # Нет активности (серый)
+    STATE_RUNNING = "running"    # Работает на залоченной стратегии (зелёный)
+    STATE_LEARNING = "learning"  # Перебирает стратегии (оранжевый)
+    STATE_UNLOCKED = "unlocked"  # RST блокировка, переобучение (красный)
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркестратор v0.5 (Pre-Alpha)",
-            "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!).",
+            "Оркестратор v0.8 (Alpha)",
+            "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).",
             parent
         )
         self._build_ui()
 
-        # Путь к лог-файлу
-        self._log_file_path = os.path.join(LOGS_FOLDER, "winws2_orchestra.log")
+        # Путь к лог-файлу (берём из runner динамически)
+        self._log_file_path = None  # Устанавливается в _update_log_file_path()
         self._last_log_position = 0  # Позиция в файле для инкрементального чтения
-        self._current_state = self.STATE_STOPPED  # Текущее состояние
+        self._current_state = self.STATE_IDLE  # Текущее состояние
 
         # Таймер для обновления статуса и логов
         self.update_timer = QTimer(self)
@@ -79,9 +80,10 @@ class OrchestraPage(BasePage):
 
         # Информация о режимах
         info_label = QLabel(
-            "• LEARNING - система перебирает стратегии\n"
-            "• LOCKED - найдена рабочая стратегия (3 успеха)\n"
-            "• UNLOCKED - переобучение (2 сбоя после LOCK)"
+            "• IDLE - ожидание соединений\n"
+            "• LEARNING - перебирает стратегии\n"
+            "• RUNNING - работает на лучших стратегиях\n"
+            "• UNLOCKED - переобучение (RST блокировка)"
         )
         info_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 8px;")
         status_layout.addWidget(info_label)
@@ -359,29 +361,35 @@ class OrchestraPage(BasePage):
         self._update_whitelist()
 
         # Обновляем статус
-        self._update_status(self.STATE_STOPPED)
+        self._update_status(self.STATE_IDLE)
 
     def _update_status(self, state: str):
         """Обновляет статус на основе состояния"""
         self._current_state = state
 
-        if state == self.STATE_LEARNING:
+        if state == self.STATE_RUNNING:
             self.status_icon.setPixmap(
-                qta.icon("mdi.brain", color="#FF9800").pixmap(24, 24)  # Оранжевый - обучение
+                qta.icon("mdi.brain", color="#4CAF50").pixmap(24, 24)  # Зелёный
             )
-            self.status_label.setText("🔄 LEARNING - идёт обучение")
-            self.status_label.setStyleSheet("color: #FF9800; font-size: 14px;")
-        elif state == self.STATE_WORKING:
-            self.status_icon.setPixmap(
-                qta.icon("mdi.brain", color="#4CAF50").pixmap(24, 24)  # Зелёный - работает
-            )
-            self.status_label.setText("✅ WORKING - используются лучшие стратегии")
+            self.status_label.setText("✅ RUNNING - работает на лучших стратегиях")
             self.status_label.setStyleSheet("color: #4CAF50; font-size: 14px;")
-        else:
+        elif state == self.STATE_LEARNING:
             self.status_icon.setPixmap(
-                qta.icon("mdi.brain", color="#666").pixmap(24, 24)
+                qta.icon("mdi.brain", color="#FF9800").pixmap(24, 24)  # Оранжевый
             )
-            self.status_label.setText("Не запущен")
+            self.status_label.setText("🔄 LEARNING - перебирает стратегии")
+            self.status_label.setStyleSheet("color: #FF9800; font-size: 14px;")
+        elif state == self.STATE_UNLOCKED:
+            self.status_icon.setPixmap(
+                qta.icon("mdi.brain", color="#F44336").pixmap(24, 24)  # Красный
+            )
+            self.status_label.setText("🔓 UNLOCKED - переобучение (RST блокировка)")
+            self.status_label.setStyleSheet("color: #F44336; font-size: 14px;")
+        else:  # STATE_IDLE
+            self.status_icon.setPixmap(
+                qta.icon("mdi.brain", color="#666").pixmap(24, 24)  # Серый
+            )
+            self.status_label.setText("⏸ IDLE - ожидание соединений")
             self.status_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 14px;")
 
     def _clear_log(self):
@@ -418,11 +426,9 @@ class OrchestraPage(BasePage):
                 is_running = app.dpi_starter.check_process_running_wmi(silent=True)
 
                 if not is_running:
-                    self._update_status(self.STATE_STOPPED)
-                else:
-                    # Если процесс запущен но состояние не определено - ставим LEARNING
-                    if self._current_state == self.STATE_STOPPED:
-                        self._update_status(self.STATE_LEARNING)
+                    self._update_status(self.STATE_IDLE)
+                # Не меняем статус автоматически на LEARNING -
+                # это делает _detect_state_from_line при получении логов
 
                 # Обновляем данные обучения и историю
                 self._update_learned_domains()
@@ -456,10 +462,28 @@ class OrchestraPage(BasePage):
             except Empty:
                 break
 
+    def _get_current_log_path(self) -> str:
+        """Получает путь к текущему лог-файлу из runner'а"""
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                return app.orchestra_runner.debug_log_path
+        except Exception:
+            pass
+        return None
+
     def _read_log_file(self):
         """Читает новые строки из лог-файла и определяет состояние"""
         try:
-            if not os.path.exists(self._log_file_path):
+            # Получаем актуальный путь к логу из runner'а
+            current_log_path = self._get_current_log_path()
+
+            # Если путь изменился - сбрасываем позицию
+            if current_log_path != self._log_file_path:
+                self._log_file_path = current_log_path
+                self._last_log_position = 0
+
+            if not self._log_file_path or not os.path.exists(self._log_file_path):
                 return
 
             with open(self._log_file_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -482,23 +506,38 @@ class OrchestraPage(BasePage):
             log(f"Ошибка чтения лог-файла: {e}", "DEBUG")
 
     def _detect_state_from_line(self, line: str):
-        """Определяет состояние оркестратора из строки лога"""
-        line_upper = line.upper()
+        """Определяет состояние оркестратора из строки лога
 
-        # Паттерны для WORKING (LOCKED = работает на найденной стратегии)
-        working_patterns = ["LOCKED", "[LOCKED]", "SUCCESS"]
-        # Паттерны для LEARNING (ищет стратегию)
-        learning_patterns = ["UNLOCKING", "UNLOCKED", "FAIL", "CIRCULAR", "TRY STRATEGY"]
+        Форматы сообщений из orchestra_runner:
+        - "[18:21:27] PRELOADED: domain.com = strategy 1 [tls]" - предзагружено (RUNNING)
+        - "[17:45:13] ✓ SUCCESS: domain.com :443 strategy=1" - обычный успех
+        - "[17:45:13] 🔒 LOCKED: domain.com :443 = strategy 1" - залочен (RUNNING)
+        - "[17:45:13] 🔓 UNLOCKED: domain.com :443 - re-learning..." - разлочен (UNLOCKED)
+        - "[17:45:13] ✗ FAIL: domain.com :443 strategy=1" - провал
+        - "[17:45:13] 🔄 Strategy rotated to 2" - ротация (LEARNING)
+        - "[18:08:36] ⚡ RST detected - DPI block" - RST блок (LEARNING)
+        """
+        # RUNNING: PRELOADED или LOCKED (есть готовые стратегии)
+        if "PRELOADED:" in line or "🔒" in line or "LOCKED:" in line:
+            self._update_status(self.STATE_RUNNING)
+            return
 
-        for pattern in working_patterns:
-            if pattern in line_upper:
-                self._update_status(self.STATE_WORKING)
-                return
+        # UNLOCKED: переобучение (🔓 UNLOCKED:)
+        if "🔓" in line or "UNLOCKED:" in line:
+            self._update_status(self.STATE_UNLOCKED)
+            return
 
-        for pattern in learning_patterns:
-            if pattern in line_upper:
+        # LEARNING: RST detected или rotated (активный перебор стратегий)
+        if "RST detected" in line or "rotated" in line.lower():
+            self._update_status(self.STATE_LEARNING)
+            return
+
+        # SUCCESS/FAIL: переключаем IDLE → LEARNING (первая активность)
+        # Но не меняем RUNNING → LEARNING (SUCCESS происходит и после LOCK)
+        if "✓" in line or "SUCCESS:" in line or "✗" in line or "FAIL:" in line:
+            if self._current_state == self.STATE_IDLE:
                 self._update_status(self.STATE_LEARNING)
-                return
+            return
 
     def _update_learned_domains(self):
         """Обновляет данные обученных доменов из реестра через runner"""
@@ -508,16 +547,17 @@ class OrchestraPage(BasePage):
                 learned = app.orchestra_runner.get_learned_data()
                 self._update_domains(learned)
             else:
-                self._update_domains({'tls': {}, 'http': {}})
+                self._update_domains({'tls': {}, 'http': {}, 'udp': {}})
         except Exception as e:
             log(f"Ошибка чтения обученных доменов: {e}", "DEBUG")
 
     def _update_domains(self, data: dict):
-        """Обновляет список обученных доменов (TLS, HTTP) и историю с рейтингами"""
+        """Обновляет список обученных доменов (TLS, HTTP, UDP) и историю с рейтингами"""
         tls_data = data.get('tls', {})
         http_data = data.get('http', {})
+        udp_data = data.get('udp', {})
         history_data = data.get('history', {})
-        total_count = len(tls_data) + len(http_data)
+        total_count = len(tls_data) + len(http_data) + len(udp_data)
 
         # === Обновляем виджет обученных доменов ===
         if total_count == 0:
@@ -549,13 +589,29 @@ class OrchestraPage(BasePage):
                         rate_str = f" ({h['rate']}%)"
                     text += f"  • {domain} = #{strat_num}{rate_str}\n"
 
+            # UDP IP адреса (QUIC, Discord Voice, STUN, WireGuard)
+            if udp_data:
+                if tls_data or http_data:
+                    text += "\n"
+                text += f"🎮 UDP (QUIC/Discord/STUN): {len(udp_data)}\n"
+                for ip, strats in sorted(udp_data.items()):
+                    strat_num = strats[0] if strats else "?"
+                    rate_str = ""
+                    if ip in history_data and strat_num in history_data[ip]:
+                        h = history_data[ip][strat_num]
+                        rate_str = f" ({h['rate']}%)"
+                    text += f"  • {ip} = #{strat_num}{rate_str}\n"
+
             self.domains_label.setText(text)
 
         # === Обновляем виджет истории ===
-        self._update_history_widget(history_data, tls_data, http_data)
+        self._update_history_widget(history_data, tls_data, http_data, udp_data)
 
-    def _update_history_widget(self, history_data: dict, tls_data: dict, http_data: dict):
+    def _update_history_widget(self, history_data: dict, tls_data: dict, http_data: dict, udp_data: dict = None):
         """Обновляет виджет истории стратегий с рейтингами"""
+        if udp_data is None:
+            udp_data = {}
+
         if not history_data:
             self.history_text.setPlainText("")
             return
@@ -574,11 +630,14 @@ class OrchestraPage(BasePage):
             # Определяем статус домена
             is_locked_tls = domain in tls_data
             is_locked_http = domain in http_data
+            is_locked_udp = domain in udp_data
             status = ""
             if is_locked_tls:
                 status = " [TLS LOCK]"
             elif is_locked_http:
                 status = " [HTTP LOCK]"
+            elif is_locked_udp:
+                status = " [UDP LOCK]"
 
             # Сортируем стратегии по рейтингу
             sorted_strats = sorted(strategies.items(), key=lambda x: x[1]['rate'], reverse=True)

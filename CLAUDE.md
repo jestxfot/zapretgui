@@ -114,15 +114,6 @@ Key strategy files:
 - Accessed via DPI Settings → "Оркестр" button (purple brain icon)
 - When orchestra mode is selected, replaces Strategies page in sidebar
 
-### Launch Flow
-
-1. User selects "Оркестр" in DPI Settings
-2. Clicks Start → `DPIStartWorker._start_orchestra()` runs
-3. `OrchestraRunner.prepare()` generates config
-4. `OrchestraRunner.start()` launches winws2.exe with `@orchestra.conf`
-5. OrchestraPage monitors `winws2_debug.log` for status updates
-6. Learned strategies saved to `learned_tls.txt` / `learned_http.txt`
-
 ## Key Dependencies
 
 - **PyQt6** - GUI framework

@@ -1,147 +1,216 @@
 # Orchestra Module - Circular Auto-Learning DPI Bypass
 
-This module implements automatic DPI bypass strategy learning using the `circular` orchestrator from zapret2.
+Автоматическое обучение стратегий DPI bypass с использованием `circular` оркестратора из zapret2.
 
-## Architecture Overview
+## Архитектура
 
-### Core Components
+### Компоненты
 
-1. **orchestra_runner.py** - Main Python runner
-   - Starts winws2.exe with circular-config.txt
-   - Monitors logs/winws2_orchestra.log for LOCKED/UNLOCKING events
-   - Saves learned strategies to best-strategies.txt
-   - Provides callbacks for UI updates
+1. **orchestra_runner.py** - Главный Python runner
+   - Запускает winws2.exe с H:\Privacy\zapret\lua\circular-config.txt
+   - Генерирует strategies-all.txt, strategies-http-all.txt, strategies-udp-all.txt с автонумерацией
+   - Сохраняет залоченные стратегии в Windows Registry
+   - Генерирует learned-strategies.lua для предзагрузки
+   - Парсит логи winws2 и обновляет UI через callbacks
 
-2. **Lua Files** (in `lua/` folder):
-   - `zapret-lib.lua` - Core helpers
-   - `zapret-antidpi.lua` - DPI attack strategies (fake, multisplit, fakedsplit, etc.)
-   - `zapret-auto.lua` - Circular orchestrator
-   - `combined-detector.lua` - Failure/success detection
-   - `strategy-stats.lua` - LOCK/UNLOCK mechanism
-   - `silent-drop-detector.lua` - Silent drop detection
+2. **Lua файлы** (в `lua/` папке, исходники в H:\Privacy\zapret\lua\):
+   - `zapret-lib.lua` - Базовые хелперы
+   - `zapret-antidpi.lua` - DPI атаки (fake, multisplit, fakedsplit и т.д.)
+   - `zapret-auto.lua` - Circular оркестратор
+   - `combined-detector.lua` - Детекция успеха/провала
+   - `strategy-stats.lua` - Механизм LOCK/UNLOCK + HISTORY + preload wrapper
+   - `silent-drop-detector.lua` - Детекция silent drop
 
-3. **Config Files**:
-   - `circular-config.txt` - Main winws2 configuration
-   - `strategies-all.txt` - List of all DPI bypass strategies
-   - `blobs.txt` - Binary blob definitions
-   - `best-strategies.txt` - Learned strategies (auto-generated)
+3. **Конфиги** (генерируются автоматически):
+   - `circular-config.txt` - Главный конфиг winws2
+   - `strategies-all.txt` - Список TLS стратегий (генерируется)
+   - `strategies-http-all.txt` - Список HTTP стратегий (генерируется)
+   - `strategies-udp-all.txt` - Список UDP стратегий для QUIC, Discord Voice, Games (генерируется)
+   - `learned-strategies.lua` - Предзагрузка стратегий из реестра (генерируется)
+   - `whitelist.txt` - Список доменов для обхода
 
-## How It Works
+## Хранение данных
 
-### Detection Mechanism (combined-detector.lua)
-Его исходный код хранится здесь H:\Privacy\zapret\lua\combined-detector.lua (как и все луа файлы, при сборке попадают в корень приложения в папку lua)
+### Windows Registry
+Все данные хранятся в реестре под `HKEY_CURRENT_USER\Software\Zapret2Reg\Orchestra`:
+- `TLS` - Залоченные TLS стратегии (hostname=strategy_num)
+- `HTTP` - Залоченные HTTP стратегии
+- `UDP` - Залоченные UDP стратегии (IP=strategy_num)
+- `History` - История успехов/провалов для каждой стратегии
 
-Документация по Zapret 2 находится здесь F:\doc\zapret2
+### NLD-cut (N-Level Domain)
+Все hostname'ы нормализуются до 2-го уровня домена:
+- `static.xx.fbcdn.net` → `fbcdn.net`
+- `www.bbc.co.uk` → `bbc.co.uk` (учитываются multi-part TLD)
 
-The system detects three types of events:
+Это позволяет группировать поддомены и применять одну стратегию ко всем.
 
-1. **SUCCESS** - Connection received >= 2KB of data
-   - Records success in strategy-stats
-   - After 3 successes on same strategy → LOCK
+## Процесс запуска
 
-2. **Silent Drop** - DPI drops packets without RST
-   - Detected when: out_packets >= 4 AND in_packets <= 1
-   - Triggers strategy rotation
-
-3. **RST Injection** - DPI sends fake RST
-   - Detected when: RST packet at sequence <= 1
-   - Triggers strategy rotation
-
-### LOCK/UNLOCK Mechanism (strategy-stats.lua)
-
+### 1. Подготовка (prepare())
 ```
-LOCK_THRESHOLD = 3   -- Lock after 3 successes
-UNLOCK_THRESHOLD = 2 -- Unlock after 2 failures
+1. Загрузка стратегий из реестра в память
+2. Генерация strategies-all.txt с автонумерацией strategy=1,2,3...
+3. Генерация whitelist.txt
+4. Ротация старых логов (MAX_ORCHESTRA_LOGS = 10)
 ```
 
-**LOCK Flow:**
-1. Strategy works → SUCCESS recorded
-2. Same strategy works again → count++
-3. count >= 3 → LOCK (sets circular `final`)
-4. Circular stops rotating for this domain
+### 2. Запуск (start())
+```
+1. Генерация learned-strategies.lua с предзагрузкой:
+   - strategy_preload(hostname, strategy, "tls"/"http")
+   - strategy_preload_history(hostname, strategy, successes, failures)
+   - install_circular_wrapper() - устанавливает wrapper для применения preload
 
-**UNLOCK Flow:**
-1. LOCKED strategy fails → fail_count++
+2. Запуск winws2.exe:
+   winws2.exe @circular-config.txt --lua-init=@learned-strategies.lua
+
+3. Запуск потока парсинга логов (_log_reader_thread)
+```
+
+### 3. Парсинг логов
+Runner читает stdout winws2 и парсит события:
+- `LOCKED hostname strategy [TLS/HTTP/UDP]` → сохраняет в реестр, UI callback
+- `UNLOCKING hostname [TLS/HTTP/UDP]` → удаляет из реестра, UI callback
+- `SUCCESS hostname strategy [TLS/HTTP/UDP]` → обновляет историю
+- `FAIL hostname strategy [TLS/HTTP/UDP]` → обновляет историю
+- `HISTORY hostname strategy=N successes=X failures=Y` → обновляет историю
+- `circular: rotate strategy to N` → UI callback с текущим hostname
+
+## Механизм LOCK/UNLOCK (strategy-stats.lua)
+
+### Параметры
+```lua
+LOCK_THRESHOLD = 5   -- Залочить после 5 успехов (было 3)
+UNLOCK_THRESHOLD = 2 -- Разлочить после 2 провалов
+```
+
+### STICKY механизм
+При ПЕРВОМ успехе стратегия становится "sticky":
+- Устанавливается `hrec.final` чтобы circular не переключался
+- Если sticky стратегия фейлится - final очищается, circular продолжает
+
+### LOCK Flow
+```
+1. SUCCESS → count++, sticky на первом успехе
+2. count >= 5 → LOCK
+3. hrec.final = strategy (circular останавливается)
+4. Python сохраняет в реестр
+```
+
+### UNLOCK Flow
+```
+1. LOCKED стратегия фейлится → fail_count++
 2. fail_count >= 2 → UNLOCK
-3. Clears circular `final`
-4. Circular resumes rotation
-
-### strategies-all.txt
-```
---lua-desync=pass:strategy=1
---lua-desync=fake:strategy=2:blob=tls5:ip_ttl=3
---lua-desync=multisplit:strategy=3:seqovl=500:seqovl_pattern=tls7
-...
+3. hrec.final = nil (circular возобновляется)
+4. Выбирается лучшая стратегия из HISTORY (если есть с rate >= 50%)
+5. Python удаляет из реестра
 ```
 
-## API Usage
+### HISTORY
+Для каждого hostname хранится статистика по всем испробованным стратегиям:
+```lua
+strategy_history[hostname][strategy] = {successes=N, failures=N}
+```
+При UNLOCK система выбирает стратегию с лучшим success rate.
+
+### Preload Wrapper (circular_with_preload)
+При запуске устанавливается wrapper вокруг функции `circular`:
+- Перехватывает первый пакет для каждого hostname
+- Если есть preloaded стратегия - применяет её до начала ротации
+- Использует `standard_hostkey()` для NLD-cut совместимости
+
+## UI состояния (OrchestraPage)
+
+| Состояние | Триггер | Цвет |
+|-----------|---------|------|
+| IDLE | Нет активности | Серый |
+| LEARNING | RST detected, rotated, первый SUCCESS/FAIL | Оранжевый |
+| RUNNING | PRELOADED, LOCKED | Зелёный |
+| UNLOCKED | UNLOCKING | Красный |
+
+## API
 
 ```python
 from orchestra.orchestra_runner import OrchestraRunner
 
-# Create runner
 runner = OrchestraRunner()
 
-# Set callbacks
+# Callbacks
 runner.set_output_callback(lambda msg: print(msg))
 runner.set_lock_callback(lambda host, strat: print(f"LOCKED: {host}={strat}"))
 runner.set_unlock_callback(lambda host: print(f"UNLOCKED: {host}"))
 
-# Сохранять debug файл после остановки (для отладки, по умолчанию удаляется)
+# Debug файл (по умолчанию удаляется после остановки)
 runner.set_keep_debug_file(True)
 
-# Start
+# Запуск
 if runner.prepare():
     runner.start()
 
-# Get learned data
+# Получить данные
 data = runner.get_learned_data()
-# Returns: {'tls': {'googlevideo.com': [61], ...}, 'http': {}}
+# {'tls': {'youtube.com': [1], ...}, 'http': {...}, 'udp': {'142.250.x.x': [3], ...}, 'history': {...}}
 
-# Stop
+# Остановка
 runner.stop()
 
-# Clear learning
+# Сброс обучения (очищает реестр)
 runner.clear_learned_data()
 ```
 
-## Troubleshooting
+## Форматы сообщений в UI
 
-### Strategy stops working after LOCK
-The system will automatically UNLOCK after 2 failures and start re-learning.
+```
+[18:21:27] PRELOADED: google.com = strategy 7 [http]
+[18:21:59] ✓ SUCCESS: google.com strategy=1
+[18:22:01] 🔄 Strategy rotated to 2 (ntc.party)
+[18:28:03] 🔒 LOCKED: ntc.party :443 = strategy 6
+[18:30:00] ⚡ RST detected - DPI block
+[18:35:00] 🔓 UNLOCKED: ntc.party :443 - re-learning...
+[18:35:05] ✗ FAIL: ntc.party :443 strategy=6
+```
 
-### Manual reset
-Delete `lua/best-strategies.txt` and restart winws2.
-
-### Check logs
-Включите чекбокс "Сохранять сырой debug файл" и после остановки смотрите `logs/winws2_orchestra.log`:
-- `LOCKED hostname to strategy=N` - Strategy found
-- `UNLOCKING hostname` - Re-learning started
-- `SUCCESS hostname strategy=N` - Strategy working
-- `FAIL hostname strategy=N` - Strategy failed
-
-Обработанные логи Python (LOCKED/UNLOCKED) всегда отображаются в UI независимо от чекбокса.
-
-## Key Parameters
+## Параметры детекции
 
 ### TLS Profile (port 443)
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| success_bytes | 0x800 (2KB) | Bytes to confirm success |
-| tcp_out | 6 | Out packets for silent drop |
-| tcp_in | 1 | In packets for silent drop |
-| rst | 1 | RST sequence threshold |
+| Параметр | Значение | Описание |
+|----------|----------|----------|
+| success_bytes | 0x800 (2KB) | Байт для подтверждения успеха |
+| tcp_out | 6 | Исходящих пакетов для silent drop |
+| tcp_in | 1 | Входящих пакетов для silent drop |
+| rst | 1 | Порог RST sequence |
 
 ### HTTP Profile (port 80)
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| success_bytes | 0x100 (256B) | Lower threshold for 301/302 redirects |
-| tcp_out | 4 | Faster silent drop detection |
-| tcp_in | 1 | In packets for silent drop |
-| rst | 1 | RST sequence threshold |
+| Параметр | Значение | Описание |
+|----------|----------|----------|
+| success_bytes | 0x100 (256B) | Ниже для 301/302 редиректов |
+| tcp_out | 4 | Быстрее детектит silent drop |
+| tcp_in | 1 | Входящих пакетов для silent drop |
+| rst | 1 | Порог RST sequence |
 
-### Common
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| LOCK_THRESHOLD | 3 | Successes to lock |
-| UNLOCK_THRESHOLD | 2 | Failures to unlock |
+### UDP Profile (ports 443-65535)
+| Параметр | Значение | Описание |
+|----------|----------|----------|
+| udp_out | 4 | Исходящих UDP пакетов |
+| udp_in | 1 | Входящих UDP пакетов для silent drop |
+| nld | 2 | NLD-cut не применяется (используется IP) |
+
+Используется для:
+- QUIC (YouTube, Google, Cloudflare)
+- Discord Voice
+- Online Games (Steam, etc.)
+
+## Troubleshooting
+
+### Стратегия перестала работать после LOCK
+Система автоматически UNLOCK после 2 провалов и начнёт переобучение.
+
+### Ручной сброс
+Кнопка "Сбросить обучение" в UI или `runner.clear_learned_data()`.
+
+### Домен не группируется с поддоменами
+Проверьте что NLD-cut работает корректно. Multi-part TLD (.co.uk, .com.ru) обрабатываются отдельно.
+
+## Документация Zapret 2
+F:\doc\zapret2
