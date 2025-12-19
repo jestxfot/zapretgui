@@ -818,7 +818,7 @@ class FramelessWindowMixin:
     Позволяет перетаскивать окно за любое пустое место.
     """
     
-    RESIZE_MARGIN = 14
+    RESIZE_MARGIN = 6
     
     # Интерактивные виджеты, которые НЕ должны перетаскивать окно
     INTERACTIVE_WIDGETS = (

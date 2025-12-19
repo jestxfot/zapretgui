@@ -186,4 +186,5 @@ pvp.net
 rgpub.io
 #chess
 chess.com
+zapret.vercel.app
 """

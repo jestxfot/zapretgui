@@ -153,16 +153,15 @@ class InitializationManager:
         """Инициализация DPI стартера"""
         try:
             from dpi.bat_start import BatDPIStart
-            from config import WINWS_EXE, WINWS2_EXE
+            from config import get_winws_exe_for_method, is_zapret2_mode
             from strategy_menu import get_strategy_launch_method
 
             # Выбираем исполняемый файл в зависимости от режима запуска
             launch_method = get_strategy_launch_method()
-            if launch_method in ("direct", "direct_orchestra"):
-                winws_exe = WINWS2_EXE  # Zapret 2 для прямого запуска
+            winws_exe = get_winws_exe_for_method(launch_method)
+            if is_zapret2_mode(launch_method):
                 log(f"Используется winws2.exe для режима {launch_method} (Zapret 2)", "INFO")
             else:
-                winws_exe = WINWS_EXE   # Zapret 1 для BAT режима
                 log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
 
             self.app.dpi_starter = BatDPIStart(

@@ -464,7 +464,7 @@ class DpiSettingsPage(BasePage):
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
-            "Оркестратор v0.7 (Alpha)",
+            "Оркестратор v0.9 (Alpha)",
             "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками. ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!",
             icon_name="mdi.brain",
             icon_color="#9c27b0"
@@ -515,13 +515,43 @@ class DpiSettingsPage(BasePage):
         separator2.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); margin: 8px 0;")
         separator2.setFixedHeight(1)
         method_layout.addWidget(separator2)
-        
-        # Перезапуск Discord
+
+        # Перезапуск Discord (только для Zapret 1/2)
+        self.discord_restart_container = QWidget()
+        discord_layout = QVBoxLayout(self.discord_restart_container)
+        discord_layout.setContentsMargins(0, 0, 0, 0)
+        discord_layout.setSpacing(0)
+
         self.discord_restart_toggle = Win11ToggleRow(
-            "mdi.discord", "Перезапуск Discord", 
+            "mdi.discord", "Перезапуск Discord",
             "Автоперезапуск при смене стратегии", "#7289da")
-        method_layout.addWidget(self.discord_restart_toggle)
-        
+        discord_layout.addWidget(self.discord_restart_toggle)
+        method_layout.addWidget(self.discord_restart_container)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # НАСТРОЙКИ ОРКЕСТРАТОРА (только в режиме оркестратора)
+        # ─────────────────────────────────────────────────────────────────────
+        self.orchestra_settings_container = QWidget()
+        orchestra_settings_layout = QVBoxLayout(self.orchestra_settings_container)
+        orchestra_settings_layout.setContentsMargins(0, 0, 0, 0)
+        orchestra_settings_layout.setSpacing(6)
+
+        orchestra_label = QLabel("Настройки оркестратора")
+        orchestra_label.setStyleSheet("color: #9c27b0; font-size: 12px; font-weight: 600;")
+        orchestra_settings_layout.addWidget(orchestra_label)
+
+        self.strict_detection_toggle = Win11ToggleRow(
+            "mdi.check-decagram", "Строгий режим детекции",
+            "HTTP 200 + проверка блок-страниц", "#4CAF50")
+        orchestra_settings_layout.addWidget(self.strict_detection_toggle)
+
+        self.debug_file_toggle = Win11ToggleRow(
+            "mdi.file-document-outline", "Сохранять debug файл",
+            "Сырой debug файл для отладки", "#8a2be2")
+        orchestra_settings_layout.addWidget(self.debug_file_toggle)
+
+        method_layout.addWidget(self.orchestra_settings_container)
+
         method_card.add_layout(method_layout)
         self.layout.addWidget(method_card)
         
@@ -659,19 +689,22 @@ class DpiSettingsPage(BasePage):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            
+
             # Устанавливаем выбранный метод
             self._update_method_selection(method)
-            
+
             # Discord restart setting
             self._load_discord_restart_setting()
-            
+
             # Out-range settings
             self._load_out_range_settings()
-                    
+
+            # Orchestra settings
+            self._load_orchestra_settings()
+
             self._update_filters_visibility()
             self._load_filter_settings()
-            
+
         except Exception as e:
             log(f"Ошибка загрузки настроек DPI: {e}", "WARNING")
     
@@ -749,17 +782,65 @@ class DpiSettingsPage(BasePage):
                 get_out_range_discord, set_out_range_discord,
                 get_out_range_youtube, set_out_range_youtube
             )
-            
+
             # Загружаем значения (блокируем сигналы)
             self.out_range_discord.setValue(get_out_range_discord(), block_signals=True)
             self.out_range_youtube.setValue(get_out_range_youtube(), block_signals=True)
-            
+
             # Подключаем сигналы сохранения
             self.out_range_discord.valueChanged.connect(self._on_out_range_discord_changed)
             self.out_range_youtube.valueChanged.connect(self._on_out_range_youtube_changed)
-            
+
         except Exception as e:
             log(f"Ошибка загрузки настроек out-range: {e}", "WARNING")
+
+    def _load_orchestra_settings(self):
+        """Загружает настройки оркестратора"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            # Строгий режим детекции (по умолчанию включён)
+            saved_strict = reg(f"{REGISTRY_PATH}\\Orchestra", "StrictDetection")
+            self.strict_detection_toggle.setChecked(saved_strict is None or bool(saved_strict), block_signals=True)
+            self.strict_detection_toggle.toggled.connect(self._on_strict_detection_changed)
+
+            # Debug файл (по умолчанию выключен)
+            saved_debug = reg(f"{REGISTRY_PATH}\\Orchestra", "KeepDebugFile")
+            self.debug_file_toggle.setChecked(bool(saved_debug), block_signals=True)
+            self.debug_file_toggle.toggled.connect(self._on_debug_file_changed)
+
+        except Exception as e:
+            log(f"Ошибка загрузки настроек оркестратора: {e}", "WARNING")
+
+    def _on_strict_detection_changed(self, enabled: bool):
+        """Обработчик изменения строгого режима детекции"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "StrictDetection", 1 if enabled else 0)
+            log(f"Строгий режим детекции: {'включён' if enabled else 'выключен'}", "INFO")
+
+            # Обновляем orchestra_runner если запущен
+            app = self._get_app()
+            if app and hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                app.orchestra_runner.set_strict_detection(enabled)
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки строгого режима: {e}", "ERROR")
+
+    def _on_debug_file_changed(self, enabled: bool):
+        """Обработчик изменения сохранения debug файла"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "KeepDebugFile", 1 if enabled else 0)
+            log(f"Сохранение debug файла: {'включено' if enabled else 'выключено'}", "INFO")
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки debug файла: {e}", "ERROR")
     
     def _on_out_range_discord_changed(self, value: int):
         """Обработчик изменения out-range для Discord"""
@@ -1026,14 +1107,26 @@ class DpiSettingsPage(BasePage):
         self.filters_changed.emit()
         
     def _update_filters_visibility(self):
-        """Обновляет видимость фильтров"""
+        """Обновляет видимость фильтров и секций"""
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            # Показываем фильтры для direct и direct_orchestra (оба используют Zapret 2)
+
+            # Режимы
             is_direct_mode = method in ("direct", "direct_orchestra")
+            is_orchestra_mode = method in ("orchestra", "direct_orchestra")
+            is_zapret_mode = method in ("direct", "bat")  # Zapret 1/2 без оркестратора
+
+            # Показываем фильтры для direct и direct_orchestra (оба используют Zapret 2)
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
             self.out_range_container.setVisible(is_direct_mode)
+
+            # Discord restart только для Zapret 1/2 (без оркестратора)
+            self.discord_restart_container.setVisible(is_zapret_mode)
+
+            # Настройки оркестратора только для режимов оркестратора
+            self.orchestra_settings_container.setVisible(is_orchestra_mode)
+
         except:
             pass

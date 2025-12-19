@@ -77,13 +77,13 @@ class BasePage(QScrollArea):
             }
             QScrollBar:vertical {
                 background: rgba(255, 255, 255, 0.05);
-                width: 8px;
-                border-radius: 4px;
+                width: 14px;
+                border-radius: 7px;
                 margin: 0;
             }
             QScrollBar::handle:vertical {
                 background: rgba(255, 255, 255, 0.2);
-                border-radius: 4px;
+                border-radius: 7px;
                 min-height: 30px;
             }
             QScrollBar::handle:vertical:hover {

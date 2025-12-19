@@ -19,10 +19,13 @@ def split_domains(text: str) -> list[str]:
     Разделяет домены по пробелам/запятым и склеенные домены.
     'vk.com youtube.com' -> ['vk.com', 'youtube.com']
     'vk.comyoutube.com' -> ['vk.com', 'youtube.com']
+
+    ВАЖНО: Если домены разделены пробелами, они НЕ считаются склеенными.
+    Склеенные - только когда нет пробела: vk.comyoutube.com
     """
     # Сначала разделяем по пробелам, табам, запятым
     parts = re.split(r'[\s,;]+', text)
-    
+
     result = []
     for part in parts:
         part = part.strip().lower()
@@ -30,45 +33,51 @@ def split_domains(text: str) -> list[str]:
             if part:
                 result.append(part)
             continue
-        
-        # Пробуем разделить склеенные домены
+
+        # Пробуем разделить склеенные домены ТОЛЬКО если это одна строка без пробелов
+        # Если пользователь ввёл "genshin-impact-map.app sample.com" с пробелом,
+        # они уже разделены выше и сюда приходят отдельно
         separated = _split_glued_domains(part)
         result.extend(separated)
-    
+
     return result
 
 def _split_glued_domains(text: str) -> list[str]:
     """
     Разделяет склеенные домены типа vk.comyoutube.com
     Ищем паттерн: домен.TLD + начало нового домена (буквы + точка)
+
+    ВАЖНО: Не разделяем если после TLD идёт часть того же домена.
+    Например: genshin-impact-map.appsample.com - это ОДИН домен, не разделяем.
+    Разделяем только очевидные случаи типа vk.comyoutube.com
     """
     if not text or len(text) < 5:
         return [text] if text else []
-    
-    # Паттерн: TLD за которым идёт начало нового домена (буквы + точка)
-    # Например: .com + youtube. или .ru + vk.
-    pattern = r'(\.(com|ru|org|net|io|me|by|uk|de|fr|it|es|nl|pl|ua|kz|su|co|tv|cc|to|ai|gg|info|biz|xyz|dev|app|pro|online|store|cloud|shop|blog|tech|site|рф))([a-z][a-z0-9-]*\.)'
-    
-    result = []
-    remaining = text
-    
-    while remaining:
-        match = re.search(pattern, remaining, re.IGNORECASE)
+
+    # Проверяем: если строка выглядит как валидный домен (заканчивается на TLD) - не разделяем
+    # Это предотвращает разделение something.appsample.com
+    valid_tld_pattern = r'\.(com|ru|org|net|io|me|by|uk|de|fr|it|es|nl|pl|ua|kz|su|co|tv|cc|to|ai|gg|info|biz|xyz|dev|app|pro|online|store|cloud|shop|blog|tech|site|рф)$'
+    if re.search(valid_tld_pattern, text, re.IGNORECASE):
+        # Строка заканчивается на валидный TLD - это нормальный домен
+        # Проверим нет ли ЯВНО склеенных доменов (TLD + домен + TLD)
+        # Например: vk.comyoutube.com - есть .com в середине И .com в конце
+
+        # Паттерн: TLD + буквы + точка + что-то + TLD в конце
+        # Это поймает vk.comyoutube.com но НЕ поймает genshin-impact-map.appsample.com
+        glued_pattern = r'(\.(com|ru|org|net|io|me))([a-z]{2,}[a-z0-9-]*\.[a-z]{2,})$'
+        match = re.search(glued_pattern, text, re.IGNORECASE)
         if match:
-            # Нашли склеенные домены
-            # Первый домен заканчивается на TLD (группа 1)
+            # Нашли склеенные домены: первый заканчивается на TLD, второй - полноценный домен
             end_of_first = match.start() + len(match.group(1))
-            first_domain = remaining[:end_of_first]
-            result.append(first_domain)
-            # Остаток начинается с нового домена (группа 3)
-            remaining = remaining[end_of_first:]
-        else:
-            # Не нашли склеенные домены
-            if remaining:
-                result.append(remaining)
-            break
-    
-    return result if result else [text]
+            first_domain = text[:end_of_first]
+            second_domain = match.group(3)
+            return [first_domain, second_domain]
+
+        # Не нашли склеенных - возвращаем как есть
+        return [text]
+
+    # Строка НЕ заканчивается на валидный TLD - возможно мусор, возвращаем как есть
+    return [text]
 
 
 class CustomDomainsPage(BasePage):

@@ -62,12 +62,11 @@ class HeavyInitManager:
     def _check_winws_fast(self) -> bool:
         """⚡ Проверка winws.exe через WinAPI GetFileAttributesW (~0.1ms)"""
         try:
-            from config import WINWS_EXE, WINWS2_EXE
+            from config import get_winws_exe_for_method
             from strategy_menu import get_strategy_launch_method
-            
+
             launch_method = get_strategy_launch_method()
-            # direct и direct_orchestra используют winws2.exe
-            target_file = WINWS2_EXE if launch_method in ("direct", "direct_orchestra") else WINWS_EXE
+            target_file = get_winws_exe_for_method(launch_method)
             
             # GetFileAttributesW возвращает -1 если файла нет
             INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF

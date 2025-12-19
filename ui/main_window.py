@@ -15,7 +15,7 @@ from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
     HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage
+    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage
 )
 
 import qtawesome as qta
@@ -189,7 +189,23 @@ class MainWindowUI:
         # Оркестр - автообучение (индекс 22, скрытая вкладка)
         self.orchestra_page = OrchestraPage(self)
         self.pages_stack.addWidget(self.orchestra_page)
-        
+
+        # Залоченные стратегии оркестратора (индекс 23, вместо Hostlist при оркестраторе)
+        self.orchestra_locked_page = OrchestraLockedPage(self)
+        self.pages_stack.addWidget(self.orchestra_locked_page)
+
+        # Заблокированные стратегии оркестратора (индекс 24, вместо IPset при оркестраторе)
+        self.orchestra_blocked_page = OrchestraBlockedPage(self)
+        self.pages_stack.addWidget(self.orchestra_blocked_page)
+
+        # Белый список оркестратора (индекс 25, вместо Исключений при оркестраторе)
+        self.orchestra_whitelist_page = OrchestraWhitelistPage(self)
+        self.pages_stack.addWidget(self.orchestra_whitelist_page)
+
+        # История стратегий с рейтингами (индекс 26)
+        self.orchestra_ratings_page = OrchestraRatingsPage(self)
+        self.pages_stack.addWidget(self.orchestra_ratings_page)
+
     def _setup_compatibility_attrs(self):
         """Создает атрибуты для совместимости со старым кодом"""
         
@@ -327,8 +343,8 @@ class MainWindowUI:
     def _complete_method_switch(self, method: str):
         """Завершает переключение метода после остановки процесса"""
         from log import log
-        from config import WINWS_EXE, WINWS2_EXE
-        
+        from config import get_winws_exe_for_method, is_zapret2_mode
+
         # ✅ Очищаем службы WinDivert через Win API
         try:
             from utils.service_manager import cleanup_windivert_services
@@ -336,14 +352,13 @@ class MainWindowUI:
             log("🧹 Службы WinDivert очищены", "DEBUG")
         except Exception as e:
             log(f"Ошибка очистки служб: {e}", "DEBUG")
-        
+
         # ✅ Обновляем путь к exe в dpi_starter
         if hasattr(self, 'dpi_starter'):
-            if method in ("direct", "orchestra"):
-                self.dpi_starter.winws_exe = WINWS2_EXE
+            self.dpi_starter.winws_exe = get_winws_exe_for_method(method)
+            if is_zapret2_mode(method):
                 log(f"Переключение на winws2.exe ({method} режим)", "DEBUG")
             else:
-                self.dpi_starter.winws_exe = WINWS_EXE
                 log("Переключение на winws.exe (BAT режим)", "DEBUG")
         
         # ✅ Помечаем StrategyRunner для пересоздания
@@ -360,6 +375,10 @@ class MainWindowUI:
         # ✅ Обновляем видимость вкладки "Блобы" в сайдбаре
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
             self.side_nav.update_blobs_visibility()
+
+        # ✅ Обновляем видимость вкладок оркестратора (Залоченные/Заблокированные vs Hostlist/IPset/Редактор)
+        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_orchestra_visibility'):
+            self.side_nav.update_orchestra_visibility()
 
         log(f"✅ Переключение на режим '{method}' завершено", "INFO")
         

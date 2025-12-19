@@ -44,6 +44,41 @@ WINDIVERT_FILTER = os.path.join(MAIN_DIRECTORY, "windivert.filter")
 # Пути к файлам
 WINWS_EXE = os.path.join(EXE_FOLDER, "winws.exe")      # Для BAT режима (Zapret 1)
 WINWS2_EXE = os.path.join(EXE_FOLDER, "winws2.exe")    # Для прямого запуска (Zapret 2)
+
+# ═══════════════════════════════════════════════════════════════════
+# ОПРЕДЕЛЕНИЕ EXE ПО МЕТОДУ ЗАПУСКА
+# ═══════════════════════════════════════════════════════════════════
+# Все режимы, которые используют winws2.exe (Zapret 2 с Lua)
+ZAPRET2_MODES = ("direct", "direct_orchestra", "orchestra")
+
+def get_winws_exe_for_method(method: str) -> str:
+    """
+    Возвращает путь к winws exe в зависимости от метода запуска.
+
+    Args:
+        method: Метод запуска (direct, direct_orchestra, orchestra, bat)
+
+    Returns:
+        Путь к winws2.exe для Zapret 2 режимов, winws.exe для BAT режима
+    """
+    if method in ZAPRET2_MODES:
+        return WINWS2_EXE
+    return WINWS_EXE
+
+def is_zapret2_mode(method: str) -> bool:
+    """
+    Проверяет, является ли метод режимом Zapret 2 (использует winws2.exe).
+
+    Args:
+        method: Метод запуска
+
+    Returns:
+        True если режим использует winws2.exe
+    """
+    return method in ZAPRET2_MODES
+
+# ═══════════════════════════════════════════════════════════════════
+
 ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")
 ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo4.ico")
 
@@ -74,8 +109,8 @@ STRATEGIES_FOLDER = BAT_FOLDER
 
 BASE_WIDTH = 1000  # Базовый размер для бокового меню в стиле Windows 11
 BASE_HEIGHT = 950  # Базовая высота для нового интерфейса
-MIN_WIDTH = 750    # Минимальная ширина (чтобы sidebar не сжимался)
-MIN_HEIGHT = 650   # Минимальная высота (чтобы кнопки не сжимались)
+MIN_WIDTH = 680    # Минимальная ширина (уменьшено для экранов 1366x768)
+MIN_HEIGHT = 580   # Минимальная высота (уменьшено для экранов 1366x768)
 
 def get_display_scale():
     """Получает масштабирование экрана Windows (например, 1.0, 1.25, 1.5, 1.75, 2.0)"""
@@ -138,15 +173,16 @@ def get_scaled_window_size():
         # Вычисляем коэффициенты масштабирования по ширине и высоте
         width_ratio = screen_width / REFERENCE_WIDTH
         height_ratio = screen_height / REFERENCE_HEIGHT
-        
+
         # Используем меньший коэффициент для сохранения пропорций
         # и чтобы окно гарантированно поместилось на экране
         screen_scale = min(width_ratio, height_ratio)
-        
+
         # Применяем масштабирование, оставляя немного места для панели задач и рамок
-        # Коэффициент 0.9 - чтобы окно не занимало весь экран
-        width = int(BASE_WIDTH * screen_scale * 0.9)
-        height = int(BASE_HEIGHT * screen_scale * 0.9)
+        # Для маленьких экранов (1366x768) используем больший коэффициент
+        margin_factor = 0.92 if screen_height <= 768 else 0.9
+        width = int(BASE_WIDTH * screen_scale * margin_factor)
+        height = int(BASE_HEIGHT * screen_scale * margin_factor)
     
     # Гарантируем минимальные размеры
     width = max(width, MIN_WIDTH)

@@ -696,16 +696,32 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
+            # Режим оркестратора - только автозапуск программы
+            is_orchestra = method in ("orchestra", "direct_orchestra")
+
             if method == "direct":
                 self.mode_label.setText("Прямой запуск (Zapret 2)")
                 self.service_option.setVisible(True)
+                self.logon_option.setVisible(True)
+                self.boot_option.setVisible(True)
             elif method == "direct_orchestra":
                 self.mode_label.setText("Оркестратор Zapret 2")
-                self.service_option.setVisible(True)
+                # В режиме оркестратора нет BAT/командной строки для задач
+                self.service_option.setVisible(False)
+                self.logon_option.setVisible(False)
+                self.boot_option.setVisible(False)
+            elif method == "orchestra":
+                self.mode_label.setText("Оркестр (автообучение)")
+                # В режиме оркестратора нет BAT/командной строки для задач
+                self.service_option.setVisible(False)
+                self.logon_option.setVisible(False)
+                self.boot_option.setVisible(False)
             else:
                 self.mode_label.setText("Классический (BAT файлы)")
-                # Для BAT режима скрываем службу Windows
+                # Для BAT режима скрываем службу Windows, но показываем задачи
                 self.service_option.setVisible(False)
+                self.logon_option.setVisible(True)
+                self.boot_option.setVisible(True)
 
         except Exception as e:
             log(f"Ошибка обновления режима: {e}", "WARNING")

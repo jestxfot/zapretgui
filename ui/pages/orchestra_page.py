@@ -7,17 +7,75 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QFrame, QCheckBox,
-    QLineEdit, QListWidget, QListWidgetItem
+    QLineEdit, QListWidget, QListWidgetItem, QComboBox
 )
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor, QAction, QPainter, QColor
 import qtawesome as qta
 
 from .base_page import BasePage
+
+
+class StyledCheckBox(QCheckBox):
+    """Кастомный чекбокс с красивой галочкой"""
+
+    def __init__(self, text: str, color: str = "#4CAF50", parent=None):
+        super().__init__(text, parent)
+        self._check_color = QColor(color)
+        self.setStyleSheet(f"""
+            QCheckBox {{
+                color: rgba(255,255,255,0.7);
+                font-size: 12px;
+                spacing: 8px;
+                padding-left: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 2px solid rgba(255,255,255,0.3);
+                background: rgba(0,0,0,0.2);
+            }}
+            QCheckBox::indicator:checked {{
+                background: {color};
+                border-color: {color};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: rgba(255,255,255,0.5);
+            }}
+        """)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.isChecked():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            # Рисуем галочку белым цветом поверх индикатора
+            painter.setPen(QColor(255, 255, 255))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            # Позиция индикатора (примерно 4px от левого края)
+            x = 6
+            y = (self.height() - 18) // 2 + 2
+
+            # Рисуем галочку (✓) - две линии
+            from PyQt6.QtGui import QPen
+            pen = QPen(QColor(255, 255, 255))
+            pen.setWidth(2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+
+            # Короткая часть галочки
+            painter.drawLine(x + 4, y + 9, x + 7, y + 12)
+            # Длинная часть галочки
+            painter.drawLine(x + 7, y + 12, x + 14, y + 5)
+
+            painter.end()
+
+
 from ui.sidebar import SettingsCard, ActionButton
 from log import log
-from config import REGISTRY_PATH
-from config.reg import reg
-from orchestra import DEFAULT_WHITELIST, REGISTRY_ORCHESTRA, MAX_ORCHESTRA_LOGS
+from orchestra import MAX_ORCHESTRA_LOGS
 
 
 class OrchestraPage(BasePage):
@@ -34,8 +92,8 @@ class OrchestraPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркестратор v0.8 (Alpha)",
-            "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).",
+            "Оркестратор v0.9 (Alpha)",
+            "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).\nЧтобы начать обучение зайдите на сайт и через несколько секунд обновите вкладку. Продолжайте это пока стратегия не будет помечена как LOCKED",
             parent
         )
         self._build_ui()
@@ -44,6 +102,10 @@ class OrchestraPage(BasePage):
         self._log_file_path = None  # Устанавливается в _update_log_file_path()
         self._last_log_position = 0  # Позиция в файле для инкрементального чтения
         self._current_state = self.STATE_IDLE  # Текущее состояние
+
+        # Хранилище всех строк лога для фильтрации
+        self._full_log_lines = []
+        self._max_log_lines = 1000  # Максимум строк в памяти
 
         # Таймер для обновления статуса и логов
         self.update_timer = QTimer(self)
@@ -111,40 +173,88 @@ class OrchestraPage(BasePage):
             }
         """)
         self.log_text.setPlaceholderText("Логи обучения будут отображаться здесь...")
+        # Контекстное меню для блокировки стратегий
+        self.log_text.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.log_text.customContextMenuRequested.connect(self._show_log_context_menu)
         log_layout.addWidget(self.log_text)
 
-        # Чекбокс сохранения debug файла
-        self.debug_checkbox = QCheckBox("Сохранять сырой debug файл (для отладки)")
-        self.debug_checkbox.setStyleSheet("""
-            QCheckBox {
-                color: rgba(255,255,255,0.7);
-                font-size: 12px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 2px solid rgba(255,255,255,0.3);
+        # === Фильтры лога ===
+        filter_row = QHBoxLayout()
+
+        filter_label = QLabel("Фильтр:")
+        filter_label.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 12px;")
+        filter_row.addWidget(filter_label)
+
+        # Поле ввода для фильтра по домену
+        self.log_filter_input = QLineEdit()
+        self.log_filter_input.setPlaceholderText("Домен (например: youtube.com)")
+        self.log_filter_input.setStyleSheet("""
+            QLineEdit {
                 background: rgba(0,0,0,0.2);
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 4px;
+                color: white;
+                padding: 6px 10px;
+                font-size: 12px;
             }
-            QCheckBox::indicator:checked {
-                background: #8a2be2;
-                border-color: #8a2be2;
-                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBvbHlsaW5lIHBvaW50cz0iMjAgNiA5IDE3IDQgMTIiPjwvcG9seWxpbmU+PC9zdmc+);
-            }
-            QCheckBox::indicator:hover {
-                border-color: rgba(255,255,255,0.5);
+            QLineEdit:focus {
+                border-color: #60cdff;
             }
         """)
-        # Загружаем состояние из реестра
-        saved_debug = reg(f"{REGISTRY_PATH}\\Orchestra", "KeepDebugFile")
-        self.debug_checkbox.setChecked(bool(saved_debug))
-        self.debug_checkbox.stateChanged.connect(self._on_debug_toggled)
-        log_layout.addWidget(self.debug_checkbox)
+        self.log_filter_input.textChanged.connect(self._apply_log_filter)
+        filter_row.addWidget(self.log_filter_input, 2)
 
-        # Кнопки
-        btn_row = QHBoxLayout()
+        # Комбобокс для фильтра по протоколу
+        self.log_protocol_filter = QComboBox()
+        self.log_protocol_filter.addItems(["Все", "TLS", "HTTP", "UDP", "SUCCESS", "FAIL"])
+        self.log_protocol_filter.setStyleSheet("""
+            QComboBox {
+                background: rgba(0,0,0,0.2);
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 4px;
+                color: white;
+                padding: 6px 10px;
+                font-size: 12px;
+                min-width: 80px;
+            }
+            QComboBox:focus {
+                border-color: #60cdff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background: #2d2d2d;
+                color: white;
+                selection-background-color: #0078d4;
+            }
+        """)
+        self.log_protocol_filter.currentTextChanged.connect(self._apply_log_filter)
+        filter_row.addWidget(self.log_protocol_filter)
+
+        # Кнопка сброса фильтра
+        clear_filter_btn = QPushButton()
+        clear_filter_btn.setIcon(qta.icon("mdi.close", color="rgba(255,255,255,0.6)"))
+        clear_filter_btn.setToolTip("Сбросить фильтр")
+        clear_filter_btn.setFixedSize(28, 28)
+        clear_filter_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,0.2);
+            }
+        """)
+        clear_filter_btn.clicked.connect(self._clear_log_filter)
+        filter_row.addWidget(clear_filter_btn)
+
+        log_layout.addLayout(filter_row)
+
+        # Кнопки - ряд 1
+        btn_row1 = QHBoxLayout()
 
         self.clear_log_btn = QPushButton("Очистить лог")
         self.clear_log_btn.setIcon(qta.icon("mdi.delete", color="#ff6b6b"))
@@ -161,9 +271,7 @@ class OrchestraPage(BasePage):
                 background: rgba(255, 107, 107, 0.2);
             }
         """)
-        btn_row.addWidget(self.clear_log_btn)
-
-        btn_row.addStretch()
+        btn_row1.addWidget(self.clear_log_btn)
 
         self.clear_learned_btn = QPushButton("Сбросить обучение")
         self.clear_learned_btn.setIcon(qta.icon("mdi.restart", color="#ff9800"))
@@ -180,9 +288,15 @@ class OrchestraPage(BasePage):
                 background: rgba(255, 152, 0, 0.2);
             }
         """)
-        btn_row.addWidget(self.clear_learned_btn)
+        btn_row1.addWidget(self.clear_learned_btn)
 
-        log_layout.addLayout(btn_row)
+        btn_row1.addStretch()
+        log_layout.addLayout(btn_row1)
+
+        # Кнопки залоченных/заблокированных стратегий перенесены в отдельные страницы:
+        # - OrchestraLockedPage (Залоченные)
+        # - OrchestraBlockedPage (Заблокированные)
+
         log_card.add_layout(log_layout)
         self.layout.addWidget(log_card)
 
@@ -265,101 +379,6 @@ class OrchestraPage(BasePage):
         domains_card.add_layout(domains_layout)
         self.layout.addWidget(domains_card)
 
-        # === История стратегий с рейтингами ===
-        history_card = SettingsCard("📊 История стратегий (рейтинги)")
-        history_layout = QVBoxLayout()
-
-        # Описание
-        history_desc = QLabel("Рейтинг = успехи / (успехи + провалы). При UNLOCK выбирается лучшая стратегия из истории.")
-        history_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-        history_desc.setWordWrap(True)
-        history_layout.addWidget(history_desc)
-
-        # Виджет истории
-        self.history_text = QTextEdit()
-        self.history_text.setReadOnly(True)
-        self.history_text.setMaximumHeight(200)
-        self.history_text.setStyleSheet("""
-            QTextEdit {
-                background-color: rgba(0, 0, 0, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: rgba(255,255,255,0.8);
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-                padding: 6px;
-            }
-        """)
-        self.history_text.setPlaceholderText("История стратегий появится после обучения...")
-        history_layout.addWidget(self.history_text)
-
-        history_card.add_layout(history_layout)
-        self.layout.addWidget(history_card)
-
-        # === Белый список ===
-        whitelist_card = SettingsCard("Белый список (исключения)")
-        whitelist_layout = QVBoxLayout()
-
-        # Описание
-        whitelist_desc = QLabel("Домены из белого списка НЕ обрабатываются оркестратором.\nБазовые домены нельзя удалить, пользовательские — можно.")
-        whitelist_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-        whitelist_desc.setWordWrap(True)
-        whitelist_layout.addWidget(whitelist_desc)
-
-        # Список доменов
-        self.whitelist_widget = QListWidget()
-        self.whitelist_widget.setMaximumHeight(150)
-        self.whitelist_widget.setStyleSheet("""
-            QListWidget {
-                background-color: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
-                color: rgba(255,255,255,0.8);
-                font-size: 12px;
-            }
-            QListWidget::item {
-                padding: 4px;
-            }
-            QListWidget::item:selected {
-                background-color: rgba(138,43,226,0.3);
-            }
-        """)
-        whitelist_layout.addWidget(self.whitelist_widget)
-
-        # Кнопки управления
-        whitelist_buttons = QHBoxLayout()
-
-        # Поле ввода + кнопка добавления
-        self.whitelist_input = QLineEdit()
-        self.whitelist_input.setPlaceholderText("example.com")
-        self.whitelist_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
-                color: white;
-                padding: 6px;
-                font-size: 12px;
-            }
-        """)
-        self.whitelist_input.returnPressed.connect(self._add_whitelist_domain)
-        whitelist_buttons.addWidget(self.whitelist_input)
-
-        add_btn = ActionButton("Добавить", "fa5s.plus")
-        add_btn.clicked.connect(self._add_whitelist_domain)
-        whitelist_buttons.addWidget(add_btn)
-
-        remove_btn = ActionButton("Удалить", "fa5s.trash-alt")
-        remove_btn.clicked.connect(self._remove_whitelist_domain)
-        whitelist_buttons.addWidget(remove_btn)
-
-        whitelist_layout.addLayout(whitelist_buttons)
-        whitelist_card.add_layout(whitelist_layout)
-        self.layout.addWidget(whitelist_card)
-
-        # Загружаем whitelist
-        self._update_whitelist()
-
         # Обновляем статус
         self._update_status(self.STATE_IDLE)
 
@@ -395,6 +414,7 @@ class OrchestraPage(BasePage):
     def _clear_log(self):
         """Очищает лог"""
         self.log_text.clear()
+        self._full_log_lines = []  # Очищаем хранилище
         # Сбрасываем позицию чтобы перечитать файл с начала
         self._last_log_position = 0
 
@@ -403,20 +423,6 @@ class OrchestraPage(BasePage):
         self.clear_learned_requested.emit()
         self.append_log("[INFO] Данные обучения сброшены")
         self._update_domains({})
-
-    def _on_debug_toggled(self, state):
-        """Обработчик переключения сохранения debug файла"""
-        keep = state == Qt.CheckState.Checked.value
-        # Сохраняем в реестр
-        reg(f"{REGISTRY_PATH}\\Orchestra", "KeepDebugFile", 1 if keep else 0)
-        try:
-            app = self.window()
-            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
-                app.orchestra_runner.set_keep_debug_file(keep)
-                status = "будет сохранён" if keep else "будет удалён после остановки"
-                self.append_log(f"[INFO] Debug файл {status}")
-        except Exception as e:
-            log(f"Ошибка переключения debug: {e}", "DEBUG")
 
     def _update_all(self):
         """Обновляет статус, данные обучения, историю и whitelist"""
@@ -433,8 +439,7 @@ class OrchestraPage(BasePage):
                 # Обновляем данные обучения и историю
                 self._update_learned_domains()
 
-            # Обновляем whitelist и историю логов (всегда, даже если runner не запущен)
-            self._update_whitelist()
+            # Обновляем историю логов (всегда, даже если runner не запущен)
             self._update_log_history()
         except Exception:
             pass
@@ -532,10 +537,11 @@ class OrchestraPage(BasePage):
             self._update_status(self.STATE_LEARNING)
             return
 
-        # SUCCESS/FAIL: переключаем IDLE → LEARNING (первая активность)
-        # Но не меняем RUNNING → LEARNING (SUCCESS происходит и после LOCK)
+        # SUCCESS/FAIL: переключаем IDLE/UNLOCKED → LEARNING (активность)
+        # Не меняем RUNNING → LEARNING (SUCCESS происходит и после LOCK)
+        # UNLOCKED → LEARNING: означает что переобучение идёт активно
         if "✓" in line or "SUCCESS:" in line or "✗" in line or "FAIL:" in line:
-            if self._current_state == self.STATE_IDLE:
+            if self._current_state in (self.STATE_IDLE, self.STATE_UNLOCKED):
                 self._update_status(self.STATE_LEARNING)
             return
 
@@ -604,83 +610,66 @@ class OrchestraPage(BasePage):
 
             self.domains_label.setText(text)
 
-        # === Обновляем виджет истории ===
-        self._update_history_widget(history_data, tls_data, http_data, udp_data)
-
-    def _update_history_widget(self, history_data: dict, tls_data: dict, http_data: dict, udp_data: dict = None):
-        """Обновляет виджет истории стратегий с рейтингами"""
-        if udp_data is None:
-            udp_data = {}
-
-        if not history_data:
-            self.history_text.setPlainText("")
-            return
-
-        lines = []
-        total_strategies = 0
-
-        # Сортируем домены по количеству стратегий в истории
-        sorted_domains = sorted(history_data.keys(), key=lambda d: len(history_data[d]), reverse=True)
-
-        for domain in sorted_domains:
-            strategies = history_data[domain]
-            if not strategies:
-                continue
-
-            # Определяем статус домена
-            is_locked_tls = domain in tls_data
-            is_locked_http = domain in http_data
-            is_locked_udp = domain in udp_data
-            status = ""
-            if is_locked_tls:
-                status = " [TLS LOCK]"
-            elif is_locked_http:
-                status = " [HTTP LOCK]"
-            elif is_locked_udp:
-                status = " [UDP LOCK]"
-
-            # Сортируем стратегии по рейтингу
-            sorted_strats = sorted(strategies.items(), key=lambda x: x[1]['rate'], reverse=True)
-
-            lines.append(f"═══ {domain}{status} ═══")
-
-            for strat_num, h in sorted_strats:
-                s = h['successes']
-                f = h['failures']
-                rate = h['rate']
-
-                # Визуальный индикатор рейтинга
-                if rate >= 80:
-                    bar = "████████░░"
-                    indicator = "🟢"
-                elif rate >= 60:
-                    bar = "██████░░░░"
-                    indicator = "🟡"
-                elif rate >= 40:
-                    bar = "████░░░░░░"
-                    indicator = "🟠"
-                else:
-                    bar = "██░░░░░░░░"
-                    indicator = "🔴"
-
-                lines.append(f"  {indicator} #{strat_num:3d}: {bar} {rate:3d}% ({s}✓/{f}✗)")
-                total_strategies += 1
-
-            lines.append("")
-
-        # Добавляем итог
-        if lines:
-            lines.insert(0, f"Всего: {len(history_data)} доменов, {total_strategies} записей\n")
-
-        self.history_text.setPlainText("\n".join(lines))
-
     def append_log(self, text: str):
         """Добавляет строку в лог"""
-        self.log_text.append(text)
+        # Сохраняем в полный лог
+        self._full_log_lines.append(text)
+        # Ограничиваем размер
+        if len(self._full_log_lines) > self._max_log_lines:
+            self._full_log_lines = self._full_log_lines[-self._max_log_lines:]
+
+        # Проверяем фильтр
+        if self._matches_filter(text):
+            self.log_text.append(text)
+            # Прокручиваем вниз
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.log_text.setTextCursor(cursor)
+
+    def _matches_filter(self, text: str) -> bool:
+        """Проверяет, соответствует ли строка текущему фильтру"""
+        # Фильтр по домену
+        domain_filter = self.log_filter_input.text().strip().lower()
+        if domain_filter and domain_filter not in text.lower():
+            return False
+
+        # Фильтр по протоколу/статусу
+        protocol_filter = self.log_protocol_filter.currentText()
+        if protocol_filter != "Все":
+            text_upper = text.upper()
+            if protocol_filter == "TLS" and "[TLS]" not in text_upper and "TLS" not in text_upper:
+                return False
+            elif protocol_filter == "HTTP" and "[HTTP]" not in text_upper and "HTTP" not in text_upper:
+                return False
+            elif protocol_filter == "UDP" and "UDP" not in text_upper:
+                return False
+            elif protocol_filter == "SUCCESS" and "SUCCESS" not in text_upper and "✓" not in text:
+                return False
+            elif protocol_filter == "FAIL" and "FAIL" not in text_upper and "✗" not in text and "X " not in text:
+                return False
+
+        return True
+
+    def _apply_log_filter(self):
+        """Применяет фильтр к логу"""
+        # Фильтруем все сохранённые строки
+        filtered_lines = [line for line in self._full_log_lines if self._matches_filter(line)]
+
+        # Обновляем виджет лога
+        self.log_text.clear()
+        for line in filtered_lines:
+            self.log_text.append(line)
+
         # Прокручиваем вниз
         cursor = self.log_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.log_text.setTextCursor(cursor)
+
+    def _clear_log_filter(self):
+        """Сбрасывает фильтр"""
+        self.log_filter_input.clear()
+        self.log_protocol_filter.setCurrentIndex(0)
+        self._apply_log_filter()
 
     @pyqtSlot()
     def start_monitoring(self):
@@ -718,87 +707,6 @@ class OrchestraPage(BasePage):
     def set_learned_data(self, data: dict):
         """Устанавливает данные обучения"""
         self._update_domains(data)
-
-    # ==================== WHITELIST METHODS ====================
-
-    def _update_whitelist(self):
-        """Обновляет список whitelist из runner или напрямую из реестра"""
-        self.whitelist_widget.clear()
-
-        try:
-            # Пробуем получить через runner
-            app = self.window()
-            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
-                data = app.orchestra_runner.get_full_whitelist()
-                default_domains = data.get('default', [])
-                user_domains = data.get('user', [])
-            else:
-                # Runner не готов - загружаем напрямую
-                default_domains = list(DEFAULT_WHITELIST)
-                user_domains = []
-                # Загружаем user домены из реестра
-                reg_data = reg(REGISTRY_ORCHESTRA, "Whitelist")
-                if reg_data:
-                    user_domains = [d.strip() for d in reg_data.split(",") if d.strip()]
-
-            # Добавляем default домены (серые, нельзя удалить)
-            for domain in sorted(default_domains):
-                item = QListWidgetItem(f"🔒 {domain}")
-                item.setData(Qt.ItemDataRole.UserRole, ("default", domain))
-                item.setForeground(Qt.GlobalColor.gray)
-                self.whitelist_widget.addItem(item)
-
-            # Добавляем user домены (можно удалить)
-            for domain in sorted(user_domains):
-                item = QListWidgetItem(f"👤 {domain}")
-                item.setData(Qt.ItemDataRole.UserRole, ("user", domain))
-                self.whitelist_widget.addItem(item)
-
-        except Exception as e:
-            log(f"Ошибка обновления whitelist: {e}", "DEBUG")
-
-    def _add_whitelist_domain(self):
-        """Добавляет домен в whitelist"""
-        domain = self.whitelist_input.text().strip().lower()
-        if not domain:
-            return
-
-        try:
-            app = self.window()
-            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
-                if app.orchestra_runner.add_to_whitelist(domain):
-                    self.whitelist_input.clear()
-                    self._update_whitelist()
-                    self.append_log(f"[INFO] Добавлен в whitelist: {domain}")
-                else:
-                    self.append_log(f"[WARNING] Не удалось добавить: {domain}")
-        except Exception as e:
-            log(f"Ошибка добавления в whitelist: {e}", "DEBUG")
-
-    def _remove_whitelist_domain(self):
-        """Удаляет выбранный домен из whitelist"""
-        current = self.whitelist_widget.currentItem()
-        if not current:
-            return
-
-        data = current.data(Qt.ItemDataRole.UserRole)
-        if not data:
-            return
-
-        dtype, domain = data
-
-        if dtype == "default":
-            self.append_log(f"[WARNING] Нельзя удалить базовый домен: {domain}")
-            return
-
-        try:
-            app = self.window()
-            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
-                if app.orchestra_runner.remove_from_whitelist(domain):
-                    self._update_whitelist()
-                    self.append_log(f"[INFO] Удалён из whitelist: {domain}")
-        except Exception as e:
-            log(f"Ошибка удаления из whitelist: {e}", "DEBUG")
 
     # ==================== LOG HISTORY METHODS ====================
 
@@ -892,3 +800,216 @@ class OrchestraPage(BasePage):
                     self.append_log("[INFO] Нет логов для удаления")
         except Exception as e:
             log(f"Ошибка очистки истории логов: {e}", "DEBUG")
+
+    # Методы _show_block_strategy_dialog, _show_lock_strategy_dialog,
+    # _show_manage_blocked_dialog, _show_manage_locked_dialog удалены -
+    # функционал перенесён в отдельные страницы:
+    # - OrchestraLockedPage (ui/pages/orchestra_locked_page.py)
+    # - OrchestraBlockedPage (ui/pages/orchestra_blocked_page.py)
+
+    def _show_log_context_menu(self, pos):
+        """Показывает контекстное меню для строки лога"""
+        from PyQt6.QtWidgets import QMenu
+
+        # Получаем текущую строку под курсором
+        cursor = self.log_text.cursorForPosition(pos)
+        cursor.select(cursor.SelectionType.LineUnderCursor)
+        line_text = cursor.selectedText().strip()
+
+        if not line_text:
+            return
+
+        # Парсим строку для извлечения домена и стратегии
+        parsed = self._parse_log_line_for_strategy(line_text)
+
+        # Создаём контекстное меню
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d2d;
+                color: white;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #3d3d3d;
+                margin: 4px 8px;
+            }
+        """)
+
+        # Стандартные действия
+        copy_action = QAction("📋 Копировать строку", self)
+        copy_action.triggered.connect(lambda: self._copy_line_to_clipboard(line_text))
+        menu.addAction(copy_action)
+
+        if parsed:
+            domain, strategy, protocol = parsed
+            menu.addSeparator()
+
+            # Проверяем, заблокирована ли уже эта стратегия
+            is_blocked = False
+            try:
+                app = self.window()
+                if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                    is_blocked = app.orchestra_runner.is_strategy_blocked(domain, strategy)
+            except Exception:
+                pass
+
+            if strategy > 0:
+                # Действие залочивания стратегии (сайт работает)
+                lock_action = QAction(f"🔒 Залочить стратегию #{strategy} для {domain}", self)
+                lock_action.triggered.connect(lambda: self._lock_strategy_from_log(domain, strategy, protocol))
+                menu.addAction(lock_action)
+
+                if is_blocked:
+                    # Действие разблокировки стратегии
+                    unblock_action = QAction(f"✅ Разблокировать стратегию #{strategy} для {domain}", self)
+                    unblock_action.triggered.connect(lambda: self._unblock_strategy_from_log(domain, strategy, protocol))
+                    menu.addAction(unblock_action)
+                else:
+                    # Действие блокировки стратегии
+                    block_action = QAction(f"🚫 Заблокировать стратегию #{strategy} для {domain}", self)
+                    block_action.triggered.connect(lambda: self._block_strategy_from_log(domain, strategy, protocol))
+                    menu.addAction(block_action)
+
+            # Действие добавления в whitelist (если сайт работает)
+            whitelist_action = QAction(f"⬚ Добавить {domain} в белый список", self)
+            whitelist_action.triggered.connect(lambda: self._add_to_whitelist_from_log(domain))
+            menu.addAction(whitelist_action)
+
+        menu.exec(self.log_text.mapToGlobal(pos))
+
+    def _parse_log_line_for_strategy(self, line: str) -> tuple:
+        """Парсит строку лога и извлекает домен, стратегию и протокол
+
+        Форматы строк:
+        - "[20:17:14] ✓ SUCCESS: qms.ru :443 strategy=1"
+        - "[19:55:15] ✓ SUCCESS: youtube.com :443 strategy=5 [tls]"
+        - "[19:55:15] ✗ FAIL: youtube.com :443 strategy=5"
+        - "[19:55:15] 🔒 LOCKED: youtube.com :443 = strategy 5"
+        - "[19:55:15] 🔓 UNLOCKED: youtube.com :443 - re-learning..."
+        - "[HH:MM:SS] ✓ SUCCESS: domain UDP strategy=1"
+        """
+        import re
+
+        # Паттерн для SUCCESS/FAIL с :порт strategy=N
+        # Примеры: "SUCCESS: qms.ru :443 strategy=1"
+        match = re.search(r'(?:SUCCESS|FAIL):\s*(\S+)\s+:(\d+)\s+strategy[=:](\d+)', line, re.IGNORECASE)
+        if match:
+            domain = match.group(1)
+            port = match.group(2)
+            strategy = int(match.group(3))
+            protocol = "tls" if port == "443" else ("http" if port == "80" else "udp")
+            return (domain, strategy, protocol)
+
+        # Паттерн для SUCCESS/FAIL с UDP strategy=N
+        # Примеры: "SUCCESS: domain UDP strategy=1"
+        match = re.search(r'(?:SUCCESS|FAIL):\s*(\S+)\s+UDP\s+strategy[=:](\d+)', line, re.IGNORECASE)
+        if match:
+            domain = match.group(1)
+            strategy = int(match.group(2))
+            return (domain, strategy, "udp")
+
+        # Паттерн для LOCKED: domain :порт = strategy N
+        match = re.search(r'LOCKED:\s*(\S+)\s+:(\d+)\s*=\s*strategy\s+(\d+)', line, re.IGNORECASE)
+        if match:
+            domain = match.group(1)
+            port = match.group(2)
+            strategy = int(match.group(3))
+            protocol = "tls" if port == "443" else ("http" if port == "80" else "udp")
+            return (domain, strategy, protocol)
+
+        # Паттерн для UNLOCKED (без стратегии, но с доменом)
+        match = re.search(r'UNLOCKED:\s*(\S+)\s+:(\d+)', line, re.IGNORECASE)
+        if match:
+            domain = match.group(1)
+            port = match.group(2)
+            protocol = "tls" if port == "443" else ("http" if port == "80" else "udp")
+            # Стратегия неизвестна при UNLOCK, возвращаем 0
+            return (domain, 0, protocol)
+
+        return None
+
+    def _copy_line_to_clipboard(self, text: str):
+        """Копирует текст в буфер обмена"""
+        from PyQt6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        self.append_log("[INFO] Строка скопирована в буфер обмена")
+
+    def _lock_strategy_from_log(self, domain: str, strategy: int, protocol: str):
+        """Залочивает стратегию из контекстного меню лога"""
+        if strategy == 0:
+            self.append_log("[WARNING] Невозможно залочить: стратегия неизвестна")
+            return
+
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                runner = app.orchestra_runner
+                runner.lock_strategy(domain, strategy, protocol)
+                self.append_log(f"[INFO] 🔒 Залочена стратегия #{strategy} для {domain} [{protocol.upper()}]")
+                self._update_learned_domains()
+            else:
+                self.append_log("[ERROR] Оркестратор не инициализирован")
+        except Exception as e:
+            log(f"Ошибка залочивания из контекстного меню: {e}", "ERROR")
+            self.append_log(f"[ERROR] Ошибка: {e}")
+
+    def _block_strategy_from_log(self, domain: str, strategy: int, protocol: str):
+        """Блокирует стратегию из контекстного меню лога"""
+        if strategy == 0:
+            self.append_log("[WARNING] Невозможно заблокировать: стратегия неизвестна")
+            return
+
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                runner = app.orchestra_runner
+                runner.block_strategy(domain, strategy, protocol)
+                self.append_log(f"[INFO] 🚫 Заблокирована стратегия #{strategy} для {domain} [{protocol.upper()}]")
+                self._update_learned_domains()
+            else:
+                self.append_log("[ERROR] Оркестратор не инициализирован")
+        except Exception as e:
+            log(f"Ошибка блокировки из контекстного меню: {e}", "ERROR")
+            self.append_log(f"[ERROR] Ошибка: {e}")
+
+    def _unblock_strategy_from_log(self, domain: str, strategy: int, protocol: str):
+        """Разблокирует стратегию из контекстного меню лога"""
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                runner = app.orchestra_runner
+                runner.unblock_strategy(domain, strategy)
+                self.append_log(f"[INFO] ✅ Разблокирована стратегия #{strategy} для {domain} [{protocol.upper()}]")
+                self._update_learned_domains()
+            else:
+                self.append_log("[ERROR] Оркестратор не инициализирован")
+        except Exception as e:
+            log(f"Ошибка разблокировки из контекстного меню: {e}", "ERROR")
+            self.append_log(f"[ERROR] Ошибка: {e}")
+
+    def _add_to_whitelist_from_log(self, domain: str):
+        """Добавляет домен в whitelist из контекстного меню лога"""
+        try:
+            app = self.window()
+            if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                if app.orchestra_runner.add_to_whitelist(domain):
+                    self.append_log(f"[INFO] ✅ Добавлен в белый список: {domain}")
+                else:
+                    self.append_log(f"[WARNING] Не удалось добавить: {domain}")
+            else:
+                self.append_log("[ERROR] Оркестратор не инициализирован")
+        except Exception as e:
+            log(f"Ошибка добавления в whitelist из контекстного меню: {e}", "ERROR")
+            self.append_log(f"[ERROR] Ошибка: {e}")

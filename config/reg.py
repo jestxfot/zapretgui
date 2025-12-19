@@ -338,6 +338,28 @@ def reg_enumerate_values(subkey: str, *, root=HKCU) -> dict:
     return result
 
 
+def reg_delete_value(subkey: str, name: str, *, root=HKCU) -> bool:
+    """
+    Удаляет одно значение из ключа реестра.
+
+    Args:
+        subkey: путь к ключу
+        name: имя значения для удаления
+
+    Returns:
+        True если успешно, False при ошибке
+    """
+    try:
+        with winreg.OpenKey(root, subkey, 0, winreg.KEY_ALL_ACCESS) as k:
+            winreg.DeleteValue(k, name)
+        return True
+    except FileNotFoundError:
+        return True  # Значение не существует - считаем успехом
+    except Exception as e:
+        _log(f"reg_delete_value error [{subkey}\\{name}]: {e}", "DEBUG")
+        return False
+
+
 def reg_delete_all_values(subkey: str, *, root=HKCU) -> bool:
     """
     Удаляет все значения в ключе реестра (сам ключ остаётся).

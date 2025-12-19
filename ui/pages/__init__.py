@@ -24,6 +24,10 @@ from .netrogat_page import NetrogatPage  # Страница управления
 from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
 from .orchestra_page import OrchestraPage
+from .orchestra_locked_page import OrchestraLockedPage
+from .orchestra_blocked_page import OrchestraBlockedPage
+from .orchestra_whitelist_page import OrchestraWhitelistPage
+from .orchestra_ratings_page import OrchestraRatingsPage
 
 __all__ = [
     'HomePage',
@@ -49,5 +53,9 @@ __all__ = [
     'ConnectionTestPage',
     'DNSCheckPage',  # Страница проверки DNS подмены
     'OrchestraPage',  # Страница оркестратора автообучения
+    'OrchestraLockedPage',  # Страница залоченных стратегий оркестратора
+    'OrchestraBlockedPage',  # Страница заблокированных стратегий оркестратора
+    'OrchestraWhitelistPage',  # Страница белого списка оркестратора
+    'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
 ]
 

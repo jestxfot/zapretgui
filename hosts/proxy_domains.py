@@ -7,56 +7,56 @@
 
 SERVICES = {
     "ChatGPT": {
-        "chatgpt.com": "109.69.21.35",
-        "ab.chatgpt.com": "109.69.21.35",
-        "auth.openai.com": "109.69.21.35",
-        "auth0.openai.com": "109.69.21.35",
-        "platform.openai.com": "109.69.21.35",
-        "cdn.oaistatic.com": "109.69.21.35",
-        "files.oaiusercontent.com": "109.69.21.35",
-        "cdn.auth0.com": "109.69.21.35",
-        "tcr9i.chat.openai.com": "109.69.21.35",
-        "webrtc.chatgpt.com": "109.69.21.35",
-        "android.chat.openai.com": "109.69.21.35",
-        "api.openai.com": "109.69.21.35",
-        "sora.com": "94.183.233.72",
-        "sora.chatgpt.com": "94.183.233.72",
-        "videos.openai.com": "94.183.233.72",
-        "us.posthog.com": "94.183.233.72",
+        "chatgpt.com": "138.124.72.139",
+        "ab.chatgpt.com": "138.124.72.139",
+        "auth.openai.com": "138.124.72.139",
+        "auth0.openai.com": "138.124.72.139",
+        "platform.openai.com": "138.124.72.139",
+        "cdn.oaistatic.com": "138.124.72.139",
+        "files.oaiusercontent.com": "138.124.72.139",
+        "cdn.auth0.com": "138.124.72.139",
+        "tcr9i.chat.openai.com": "138.124.72.139",
+        "webrtc.chatgpt.com": "138.124.72.139",
+        "android.chat.openai.com": "138.124.72.139",
+        "api.openai.com": "138.124.72.139",
+        "sora.com": "138.124.72.139",
+        "sora.chatgpt.com": "138.124.72.139",
+        "videos.openai.com": "138.124.72.139",
+        "us.posthog.com": "138.124.72.139",
     },
     
     "Gemini": {
-        "gemini.google.com": "109.69.21.35",
-        "alkalimakersuite-pa.clients6.google.com": "109.69.21.35",
-        "aisandbox-pa.googleapis.com": "109.69.21.35",
-        "webchannel-alkalimakersuite-pa.clients6.google.com": "109.69.21.35",
-        "proactivebackend-pa.googleapis.com": "109.69.21.35",
-        "o.pki.goog": "109.69.21.35",
-        "labs.google": "109.69.21.35",
-        "notebooklm.google": "109.69.21.35",
-        "notebooklm.google.com": "109.69.21.35",
+        "gemini.google.com": "138.124.72.139",
+        "alkalimakersuite-pa.clients6.google.com": "138.124.72.139",
+        "aisandbox-pa.googleapis.com": "138.124.72.139",
+        "webchannel-alkalimakersuite-pa.clients6.google.com": "138.124.72.139",
+        "proactivebackend-pa.googleapis.com": "138.124.72.139",
+        "o.pki.goog": "138.124.72.139",
+        "labs.google": "138.124.72.139",
+        "notebooklm.google": "138.124.72.139",
+        "notebooklm.google.com": "138.124.72.139",
     },
     
     "Claude": {
-        "claude.ai": "109.69.21.35",
-        "api.claude.ai": "109.69.21.35",
-        "anthropic.com": "109.69.21.35",
-        "www.anthropic.com": "109.69.21.35",
-        "api.anthropic.com": "109.69.21.35",
+        "claude.ai": "138.124.72.139",
+        "api.claude.ai": "138.124.72.139",
+        "anthropic.com": "138.124.72.139",
+        "www.anthropic.com": "138.124.72.139",
+        "api.anthropic.com": "138.124.72.139",
     },
     
     "Copilot": {
-        "copilot.microsoft.com": "109.69.21.35",
-        "sydney.bing.com": "109.69.21.35",
-        "edgeservices.bing.com": "109.69.21.35",
-        "rewards.bing.com": "109.69.21.35",
-        "xsts.auth.xboxlive.com": "109.69.21.35",
+        "copilot.microsoft.com": "138.124.72.139",
+        "sydney.bing.com": "138.124.72.139",
+        "edgeservices.bing.com": "138.124.72.139",
+        "rewards.bing.com": "138.124.72.139",
+        "xsts.auth.xboxlive.com": "138.124.72.139",
     },
     
     "Grok": {
-        "grok.com": "109.69.21.35",
-        "assets.grok.com": "109.69.21.35",
-        "accounts.x.ai": "109.69.21.35",
+        "grok.com": "138.124.72.139",
+        "assets.grok.com": "138.124.72.139",
+        "accounts.x.ai": "138.124.72.139",
     },
     
     "Instagram": {
@@ -83,52 +83,52 @@ SERVICES = {
     },
     
     "Spotify": {
-        "api.spotify.com": "109.69.21.35",
-        "xpui.app.spotify.com": "109.69.21.35",
-        "appresolve.spotify.com": "109.69.21.35",
-        "login5.spotify.com": "109.69.21.35",
-        "gew1-spclient.spotify.com": "109.69.21.35",
-        "gew1-dealer.spotify.com": "109.69.21.35",
-        "spclient.wg.spotify.com": "109.69.21.35",
-        "api-partner.spotify.com": "109.69.21.35",
-        "aet.spotify.com": "109.69.21.35",
-        "www.spotify.com": "109.69.21.35",
-        "accounts.spotify.com": "109.69.21.35",
-        "spotifycdn.com": "109.69.21.35",
-        "open-exp.spotifycdn.com": "109.69.21.35",
-        "www-growth.scdn.co": "109.69.21.35",
-        "login.app.spotify.com": "109.69.21.35",
-        "accounts.scdn.co": "109.69.21.35",
-        "ap-gew1.spotify.com": "109.69.21.35",
+        "api.spotify.com": "138.124.72.139",
+        "xpui.app.spotify.com": "138.124.72.139",
+        "appresolve.spotify.com": "138.124.72.139",
+        "login5.spotify.com": "138.124.72.139",
+        "gew1-spclient.spotify.com": "138.124.72.139",
+        "gew1-dealer.spotify.com": "138.124.72.139",
+        "spclient.wg.spotify.com": "138.124.72.139",
+        "api-partner.spotify.com": "138.124.72.139",
+        "aet.spotify.com": "138.124.72.139",
+        "www.spotify.com": "138.124.72.139",
+        "accounts.spotify.com": "138.124.72.139",
+        "spotifycdn.com": "138.124.72.139",
+        "open-exp.spotifycdn.com": "138.124.72.139",
+        "www-growth.scdn.co": "138.124.72.139",
+        "login.app.spotify.com": "138.124.72.139",
+        "accounts.scdn.co": "138.124.72.139",
+        "ap-gew1.spotify.com": "138.124.72.139",
     },
     
     "Notion": {
-        "www.notion.so": "109.69.21.35",
-        "notion.so": "109.69.21.35",
-        "calendar.notion.so": "109.69.21.35",
+        "www.notion.so": "138.124.72.139",
+        "notion.so": "138.124.72.139",
+        "calendar.notion.so": "138.124.72.139",
     },
     
     "Twitch": {
-        "usher.ttvnw.net": "109.69.21.35",
-        "gql.twitch.tv": "109.69.21.35",
+        "usher.ttvnw.net": "138.124.72.139",
+        "gql.twitch.tv": "138.124.72.139",
     },
     
     "DeepL": {
-        "deepl.com": "109.69.21.35",
-        "www.deepl.com": "109.69.21.35",
-        "s.deepl.com": "109.69.21.35",
-        "ita-free.www.deepl.com": "109.69.21.35",
-        "experimentation.deepl.com": "109.69.21.35",
-        "w.deepl.com": "109.69.21.35",
-        "login-wall.deepl.com": "109.69.21.35",
-        "gtm.deepl.com": "109.69.21.35",
-        "checkout.www.deepl.com": "109.69.21.35",
+        "deepl.com": "138.124.72.139",
+        "www.deepl.com": "138.124.72.139",
+        "s.deepl.com": "138.124.72.139",
+        "ita-free.www.deepl.com": "138.124.72.139",
+        "experimentation.deepl.com": "138.124.72.139",
+        "w.deepl.com": "138.124.72.139",
+        "login-wall.deepl.com": "138.124.72.139",
+        "gtm.deepl.com": "138.124.72.139",
+        "checkout.www.deepl.com": "138.124.72.139",
     },
     
     "TikTok": {
-        "www.tiktok.com": "94.183.233.72",
-        "mcs-sg.tiktok.com": "94.183.233.72",
-        "mon.tiktokv.com": "94.183.233.72",
+        "www.tiktok.com": "138.124.72.139",
+        "mcs-sg.tiktok.com": "138.124.72.139",
+        "mon.tiktokv.com": "138.124.72.139",
     },
     
     "Netflix": {
@@ -137,9 +137,9 @@ SERVICES = {
     },
     
     "Canva": {
-        "static.canva.com": "94.183.233.72",
-        "content-management-files.canva.com": "94.183.233.72",
-        "www.canva.com": "94.183.233.72",
+        "static.canva.com": "138.124.72.139",
+        "content-management-files.canva.com": "138.124.72.139",
+        "www.canva.com": "138.124.72.139",
     },
     
     "ProtonMail": {
@@ -148,14 +148,14 @@ SERVICES = {
     },
     
     "ElevenLabs": {
-        "elevenlabs.io": "109.69.21.35",
-        "api.us.elevenlabs.io": "109.69.21.35",
-        "elevenreader.io": "109.69.21.35",
+        "elevenlabs.io": "138.124.72.139",
+        "api.us.elevenlabs.io": "138.124.72.139",
+        "elevenreader.io": "138.124.72.139",
     },
     
     "GitHub Copilot": {
-        "api.individual.githubcopilot.com": "94.183.233.72",
-        "proxy.individual.githubcopilot.com": "94.183.233.72",
+        "api.individual.githubcopilot.com": "138.124.72.139",
+        "proxy.individual.githubcopilot.com": "138.124.72.139",
     },
     
     "JetBrains": {
@@ -164,8 +164,8 @@ SERVICES = {
     },
     
     "Codeium": {
-        "codeium.com": "94.183.233.72",
-        "inference.codeium.com": "94.183.233.72",
+        "codeium.com": "138.124.72.139",
+        "inference.codeium.com": "138.124.72.139",
     },
     
     "SoundCloud": {
@@ -176,15 +176,15 @@ SERVICES = {
     },
     
     "Manus": {
-        "manus.im": "109.69.21.35",
-        "api.manus.im": "94.183.233.72",
-        "manuscdn.com": "109.69.21.35",
-        "files.manuscdn.com": "109.69.21.35",
+        "manus.im": "138.124.72.139",
+        "api.manus.im": "138.124.72.139",
+        "manuscdn.com": "138.124.72.139",
+        "files.manuscdn.com": "138.124.72.139",
     },
     
     "Pixabay": {
-        "pixabay.com": "94.183.233.72",
-        "cdn.pixabay.com": "94.183.233.72",
+        "pixabay.com": "138.124.72.139",
+        "cdn.pixabay.com": "138.124.72.139",
     },
     
     "RuTracker": {
@@ -201,9 +201,9 @@ SERVICES = {
     
     "Другое": {
         "www.aomeitech.com": "0.0.0.0",
-        "www.intel.com": "109.69.21.35",
-        "www.dell.com": "109.69.21.35",
-        "developer.nvidia.com": "94.183.233.72",
+        "www.intel.com": "138.124.72.139",
+        "www.dell.com": "138.124.72.139",
+        "developer.nvidia.com": "138.124.72.139",
         "truthsocial.com": "204.12.192.221",
         "static-assets-1.truthsocial.com": "204.12.192.221",
         "autodesk.com": "94.131.119.85",
@@ -212,11 +212,11 @@ SERVICES = {
         "hulu.com": "2.22.31.233",
         "anilib.me": "172.67.192.246",
         "ntc.party": "130.255.77.28",
-        "pump.fun": "94.183.233.72",
-        "frontend-api-v3.pump.fun": "94.183.233.72",
-        "images.pump.fun": "94.183.233.72",
-        "swap-api.pump.fun": "94.183.233.72",
-        "www.elgato.com": "94.183.233.72",
+        "pump.fun": "138.124.72.139",
+        "frontend-api-v3.pump.fun": "138.124.72.139",
+        "images.pump.fun": "138.124.72.139",
+        "swap-api.pump.fun": "138.124.72.139",
+        "www.elgato.com": "138.124.72.139",
         "info.dns.malw.link": "104.21.24.110",
         "only-fans.uk": "0.0.0.0",
         "only-fans.me": "0.0.0.0",

@@ -597,10 +597,11 @@ class SideNavBar(QWidget):
         self._parent_widget = parent
         self._loading_state = False  # Флаг, чтобы не сохранять при загрузке
         # Ключи реестра для запоминания сворачивания групп
+        # (индексы обновлены после добавления секций оркестратора, whitelist и ratings)
         self._collapsible_registry_keys = {
             2: "SidebarStrategiesExpanded",
-            8: "SidebarMyListsExpanded",
-            14: "SidebarDiagnosticsExpanded",
+            11: "SidebarMyListsExpanded",
+            18: "SidebarDiagnosticsExpanded",
         }
         
         # Анимация ширины
@@ -702,27 +703,31 @@ class SideNavBar(QWidget):
         self.sections = [
             ("fa5s.home", "Главная", False),           # 0
             ("fa5s.play-circle", "Управление", False), # 1
-            ("fa5s.cog", "Стратегии", "collapsible"),  # 2 - сворачиваемая секция
+            ("fa5s.cog", "Стратегии", "collapsible"),  # 2 - сворачиваемая секция (меняется на "Оркестратор" в режиме оркестратора)
             ("fa5s.list", "Hostlist", True),           # 3 - подпункт
             ("fa5s.server", "IPset", True),            # 4 - подпункт
             ("fa5s.cube", "Блобы", True),              # 5 - подпункт (управление блобами для Zapret 2)
             ("fa5s.edit", "Редактор", True),           # 6 - подпункт (редактор стратегий)
-            ("fa5s.sliders-h", "Настройки DPI", True), # 7 - подпункт
-            (None, "Мои списки", "collapsible_header"),# 8 - текстовый заголовок со сворачиванием подпунктов
-            ("fa5s.ban", "Исключения", True),          # 9 - подпункт (netrogat.txt)
-            ("fa5s.plus-circle", "Мои hostlist", True),  # 10 - подпункт (other2.txt)
-            ("fa5s.network-wired", "Мои ipset", True),    # 11 - подпункт (my-ipset.txt)
-            ("fa5s.rocket", "Автозапуск", False),      # 12
-            ("fa5s.network-wired", "Сеть", False),     # 13
-            ("fa5s.wifi", "Диагностика", "collapsible"),  # 14 - сворачиваемая секция
-            ("fa5s.search", "DNS подмена", True),      # 15 - подпункт диагностики
-            ("fa5s.globe", "Hosts", False),            # 16 - разблокировка сервисов
-            ("fa5s.shield-alt", "BlockCheck", False),  # 17
-            ("fa5s.palette", "Оформление", False),     # 18
-            ("fa5s.star", "Донат", False),             # 19
-            ("fa5s.file-alt", "Логи", False),          # 20
-            ("fa5s.sync-alt", "Обновления", False),  # 21 - серверы обновлений
-            ("fa5s.info-circle", "О программе", False),# 22
+            ("fa5s.lock", "Залоченные", True),         # 7 - подпункт (оркестратор: залоченные стратегии)
+            ("fa5s.ban", "Заблокированные", True),     # 8 - подпункт (оркестратор: чёрный список)
+            ("mdi.chart-bar", "Рейтинги", True),       # 9 - подпункт (оркестратор: история стратегий с рейтингами)
+            ("fa5s.sliders-h", "Настройки DPI", True), # 10 - подпункт (всегда внизу группы)
+            (None, "Мои списки", "collapsible_header"),# 11 - текстовый заголовок со сворачиванием подпунктов
+            ("fa5s.ban", "Исключения", True),          # 12 - подпункт (netrogat.txt) - скрывается в режиме оркестратора
+            ("fa5s.shield-alt", "Белый список", True), # 13 - подпункт (whitelist оркестратора) - только в режиме оркестратора
+            ("fa5s.plus-circle", "Мои hostlist", True),  # 14 - подпункт (other2.txt) - скрывается в режиме оркестратора
+            ("fa5s.network-wired", "Мои ipset", True),    # 15 - подпункт (my-ipset.txt) - скрывается в режиме оркестратора
+            ("fa5s.rocket", "Автозапуск", False),      # 16
+            ("fa5s.network-wired", "Сеть", False),     # 17
+            ("fa5s.wifi", "Диагностика", "collapsible"),  # 18 - сворачиваемая секция
+            ("fa5s.search", "DNS подмена", True),      # 19 - подпункт диагностики
+            ("fa5s.globe", "Hosts", False),            # 20 - разблокировка сервисов
+            ("fa5s.shield-alt", "BlockCheck", False),  # 21
+            ("fa5s.palette", "Оформление", False),     # 22
+            ("fa5s.star", "Донат", False),             # 23
+            ("fa5s.file-alt", "Логи", False),          # 24
+            ("fa5s.sync-alt", "Обновления", False),    # 25 - серверы обновлений
+            ("fa5s.info-circle", "О программе", False),# 26
         ]
 
         # Счётчик реальных индексов страниц (без заголовков)
@@ -732,11 +737,48 @@ class SideNavBar(QWidget):
         self._sub_buttons = []  # Подпункты для скрытия при сворачивании сайдбара
         self._blobs_button = None  # Ссылка на кнопку "Блобы" для управления видимостью
         self._blobs_section_index = 5  # Индекс секции "Блобы"
+
+        # Индексы секций оркестратора (вместо Hostlist/IPset/Редактор при режиме оркестратора)
+        self._orchestra_locked_section = 7   # Залоченные
+        self._orchestra_blocked_section = 8  # Заблокированные
+        self._orchestra_ratings_section = 9  # Рейтинги (история стратегий)
+        self._hostlist_section = 3           # Hostlist
+        self._ipset_section = 4              # IPset
+        self._editor_section = 6             # Редактор
+        self._strategies_section = 2         # Секция "Стратегии" / "Оркестратор"
+        self._dpi_settings_section = 10      # Настройки DPI
+        self._netrogat_section = 12          # Исключения (netrogat.txt)
+        self._whitelist_section = 13         # Белый список оркестратора
+        self._custom_hostlist_section = 14   # Мои hostlist
+        self._custom_ipset_section = 15      # Мои ipset
+
+        # Кнопки для переключения режима оркестратора
+        self._strategies_button = None       # Кнопка "Стратегии" / "Оркестратор"
+        self._hostlist_button = None
+        self._ipset_button = None
+        self._editor_button = None
+        self._orchestra_locked_button = None
+        self._orchestra_blocked_button = None
+        self._orchestra_ratings_button = None  # Кнопка "Рейтинги"
+        self._dpi_settings_button = None
+        self._netrogat_button = None         # Кнопка "Исключения"
+        self._whitelist_button = None        # Кнопка "Белый список"
+        self._custom_hostlist_button = None  # Кнопка "Мои hostlist"
+        self._custom_ipset_button = None     # Кнопка "Мои ipset"
         
         # Группы подпунктов для сворачивания
         self._collapsible_groups = {}  # parent_index -> [sub_button_widgets]
         current_collapsible_parent = None
-        
+
+        # Специальные индексы страниц для секций оркестратора (они в конце pages_stack)
+        # Секции 7, 8, 9, 13 должны маппиться на страницы 23, 24, 26, 25 (а не на следующие по счёту)
+        ORCHESTRA_PAGE_MAPPING = {
+            self._orchestra_locked_section: 23,   # Секция 7 → Страница 23
+            self._orchestra_blocked_section: 24,  # Секция 8 → Страница 24
+            self._orchestra_ratings_section: 26,  # Секция 9 → Страница 26
+            self._whitelist_section: 25,          # Секция 13 → Страница 25
+        }
+
         for i, (icon, text, is_sub) in enumerate(self.sections):
             if is_sub == "collapsible":
                 # Сворачиваемая секция с подпунктами
@@ -750,6 +792,9 @@ class SideNavBar(QWidget):
                 page_index += 1
                 current_collapsible_parent = i
                 self._collapsible_groups[i] = []
+                # Сохраняем ссылку на кнопку "Стратегии"
+                if i == self._strategies_section:
+                    self._strategies_button = btn
             elif is_sub == "collapsible_header":
                 header = CollapsibleHeader(text, self)
                 nav_layout.addWidget(header)
@@ -766,15 +811,45 @@ class SideNavBar(QWidget):
                 btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
                 self.buttons.append(btn)
                 nav_layout.addWidget(btn)
-                self._section_to_page[i] = page_index
-                page_index += 1
+
+                # Специальный маппинг для секций оркестратора
+                if i in ORCHESTRA_PAGE_MAPPING:
+                    self._section_to_page[i] = ORCHESTRA_PAGE_MAPPING[i]
+                    # НЕ инкрементируем page_index для секций оркестратора
+                else:
+                    self._section_to_page[i] = page_index
+                    page_index += 1
+
                 self._sub_buttons.append(btn)  # Сохраняем для скрытия при сворачивании сайдбара
                 # Добавляем в группу текущего родителя
                 if current_collapsible_parent is not None:
                     self._collapsible_groups[current_collapsible_parent].append(btn)
-                # Сохраняем ссылку на кнопку "Блобы"
+
+                # Сохраняем ссылки на кнопки для управления видимостью
                 if i == self._blobs_section_index:
                     self._blobs_button = btn
+                elif i == self._hostlist_section:
+                    self._hostlist_button = btn
+                elif i == self._ipset_section:
+                    self._ipset_button = btn
+                elif i == self._editor_section:
+                    self._editor_button = btn
+                elif i == self._orchestra_locked_section:
+                    self._orchestra_locked_button = btn
+                elif i == self._orchestra_blocked_section:
+                    self._orchestra_blocked_button = btn
+                elif i == self._orchestra_ratings_section:
+                    self._orchestra_ratings_button = btn
+                elif i == self._dpi_settings_section:
+                    self._dpi_settings_button = btn
+                elif i == self._netrogat_section:
+                    self._netrogat_button = btn
+                elif i == self._whitelist_section:
+                    self._whitelist_button = btn
+                elif i == self._custom_hostlist_section:
+                    self._custom_hostlist_button = btn
+                elif i == self._custom_ipset_section:
+                    self._custom_ipset_button = btn
             else:
                 btn = NavButton(icon, text, self)
                 btn.setMinimumHeight(36)
@@ -791,9 +866,10 @@ class SideNavBar(QWidget):
         
         # Загружаем состояния сворачивания групп из реестра
         self._load_collapsible_state()
-        
+
         # Обновляем видимость вкладок в зависимости от режима
         self.update_blobs_visibility()
+        self.update_orchestra_visibility()
         
         # Растягивающий спейсер внутри контейнера
         nav_layout.addStretch(1)
@@ -1161,6 +1237,66 @@ class SideNavBar(QWidget):
             log(f"Ошибка проверки режима для блобов: {e}", "DEBUG")
             # По умолчанию показываем
             self._blobs_button.setVisible(True)
+
+    def update_orchestra_visibility(self):
+        """
+        Обновляет видимость вкладок оркестратора.
+        При включённом режиме оркестратора:
+        - Скрываем: Hostlist, IPset, Редактор
+        - Показываем: Залоченные, Заблокированные
+        - Меняем название "Стратегии" на "Оркестратор" и иконку
+        При обычном режиме - наоборот.
+        """
+        try:
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+            is_orchestra = method in ("orchestra", "direct_orchestra")
+        except Exception as e:
+            from log import log
+            log(f"Ошибка проверки режима оркестратора: {e}", "DEBUG")
+            is_orchestra = False
+
+        # Скрываем/показываем Hostlist, IPset, Редактор
+        if self._hostlist_button:
+            self._hostlist_button.setVisible(not is_orchestra)
+        if self._ipset_button:
+            self._ipset_button.setVisible(not is_orchestra)
+        if self._editor_button:
+            self._editor_button.setVisible(not is_orchestra)
+
+        # Показываем/скрываем Залоченные, Заблокированные, Рейтинги
+        if self._orchestra_locked_button:
+            self._orchestra_locked_button.setVisible(is_orchestra)
+        if self._orchestra_blocked_button:
+            self._orchestra_blocked_button.setVisible(is_orchestra)
+        if self._orchestra_ratings_button:
+            self._orchestra_ratings_button.setVisible(is_orchestra)
+
+        # Меняем название и иконку секции "Стратегии" / "Оркестратор"
+        if self._strategies_button:
+            if is_orchestra:
+                self._strategies_button._text = "Оркестратор"
+                self._strategies_button.icon_name = "mdi.brain"
+            else:
+                self._strategies_button._text = "Стратегии"
+                self._strategies_button.icon_name = "fa5s.cog"
+            # Обновляем текст и иконку
+            if not self._strategies_button._collapsed:
+                self._strategies_button.setText(f"   {self._strategies_button._text}")
+            self._strategies_button._update_style()
+
+        # В группе "Мои списки":
+        # - Исключения (netrogat) - скрываем в режиме оркестратора
+        # - Белый список - показываем только в режиме оркестратора
+        # - Мои hostlist / Мои ipset - скрываем в режиме оркестратора
+        if self._netrogat_button:
+            self._netrogat_button.setVisible(not is_orchestra)
+        if self._whitelist_button:
+            self._whitelist_button.setVisible(is_orchestra)
+        if self._custom_hostlist_button:
+            self._custom_hostlist_button.setVisible(not is_orchestra)
+        if self._custom_ipset_button:
+            self._custom_ipset_button.setVisible(not is_orchestra)
 
 
 class SettingsCard(QFrame):

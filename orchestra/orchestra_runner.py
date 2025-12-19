@@ -22,11 +22,12 @@ import threading
 import re
 import json
 import glob
+import ipaddress
 from typing import Optional, Callable, Dict, List
 from datetime import datetime
 
 from log import log
-from config import MAIN_DIRECTORY, EXE_FOLDER, LUA_FOLDER, LOGS_FOLDER, BIN_FOLDER, REGISTRY_PATH
+from config import MAIN_DIRECTORY, EXE_FOLDER, LUA_FOLDER, LOGS_FOLDER, BIN_FOLDER, REGISTRY_PATH, LISTS_FOLDER
 from config.reg import reg, reg_enumerate_values, reg_delete_all_values
 
 # Пути в реестре для хранения обученных стратегий (subkeys)
@@ -35,13 +36,15 @@ REGISTRY_ORCHESTRA_TLS = f"{REGISTRY_ORCHESTRA}\\TLS"      # TLS стратег�
 REGISTRY_ORCHESTRA_HTTP = f"{REGISTRY_ORCHESTRA}\\HTTP"    # HTTP стратегии: domain=strategy (REG_DWORD)
 REGISTRY_ORCHESTRA_UDP = f"{REGISTRY_ORCHESTRA}\\UDP"      # UDP стратегии: IP=strategy (REG_DWORD)
 REGISTRY_ORCHESTRA_HISTORY = f"{REGISTRY_ORCHESTRA}\\History"  # История: domain=JSON (REG_SZ)
+REGISTRY_ORCHESTRA_BLOCKED = f"{REGISTRY_ORCHESTRA}\\Blocked"  # Заблокированные: domain=JSON (REG_SZ, список стратегий)
 
 # Максимальное количество лог-файлов оркестратора
 MAX_ORCHESTRA_LOGS = 10
 
 # Белый список по умолчанию - сайты которые НЕ нужно обрабатывать
 # Эти сайты работают без DPI bypass или требуют особой обработки
-DEFAULT_WHITELIST = [
+# Встраиваются автоматически при load_whitelist() как системные (нельзя удалить)
+DEFAULT_WHITELIST_DOMAINS = {
     # Российские сервисы (работают без bypass)
     "vk.com",
     "vk.ru",
@@ -50,8 +53,8 @@ DEFAULT_WHITELIST = [
     "mail.ru",
     "max.ru",
     "ok.ru",
-    "mail.ru",
     "yandex.ru",
+    "ya.ru",
     "yandex.by",
     "yandex.kz",
     "sberbank.ru",
@@ -76,14 +79,98 @@ DEFAULT_WHITELIST = [
     # Локальные адреса
     "localhost",
     "127.0.0.1",
-
+    # Образование
     "netschool.edu22.info",
     "edu22.info",
-
+    # Конструкторы сайтов
     "tilda.ws",
     "tilda.cc",
-    "tildacdn.com"
-]
+    "tildacdn.com",
+    # AI сервисы (обычно работают)
+    "claude.ai",
+    "anthropic.com",
+    "claude.com",
+    # ozon
+    "ozon.ru",
+    "ozonusercontent.com",
+    # wb
+    "wildberries.ru",
+    "wb.ru",
+    "wbbasket.ru"
+}
+
+# Домены для которых strategy=1 (pass) заблокирована по умолчанию - они точно заблокированы РКН
+# При загрузке blocked_strategies автоматически добавляется s1 для этих доменов
+DEFAULT_BLOCKED_PASS_DOMAINS = {
+    # Discord
+    "discord.com", "discordapp.com", "discord.gg", "discord.media", "discordapp.net",
+    # YouTube / Google Video
+    "youtube.com", "googlevideo.com", "ytimg.com", "yt3.ggpht.com", "youtu.be",
+    "ggpht.com", "googleusercontent.com", "youtube-nocookie.com",
+    # Google
+    "google.com", "google.ru", "googleapis.com", "gstatic.com",
+    "googleadservices.com", "googlesyndication.com", "googletagmanager.com",
+    "googleanalytics.com", "google-analytics.com", "doubleclick.net",
+    "dns.google", "withgoogle.com", "withyoutube.com",
+    # Twitch
+    "twitch.tv", "twitchcdn.net",
+    # Twitter/X
+    "twitter.com", "x.com", "twimg.com",
+    # Instagram
+    "instagram.com", "cdninstagram.com", "igcdn.com", "ig.me",
+    # Facebook / Meta
+    "facebook.com", "fbcdn.net", "fb.com", "fb.me",
+    # WhatsApp
+    "whatsapp.com", "whatsapp.net",
+    # TikTok
+    "tiktok.com", "tiktokcdn.com", "musical.ly",
+    # Telegram
+    "telegram.org", "t.me",
+    # Spotify
+    "spotify.com", "spotifycdn.com",
+    # Netflix
+    "netflix.com", "nflxvideo.net",
+    # Steam
+    "steampowered.com", "steamcommunity.com", "steamstatic.com",
+    # Roblox
+    "roblox.com", "rbxcdn.com",
+    # Reddit
+    "reddit.com", "redd.it", "redditmedia.com",
+    # GitHub
+    "github.com", "githubusercontent.com",
+    # Rutracker
+    "rutracker.org"
+}
+
+
+def _is_default_blocked_pass_domain(hostname: str) -> bool:
+    """
+    Проверяет, является ли домен дефолтно заблокированным для strategy=1.
+    Внутренняя функция для load_blocked_strategies.
+    """
+    if not hostname:
+        return False
+    hostname = hostname.lower().strip()
+    # Точное совпадение
+    if hostname in DEFAULT_BLOCKED_PASS_DOMAINS:
+        return True
+    # Проверка субдоменов (cdn.discord.com -> discord.com)
+    for domain in DEFAULT_BLOCKED_PASS_DOMAINS:
+        if hostname.endswith("." + domain):
+            return True
+    return False
+
+
+def _is_default_whitelist_domain(hostname: str) -> bool:
+    """
+    Проверяет, является ли домен системным в whitelist (нельзя удалить).
+    Внутренняя функция для whitelist методов.
+    """
+    if not hostname:
+        return False
+    hostname = hostname.lower().strip()
+    return hostname in DEFAULT_WHITELIST_DOMAINS
+
 
 # Локальные IP диапазоны (для UDP - проверяем IP напрямую)
 LOCAL_IP_PREFIXES = (
@@ -241,13 +328,24 @@ class OrchestraRunner:
         # История стратегий: {hostname: {strategy: {successes: N, failures: N}}}
         self.strategy_history: Dict[str, Dict[str, Dict[str, int]]] = {}
 
-        # Пользовательский белый список (из реестра)
-        self.user_whitelist: list = []
+        # Заблокированные стратегии (чёрный список): {hostname: [strategy_list]}
+        self.blocked_strategies: Dict[str, List[int]] = {}
+
+        # Кэши ipset подсетей для UDP (игры/Discord/QUIC)
+        self.ipset_networks: list[tuple[ipaddress._BaseNetwork, str]] = []
+
+        # Белый список (exclude list) - домены которые НЕ обрабатываются
+        self.user_whitelist: list = []  # Только пользовательские (из реестра)
+        self.whitelist: set = set()     # Полный список (default + user) для генерации файла
 
         # Callbacks
         self.output_callback: Optional[Callable[[str], None]] = None
         self.lock_callback: Optional[Callable[[str, int], None]] = None
         self.unlock_callback: Optional[Callable[[str], None]] = None
+
+        # Мониторинг активности (для подсказок пользователю)
+        self.last_activity_time: Optional[float] = None
+        self.inactivity_warning_shown: bool = False
 
     def set_keep_debug_file(self, keep: bool):
         """Сохранять ли debug файл после остановки (для отладки)"""
@@ -535,11 +633,75 @@ class OrchestraRunner:
             if total:
                 log(f"Загружено {len(self.locked_strategies)} TLS + {len(self.http_locked_strategies)} HTTP + {len(self.udp_locked_strategies)} UDP стратегий", "INFO")
 
+            # Очистка доменов со strategy=1 для дефолтно заблокированных (youtube, google и т.д.)
+            from config.reg import reg_delete_value
+            blocked_cleaned = []
+            for domain, strategy in list(self.locked_strategies.items()):
+                if strategy == 1 and _is_default_blocked_pass_domain(domain):
+                    blocked_cleaned.append(domain)
+                    del self.locked_strategies[domain]
+                    try:
+                        reg_delete_value(REGISTRY_ORCHESTRA_TLS, domain)
+                    except Exception:
+                        pass
+            for domain, strategy in list(self.http_locked_strategies.items()):
+                if strategy == 1 and _is_default_blocked_pass_domain(domain):
+                    blocked_cleaned.append(domain)
+                    del self.http_locked_strategies[domain]
+                    try:
+                        reg_delete_value(REGISTRY_ORCHESTRA_HTTP, domain)
+                    except Exception:
+                        pass
+            if blocked_cleaned:
+                log(f"Очищено {len(blocked_cleaned)} доменов со strategy=1 (заблокирована по умолчанию): {', '.join(blocked_cleaned[:5])}{'...' if len(blocked_cleaned) > 5 else ''}", "INFO")
+
         except Exception as e:
             log(f"Ошибка загрузки стратегий из реестра: {e}", "DEBUG")
 
         # Загружаем историю
         self.load_history()
+
+        # Загружаем заблокированные стратегии
+        self.load_blocked_strategies()
+
+        # Очистка конфликтов: если стратегия заблокирована И залочена - удаляем lock
+        # Блокировка = приоритет над lock
+        from config.reg import reg_delete_value
+        conflicts_cleaned = []
+        
+        for domain, strategy in list(self.locked_strategies.items()):
+            if self.is_strategy_blocked(domain, strategy):
+                conflicts_cleaned.append((domain, strategy, "TLS"))
+                del self.locked_strategies[domain]
+                try:
+                    reg_delete_value(REGISTRY_ORCHESTRA_TLS, domain)
+                except Exception:
+                    pass
+        
+        for domain, strategy in list(self.http_locked_strategies.items()):
+            if self.is_strategy_blocked(domain, strategy):
+                conflicts_cleaned.append((domain, strategy, "HTTP"))
+                del self.http_locked_strategies[domain]
+                try:
+                    reg_delete_value(REGISTRY_ORCHESTRA_HTTP, domain)
+                except Exception:
+                    pass
+        
+        for ip, strategy in list(self.udp_locked_strategies.items()):
+            if self.is_strategy_blocked(ip, strategy):
+                conflicts_cleaned.append((ip, strategy, "UDP"))
+                del self.udp_locked_strategies[ip]
+                try:
+                    reg_delete_value(REGISTRY_ORCHESTRA_UDP, ip)
+                except Exception:
+                    pass
+        
+        if conflicts_cleaned:
+            log(f"Очищено {len(conflicts_cleaned)} конфликтующих LOCK (заблокированные стратегии):", "INFO")
+            for domain, strategy, proto in conflicts_cleaned[:10]:
+                log(f"  - {domain} strategy={strategy} [{proto}]", "INFO")
+            if len(conflicts_cleaned) > 10:
+                log(f"  - ... и ещё {len(conflicts_cleaned) - 10}", "INFO")
 
         return self.locked_strategies
 
@@ -604,6 +766,49 @@ class OrchestraRunner:
             'failures': failures
         }
 
+    def _get_best_strategy_from_history(self, hostname: str, exclude_strategy: int = None) -> Optional[int]:
+        """
+        Находит лучшую стратегию из истории для домена.
+
+        Args:
+            hostname: Домен для поиска
+            exclude_strategy: Стратегия для исключения (например, 1)
+
+        Returns:
+            Номер лучшей стратегии или None если нет подходящих
+        """
+        if hostname not in self.strategy_history:
+            return None
+
+        best_strategy = None
+        best_rate = -1
+
+        for strat_key, data in self.strategy_history[hostname].items():
+            strat_num = int(strat_key)
+
+            # Пропускаем исключённую или заблокированную стратегию
+            if exclude_strategy is not None and strat_num == exclude_strategy:
+                continue
+            if self.is_strategy_blocked(hostname, strat_num):
+                continue
+
+            successes = data.get('successes', 0)
+            failures = data.get('failures', 0)
+            total = successes + failures
+
+            # Нужен хотя бы 1 тест
+            if total == 0:
+                continue
+
+            rate = (successes / total) * 100
+
+            # Выбираем стратегию с лучшим rate
+            if rate > best_rate:
+                best_rate = rate
+                best_strategy = strat_num
+
+        return best_strategy
+
     def _increment_history(self, hostname: str, strategy: int, is_success: bool):
         """Инкрементирует счётчик успехов или неудач для домена/стратегии"""
         if hostname not in self.strategy_history:
@@ -639,6 +844,7 @@ class OrchestraRunner:
     def _generate_learned_lua(self) -> Optional[str]:
         """
         Генерирует learned-strategies.lua для предзагрузки в strategy-stats.lua.
+        Этот файл хранится по пути H:\Privacy\zapret\lua\strategy-stats.lua
         Вызывает strategy_preload() и strategy_preload_history() для каждого домена.
 
         Returns:
@@ -649,10 +855,16 @@ class OrchestraRunner:
         has_udp = bool(self.udp_locked_strategies)
         has_history = bool(self.strategy_history)
 
-        if not has_tls and not has_http and not has_udp and not has_history:
+        # blocked_strategies уже содержит и дефолтные (s1 для DEFAULT_BLOCKED_PASS_DOMAINS)
+        # и пользовательские блокировки - используем напрямую
+        has_blocked = bool(self.blocked_strategies)
+
+        if not has_tls and not has_http and not has_udp and not has_history and not has_blocked:
             return None
 
         lua_path = os.path.join(self.lua_path, "learned-strategies.lua")
+        log(f"Генерация learned-strategies.lua: {lua_path}", "DEBUG")
+        log(f"  TLS: {len(self.locked_strategies)}, HTTP: {len(self.http_locked_strategies)}, UDP: {len(self.udp_locked_strategies)}", "DEBUG")
         total_tls = len(self.locked_strategies)
         total_http = len(self.http_locked_strategies)
         total_udp = len(self.udp_locked_strategies)
@@ -664,36 +876,169 @@ class OrchestraRunner:
                 f.write(f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"-- TLS: {total_tls}, HTTP: {total_http}, UDP: {total_udp}, History: {total_history}\n\n")
 
-                # Предзагрузка TLS стратегий
+                # Генерируем таблицу заблокированных стратегий для Lua
+                if self.blocked_strategies:
+                    f.write("-- Blocked strategies (default + user-defined)\n")
+                    f.write("BLOCKED_STRATEGIES = {\n")
+                    for hostname, strategies in self.blocked_strategies.items():
+                        safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                        strat_list = ", ".join(str(s) for s in strategies)
+                        f.write(f'    ["{safe_host}"] = {{{strat_list}}},\n')
+                    f.write("}\n\n")
+
+                    # Функция проверки заблокированных стратегий (учитываем субдомены)
+                    f.write("-- Check if strategy is blocked for hostname (supports subdomains)\n")
+                    f.write("function is_strategy_blocked(hostname, strategy)\n")
+                    f.write("    if not hostname or not BLOCKED_STRATEGIES then return false end\n")
+                    f.write("    hostname = hostname:lower()\n")
+                    f.write("    local function check_host(h)\n")
+                    f.write("        local blocked = BLOCKED_STRATEGIES[h]\n")
+                    f.write("        if not blocked then return false end\n")
+                    f.write("        for _, s in ipairs(blocked) do\n")
+                    f.write("            if s == strategy then return true end\n")
+                    f.write("        end\n")
+                    f.write("        return false\n")
+                    f.write("    end\n")
+                    f.write("    -- точное совпадение\n")
+                    f.write("    if check_host(hostname) then return true end\n")
+                    f.write("    -- проверка по суффиксу домена\n")
+                    f.write("    local dot = hostname:find('%.')\n")
+                    f.write("    while dot do\n")
+                    f.write("        local suffix = hostname:sub(dot + 1)\n")
+                    f.write("        if check_host(suffix) then return true end\n")
+                    f.write("        dot = hostname:find('%.', dot + 1)\n")
+                    f.write("    end\n")
+                    f.write("    return false\n")
+                    f.write("end\n\n")
+                else:
+                    # Если нет заблокированных - функция всегда возвращает false
+                    f.write("-- No blocked strategies\n")
+                    f.write("BLOCKED_STRATEGIES = {}\n")
+                    f.write("function is_strategy_blocked(hostname, strategy) return false end\n\n")
+
+                # Предзагрузка TLS стратегий (с фильтрацией заблокированных)
+                blocked_tls = 0
                 for hostname, strategy in self.locked_strategies.items():
+                    if self.is_strategy_blocked(hostname, strategy):
+                        blocked_tls += 1
+                        continue
                     safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
                     f.write(f'strategy_preload("{safe_host}", {strategy}, "tls")\n')
 
-                # Предзагрузка HTTP стратегий
+                # Предзагрузка HTTP стратегий (с фильтрацией заблокированных)
+                blocked_http = 0
                 for hostname, strategy in self.http_locked_strategies.items():
+                    if self.is_strategy_blocked(hostname, strategy):
+                        blocked_http += 1
+                        continue
                     safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
                     f.write(f'strategy_preload("{safe_host}", {strategy}, "http")\n')
 
-                # Предзагрузка UDP стратегий
+                # Предзагрузка UDP стратегий (с фильтрацией заблокированных)
+                blocked_udp = 0
                 for ip, strategy in self.udp_locked_strategies.items():
+                    if self.is_strategy_blocked(ip, strategy):
+                        blocked_udp += 1
+                        continue
                     safe_ip = ip.replace('\\', '\\\\').replace('"', '\\"')
                     f.write(f'strategy_preload("{safe_ip}", {strategy}, "udp")\n')
 
-                # Предзагрузка истории
+                # Для доменов с заблокированной s1 из истории, которые НЕ залочены - preload с лучшей стратегией
+                blocked_from_history = 0
+                for hostname in self.strategy_history.keys():
+                    # Пропускаем если уже залочен (обработан выше)
+                    if hostname in self.locked_strategies or hostname in self.http_locked_strategies:
+                        continue
+                    # Только для доменов с заблокированной strategy=1
+                    if not self.is_strategy_blocked(hostname, 1):
+                        continue
+                    # Находим лучшую стратегию (исключая strategy=1 и другие заблокированные)
+                    best_strat = self._get_best_strategy_from_history(hostname, exclude_strategy=1)
+                    if not best_strat:
+                        continue
+                    # Дополнительная защита: если стратегия заблокирована — пропускаем
+                    if self.is_strategy_blocked(hostname, best_strat):
+                        continue
+                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                    f.write(f'strategy_preload("{safe_host}", {best_strat}, "tls")\n')
+                    blocked_from_history += 1
+                if blocked_from_history > 0:
+                    log(f"Добавлено {blocked_from_history} доменов из истории (s1 заблокирована)", "DEBUG")
+
+                # Предзагрузка истории (фильтруем заблокированные стратегии)
+                history_skipped = 0
                 for hostname, strategies in self.strategy_history.items():
                     safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
                     for strat_key, data in strategies.items():
+                        strat_num = int(strat_key) if isinstance(strat_key, str) else strat_key
+                        # Пропускаем заблокированные стратегии
+                        if self.is_strategy_blocked(hostname, strat_num):
+                            history_skipped += 1
+                            continue
                         s = data.get('successes', 0)
                         f_count = data.get('failures', 0)
                         f.write(f'strategy_preload_history("{safe_host}", {strat_key}, {s}, {f_count})\n')
+                if history_skipped > 0:
+                    log(f"Пропущено {history_skipped} записей истории (заблокированы)", "DEBUG")
 
-                f.write(f'\nDLOG("learned-strategies: loaded {total_tls} TLS + {total_http} HTTP + {total_udp} UDP + {total_history} history")\n')
+                actual_tls = total_tls - blocked_tls
+                actual_http = total_http - blocked_http
+                actual_udp = total_udp - blocked_udp
+                total_blocked = blocked_tls + blocked_http + blocked_udp
+                f.write(f'\nDLOG("learned-strategies: loaded {actual_tls} TLS + {actual_http} HTTP + {actual_udp} UDP + {total_history} history (blocked: {total_blocked})")\n')
 
                 # Install circular wrapper to apply preloaded strategies
                 f.write('\n-- Install circular wrapper to apply preloaded strategies on first packet\n')
                 f.write('install_circular_wrapper()\n')
+                f.write('DLOG("learned-strategies: wrapper installed, circular=" .. tostring(circular ~= nil) .. ", original=" .. tostring(original_circular ~= nil))\n')
 
-            log(f"Сгенерирован learned-strategies.lua ({total_tls} TLS + {total_http} HTTP + {total_udp} UDP + {total_history} history)", "DEBUG")
+                # Debug: wrap circular again to see why APPLIED doesn't work
+                f.write('\n-- DEBUG: extra wrapper to diagnose APPLIED issue\n')
+                f.write('if circular and working_strategies then\n')
+                f.write('    local _debug_circular = circular\n')
+                f.write('    circular = function(ctx, desync)\n')
+                f.write('        local hostname = standard_hostkey and standard_hostkey(desync) or "?"\n')
+                f.write('        local askey = (desync and desync.arg and desync.arg.key and #desync.arg.key>0) and desync.arg.key or (desync and desync.func_instance or "?")\n')
+                f.write('        local data = working_strategies[hostname]\n')
+                f.write('        if data then\n')
+                f.write('            local expected = get_autostate_key_by_payload and get_autostate_key_by_payload(data.payload_type) or "?"\n')
+                f.write('            DLOG("DEBUG circular: host=" .. hostname .. " askey=" .. askey .. " expected=" .. expected .. " locked=" .. tostring(data.locked) .. " applied=" .. tostring(data.applied))\n')
+                f.write('        end\n')
+                f.write('        return _debug_circular(ctx, desync)\n')
+                f.write('    end\n')
+                f.write('    DLOG("learned-strategies: DEBUG wrapper installed")\n')
+                f.write('end\n')
+
+                # Wrap circular to skip blocked strategies during rotation
+                if self.blocked_strategies:
+                    f.write('\n-- Install blocked strategies filter for circular rotation\n')
+                    f.write('local _blocked_wrap_installed = false\n')
+                    f.write('local function install_blocked_filter()\n')
+                    f.write('    if _blocked_wrap_installed then return end\n')
+                    f.write('    _blocked_wrap_installed = true\n')
+                    f.write('    if circular and type(circular) == "function" then\n')
+                    f.write('        local original_circular = circular\n')
+                    f.write('        circular = function(t, hostname, ...)\n')
+                    f.write('            local result = original_circular(t, hostname, ...)\n')
+                    f.write('            if result and hostname and is_strategy_blocked(hostname, result) then\n')
+                    f.write('                local max_skip = 10\n')
+                    f.write('                for i = 1, max_skip do\n')
+                    f.write('                    result = original_circular(t, hostname, ...)\n')
+                    f.write('                    if not result or not is_strategy_blocked(hostname, result) then break end\n')
+                    f.write('                    DLOG("BLOCKED: skip strategy " .. result .. " for " .. hostname)\n')
+                    f.write('                end\n')
+                    f.write('            end\n')
+                    f.write('            return result\n')
+                    f.write('        end\n')
+                    f.write('        DLOG("Blocked strategies filter installed for circular")\n')
+                    f.write('    end\n')
+                    f.write('end\n')
+                    f.write('install_blocked_filter()\n')
+
+            total_blocked = blocked_tls + blocked_http + blocked_udp
+            block_info = f", заблокировано {total_blocked}" if total_blocked > 0 else ""
+
+            log(f"Сгенерирован learned-strategies.lua ({total_tls} TLS + {total_http} HTTP + {total_udp} UDP + {total_history} history{block_info})", "DEBUG")
             return lua_path
 
         except Exception as e:
@@ -723,9 +1068,17 @@ class OrchestraRunner:
                 if not line or line.startswith('#'):
                     continue
 
-                if line.startswith('--lua-desync='):
+                if '--lua-desync=' in line:
                     strategy_num += 1
-                    numbered_lines.append(f"{line}:strategy={strategy_num}")
+                    # Добавляем :strategy=N к КАЖДОМУ --lua-desync параметру в строке
+                    parts = line.split(' ')
+                    new_parts = []
+                    for part in parts:
+                        if part.startswith('--lua-desync='):
+                            new_parts.append(f"{part}:strategy={strategy_num}")
+                        else:
+                            new_parts.append(part)
+                    numbered_lines.append(' '.join(new_parts))
                 else:
                     numbered_lines.append(line)
 
@@ -742,6 +1095,7 @@ class OrchestraRunner:
     def _generate_numbered_strategies(self) -> bool:
         """
         Генерирует strategies-all.txt, strategies-http-all.txt и strategies-udp-all.txt с автоматической нумерацией.
+        Путь C:\ProgramData\ZapretTwoDev\lua\strategies-all.txt
 
         Returns:
             True если генерация успешна
@@ -795,30 +1149,49 @@ class OrchestraRunner:
 
     def _read_output(self):
         """Поток чтения stdout от winws2 (debug=1 выводит в консоль)"""
-        # === Паттерны для strategy-stats.lua (кастомные события) ===
-        lock_pattern = re.compile(r"LOCKED (\S+) to strategy=(\d+)(?:\s+\[(TLS|HTTP|UDP)\])?")
-        unlock_pattern = re.compile(r"UNLOCKING (\S+)(?:\s+\[(TLS|HTTP|UDP)\])?")
+        # === Паттерны для combined-detector.lua (circular_quality оркестратор) ===
+        # strategy_quality: LOCK googlevideo.com -> strat=5 (successes=3 tests=5 rate=60%)
+        lock_pattern = re.compile(r"strategy_quality: LOCK (\S+) -> strat=(\d+)")
+        # circular_quality: AUTO-UNLOCK googlevideo.com after 3 consecutive fails
+        unlock_pattern = re.compile(r"circular_quality: AUTO-UNLOCK (\S+) after")
+        # strategy_quality: googlevideo.com strat=5 SUCCESS 3/5
+        success_pattern = re.compile(r"strategy_quality: (\S+) strat=(\d+) SUCCESS (\d+)/(\d+)")
+        # strategy_quality: googlevideo.com strat=5 FAIL 2/5
+        fail_pattern = re.compile(r"strategy_quality: (\S+) strat=(\d+) FAIL (\d+)/(\d+)")
+        # strategy_quality: RESET hostname (при сбросе обучения)
+        reset_pattern = re.compile(r"strategy_quality: RESET (\S+)")
+
+        # === Legacy паттерны для обратной совместимости ===
+        legacy_lock_pattern = re.compile(r"LOCKED (\S+) to strategy=(\d+)(?:\s+\[(TLS|HTTP|UDP)\])?")
+        legacy_unlock_pattern = re.compile(r"UNLOCKING (\S+)(?:\s+\[(TLS|HTTP|UDP)\])?")
         sticky_pattern = re.compile(r"STICKY (\S+) to strategy=(\d+)")
         preload_pattern = re.compile(r"PRELOADED (\S+) = strategy (\d+)(?:\s+\[(tls|http|udp)\])?")
+        # LUA: strategy-stats: APPLIED youtube.com = strategy 15 [circular_quality_1_1]
+        applied_pattern = re.compile(r"APPLIED (\S+) = strategy (\d+)(?:\s+\[([^\]]+)\])?")
         history_pattern = re.compile(r"HISTORY (\S+) strategy=(\d+) successes=(\d+) failures=(\d+) rate=(\d+)%")
-        success_pattern = re.compile(r"strategy-stats: SUCCESS (\S+) strategy=(\d+).*?\[(TLS|HTTP|UDP)\]")
-        fail_pattern = re.compile(r"strategy-stats: FAIL (\S+) strategy=(\d+).*?\[(TLS|HTTP|UDP)\]")
         unsticky_pattern = re.compile(r"strategy-stats: UNSTICKY (\S+)(?:\s+\[(TLS|HTTP|UDP)\])?")
 
+        # === Паттерны для circular_quality оркестратора ===
+        # circular_quality: rotate to strategy N [stats]
+        # In logs we may see "circular_quality: rotate to strategy N" (new)
+        # or "circular: rotate strategy to N" (legacy in some LUA traces).
+        rotate_pattern = re.compile(r"(?:circular_quality|circular): rotate (?:strategy )?to (?:strategy )?(\d+)")
+        # circular_quality: current strategy N
+        current_strategy_pattern = re.compile(r"circular_quality: current strategy (\d+)")
         # === Паттерны для стандартных детекторов zapret2 ===
         # automate: success detected / automate: failure detected
         automate_success_pattern = re.compile(r"automate: success detected")
         automate_failure_pattern = re.compile(r"automate: failure detected")
-        # circular: rotate strategy to N
-        rotate_pattern = re.compile(r"circular: rotate strategy to (\d+)")
-        # circular: current strategy N
-        current_strategy_pattern = re.compile(r"circular: current strategy (\d+)")
         # standard_failure_detector: incoming RST
         std_rst_pattern = re.compile(r"standard_failure_detector: incoming RST")
         # standard_failure_detector: retransmission N/M
         std_retrans_pattern = re.compile(r"standard_failure_detector: retransmission (\d+)/(\d+)")
         # standard_success_detector: treating connection as successful
         std_success_pattern = re.compile(r"standard_success_detector:.*successful")
+        # LUA automate выводит hostname перед success_detector (для Keep-Alive соединений без SNI)
+        # TCP: LUA: automate: host record key 'autostate.circular_quality_1_1.github.com'
+        # UDP: LUA: automate: host record key 'autostate.circular_quality_3_1.udp_other_108.177.0.0'
+        automate_hostkey_pattern = re.compile(r"LUA: automate: host record key 'autostate\.circular_quality_\d+_\d+\.(?:udp_other_)?([^']+)'")
 
         # === Паттерн для hostname из desync profile search ===
         # TCP: desync profile search for tcp ip=... port=443 l7proto=tls ssid='' hostname='youtube.com'
@@ -827,6 +1200,9 @@ class OrchestraRunner:
         hostname_pattern = re.compile(r"desync profile search for tcp ip=[\d.:]+ port=(\d+) l7proto=\S+ ssid='[^']*' hostname='([^']+)'")
         # UDP всегда имеет l7proto (unknown/quic/stun/discord/wireguard/dht), поддержка IPv4 и IPv6
         udp_pattern = re.compile(r"desync profile search for udp ip=([\d.:a-fA-F]+) port=(\d+) l7proto=(\S+)")
+        # Fallback: извлекаем UDP IP из incoming пакета (когда profile search закэширован)
+        # IP4: 151.101.1.140 => 192.168.1.100 proto=udp ttl=55 sport=443 dport=64028
+        udp_incoming_ip_pattern = re.compile(r"IP4: ([\d.]+) => ([\d.]+) proto=udp ttl=\d+ sport=(\d+)")
 
         # === Альтернативный паттерн для UDP (client mode) ===
         # Profile 3/4 используют другой формат логов:
@@ -838,6 +1214,8 @@ class OrchestraRunner:
         desync_profile_pattern = re.compile(r"desync profile (\d+) \(\S+\) matches")
         # Извлекаем src, dst и connection_proto - выбираем не-локальный IP
         dpi_desync_udp_pattern = re.compile(r"dpi desync src=([\d.:a-fA-F]+):\d+ dst=([\d.:a-fA-F]+):\d+ .* connection_proto=(\S+)")
+        # Извлекаем connection_proto из любого dpi desync (для определения протокола перед RST)
+        dpi_desync_proto_pattern = re.compile(r"dpi desync .* connection_proto=(\S+)")
 
         # Переменная для текущего протокола (80=HTTP, 443=TLS, udp=UDP)
         current_port = None
@@ -848,6 +1226,18 @@ class OrchestraRunner:
         # Для отслеживания текущего хоста/IP и стратегии
         current_host = None
         current_strat = 1
+
+        # Кэш IP → hostname для обработки Keep-Alive соединений без SNI
+        # {ip: hostname} - последний известный hostname для каждого IP
+        # Автоматически ограничивается до 1000 записей для экономии памяти
+        ip_to_hostname_cache: dict[str, str] = {}
+        # Также кэш IP для текущего пакета (из desync profile search)
+        current_ip = None
+
+        # Последняя реально применённая стратегия по хосту/протоколу (из LUA: strategy-stats: APPLIED ...)
+        last_applied: dict[tuple[str, str], int] = {}
+        # Последний "контекстный" домен по протоколу (чтобы привязать RST/retrans к домену)
+        last_applied_host_by_proto: dict[str, str] = {}
 
         # Счётчик для периодического сохранения истории
         history_save_counter = 0
@@ -873,14 +1263,45 @@ class OrchestraRunner:
 
                     # Отслеживаем текущий hostname из desync profile search
                     # TCP: desync profile search for tcp ip=... port=443 l7proto=tls hostname='youtube.com'
+                    # Также извлекаем IP для кэширования связки IP → hostname
                     match = hostname_pattern.search(line)
                     if match:
                         current_port, hostname = match.groups()
                         current_proto = "tcp"
+                        
+                        # Извлекаем IP из этой же строки для кэша
+                        # Формат: "desync profile search for tcp ip=142.250.74.206 port=443 l7proto=tls hostname='youtube.com'"
+                        ip_match = re.search(r'ip=([\d.]+)', line)
+                        if ip_match:
+                            current_ip = ip_match.group(1)
+                        else:
+                            current_ip = None
+                        
                         # Игнорируем пустые hostname и IP-адреса
                         if hostname and not hostname.replace('.', '').isdigit():
                             # Применяем NLD-cut для группировки поддоменов
                             current_host = nld_cut(hostname, 2)
+                            
+                            # Сохраняем в кэш связку IP → hostname (для Keep-Alive соединений)
+                            if current_ip and not current_ip.startswith(LOCAL_IP_PREFIXES):
+                                # Логируем только если это новая запись или изменение
+                                if current_ip not in ip_to_hostname_cache or ip_to_hostname_cache[current_ip] != current_host:
+                                    log(f"[CACHE] Сохранен hostname {current_host} для IP {current_ip}", "DEBUG")
+                                ip_to_hostname_cache[current_ip] = current_host
+                                
+                                # Ограничиваем размер кэша (каждые 100 записей проверяем размер)
+                                if len(ip_to_hostname_cache) % 100 == 0 and len(ip_to_hostname_cache) > 1000:
+                                    # Оставляем 500 последних (по порядку добавления в dict Python 3.7+)
+                                    keys_to_keep = list(ip_to_hostname_cache.keys())[-500:]
+                                    for key in list(ip_to_hostname_cache.keys()):
+                                        if key not in keys_to_keep:
+                                            del ip_to_hostname_cache[key]
+                                    log(f"[CACHE] Очищен до {len(ip_to_hostname_cache)} записей", "DEBUG")
+                        else:
+                            current_host = None
+                            # Пробуем восстановить hostname из кэша по IP
+                            if current_ip and current_ip in ip_to_hostname_cache:
+                                current_host = ip_to_hostname_cache[current_ip]
                         continue
 
                     # UDP: desync profile search for udp ip=1.2.3.4 port=443 l7proto=quic/stun/discord/wireguard
@@ -891,11 +1312,26 @@ class OrchestraRunner:
                         l7proto = match.group(3)  # unknown, quic, stun, discord, wireguard, dht
                         current_proto = "udp"
                         current_l7proto = l7proto  # Сохраняем для LOCKED/UNLOCK
+                        current_ip = ip  # Сохраняем для кэша
                         # Пропускаем локальные IP адреса
                         if ip.startswith(LOCAL_IP_PREFIXES):
                             current_host = None
                         else:
                             current_host = ip  # Для UDP используем IP напрямую
+                        continue
+                    
+                    # UDP fallback: извлекаем IP из incoming UDP пакета (когда profile search закэширован)
+                    match = udp_incoming_ip_pattern.search(line)
+                    if match:
+                        remote_ip = match.group(1)  # Источник (удалённый сервер)
+                        sport = match.group(3)
+                        # Устанавливаем UDP контекст только если current_proto ещё не UDP или IP изменился
+                        if not remote_ip.startswith(LOCAL_IP_PREFIXES):
+                            current_host = remote_ip
+                            current_ip = remote_ip
+                            current_port = sport
+                            current_proto = "udp"
+                            # current_l7proto остаётся от предыдущего пакета или будет установлен позже
                         continue
 
                     # === Альтернативный паттерн для UDP (client mode / Profile 3,4) ===
@@ -937,6 +1373,16 @@ class OrchestraRunner:
                             current_l7proto = connection_proto  # discord, stun, etc.
                             current_host = remote_ip  # Для UDP используем IP напрямую
                         continue
+                    
+                    # Парсим connection_proto из dpi desync для TCP (профиль 1 и 2)
+                    # Это нужно для правильного определения протокола перед RST/SUCCESS
+                    # dpi desync ... connection_proto=tls/http
+                    match = dpi_desync_proto_pattern.search(line)
+                    if match:
+                        connection_proto = match.group(1)
+                        # Обновляем current_l7proto для TCP тоже (для RST/SUCCESS логирования)
+                        current_l7proto = connection_proto
+                        continue
 
                     # Записываем каждую строку в файл лога
                     if log_file:
@@ -945,11 +1391,19 @@ class OrchestraRunner:
                         except Exception:
                             pass
 
-                    # Проверяем LOCKED
+                    # Проверяем LOCK (новый формат: strategy_quality: LOCK hostname -> strat=N)
                     match = lock_pattern.search(line)
+                    if not match:
+                        # Пробуем legacy формат: LOCKED hostname to strategy=N [TLS]
+                        match = legacy_lock_pattern.search(line)
+                        ptype = match.group(3) if match and len(match.groups()) >= 3 else None
+                    else:
+                        ptype = None  # Новый формат без типа протокола
+
                     if match:
-                        host, strat, ptype = match.groups()
-                        strat = int(strat)
+                        host = match.group(1)
+                        strat = int(match.group(2))
+                        log(f"[LOCK DEBUG] Найден LOCK: host={host}, strat={strat}, ptype={ptype}", "INFO")
 
                         # Определяем протокол: сначала из тега [TLS/HTTP/UDP], потом из current_proto
                         if ptype:
@@ -957,9 +1411,9 @@ class OrchestraRunner:
                             is_http = (ptype_upper == "HTTP")
                             is_udp = (ptype_upper == "UDP")
                         else:
-                            # Если тег не указан - определяем по current_proto
-                            is_udp = (current_proto == "udp")
-                            is_http = (current_proto == "tcp" and current_port == "80")
+                            # Если тег не указан - определяем по current_l7proto (надежнее)
+                            is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                            is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
 
                         # Для UDP: конвертируем IP в /16 подсеть
                         # Для TCP: применяем NLD-cut (googlevideo.com и т.д.)
@@ -990,6 +1444,10 @@ class OrchestraRunner:
                             target_dict = self.locked_strategies
                             port_str = ":443"
 
+                        # Пропускаем заблокированные стратегии (не лочим их)
+                        if self.is_strategy_blocked(host, strat):
+                            continue
+
                         if host not in target_dict or target_dict[host] != strat:
                             target_dict[host] = strat
                             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -1002,20 +1460,30 @@ class OrchestraRunner:
                             self.save_strategies()
                         continue
 
-                    # Проверяем UNLOCKING
+                    # Проверяем UNLOCK (новый формат: circular_quality: AUTO-UNLOCK hostname after)
                     match = unlock_pattern.search(line)
+                    if not match:
+                        # Пробуем legacy формат: UNLOCKING hostname [TLS]
+                        match = legacy_unlock_pattern.search(line)
+                        ptype = match.group(2) if match and len(match.groups()) >= 2 else None
+                    else:
+                        ptype = None  # Новый формат без типа протокола
+
+                    # Также проверяем strategy_quality: RESET hostname
+                    if not match:
+                        match = reset_pattern.search(line)
+
                     if match:
                         host = match.group(1)
-                        ptype = match.group(2) if len(match.groups()) > 1 else None
 
-                        # Определяем протокол: сначала из тега, потом из current_proto
+                        # Определяем протокол: сначала из тега, потом из current_l7proto
                         if ptype:
                             ptype_upper = ptype.upper()
                             is_http = (ptype_upper == "HTTP")
                             is_udp = (ptype_upper == "UDP")
                         else:
-                            is_udp = (current_proto == "udp")
-                            is_http = (current_proto == "tcp" and current_port == "80")
+                            is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                            is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
 
                         # Для UDP: конвертируем IP в /16 подсеть
                         # Для TCP: применяем NLD-cut (googlevideo.com и т.д.)
@@ -1074,6 +1542,56 @@ class OrchestraRunner:
                             self.output_callback(msg)
                         continue
 
+                    # Проверяем APPLIED (реально применённая стратегия)
+                    # Пример: LUA: strategy-stats: APPLIED youtube.com = strategy 15 [circular_quality_1_1]
+                    match = applied_pattern.search(line)
+                    if match:
+                        host = match.group(1)
+                        strat = int(match.group(2))
+                        tag = match.group(3) or ""  # circular_quality_1_1
+
+                        # Нормализуем домен
+                        host_key = nld_cut(host, 2)
+
+                        # Определяем протокол из тега circular_quality_N_*
+                        proto_key = None
+                        m = re.match(r"circular_quality_(\d+)_", tag)
+                        if m:
+                            prof = int(m.group(1))
+                            if prof == 2:
+                                proto_key = "http"
+                            elif prof == 3:
+                                proto_key = "udp"
+                            else:
+                                proto_key = "tls"
+                        else:
+                            # fallback: по текущему протоколу
+                            proto_key = "udp" if current_proto == "udp" else ("http" if current_port == "80" else "tls")
+
+                        prev = last_applied.get((host_key, proto_key))
+                        last_applied[(host_key, proto_key)] = strat
+                        last_applied_host_by_proto[proto_key] = host_key
+
+                        # Поднимаем "контекст" для следующих std_success/std_rst
+                        current_host = host_key
+                        if proto_key == "udp":
+                            current_proto = "udp"
+                            current_port = None
+                        else:
+                            current_proto = "tcp"
+                            current_port = "80" if proto_key == "http" else "443"
+
+                        # Пишем только первый APPLIED и смену стратегии (минимум шума, максимум пользы)
+                        if prev is None or prev != strat:
+                            timestamp = datetime.now().strftime("%H:%M:%S")
+                            if prev is None:
+                                msg = f"[{timestamp}] 🎯 APPLIED: {host_key} [{proto_key}] = strategy {strat}"
+                            else:
+                                msg = f"[{timestamp}] 🔄 APPLIED: {host_key} [{proto_key}] {prev} → {strat}"
+                            if self.output_callback:
+                                self.output_callback(msg)
+                        continue
+
                     # Проверяем HISTORY (статистика стратегий)
                     match = history_pattern.search(line)
                     if match:
@@ -1098,20 +1616,35 @@ class OrchestraRunner:
                         self.save_history()
                         continue
 
-                    # Проверяем SUCCESS - обновляем историю в реальном времени
+                    # Проверяем SUCCESS - новый формат: strategy_quality: hostname strat=N SUCCESS X/Y
                     match = success_pattern.search(line)
                     if match:
-                        host, strat, ptype = match.groups()
-                        # Применяем NLD-cut для группировки
-                        host = nld_cut(host, 2)
+                        host, strat, successes, total = match.groups()
                         strat = int(strat)
+
+                        # Определяем протокол из current_l7proto (надежнее)
+                        is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                        is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
+
+                        # Для UDP: конвертируем IP в /16 подсеть
+                        # Для TCP: применяем NLD-cut для группировки
+                        if is_udp:
+                            host = ip_to_subnet16(host)
+                        else:
+                            host = nld_cut(host, 2)
+
                         self._increment_history(host, strat, is_success=True)
                         history_save_counter += 1
 
-                        # Выводим в UI с портом (HTTP=80, TLS=443)
+                        # Выводим в UI с протоколом
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        port = "80" if ptype == "HTTP" else "443"
-                        msg = f"[{timestamp}] ✓ SUCCESS: {host} :{port} strategy={strat}"
+                        if is_udp:
+                            port_str = " UDP"
+                        elif is_http:
+                            port_str = " :80"
+                        else:
+                            port_str = " :443"
+                        msg = f"[{timestamp}] ✓ SUCCESS: {host}{port_str} strategy={strat} ({successes}/{total})"
                         if self.output_callback:
                             self.output_callback(msg)
 
@@ -1121,30 +1654,35 @@ class OrchestraRunner:
                             history_save_counter = 0
                         continue
 
-                    # Проверяем FAIL - обновляем историю в реальном времени
+                    # Проверяем FAIL - новый формат: strategy_quality: hostname strat=N FAIL X/Y
                     match = fail_pattern.search(line)
                     if match:
-                        host, strat, ptype = match.groups()
-                        is_udp = (ptype == "UDP")
+                        host, strat, successes, total = match.groups()
+                        strat = int(strat)
+
+                        # Определяем протокол из current_l7proto (надежнее)
+                        is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                        is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
+
                         # Для UDP: конвертируем IP в /16 подсеть
                         # Для TCP: применяем NLD-cut для группировки
                         if is_udp:
                             host = ip_to_subnet16(host)
                         else:
                             host = nld_cut(host, 2)
-                        strat = int(strat)
+
                         self._increment_history(host, strat, is_success=False)
                         history_save_counter += 1
 
-                        # Выводим в UI с портом (HTTP=80, TLS=443, UDP)
+                        # Выводим в UI с протоколом
                         timestamp = datetime.now().strftime("%H:%M:%S")
                         if is_udp:
-                            port = "UDP"
-                        elif ptype == "HTTP":
-                            port = "80"
+                            port_str = " UDP"
+                        elif is_http:
+                            port_str = " :80"
                         else:
-                            port = "443"
-                        msg = f"[{timestamp}] ✗ FAIL: {host} :{port} strategy={strat}"
+                            port_str = " :443"
+                        msg = f"[{timestamp}] ✗ FAIL: {host}{port_str} strategy={strat} ({successes}/{total})"
                         if self.output_callback:
                             self.output_callback(msg)
 
@@ -1152,6 +1690,29 @@ class OrchestraRunner:
                         if history_save_counter >= 5:
                             self.save_history()
                             history_save_counter = 0
+                        continue
+
+                    # Проверяем LUA automate host record key (выводится перед SUCCESS для Keep-Alive)
+                    # TCP: LUA: automate: host record key 'autostate.circular_quality_1_1.github.com'
+                    # UDP: LUA: automate: host record key 'autostate.circular_quality_3_1.udp_other_108.177.0.0'
+                    match = automate_hostkey_pattern.search(line)
+                    if match:
+                        hostname = match.group(1)
+                        if hostname:
+                            # Для TCP: применяем nld_cut, для UDP (IP адрес) - НЕ перезаписываем current_host
+                            # т.к. он уже установлен из "desync profile search for udp" с полным IP
+                            if hostname.replace('.', '').replace(':', '').isdigit():
+                                # Это IP адрес (UDP) - НЕ перезаписываем current_host (он уже полный из udp_pattern)
+                                # automate hostkey для UDP содержит обрезанный /16 IP, игнорируем его
+                                pass
+                            else:
+                                # Это домен (TCP) - применяем nld_cut и обновляем current_host
+                                current_host = nld_cut(hostname, 2)
+                                # Сохраняем в кэш если есть current_ip
+                                if current_ip and not current_ip.startswith(LOCAL_IP_PREFIXES):
+                                    if current_ip not in ip_to_hostname_cache or ip_to_hostname_cache[current_ip] != current_host:
+                                        log(f"[AUTOMATE] Сохранен hostname {current_host} для IP {current_ip}", "DEBUG")
+                                    ip_to_hostname_cache[current_ip] = current_host
                         continue
 
                     # Проверяем успех от стандартного детектора (TCP) или automate (UDP)
@@ -1159,23 +1720,54 @@ class OrchestraRunner:
                     # UDP: "automate: success detected"
                     if std_success_pattern.search(line) or automate_success_pattern.search(line):
                         timestamp = datetime.now().strftime("%H:%M:%S")
+                        
+                        # Пытаемся восстановить hostname из кэша если current_host не установлен
+                        work_host = current_host
+                        if not work_host and current_ip and current_ip in ip_to_hostname_cache:
+                            work_host = ip_to_hostname_cache[current_ip]
+                            log(f"[CACHE] Восстановлен hostname {work_host} из кэша для IP {current_ip}", "DEBUG")
+                        
                         # Записываем success в историю если знаем хост и стратегию
-                        if current_host and current_strat:
-                            is_udp = (current_proto == "udp")
-                            is_http = (current_proto == "tcp" and current_port == "80")
+                        if work_host:
+                            # Определяем протокол по current_l7proto (надежнее чем current_proto)
+                            is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                            is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
 
-                            # Для UDP: конвертируем IP в /16 подсеть для группировки
+                            # Для UDP оставляем сырой IP (не режем /16), чтобы видеть конкретный адрес
                             # Для TCP: применяем NLD-cut
                             if is_udp:
-                                lock_host = ip_to_subnet16(current_host)
+                                lock_host = work_host  # raw IP
                             else:
-                                lock_host = nld_cut(current_host, 2)
+                                lock_host = nld_cut(work_host, 2)
 
-                            self._increment_history(lock_host, current_strat, is_success=True)
+                            display_host = work_host if is_udp else lock_host
+                            ipset_label = self._resolve_ipset_label(lock_host) if is_udp else None
+                            # Heuristic: Discord STUN (common ports)
+                            if is_udp and not ipset_label and current_l7proto and current_l7proto.lower() == "stun":
+                                if current_port:
+                                    try:
+                                        port_int = int(str(current_port))
+                                    except ValueError:
+                                        port_int = None
+                                    if port_int in (3478, 3479, 3480, 19302, 19303) or (50000 <= port_int <= 51000):
+                                        ipset_label = "discord-stun"
+
+                            # Берём реально применённую стратегию из APPLIED (иначе не логируем, чтобы не врать)
+                            proto_key = "udp" if is_udp else ("http" if is_http else "tls")
+                            applied_strat = last_applied.get((lock_host, proto_key))
+                            if not applied_strat:
+                                # Нет данных о применённой стратегии — пропускаем (иначе будет ложный strategy=1)
+                                continue
+
+                            # Если стратегия для домена заблокирована (в т.ч. дефолтно) — пропускаем учёт и лог
+                            if self.is_strategy_blocked(lock_host, applied_strat):
+                                continue
+
+                            self._increment_history(lock_host, applied_strat, is_success=True)
                             history_save_counter += 1
 
                             # Считаем количество успехов для LOCK
-                            host_key = f"{lock_host}:{current_strat}"
+                            host_key = f"{lock_host}:{applied_strat}"
                             if not hasattr(self, '_success_counts'):
                                 self._success_counts = {}
                             self._success_counts[host_key] = self._success_counts.get(host_key, 0) + 1
@@ -1184,34 +1776,47 @@ class OrchestraRunner:
                             # UDP соединения короткие, нужно запоминать быстро
                             lock_threshold = 1 if is_udp else 3
                             if self._success_counts[host_key] >= lock_threshold:
-                                # Выбираем правильный словарь: UDP, HTTP или TLS
-                                if is_udp:
-                                    target_dict = self.udp_locked_strategies
-                                elif is_http:
-                                    target_dict = self.http_locked_strategies
-                                else:
-                                    target_dict = self.locked_strategies
-
-                                if lock_host not in target_dict:
-                                    target_dict[lock_host] = current_strat
-                                    # Определяем тип для лога
+                                # Пропускаем заблокированные стратегии (не лочим их)
+                                if not self.is_strategy_blocked(lock_host, applied_strat):
+                                    # Выбираем правильный словарь: UDP, HTTP или TLS
                                     if is_udp:
-                                        if current_l7proto and current_l7proto.lower() in ('stun', 'discord', 'wireguard', 'quic', 'dht'):
-                                            port_str = f" {current_l7proto.upper()}"
-                                        else:
-                                            port_str = " UDP"
+                                        target_dict = self.udp_locked_strategies
                                     elif is_http:
-                                        port_str = ":80"
+                                        target_dict = self.http_locked_strategies
                                     else:
-                                        port_str = ":443"
-                                    msg = f"[{timestamp}] 🔒 LOCKED: {lock_host}{port_str} = strategy {current_strat}"
-                                    log(msg, "INFO")
-                                    if self.output_callback:
-                                        self.output_callback(msg)
-                                    # Сохраняем стратегии и историю в реестр
-                                    self.save_strategies()
-                                    self.save_history()
-                                    history_save_counter = 0  # Сбрасываем счётчик т.к. только что сохранили
+                                        target_dict = self.locked_strategies
+
+                                    prev_lock = target_dict.get(lock_host)
+                                    
+                                    # Логируем LOCK только если это первый раз или смена стратегии
+                                    if prev_lock is None or prev_lock != applied_strat:
+                                        target_dict[lock_host] = applied_strat  # Сохраняем новый lock
+
+                                        # Определяем тип для лога
+                                        if is_udp:
+                                            if current_l7proto and current_l7proto.lower() in ('stun', 'discord', 'wireguard', 'quic', 'dht'):
+                                                port_str = f" {current_l7proto.upper()}"
+                                            else:
+                                                port_str = " UDP"
+                                        elif is_http:
+                                            port_str = ":80"
+                                        else:
+                                            port_str = ":443"
+                                        proto_tag = ""
+                                        if is_udp:
+                                            proto_tag = f" [{current_l7proto.upper()}]" if current_l7proto else " [UDP]"
+                                        label_str = f" [{ipset_label}]" if ipset_label else ""
+                                        if prev_lock is not None:
+                                            msg = f"[{timestamp}] 🔒 LOCKED: {display_host}{port_str}{label_str}{proto_tag} {prev_lock} → {applied_strat}"
+                                        else:
+                                            msg = f"[{timestamp}] 🔒 LOCKED: {display_host}{port_str}{label_str}{proto_tag} = strategy {applied_strat}"
+                                        log(msg, "INFO")
+                                        if self.output_callback:
+                                            self.output_callback(msg)
+                                        # Сохраняем стратегии и историю в реестр
+                                        self.save_strategies()
+                                        self.save_history()
+                                        history_save_counter = 0  # Сбрасываем счётчик т.к. только что сохранили
 
                             # Определяем тип для лога SUCCESS
                             if is_udp:
@@ -1223,7 +1828,9 @@ class OrchestraRunner:
                                 port_str = " :80"
                             else:
                                 port_str = " :443"
-                            msg = f"[{timestamp}] ✓ SUCCESS: {current_host}{port_str} strategy={current_strat}"
+                            label_str = f" [{ipset_label}]" if ipset_label else ""
+                            proto_tag = f" [{current_l7proto.upper()}]" if (is_udp and current_l7proto) else (" [UDP]" if is_udp else "")
+                            msg = f"[{timestamp}] ✓ SUCCESS: {display_host}{port_str}{label_str}{proto_tag} strategy={applied_strat}"
                             if self.output_callback:
                                 self.output_callback(msg)
                         # Не показываем "Connection successful" без хоста - это спам
@@ -1237,7 +1844,46 @@ class OrchestraRunner:
                     # Проверяем RST от стандартного детектора
                     if std_rst_pattern.search(line):
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] ⚡ RST detected - DPI block"
+                        # Пытаемся определить домен и реально применённую стратегию
+                        # Используем current_l7proto для надежного определения (он парсится из dpi desync)
+                        is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                        is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
+                        proto_key = "udp" if is_udp else ("http" if is_http else "tls")
+
+                        host_key = None
+                        if current_host:
+                            host_key = current_host if is_udp else nld_cut(current_host, 2)
+                        elif current_ip and current_ip in ip_to_hostname_cache:
+                            # Пытаемся восстановить hostname из кэша по IP
+                            cached_host = ip_to_hostname_cache[current_ip]
+                            host_key = cached_host if is_udp else nld_cut(cached_host, 2)
+                            log(f"[CACHE] RST: Восстановлен hostname {cached_host} из кэша для IP {current_ip}", "DEBUG")
+                        else:
+                            host_key = last_applied_host_by_proto.get(proto_key)
+
+                        applied_strat = last_applied.get((host_key, proto_key)) if host_key else None
+
+                        if is_udp:
+                            port_str = " UDP"
+                        elif is_http:
+                            port_str = " :80"
+                        else:
+                            port_str = " :443"
+
+                        label_str = ""
+                        proto_tag = ""
+                        if is_udp:
+                            label = self._resolve_ipset_label(host_key) if host_key else None
+                            if label:
+                                label_str = f" [{label}]"
+                            proto_tag = f" [{current_l7proto.upper()}]" if current_l7proto else " [UDP]"
+
+                        if host_key and applied_strat:
+                            msg = f"[{timestamp}] ⚡ RST detected: {host_key}{port_str}{label_str}{proto_tag} strategy={applied_strat}"
+                        elif host_key:
+                            msg = f"[{timestamp}] ⚡ RST detected: {host_key}{port_str}{label_str}{proto_tag}"
+                        else:
+                            msg = f"[{timestamp}] ⚡ RST detected - DPI block"
                         if self.output_callback:
                             self.output_callback(msg)
                         continue
@@ -1245,12 +1891,34 @@ class OrchestraRunner:
                     # DUPLICATE REMOVED: std_success_pattern handler was here
                     # The correct handler is at lines 877-914 which saves to registry
 
-                    # Проверяем ротацию стратегии - показываем только если есть хост
+                    # Проверяем ротацию стратегии
                     match = rotate_pattern.search(line)
-                    if match and current_host:
+                    if match:
                         new_strat = match.group(1)
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        msg = f"[{timestamp}] 🔄 Strategy rotated to {new_strat} ({current_host})"
+
+                        # Пытаемся определить хост для читаемого лога
+                        host_for_log = current_host
+                        # Определяем протокол для выбора host из last_applied_host_by_proto
+                        is_udp = (current_l7proto and current_l7proto.lower() in ('discord', 'stun', 'quic', 'wireguard', 'dht', 'unknown')) and current_proto == "udp"
+                        is_http = (current_l7proto == 'http') or (current_proto == "tcp" and current_port == "80")
+                        proto_key = "udp" if is_udp else ("http" if is_http else "tls")
+
+                        if not host_for_log:
+                            host_for_log = last_applied_host_by_proto.get(proto_key)
+                        if not host_for_log and current_ip and current_ip in ip_to_hostname_cache:
+                            host_for_log = ip_to_hostname_cache[current_ip]
+
+                        # Обновляем last_applied, чтобы SUCCESS писал актуальную стратегию
+                        if host_for_log:
+                            last_applied[(host_for_log, proto_key)] = int(new_strat)
+                            last_applied_host_by_proto[proto_key] = host_for_log
+
+                        if host_for_log:
+                            msg = f"[{timestamp}] 🔄 Strategy rotated to {new_strat} ({host_for_log})"
+                        else:
+                            msg = f"[{timestamp}] 🔄 Strategy rotated to {new_strat}"
+
                         if self.output_callback:
                             self.output_callback(msg)
                         continue
@@ -1357,7 +2025,14 @@ class OrchestraRunner:
         # Генерируем whitelist.txt
         self._generate_whitelist_file()
 
+        # Генерируем circular-config.txt с абсолютными путями
+        self._generate_circular_config()
+
         log("Оркестратор готов к запуску", "INFO")
+        log("ℹ️ Оркестратор видит только НОВЫЕ соединения. Для тестирования:", "INFO")
+        log("   • Перезапустите браузер или откройте приватное окно", "INFO")
+        log("   • Очистите кэш (Ctrl+Shift+Del)", "INFO")
+        log("   • Принудительная перезагрузка (Ctrl+F5)", "INFO")
         return True
 
     def start(self) -> bool:
@@ -1423,6 +2098,7 @@ class OrchestraRunner:
             if total_locked:
                 log_msg += f" ({total_locked} стратегий из реестра)"
             log(log_msg, "INFO")
+            log(f"Командная строка: {' '.join(cmd)}", "DEBUG")
 
             self.running_process = subprocess.Popen(
                 cmd,
@@ -1561,6 +2237,9 @@ class OrchestraRunner:
         # Загружаем актуальные данные если еще не загружены
         if not self.locked_strategies and not self.http_locked_strategies and not self.udp_locked_strategies:
             self.load_existing_strategies()
+        # Загружаем blocked strategies если не загружены (для UI черного списка)
+        if not self.blocked_strategies:
+            self.load_blocked_strategies()
 
         # Подготавливаем историю с рейтингами
         history_with_rates = {}
@@ -1586,40 +2265,62 @@ class OrchestraRunner:
 
     # ==================== WHITELIST METHODS ====================
 
-    def load_whitelist(self) -> list:
-        """Загружает пользовательский whitelist из реестра"""
+    def load_whitelist(self) -> set:
+        """Загружает whitelist из реестра + добавляет системные домены"""
+        # 1. Очищаем
         self.user_whitelist = []
+        self.whitelist = set()
+        
+        # 2. Добавляем системные (DEFAULT_WHITELIST_DOMAINS)
+        self.whitelist.update(DEFAULT_WHITELIST_DOMAINS)
+        default_count = len(DEFAULT_WHITELIST_DOMAINS)
+        
+        # 3. Загружаем пользовательские из реестра
         try:
             data = reg(REGISTRY_ORCHESTRA, "Whitelist")
             if data:
                 self.user_whitelist = json.loads(data)
-                log(f"Загружено {len(self.user_whitelist)} пользовательских доменов в whitelist", "DEBUG")
+                # Добавляем в объединённый whitelist
+                self.whitelist.update(self.user_whitelist)
+                log(f"Загружен whitelist: {default_count} системных + {len(self.user_whitelist)} пользовательских", "DEBUG")
+            else:
+                log(f"Загружен whitelist: {default_count} системных доменов", "DEBUG")
         except Exception as e:
             log(f"Ошибка загрузки whitelist: {e}", "DEBUG")
-        return self.user_whitelist
+        
+        return self.whitelist
 
     def save_whitelist(self):
         """Сохраняет пользовательский whitelist в реестр"""
         try:
             data = json.dumps(self.user_whitelist, ensure_ascii=False)
             reg(REGISTRY_ORCHESTRA, "Whitelist", data)
-            log(f"Сохранено {len(self.user_whitelist)} доменов в whitelist", "DEBUG")
+            log(f"Сохранено {len(self.user_whitelist)} пользовательских доменов в whitelist", "DEBUG")
         except Exception as e:
             log(f"Ошибка сохранения whitelist: {e}", "ERROR")
 
-    def get_full_whitelist(self) -> dict:
-        """
-        Возвращает полный whitelist (default + user) для UI.
+    def is_default_whitelist_domain(self, domain: str) -> bool:
+        """Проверяет, является ли домен системным (нельзя удалить)"""
+        return _is_default_whitelist_domain(domain)
 
-        Returns:
-            {'default': [...], 'user': [...]}
+    def get_whitelist(self) -> list:
         """
-        if not self.user_whitelist:
+        Возвращает полный whitelist (default + user) с пометками о типе.
+        
+        Returns:
+            [{'domain': 'vk.com', 'is_default': True}, ...]
+        """
+        # Загружаем если ещё не загружен
+        if not self.whitelist:
             self.load_whitelist()
-        return {
-            'default': list(DEFAULT_WHITELIST),
-            'user': list(self.user_whitelist)
-        }
+        
+        result = []
+        for domain in sorted(self.whitelist):
+            result.append({
+                'domain': domain,
+                'is_default': self.is_default_whitelist_domain(domain)
+            })
+        return result
 
     def add_to_whitelist(self, domain: str) -> bool:
         """Добавляет домен в пользовательский whitelist"""
@@ -1627,53 +2328,502 @@ class OrchestraRunner:
         if not domain:
             return False
 
-        # Проверяем что не в default списке
-        if domain in DEFAULT_WHITELIST:
-            log(f"Домен {domain} уже в базовом whitelist", "DEBUG")
+        # Загружаем текущий whitelist если ещё не загружен
+        if not self.whitelist:
+            self.load_whitelist()
+
+        # Проверяем что не в системном списке
+        if self.is_default_whitelist_domain(domain):
+            log(f"Домен {domain} уже в системном whitelist", "DEBUG")
             return False
 
-        if domain not in self.user_whitelist:
-            self.user_whitelist.append(domain)
-            self.save_whitelist()
-            log(f"Добавлен в whitelist: {domain}", "INFO")
-            return True
-        return False
+        # Проверяем что ещё не добавлен пользователем
+        if domain in self.user_whitelist:
+            log(f"Домен {domain} уже в пользовательском whitelist", "DEBUG")
+            return False
+
+        # Добавляем
+        self.user_whitelist.append(domain)
+        self.whitelist.add(domain)
+        self.save_whitelist()
+        # Регенерируем whitelist.txt чтобы он был актуален при следующем запуске
+        self._generate_whitelist_file()
+        log(f"Добавлен в whitelist: {domain}", "INFO")
+        return True
 
     def remove_from_whitelist(self, domain: str) -> bool:
         """Удаляет домен из пользовательского whitelist"""
         domain = domain.strip().lower()
 
-        # Нельзя удалить из default списка
-        if domain in DEFAULT_WHITELIST:
-            log(f"Нельзя удалить {domain} из базового whitelist", "WARNING")
+        # Загружаем текущий whitelist если ещё не загружен
+        if not self.whitelist:
+            self.load_whitelist()
+
+        # Нельзя удалить системный домен
+        if self.is_default_whitelist_domain(domain):
+            log(f"Нельзя удалить {domain} из системного whitelist", "WARNING")
             return False
 
-        if domain in self.user_whitelist:
-            self.user_whitelist.remove(domain)
-            self.save_whitelist()
-            log(f"Удалён из whitelist: {domain}", "INFO")
+        # Проверяем что домен действительно добавлен пользователем
+        if domain not in self.user_whitelist:
+            log(f"Домен {domain} не найден в пользовательском whitelist", "DEBUG")
+            return False
+
+        # Удаляем
+        self.user_whitelist.remove(domain)
+        self.whitelist.discard(domain)
+        self.save_whitelist()
+        # Регенерируем whitelist.txt
+        self._generate_whitelist_file()
+        log(f"Удалён из whitelist: {domain}", "INFO")
+        return True
+
+    def _load_ipset_networks(self):
+        """
+        Загружает ipset подсети для определения игр/сервисов по IP (UDP/QUIC).
+        Читает все ipset-*.txt и my-ipset.txt из папки lists.
+        """
+        if self.ipset_networks:
+            return
+        try:
+            ipset_files = glob.glob(os.path.join(LISTS_FOLDER, "ipset-*.txt"))
+            # Добавляем пользовательский ipset
+            ipset_files.append(os.path.join(LISTS_FOLDER, "my-ipset.txt"))
+
+            networks: list[tuple[ipaddress._BaseNetwork, str]] = []
+            for path in ipset_files:
+                if not os.path.exists(path):
+                    continue
+                base = os.path.basename(path)
+                label = os.path.splitext(base)[0]
+                if label.startswith("ipset-"):
+                    label = label[len("ipset-"):]
+                elif label == "my-ipset":
+                    label = "my-ipset"
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            try:
+                                net = ipaddress.ip_network(line, strict=False)
+                                networks.append((net, label))
+                            except ValueError:
+                                continue
+                except Exception as e:
+                    log(f"Ошибка чтения {path}: {e}", "DEBUG")
+
+            self.ipset_networks = networks
+            if networks:
+                log(f"Загружено {len(networks)} ipset подсетей ({len(ipset_files)} файлов)", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка загрузки ipset подсетей: {e}", "DEBUG")
+
+    def _resolve_ipset_label(self, ip: str) -> Optional[str]:
+        """Возвращает имя ipset файла по IP, если найдено соответствие подсети."""
+        if not ip or not self.ipset_networks:
+            return None
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            return None
+        for net, label in self.ipset_networks:
+            if ip_obj in net:
+                return label
+        return None
+
+    def _generate_circular_config(self) -> bool:
+        """Генерирует circular-config.txt с абсолютными путями к файлам стратегий"""
+        try:
+            # Загружаем ipset подсети (для отображения игр/сервисов по IP в UDP логах)
+            self._load_ipset_networks()
+
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                f.write("--wf-tcp-out=80,443-65535\n")
+                f.write("--wf-tcp-in=80,443-65535\n")
+                # ВАЖНО: без явного UDP-фильтра WinDivert не ловит QUIC/STUN/WireGuard
+                f.write("--wf-udp-out=1-65535\n")
+                f.write("--wf-udp-in=1-65535\n")
+                f.write("--wf-raw-part=@windivert.filter/windivert_part.stun_bidirectional.txt\n")
+                f.write("--wf-raw-part=@windivert.filter/windivert_part.discord_bidirectional.txt\n")
+                f.write("--wf-raw-part=@windivert.filter/windivert_part.quic_bidirectional.txt\n")
+                f.write("--wf-raw-part=@windivert.filter/windivert_part.games_udp_bidirectional.txt\n")
+                f.write("\n")
+                f.write("--lua-init=@lua/zapret-lib.lua\n")
+                f.write("--lua-init=@lua/zapret-antidpi.lua\n")
+                f.write("--lua-init=@lua/zapret-auto.lua\n")
+                f.write("--lua-init=@lua/custom_funcs.lua\n")
+                f.write("--lua-init=@lua/silent-drop-detector.lua\n")
+                f.write("--lua-init=@lua/strategy-stats.lua\n")
+                f.write("--lua-init=@lua/combined-detector.lua\n")
+                f.write("@lua/blobs.txt\n")
+                f.write("\n")
+                
+                # Profile 1: TLS 443
+                f.write("# Profile 1: TLS 443\n")
+                f.write("--filter-tcp=443\n")
+                f.write("--hostlist-exclude=lua/whitelist.txt\n")
+                f.write("--in-range=-d1000\n")
+                f.write("--out-range=-d1000\n")
+                f.write("--lua-desync=circular_quality:fails=1:failure_detector=combined_failure_detector:success_detector=combined_success_detector:lock_successes=3:lock_tests=5:lock_rate=0.6:inseq=0x1000:nld=2\n")
+                # НЕ отключаем входящий трафик - нужен для детектора успеха!
+                # --in-range=x отключает входящий для всех стратегий
+                # Вместо этого ограничим через -d для экономии CPU
+                f.write("--in-range=-d1000\n")
+                f.write("--out-range=-d1000\n")
+                f.write("--payload=tls_client_hello\n")
+                
+                # Встраиваем TLS стратегии из файла
+                if os.path.exists(self.strategies_path):
+                    with open(self.strategies_path, 'r', encoding='utf-8') as strat_file:
+                        for line in strat_file:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                f.write(line + "\n")
+                
+                f.write("\n")
+                
+                # Profile 2: HTTP 80
+                f.write("# Profile 2: HTTP 80\n")
+                f.write("--new\n")
+                f.write("--filter-tcp=80\n")
+                f.write("--hostlist-exclude=lua/whitelist.txt\n")
+                f.write("--in-range=-d1000\n")
+                f.write("--out-range=-d1000\n")
+                f.write("--lua-desync=circular_quality:fails=1:failure_detector=combined_failure_detector:success_detector=combined_success_detector:lock_successes=3:lock_tests=5:lock_rate=0.6:inseq=0x1000:nld=2\n")
+                # НЕ отключаем входящий трафик - нужен для детектора успеха!
+                f.write("--in-range=-d1000\n")
+                f.write("--out-range=-d1000\n")
+                f.write("--payload=http_req\n")
+                
+                # Встраиваем HTTP стратегии из файла
+                if os.path.exists(self.http_strategies_path):
+                    with open(self.http_strategies_path, 'r', encoding='utf-8') as strat_file:
+                        for line in strat_file:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                f.write(line + "\n")
+                
+                f.write("\n")
+                
+                # Profile 3: UDP
+                f.write("# Profile 3: UDP (QUIC, STUN, Discord, WireGuard, Games)\n")
+                f.write("--new\n")
+                f.write("--filter-udp=443-65535\n")
+                f.write("--payload=all\n")
+                f.write("--in-range=-d100\n")
+                f.write("--out-range=-d100\n")
+                f.write("--lua-desync=circular_quality:fails=3:hostkey=udp_global_hostkey:failure_detector=udp_aggressive_failure_detector:success_detector=udp_protocol_success_detector:lock_successes=2:lock_tests=4:lock_rate=0.5:udp_fail_out=3:udp_fail_in=0:udp_in=1:nld=2\n")
+                f.write("--in-range=-d100\n")
+                f.write("--out-range=-d100\n")
+                f.write("--payload=all\n")
+                
+                # Встраиваем UDP стратегии из файла
+                if os.path.exists(self.udp_strategies_path):
+                    with open(self.udp_strategies_path, 'r', encoding='utf-8') as strat_file:
+                        for line in strat_file:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                f.write(line + "\n")
+                
+                f.write("\n")
+                f.write("--debug=1\n")
+            
+            log(f"Сгенерирован circular-config.txt", "DEBUG")
             return True
-        return False
+            
+        except Exception as e:
+            log(f"Ошибка генерации circular-config.txt: {e}", "ERROR")
+            return False
 
     def _generate_whitelist_file(self) -> bool:
         """Генерирует файл whitelist.txt для winws2 --hostlist-exclude"""
         try:
-            # Загружаем user whitelist если нужно
-            if not self.user_whitelist:
+            # Загружаем whitelist если нужно
+            if not self.whitelist:
                 self.load_whitelist()
-
-            # Объединяем default + user
-            all_domains = set(DEFAULT_WHITELIST) | set(self.user_whitelist)
 
             with open(self.whitelist_path, 'w', encoding='utf-8') as f:
                 f.write("# Orchestra whitelist - exclude these domains from DPI bypass\n")
-                f.write("# Default domains (from Python code) + User domains (from registry)\n\n")
-                for domain in sorted(all_domains):
+                f.write("# System domains (built-in) + User domains (from registry)\n\n")
+                for domain in sorted(self.whitelist):
                     f.write(f"{domain}\n")
 
-            log(f"Сгенерирован whitelist.txt ({len(all_domains)} доменов)", "DEBUG")
+            system_count = len(DEFAULT_WHITELIST_DOMAINS)
+            user_count = len(self.user_whitelist)
+            log(f"Сгенерирован whitelist.txt ({system_count} системных + {user_count} пользовательских = {len(self.whitelist)} всего)", "DEBUG")
             return True
 
         except Exception as e:
             log(f"Ошибка генерации whitelist: {e}", "ERROR")
             return False
+
+    # ==================== BLOCKED STRATEGIES METHODS ====================
+
+    def load_blocked_strategies(self):
+        """Загружает заблокированные стратегии из реестра + дефолтные блокировки s1"""
+        self.blocked_strategies = {}
+        
+        # 1. Добавляем дефолтные блокировки: strategy=1 для DEFAULT_BLOCKED_PASS_DOMAINS
+        for domain in DEFAULT_BLOCKED_PASS_DOMAINS:
+            self.blocked_strategies[domain] = [1]
+        default_count = len(DEFAULT_BLOCKED_PASS_DOMAINS)
+        
+        # 2. Загружаем пользовательские блокировки из реестра (мержим с дефолтными)
+        try:
+            data = reg_enumerate_values(REGISTRY_ORCHESTRA_BLOCKED)
+            for hostname, json_str in data.items():
+                try:
+                    strategies = json.loads(json_str)
+                    if isinstance(strategies, list) and strategies:
+                        user_blocked = [int(s) for s in strategies]
+                        # Мержим с существующими (дефолтными)
+                        if hostname in self.blocked_strategies:
+                            existing = set(self.blocked_strategies[hostname])
+                            existing.update(user_blocked)
+                            self.blocked_strategies[hostname] = list(existing)
+                        else:
+                            self.blocked_strategies[hostname] = user_blocked
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+            user_count = sum(len(s) for s in self.blocked_strategies.values()) - default_count
+            if user_count > 0:
+                log(f"Загружено {user_count} пользовательских блокировок + {default_count} дефолтных (s1 для заблокированных сайтов)", "DEBUG")
+            else:
+                log(f"Загружено {default_count} дефолтных блокировок (s1 для заблокированных сайтов)", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка загрузки blocked strategies: {e}", "DEBUG")
+
+    def save_blocked_strategies(self):
+        """Сохраняет заблокированные стратегии в реестр (только пользовательские)"""
+        try:
+            # Сначала очищаем старые значения
+            reg_delete_all_values(REGISTRY_ORCHESTRA_BLOCKED)
+
+            # Сохраняем ТОЛЬКО пользовательские (исключаем дефолтные)
+            saved_count = 0
+            for hostname, strategies in self.blocked_strategies.items():
+                # Фильтруем только пользовательские блокировки
+                user_strategies = [s for s in strategies if not self.is_default_blocked(hostname, s)]
+                
+                if user_strategies:
+                    json_str = json.dumps(user_strategies)
+                    reg(REGISTRY_ORCHESTRA_BLOCKED, hostname, json_str)
+                    saved_count += len(user_strategies)
+
+            log(f"Сохранено {saved_count} пользовательских заблокированных стратегий", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка сохранения blocked strategies: {e}", "ERROR")
+
+    def get_blocked_strategies(self, hostname: str) -> List[int]:
+        """
+        Возвращает список заблокированных стратегий для домена.
+
+        Args:
+            hostname: Имя домена или IP
+
+        Returns:
+            Список номеров заблокированных стратегий
+        """
+        return self.blocked_strategies.get(hostname.lower(), [])
+
+    def is_strategy_blocked(self, hostname: str, strategy: int) -> bool:
+        """
+        Проверяет, заблокирована ли стратегия для домена.
+
+        Args:
+            hostname: Имя домена или IP
+            strategy: Номер стратегии
+
+        Returns:
+            True если стратегия заблокирована
+        """
+        if not hostname:
+            return False
+        hostname = hostname.lower()
+        
+        # Прямая проверка в blocked_strategies
+        blocked = self.blocked_strategies.get(hostname, [])
+        if strategy in blocked:
+            return True
+        
+        # Для strategy=1 проверяем субдомены дефолтных блокировок
+        # (cdn.youtube.com -> youtube.com заблокирован)
+        if strategy == 1 and _is_default_blocked_pass_domain(hostname):
+            return True
+        
+        return False
+
+    def block_strategy(self, hostname: str, strategy: int, proto: str = "tls"):
+        """
+        Блокирует стратегию для домена (добавляет в чёрный список).
+
+        Args:
+            hostname: Имя домена или IP
+            strategy: Номер стратегии
+            proto: Протокол (tls/http/udp) - для информации в логах
+        """
+        hostname = hostname.lower()
+
+        if hostname not in self.blocked_strategies:
+            self.blocked_strategies[hostname] = []
+
+        if strategy not in self.blocked_strategies[hostname]:
+            self.blocked_strategies[hostname].append(strategy)
+            self.blocked_strategies[hostname].sort()
+            self.save_blocked_strategies()
+            log(f"Заблокирована стратегия #{strategy} для {hostname} [{proto.upper()}]", "INFO")
+
+            if self.output_callback:
+                self.output_callback(f"[INFO] Заблокирована стратегия #{strategy} для {hostname}")
+
+    def is_default_blocked(self, hostname: str, strategy: int) -> bool:
+        """
+        Проверяет, является ли блокировка дефолтной (из DEFAULT_BLOCKED_PASS_DOMAINS).
+        Дефолтные блокировки нельзя удалить через GUI.
+
+        Args:
+            hostname: Имя домена или IP
+            strategy: Номер стратегии
+
+        Returns:
+            True если это дефолтная блокировка (strategy=1 для заблокированных сайтов)
+        """
+        if strategy != 1:
+            return False
+        return _is_default_blocked_pass_domain(hostname)
+
+    def unblock_strategy(self, hostname: str, strategy: int) -> bool:
+        """
+        Разблокирует стратегию для домена (удаляет из чёрного списка).
+        Дефолтные блокировки (s1 для youtube, google и т.д.) не удаляются.
+
+        Args:
+            hostname: Имя домена или IP
+            strategy: Номер стратегии
+
+        Returns:
+            True если разблокировка успешна, False если это дефолтная блокировка
+        """
+        hostname = hostname.lower()
+
+        # Проверяем, не дефолтная ли это блокировка
+        if self.is_default_blocked(hostname, strategy):
+            log(f"Нельзя разблокировать дефолтную блокировку: {hostname} strategy={strategy}", "WARNING")
+            return False
+
+        if hostname in self.blocked_strategies:
+            if strategy in self.blocked_strategies[hostname]:
+                self.blocked_strategies[hostname].remove(strategy)
+                
+                # Если остались только дефолтные блокировки - удаляем весь ключ из памяти
+                # (дефолтные будут добавлены заново при load_blocked_strategies)
+                user_strategies = [s for s in self.blocked_strategies[hostname] if not self.is_default_blocked(hostname, s)]
+                if not user_strategies:
+                    del self.blocked_strategies[hostname]
+                
+                self.save_blocked_strategies()
+                log(f"Разблокирована стратегия #{strategy} для {hostname}", "INFO")
+
+                if self.output_callback:
+                    self.output_callback(f"[INFO] Разблокирована стратегия #{strategy} для {hostname}")
+                return True
+        return False
+
+    def clear_blocked_strategies(self):
+        """
+        Очищает пользовательский чёрный список стратегий.
+        Дефолтные блокировки (s1 для youtube, google и т.д.) сохраняются.
+        """
+        # Считаем только пользовательские блокировки
+        user_count = 0
+        for hostname, strategies in list(self.blocked_strategies.items()):
+            for strategy in list(strategies):
+                if not self.is_default_blocked(hostname, strategy):
+                    user_count += 1
+
+        # Очищаем реестр (там только пользовательские)
+        reg_delete_all_values(REGISTRY_ORCHESTRA_BLOCKED)
+
+        # Перезагружаем blocked_strategies (останутся только дефолтные)
+        self.load_blocked_strategies()
+
+        log(f"Очищен пользовательский чёрный список ({user_count} записей)", "INFO")
+
+        if self.output_callback:
+            self.output_callback(f"[INFO] Очищен пользовательский чёрный список ({user_count} записей)")
+
+    # ==================== LOCK/UNLOCK STRATEGIES METHODS ====================
+
+    def lock_strategy(self, hostname: str, strategy: int, proto: str = "tls"):
+        """
+        Залочивает (фиксирует) стратегию для домена вручную.
+
+        Args:
+            hostname: Имя домена или IP
+            strategy: Номер стратегии
+            proto: Протокол (tls/http/udp)
+        """
+        hostname = hostname.lower()
+        proto = proto.lower()
+
+        # Выбираем нужный словарь и реестр
+        if proto == "http":
+            target_dict = self.http_locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_HTTP
+        elif proto == "udp":
+            target_dict = self.udp_locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_UDP
+        else:  # tls
+            target_dict = self.locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_TLS
+
+        # Сохраняем стратегию
+        target_dict[hostname] = strategy
+        reg(reg_path, hostname, strategy)
+
+        # Не инициализируем историю - пусть статистика наберётся сама
+        # при реальном использовании стратегии
+
+        log(f"Залочена стратегия #{strategy} для {hostname} [{proto.upper()}]", "INFO")
+
+        if self.output_callback:
+            self.output_callback(f"[INFO] 🔒 Залочена стратегия #{strategy} для {hostname} [{proto.upper()}]")
+
+    def unlock_strategy(self, hostname: str, proto: str = "tls"):
+        """
+        Разлочивает (снимает фиксацию) стратегию для домена.
+
+        Args:
+            hostname: Имя домена или IP
+            proto: Протокол (tls/http/udp)
+        """
+        hostname = hostname.lower()
+        proto = proto.lower()
+
+        # Выбираем нужный словарь и реестр
+        if proto == "http":
+            target_dict = self.http_locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_HTTP
+        elif proto == "udp":
+            target_dict = self.udp_locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_UDP
+        else:  # tls
+            target_dict = self.locked_strategies
+            reg_path = REGISTRY_ORCHESTRA_TLS
+
+        if hostname in target_dict:
+            old_strategy = target_dict[hostname]
+            del target_dict[hostname]
+            # Удаляем из реестра
+            try:
+                reg(reg_path, hostname, None)  # None = удалить значение
+            except Exception:
+                pass  # Может не существовать
+
+            log(f"Разлочена стратегия #{old_strategy} для {hostname} [{proto.upper()}]", "INFO")
+
+            if self.output_callback:
+                self.output_callback(f"[INFO] 🔓 Разлочена стратегия для {hostname} [{proto.upper()}] — начнётся переобучение")
