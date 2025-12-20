@@ -381,7 +381,7 @@ class EditorPage(BasePage):
     
     def _load_strategies(self):
         try:
-            from strategy_menu.strategies.strategy_loader import load_category_strategies
+            from strategy_menu.strategy_loader import load_category_strategies
             
             self.strategies = load_category_strategies(self.current_category)
             self._populate_list()
@@ -507,7 +507,7 @@ class EditorPage(BasePage):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                from strategy_menu.strategies.strategy_loader import delete_user_strategy
+                from strategy_menu.strategy_loader import delete_user_strategy
                 
                 success, error = delete_user_strategy(self.current_category, strategy_id)
                 
@@ -523,7 +523,7 @@ class EditorPage(BasePage):
     
     def _save_strategy(self, data: dict, is_new: bool):
         try:
-            from strategy_menu.strategies.strategy_loader import save_user_strategy
+            from strategy_menu.strategy_loader import save_user_strategy
             
             success, error = save_user_strategy(self.current_category, data)
             

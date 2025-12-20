@@ -103,7 +103,7 @@ import os
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
 from log import log
 from .strategies_registry import registry
-from .strategies.blobs import build_args_with_deduped_blobs
+from strategy_menu.blobs import build_args_with_deduped_blobs
 
 
 def calculate_required_filters(category_strategies: dict) -> dict:

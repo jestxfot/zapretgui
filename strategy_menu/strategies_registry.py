@@ -77,7 +77,7 @@ def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> 
         strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
     """
     try:
-        from .strategies.strategy_loader import load_strategies_as_dict
+        from strategy_menu.strategy_loader import load_strategies_as_dict
         strategies = load_strategies_as_dict(strategy_type, strategy_set)
         if strategies:
             set_name = strategy_set or "стандартный"
@@ -201,7 +201,7 @@ def _load_categories_from_json() -> Dict[str, CategoryInfo]:
         Словарь {category_key: CategoryInfo}
     """
     try:
-        from .strategies.strategy_loader import load_categories
+        from strategy_menu.strategy_loader import load_categories
         
         raw_categories = load_categories()
         result = {}

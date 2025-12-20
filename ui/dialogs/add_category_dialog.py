@@ -695,7 +695,7 @@ class AddCategoryDialog(QDialog):
         }
         
         try:
-            from strategy_menu.strategies.strategy_loader import save_user_category
+            from strategy_menu.strategy_loader import save_user_category
             from config import LISTS_FOLDER
             import os
             
@@ -741,7 +741,7 @@ class AddCategoryDialog(QDialog):
         key = self.key_input.text().strip()
         
         try:
-            from strategy_menu.strategies.strategy_loader import delete_user_category
+            from strategy_menu.strategy_loader import delete_user_category
             
             success, error = delete_user_category(key)
             
