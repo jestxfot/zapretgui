@@ -300,11 +300,12 @@ class OrchestraBlockedPage(BasePage):
         top_row.addWidget(self.unblock_all_btn)
         top_row.addStretch()
 
+        list_layout.addLayout(top_row)
+
+        # Счётчик на отдельной строке (чтобы влезал в таб)
         self.count_label = QLabel()
         self.count_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-        top_row.addWidget(self.count_label)
-
-        list_layout.addLayout(top_row)
+        list_layout.addWidget(self.count_label)
 
         # Подсказка
         hint_label = QLabel("ПКМ по пользовательской строке для разблокировки • Системные блокировки неизменяемы")
@@ -359,15 +360,15 @@ class OrchestraBlockedPage(BasePage):
         all_domains = []
         for domain, strats in learned.get('tls', {}).items():
             if strats:
-                blocked_list = runner.get_blocked_strategies(domain)
+                blocked_list = runner.blocked_manager.get_blocked(domain)
                 all_domains.append((domain, strats[0], 'tls', blocked_list))
         for domain, strats in learned.get('http', {}).items():
             if strats:
-                blocked_list = runner.get_blocked_strategies(domain)
+                blocked_list = runner.blocked_manager.get_blocked(domain)
                 all_domains.append((domain, strats[0], 'http', blocked_list))
         for ip, strats in learned.get('udp', {}).items():
             if strats:
-                blocked_list = runner.get_blocked_strategies(ip)
+                blocked_list = runner.blocked_manager.get_blocked(ip)
                 all_domains.append((ip, strats[0], 'udp', blocked_list))
 
         all_domains.sort(key=lambda x: x[0].lower())
@@ -381,9 +382,11 @@ class OrchestraBlockedPage(BasePage):
 
     def _refresh_blocked_list(self):
         """Обновляет список заблокированных стратегий"""
-        # Очищаем старые строки
-        for row in self._blocked_rows:
-            row.deleteLater()
+        # Очищаем ВСЕ виджеты из layout (строки, заголовки, разделители)
+        while self.blocked_rows_layout.count():
+            item = self.blocked_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         self._blocked_rows.clear()
 
         runner = self._get_runner()
@@ -395,7 +398,7 @@ class OrchestraBlockedPage(BasePage):
         all_blocked = []
         for hostname, strategies in runner.blocked_strategies.items():
             for strategy in strategies:
-                is_default = runner.is_default_blocked(hostname, strategy)
+                is_default = runner.blocked_manager.is_default_blocked(hostname, strategy)
                 all_blocked.append((hostname, strategy, is_default))
 
         # Сортируем: сначала пользовательские, потом дефолтные, внутри групп по алфавиту
@@ -448,9 +451,17 @@ class OrchestraBlockedPage(BasePage):
             return
 
         hostname, strategy = data
-        success = runner.unblock_strategy(hostname, strategy)
+        success = runner.blocked_manager.unblock(hostname, strategy)
         if success:
             log(f"Разблокирована стратегия #{strategy} для {hostname}", "INFO")
+            # Перезапускаем оркестратор чтобы применить изменения
+            if runner.is_running():
+                QMessageBox.information(
+                    self,
+                    "Перезапуск оркестратора",
+                    f"Стратегия #{strategy} разблокирована для {hostname}.\n\nОркестратор будет перезапущен для применения изменений."
+                )
+                runner.restart()
         self._refresh_data()
 
     def _update_count(self):
@@ -461,7 +472,7 @@ class OrchestraBlockedPage(BasePage):
             default_count = 0
             for hostname, strategies in runner.blocked_strategies.items():
                 for strategy in strategies:
-                    if runner.is_default_blocked(hostname, strategy):
+                    if runner.blocked_manager.is_default_blocked(hostname, strategy):
                         default_count += 1
                     else:
                         user_count += 1
@@ -504,9 +515,18 @@ class OrchestraBlockedPage(BasePage):
                 return
             domain, _, proto = data
 
-        runner.block_strategy(domain, strategy, proto)
+        runner.blocked_manager.block(domain, strategy, proto)
         log(f"Заблокирована стратегия #{strategy} для {domain} [{proto.upper()}]", "INFO")
         self._refresh_data()
+
+        # Перезапускаем оркестратор чтобы применить изменения
+        if runner.is_running():
+            QMessageBox.information(
+                self,
+                "Перезапуск оркестратора",
+                f"Стратегия #{strategy} заблокирована для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
+            )
+            runner.restart()
 
     def _unblock_all(self):
         """Очищает пользовательский чёрный список (системные блокировки остаются)"""
@@ -518,7 +538,7 @@ class OrchestraBlockedPage(BasePage):
         user_count = 0
         for hostname, strategies in runner.blocked_strategies.items():
             for strategy in strategies:
-                if not runner.is_default_blocked(hostname, strategy):
+                if not runner.blocked_manager.is_default_blocked(hostname, strategy):
                     user_count += 1
 
         if user_count == 0:
@@ -537,6 +557,15 @@ class OrchestraBlockedPage(BasePage):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            runner.clear_blocked_strategies()
+            runner.blocked_manager.clear()
+            runner.blocked_strategies = runner.blocked_manager.blocked_strategies
             log(f"Очищен пользовательский чёрный список ({user_count} записей)", "INFO")
             self._refresh_data()
+            # Перезапускаем оркестратор чтобы применить изменения
+            if runner.is_running():
+                QMessageBox.information(
+                    self,
+                    "Перезапуск оркестратора",
+                    "Чёрный список очищен.\n\nОркестратор будет перезапущен для применения изменений."
+                )
+                runner.restart()

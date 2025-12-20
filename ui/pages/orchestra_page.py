@@ -92,7 +92,7 @@ class OrchestraPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркестратор v0.9 (Alpha)",
+            "Оркестратор v0.9.2 (Alpha)",
             "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).\nЧтобы начать обучение зайдите на сайт и через несколько секунд обновите вкладку. Продолжайте это пока стратегия не будет помечена как LOCKED",
             parent
         )
@@ -367,18 +367,6 @@ class OrchestraPage(BasePage):
         log_history_card.add_layout(log_history_layout)
         self.layout.addWidget(log_history_card)
 
-        # === Обученные домены ===
-        domains_card = SettingsCard("Обученные домены")
-        domains_layout = QVBoxLayout()
-
-        self.domains_label = QLabel("Нет данных")
-        self.domains_label.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 12px;")
-        self.domains_label.setWordWrap(True)
-        domains_layout.addWidget(self.domains_label)
-
-        domains_card.add_layout(domains_layout)
-        self.layout.addWidget(domains_card)
-
         # Обновляем статус
         self._update_status(self.STATE_IDLE)
 
@@ -557,58 +545,9 @@ class OrchestraPage(BasePage):
         except Exception as e:
             log(f"Ошибка чтения обученных доменов: {e}", "DEBUG")
 
-    def _update_domains(self, data: dict):
-        """Обновляет список обученных доменов (TLS, HTTP, UDP) и историю с рейтингами"""
-        tls_data = data.get('tls', {})
-        http_data = data.get('http', {})
-        udp_data = data.get('udp', {})
-        history_data = data.get('history', {})
-        total_count = len(tls_data) + len(http_data) + len(udp_data)
-
-        # === Обновляем виджет обученных доменов ===
-        if total_count == 0:
-            self.domains_label.setText("Нет обученных доменов\n\nПри запуске оркестратор начнёт обучение и сохранит лучшие стратегии для каждого домена.")
-        else:
-            text = f"🔒 Обучено: {total_count}\n\n"
-
-            # TLS домены (порт 443)
-            if tls_data:
-                text += f"📦 TLS (443): {len(tls_data)}\n"
-                for domain, strats in sorted(tls_data.items()):
-                    strat_num = strats[0] if strats else "?"
-                    rate_str = ""
-                    if domain in history_data and strat_num in history_data[domain]:
-                        h = history_data[domain][strat_num]
-                        rate_str = f" ({h['rate']}%)"
-                    text += f"  • {domain} = #{strat_num}{rate_str}\n"
-
-            # HTTP домены (порт 80)
-            if http_data:
-                if tls_data:
-                    text += "\n"
-                text += f"🌐 HTTP (80): {len(http_data)}\n"
-                for domain, strats in sorted(http_data.items()):
-                    strat_num = strats[0] if strats else "?"
-                    rate_str = ""
-                    if domain in history_data and strat_num in history_data[domain]:
-                        h = history_data[domain][strat_num]
-                        rate_str = f" ({h['rate']}%)"
-                    text += f"  • {domain} = #{strat_num}{rate_str}\n"
-
-            # UDP IP адреса (QUIC, Discord Voice, STUN, WireGuard)
-            if udp_data:
-                if tls_data or http_data:
-                    text += "\n"
-                text += f"🎮 UDP (QUIC/Discord/STUN): {len(udp_data)}\n"
-                for ip, strats in sorted(udp_data.items()):
-                    strat_num = strats[0] if strats else "?"
-                    rate_str = ""
-                    if ip in history_data and strat_num in history_data[ip]:
-                        h = history_data[ip][strat_num]
-                        rate_str = f" ({h['rate']}%)"
-                    text += f"  • {ip} = #{strat_num}{rate_str}\n"
-
-            self.domains_label.setText(text)
+    def _update_domains(self, _data: dict):
+        """Данные обученных доменов теперь отображаются на вкладке Залоченное"""
+        pass  # Виджет перемещён в orchestra_locked_page.py
 
     def append_log(self, text: str):
         """Добавляет строку в лог"""
@@ -860,7 +799,7 @@ class OrchestraPage(BasePage):
             try:
                 app = self.window()
                 if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
-                    is_blocked = app.orchestra_runner.is_strategy_blocked(domain, strategy)
+                    is_blocked = app.orchestra_runner.blocked_manager.is_blocked(domain, strategy)
             except Exception:
                 pass
 
@@ -956,7 +895,7 @@ class OrchestraPage(BasePage):
             app = self.window()
             if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
                 runner = app.orchestra_runner
-                runner.lock_strategy(domain, strategy, protocol)
+                runner.locked_manager.lock(domain, strategy, protocol)
                 self.append_log(f"[INFO] 🔒 Залочена стратегия #{strategy} для {domain} [{protocol.upper()}]")
                 self._update_learned_domains()
             else:
@@ -975,9 +914,13 @@ class OrchestraPage(BasePage):
             app = self.window()
             if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
                 runner = app.orchestra_runner
-                runner.block_strategy(domain, strategy, protocol)
+                runner.blocked_manager.block(domain, strategy, protocol)
                 self.append_log(f"[INFO] 🚫 Заблокирована стратегия #{strategy} для {domain} [{protocol.upper()}]")
                 self._update_learned_domains()
+                # Перезапускаем оркестратор чтобы применить изменения
+                if runner.is_running():
+                    self.append_log("[INFO] Перезапуск оркестратора для применения блокировки...")
+                    runner.restart()
             else:
                 self.append_log("[ERROR] Оркестратор не инициализирован")
         except Exception as e:
@@ -990,9 +933,13 @@ class OrchestraPage(BasePage):
             app = self.window()
             if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
                 runner = app.orchestra_runner
-                runner.unblock_strategy(domain, strategy)
+                runner.blocked_manager.unblock(domain, strategy)
                 self.append_log(f"[INFO] ✅ Разблокирована стратегия #{strategy} для {domain} [{protocol.upper()}]")
                 self._update_learned_domains()
+                # Перезапускаем оркестратор чтобы применить изменения
+                if runner.is_running():
+                    self.append_log("[INFO] Перезапуск оркестратора для применения разблокировки...")
+                    runner.restart()
             else:
                 self.append_log("[ERROR] Оркестратор не инициализирован")
         except Exception as e:

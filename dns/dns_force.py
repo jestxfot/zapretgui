@@ -23,10 +23,10 @@ class DNSForceManager:
     FORCE_DNS_KEY = "ForceDNS"
     
     # DNS серверы
-    DNS_PRIMARY = "185.222.222.222"
-    DNS_SECONDARY = "208.67.222.222"
-    DNS_PRIMARY_V6 = "2a09::"
-    DNS_SECONDARY_V6 = "2620:119:35::35"
+    DNS_PRIMARY = "8.8.8.8"
+    DNS_SECONDARY = "8.8.4.4"
+    DNS_PRIMARY_V6 = "2001:4860:4860::8888"
+    DNS_SECONDARY_V6 = "2001:4860:4860::8844"
     
     def __init__(self, status_callback=None):
         self.status_callback = status_callback

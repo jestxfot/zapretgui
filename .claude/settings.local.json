@@ -23,7 +23,10 @@
       "Bash(curl:*)",
       "Bash(dir \"c:\\ProgramData\\ZapretTwoDev\\logs\\orchestra*.log\")",
       "Bash(dir c:ProgramDataZapretTwoDevlogs)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(claude update:*)",
+      "Bash(python -c:*)",
+      "Bash(ls:*)"
     ]
   }
 }

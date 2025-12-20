@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QMenu, QListWidget, QListWidgetItem,
-    QLineEdit, QSpinBox, QFrame, QMessageBox
+    QLineEdit, QSpinBox, QFrame, QMessageBox, QApplication
 )
 import qtawesome as qta
 
@@ -27,6 +27,11 @@ class OrchestraLockedPage(BasePage):
         )
         self.setObjectName("orchestraLockedPage")
         self._all_locked_data = []  # Кэш данных для фильтрации
+        # Инициализируем пустые данные (будут загружены при первом showEvent)
+        self._direct_locked = {}
+        self._direct_http_locked = {}
+        self._direct_udp_locked = {}
+        self._initial_load_done = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -203,6 +208,25 @@ class OrchestraLockedPage(BasePage):
         """)
         top_row.addWidget(self.search_input)
 
+        # Кнопка обновления списка из реестра
+        self.refresh_btn = QPushButton("Обновить")
+        self.refresh_btn.setIcon(qta.icon("mdi.refresh", color="#60cdff"))
+        self.refresh_btn.clicked.connect(self._reload_from_registry)
+        self.refresh_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(96, 205, 255, 0.15);
+                border: 1px solid rgba(96, 205, 255, 0.3);
+                border-radius: 6px;
+                color: #60cdff;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: rgba(96, 205, 255, 0.25);
+            }
+        """)
+        top_row.addWidget(self.refresh_btn)
+
         self.unlock_all_btn = QPushButton("Разлочить все")
         self.unlock_all_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="#ff9800"))
         self.unlock_all_btn.clicked.connect(self._unlock_all)
@@ -222,11 +246,12 @@ class OrchestraLockedPage(BasePage):
         top_row.addWidget(self.unlock_all_btn)
         top_row.addStretch()
 
+        list_layout.addLayout(top_row)
+
+        # Счётчик на отдельной строке (чтобы влезал в таб)
         self.count_label = QLabel()
         self.count_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-        top_row.addWidget(self.count_label)
-
-        list_layout.addLayout(top_row)
+        list_layout.addWidget(self.count_label)
 
         # Подсказка
         hint_label = QLabel("ПКМ по строке для действий")
@@ -269,9 +294,12 @@ class OrchestraLockedPage(BasePage):
         self.domain_combo.currentIndexChanged.connect(self._on_domain_changed)
 
     def showEvent(self, event):
-        """При показе страницы обновляем данные"""
+        """При показе страницы загружаем данные один раз (без авто-обновления)"""
         super().showEvent(event)
-        self._refresh_data()
+        # Загружаем данные только при первом показе
+        if not self._initial_load_done:
+            self._initial_load_done = True
+            self._reload_from_registry()
 
     def _get_runner(self):
         """Получает orchestra_runner из главного окна"""
@@ -281,9 +309,51 @@ class OrchestraLockedPage(BasePage):
         return None
 
     def _refresh_data(self):
-        """Обновляет все данные на странице"""
+        """Обновляет все данные на странице (из памяти)"""
         self._refresh_domain_combo()
         self._refresh_locked_list()
+
+    def _reload_from_registry(self):
+        """Перезагружает данные из реестра и обновляет список"""
+        # Визуальный фидбек
+        old_text = self.refresh_btn.text()
+        self.refresh_btn.setText("Загрузка...")
+        self.refresh_btn.setEnabled(False)
+        QApplication.processEvents()  # Обновить UI сразу
+
+        try:
+            runner = self._get_runner()
+            if runner and hasattr(runner, 'locked_manager'):
+                # Перезагружаем данные из реестра
+                runner.locked_manager.load()
+                # Синхронизируем ссылки в runner
+                runner.locked_strategies = runner.locked_manager.locked_strategies
+                runner.http_locked_strategies = runner.locked_manager.http_locked_strategies
+                runner.udp_locked_strategies = runner.locked_manager.udp_locked_strategies
+                log("Список залоченных перезагружен из реестра (runner)", "INFO")
+            else:
+                # Нет активного runner - загружаем напрямую из реестра
+                self._load_directly_from_registry()
+                log("Список залоченных перезагружен из реестра (direct)", "INFO")
+            # Обновляем UI
+            self._refresh_data()
+        finally:
+            # Восстанавливаем кнопку
+            self.refresh_btn.setText(old_text)
+            self.refresh_btn.setEnabled(True)
+
+    def _load_directly_from_registry(self):
+        """Загружает данные напрямую из реестра (без активного runner)"""
+        from orchestra.locked_strategies_manager import LockedStrategiesManager
+        # Создаём временный менеджер для загрузки данных
+        temp_manager = LockedStrategiesManager()
+        temp_manager.load()
+        # Сохраняем данные для отображения
+        self._direct_locked = temp_manager.locked_strategies.copy()
+        self._direct_http_locked = temp_manager.http_locked_strategies.copy()
+        self._direct_udp_locked = temp_manager.udp_locked_strategies.copy()
+        total = len(self._direct_locked) + len(self._direct_http_locked) + len(self._direct_udp_locked)
+        log(f"Загружено напрямую из реестра: {total} залоченных стратегий", "INFO")
 
     def _refresh_domain_combo(self):
         """Обновляет комбобокс с обученными доменами"""
@@ -322,16 +392,29 @@ class OrchestraLockedPage(BasePage):
         self._all_locked_data = []
 
         runner = self._get_runner()
-        if not runner:
-            self._update_count()
-            return
+
+        # Источник данных: runner или напрямую загруженные из реестра
+        if runner:
+            tls_data = runner.locked_strategies
+            http_data = runner.http_locked_strategies
+            udp_data = runner.udp_locked_strategies
+        elif hasattr(self, '_direct_locked'):
+            tls_data = self._direct_locked
+            http_data = self._direct_http_locked
+            udp_data = self._direct_udp_locked
+        else:
+            # Нет данных - попробуем загрузить
+            self._load_directly_from_registry()
+            tls_data = getattr(self, '_direct_locked', {})
+            http_data = getattr(self, '_direct_http_locked', {})
+            udp_data = getattr(self, '_direct_udp_locked', {})
 
         # Собираем все данные
-        for domain, strategy in runner.locked_strategies.items():
+        for domain, strategy in tls_data.items():
             self._all_locked_data.append((domain, strategy, "tls"))
-        for domain, strategy in runner.http_locked_strategies.items():
+        for domain, strategy in http_data.items():
             self._all_locked_data.append((domain, strategy, "http"))
-        for ip, strategy in runner.udp_locked_strategies.items():
+        for ip, strategy in udp_data.items():
             self._all_locked_data.append((ip, strategy, "udp"))
 
         self._all_locked_data.sort(key=lambda x: x[0].lower())
@@ -397,9 +480,17 @@ class OrchestraLockedPage(BasePage):
             return
 
         domain, strategy, proto = data
-        runner.unlock_strategy(domain, proto)
+        runner.locked_manager.unlock(domain, proto)
         log(f"Разлочена стратегия #{strategy} для {domain} [{proto.upper()}]", "INFO")
         self._refresh_data()
+        # Перезапускаем оркестратор чтобы сбросить hrec.nstrategy для этого домена
+        if runner.is_running():
+            QMessageBox.information(
+                self,
+                "Перезапуск оркестратора",
+                f"Стратегия #{strategy} разлочена для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
+            )
+            runner.restart()
 
     def _block_by_data(self, data):
         """Блокирует стратегию (добавляет в чёрный список)"""
@@ -409,22 +500,38 @@ class OrchestraLockedPage(BasePage):
 
         domain, strategy, proto = data
         # Сначала разлочиваем, потом блокируем
-        runner.unlock_strategy(domain, proto)
-        runner.block_strategy(domain, strategy, proto)
+        runner.locked_manager.unlock(domain, proto)
+        runner.blocked_manager.block(domain, strategy, proto)
         log(f"Заблокирована стратегия #{strategy} для {domain} [{proto.upper()}] — оркестратор найдёт другую", "INFO")
         self._refresh_data()
+        # Перезапускаем оркестратор чтобы применить блокировку
+        if runner.is_running():
+            QMessageBox.information(
+                self,
+                "Перезапуск оркестратора",
+                f"Стратегия #{strategy} заблокирована для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
+            )
+            runner.restart()
 
     def _update_count(self):
         """Обновляет счётчик"""
         runner = self._get_runner()
         if runner:
-            total = len(runner.locked_strategies) + len(runner.http_locked_strategies) + len(runner.udp_locked_strategies)
-            self.count_label.setText(
-                f"Всего залочено: {total} (TLS: {len(runner.locked_strategies)}, "
-                f"HTTP: {len(runner.http_locked_strategies)}, UDP: {len(runner.udp_locked_strategies)})"
-            )
+            tls_count = len(runner.locked_strategies)
+            http_count = len(runner.http_locked_strategies)
+            udp_count = len(runner.udp_locked_strategies)
+        elif hasattr(self, '_direct_locked'):
+            tls_count = len(self._direct_locked)
+            http_count = len(self._direct_http_locked)
+            udp_count = len(self._direct_udp_locked)
         else:
-            self.count_label.setText("Оркестратор не инициализирован")
+            self.count_label.setText("Нажмите 'Обновить' для загрузки данных")
+            return
+
+        total = tls_count + http_count + udp_count
+        self.count_label.setText(
+            f"Всего залочено: {total} (TLS: {tls_count}, HTTP: {http_count}, UDP: {udp_count})"
+        )
 
     def _on_domain_changed(self, index):
         """При смене домена обновляем номер стратегии"""
@@ -460,7 +567,7 @@ class OrchestraLockedPage(BasePage):
                 return
             domain, _, proto = data
 
-        runner.lock_strategy(domain, strategy, proto)
+        runner.locked_manager.lock(domain, strategy, proto)
         log(f"Залочена стратегия #{strategy} для {domain} [{proto.upper()}]", "INFO")
         self._refresh_data()
 
@@ -482,10 +589,18 @@ class OrchestraLockedPage(BasePage):
         )
         if reply == QMessageBox.StandardButton.Yes:
             for domain in list(runner.locked_strategies.keys()):
-                runner.unlock_strategy(domain, "tls")
+                runner.locked_manager.unlock(domain, "tls")
             for domain in list(runner.http_locked_strategies.keys()):
-                runner.unlock_strategy(domain, "http")
+                runner.locked_manager.unlock(domain, "http")
             for ip in list(runner.udp_locked_strategies.keys()):
-                runner.unlock_strategy(ip, "udp")
+                runner.locked_manager.unlock(ip, "udp")
             log(f"Разлочены все {total} стратегий", "INFO")
             self._refresh_data()
+            # Перезапускаем оркестратор чтобы сбросить все hrec.nstrategy
+            if runner.is_running():
+                QMessageBox.information(
+                    self,
+                    "Перезапуск оркестратора",
+                    f"Разлочены все {total} стратегий.\n\nОркестратор будет перезапущен для применения изменений."
+                )
+                runner.restart()

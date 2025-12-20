@@ -123,6 +123,9 @@ class DPIManager(QObject):
             if not hasattr(self.app, 'orchestra_runner'):
                 self.app.orchestra_runner = OrchestraRunner()
 
+            # Устанавливаем callback для авторестарта при Discord FAIL
+            self.app.orchestra_runner.restart_callback = self._on_discord_fail_restart
+
             # НЕ используем callback - UI обновляется через таймер (чтение лог-файла)
             # Это безопаснее, т.к. callback вызывается из reader thread
 
@@ -160,3 +163,30 @@ class DPIManager(QObject):
             self.app.set_status(f"❌ Ошибка: {e}")
             self._finish_splash("Ошибка", str(e))
             self._update_ui(running=False)
+
+    def _on_discord_fail_restart(self):
+        """Callback для перезапуска Discord при FAIL"""
+        try:
+            from PyQt6.QtCore import QTimer
+            log("🔄 Запланирован перезапуск Discord из-за FAIL", "WARNING")
+
+            # Используем QTimer для выполнения в главном потоке
+            QTimer.singleShot(500, self._do_discord_restart)
+
+        except Exception as e:
+            log(f"Ошибка планирования перезапуска Discord: {e}", "ERROR")
+
+    def _do_discord_restart(self):
+        """Выполняет перезапуск Discord"""
+        try:
+            log("🔄 Перезапуск Discord из-за FAIL...", "INFO")
+
+            if hasattr(self.app, 'discord_manager') and self.app.discord_manager:
+                self.app.discord_manager.restart_discord_if_running()
+            else:
+                log("discord_manager недоступен", "WARNING")
+
+        except Exception as e:
+            log(f"Ошибка перезапуска Discord: {e}", "ERROR")
+            if hasattr(self.app, 'set_status'):
+                self.app.set_status("⚠️ Не удалось перезапустить Discord")

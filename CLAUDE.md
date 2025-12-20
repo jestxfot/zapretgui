@@ -8,6 +8,34 @@ Zapret GUI is a Windows desktop application for bypassing DPI (Deep Packet Inspe
 
 Документация по Zapret 2 находится здесь F:\doc\zapret2
 
+Помни, что у тебя есть подагент nfq2-lua-orchestrator для создания Lua и Python файлов в режике direct_orchestra. Используй его.
+
+Ты зависаешь если слишком много за раз редактируешь код. Делай маленькие изменения, по одной функции, перед любыми изменения создавай todo списки чтобы ничего не забывать. Диалогы у нас могут быть достаточно длинными. Создай файл TODO.md в корне репозитория и записывай туда свои задачи и отмечай выполненные.
+
+Также используй субагенты чтобы быстрее работать с кодом, проект очень большой и много зависимостей которые ты один никогда не заметишь:
+
+### Доступные агенты:
+
+| Агент | Назначение | Редактирует |
+|-------|------------|-------------|
+| `zapret-source-expert` | Эксперт по ОРИГИНАЛЬНОМУ коду zapret2 (F:\doc\zapret2). Объясняет как работают функции, детекторы, оркестраторы. НЕ лезет в наш код. | НЕТ (только читает) |
+| `orchestra-lua-reviewer` | Анализ и редактирование Lua кода оркестратора (exe/lua/, H:\Privacy\zapret\lua\) | ДА |
+| `orchestra-python-reviewer` | Анализ и редактирование Python кода оркестратора (orchestra/*.py) | ДА |
+| `nfq2-lua-orchestrator` | Создание новых Lua/Python файлов для nfq2 системы | ДА |
+
+### Когда использовать агентов:
+
+- **Нужно понять как работает оригинальный circular_quality?** → `zapret-source-expert`
+- **Нужно исправить парсер логов Python?** → `orchestra-python-reviewer`
+- **Нужно изменить Lua wrapper в strategy-stats.lua?** → `orchestra-lua-reviewer`
+- **Нужно создать новый Lua скрипт?** → `nfq2-lua-orchestrator`
+
+### ВАЖНО: Разделение кода
+
+- **Оригинальный код zapret2:** `F:\doc\zapret2\` - читает только `zapret-source-expert`
+- **Наши Lua модификации:** `H:\Privacy\zapret\lua\` - редактирует `orchestra-lua-reviewer`
+- **Python оркестратор:** `H:\Privacy\zapretgui\orchestra\` - редактирует `orchestra-python-reviewer`
+
 **Target platform:** Windows only (uses WinDivert kernel driver)
 
 ## Development Commands

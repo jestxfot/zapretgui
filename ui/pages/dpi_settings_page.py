@@ -464,7 +464,7 @@ class DpiSettingsPage(BasePage):
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
-            "Оркестратор v0.9 (Alpha)",
+            "Оркестратор v0.9.2 (Alpha)",
             "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками. ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!",
             icon_name="mdi.brain",
             icon_color="#9c27b0"
@@ -549,6 +549,11 @@ class DpiSettingsPage(BasePage):
             "mdi.file-document-outline", "Сохранять debug файл",
             "Сырой debug файл для отладки", "#8a2be2")
         orchestra_settings_layout.addWidget(self.debug_file_toggle)
+
+        self.auto_restart_discord_toggle = Win11ToggleRow(
+            "mdi.discord", "Авторестарт Discord при FAIL",
+            "Перезапуск Discord при неудачном обходе", "#7289da")
+        orchestra_settings_layout.addWidget(self.auto_restart_discord_toggle)
 
         method_layout.addWidget(self.orchestra_settings_container)
 
@@ -810,6 +815,11 @@ class DpiSettingsPage(BasePage):
             self.debug_file_toggle.setChecked(bool(saved_debug), block_signals=True)
             self.debug_file_toggle.toggled.connect(self._on_debug_file_changed)
 
+            # Авторестарт при Discord FAIL (по умолчанию включён)
+            saved_auto_restart = reg(f"{REGISTRY_PATH}\\Orchestra", "AutoRestartOnDiscordFail")
+            self.auto_restart_discord_toggle.setChecked(saved_auto_restart is None or bool(saved_auto_restart), block_signals=True)
+            self.auto_restart_discord_toggle.toggled.connect(self._on_auto_restart_discord_changed)
+
         except Exception as e:
             log(f"Ошибка загрузки настроек оркестратора: {e}", "WARNING")
 
@@ -841,6 +851,23 @@ class DpiSettingsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка сохранения настройки debug файла: {e}", "ERROR")
+
+    def _on_auto_restart_discord_changed(self, enabled: bool):
+        """Обработчик изменения авторестарта при Discord FAIL"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "AutoRestartOnDiscordFail", 1 if enabled else 0)
+            log(f"Авторестарт при Discord FAIL: {'включён' if enabled else 'выключен'}", "INFO")
+
+            # Обновляем orchestra_runner если запущен
+            app = self._get_app()
+            if app and hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                app.orchestra_runner.auto_restart_on_discord_fail = enabled
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки авторестарта Discord: {e}", "ERROR")
     
     def _on_out_range_discord_changed(self, value: int):
         """Обработчик изменения out-range для Discord"""
