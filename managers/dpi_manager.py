@@ -32,7 +32,7 @@ class DPIManager(QObject):
         launch_method = get_strategy_launch_method()
         
         # 3. Запускаем соответствующий режим
-        if launch_method in ("direct", "direct_orchestra"):
+        if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
             self._start_direct_mode()
         elif launch_method == "orchestra":
             self._start_orchestra_mode()

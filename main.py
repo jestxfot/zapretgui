@@ -394,8 +394,13 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if strategy_id == "DIRECT_MODE" or launch_method in ("direct", "direct_orchestra"):
-                display_name = "Прямой запуск" if launch_method == "direct" else "Оркестратор Z2"
+            if strategy_id == "DIRECT_MODE" or launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+                if launch_method == "direct":
+                    display_name = "Прямой запуск"
+                elif launch_method == "direct_orchestra":
+                    display_name = "Оркестратор Z2"
+                else:
+                    display_name = "Прямой Z1"
                 self.current_strategy_name = display_name
                 strategy_name = display_name
                 # Для Direct режима selections сохраняются отдельно, не нужно сохранять через set_last_strategy
@@ -416,7 +421,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.last_strategy_change_time = time.time()
             
             # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки Direct режимов
-            if launch_method in ("direct", "direct_orchestra"):
+            if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
                     # Получаем стратегию из сохранённых настроек
                     from strategy_menu.strategy_lists_separated import combine_strategies

@@ -12,6 +12,7 @@ from config import reg, REGISTRY_PATH
 DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
 DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
 DIRECT_ORCHESTRA_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
+DIRECT_ZAPRET1_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectZapret1Strategy"
 
 
 # ==================== ФЛАГ ИНИЦИАЛИЗАЦИИ ОРКЕСТРАТОРА ====================
@@ -66,6 +67,8 @@ def _get_current_strategy_key() -> str:
     method = get_strategy_launch_method()
     if method == "direct_orchestra":
         return DIRECT_ORCHESTRA_STRATEGY_KEY
+    elif method == "direct_zapret1":
+        return DIRECT_ZAPRET1_STRATEGY_KEY
     return DIRECT_STRATEGY_KEY
 
 # ==================== МЕТОД ЗАПУСКА ====================

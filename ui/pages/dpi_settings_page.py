@@ -452,9 +452,19 @@ class DpiSettingsPage(BasePage):
         self.method_direct_orchestra.clicked.connect(lambda: self._select_method("direct_orchestra"))
         method_layout.addWidget(self.method_direct_orchestra)
 
+        # Zapret 1 Direct (прямой запуск winws.exe с JSON стратегиями)
+        self.method_direct_zapret1 = Win11RadioOption(
+            "Zapret 1 Direct",
+            "Прямой запуск Zapret 1 (winws.exe) с гибкими настройками как у Zapret 2. Не использует Lua.",
+            icon_name="mdi.rocket-launch-outline",
+            icon_color="#ff9800"
+        )
+        self.method_direct_zapret1.clicked.connect(lambda: self._select_method("direct_zapret1"))
+        method_layout.addWidget(self.method_direct_zapret1)
+
         # Zapret 1 (bat)
         self.method_bat = Win11RadioOption(
-            "Zapret 1", 
+            "Zapret 1 BAT",
             "Запуск через .bat файлы. Классический метод, использует готовые скрипты из папки zapret.",
             icon_name="mdi.file-code",
             icon_color="#ff9800"
@@ -717,6 +727,7 @@ class DpiSettingsPage(BasePage):
         """Обновляет визуальное состояние выбора метода"""
         self.method_direct.setSelected(method == "direct")
         self.method_direct_orchestra.setSelected(method == "direct_orchestra")
+        self.method_direct_zapret1.setSelected(method == "direct_zapret1")
         self.method_bat.setSelected(method == "bat")
         self.method_orchestra.setSelected(method == "orchestra")
     
@@ -743,8 +754,8 @@ class DpiSettingsPage(BasePage):
             self._update_filters_visibility()
 
             # Перезагружаем стратегии если меняется набор стратегий
-            # (например с direct на direct_orchestra или наоборот)
-            direct_methods = ("direct", "direct_orchestra")
+            # (например с direct на direct_orchestra, direct_zapret1 или наоборот)
+            direct_methods = ("direct", "direct_orchestra", "direct_zapret1")
             if previous_method in direct_methods or method in direct_methods:
                 if previous_method != method:
                     log(f"Смена метода {previous_method} -> {method}, перезагрузка стратегий...", "INFO")
@@ -987,7 +998,7 @@ class DpiSettingsPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method in ("direct", "direct_orchestra"):
+            if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущие настройки
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -1140,11 +1151,11 @@ class DpiSettingsPage(BasePage):
             method = get_strategy_launch_method()
 
             # Режимы
-            is_direct_mode = method in ("direct", "direct_orchestra")
+            is_direct_mode = method in ("direct", "direct_orchestra", "direct_zapret1")
             is_orchestra_mode = method in ("orchestra", "direct_orchestra")
-            is_zapret_mode = method in ("direct", "bat")  # Zapret 1/2 без оркестратора
+            is_zapret_mode = method in ("direct", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
-            # Показываем фильтры для direct и direct_orchestra (оба используют Zapret 2)
+            # Показываем фильтры для direct, direct_orchestra и direct_zapret1
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
             self.out_range_container.setVisible(is_direct_mode)

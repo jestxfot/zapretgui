@@ -235,8 +235,8 @@ class CommandLineWidget(QFrame):
         try:
             from strategy_menu import get_strategy_launch_method
 
-            if get_strategy_launch_method() not in ("direct", "direct_orchestra"):
-                self.text_edit.setPlainText("Командная строка доступна только в режиме Zapret 2")
+            if get_strategy_launch_method() not in ("direct", "direct_orchestra", "direct_zapret1"):
+                self.text_edit.setPlainText("Командная строка доступна только в прямом режиме запуска")
                 self.info_label.setText("BAT режим")
                 return
                 
@@ -728,7 +728,7 @@ class StrategiesPage(QWidget):
             self._current_mode = mode
             self._clear_content()
             
-            if mode in ("direct", "direct_orchestra"):
+            if mode in ("direct", "direct_orchestra", "direct_zapret1"):
                 self.stop_watching()  # Останавливаем мониторинг для экономии ресурсов
                 self._load_direct_mode()
             else:
@@ -2102,7 +2102,7 @@ class StrategiesPage(QWidget):
             
             # В Direct режимах проверяем наличие активных стратегий
             from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
-            if get_strategy_launch_method() in ("direct", "direct_orchestra"):
+            if get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1"):
                 selections = get_direct_strategy_selections()
                 if not self._has_any_active_strategy(selections):
                     log("⚠️ Нет активных стратегий - перезапуск невозможен", "WARNING")
@@ -2173,7 +2173,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method in ("direct", "direct_orchestra"):
+            if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущие настройки и формируем правильный формат
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -2252,7 +2252,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
 
-            if get_strategy_launch_method() not in ("direct", "direct_orchestra"):
+            if get_strategy_launch_method() not in ("direct", "direct_orchestra", "direct_zapret1"):
                 self.current_strategy_label.setToolTip("")
                 self.current_strategy_label.show()
                 self.current_strategy_container.hide()
@@ -2359,7 +2359,7 @@ class StrategiesPage(QWidget):
         """Обновляет отображение текущей стратегии"""
         try:
             from strategy_menu import get_strategy_launch_method
-            if get_strategy_launch_method() in ("direct", "direct_orchestra"):
+            if get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1"):
                 self._update_current_strategies_display()
             elif name and name != "Автостарт DPI отключен":
                 self.current_strategy_label.setText(name)

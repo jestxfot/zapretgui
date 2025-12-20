@@ -871,7 +871,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra"):
+            if method in ("direct", "direct_orchestra", "direct_zapret1"):
                 self._setup_direct_service()
             else:
                 self._setup_bat_service()
@@ -885,7 +885,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra"):
+            if method in ("direct", "direct_orchestra", "direct_zapret1"):
                 self._setup_direct_logon_task()
             else:
                 self._setup_bat_logon_task()
@@ -899,7 +899,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra"):
+            if method in ("direct", "direct_orchestra", "direct_zapret1"):
                 self._setup_direct_boot_task()
             else:
                 self._setup_bat_service()  # Для BAT это служба

@@ -414,15 +414,20 @@ class MainWindowUI:
                 if hasattr(self, 'orchestra_page'):
                     self.orchestra_page.start_monitoring()
 
-            elif method in ("direct", "direct_orchestra"):
-                # Zapret 2 - Direct режим или Оркестратор Zapret 2
+            elif method in ("direct", "direct_orchestra", "direct_zapret1"):
+                # Zapret 2 - Direct режим, Оркестратор Zapret 2 или Zapret 1 Direct
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
 
-                mode_name = "Прямой запуск" if method == "direct" else "Оркестратор Z2"
+                if method == "direct":
+                    mode_name = "Прямой запуск"
+                elif method == "direct_orchestra":
+                    mode_name = "Оркестратор Z2"
+                else:
+                    mode_name = "Прямой Z1"
 
                 # Формируем данные для запуска
                 selected_mode = {

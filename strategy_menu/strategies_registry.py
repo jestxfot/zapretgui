@@ -27,7 +27,7 @@ def get_current_strategy_set() -> Optional[str]:
     Возвращает текущий набор стратегий на основе метода запуска.
 
     Returns:
-        None для стандартного набора, "orchestra" для direct_orchestra и т.д.
+        None для стандартного набора, "orchestra" для direct_orchestra, "zapret1" для direct_zapret1 и т.д.
     """
     try:
         from strategy_menu import get_strategy_launch_method
@@ -37,6 +37,7 @@ def get_current_strategy_set() -> Optional[str]:
         method_to_set = {
             "direct": None,           # стандартный набор (tcp.json)
             "direct_orchestra": "orchestra",  # tcp_orchestra.json
+            "direct_zapret1": "zapret1",      # tcp_zapret1.json (Zapret 1 прямой режим)
             "bat": None,              # BAT не использует JSON стратегии
             "orchestra": None,        # Orchestra использует свой механизм
         }

@@ -1229,8 +1229,8 @@ class SideNavBar(QWidget):
 
         try:
             from strategy_menu import get_strategy_launch_method
-            # Блобы доступны для direct и direct_orchestra режимов
-            is_direct = get_strategy_launch_method() in ("direct", "direct_orchestra")
+            # Блобы доступны для direct, direct_orchestra и direct_zapret1 режимов
+            is_direct = get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1")
             self._blobs_button.setVisible(is_direct)
         except Exception as e:
             from log import log

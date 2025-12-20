@@ -391,7 +391,7 @@ class HomePage(BasePage):
             from strategy_menu.strategies_registry import registry
             
             # Для Direct режимов показываем иконки
-            if get_strategy_launch_method() in ("direct", "direct_orchestra"):
+            if get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1"):
                 selections = get_direct_strategy_selections()
                 
                 # Собираем данные о категориях: (icon_name, icon_color, is_active)
