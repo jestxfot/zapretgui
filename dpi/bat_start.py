@@ -158,9 +158,11 @@ class BatDPIStart:
         """Запускает DPI напрямую через StrategyRunner"""
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
-            
-            runner = get_strategy_runner(self.winws_exe)
-            
+            from config.config import WINWS_EXE
+
+            # Для BAT режима (Zapret 1) ВСЕГДА используем winws.exe
+            runner = get_strategy_runner(WINWS_EXE)
+
             log("Прямой запуск поддерживает только комбинированные стратегии", "ERROR")
             return False
             
@@ -193,7 +195,29 @@ class BatDPIStart:
                 if self.app_instance:
                     from dpi.stop import stop_dpi
                     stop_dpi(self.app_instance)
-                time.sleep(2)
+
+                # Ждём пока процесс действительно остановится (до 5 секунд)
+                max_wait = 10
+                for attempt in range(max_wait):
+                    time.sleep(0.5)
+                    if not self.check_process_running_wmi(silent=True):
+                        log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
+                        break
+                else:
+                    log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
+                    # Принудительное завершение через taskkill
+                    import subprocess
+                    try:
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
+                                       capture_output=True, timeout=3)
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
+                                       capture_output=True, timeout=3)
+                        time.sleep(1)
+                    except Exception as e:
+                        log(f"Ошибка taskkill: {e}", "DEBUG")
+
+                # Дополнительная пауза для освобождения WinDivert
+                time.sleep(0.5)
             
             # Определяем путь к .bat файлу
             bat_file: Optional[str] = None
@@ -384,7 +408,8 @@ class BatDPIStart:
 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
-            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            from config.config import WINWS_EXE
+            diagnosis = diagnose_startup_error(e, WINWS_EXE)
             for line in diagnosis.split('\n'):
                 log(line, "❌ ERROR")
             import traceback
@@ -403,11 +428,12 @@ class BatDPIStart:
         """
         try:
             from strategy_menu.strategy_runner import get_strategy_runner
+            from config.config import WINWS_EXE
 
-            # Получаем runner с путём к winws.exe
-            runner = get_strategy_runner(self.winws_exe)
+            # Для BAT режима (Zapret 1) ВСЕГДА используем winws.exe (не winws2.exe!)
+            runner = get_strategy_runner(WINWS_EXE)
 
-            log(f"Запуск через StrategyRunner: {strategy_name}", "INFO")
+            log(f"Запуск через StrategyRunner (winws.exe): {strategy_name}", "INFO")
 
             # Запускаем стратегию
             success = runner.start_strategy_custom(args, strategy_name)
@@ -424,7 +450,8 @@ class BatDPIStart:
 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
-            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            from config.config import WINWS_EXE
+            diagnosis = diagnose_startup_error(e, WINWS_EXE)
             for line in diagnosis.split('\n'):
                 log(line, "❌ ERROR")
             import traceback

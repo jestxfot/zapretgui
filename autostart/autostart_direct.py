@@ -20,80 +20,16 @@ DIRECT_BOOT_TASK_NAME = "ZapretDirectBoot"  # Задача для запуска
 
 def _resolve_file_paths(args: List[str], work_dir: str) -> List[str]:
     """
-    Разрешает относительные пути к файлам
+    Разрешает относительные пути к файлам.
+    Обёртка над общей функцией из utils.args_resolver.
     """
     from config import WINDIVERT_FILTER
-    
-    resolved_args = []
+    from utils.args_resolver import resolve_args_paths
+
     lists_dir = os.path.join(work_dir, "lists")
     bin_dir = os.path.join(work_dir, "bin")
-    
-    for arg in args:
-        # Обработка --wf-raw-part (новый формат для winws2)
-        if arg.startswith("--wf-raw-part="):
-            value = arg.split("=", 1)[1]
-            
-            # Если значение начинается с @, это означает файл
-            if value.startswith("@"):
-                filename = value[1:]  # Убираем @ в начале
-                filename = filename.strip('"')
-                
-                if not os.path.isabs(filename):
-                    # WINDIVERT_FILTER - это путь к папке windivert.filter
-                    full_path = os.path.join(WINDIVERT_FILTER, filename)
-                    
-                    # Проверяем существование файла
-                    if not os.path.exists(full_path):
-                        log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
-                    
-                    resolved_args.append(f'--wf-raw-part=@{full_path}')
-                else:
-                    resolved_args.append(f'--wf-raw-part=@{filename}')
-            else:
-                # Если не файл, оставляем как есть
-                resolved_args.append(arg)
-        
-        # Обработка хостлистов
-        elif any(arg.startswith(prefix) for prefix in [
-            "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
-        ]):
-            prefix, filename = arg.split("=", 1)
-            filename = filename.strip('"')
-            
-            if not os.path.isabs(filename):
-                full_path = os.path.join(lists_dir, filename)
-                resolved_args.append(f'{prefix}={full_path}')
-            else:
-                resolved_args.append(f'{prefix}={filename}')
-        
-        # Обработка bin файлов
-        elif any(arg.startswith(prefix) for prefix in [
-            "--dpi-desync-fake-tls=",
-            "--dpi-desync-fake-syndata=", 
-            "--dpi-desync-fake-quic=",
-            "--dpi-desync-fake-unknown-udp=",
-            "--dpi-desync-split-seqovl-pattern=",
-            "--dpi-desync-fake-http=",
-            "--dpi-desync-fake-unknown=",
-            "--dpi-desync-fakedsplit-pattern="
-        ]):
-            prefix, filename = arg.split("=", 1)
-            
-            # Проверяем специальные значения (hex или модификаторы)
-            if filename.startswith("0x") or filename.startswith("!") or filename.startswith("^"):
-                resolved_args.append(arg)
-            else:
-                filename = filename.strip('"')
-                
-                if not os.path.isabs(filename):
-                    full_path = os.path.join(bin_dir, filename)
-                    resolved_args.append(f'{prefix}={full_path}')
-                else:
-                    resolved_args.append(f'{prefix}={filename}')
-        else:
-            resolved_args.append(arg)
-    
-    return resolved_args
+
+    return resolve_args_paths(args, lists_dir, bin_dir, WINDIVERT_FILTER)
 
 def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
     """
@@ -493,14 +429,12 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     try:
         from strategy_menu import get_direct_strategy_selections
         from strategy_menu.strategy_lists_separated import combine_strategies
-        from config import WINWS2_EXE
-        
-        # Для прямого запуска всегда используем winws2.exe
-        if hasattr(app_instance, 'dpi_starter') and hasattr(app_instance.dpi_starter, 'winws_exe'):
-            winws_exe = app_instance.dpi_starter.winws_exe
-        else:
-            winws_exe = WINWS2_EXE  # Zapret 2 для прямого запуска
-        
+        from config.config import get_current_winws_exe
+
+        # Используем единую функцию определения exe
+        # direct_zapret1 → winws.exe, direct/direct_orchestra → winws2.exe
+        winws_exe = get_current_winws_exe()
+
         # Получаем выборы стратегий
         selections = get_direct_strategy_selections()
         

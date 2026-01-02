@@ -127,31 +127,67 @@ class StrategyTableBuilder:
         return table
     
     @staticmethod
-    def populate_table(table, strategies, strategy_manager=None, favorite_callback=None, category_key="bat"):
-        """Заполняет таблицу стратегиями."""
+    def populate_table(table, strategies, strategy_manager=None, favorite_callback=None, category_key="bat", skip_grouping=False):
+        """Заполняет таблицу стратегиями.
+
+        Args:
+            table: QTableWidget для заполнения
+            strategies: Словарь стратегий {id: info}
+            strategy_manager: Менеджер стратегий (опционально)
+            favorite_callback: Callback при изменении избранного
+            category_key: Ключ категории (bat, json_tcp и т.д.)
+            skip_grouping: Если True, не группировать по провайдерам (для сортировки по имени)
+        """
         from strategy_menu import get_favorite_strategies
-        
+
         table.setRowCount(0)
         strategies_map = {}
-        
+
         # Сохраняем category_key в таблице для использования в обработчиках
         table.category_key = category_key
         table.favorite_callback = favorite_callback
-        
+
+        # === РЕЖИМ БЕЗ ГРУППИРОВКИ (для сортировки по имени) ===
+        # При skip_grouping=True показываем ВСЕ стратегии в исходном порядке словаря
+        if skip_grouping:
+            total_rows = len(strategies)
+            table.setRowCount(total_rows)
+
+            current_row = 0
+            strategy_number = 1
+
+            for strategy_id, strategy_info in strategies.items():
+                strategies_map[current_row] = {
+                    'id': strategy_id,
+                    'name': strategy_info.get('name') or strategy_id
+                }
+
+                StrategyTableBuilder.populate_row(
+                    table, current_row, strategy_id,
+                    strategy_info, strategy_number, category_key
+                )
+
+                current_row += 1
+                strategy_number += 1
+
+            return strategies_map
+
+        # === ОБЫЧНЫЙ РЕЖИМ С ГРУППИРОВКОЙ ===
+
         # Получаем список избранных
         favorites_list = get_favorite_strategies(category_key) or []
         favorites_set = set(favorites_list)
-        
-        # Разделяем на избранные и остальные
+
+        # Разделяем на избранные и остальные, сохраняя порядок
         favorite_strategies = {}
         regular_strategies = {}
-        
+
         for strategy_id, strategy_info in strategies.items():
             if strategy_id in favorites_set:
                 favorite_strategies[strategy_id] = strategy_info
             else:
                 regular_strategies[strategy_id] = strategy_info
-        
+
         # Группируем обычные по провайдерам
         providers = {}
         for strategy_id, strategy_info in regular_strategies.items():
@@ -159,32 +195,32 @@ class StrategyTableBuilder:
             if provider not in providers:
                 providers[provider] = []
             providers[provider].append((strategy_id, strategy_info))
-        
+
         sorted_providers = sorted(providers.items())
-        
+
         # Подсчитываем строки
         total_rows = 0
         if favorite_strategies:
             total_rows += 1 + len(favorite_strategies)  # Заголовок + избранные
-        total_rows += sum(1 + len(strategies_list) 
+        total_rows += sum(1 + len(strategies_list)
                         for provider, strategies_list in sorted_providers)
         table.setRowCount(total_rows)
-        
+
         current_row = 0
-        
+
         # === ИЗБРАННЫЕ (вверху) ===
         if favorite_strategies:
             bg_color = QColor(40, 35, 20)  # Тёплый золотистый оттенок
-            
+
             # Колонка 0: Звезда в заголовке (по центру)
-            star_item = QTableWidgetItem("★")
+            star_item = QTableWidgetItem("*")
             star_item.setBackground(QBrush(bg_color))
             star_item.setForeground(QBrush(QColor(255, 193, 7)))
             star_item.setFont(QFont("Segoe UI", 12))
             star_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
             star_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 0, star_item)
-            
+
             # Колонка 1: Заголовок избранных
             fav_header_item = QTableWidgetItem(f"Избранные ({len(favorite_strategies)})")
             fav_header_font = QFont("Segoe UI", 10)
@@ -194,16 +230,16 @@ class StrategyTableBuilder:
             fav_header_item.setForeground(QBrush(QColor(255, 193, 7)))
             fav_header_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 1, fav_header_item)
-            
+
             # Колонка 2: Пустая
             empty_item = QTableWidgetItem("")
             empty_item.setBackground(QBrush(bg_color))
             empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 2, empty_item)
-            
+
             table.setRowHeight(current_row, 36)
             current_row += 1
-            
+
             # Добавляем избранные стратегии
             fav_number = 1
             for strategy_id, strategy_info in favorite_strategies.items():
@@ -211,28 +247,28 @@ class StrategyTableBuilder:
                     'id': strategy_id,
                     'name': strategy_info.get('name') or strategy_id
                 }
-                
+
                 StrategyTableBuilder.populate_row(
                     table, current_row, strategy_id,
                     strategy_info, fav_number, category_key
                 )
-                
+
                 current_row += 1
                 fav_number += 1
-        
+
         # === ОСТАЛЬНЫЕ СТРАТЕГИИ (по провайдерам) ===
         for provider, strategies_list in sorted_providers:
             provider_name = StrategyTableBuilder.get_provider_display_name(provider)
             bg_color = QColor(28, 28, 28)
-            
+
             # Колонка 0: Пустая ячейка для звезды
             empty_star_item = QTableWidgetItem("")
             empty_star_item.setBackground(QBrush(bg_color))
             empty_star_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 0, empty_star_item)
-            
+
             # Колонка 1: Заголовок провайдера
-            provider_item = QTableWidgetItem(f"📡 {provider_name}")
+            provider_item = QTableWidgetItem(f"= {provider_name}")
             provider_font = QFont("Segoe UI", 10)
             provider_font.setBold(True)
             provider_item.setFont(provider_font)
@@ -240,16 +276,16 @@ class StrategyTableBuilder:
             provider_item.setForeground(QBrush(QColor(255, 255, 255, 140)))
             provider_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 1, provider_item)
-            
+
             # Колонка 2: Пустая ячейка
             empty_label_item = QTableWidgetItem("")
             empty_label_item.setBackground(QBrush(bg_color))
             empty_label_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 2, empty_label_item)
-            
+
             table.setRowHeight(current_row, 36)
             current_row += 1
-            
+
             strategy_number = 1
             for strategy_id, strategy_info in strategies_list:
                 strategies_map[current_row] = {

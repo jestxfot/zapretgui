@@ -105,8 +105,14 @@ class StrategyTableWidget(QWidget):
                 
         return super().eventFilter(obj, event)
     
-    def populate_strategies(self, strategies, category_key="bat"):
-        """Заполняет таблицу стратегиями"""
+    def populate_strategies(self, strategies, category_key="bat", skip_grouping=False):
+        """Заполняет таблицу стратегиями
+
+        Args:
+            strategies: Словарь стратегий
+            category_key: Ключ категории
+            skip_grouping: Если True, не группировать по провайдерам (для сортировки по имени)
+        """
         self.strategies_data = strategies
         self.category_key = category_key  # Сохраняем category_key
 
@@ -115,13 +121,14 @@ class StrategyTableWidget(QWidget):
             strategies,
             self.strategy_manager,
             favorite_callback=self._on_favorite_toggled,
-            category_key=category_key
+            category_key=category_key,
+            skip_grouping=skip_grouping
         )
 
         self.table.setEnabled(True)
 
         count = len(strategies)
-        self.set_status(f"✅ {count} стратегий")
+        self.set_status(f"v {count} стратегий")
     
     def _on_favorite_toggled(self, strategy_id, is_favorite):
         """Обработчик переключения избранного через звезду"""

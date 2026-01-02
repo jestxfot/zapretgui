@@ -19,7 +19,13 @@ class DPIStartWorker(QObject):
         self.selected_mode = selected_mode
         self.launch_method = launch_method
         self.dpi_starter = app_instance.dpi_starter
-    
+
+    def _get_winws_exe(self) -> str:
+        """Возвращает правильный путь к winws exe в зависимости от launch_method"""
+        from config.config import get_winws_exe_for_method
+        # Используем переданный launch_method так как он известен при создании worker'а
+        return get_winws_exe_for_method(self.launch_method)
+
     def run(self):
         try:
             self.progress.emit("Подготовка к запуску...")
@@ -39,12 +45,34 @@ class DPIStartWorker(QObject):
                 # Останавливаем через соответствующий метод
                 if self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                     from strategy_menu.strategy_runner import get_strategy_runner
-                    runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
+                    runner = get_strategy_runner(self._get_winws_exe())
                     runner.stop()
                 else:
                     from dpi.stop import stop_dpi
                     stop_dpi(self.app_instance)
-            
+
+                # Ждём пока процесс действительно остановится (до 5 секунд)
+                max_wait = 10
+                for attempt in range(max_wait):
+                    time.sleep(0.5)
+                    if not self.dpi_starter.check_process_running_wmi(silent=True):
+                        log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
+                        break
+                else:
+                    log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
+                    import subprocess
+                    try:
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
+                                       capture_output=True, timeout=3)
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
+                                       capture_output=True, timeout=3)
+                        time.sleep(1)
+                    except Exception as e:
+                        log(f"Ошибка taskkill: {e}", "DEBUG")
+
+                # Дополнительная пауза для освобождения WinDivert
+                time.sleep(0.5)
+
             self.progress.emit("Запуск DPI...")
             
             # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
@@ -88,7 +116,7 @@ class DPIStartWorker(QObject):
             from strategy_menu.strategy_runner import get_strategy_runner
             
             # Получаем runner
-            runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
+            runner = get_strategy_runner(self._get_winws_exe())
             
             mode_param = self.selected_mode
             
@@ -143,7 +171,7 @@ class DPIStartWorker(QObject):
                 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
-            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            exe_path = self._get_winws_exe() if hasattr(self.app_instance, 'dpi_starter') else None
             diagnosis = diagnose_startup_error(e, exe_path)
             for line in diagnosis.split('\n'):
                 log(line, "❌ ERROR")
@@ -210,7 +238,7 @@ class DPIStartWorker(QObject):
             
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
-            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            exe_path = self._get_winws_exe() if hasattr(self.app_instance, 'dpi_starter') else None
             diagnosis = diagnose_startup_error(e, exe_path)
             for line in diagnosis.split('\n'):
                 log(line, "❌ ERROR")
@@ -261,7 +289,7 @@ class DPIStartWorker(QObject):
 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
-            exe_path = self.app_instance.dpi_starter.winws_exe if hasattr(self.app_instance, 'dpi_starter') else None
+            exe_path = self._get_winws_exe() if hasattr(self.app_instance, 'dpi_starter') else None
             diagnosis = diagnose_startup_error(e, exe_path)
             for line in diagnosis.split('\n'):
                 log(line, "❌ ERROR")
@@ -274,12 +302,18 @@ class DPIStopWorker(QObject):
     """Worker для асинхронной остановки DPI"""
     finished = pyqtSignal(bool, str)  # success, error_message
     progress = pyqtSignal(str)        # status_message
-    
+
     def __init__(self, app_instance, launch_method):
         super().__init__()
         self.app_instance = app_instance
         self.launch_method = launch_method
-    
+
+    def _get_winws_exe(self) -> str:
+        """Возвращает правильный путь к winws exe в зависимости от launch_method"""
+        from config.config import get_winws_exe_for_method
+        # Используем переданный launch_method так как он известен при создании worker'а
+        return get_winws_exe_for_method(self.launch_method)
+
     def run(self):
         try:
             self.progress.emit("Остановка DPI...")
@@ -317,7 +351,7 @@ class DPIStopWorker(QObject):
             from strategy_menu.strategy_runner import get_strategy_runner
             from utils.process_killer import kill_winws_all
             
-            runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
+            runner = get_strategy_runner(self._get_winws_exe())
             success = runner.stop()
             
             # Дополнительно убиваем все процессы через Win API
@@ -373,12 +407,18 @@ class StopAndExitWorker(QObject):
     """Worker для остановки DPI и выхода из программы"""
     finished = pyqtSignal()
     progress = pyqtSignal(str)
-    
+
     def __init__(self, app_instance):
         super().__init__()
         self.app_instance = app_instance
         self.launch_method = get_strategy_launch_method()
-    
+
+    def _get_winws_exe(self) -> str:
+        """Возвращает правильный путь к winws exe в зависимости от launch_method"""
+        from config.config import get_winws_exe_for_method
+        # Используем launch_method определённый в __init__
+        return get_winws_exe_for_method(self.launch_method)
+
     def run(self):
         try:
             self.progress.emit("Остановка DPI перед закрытием...")
@@ -393,7 +433,7 @@ class StopAndExitWorker(QObject):
                 kill_winws_all()
             elif self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 from strategy_menu.strategy_runner import get_strategy_runner
-                runner = get_strategy_runner(self.app_instance.dpi_starter.winws_exe)
+                runner = get_strategy_runner(self._get_winws_exe())
                 runner.stop()
 
                 # Дополнительная очистка

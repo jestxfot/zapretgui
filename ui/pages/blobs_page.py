@@ -567,7 +567,7 @@ class BlobsPage(BasePage):
     def _load_blobs(self):
         """Загружает и отображает список блобов"""
         try:
-            from strategy_menu.strategies.blobs import get_blobs_info
+            from strategy_menu.blobs import get_blobs_info
             
             # Очищаем контейнер
             while self.blobs_layout.count():
@@ -652,7 +652,7 @@ class BlobsPage(BasePage):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             data = dialog.get_data()
             try:
-                from strategy_menu.strategies.blobs import save_user_blob
+                from strategy_menu.blobs import save_user_blob
                 
                 if save_user_blob(data["name"], data["type"], data["value"], data["description"]):
                     log(f"Добавлен блоб: {data['name']}", "INFO")
@@ -667,7 +667,7 @@ class BlobsPage(BasePage):
     def _delete_blob(self, name: str):
         """Удаляет пользовательский блоб"""
         try:
-            from strategy_menu.strategies.blobs import delete_user_blob
+            from strategy_menu.blobs import delete_user_blob
             
             if delete_user_blob(name):
                 log(f"Удалён блоб: {name}", "INFO")
@@ -682,7 +682,7 @@ class BlobsPage(BasePage):
     def _reload_blobs(self):
         """Перезагружает блобы из JSON"""
         try:
-            from strategy_menu.strategies.blobs import reload_blobs
+            from strategy_menu.blobs import reload_blobs
             reload_blobs()
             self._load_blobs()
             log("Блобы перезагружены", "INFO")

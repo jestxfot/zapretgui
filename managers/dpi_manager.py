@@ -95,7 +95,8 @@ class DPIManager(QObject):
         self.app.current_strategy_label.setText("Прямой запуск")
         self.app.current_strategy_name = "Прямой запуск"
         self._update_splash(65, "Запуск Direct режима...")
-        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method="direct")
+        # ✅ Передаём актуальный launch_method (direct, direct_orchestra, direct_zapret1)
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
 
     def _start_bat_mode(self):

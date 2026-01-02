@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os, sys, tempfile, subprocess, shutil, time, requests
 import threading
+import ctypes
 from typing import Callable, Optional
 from time import sleep
 
@@ -23,6 +24,81 @@ from .rate_limiter import UpdateRateLimiter
 
 
 TIMEOUT = 15  # Увеличен с 10 до 15 сек для медленных соединений
+
+# ──────────────────────────── Запуск установщика с UAC ─────────────────────────
+# ВАЖНО ДЛЯ БУДУЩИХ РАЗРАБОТЧИКОВ:
+# НЕ ИСПОЛЬЗОВАТЬ ctypes.windll.shell32.ShellExecuteW с "runas"!
+# Причина: ShellExecuteW асинхронный - возвращает успех (HINSTANCE>32) сразу,
+# но установщик фактически не запускается (причина до конца не ясна,
+# возможно связано с тем что приложение закрывается через os._exit()).
+#
+# РЕШЕНИЕ: PowerShell Start-Process -Verb RunAs
+# Работает стабильно. Если приложение уже запущено с правами админа
+# (а Zapret требует админ для WinDivert), UAC не появляется.
+# Проверено 25.12.2025.
+
+
+def launch_installer_winapi(exe_path: str, arguments: str, working_dir: str = None) -> bool:
+    """
+    Запускает установщик с правами администратора через PowerShell Start-Process.
+
+    ВНИМАНИЕ: Не заменять на ShellExecuteW! См. комментарий выше.
+
+    Args:
+        exe_path: Путь к установщику (.exe)
+        arguments: Аргументы командной строки (разделённые пробелами)
+        working_dir: Рабочая директория (не используется, оставлен для совместимости)
+
+    Returns:
+        True если процесс успешно запущен
+    """
+    # Проверяем существование файла
+    if not os.path.exists(exe_path):
+        log(f"❌ Файл установщика не найден: {exe_path}", "🔁❌ ERROR")
+        return False
+
+    file_size = os.path.getsize(exe_path)
+    log(f"📦 Размер установщика: {file_size / 1024 / 1024:.1f} MB", "🔁 UPDATE")
+
+    log(f"🚀 Запуск через PowerShell (RunAs): {exe_path}", "🔁 UPDATE")
+    log(f"   Параметры: {arguments}", "🔁 UPDATE")
+
+    try:
+        # Разбиваем аргументы на список для PowerShell
+        args_list = arguments.split()
+        # Формируем строку аргументов для PowerShell: '/arg1','/arg2',...
+        ps_args = ",".join(f"'{arg}'" for arg in args_list)
+
+        # PowerShell команда для запуска с правами админа
+        ps_command = f"Start-Process -FilePath '{exe_path}' -ArgumentList {ps_args} -Verb RunAs"
+
+        log(f"   PowerShell: {ps_command}", "🔁 UPDATE")
+
+        # Запускаем PowerShell с командой
+        process = subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", ps_command],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Даём время на появление UAC (не ждём завершения установщика!)
+        time.sleep(0.5)
+
+        # Проверяем, не завершился ли PowerShell с ошибкой
+        retcode = process.poll()
+        if retcode is not None and retcode != 0:
+            stderr = process.stderr.read().decode('utf-8', errors='ignore')
+            log(f"❌ PowerShell ошибка (код {retcode}): {stderr}", "🔁❌ ERROR")
+            return False
+
+        log(f"✅ Установщик запущен успешно", "🔁 UPDATE")
+        return True
+
+    except Exception as e:
+        log(f"❌ Ошибка запуска: {e}", "🔁❌ ERROR")
+        return False
+
 
 # ──────────────────────────── вспомогательные утилиты ─────────────────────
 def _safe_set_status(parent, msg: str):
@@ -357,34 +433,62 @@ class UpdateWorker(QObject):
         return urls
     
     def _run_installer(self, setup_exe: str, version: str, tmp_dir: str) -> bool:
-        """Запускает установщик и закрывает приложение"""
+        """
+        Запускает установщик через ShellExecuteW с правами администратора.
+        """
         try:
             self._emit("Запуск установщика…")
 
-            setup_args = [
-                setup_exe,
-                "/SILENT",
-                "/SUPPRESSMSGBOXES",
-                "/NORESTART",
-                "/NOCANCEL",
-                "/DIR=" + os.path.dirname(sys.executable)
-            ]
+            # Копируем установщик в постоянную папку (чтобы temp не удалился)
+            persistent_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ZapretUpdate")
+            os.makedirs(persistent_dir, exist_ok=True)
 
-            log(f"🚀 Запуск: {' '.join(setup_args)}", "🔁 UPDATE")
-            
-            run_hidden(
-                [get_system_exe("cmd.exe"), "/c", "start", ""] + setup_args,
-                shell=False
-            )
-            
-            log("⏳ Закрытие через 2с для установки обновления...", "🔁 UPDATE")
-            QTimer.singleShot(2000, lambda: os._exit(0))
-            
+            persistent_exe = os.path.join(persistent_dir, "Zapret2Setup.exe")
+
+            # Удаляем старый файл
+            if os.path.exists(persistent_exe):
+                try:
+                    os.remove(persistent_exe)
+                except:
+                    pass
+
+            # Копируем установщик
+            shutil.copy2(setup_exe, persistent_exe)
+            file_size = os.path.getsize(persistent_exe)
+            log(f"📁 Установщик скопирован: {persistent_exe} ({file_size / 1024 / 1024:.1f} MB)", "🔁 UPDATE")
+
+            # Путь установки
+            install_dir = os.path.dirname(sys.executable)
+
+            # Аргументы для тихой установки
+            # Примечание: если путь содержит пробелы, нужно экранировать кавычки
+            if ' ' in install_dir:
+                arguments = f'/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /DIR="{install_dir}"'
+            else:
+                arguments = f'/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /DIR={install_dir}'
+
+            # Запускаем установщик через WinAPI с правами администратора
+            success = launch_installer_winapi(persistent_exe, arguments, persistent_dir)
+
+            if not success:
+                self._emit("Не удалось запустить установщик")
+                log("❌ launch_installer_winapi вернул False", "🔁❌ ERROR")
+                shutil.rmtree(tmp_dir, True)
+                return False
+
+            # Очищаем temp
+            shutil.rmtree(tmp_dir, True)
+
+            log("⏳ Закрытие через 5с (дождитесь UAC)...", "🔁 UPDATE")
+            QTimer.singleShot(5000, lambda: os._exit(0))
+
             return True
-            
+
         except Exception as e:
             self._emit(f"Ошибка запуска: {e}")
             log(f"❌ Ошибка запуска установщика: {e}", "🔁❌ ERROR")
+            import traceback
+            log(traceback.format_exc(), "🔁❌ ERROR")
             shutil.rmtree(tmp_dir, True)
             return False
     
@@ -462,6 +566,10 @@ class UpdateWorker(QObject):
             return False
         
         # Запуск установщика
+        log(f"📦 Скачивание завершено, запускаем установщик: {setup_exe}", "🔁 UPDATE")
+        log(f"   Файл существует: {os.path.exists(setup_exe)}", "🔁 UPDATE")
+        if os.path.exists(setup_exe):
+            log(f"   Размер: {os.path.getsize(setup_exe)} байт", "🔁 UPDATE")
         return self._run_installer(setup_exe, new_ver, tmp_dir)
 
     def run(self):

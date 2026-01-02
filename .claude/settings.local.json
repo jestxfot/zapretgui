@@ -15,7 +15,27 @@
       "Bash(ls:*)",
       "Bash(mkdir:*)",
       "Bash(cmd:*)",
-      "Bash(copy:*)"
+      "Bash(copy:*)",
+      "Bash(lua54:*)",
+      "Bash(luac:*)",
+      "Bash(where:*)",
+      "Bash(lua -e:*)",
+      "WebSearch",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\" /s)",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\TLS\")",
+      "Bash(reg query HKCUSoftwareZapret2DevRegOrchestra /s)",
+      "Bash(H:)",
+      "Bash(lua -c:*)",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\TLS\" /v \"github.com\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\UserTLS\" /v \"github.com\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\UserTLS\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\LockedTLS\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\TLS\" /v \"youtube.com\")",
+      "Bash(reg query \"HKCU\\\\Software\\\\Zapret2DevReg\\\\Orchestra\\\\UserTLS\" /v \"youtube.com\")",
+      "Bash(cd:*)",
+      "Bash(claude-code task create --subagent_type general-purpose --description \"Добавить кнопку ''Обновить'' на страницу заблокированных стратегий по образцу страницы залоченных\" --instructions \"В файле H:\\\\Privacy\\\\zapretgui\\\\ui\\\\pages\\\\orchestra_blocked_page.py нужно:\n\n1. Добавить кнопку ''Обновить'' в метод _setup_ui\\(\\) после self.search_input \\(строка 307\\), по аналогии с orchestra_locked_page.py \\(строки 289-313\\):\n   - Создать self.refresh_btn с текстом ''Обновить''\n   - Иконка mdi.refresh\n   - Размер 16x16 для иконки\n   - Высота 32px\n   - Подключить к методу _reload_from_registry\n   - Использовать точно такой же стиль как в orchestra_locked_page.py\n\n2. Добавить метод _reload_from_registry\\(\\) по аналогии с orchestra_locked_page.py \\(строки 412-435\\):\n   - Визуальный фидбек \\(блокировка кнопки, текст ''Загрузка...''\\)\n   - Получение runner через self._get_runner\\(\\)\n   - Перезагрузка данных через runner.blocked_manager.load\\(\\) если runner существует\n   - Если runner нет - добавить метод _load_directly_from_registry\\(\\) аналогично locked_page\n   - Вызов self._refresh_data\\(\\) для обновления UI\n   - Восстановление состояния кнопки\n\n3. При необходимости добавить _load_directly_from_registry\\(\\) для загрузки данных без активного runner \\(по аналогии с orchestra_locked_page.py строки 437-446\\)\n\n4. Убедиться что кнопка добавлена в top_row между self.search_input и self.unblock_all_btn\n\nВажно: сохрани точное форматирование и стили из orchestra_locked_page.py\")",
+      "Bash(xxd:*)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 ---
 name: orchestra-log-reader
 description: "Читает и анализирует логи оркестратора. Ищет ошибки, события SUCCESS/LOCK/FAIL, проблемы парсинга. Читает пару файлов: orchestra_*.log (winws2 вывод) и zapret_log_*.txt (Python лог). Используй для диагностики проблем оркестратора."
-model: haiku
+model: opus
 color: yellow
 ---
 

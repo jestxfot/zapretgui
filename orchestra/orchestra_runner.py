@@ -29,13 +29,21 @@ from config import MAIN_DIRECTORY, EXE_FOLDER, LUA_FOLDER, LOGS_FOLDER, BIN_FOLD
 from config.reg import reg
 from orchestra.log_parser import LogParser, EventType, ParsedEvent, nld_cut, ip_to_subnet16, is_local_ip
 from orchestra.blocked_strategies_manager import BlockedStrategiesManager
-from orchestra.locked_strategies_manager import LockedStrategiesManager
+from orchestra.locked_strategies_manager import (
+    LockedStrategiesManager, ASKEY_ALL, TCP_ASKEYS, UDP_ASKEYS, PROTO_TO_ASKEY
+)
 
 # Путь в реестре (основные константы теперь в менеджерах)
 REGISTRY_ORCHESTRA = f"{REGISTRY_PATH}\\Orchestra"
 
 # Максимальное количество лог-файлов оркестратора
 MAX_ORCHESTRA_LOGS = 10
+
+# Максимальный размер лог-файла (1 ГБ) - при превышении файл очищается
+MAX_LOG_SIZE_BYTES = 1024 * 1024 * 1024
+
+# Интервал проверки размера файла (каждые N строк)
+LOG_SIZE_CHECK_INTERVAL = 1000
 
 # Белый список по умолчанию - сайты которые НЕ нужно обрабатывать
 # Эти сайты работают без DPI bypass или требуют особой обработки
@@ -54,6 +62,7 @@ DEFAULT_WHITELIST_DOMAINS = {
     "okcdn.ru",
     "yandex.ru",
     "ya.ru",
+    "yandex.net",
     "yandex.by",
     "yandex.kz",
     "sberbank.ru",
@@ -91,6 +100,7 @@ DEFAULT_WHITELIST_DOMAINS = {
     "claude.com",
     # ozon
     "ozon.ru",
+    "ozone.ru",
     "ozonusercontent.com",
     # wb
     "wildberries.ru",
@@ -105,7 +115,7 @@ def _is_default_whitelist_domain(hostname: str) -> bool:
     """
     if not hostname:
         return False
-    hostname = hostname.lower().strip()
+    hostname = hostname.lower().strip().rstrip('.')  # Normalize: lowercase, trim, remove trailing dots
     return hostname in DEFAULT_WHITELIST_DOMAINS
 
 
@@ -137,7 +147,7 @@ class OrchestraRunner:
     Runner для circular оркестратора с автоматическим обучением.
 
     Особенности:
-    - Использует circular orchestrator (не mega_circular)
+    - Использует circular orchestrator
     - Детекция: RST injection + silent drop + SUCCESS по байтам (2KB)
     - LOCK после 3 успехов на одной стратегии
     - UNLOCK после 2 failures (автоматическое переобучение)
@@ -156,24 +166,10 @@ class OrchestraRunner:
         self.bin_path = BIN_FOLDER
 
         # Файлы конфигурации (в lua папке)
+        # ВАЖНО: circular-config.txt теперь СТАТИЧЕСКИЙ файл в H:\Privacy\zapret\lua\
+        # Стратегии встроены напрямую в circular-config.txt, отдельные strategies-*.txt не нужны
         self.config_path = os.path.join(self.lua_path, "circular-config.txt")
         self.blobs_path = os.path.join(self.lua_path, "blobs.txt")
-
-        # TLS 443 стратегии
-        self.strategies_source_path = os.path.join(self.lua_path, "strategies-source.txt")
-        self.strategies_path = os.path.join(self.lua_path, "strategies-all.txt")
-
-        # HTTP 80 стратегии
-        self.http_strategies_source_path = os.path.join(self.lua_path, "strategies-http-source.txt")
-        self.http_strategies_path = os.path.join(self.lua_path, "strategies-http-all.txt")
-
-        # UDP стратегии (QUIC)
-        self.udp_strategies_source_path = os.path.join(self.lua_path, "strategies-udp-source.txt")
-        self.udp_strategies_path = os.path.join(self.lua_path, "strategies-udp-all.txt")
-
-        # Discord Voice / STUN стратегии
-        self.discord_strategies_source_path = os.path.join(self.lua_path, "strategies-discord-source.txt")
-        self.discord_strategies_path = os.path.join(self.lua_path, "strategies-discord-all.txt")
 
         # Белый список (exclude hostlist)
         self.whitelist_path = os.path.join(self.lua_path, "whitelist.txt")
@@ -191,6 +187,11 @@ class OrchestraRunner:
         self.auto_restart_on_discord_fail = saved_auto_restart is None or bool(saved_auto_restart)
         self.restart_callback: Optional[Callable[[], None]] = None  # Callback для перезапуска приложения
 
+        # Счётчик Discord FAIL для рестарта (рестарт только после N фейлов подряд)
+        self.discord_fail_count = 0
+        saved_threshold = reg(f"{REGISTRY_PATH}\\Orchestra", "DiscordFailsForRestart")
+        self.discord_fails_threshold = int(saved_threshold) if saved_threshold is not None else 3
+
         # Состояние
         self.running_process: Optional[subprocess.Popen] = None
         self.output_thread: Optional[threading.Thread] = None
@@ -199,13 +200,8 @@ class OrchestraRunner:
         # Менеджеры стратегий
         self.blocked_manager = BlockedStrategiesManager()
         self.locked_manager = LockedStrategiesManager(blocked_manager=self.blocked_manager)
-
-        # Алиасы для совместимости (TODO: постепенно убрать)
-        self.locked_strategies = self.locked_manager.locked_strategies
-        self.http_locked_strategies = self.locked_manager.http_locked_strategies
-        self.udp_locked_strategies = self.locked_manager.udp_locked_strategies
-        self.strategy_history = self.locked_manager.strategy_history
-        self.blocked_strategies = self.blocked_manager.blocked_strategies
+        # Обратная ссылка: blocked нужен locked для удаления конфликтующих locks
+        self.blocked_manager.set_locked_manager(self.locked_manager)
 
         # Кэши ipset подсетей для UDP (игры/Discord/QUIC)
         self.ipset_networks: list[tuple[ipaddress._BaseNetwork, str]] = []
@@ -438,14 +434,8 @@ class OrchestraRunner:
         # Загружаем locked стратегии (включая историю)
         self.locked_manager.load()
 
-        # Обновляем алиасы для совместимости
-        self.locked_strategies = self.locked_manager.locked_strategies
-        self.http_locked_strategies = self.locked_manager.http_locked_strategies
-        self.udp_locked_strategies = self.locked_manager.udp_locked_strategies
-        self.strategy_history = self.locked_manager.strategy_history
-        self.blocked_strategies = self.blocked_manager.blocked_strategies
-
-        return self.locked_strategies
+        # Возвращаем TLS стратегии для backward compatibility
+        return self.locked_manager.locked_by_askey["tls"]
 
     def _generate_learned_lua(self) -> Optional[str]:
         """
@@ -456,104 +446,69 @@ class OrchestraRunner:
         Returns:
             Путь к файлу или None если нет данных
         """
-        has_tls = bool(self.locked_strategies)
-        has_http = bool(self.http_locked_strategies)
-        has_udp = bool(self.udp_locked_strategies)
-        has_history = bool(self.strategy_history)
+        # Проверяем наличие данных по всем askey профилям
+        has_any_locked = any(self.locked_manager.locked_by_askey[askey] for askey in ASKEY_ALL)
+        has_history = bool(self.locked_manager.strategy_history)
+        has_blocked = bool(self.blocked_manager.blocked_strategies)
 
-        # blocked_strategies уже содержит и дефолтные (s1 для DEFAULT_BLOCKED_PASS_DOMAINS)
-        # и пользовательские блокировки - используем напрямую
-        has_blocked = bool(self.blocked_strategies)
-
-        if not has_tls and not has_http and not has_udp and not has_history and not has_blocked:
+        if not has_any_locked and not has_history and not has_blocked:
             return None
 
         lua_path = os.path.join(self.lua_path, "learned-strategies.lua")
+
+        # Собираем статистику по всем askey
+        counts = {askey: len(self.locked_manager.locked_by_askey[askey]) for askey in ASKEY_ALL}
+        total_locked = sum(counts.values())
+        total_history = len(self.locked_manager.strategy_history)
+
+        stats_str = ", ".join(f"{askey.upper()}: {cnt}" for askey, cnt in counts.items() if cnt > 0)
         log(f"Генерация learned-strategies.lua: {lua_path}", "DEBUG")
-        log(f"  TLS: {len(self.locked_strategies)}, HTTP: {len(self.http_locked_strategies)}, UDP: {len(self.udp_locked_strategies)}", "DEBUG")
-        total_tls = len(self.locked_strategies)
-        total_http = len(self.http_locked_strategies)
-        total_udp = len(self.udp_locked_strategies)
-        total_history = len(self.strategy_history)
+        log(f"  {stats_str or 'пусто'}", "DEBUG")
 
         try:
             with open(lua_path, 'w', encoding='utf-8') as f:
                 f.write("-- Auto-generated: preload strategies from registry\n")
                 f.write(f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"-- TLS: {total_tls}, HTTP: {total_http}, UDP: {total_udp}, History: {total_history}\n\n")
+                f.write(f"-- {stats_str or 'empty'}, History: {total_history}\n\n")
 
-                # Генерируем таблицу заблокированных стратегий для Lua
-                if self.blocked_strategies:
+                # Генерируем blocked стратегии через slm_preload_blocked(askey, hostname, strategies)
+                # Функция slm_is_blocked() теперь определена в strategy-lock-manager.lua
+                # ВАЖНО: blocked применяется ко всем TCP профилям (tls, http, mtproto)
+                blocked_strategies = self.blocked_manager.blocked_strategies
+                if blocked_strategies:
                     f.write("-- Blocked strategies (default + user-defined)\n")
-                    f.write("BLOCKED_STRATEGIES = {\n")
-                    for hostname, strategies in self.blocked_strategies.items():
-                        safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
-                        strat_list = ", ".join(str(s) for s in strategies)
-                        f.write(f'    ["{safe_host}"] = {{{strat_list}}},\n')
-                    f.write("}\n\n")
-
-                    # Функция проверки заблокированных стратегий (учитываем субдомены)
-                    f.write("-- Check if strategy is blocked for hostname (supports subdomains)\n")
-                    f.write("function is_strategy_blocked(hostname, strategy)\n")
-                    f.write("    if not hostname or not BLOCKED_STRATEGIES then return false end\n")
-                    f.write("    hostname = hostname:lower()\n")
-                    f.write("    local function check_host(h)\n")
-                    f.write("        local blocked = BLOCKED_STRATEGIES[h]\n")
-                    f.write("        if not blocked then return false end\n")
-                    f.write("        for _, s in ipairs(blocked) do\n")
-                    f.write("            if s == strategy then return true end\n")
-                    f.write("        end\n")
-                    f.write("        return false\n")
-                    f.write("    end\n")
-                    f.write("    -- точное совпадение\n")
-                    f.write("    if check_host(hostname) then return true end\n")
-                    f.write("    -- проверка по суффиксу домена\n")
-                    f.write("    local dot = hostname:find('%.')\n")
-                    f.write("    while dot do\n")
-                    f.write("        local suffix = hostname:sub(dot + 1)\n")
-                    f.write("        if check_host(suffix) then return true end\n")
-                    f.write("        dot = hostname:find('%.', dot + 1)\n")
-                    f.write("    end\n")
-                    f.write("    return false\n")
-                    f.write("end\n\n")
+                    f.write("-- Function slm_is_blocked() is defined in strategy-lock-manager.lua\n")
+                    f.write("-- Format: slm_preload_blocked(askey, hostname, {strategies})\n")
+                    for hostname, strategies in blocked_strategies.items():
+                        safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"').lower()
+                        strat_set = "{" + ", ".join(str(s) for s in strategies) + "}"
+                        # Применяем blocked ко всем TCP профилям
+                        for tcp_askey in TCP_ASKEYS:
+                            f.write(f'slm_preload_blocked("{tcp_askey}", "{safe_host}", {strat_set})\n')
+                    f.write("\n")
                 else:
-                    # Если нет заблокированных - функция всегда возвращает false
-                    f.write("-- No blocked strategies\n")
-                    f.write("BLOCKED_STRATEGIES = {}\n")
-                    f.write("function is_strategy_blocked(hostname, strategy) return false end\n\n")
+                    f.write("-- No blocked strategies\n\n")
 
-                # Предзагрузка TLS стратегий (с фильтрацией заблокированных)
-                blocked_tls = 0
-                for hostname, strategy in self.locked_strategies.items():
-                    if self.blocked_manager.is_blocked(hostname, strategy):
-                        blocked_tls += 1
-                        continue
-                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
-                    f.write(f'strategy_preload("{safe_host}", {strategy}, "tls")\n')
-
-                # Предзагрузка HTTP стратегий (с фильтрацией заблокированных)
-                blocked_http = 0
-                for hostname, strategy in self.http_locked_strategies.items():
-                    if self.blocked_manager.is_blocked(hostname, strategy):
-                        blocked_http += 1
-                        continue
-                    safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
-                    f.write(f'strategy_preload("{safe_host}", {strategy}, "http")\n')
-
-                # Предзагрузка UDP стратегий (с фильтрацией заблокированных)
-                blocked_udp = 0
-                for ip, strategy in self.udp_locked_strategies.items():
-                    if self.blocked_manager.is_blocked(ip, strategy):
-                        blocked_udp += 1
-                        continue
-                    safe_ip = ip.replace('\\', '\\\\').replace('"', '\\"')
-                    f.write(f'strategy_preload("{safe_ip}", {strategy}, "udp")\n')
+                # Предзагрузка locked стратегий для всех 9 askey профилей
+                blocked_counts = {askey: 0 for askey in ASKEY_ALL}
+                for askey in ASKEY_ALL:
+                    for hostname, strategy in self.locked_manager.locked_by_askey[askey].items():
+                        is_user = hostname in self.locked_manager.user_locked_by_askey[askey]
+                        # User locks НЕ пропускаем даже если стратегия заблокирована
+                        if not is_user and self.blocked_manager.is_blocked(hostname, strategy):
+                            blocked_counts[askey] += 1
+                            continue
+                        safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
+                        # askey первым параметром: slm_preload_locked(askey, hostname, strategy, is_user)
+                        f.write(f'slm_preload_locked("{askey}", "{safe_host}", {strategy}, {"true" if is_user else "false"})\n')
 
                 # Для доменов с заблокированной s1 из истории, которые НЕ залочены - preload с лучшей стратегией
                 blocked_from_history = 0
-                for hostname in self.strategy_history.keys():
+                tls_locked = self.locked_manager.locked_by_askey["tls"]
+                http_locked = self.locked_manager.locked_by_askey["http"]
+                for hostname in self.locked_manager.strategy_history.keys():
                     # Пропускаем если уже залочен (обработан выше)
-                    if hostname in self.locked_strategies or hostname in self.http_locked_strategies:
+                    if hostname in tls_locked or hostname in http_locked:
                         continue
                     # Только для доменов с заблокированной strategy=1
                     if not self.blocked_manager.is_blocked(hostname, 1):
@@ -566,14 +521,17 @@ class OrchestraRunner:
                     if self.blocked_manager.is_blocked(hostname, best_strat):
                         continue
                     safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
-                    f.write(f'strategy_preload("{safe_host}", {best_strat}, "tls")\n')
+                    # askey первым параметром: slm_preload_locked(askey, hostname, strategy)
+                    f.write(f'slm_preload_locked("tls", "{safe_host}", {best_strat})\n')
                     blocked_from_history += 1
                 if blocked_from_history > 0:
                     log(f"Добавлено {blocked_from_history} доменов из истории (s1 заблокирована)", "DEBUG")
 
                 # Предзагрузка истории (фильтруем заблокированные стратегии)
+                # TODO: в будущем история может хранить askey для разных протоколов
+                # Пока используем "tls" по умолчанию для всей истории
                 history_skipped = 0
-                for hostname, strategies in self.strategy_history.items():
+                for hostname, strategies in self.locked_manager.strategy_history.items():
                     safe_host = hostname.replace('\\', '\\\\').replace('"', '\\"')
                     for strat_key, data in strategies.items():
                         strat_num = int(strat_key) if isinstance(strat_key, str) else strat_key
@@ -583,15 +541,15 @@ class OrchestraRunner:
                             continue
                         s = data.get('successes') or 0
                         f_count = data.get('failures') or 0
-                        f.write(f'strategy_preload_history("{safe_host}", {strat_key}, {s}, {f_count})\n')
+                        # askey первым параметром: slm_preload_history(askey, hostname, strategy, successes, failures)
+                        f.write(f'slm_preload_history("tls", "{safe_host}", {strat_key}, {s}, {f_count})\n')
                 if history_skipped > 0:
                     log(f"Пропущено {history_skipped} записей истории (заблокированы)", "DEBUG")
 
-                actual_tls = total_tls - blocked_tls
-                actual_http = total_http - blocked_http
-                actual_udp = total_udp - blocked_udp
-                total_blocked = blocked_tls + blocked_http + blocked_udp
-                f.write(f'\nDLOG("learned-strategies: loaded {actual_tls} TLS + {actual_http} HTTP + {actual_udp} UDP + {total_history} history (blocked: {total_blocked})")\n')
+                # Подсчёт статистики
+                total_blocked = sum(blocked_counts.values())
+                actual_locked = total_locked - total_blocked
+                f.write(f'\nDLOG("learned-strategies: loaded {actual_locked} strategies + {total_history} history (blocked: {total_blocked})")\n')
 
                 # Install circular wrapper to apply preloaded strategies
                 f.write('\n-- Install circular wrapper to apply preloaded strategies on first packet\n')
@@ -616,8 +574,10 @@ class OrchestraRunner:
                 f.write('end\n')
 
                 # Wrap circular to skip blocked strategies during rotation
-                if self.blocked_strategies:
+                # slm_is_blocked() is now defined in strategy-lock-manager.lua
+                if blocked_strategies:
                     f.write('\n-- Install blocked strategies filter for circular rotation\n')
+                    f.write('-- slm_is_blocked() is defined in strategy-lock-manager.lua\n')
                     f.write('local _blocked_wrap_installed = false\n')
                     f.write('local function install_blocked_filter()\n')
                     f.write('    if _blocked_wrap_installed then return end\n')
@@ -626,11 +586,11 @@ class OrchestraRunner:
                     f.write('        local original_circular = circular\n')
                     f.write('        circular = function(t, hostname, ...)\n')
                     f.write('            local result = original_circular(t, hostname, ...)\n')
-                    f.write('            if result and hostname and is_strategy_blocked(hostname, result) then\n')
+                    f.write('            if result and hostname and slm_is_blocked(hostname, result) then\n')
                     f.write('                local max_skip = 10\n')
                     f.write('                for i = 1, max_skip do\n')
                     f.write('                    result = original_circular(t, hostname, ...)\n')
-                    f.write('                    if not result or not is_strategy_blocked(hostname, result) then break end\n')
+                    f.write('                    if not result or not slm_is_blocked(hostname, result) then break end\n')
                     f.write('                    DLOG("BLOCKED: skip strategy " .. result .. " for " .. hostname)\n')
                     f.write('                end\n')
                     f.write('            end\n')
@@ -641,122 +601,22 @@ class OrchestraRunner:
                     f.write('end\n')
                     f.write('install_blocked_filter()\n')
 
-            total_blocked = blocked_tls + blocked_http + blocked_udp
             block_info = f", заблокировано {total_blocked}" if total_blocked > 0 else ""
-
-            log(f"Сгенерирован learned-strategies.lua ({total_tls} TLS + {total_http} HTTP + {total_udp} UDP + {total_history} history{block_info})", "DEBUG")
+            log(f"Сгенерирован learned-strategies.lua ({total_locked} locked + {total_history} history{block_info})", "DEBUG")
             return lua_path
 
         except Exception as e:
             log(f"Ошибка генерации learned-strategies.lua: {e}", "ERROR")
             return None
 
-    def _generate_single_numbered_file(self, source_path: str, output_path: str, name: str) -> int:
-        """
-        Генерирует один файл стратегий с автоматической нумерацией.
-
-        Returns:
-            Количество стратегий или -1 при ошибке
-        """
-        if not os.path.exists(source_path):
-            log(f"Исходные стратегии не найдены: {source_path}", "ERROR")
-            return -1
-
-        try:
-            with open(source_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-
-            strategy_num = 0
-            numbered_lines = []
-
-            for line in lines:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-
-                if '--lua-desync=' in line:
-                    strategy_num += 1
-                    # Добавляем :strategy=N к КАЖДОМУ --lua-desync параметру в строке
-                    parts = line.split(' ')
-                    new_parts = []
-                    for part in parts:
-                        if part.startswith('--lua-desync='):
-                            new_parts.append(f"{part}:strategy={strategy_num}")
-                        else:
-                            new_parts.append(part)
-                    numbered_lines.append(' '.join(new_parts))
-                else:
-                    numbered_lines.append(line)
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(numbered_lines) + '\n')
-
-            log(f"Сгенерировано {strategy_num} {name} стратегий", "DEBUG")
-            return strategy_num
-
-        except Exception as e:
-            log(f"Ошибка генерации {name} стратегий: {e}", "ERROR")
-            return -1
-
-    def _generate_numbered_strategies(self) -> bool:
-        """
-        Генерирует strategies-all.txt, strategies-http-all.txt и strategies-udp-all.txt с автоматической нумерацией.
-        Путь C:\ProgramData\ZapretTwoDev\lua\strategies-all.txt
-
-        Returns:
-            True если генерация успешна
-        """
-        # TLS стратегии (обязательные)
-        tls_count = self._generate_single_numbered_file(
-            self.strategies_source_path,
-            self.strategies_path,
-            "TLS"
-        )
-        if tls_count < 0:
-            return False
-
-        # HTTP стратегии (опциональные)
-        if os.path.exists(self.http_strategies_source_path):
-            http_count = self._generate_single_numbered_file(
-                self.http_strategies_source_path,
-                self.http_strategies_path,
-                "HTTP"
-            )
-            if http_count < 0:
-                log("HTTP стратегии не сгенерированы, продолжаем без них", "WARNING")
-        else:
-            log("HTTP source не найден, пропускаем", "DEBUG")
-
-        # UDP стратегии (опциональные - для QUIC)
-        if os.path.exists(self.udp_strategies_source_path):
-            udp_count = self._generate_single_numbered_file(
-                self.udp_strategies_source_path,
-                self.udp_strategies_path,
-                "UDP"
-            )
-            if udp_count < 0:
-                log("UDP стратегии не сгенерированы, продолжаем без них", "WARNING")
-        else:
-            log("UDP source не найден, пропускаем", "DEBUG")
-
-        # Discord Voice / STUN стратегии (опциональные)
-        if os.path.exists(self.discord_strategies_source_path):
-            discord_count = self._generate_single_numbered_file(
-                self.discord_strategies_source_path,
-                self.discord_strategies_path,
-                "Discord"
-            )
-            if discord_count < 0:
-                log("Discord стратегии не сгенерированы, продолжаем без них", "WARNING")
-        else:
-            log("Discord source не найден, пропускаем", "DEBUG")
-
-        return True
+    # REMOVED: _generate_single_numbered_file() - стратегии теперь встроены в circular-config.txt
+    # REMOVED: _generate_numbered_strategies() - стратегии теперь встроены в circular-config.txt
 
     def _read_output(self):
         """Поток чтения stdout от winws2 с использованием LogParser"""
         parser = LogParser()
         history_save_counter = 0
+        log_line_counter = 0  # Счётчик строк для периодической проверки размера файла
 
         # Открываем файл для записи сырого debug лога (для отправки в техподдержку)
         log_file = None
@@ -781,6 +641,22 @@ class OrchestraRunner:
                     if log_file:
                         try:
                             log_file.write(f"{line}\n")
+                            log_line_counter += 1
+
+                            # Периодически проверяем размер файла
+                            if log_line_counter >= LOG_SIZE_CHECK_INTERVAL:
+                                log_line_counter = 0
+                                try:
+                                    log_file.flush()
+                                    file_size = os.path.getsize(self.debug_log_path)
+                                    if file_size > MAX_LOG_SIZE_BYTES:
+                                        # Файл превысил лимит - очищаем
+                                        log_file.close()
+                                        log_file = open(self.debug_log_path, 'w', encoding='utf-8', buffering=1)
+                                        log_file.write(f"=== Log truncated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (exceeded {MAX_LOG_SIZE_BYTES // (1024*1024*1024)} GB) ===\n")
+                                        log(f"Лог-файл оркестратора очищен (превышен лимит {MAX_LOG_SIZE_BYTES // (1024*1024*1024)} ГБ)", "INFO")
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
 
@@ -790,7 +666,7 @@ class OrchestraRunner:
                         continue
 
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    is_udp = event.l7proto in ("udp", "quic", "stun", "discord", "wireguard", "dht")
+                    is_udp = event.l7proto in ("udp", "quic", "stun", "discord", "wireguard", "dht", "unknown")
 
                     # === LOCK ===
                     if event.event_type == EventType.LOCK:
@@ -802,20 +678,26 @@ class OrchestraRunner:
                         if self.blocked_manager.is_blocked(host, strat):
                             continue
 
-                        # Protocol tag and target dict
-                        if proto == "udp" or is_udp:
-                            target_dict = self.udp_locked_strategies
-                            proto_tag = f"[{event.l7proto.upper()}]" if event.l7proto else "[UDP]"
+                        # Маппинг l7proto -> askey
+                        askey = PROTO_TO_ASKEY.get(proto, proto if proto in ASKEY_ALL else "tls")
+
+                        # Пропускаем user locks - их нельзя перезаписать auto-lock
+                        if self.locked_manager.is_user_locked(host, askey):
+                            log(f"SKIP auto-lock: {host} has user lock [{askey.upper()}]", "DEBUG")
+                            continue
+
+                        # Protocol tag and port for UI
+                        if askey in UDP_ASKEYS:
+                            proto_tag = f"[{askey.upper()}]"
                             port_str = ""
-                        elif proto == "http":
-                            target_dict = self.http_locked_strategies
+                        elif askey == "http":
                             proto_tag = "[HTTP]"
                             port_str = ":80"
                         else:
-                            target_dict = self.locked_strategies
-                            proto_tag = "[TLS]"
-                            port_str = ":443"
+                            proto_tag = f"[{askey.upper()}]"
+                            port_str = ":443" if askey in TCP_ASKEYS else ""
 
+                        target_dict = self.locked_manager.locked_by_askey[askey]
                         if host not in target_dict or target_dict[host] != strat:
                             target_dict[host] = strat
                             msg = f"[{timestamp}] {proto_tag} 🔒 LOCKED: {host}{port_str} = strategy {strat}"
@@ -830,15 +712,18 @@ class OrchestraRunner:
                     # === UNLOCK ===
                     if event.event_type == EventType.UNLOCK:
                         host = event.hostname
+                        proto = event.l7proto or "tls"
+                        askey = PROTO_TO_ASKEY.get(proto, proto if proto in ASKEY_ALL else "tls")
                         removed = False
-                        for target_dict, proto_tag, port_str in [
-                            (self.locked_strategies, "[TLS]", ":443"),
-                            (self.http_locked_strategies, "[HTTP]", ":80"),
-                            (self.udp_locked_strategies, "[UDP]", "")
-                        ]:
+
+                        # Ищем хост во всех askey профилях и удаляем
+                        for ak in ASKEY_ALL:
+                            target_dict = self.locked_manager.locked_by_askey[ak]
                             if host in target_dict:
                                 del target_dict[host]
                                 removed = True
+                                proto_tag = f"[{ak.upper()}]"
+                                port_str = ":443" if ak == "tls" else (":80" if ak == "http" else "")
                                 msg = f"[{timestamp}] {proto_tag} 🔓 UNLOCKED: {host}{port_str} - re-learning..."
                                 log(msg, "INFO")
                                 if self.output_callback:
@@ -847,6 +732,15 @@ class OrchestraRunner:
                                     self.unlock_callback(host)
                         if removed:
                             self.locked_manager.save()
+                        continue
+
+                    # === RESET ===
+                    if event.event_type == EventType.RESET:
+                        host = event.hostname
+                        msg = f"[{timestamp}] 🔄 RESET: {host} - statistics cleared"
+                        log(msg, "INFO")
+                        if self.output_callback:
+                            self.output_callback(msg)
                         continue
 
                     # === APPLIED ===
@@ -883,6 +777,10 @@ class OrchestraRunner:
                             self.locked_manager.increment_history(host, strat, is_success=True)
                             history_save_counter += 1
 
+                            # Сброс счётчика Discord FAIL при SUCCESS
+                            if "discord" in host.lower() and self.discord_fail_count > 0:
+                                self.discord_fail_count = 0
+
                             # Protocol tag for clear identification
                             if is_udp:
                                 proto_tag = f"[{proto.upper()}]" if proto else "[UDP]"
@@ -912,6 +810,10 @@ class OrchestraRunner:
                             self.locked_manager.increment_history(host, strat, is_success=True)
                             history_save_counter += 1
 
+                            # Сброс счётчика Discord FAIL при SUCCESS
+                            if "discord" in host.lower() and self.discord_fail_count > 0:
+                                self.discord_fail_count = 0
+
                             # Protocol tag for clear identification
                             if is_udp:
                                 proto_tag = f"[{proto.upper()}]" if proto else "[UDP]"
@@ -931,22 +833,24 @@ class OrchestraRunner:
 
                             lock_threshold = 1 if is_udp else 3
                             if self._success_counts[host_key] >= lock_threshold:
-                                if is_udp:
-                                    target_dict = self.udp_locked_strategies
-                                elif proto == "http":
-                                    target_dict = self.http_locked_strategies
-                                else:
-                                    target_dict = self.locked_strategies
+                                # Маппинг l7proto -> askey
+                                askey = PROTO_TO_ASKEY.get(proto, proto if proto in ASKEY_ALL else "tls")
 
-                                if host not in target_dict or target_dict[host] != strat:
-                                    target_dict[host] = strat
-                                    msg = f"[{timestamp}] {proto_tag} 🔒 LOCKED: {host}{port_str} = strategy {strat}"
-                                    log(msg, "INFO")
-                                    if self.output_callback:
-                                        self.output_callback(msg)
-                                    self.locked_manager.save()
-                                    self.locked_manager.save_history()
-                                    history_save_counter = 0
+                                # Пропускаем user locks - их нельзя перезаписать auto-lock
+                                if self.locked_manager.is_user_locked(host, askey):
+                                    log(f"SKIP auto-lock: {host} has user lock [{askey.upper()}]", "DEBUG")
+                                else:
+                                    target_dict = self.locked_manager.locked_by_askey[askey]
+
+                                    if host not in target_dict or target_dict[host] != strat:
+                                        target_dict[host] = strat
+                                        msg = f"[{timestamp}] {proto_tag} 🔒 LOCKED: {host}{port_str} = strategy {strat}"
+                                        log(msg, "INFO")
+                                        if self.output_callback:
+                                            self.output_callback(msg)
+                                        self.locked_manager.save()
+                                        self.locked_manager.save_history()
+                                        history_save_counter = 0
 
                             msg = f"[{timestamp}] {proto_tag} ✓ SUCCESS: {host}{port_str} strategy={strat}"
                             if self.output_callback:
@@ -981,14 +885,18 @@ class OrchestraRunner:
                             if self.output_callback:
                                 self.output_callback(msg)
 
-                            # Проверяем Discord FAIL для авторестарта Discord
+                            # Проверяем Discord FAIL для авторестарта Discord (с подсчётом фейлов)
                             if self.auto_restart_on_discord_fail and "discord" in host.lower():
-                                log(f"🔄 Обнаружен FAIL Discord ({host}), перезапускаю Discord...", "WARNING")
-                                if self.output_callback:
-                                    self.output_callback(f"[{timestamp}] ⚠️ Discord FAIL - перезапуск Discord...")
-                                if self.restart_callback:
-                                    # Вызываем callback для перезапуска Discord (через главный поток)
-                                    self.restart_callback()
+                                self.discord_fail_count += 1
+                                log(f"Discord FAIL #{self.discord_fail_count}/{self.discord_fails_threshold} ({host})", "DEBUG")
+                                if self.discord_fail_count >= self.discord_fails_threshold:
+                                    log(f"🔄 Достигнут порог Discord FAIL ({self.discord_fail_count}), перезапускаю Discord...", "WARNING")
+                                    if self.output_callback:
+                                        self.output_callback(f"[{timestamp}] ⚠️ Discord FAIL x{self.discord_fail_count} - перезапуск Discord...")
+                                    if self.restart_callback:
+                                        # Вызываем callback для перезапуска Discord (через главный поток)
+                                        self.restart_callback()
+                                    self.discord_fail_count = 0  # Сброс после рестарта
 
                             if history_save_counter >= 5:
                                 self.locked_manager.save_history()
@@ -1070,7 +978,7 @@ class OrchestraRunner:
                     except Exception:
                         pass
                 # Сохраняем историю при завершении
-                if self.strategy_history:
+                if self.locked_manager.strategy_history:
                     self.locked_manager.save_history()
 
     def prepare(self) -> bool:
@@ -1109,15 +1017,8 @@ class OrchestraRunner:
             log(f"Конфиг не найден: {self.config_path}", "ERROR")
             return False
 
-        # Генерируем strategies-all.txt с автоматической нумерацией
-        if not self._generate_numbered_strategies():
-            return False
-
-        # Генерируем whitelist.txt
+        # Генерируем whitelist.txt (динамический - пользователь добавляет домены)
         self._generate_whitelist_file()
-
-        # Генерируем circular-config.txt с абсолютными путями
-        self._generate_circular_config()
 
         log("Оркестратор готов к запуску", "INFO")
         log("ℹ️ Оркестратор видит только НОВЫЕ соединения. Для тестирования:", "INFO")
@@ -1147,7 +1048,7 @@ class OrchestraRunner:
         # Для доменов которые уже в locked - не важно (не будет повторного LOCK)
         # Для доменов в истории но не locked - продолжаем с сохранённого значения
         self._success_counts = {}
-        for hostname, strategies in self.strategy_history.items():
+        for hostname, strategies in self.locked_manager.strategy_history.items():
             for strat_key, data in strategies.items():
                 successes = data.get('successes') or 0
                 if successes > 0:
@@ -1155,10 +1056,12 @@ class OrchestraRunner:
                     self._success_counts[host_key] = successes
 
         # Логируем загруженные данные
-        total_locked = len(self.locked_strategies) + len(self.http_locked_strategies) + len(self.udp_locked_strategies)
-        total_history = len(self.strategy_history)
+        counts = {askey: len(self.locked_manager.locked_by_askey[askey]) for askey in ASKEY_ALL}
+        total_locked = sum(counts.values())
+        total_history = len(self.locked_manager.strategy_history)
         if total_locked or total_history:
-            log(f"Загружено из реестра: {len(self.locked_strategies)} TLS + {len(self.http_locked_strategies)} HTTP + {len(self.udp_locked_strategies)} UDP стратегий, история для {total_history} доменов", "INFO")
+            stats_str = ", ".join(f"{askey.upper()}: {cnt}" for askey, cnt in counts.items() if cnt > 0)
+            log(f"Загружено из реестра: {stats_str or 'пусто'}, история для {total_history} доменов", "INFO")
 
         # Генерируем уникальный ID для этой сессии логов
         self.current_log_id = self._generate_log_id()
@@ -1213,8 +1116,9 @@ class OrchestraRunner:
                 print("[DEBUG start] calling output_callback...")  # DEBUG
                 self.output_callback(f"[INFO] Оркестратор запущен (PID: {self.running_process.pid})")
                 self.output_callback(f"[INFO] Лог сессии: {self.current_log_id}")
-                if self.locked_strategies:
-                    self.output_callback(f"[INFO] Загружено {len(self.locked_strategies)} стратегий")
+                tls_count = len(self.locked_manager.locked_by_askey["tls"])
+                if tls_count:
+                    self.output_callback(f"[INFO] Загружено {tls_count} TLS стратегий")
 
             return True
 
@@ -1250,7 +1154,9 @@ class OrchestraRunner:
             # Лог оркестратора всегда сохраняется (для отправки в техподдержку)
             # Ротация старых логов выполняется при следующем запуске (_cleanup_old_logs)
 
-            log(f"Оркестратор остановлен. Сохранено {len(self.locked_strategies)} стратегий, история для {len(self.strategy_history)} доменов", "INFO")
+            tls_saved = len(self.locked_manager.locked_by_askey["tls"])
+            history_saved = len(self.locked_manager.strategy_history)
+            log(f"Оркестратор остановлен. Сохранено {tls_saved} TLS стратегий, история для {history_saved} доменов", "INFO")
             if self.current_log_id:
                 log(f"Лог сессии сохранён: orchestra_{self.current_log_id}.log", "DEBUG")
 
@@ -1311,17 +1217,12 @@ class OrchestraRunner:
         return None
 
     def get_locked_strategies(self) -> Dict[str, int]:
-        """Возвращает словарь locked стратегий {hostname: strategy_num}"""
-        return self.locked_strategies.copy()
+        """Возвращает словарь TLS locked стратегий {hostname: strategy_num}"""
+        return self.locked_manager.locked_by_askey["tls"].copy()
 
     def clear_learned_data(self) -> bool:
         """Очищает данные обучения для переобучения с нуля"""
         result = self.locked_manager.clear()
-        # Обновляем алиасы
-        self.locked_strategies = self.locked_manager.locked_strategies
-        self.http_locked_strategies = self.locked_manager.http_locked_strategies
-        self.udp_locked_strategies = self.locked_manager.udp_locked_strategies
-        self.strategy_history = self.locked_manager.strategy_history
 
         # Удаляем файл learned-strategies.lua чтобы при перезапуске был чистый старт
         learned_lua = os.path.join(self.lua_path, "learned-strategies.lua")
@@ -1344,7 +1245,9 @@ class OrchestraRunner:
     def get_learned_data(self) -> dict:
         """Возвращает данные обучения в формате для UI"""
         # Загружаем если не загружены
-        if not self.locked_strategies and not self.http_locked_strategies:
+        tls_locked = self.locked_manager.locked_by_askey["tls"]
+        http_locked = self.locked_manager.locked_by_askey["http"]
+        if not tls_locked and not http_locked:
             self.load_existing_strategies()
         return self.locked_manager.get_learned_data()
 
@@ -1518,109 +1421,8 @@ class OrchestraRunner:
                 return label
         return None
 
-    def _generate_circular_config(self) -> bool:
-        """Генерирует circular-config.txt с абсолютными путями к файлам стратегий"""
-        try:
-            # Загружаем ipset подсети (для отображения игр/сервисов по IP в UDP логах)
-            self._load_ipset_networks()
-
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                f.write("--wf-tcp-out=80,443-65535\n")
-                f.write("--wf-tcp-in=80,443-65535\n")
-                # ВАЖНО: без явного UDP-фильтра WinDivert не ловит QUIC/STUN/WireGuard
-                f.write("--wf-udp-out=1-65535\n")
-                f.write("--wf-udp-in=1-65535\n")
-                f.write("--wf-raw-part=@windivert.filter/windivert_part.stun_bidirectional.txt\n")
-                f.write("--wf-raw-part=@windivert.filter/windivert_part.discord_bidirectional.txt\n")
-                f.write("--wf-raw-part=@windivert.filter/windivert_part.quic_bidirectional.txt\n")
-                f.write("--wf-raw-part=@windivert.filter/windivert_part.games_udp_bidirectional.txt\n")
-                f.write("\n")
-                f.write("--lua-init=@lua/zapret-lib.lua\n")
-                f.write("--lua-init=@lua/zapret-antidpi.lua\n")
-                f.write("--lua-init=@lua/zapret-auto.lua\n")
-                f.write("--lua-init=@lua/custom_funcs.lua\n")
-                f.write("--lua-init=@lua/silent-drop-detector.lua\n")
-                f.write("--lua-init=@lua/strategy-stats.lua\n")
-                f.write("--lua-init=@lua/combined-detector.lua\n")
-                f.write("@lua/blobs.txt\n")
-                f.write("\n")
-                
-                # Profile 1: TLS 443
-                f.write("# Profile 1: TLS 443\n")
-                f.write("--filter-tcp=443\n")
-                f.write("--hostlist-exclude=lua/whitelist.txt\n")
-                f.write("--in-range=-d1000\n")
-                f.write("--out-range=-d1000\n")
-                f.write("--lua-desync=circular_quality:fails=1:failure_detector=combined_failure_detector:success_detector=combined_success_detector:lock_successes=3:lock_tests=5:lock_rate=0.6:inseq=0x1000:nld=2\n")
-                # НЕ отключаем входящий трафик - нужен для детектора успеха!
-                # --in-range=x отключает входящий для всех стратегий
-                # Вместо этого ограничим через -d для экономии CPU
-                f.write("--in-range=-d1000\n")
-                f.write("--out-range=-d1000\n")
-                f.write("--payload=tls_client_hello\n")
-                
-                # Встраиваем TLS стратегии из файла
-                if os.path.exists(self.strategies_path):
-                    with open(self.strategies_path, 'r', encoding='utf-8') as strat_file:
-                        for line in strat_file:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                f.write(line + "\n")
-                
-                f.write("\n")
-                
-                # Profile 2: HTTP 80
-                f.write("# Profile 2: HTTP 80\n")
-                f.write("--new\n")
-                f.write("--filter-tcp=80\n")
-                f.write("--hostlist-exclude=lua/whitelist.txt\n")
-                f.write("--in-range=-d1000\n")
-                f.write("--out-range=-d1000\n")
-                f.write("--lua-desync=circular_quality:fails=1:failure_detector=combined_failure_detector:success_detector=combined_success_detector:lock_successes=3:lock_tests=5:lock_rate=0.6:inseq=0x1000:nld=2\n")
-                # НЕ отключаем входящий трафик - нужен для детектора успеха!
-                f.write("--in-range=-d1000\n")
-                f.write("--out-range=-d1000\n")
-                f.write("--payload=http_req\n")
-                
-                # Встраиваем HTTP стратегии из файла
-                if os.path.exists(self.http_strategies_path):
-                    with open(self.http_strategies_path, 'r', encoding='utf-8') as strat_file:
-                        for line in strat_file:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                f.write(line + "\n")
-                
-                f.write("\n")
-                
-                # Profile 3: UDP
-                f.write("# Profile 3: UDP (QUIC, STUN, Discord, WireGuard, Games)\n")
-                f.write("--new\n")
-                f.write("--filter-udp=443-65535\n")
-                f.write("--payload=all\n")
-                f.write("--in-range=-d100\n")
-                f.write("--out-range=-d100\n")
-                f.write("--lua-desync=circular_quality:fails=3:hostkey=udp_global_hostkey:failure_detector=udp_aggressive_failure_detector:success_detector=udp_protocol_success_detector:lock_successes=2:lock_tests=4:lock_rate=0.5:udp_fail_out=3:udp_fail_in=0:udp_in=1:nld=2\n")
-                f.write("--in-range=-d100\n")
-                f.write("--out-range=-d100\n")
-                f.write("--payload=all\n")
-                
-                # Встраиваем UDP стратегии из файла
-                if os.path.exists(self.udp_strategies_path):
-                    with open(self.udp_strategies_path, 'r', encoding='utf-8') as strat_file:
-                        for line in strat_file:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                f.write(line + "\n")
-                
-                f.write("\n")
-                f.write("--debug=1\n")
-            
-            log(f"Сгенерирован circular-config.txt", "DEBUG")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка генерации circular-config.txt: {e}", "ERROR")
-            return False
+    # REMOVED: _write_strategies_from_file() - стратегии теперь встроены в circular-config.txt
+    # REMOVED: _generate_circular_config() - конфиг теперь статический в H:\Privacy\zapret\lua\circular-config.txt
 
     def _generate_whitelist_file(self) -> bool:
         """Генерирует файл whitelist.txt для winws2 --hostlist-exclude"""

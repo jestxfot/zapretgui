@@ -1,10 +1,10 @@
 # ui/pages/orchestra_ratings_page.py
 """Страница истории стратегий с рейтингами (оркестратор)"""
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-    QLineEdit, QPushButton
+    QLineEdit, QPushButton, QTextEdit
 )
 import qtawesome as qta
 
@@ -24,10 +24,6 @@ class OrchestraRatingsPage(BasePage):
         )
         self.setObjectName("orchestraRatingsPage")
         self._setup_ui()
-
-        # Таймер автообновления
-        self._update_timer = QTimer(self)
-        self._update_timer.timeout.connect(self._refresh_data)
 
     def _setup_ui(self):
         # === Фильтр ===
@@ -53,18 +49,27 @@ class OrchestraRatingsPage(BasePage):
         filter_layout.addWidget(self.filter_input, 1)
 
         refresh_btn = QPushButton("Обновить")
-        refresh_btn.setIcon(qta.icon("mdi.refresh", color="#60cdff"))
+        refresh_btn.setIcon(qta.icon("mdi.refresh", color="white"))
+        refresh_btn.setIconSize(QSize(16, 16))
+        refresh_btn.setFixedHeight(32)
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self._refresh_data)
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(96, 205, 255, 0.15);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-                border-radius: 6px;
-                color: #60cdff;
-                padding: 8px 16px;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
             QPushButton:hover {
-                background: rgba(96, 205, 255, 0.25);
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
             }
         """)
         filter_layout.addWidget(refresh_btn)
@@ -81,11 +86,11 @@ class OrchestraRatingsPage(BasePage):
         history_card = SettingsCard("Рейтинги по доменам")
         history_layout = QVBoxLayout()
 
-        self.history_label = QLabel()
-        self.history_label.setWordWrap(False)
-        self.history_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.history_label.setStyleSheet("""
-            QLabel {
+        self.history_text = QTextEdit()
+        self.history_text.setReadOnly(True)
+        self.history_text.setMinimumHeight(300)
+        self.history_text.setStyleSheet("""
+            QTextEdit {
                 background-color: rgba(0, 0, 0, 0.2);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
@@ -94,9 +99,25 @@ class OrchestraRatingsPage(BasePage):
                 font-size: 11px;
                 padding: 8px;
             }
+            QScrollBar:vertical {
+                background: rgba(255, 255, 255, 0.05);
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
         """)
-        self.history_label.setText("История стратегий появится после обучения...")
-        history_layout.addWidget(self.history_label)
+        self.history_text.setPlainText("История стратегий появится после обучения...")
+        history_layout.addWidget(self.history_text)
 
         history_card.add_layout(history_layout)
         self.layout.addWidget(history_card)
@@ -108,15 +129,9 @@ class OrchestraRatingsPage(BasePage):
         self._udp_data = {}
 
     def showEvent(self, event):
-        """При показе страницы запускаем автообновление"""
+        """При показе страницы загружаем данные"""
         super().showEvent(event)
         self._refresh_data()
-        self._update_timer.start(5000)  # Обновлять каждые 5 секунд
-
-    def hideEvent(self, event):
-        """При скрытии останавливаем таймер"""
-        super().hideEvent(event)
-        self._update_timer.stop()
 
     def _get_runner(self):
         """Получает orchestra_runner из главного окна"""
@@ -152,7 +167,7 @@ class OrchestraRatingsPage(BasePage):
 
         if not history_data:
             self.stats_label.setText("Нет данных истории")
-            self.history_label.setText("")
+            self.history_text.setPlainText("")
             return
 
         lines = []
@@ -218,4 +233,4 @@ class OrchestraRatingsPage(BasePage):
         else:
             self.stats_label.setText(f"Всего: {total_domains} доменов, {total_strategies} записей")
 
-        self.history_label.setText("\n".join(lines))
+        self.history_text.setPlainText("\n".join(lines))

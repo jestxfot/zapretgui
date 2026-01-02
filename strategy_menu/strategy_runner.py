@@ -138,7 +138,31 @@ class StrategyRunner:
         log(f"Рабочая директория: {self.work_dir}", "DEBUG")
         log(f"Папка lists: {self.lists_dir}", "DEBUG")
         log(f"Папка bin: {self.bin_dir}", "DEBUG")
-    
+
+    def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
+        """
+        Записывает аргументы в preset-zapret2.txt для загрузки через @файл
+
+        Args:
+            args: Список аргументов командной строки
+            strategy_name: Название стратегии для комментария
+
+        Returns:
+            Путь к созданному файлу
+        """
+        preset_path = os.path.join(self.work_dir, "preset-zapret2.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(preset_path, 'w', encoding='utf-8') as f:
+            # Заголовок с комментариями
+            f.write(f"# Strategy: {strategy_name}\n")
+            f.write(f"# Generated: {timestamp}\n")
+            # Каждый аргумент на отдельной строке
+            for arg in args:
+                f.write(f"{arg}\n")
+
+        return preset_path
+
     def _create_startup_info(self):
         """Создает STARTUPINFO для скрытого запуска процесса"""
         startupinfo = subprocess.STARTUPINFO()
@@ -149,79 +173,9 @@ class StrategyRunner:
     def _resolve_file_paths(self, args: List[str]) -> List[str]:
         """Разрешает относительные пути к файлам"""
         from config import WINDIVERT_FILTER
-        
-        resolved_args = []
-        
-        for arg in args:
-            # Обработка --wf-raw-part (новый формат для winws2)
-            if arg.startswith("--wf-raw-part="):
-                value = arg.split("=", 1)[1]
-                
-                # Если значение начинается с @, это означает файл
-                if value.startswith("@"):
-                    filename = value[1:]  # Убираем @ в начале
-                    filename = filename.strip('"')
-                    
-                    if not os.path.isabs(filename):
-                        # WINDIVERT_FILTER - это путь к папке windivert.filter
-                        # Файлы фильтров лежат прямо в ней
-                        full_path = os.path.join(WINDIVERT_FILTER, filename)
-                        
-                        # Проверяем существование файла
-                        if not os.path.exists(full_path):
-                            log(f"Предупреждение: файл фильтра не найден: {full_path}", "WARNING")
-                        
-                        resolved_args.append(f'--wf-raw-part=@{full_path}')
-                    else:
-                        resolved_args.append(f'--wf-raw-part=@{filename}')
-                else:
-                    # Если не файл, оставляем как есть
-                    resolved_args.append(arg)
-                    
-            elif any(arg.startswith(prefix) for prefix in [
-                "--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="
-            ]):
-                prefix, filename = arg.split("=", 1)
-                filename = filename.strip('"')
-                
-                if not os.path.isabs(filename):
-                    full_path = os.path.join(self.lists_dir, filename)
-                    resolved_args.append(f'{prefix}={full_path}')
-                else:
-                    resolved_args.append(f'{prefix}={filename}')
-                    
-            elif any(arg.startswith(prefix) for prefix in [
-                "--dpi-desync-fake-tls=",
-                "--dpi-desync-fake-syndata=", 
-                "--dpi-desync-fake-quic=",
-                "--dpi-desync-fake-unknown-udp=",
-                "--dpi-desync-split-seqovl-pattern=",
-                "--dpi-desync-fake-http=", 
-                "--dpi-desync-fake-unknown=",
-                "--dpi-desync-fakedsplit-pattern="
-            ]):
-                prefix, filename = arg.split("=", 1)
-                
-                # Проверяем специальные значения (hex или модификаторы)
-                if filename.startswith("0x") or filename.startswith("0x00") or filename.startswith("!") or filename.startswith("^"):
-                    resolved_args.append(arg)
-                else:
-                    filename = filename.strip('"')
-                    
-                    if not os.path.isabs(filename):
-                        full_path = os.path.join(self.bin_dir, filename)
-                        
-                        # Проверяем существование файла
-                        if not os.path.exists(full_path):
-                            log(f"Предупреждение: бинарный файл не найден: {full_path}", "WARNING")
-                        
-                        resolved_args.append(f'{prefix}={full_path}')
-                    else:
-                        resolved_args.append(f'{prefix}={filename}')
-            else:
-                resolved_args.append(arg)
-        
-        return resolved_args
+        from utils.args_resolver import resolve_args_paths
+
+        return resolve_args_paths(args, self.lists_dir, self.bin_dir, WINDIVERT_FILTER)
 
     def _fast_cleanup_services(self):
         """Быстрая очистка служб через Win API (для обычного запуска)"""
@@ -392,15 +346,19 @@ class StrategyRunner:
             
             # ✅ Применяем ВСЕ фильтры в правильном порядке
             resolved_args = apply_all_filters(resolved_args, self.lists_dir)
-            
-            # Формируем команду
-            cmd = [self.winws_exe] + resolved_args
-            
+
+            # Записываем конфиг в файл
+            preset_file = self._write_preset_file(resolved_args, strategy_name)
+
+            # Формируем команду с @файлом
+            cmd = [self.winws_exe, f"@{preset_file}"]
+
             log(f"Запуск стратегии '{strategy_name}'" + (f" (попытка {_retry_count + 1})" if _retry_count > 0 else ""), "INFO")
+            log(f"Конфиг записан в: {preset_file}", "DEBUG")
             log(f"Количество аргументов: {len(resolved_args)}", "DEBUG")
-            
-            # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ
-            log_full_command(cmd, strategy_name)
+
+            # СОХРАНЯЕМ ПОЛНУЮ КОМАНДНУЮ СТРОКУ (для дебага)
+            log_full_command([self.winws_exe] + resolved_args, strategy_name)
             
             # Запускаем процесс
             # Примечание: stdin=subprocess.DEVNULL вместо PIPE - Cygwin программы могут крашиться с PIPE
@@ -601,8 +559,19 @@ class StrategyRunner:
 _strategy_runner_instance: Optional[StrategyRunner] = None
 
 def get_strategy_runner(winws_exe_path: str) -> StrategyRunner:
-    """Получает или создает глобальный экземпляр StrategyRunner"""
+    """Получает или создает глобальный экземпляр StrategyRunner.
+
+    ВАЖНО: Пересоздаёт runner если запрошен другой exe (смена режима direct/direct_zapret1).
+    """
     global _strategy_runner_instance
+
+    # Пересоздаём runner если exe изменился (смена режима)
+    if _strategy_runner_instance is not None:
+        if _strategy_runner_instance.winws_exe != winws_exe_path:
+            log(f"Смена exe: {_strategy_runner_instance.winws_exe} → {winws_exe_path}", "INFO")
+            # Не останавливаем старый процесс - это делается в start_strategy_custom
+            _strategy_runner_instance = None
+
     if _strategy_runner_instance is None:
         _strategy_runner_instance = StrategyRunner(winws_exe_path)
     return _strategy_runner_instance

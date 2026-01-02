@@ -12,8 +12,14 @@ import os
 import shlex
 import math
 
+from typing import List
+
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.widgets import StrategySearchBar
+from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
+from strategy_menu.strategy_info import StrategyInfo
+from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
 
@@ -243,33 +249,41 @@ class CommandLineWidget(QFrame):
             from strategy_menu.strategy_lists_separated import combine_strategies
             from strategy_menu.apply_filters import apply_all_filters
             from strategy_menu import get_direct_strategy_selections, get_default_selections
-            from config import WINWS2_EXE, WINDIVERT_FILTER
-            
+            from config import WINWS2_EXE, WINWS_EXE, WINDIVERT_FILTER
+
+            launch_method = get_strategy_launch_method()
+
+            # Выбираем exe в зависимости от режима
+            if launch_method == "direct_zapret1":
+                target_exe = WINWS_EXE  # Zapret 1
+            else:
+                target_exe = WINWS2_EXE  # Zapret 2
+
             # Получаем выборы
             try:
                 category_selections = get_direct_strategy_selections()
             except:
                 category_selections = get_default_selections()
-                
+
             if not category_selections:
                 self.text_edit.setPlainText("Нет выбранных стратегий")
                 return
-                
+
             # Комбинируем стратегии
             combined = combine_strategies(**category_selections)
             args = shlex.split(combined['args'], posix=False)
-            
+
             # Разрешаем пути
-            exe_dir = os.path.dirname(WINWS2_EXE)
+            exe_dir = os.path.dirname(target_exe)
             work_dir = os.path.dirname(exe_dir)
             lists_dir = os.path.join(work_dir, "lists")
             bin_dir = os.path.join(work_dir, "bin")
-            
+
             resolved_args = self._resolve_paths(args, lists_dir, bin_dir, WINDIVERT_FILTER)
             resolved_args = apply_all_filters(resolved_args, lists_dir)
-            
+
             # Формируем команду
-            cmd_parts = [WINWS2_EXE] + resolved_args
+            cmd_parts = [target_exe] + resolved_args
             full_cmd_parts = []
             for arg in cmd_parts:
                 if ' ' in arg and not (arg.startswith('"') and arg.endswith('"')):
@@ -279,7 +293,7 @@ class CommandLineWidget(QFrame):
                     
             self.command_line = ' '.join(full_cmd_parts)
             self.formatted_command = self._format_for_display(full_cmd_parts)
-            
+
             # Показываем в text_edit
             self.text_edit.setPlainText(self.formatted_command)
             self.info_label.setText(f"{len(self.command_line)} симв. | {len(resolved_args)} арг.")
@@ -289,44 +303,9 @@ class CommandLineWidget(QFrame):
             self.text_edit.setPlainText(f"Ошибка: {e}")
             
     def _resolve_paths(self, args, lists_dir, bin_dir, filter_dir):
-        """Разрешает пути в аргументах"""
-        resolved = []
-        
-        for arg in args:
-            if arg.startswith("--wf-raw-part="):
-                value = arg.split("=", 1)[1]
-                if value.startswith("@"):
-                    filename = value[1:].strip('"')
-                    if not os.path.isabs(filename):
-                        full_path = os.path.join(filter_dir, filename)
-                        resolved.append(f'--wf-raw-part=@{full_path}')
-                    else:
-                        resolved.append(f'--wf-raw-part=@{filename}')
-                else:
-                    resolved.append(arg)
-                    
-            elif any(arg.startswith(p) for p in ["--hostlist=", "--ipset=", "--hostlist-exclude=", "--ipset-exclude="]):
-                prefix, filename = arg.split("=", 1)
-                filename = filename.strip('"')
-                if not os.path.isabs(filename):
-                    resolved.append(f'{prefix}={os.path.join(lists_dir, filename)}')
-                else:
-                    resolved.append(arg)
-                    
-            elif any(arg.startswith(p) for p in [
-                "--dpi-desync-fake-tls=", "--dpi-desync-fake-quic=", "--dpi-desync-fake-syndata=",
-                "--dpi-desync-fake-unknown-udp=", "--dpi-desync-split-seqovl-pattern=",
-                "--dpi-desync-fake-http=", "--dpi-desync-fake-unknown=", "--dpi-desync-fakedsplit-pattern="
-            ]):
-                prefix, filename = arg.split("=", 1)
-                if not filename.startswith("0x") and not filename.startswith("!") and not filename.startswith("^") and not os.path.isabs(filename):
-                    resolved.append(f'{prefix}={os.path.join(bin_dir, filename.strip(chr(34)))}')
-                else:
-                    resolved.append(arg)
-            else:
-                resolved.append(arg)
-                
-        return resolved
+        """Разрешает пути в аргументах через общую функцию"""
+        from utils.args_resolver import resolve_args_paths
+        return resolve_args_paths(args, lists_dir, bin_dir, filter_dir)
         
     def _format_for_display(self, cmd_parts):
         """Форматирует для отображения с переносами"""
@@ -549,7 +528,20 @@ class StrategiesPage(QWidget):
         self._absolute_timeout_timer = QTimer(self)
         self._absolute_timeout_timer.setSingleShot(True)
         self._absolute_timeout_timer.timeout.connect(self._on_absolute_timeout)
-        
+
+        # Поисковая панель и фильтрация
+        self.filter_engine = StrategyFilterEngine()
+        self.search_bar = None  # Создаётся в _load_*_mode
+        self._bat_adapter = None
+        self._json_adapter = None
+        self._all_bat_strategies = []  # Кэш всех BAT стратегий
+        self._all_bat_strategies_dict = {}  # Оригинальный dict стратегий для фильтрации
+
+        # Кэш данных для Direct режима (для фильтрации)
+        self._all_direct_strategies = {}  # {category_key: strategies_dict}
+        self._all_direct_favorites = {}   # {category_key: favorites_list}
+        self._all_direct_selections = {}  # {category_key: current_selection}
+
         self._build_ui()
         
     def _build_ui(self):
@@ -591,11 +583,11 @@ class StrategiesPage(QWidget):
         
         self.main_layout.addWidget(header)
         
-        # Текущая стратегия
-        current_widget = QWidget()
-        current_widget.setStyleSheet("background-color: transparent;")
-        current_layout = QHBoxLayout(current_widget)
-        current_layout.setContentsMargins(32, 0, 32, 16)
+        # Текущая стратегия (будет добавлен в scroll_area)
+        self.current_widget = QWidget()
+        self.current_widget.setStyleSheet("background-color: transparent;")
+        current_layout = QHBoxLayout(self.current_widget)
+        current_layout.setContentsMargins(0, 0, 0, 8)
         
         self.status_indicator = StatusIndicator()
         current_layout.addWidget(self.status_indicator)
@@ -617,6 +609,7 @@ class StrategiesPage(QWidget):
         self._has_hidden_strategies = False  # Флаг для показа тултипа
         self._tooltip_strategies_data = []
         current_layout.addWidget(self.current_strategy_container)
+        # current_widget будет вставлен в content_layout при загрузке контента
         
         # Текстовый лейбл (для fallback и BAT режима)
         self.current_strategy_label = QLabel("Не выбрана")
@@ -645,9 +638,9 @@ class StrategiesPage(QWidget):
         """)
         self.favorites_count_label.hide()
         current_layout.addWidget(self.favorites_count_label)
-        
-        self.main_layout.addWidget(current_widget)
-        
+
+        # current_widget не добавляется сюда, будет вставлен в content_layout
+
         # Прокручиваемая область для всего контента
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -704,17 +697,29 @@ class StrategiesPage(QWidget):
             
     def _clear_content(self):
         """Очищает контент"""
+        # Сохраняем current_widget (не удаляем при очистке)
+        if hasattr(self, 'current_widget') and self.current_widget:
+            self.content_layout.removeWidget(self.current_widget)
+            self.current_widget.setParent(None)
+
         # Удаляем все виджеты из content_layout
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
+
         self._strategy_widget = None
         self._bat_table = None
         self.cmd_widget = None
         self.loading_label = None
-            
+        self.search_bar = None
+        self._all_bat_strategies = []
+        self._all_bat_strategies_dict = {}
+        # Очищаем кэш Direct режима
+        self._all_direct_strategies = {}
+        self._all_direct_favorites = {}
+        self._all_direct_selections = {}
+
     def _load_content(self):
         """Загружает контент в зависимости от режима"""
         try:
@@ -753,6 +758,11 @@ class StrategiesPage(QWidget):
             from strategy_menu.strategies_registry import registry
             from strategy_menu import get_direct_strategy_selections, get_default_selections
             
+            # Текущая стратегия (в начале контента)
+            if hasattr(self, 'current_widget') and self.current_widget:
+                if self.current_widget.parent() != self.content_container:
+                    self.content_layout.insertWidget(0, self.current_widget)
+
             # Заголовок секции
             section_header = QLabel("Выберите стратегию для каждого типа трафика")
             section_header.setStyleSheet("""
@@ -764,7 +774,14 @@ class StrategiesPage(QWidget):
                 }
             """)
             self.content_layout.addWidget(section_header)
-            
+
+            # Создаём поисковую панель для Direct режима
+            self.search_bar = StrategySearchBar(self)
+            self.search_bar.search_changed.connect(self._on_direct_search_changed)
+            self.search_bar.filters_changed.connect(self._on_direct_filters_changed)
+            self.search_bar.sort_changed.connect(self._on_direct_sort_changed)
+            self.content_layout.addWidget(self.search_bar)
+
             # Панель действий
             actions_card = SettingsCard()
             actions_layout = QHBoxLayout()
@@ -898,27 +915,39 @@ class StrategiesPage(QWidget):
         """Загружает интерфейс для bat режима (Zapret 1)"""
         try:
             from strategy_menu.strategy_table_widget_favorites import StrategyTableWithFavoritesFilter
-            
+
+            # Текущая стратегия (в начале контента)
+            if hasattr(self, 'current_widget') and self.current_widget:
+                if self.current_widget.parent() != self.content_container:
+                    self.content_layout.insertWidget(0, self.current_widget)
+
             # Получаем strategy_manager
             strategy_manager = None
             if hasattr(self.parent_app, 'strategy_manager'):
                 strategy_manager = self.parent_app.strategy_manager
             elif hasattr(self.parent_app, 'parent_app') and hasattr(self.parent_app.parent_app, 'strategy_manager'):
                 strategy_manager = self.parent_app.parent_app.strategy_manager
-            
+
+            # Создаём поисковую панель для BAT режима
+            self.search_bar = StrategySearchBar(self)
+            self.search_bar.search_changed.connect(self._on_bat_search_changed)
+            self.search_bar.filters_changed.connect(self._on_bat_filters_changed)
+            self.search_bar.sort_changed.connect(self._on_bat_sort_changed)
+            self.content_layout.addWidget(self.search_bar)
+
             # Создаём таблицу - минималистичный дизайн
             self._bat_table = StrategyTableWithFavoritesFilter(strategy_manager=strategy_manager, parent=self)
             self._bat_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._bat_table.setMinimumHeight(500)  # Увеличенная высота
-            
+
             # Подключаем сигнал автоприменения
             if hasattr(self._bat_table, 'strategy_applied'):
                 self._bat_table.strategy_applied.connect(self._on_bat_strategy_applied)
-            
+
             # Подключаем сигнал изменения избранных
             if hasattr(self._bat_table, 'favorites_changed'):
                 self._bat_table.favorites_changed.connect(self._update_favorites_count)
-            
+
             self.content_layout.addWidget(self._bat_table, 1)
 
             # Виджет превью командной строки
@@ -950,22 +979,49 @@ class StrategiesPage(QWidget):
         try:
             if not self._bat_table:
                 return
-                
+
             strategy_manager = None
             if hasattr(self.parent_app, 'strategy_manager'):
                 strategy_manager = self.parent_app.strategy_manager
             elif hasattr(self.parent_app, 'parent_app') and hasattr(self.parent_app.parent_app, 'strategy_manager'):
                 strategy_manager = self.parent_app.parent_app.strategy_manager
-                
+
             if strategy_manager:
+                # DEBUG: Принудительно обновляем кэш для диагностики
+                if hasattr(strategy_manager, 'refresh_strategies'):
+                    log("DEBUG: Принудительное обновление кэша стратегий", "DEBUG")
+                    strategy_manager.refresh_strategies()
                 strategies = strategy_manager.get_local_strategies_only()
                 if strategies:
-                    self._bat_table.populate_strategies(strategies)
+                    # Сохраняем оригинальный dict
+                    self._all_bat_strategies_dict = strategies.copy()
+
+                    # DEBUG: Проверяем наличие general_alt11_191
+                    if 'general_alt11_191' in strategies:
+                        log("DEBUG: general_alt11_191 НАЙДЕН в strategies dict", "DEBUG")
+                    else:
+                        log("DEBUG: general_alt11_191 НЕ НАЙДЕН в strategies dict", "WARNING")
+                        # Показываем похожие ключи
+                        similar = [k for k in strategies.keys() if 'general_alt11' in k.lower()]
+                        if similar:
+                            log(f"DEBUG: Похожие ключи: {similar}", "DEBUG")
+
+                    # Конвертируем dict в List[StrategyInfo] для фильтрации и сортировки
+                    # Используем те же ID что и в dict для совместимости
+                    self._all_bat_strategies = self._convert_dict_to_strategy_info_list(strategies)
+
                     self._update_favorites_count()
                     log(f"Загружено {len(strategies)} bat стратегий", "DEBUG")
+
+                    if self.search_bar:
+                        self.search_bar.set_result_count(len(self._all_bat_strategies))
+
+                    # Применяем сохранённую сортировку из реестра
+                    # Это перезаполнит таблицу с правильной сортировкой
+                    self._apply_bat_filter()
                 else:
                     log("Нет локальных bat стратегий", "WARNING")
-                    
+
         except Exception as e:
             log(f"Ошибка загрузки bat стратегий: {e}", "ERROR")
             import traceback
@@ -1107,18 +1163,39 @@ class StrategiesPage(QWidget):
 
             exe_path, args = parsed
 
-            # Формируем командную строку для отображения
-            if exe_path is None:
-                # Новый формат - показываем winws.exe + аргументы
-                cmd_parts = ["winws.exe"] + args
-            else:
-                # Старый формат
-                cmd_parts = [os.path.basename(exe_path)] + args
+            # Формируем командную строку с полными путями для копирования в консоль
+            from config import WINWS_EXE
+            from utils.args_resolver import resolve_args_paths
 
-            # Форматируем для удобного чтения (каждый --new на новой строке)
-            formatted_cmd = self._format_cmd_for_display(cmd_parts)
+            bat_dir = os.path.dirname(full_path)
+            work_dir = os.path.dirname(bat_dir)
+            lists_dir = os.path.join(work_dir, "lists")
+            bin_dir = os.path.join(work_dir, "bin")
 
-            self._cmd_preview_text.setPlainText(formatted_cmd)
+            # Полный путь к exe
+            full_exe = WINWS_EXE
+
+            # Разрешаем пути в аргументах через общую функцию
+            resolved_args = resolve_args_paths(args, lists_dir, bin_dir)
+
+            # Для отображения добавляем кавычки вокруг путей с пробелами
+            display_args = []
+            for arg in resolved_args:
+                if '=' in arg and ' ' in arg:
+                    # Аргумент с путём содержащим пробелы
+                    prefix, value = arg.split('=', 1)
+                    if not value.startswith('"'):
+                        display_args.append(f'{prefix}="{value}"')
+                    else:
+                        display_args.append(arg)
+                else:
+                    display_args.append(arg)
+
+            # Формируем однострочную команду
+            cmd_parts = [f'"{full_exe}"'] + display_args
+            single_line_cmd = ' '.join(cmd_parts)
+
+            self._cmd_preview_text.setPlainText(single_line_cmd)
 
         except Exception as e:
             log(f"Ошибка обновления превью команды: {e}", "DEBUG")
@@ -1619,24 +1696,75 @@ class StrategiesPage(QWidget):
             widget._loaded = True
             return
 
-        # Строим UI в главном потоке
-        self._build_category_ui(widget, index, category_key, strategies_dict, favorites_list, current_selection)
+        # Кэшируем данные для фильтрации
+        self._all_direct_strategies[category_key] = strategies_dict.copy()
+        self._all_direct_favorites[category_key] = list(favorites_list)
+        self._all_direct_selections[category_key] = current_selection
+
+        # Применяем текущий фильтр (если есть) перед построением UI
+        query = self.search_bar.get_query() if self.search_bar else None
+        filtered_strategies = self._filter_direct_strategies(strategies_dict, query)
+
+        # Получаем параметры сортировки
+        sort_key, reverse = self.search_bar.get_sort_key() if self.search_bar else ("default", False)
+
+        # Конвертируем в List[StrategyInfo] для сортировки
+        # Добавляем is_favorite для корректной сортировки
+        favorites_set = set(favorites_list)
+        for strategy_id, strategy_data in filtered_strategies.items():
+            strategy_data['is_favorite'] = strategy_id in favorites_set
+
+        strategy_info_list = self._convert_direct_dict_to_strategy_info_list(filtered_strategies, category_key)
+
+        # Сортируем используя filter_engine
+        sorted_strategies = self.filter_engine.sort_strategies(strategy_info_list, sort_key, reverse)
+
+        # Конвертируем обратно в dict, СОХРАНЯЯ порядок из sorted_strategies
+        sorted_dict = {}
+        for strategy_info in sorted_strategies:
+            strategy_id = strategy_info.id
+            if strategy_id in filtered_strategies:
+                sorted_dict[strategy_id] = filtered_strategies[strategy_id]
+
+        # При сортировке по имени или рейтингу не разделяем на группы
+        skip_grouping = sort_key in ("name", "rating")
+
+        # Строим UI в главном потоке с отсортированными данными
+        self._build_category_ui(widget, index, category_key, sorted_dict, favorites_list, current_selection, skip_grouping=skip_grouping)
 
     def _on_category_error(self, widget, category_key, error_msg):
         """Callback при ошибке загрузки категории"""
         widget._loading = False
         log(f"Ошибка загрузки категории {category_key}: {error_msg}", "ERROR")
 
-    def _build_category_ui(self, widget, index, category_key, strategies_dict, favorites_list, current_selection):
-        """Создаёт UI элементы категории из загруженных данных"""
+    def _build_category_ui(self, widget, index, category_key, strategies_dict, favorites_list, current_selection, skip_grouping=False):
+        """Создаёт UI элементы категории из загруженных данных
+
+        Args:
+            skip_grouping: Если True, не разделяет на избранные/остальные (для сортировки по имени)
+        """
         try:
             from strategy_menu.widgets_favorites import FavoriteCompactStrategyItem
 
             favorites_set = set(favorites_list)
 
-            # Разделяем на избранные и остальные
-            favorite_strategies = {k: v for k, v in strategies_dict.items() if k in favorites_set}
-            regular_strategies = {k: v for k, v in strategies_dict.items() if k not in favorites_set}
+            # Выносим "Отключено" (none/disabled) в отдельную группу - всегда первая
+            disabled_strategies = {}
+            other_strategies = {}
+            for k, v in strategies_dict.items():
+                if self._is_disabled_strategy_id(k, v):
+                    disabled_strategies[k] = v
+                else:
+                    other_strategies[k] = v
+
+            # Разделяем на избранные и остальные (если не skip_grouping)
+            if skip_grouping:
+                # При сортировке по имени/рейтингу - все в одном списке, порядок из strategies_dict
+                favorite_strategies = {}
+                regular_strategies = other_strategies
+            else:
+                favorite_strategies = {k: v for k, v in other_strategies.items() if k in favorites_set}
+                regular_strategies = {k: v for k, v in other_strategies.items() if k not in favorites_set}
 
             # Очищаем виджет
             old_layout = widget.layout()
@@ -1669,6 +1797,30 @@ class StrategiesPage(QWidget):
             # Создаём группу радиокнопок
             button_group = QButtonGroup(content)
             button_group.setExclusive(True)
+
+            # === ОТКЛЮЧЕНО (всегда первая) ===
+            for strategy_id, strategy_data in disabled_strategies.items():
+                item = FavoriteCompactStrategyItem(
+                    strategy_id=strategy_id,
+                    strategy_data=strategy_data,
+                    category_key=category_key,
+                    parent=content
+                )
+                button_group.addButton(item.radio)
+                if strategy_id == current_selection:
+                    item.radio.setChecked(True)
+                item.clicked.connect(lambda sid=strategy_id, cat=category_key:
+                                   self._on_strategy_item_clicked(cat, sid))
+                item.favoriteToggled.connect(lambda sid, is_fav, cat=category_key, idx=index:
+                                            self._on_favorite_toggled_direct(cat, idx))
+                content_layout.addWidget(item)
+
+            # Разделитель после "Отключено" (если есть другие стратегии)
+            if disabled_strategies and (favorite_strategies or regular_strategies):
+                separator = QWidget()
+                separator.setFixedHeight(1)
+                separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
+                content_layout.addWidget(separator)
 
             # === ИЗБРАННЫЕ (вверху) ===
             if favorite_strategies:
@@ -1739,7 +1891,35 @@ class StrategiesPage(QWidget):
             log(f"Ошибка построения UI категории {category_key}: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
-    
+
+    # IDs for "disabled" strategy that should always be first
+    _DISABLED_STRATEGY_IDS = {"none", "disabled"}
+    # Full names (exact match) for disabled strategy
+    _DISABLED_STRATEGY_NAMES = {"отключено", "выключено", "disabled", "none"}
+
+    def _is_disabled_strategy_id(self, strategy_id: str, strategy_data: dict) -> bool:
+        """
+        Check if strategy is the "disabled" option.
+
+        Args:
+            strategy_id: Strategy ID
+            strategy_data: Strategy data dict with 'name' key
+
+        Returns:
+            True if this is the disabled/none strategy
+        """
+        # Check by ID (exact match)
+        if strategy_id and strategy_id.lower() in self._DISABLED_STRATEGY_IDS:
+            return True
+
+        # Check by name (exact match, not substring!)
+        name = strategy_data.get("name", "") if strategy_data else ""
+        name_lower = name.lower().strip() if name else ""
+        if name_lower in self._DISABLED_STRATEGY_NAMES:
+            return True
+
+        return False
+
     def _on_favorite_toggled_direct(self, category_key, tab_index):
         """Обработчик изменения избранного в Direct режиме - перезагружает вкладку"""
         if not self._strategy_widget:
@@ -2457,7 +2637,271 @@ class StrategiesPage(QWidget):
             log(f"Ошибка проверки статуса процесса: {e}", "DEBUG")
             self._stop_process_monitoring()  # Это автоматически остановит и абсолютный таймаут
             self.show_success()
-    
+
+    # ==================== BAT режим: обработчики поиска и фильтрации ====================
+
+    def _apply_bat_filter(self):
+        """Применяет текущие фильтры и сортировку к BAT стратегиям"""
+        try:
+            if not self._all_bat_strategies or not self._bat_table:
+                return
+
+            # Получаем текущий query из SearchBar
+            query = self.search_bar.get_query() if self.search_bar else SearchQuery()
+
+            # DEBUG: Проверяем general_alt11_191 в _all_bat_strategies
+            has_general_in_list = any(s.id == 'general_alt11_191' for s in self._all_bat_strategies)
+            has_general_in_dict = 'general_alt11_191' in self._all_bat_strategies_dict
+            log(f"DEBUG _apply_bat_filter: general_alt11_191 in list={has_general_in_list}, in dict={has_general_in_dict}", "DEBUG")
+
+            # Фильтруем
+            filtered = self.filter_engine.filter_strategies(self._all_bat_strategies, query)
+
+            # DEBUG: Проверяем после фильтрации
+            has_general_after_filter = any(s.id == 'general_alt11_191' for s in filtered)
+            log(f"DEBUG after filter: general_alt11_191 present={has_general_after_filter}, query.is_empty={query.is_empty()}", "DEBUG")
+
+            # Сортируем
+            sort_key, reverse = self.search_bar.get_sort_key() if self.search_bar else ("default", False)
+            sorted_strategies = self.filter_engine.sort_strategies(filtered, sort_key, reverse)
+
+            # Конвертируем в dict формат для таблицы, СОХРАНЯЯ порядок из sorted_strategies
+            # Используем id стратегии из отсортированного списка для сохранения порядка
+            filtered_dict = {}
+            for strategy in sorted_strategies:
+                strategy_id = strategy.id
+                if strategy_id in self._all_bat_strategies_dict:
+                    filtered_dict[strategy_id] = self._all_bat_strategies_dict[strategy_id]
+
+            # DEBUG: Проверяем в финальном dict
+            has_general_in_final = 'general_alt11_191' in filtered_dict
+            log(f"DEBUG final filtered_dict: general_alt11_191 present={has_general_in_final}", "DEBUG")
+
+            # Обновляем таблицу с флагом skip_grouping для сортировки по имени или рейтингу
+            # При сортировке по умолчанию сохраняем группировку по провайдерам
+            skip_grouping = sort_key in ("name", "rating")
+            self._bat_table.populate_strategies(filtered_dict, "bat", skip_grouping=skip_grouping)
+
+            # Обновляем счётчик
+            if self.search_bar:
+                self.search_bar.set_result_count(len(sorted_strategies))
+
+            log(f"BAT фильтрация: {len(sorted_strategies)} из {len(self._all_bat_strategies)}", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка фильтрации BAT стратегий: {e}", "ERROR")
+
+    def _on_bat_search_changed(self, text: str):
+        """Обработчик изменения текста поиска"""
+        self._apply_bat_filter()
+
+    def _on_bat_filters_changed(self, query):
+        """Обработчик изменения фильтров"""
+        self._apply_bat_filter()
+
+    def _on_bat_sort_changed(self, sort_key: str, reverse: bool):
+        """Обработчик изменения сортировки"""
+        self._apply_bat_filter()
+
+    def _convert_dict_to_strategy_info_list(self, strategies_dict: dict) -> List[StrategyInfo]:
+        """Конвертирует dict стратегий в List[StrategyInfo] для фильтрации и сортировки.
+
+        ВАЖНО: ID в StrategyInfo должен совпадать с ключами в dict для корректной работы
+        фильтрации и обратной конвертации.
+
+        Args:
+            strategies_dict: Словарь стратегий {strategy_id: metadata}
+
+        Returns:
+            Список объектов StrategyInfo
+        """
+        result = []
+
+        for strategy_id, metadata in strategies_dict.items():
+            try:
+                # Создаём StrategyInfo с тем же ID что и ключ в dict
+                # Это критично для корректной работы _apply_bat_filter()
+                info = StrategyInfo(
+                    id=strategy_id,
+                    name=metadata.get('name', strategy_id),
+                    source='bat',
+                    description=metadata.get('description', ''),
+                    author=metadata.get('author', ''),
+                    version=metadata.get('version', ''),
+                    label=metadata.get('label', '') or '',
+                    args=metadata.get('args', ''),
+                    file_path=metadata.get('file_path', ''),
+                )
+                result.append(info)
+            except Exception as e:
+                log(f"Ошибка конвертации стратегии {strategy_id}: {e}", "DEBUG")
+
+        return result
+
+    # ==================== Direct режим: обработчики поиска и фильтрации ====================
+
+    def _convert_direct_dict_to_strategy_info_list(self, strategies_dict: dict, category_key: str) -> List[StrategyInfo]:
+        """Конвертирует dict Direct стратегий в List[StrategyInfo] для фильтрации и сортировки.
+
+        ВАЖНО: ID в StrategyInfo должен совпадать с ключами в dict для корректной работы
+        фильтрации и обратной конвертации.
+
+        Args:
+            strategies_dict: Словарь стратегий {strategy_id: strategy_data}
+            category_key: Ключ категории (tcp, quic, udp и т.д.)
+
+        Returns:
+            Список объектов StrategyInfo
+        """
+        result = []
+
+        for strategy_id, strategy_data in strategies_dict.items():
+            try:
+                # Получаем args как строку
+                args = strategy_data.get('args', [])
+                args_str = ' '.join(args) if isinstance(args, list) else str(args)
+
+                # Создаём StrategyInfo с тем же ID что и ключ в dict
+                info = StrategyInfo(
+                    id=strategy_id,
+                    name=strategy_data.get('name', strategy_id),
+                    source=f'json_{category_key}',
+                    description=strategy_data.get('description', ''),
+                    author=strategy_data.get('author', ''),
+                    version=strategy_data.get('version', ''),
+                    label=strategy_data.get('label', '') or '',
+                    args=args_str,
+                    is_favorite=strategy_data.get('is_favorite', False),
+                )
+                result.append(info)
+            except Exception as e:
+                log(f"Ошибка конвертации Direct стратегии {strategy_id}: {e}", "DEBUG")
+
+        return result
+
+    def _filter_direct_strategies(self, strategies_dict: dict, query) -> dict:
+        """Фильтрует словарь стратегий по query"""
+        if not query or (not query.text and not query.labels and not query.techniques):
+            return strategies_dict
+
+        filtered = {}
+        search_text = query.text.lower() if query.text else ""
+
+        for strategy_id, strategy_data in strategies_dict.items():
+            # Поиск по тексту
+            if search_text:
+                name = str(strategy_data.get('name', '')).lower()
+                description = str(strategy_data.get('description', '')).lower()
+                args_str = ' '.join(strategy_data.get('args', [])).lower() if isinstance(strategy_data.get('args'), list) else str(strategy_data.get('args', '')).lower()
+
+                if search_text not in name and search_text not in description and search_text not in args_str:
+                    continue
+
+            # Фильтрация по label
+            if query.labels:
+                strategy_label = str(strategy_data.get('label', '')).lower()
+                if strategy_label not in [l.lower() for l in query.labels]:
+                    continue
+
+            # Фильтрация по techniques (desync методам)
+            if query.techniques:
+                # Проверяем args на наличие техник
+                args = strategy_data.get('args', [])
+                args_str = ' '.join(args).lower() if isinstance(args, list) else str(args).lower()
+
+                # Ищем любую из указанных техник в аргументах
+                technique_found = False
+                for technique in query.techniques:
+                    # Техники обычно указываются как --dpi-desync=fake или dpi-desync-<n>=split
+                    if technique.lower() in args_str:
+                        technique_found = True
+                        break
+
+                if not technique_found:
+                    continue
+
+            filtered[strategy_id] = strategy_data
+
+        return filtered
+
+    def _apply_direct_filter(self):
+        """Применяет текущие фильтры и сортировку к Direct режиму"""
+        try:
+            if not self._strategy_widget:
+                return
+
+            current_index = self._strategy_widget.currentIndex()
+            widget = self._strategy_widget.widget(current_index)
+            if not widget:
+                return
+
+            category_key = widget.property("category_key")
+            if not category_key and hasattr(self._strategy_widget, '_tab_category_keys'):
+                keys = self._strategy_widget._tab_category_keys
+                if 0 <= current_index < len(keys):
+                    category_key = keys[current_index]
+
+            if not category_key or category_key not in self._all_direct_strategies:
+                return
+
+            # Получаем оригинальные данные
+            original_strategies = self._all_direct_strategies.get(category_key, {})
+            favorites_list = self._all_direct_favorites.get(category_key, [])
+            current_selection = self._all_direct_selections.get(category_key, None)
+
+            # Применяем текстовый фильтр
+            query = self.search_bar.get_query() if self.search_bar else None
+            filtered_strategies = self._filter_direct_strategies(original_strategies, query)
+
+            # Получаем параметры сортировки
+            sort_key, reverse = self.search_bar.get_sort_key() if self.search_bar else ("default", False)
+
+            # Конвертируем в List[StrategyInfo] для сортировки
+            # Добавляем is_favorite для корректной сортировки
+            favorites_set = set(favorites_list)
+            for strategy_id, strategy_data in filtered_strategies.items():
+                strategy_data['is_favorite'] = strategy_id in favorites_set
+
+            strategy_info_list = self._convert_direct_dict_to_strategy_info_list(filtered_strategies, category_key)
+
+            # Сортируем используя filter_engine
+            sorted_strategies = self.filter_engine.sort_strategies(strategy_info_list, sort_key, reverse)
+
+            # Конвертируем обратно в dict, СОХРАНЯЯ порядок из sorted_strategies
+            sorted_dict = {}
+            for strategy_info in sorted_strategies:
+                strategy_id = strategy_info.id
+                if strategy_id in filtered_strategies:
+                    sorted_dict[strategy_id] = filtered_strategies[strategy_id]
+
+            # При сортировке по имени или рейтингу не разделяем на группы
+            skip_grouping = sort_key in ("name", "rating")
+
+            # Пересоздаём UI с отсортированными данными
+            widget._loaded = False  # Сбрасываем флаг чтобы UI перестроился
+            self._build_category_ui(widget, current_index, category_key, sorted_dict, favorites_list, current_selection, skip_grouping=skip_grouping)
+
+            # Обновляем счётчик
+            if self.search_bar:
+                self.search_bar.set_result_count(len(sorted_dict))
+
+            log(f"Direct фильтрация+сортировка {category_key}: {len(sorted_dict)} из {len(original_strategies)} (sort={sort_key}, reverse={reverse})", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка фильтрации Direct стратегий: {e}", "ERROR")
+
+    def _on_direct_search_changed(self, text: str):
+        """Обработчик поиска для Direct режима"""
+        self._apply_direct_filter()
+
+    def _on_direct_filters_changed(self, query):
+        """Обработчик фильтров для Direct режима"""
+        self._apply_direct_filter()
+
+    def _on_direct_sort_changed(self, sort_key: str, reverse: bool):
+        """Обработчик сортировки для Direct режима"""
+        self._apply_direct_filter()
+
     def closeEvent(self, event):
         """Очистка ресурсов при закрытии"""
         try:

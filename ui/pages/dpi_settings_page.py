@@ -430,7 +430,21 @@ class DpiSettingsPage(BasePage):
         method_desc = QLabel("Выберите способ запуска обхода блокировок")
         method_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
         method_layout.addWidget(method_desc)
-        
+
+        # ═══════════════════════════════════════
+        # ZAPRET 2 (winws2.exe)
+        # ═══════════════════════════════════════
+        zapret2_header = QLabel("Zapret 2 (winws2.exe)")
+        zapret2_header.setStyleSheet("""
+            QLabel {
+                color: #60cdff;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 8px 0 4px 0;
+            }
+        """)
+        method_layout.addWidget(zapret2_header)
+
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
             "Zapret 2",
@@ -452,6 +466,30 @@ class DpiSettingsPage(BasePage):
         self.method_direct_orchestra.clicked.connect(lambda: self._select_method("direct_orchestra"))
         method_layout.addWidget(self.method_direct_orchestra)
 
+        # Оркестр (auto-learning)
+        self.method_orchestra = Win11RadioOption(
+            "Оркестратор v0.9.6 (Beta)",
+            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками.",
+            icon_name="mdi.brain",
+            icon_color="#9c27b0"
+        )
+        self.method_orchestra.clicked.connect(lambda: self._select_method("orchestra"))
+        method_layout.addWidget(self.method_orchestra)
+
+        # ───────────────────────────────────────
+        # ZAPRET 1 (winws.exe)
+        # ───────────────────────────────────────
+        zapret1_header = QLabel("Zapret 1 (winws.exe)")
+        zapret1_header.setStyleSheet("""
+            QLabel {
+                color: #ff9800;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 12px 0 4px 0;
+            }
+        """)
+        method_layout.addWidget(zapret1_header)
+
         # Zapret 1 Direct (прямой запуск winws.exe с JSON стратегиями)
         self.method_direct_zapret1 = Win11RadioOption(
             "Zapret 1 Direct",
@@ -471,23 +509,6 @@ class DpiSettingsPage(BasePage):
         )
         self.method_bat.clicked.connect(lambda: self._select_method("bat"))
         method_layout.addWidget(self.method_bat)
-
-        # Оркестр (auto-learning)
-        self.method_orchestra = Win11RadioOption(
-            "Оркестратор v0.9.2 (Alpha)",
-            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками. ВРЕМЕННО ТОЛЬКО ДЛЯ TCP ТРАФИКА!",
-            icon_name="mdi.brain",
-            icon_color="#9c27b0"
-        )
-        self.method_orchestra.clicked.connect(lambda: self._select_method("orchestra"))
-        method_layout.addWidget(self.method_orchestra)
-
-        # Разделитель
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); margin: 8px 0;")
-        separator.setFixedHeight(1)
-        method_layout.addWidget(separator)
         
         # ─────────────────────────────────────────────────────────────────────
         # OUT-RANGE НАСТРОЙКИ (только для Zapret 2)
@@ -508,7 +529,7 @@ class DpiSettingsPage(BasePage):
         self.out_range_discord = Win11NumberRow(
             "mdi.discord", "Discord", 
             "Лимит пакетов для Discord трафика", "#7289da",
-            min_val=0, max_val=999, default_val=10)
+            min_val=0, max_val=999, default_val=5)
         out_range_layout.addWidget(self.out_range_discord)
         
         self.out_range_youtube = Win11NumberRow(
@@ -564,6 +585,27 @@ class DpiSettingsPage(BasePage):
             "mdi.discord", "Авторестарт Discord при FAIL",
             "Перезапуск Discord при неудачном обходе", "#7289da")
         orchestra_settings_layout.addWidget(self.auto_restart_discord_toggle)
+
+        # Количество фейлов для рестарта Discord
+        self.discord_fails_spin = Win11NumberRow(
+            "mdi.discord", "Фейлов для рестарта Discord",
+            "Сколько FAIL подряд для перезапуска Discord", "#7289da",
+            min_val=1, max_val=10, default_val=3)
+        orchestra_settings_layout.addWidget(self.discord_fails_spin)
+
+        # Успехов для LOCK (сколько успехов подряд для закрепления стратегии)
+        self.lock_successes_spin = Win11NumberRow(
+            "mdi.lock", "Успехов для LOCK",
+            "Количество успешных обходов для закрепления стратегии", "#4CAF50",
+            min_val=1, max_val=10, default_val=3)
+        orchestra_settings_layout.addWidget(self.lock_successes_spin)
+
+        # Ошибок для AUTO-UNLOCK (сколько ошибок подряд для разблокировки)
+        self.unlock_fails_spin = Win11NumberRow(
+            "mdi.lock-open", "Ошибок для AUTO-UNLOCK",
+            "Количество ошибок для автоматической разблокировки стратегии", "#FF5722",
+            min_val=1, max_val=10, default_val=3)
+        orchestra_settings_layout.addWidget(self.unlock_fails_spin)
 
         method_layout.addWidget(self.orchestra_settings_container)
 
@@ -831,6 +873,24 @@ class DpiSettingsPage(BasePage):
             self.auto_restart_discord_toggle.setChecked(saved_auto_restart is None or bool(saved_auto_restart), block_signals=True)
             self.auto_restart_discord_toggle.toggled.connect(self._on_auto_restart_discord_changed)
 
+            # Количество фейлов для рестарта Discord (по умолчанию 3)
+            saved_discord_fails = reg(f"{REGISTRY_PATH}\\Orchestra", "DiscordFailsForRestart")
+            if saved_discord_fails is not None:
+                self.discord_fails_spin.setValue(int(saved_discord_fails))
+            self.discord_fails_spin.valueChanged.connect(self._on_discord_fails_changed)
+
+            # Успехов для LOCK (по умолчанию 3)
+            saved_lock_successes = reg(f"{REGISTRY_PATH}\\Orchestra", "LockSuccesses")
+            if saved_lock_successes is not None:
+                self.lock_successes_spin.setValue(int(saved_lock_successes))
+            self.lock_successes_spin.valueChanged.connect(self._on_lock_successes_changed)
+
+            # Ошибок для AUTO-UNLOCK (по умолчанию 3)
+            saved_unlock_fails = reg(f"{REGISTRY_PATH}\\Orchestra", "UnlockFails")
+            if saved_unlock_fails is not None:
+                self.unlock_fails_spin.setValue(int(saved_unlock_fails))
+            self.unlock_fails_spin.valueChanged.connect(self._on_unlock_fails_changed)
+
         except Exception as e:
             log(f"Ошибка загрузки настроек оркестратора: {e}", "WARNING")
 
@@ -879,7 +939,58 @@ class DpiSettingsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка сохранения настройки авторестарта Discord: {e}", "ERROR")
-    
+
+    def _on_discord_fails_changed(self, value: int):
+        """Обработчик изменения количества фейлов для рестарта Discord"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "DiscordFailsForRestart", value)
+            log(f"Фейлов для рестарта Discord: {value}", "INFO")
+
+            # Обновляем orchestra_runner если запущен
+            app = self._get_app()
+            if app and hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                app.orchestra_runner.discord_fails_for_restart = value
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки DiscordFailsForRestart: {e}", "ERROR")
+
+    def _on_lock_successes_changed(self, value: int):
+        """Обработчик изменения количества успехов для LOCK"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "LockSuccesses", value)
+            log(f"Успехов для LOCK: {value}", "INFO")
+
+            # Обновляем orchestra_runner если запущен
+            app = self._get_app()
+            if app and hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                app.orchestra_runner.lock_successes_threshold = value
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки LockSuccesses: {e}", "ERROR")
+
+    def _on_unlock_fails_changed(self, value: int):
+        """Обработчик изменения количества ошибок для AUTO-UNLOCK"""
+        try:
+            from config import REGISTRY_PATH
+            from config.reg import reg
+
+            reg(f"{REGISTRY_PATH}\\Orchestra", "UnlockFails", value)
+            log(f"Ошибок для AUTO-UNLOCK: {value}", "INFO")
+
+            # Обновляем orchestra_runner если запущен
+            app = self._get_app()
+            if app and hasattr(app, 'orchestra_runner') and app.orchestra_runner:
+                app.orchestra_runner.unlock_fails_threshold = value
+
+        except Exception as e:
+            log(f"Ошибка сохранения настройки UnlockFails: {e}", "ERROR")
+
     def _on_out_range_discord_changed(self, value: int):
         """Обработчик изменения out-range для Discord"""
         try:

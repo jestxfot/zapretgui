@@ -257,6 +257,29 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
         log(f"Файл {filename} не найден, используем стандартный {category}.json", "DEBUG")
         builtin_file = _get_builtin_dir() / f"{category}.json"
 
+    # Специальная логика для Zapret 1: все UDP категории используют один файл udp_zapret1.json
+    if strategy_set == "zapret1" and not builtin_file.exists():
+        # UDP категории (youtube_udp, udp_discord, amazon_udp, roblox_udp, ovh_udp, ipset_udp)
+        if category.endswith("_udp") or category.startswith("udp_") or category == "udp":
+            filename = "udp_zapret1.json"
+            builtin_file = _get_builtin_dir() / filename
+            log(f"Zapret 1: используем {filename} для UDP категории '{category}'", "DEBUG")
+        # Discord Voice отдельно
+        elif category == "discord_voice":
+            filename = "discord_voice_zapret1.json"
+            builtin_file = _get_builtin_dir() / filename
+            log(f"Zapret 1: используем {filename} для Discord Voice", "DEBUG")
+        # HTTP80 категории
+        elif category == "http80" or category.endswith("_http80"):
+            filename = "http80_zapret1.json"
+            builtin_file = _get_builtin_dir() / filename
+            log(f"Zapret 1: используем {filename} для HTTP80 категории '{category}'", "DEBUG")
+        # TCP категории (все остальные)
+        else:
+            filename = "tcp_zapret1.json"
+            builtin_file = _get_builtin_dir() / filename
+            log(f"Zapret 1: используем {filename} для TCP категории '{category}'", "DEBUG")
+
     builtin_data = load_json_file(builtin_file)
 
     # Авто-нумерация :strategy=N только для orchestra

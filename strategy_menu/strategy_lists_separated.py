@@ -163,27 +163,30 @@ def _build_base_args_from_filters(
     raw_discord_media: bool,
     raw_stun: bool,
     raw_wireguard: bool,
+    launch_method: str,
 ) -> str:
     """
     Собирает базовые аргументы WinDivert из отдельных фильтров.
 
     Логика:
-    - TCP порты перехватываются целиком через --wf-tcp-out
-    - UDP порты перехватываются целиком через --wf-udp-out (нагружает CPU!)
-    - Raw-part фильтры перехватывают только конкретные пакеты (экономят CPU)
+    - TCP порты перехватываются целиком через --wf-tcp-out (Zapret 2) или --wf-tcp= (Zapret 1)
+    - UDP порты перехватываются целиком через --wf-udp-out (Zapret 2) или --wf-udp= (Zapret 1)
+    - Raw-part фильтры перехватывают только конкретные пакеты по сигнатуре
     - Для режима direct_orchestra также добавляется --wf-tcp-in с теми же портами
+    - Для режима direct_zapret1 НЕ добавляются Lua аргументы
     """
-    from strategy_menu import get_strategy_launch_method
+    parts = []
 
-    parts = [lua_init]
-    launch_method = get_strategy_launch_method()
+    # Для Zapret 1 НЕ добавляем Lua инициализацию
+    if launch_method != "direct_zapret1":
+        parts.append(lua_init)
 
     # === TCP порты ===
     tcp_port_parts = []
     if tcp_80:
         tcp_port_parts.append("80")
     if tcp_443:
-        tcp_port_parts.append("443")
+        tcp_port_parts.append("443,1080,2053,2083,2087,2096,8443")
     if tcp_warp:
         tcp_port_parts.append("853")
     if tcp_6568:
@@ -193,41 +196,50 @@ def _build_base_args_from_filters(
 
     if tcp_port_parts:
         tcp_ports_str = ','.join(tcp_port_parts)
-        parts.append(f"--wf-tcp-out={tcp_ports_str}")
-        # ✅ Для режима Оркестратор Zapret 2 также перехватываем входящий TCP
-        if launch_method == "direct_orchestra":
-            parts.append(f"--wf-tcp-in={tcp_ports_str}")
-    
+        # Zapret 1 использует --wf-tcp=, Zapret 2 использует --wf-tcp-out=
+        if launch_method == "direct_zapret1":
+            parts.append(f"--wf-tcp={tcp_ports_str}")
+        else:
+            parts.append(f"--wf-tcp-out={tcp_ports_str}")
+            # Для режима Оркестратор Zapret 2 также перехватываем входящий TCP
+            if launch_method == "direct_orchestra":
+                parts.append(f"--wf-tcp-in={tcp_ports_str}")
+
     # === UDP порты ===
     udp_port_parts = []
     if udp_443:
         udp_port_parts.append("443")
     if udp_all_ports:
         udp_port_parts.append("444-65535")
-    
+
     if udp_port_parts:
-        parts.append(f"--wf-udp-out={','.join(udp_port_parts)}")
-    
+        udp_ports_str = ','.join(udp_port_parts)
+        # Zapret 1 использует --wf-udp=, Zapret 2 использует --wf-udp-out=
+        if launch_method == "direct_zapret1":
+            parts.append(f"--wf-udp={udp_ports_str}")
+        else:
+            parts.append(f"--wf-udp-out={udp_ports_str}")
+
     # === Raw-part фильтры (экономят CPU) ===
     # Эти фильтры перехватывают только конкретные пакеты по сигнатуре
-    
+
     if raw_discord_media:
         filter_path = os.path.join(windivert_filter_folder, "windivert_part.discord_media.txt")
         parts.append(f"--wf-raw-part=@{filter_path}")
-    
+
     if raw_stun:
         filter_path = os.path.join(windivert_filter_folder, "windivert_part.stun.txt")
         parts.append(f"--wf-raw-part=@{filter_path}")
-    
+
     if raw_wireguard:
         filter_path = os.path.join(windivert_filter_folder, "windivert_part.wireguard.txt")
         parts.append(f"--wf-raw-part=@{filter_path}")
-    
+
     result = " ".join(parts)
-    log(f"Собраны базовые аргументы: TCP=[80={tcp_80}, 443={tcp_443}, all={tcp_all_ports}], "
+    log(f"Собраны базовые аргументы для {launch_method}: TCP=[80={tcp_80}, 443={tcp_443}, all={tcp_all_ports}], "
         f"UDP=[443={udp_443}, all={udp_all_ports}], "
         f"raw=[discord={raw_discord_media}, stun={raw_stun}, wg={raw_wireguard}]", "DEBUG")
-    
+
     return result
 
 
@@ -255,8 +267,11 @@ def combine_strategies(*args, **kwargs) -> dict:
         raise ValueError("Нельзя одновременно использовать позиционные и именованные аргументы")
     
     # ==================== БАЗОВЫЕ АРГУМЕНТЫ ====================
-    from strategy_menu import get_debug_log_enabled
+    from strategy_menu import get_debug_log_enabled, get_strategy_launch_method
     from config import LUA_FOLDER, WINDIVERT_FILTER, LOGS_FOLDER
+
+    # Определяем метод запуска
+    launch_method = get_strategy_launch_method()
 
     # Lua библиотеки должны загружаться первыми (обязательно для Zapret 2)
     # Порядок загрузки важен:
@@ -287,6 +302,7 @@ def combine_strategies(*args, **kwargs) -> dict:
         filters['raw_discord'],
         filters['raw_stun'],
         filters['raw_wireguard'],
+        launch_method,
     )
     
     # ==================== СБОР АКТИВНЫХ КАТЕГОРИЙ ====================
@@ -317,18 +333,19 @@ def combine_strategies(*args, **kwargs) -> dict:
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
             # ✅ Заменяем out-range для Discord и YouTube категорий
-            # ⚠️ НО: для direct_orchestra НЕ заменяем - стратегии уже содержат правильные out-range
-            from strategy_menu import get_strategy_launch_method
-            launch_method = get_strategy_launch_method()
-
-            if launch_method != "direct_orchestra":
+            # ⚠️ ВАЖНО: --out-range есть ТОЛЬКО в Zapret 2 (winws2.exe)
+            # В Zapret 1 (winws.exe) этой опции НЕТ!
+            if launch_method in ("direct", "direct_orchestra"):
                 if category_key == "discord" and out_range_discord > 0:
                     args = _replace_out_range(args, out_range_discord)
                 elif category_key == "discord_voice" and out_range_discord > 0:
                     args = _replace_out_range(args, out_range_discord)
                 elif category_key == "youtube" and out_range_youtube > 0:
                     args = _replace_out_range(args, out_range_youtube)
-            
+            elif launch_method == "direct_zapret1":
+                # Удаляем --out-range для Zapret 1 (winws не поддерживает)
+                args = re.sub(r'--out-range=[^\s]+\s*', '', args).strip()
+
             category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))
             

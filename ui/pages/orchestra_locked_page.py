@@ -1,19 +1,130 @@
 # ui/pages/orchestra_locked_page.py
 """
-Страница управления залоченными стратегиями оркестратора
-Оптимизирована для работы с большими списками (QListWidget с виртуализацией)
+Страница управления залоченными стратегиями оркестратора.
+Каждый домен отображается в виде редактируемого ряда с QSpinBox для номера стратегии.
+Изменения автоматически сохраняются в реестр.
 """
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QMenu, QListWidget, QListWidgetItem,
+    QPushButton, QComboBox, QWidget,
     QLineEdit, QSpinBox, QFrame, QMessageBox, QApplication
 )
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
+from ui.widgets import NotificationBanner
 from log import log
+from orchestra.locked_strategies_manager import ASKEY_ALL
+
+
+class LockedDomainRow(QFrame):
+    """Виджет-ряд для одного залоченного домена с редактируемой стратегией"""
+
+    def __init__(self, domain: str, strategy: int, proto: str, parent=None):
+        super().__init__(parent)
+        self.domain = domain
+        self.proto = proto
+        self._setup_ui(domain, strategy, proto)
+
+    def _setup_ui(self, domain: str, strategy: int, proto: str):
+        self.setFixedHeight(40)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 6px;
+            }
+            QFrame:hover {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(8)
+
+        # Домен
+        domain_label = QLabel(domain)
+        domain_label.setStyleSheet("color: white; font-size: 13px; border: none; background: transparent;")
+        layout.addWidget(domain_label, 1)
+
+        # Протокол
+        proto_label = QLabel(f"[{proto.upper()}]")
+        proto_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; border: none; background: transparent;")
+        proto_label.setFixedWidth(45)
+        layout.addWidget(proto_label)
+
+        # Стратегия SpinBox
+        self.strat_spin = QSpinBox()
+        self.strat_spin.setRange(1, 999)
+        self.strat_spin.setValue(strategy)
+        self.strat_spin.setFixedWidth(70)
+        self.strat_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #60cdff;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QSpinBox:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(96, 205, 255, 0.3);
+            }
+            QSpinBox:focus {
+                border: 1px solid #60cdff;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 0px;
+                border: none;
+            }
+        """)
+        self.strat_spin.valueChanged.connect(self._on_strategy_changed)
+        layout.addWidget(self.strat_spin)
+
+        # Кнопка удаления (разлочить)
+        delete_btn = QPushButton()
+        delete_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="white"))
+        delete_btn.setIconSize(QSize(16, 16))
+        delete_btn.setFixedSize(28, 28)
+        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete_btn.setToolTip("Разлочить")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 152, 0, 0.2);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 152, 0, 0.3);
+            }
+        """)
+        delete_btn.clicked.connect(self._on_delete_clicked)
+        layout.addWidget(delete_btn)
+
+    def _on_strategy_changed(self, value: int):
+        """При изменении стратегии - уведомляем родителя для автосохранения"""
+        parent = self.parent()
+        while parent and not isinstance(parent, OrchestraLockedPage):
+            parent = parent.parent()
+        if parent:
+            parent._on_row_strategy_changed(self.domain, value, self.proto)
+
+    def _on_delete_clicked(self):
+        """При клике на удаление - уведомляем родителя"""
+        parent = self.parent()
+        while parent and not isinstance(parent, OrchestraLockedPage):
+            parent = parent.parent()
+        if parent:
+            parent._on_row_delete_requested(self.domain, self.proto)
 
 
 class OrchestraLockedPage(BasePage):
@@ -28,66 +139,24 @@ class OrchestraLockedPage(BasePage):
         self.setObjectName("orchestraLockedPage")
         self._all_locked_data = []  # Кэш данных для фильтрации
         # Инициализируем пустые данные (будут загружены при первом showEvent)
-        self._direct_locked = {}
-        self._direct_http_locked = {}
-        self._direct_udp_locked = {}
+        self._direct_locked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
         self._setup_ui()
 
     def _setup_ui(self):
+        # === Уведомление (баннер) ===
+        self.notification_banner = NotificationBanner(self)
+        self.layout.addWidget(self.notification_banner)
+
         # === Карточка добавления ===
-        add_card = SettingsCard("Залочить стратегию")
-        add_layout = QVBoxLayout()
-        add_layout.setSpacing(12)
+        add_card = SettingsCard("Залочить стратегию вручную")
+        add_layout = QHBoxLayout()
+        add_layout.setSpacing(8)
 
-        # Секция: Из обученных доменов
-        learned_label = QLabel("Выбрать из обученных")
-        learned_label.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 600;")
-        add_layout.addWidget(learned_label)
-
-        # Комбобокс для обученных доменов
-        self.domain_combo = QComboBox()
-        self.domain_combo.setMaxVisibleItems(15)
-        self.domain_combo.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 8px 12px;
-                min-height: 24px;
-            }
-            QComboBox:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                color: white;
-                selection-background-color: #0078d4;
-            }
-        """)
-        add_layout.addWidget(self.domain_combo)
-
-        # Разделитель
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); margin: 8px 0;")
-        separator.setFixedHeight(1)
-        add_layout.addWidget(separator)
-
-        # Секция: Ручной ввод
-        custom_label = QLabel("Или ввести вручную")
-        custom_label.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 600;")
-        add_layout.addWidget(custom_label)
-
-        # Ручной ввод
-        custom_row = QHBoxLayout()
-        custom_row.setSpacing(8)
-        self.custom_domain_input = QLineEdit()
-        self.custom_domain_input.setPlaceholderText("example.com")
-        self.custom_domain_input.setStyleSheet("""
+        # Домен
+        self.domain_input = QLineEdit()
+        self.domain_input.setPlaceholderText("example.com")
+        self.domain_input.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(255, 255, 255, 0.06);
                 color: white;
@@ -103,40 +172,45 @@ class OrchestraLockedPage(BasePage):
                 border: 1px solid #60cdff;
             }
         """)
-        custom_row.addWidget(self.custom_domain_input, 2)
+        add_layout.addWidget(self.domain_input, 1)
 
-        self.custom_proto_combo = QComboBox()
-        self.custom_proto_combo.addItems(["TLS (443)", "HTTP (80)", "UDP"])
-        self.custom_proto_combo.setStyleSheet(self.domain_combo.styleSheet())
-        custom_row.addWidget(self.custom_proto_combo)
-        add_layout.addLayout(custom_row)
+        # Протокол (askey)
+        self.proto_combo = QComboBox()
+        self.proto_combo.addItems([askey.upper() for askey in ASKEY_ALL])
+        self.proto_combo.setFixedWidth(90)
+        self.proto_combo.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 0.06);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+            QComboBox:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(96, 205, 255, 0.3);
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #2d2d2d;
+                color: white;
+                selection-background-color: #0078d4;
+            }
+        """)
+        add_layout.addWidget(self.proto_combo)
 
-        # Разделитель
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.HLine)
-        separator2.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); margin: 8px 0;")
-        separator2.setFixedHeight(1)
-        add_layout.addWidget(separator2)
-
-        # Номер стратегии и кнопка
-        strat_row = QHBoxLayout()
-        strat_row.setSpacing(12)
-
-        strat_label = QLabel("Стратегия #")
-        strat_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 13px;")
-        strat_row.addWidget(strat_label)
-
+        # Стратегия
         self.strat_spin = QSpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
+        self.strat_spin.setFixedWidth(70)
         self.strat_spin.setStyleSheet("""
             QSpinBox {
                 background-color: rgba(255, 255, 255, 0.06);
                 color: white;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 4px;
-                padding: 6px 12px;
-                min-width: 70px;
+                padding: 8px 12px;
             }
             QSpinBox:hover {
                 background-color: rgba(255, 255, 255, 0.1);
@@ -150,27 +224,30 @@ class OrchestraLockedPage(BasePage):
                 border: none;
             }
         """)
-        strat_row.addWidget(self.strat_spin)
-        strat_row.addStretch()
+        add_layout.addWidget(self.strat_spin)
 
-        self.lock_btn = QPushButton("Залочить")
-        self.lock_btn.setIcon(qta.icon("mdi.lock", color="#4CAF50"))
+        # Кнопка добавления
+        self.lock_btn = QPushButton()
+        self.lock_btn.setIcon(qta.icon("mdi.plus", color="white"))
+        self.lock_btn.setIconSize(QSize(18, 18))
+        self.lock_btn.setFixedSize(36, 36)
+        self.lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lock_btn.setToolTip("Залочить стратегию")
         self.lock_btn.clicked.connect(self._lock_strategy)
         self.lock_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(76, 175, 80, 0.2);
-                border: 1px solid rgba(76, 175, 80, 0.3);
-                border-radius: 6px;
-                color: #4CAF50;
-                padding: 8px 24px;
-                font-weight: 500;
+                background-color: rgba(76, 175, 80, 0.2);
+                border: none;
+                border-radius: 4px;
             }
             QPushButton:hover {
-                background: rgba(76, 175, 80, 0.3);
+                background-color: rgba(76, 175, 80, 0.3);
+            }
+            QPushButton:pressed {
+                background-color: rgba(76, 175, 80, 0.4);
             }
         """)
-        strat_row.addWidget(self.lock_btn)
-        add_layout.addLayout(strat_row)
+        add_layout.addWidget(self.lock_btn)
 
         add_card.add_layout(add_layout)
         self.layout.addWidget(add_card)
@@ -210,37 +287,53 @@ class OrchestraLockedPage(BasePage):
 
         # Кнопка обновления списка из реестра
         self.refresh_btn = QPushButton("Обновить")
-        self.refresh_btn.setIcon(qta.icon("mdi.refresh", color="#60cdff"))
+        self.refresh_btn.setIcon(qta.icon("mdi.refresh", color="white"))
+        self.refresh_btn.setIconSize(QSize(16, 16))
+        self.refresh_btn.setFixedHeight(32)
+        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_btn.clicked.connect(self._reload_from_registry)
         self.refresh_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(96, 205, 255, 0.15);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-                border-radius: 6px;
-                color: #60cdff;
-                padding: 8px 16px;
-                font-weight: 500;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
             QPushButton:hover {
-                background: rgba(96, 205, 255, 0.25);
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
             }
         """)
         top_row.addWidget(self.refresh_btn)
 
         self.unlock_all_btn = QPushButton("Разлочить все")
-        self.unlock_all_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="#ff9800"))
+        self.unlock_all_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="white"))
+        self.unlock_all_btn.setIconSize(QSize(16, 16))
+        self.unlock_all_btn.setFixedHeight(32)
+        self.unlock_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.unlock_all_btn.clicked.connect(self._unlock_all)
         self.unlock_all_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 152, 0, 0.15);
-                border: 1px solid rgba(255, 152, 0, 0.3);
-                border-radius: 6px;
-                color: #ff9800;
-                padding: 8px 16px;
-                font-weight: 500;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
             QPushButton:hover {
-                background: rgba(255, 152, 0, 0.25);
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
             }
         """)
         top_row.addWidget(self.unlock_all_btn)
@@ -254,44 +347,23 @@ class OrchestraLockedPage(BasePage):
         list_layout.addWidget(self.count_label)
 
         # Подсказка
-        hint_label = QLabel("ПКМ по строке для действий")
+        hint_label = QLabel("Измените номер стратегии и она автоматически сохранится")
         hint_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 10px; font-style: italic;")
         list_layout.addWidget(hint_label)
 
-        # QListWidget - быстрый даже с тысячами элементов
-        self.locked_list = QListWidget()
-        self.locked_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.locked_list.customContextMenuRequested.connect(self._show_context_menu)
-        self.locked_list.setMinimumHeight(300)
-        self.locked_list.setStyleSheet("""
-            QListWidget {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                color: white;
-                font-size: 13px;
-                padding: 4px;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                border-radius: 4px;
-                margin: 2px 0;
-            }
-            QListWidget::item:selected {
-                background-color: rgba(96, 205, 255, 0.2);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QListWidget::item:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-            }
-        """)
-        list_layout.addWidget(self.locked_list)
+        # Контейнер для рядов (без скролла - страница сама прокручивается)
+        self.rows_container = QWidget()
+        self.rows_container.setStyleSheet("background: transparent;")
+        self.rows_layout = QVBoxLayout(self.rows_container)
+        self.rows_layout.setContentsMargins(0, 8, 0, 0)
+        self.rows_layout.setSpacing(4)
+        list_layout.addWidget(self.rows_container)
+
+        # Храним ссылки на ряды для быстрого доступа
+        self._domain_rows = {}
 
         list_card.add_layout(list_layout)
         self.layout.addWidget(list_card)
-
-        # Подключаем сигналы
-        self.domain_combo.currentIndexChanged.connect(self._on_domain_changed)
 
     def showEvent(self, event):
         """При показе страницы загружаем данные один раз (без авто-обновления)"""
@@ -308,9 +380,33 @@ class OrchestraLockedPage(BasePage):
             return app.orchestra_runner
         return None
 
+    def _get_blocked_manager(self):
+        """Получает blocked_strategies_manager из runner или создает временный"""
+        runner = self._get_runner()
+        if runner and hasattr(runner, 'blocked_manager'):
+            return runner.blocked_manager
+        # Создаем временный менеджер для проверки
+        from orchestra.blocked_strategies_manager import BlockedStrategiesManager
+        temp_manager = BlockedStrategiesManager()
+        temp_manager.load()
+        return temp_manager
+
+    def _show_blocked_warning(self, domain: str, strategy: int):
+        """
+        Показывает предупреждение о заблокированной стратегии.
+
+        Args:
+            domain: Домен для которого заблокирована стратегия
+            strategy: Номер заблокированной стратегии
+        """
+        message = (
+            f"Стратегия #{strategy} заблокирована для {domain}. "
+            "Разблокируйте её на странице 'Заблокированные'."
+        )
+        self.notification_banner.show_warning(message, auto_hide_ms=7000)
+
     def _refresh_data(self):
         """Обновляет все данные на странице (из памяти)"""
-        self._refresh_domain_combo()
         self._refresh_locked_list()
 
     def _reload_from_registry(self):
@@ -326,10 +422,6 @@ class OrchestraLockedPage(BasePage):
             if runner and hasattr(runner, 'locked_manager'):
                 # Перезагружаем данные из реестра
                 runner.locked_manager.load()
-                # Синхронизируем ссылки в runner
-                runner.locked_strategies = runner.locked_manager.locked_strategies
-                runner.http_locked_strategies = runner.locked_manager.http_locked_strategies
-                runner.udp_locked_strategies = runner.locked_manager.udp_locked_strategies
                 log("Список залоченных перезагружен из реестра (runner)", "INFO")
             else:
                 # Нет активного runner - загружаем напрямую из реестра
@@ -349,226 +441,196 @@ class OrchestraLockedPage(BasePage):
         temp_manager = LockedStrategiesManager()
         temp_manager.load()
         # Сохраняем данные для отображения
-        self._direct_locked = temp_manager.locked_strategies.copy()
-        self._direct_http_locked = temp_manager.http_locked_strategies.copy()
-        self._direct_udp_locked = temp_manager.udp_locked_strategies.copy()
-        total = len(self._direct_locked) + len(self._direct_http_locked) + len(self._direct_udp_locked)
+        self._direct_locked_by_askey = {askey: dict(temp_manager.locked_by_askey[askey]) for askey in ASKEY_ALL}
+        total = sum(len(strategies) for strategies in self._direct_locked_by_askey.values())
         log(f"Загружено напрямую из реестра: {total} залоченных стратегий", "INFO")
-
-    def _refresh_domain_combo(self):
-        """Обновляет комбобокс с обученными доменами"""
-        self.domain_combo.clear()
-        runner = self._get_runner()
-        if not runner:
-            self.domain_combo.addItem("Оркестратор не запущен", None)
-            self.domain_combo.setEnabled(False)
-            return
-
-        self.domain_combo.setEnabled(True)
-        learned = runner.get_learned_data()
-
-        all_domains = []
-        for domain, strats in learned.get('tls', {}).items():
-            if strats:
-                all_domains.append((domain, strats[0], 'tls'))
-        for domain, strats in learned.get('http', {}).items():
-            if strats:
-                all_domains.append((domain, strats[0], 'http'))
-        for ip, strats in learned.get('udp', {}).items():
-            if strats:
-                all_domains.append((ip, strats[0], 'udp'))
-
-        all_domains.sort(key=lambda x: x[0].lower())
-
-        if all_domains:
-            for domain, strat, proto in all_domains:
-                self.domain_combo.addItem(f"{domain} (#{strat}, {proto.upper()})", (domain, strat, proto))
-        else:
-            self.domain_combo.addItem("Нет обученных доменов", None)
 
     def _refresh_locked_list(self):
         """Обновляет список залоченных стратегий"""
-        self.locked_list.clear()
+        # Очищаем старые ряды
+        self._domain_rows.clear()
+        while self.rows_layout.count():
+            item = self.rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         self._all_locked_data = []
 
         runner = self._get_runner()
 
         # Источник данных: runner или напрямую загруженные из реестра
         if runner:
-            tls_data = runner.locked_strategies
-            http_data = runner.http_locked_strategies
-            udp_data = runner.udp_locked_strategies
-        elif hasattr(self, '_direct_locked'):
-            tls_data = self._direct_locked
-            http_data = self._direct_http_locked
-            udp_data = self._direct_udp_locked
+            locked_data = runner.locked_manager.locked_by_askey
+        elif hasattr(self, '_direct_locked_by_askey'):
+            locked_data = self._direct_locked_by_askey
         else:
             # Нет данных - попробуем загрузить
             self._load_directly_from_registry()
-            tls_data = getattr(self, '_direct_locked', {})
-            http_data = getattr(self, '_direct_http_locked', {})
-            udp_data = getattr(self, '_direct_udp_locked', {})
+            locked_data = getattr(self, '_direct_locked_by_askey', {askey: {} for askey in ASKEY_ALL})
 
-        # Собираем все данные
-        for domain, strategy in tls_data.items():
-            self._all_locked_data.append((domain, strategy, "tls"))
-        for domain, strategy in http_data.items():
-            self._all_locked_data.append((domain, strategy, "http"))
-        for ip, strategy in udp_data.items():
-            self._all_locked_data.append((ip, strategy, "udp"))
+        # Собираем все данные по всем askey
+        for askey in ASKEY_ALL:
+            for hostname, strategy in locked_data.get(askey, {}).items():
+                self._all_locked_data.append((hostname, strategy, askey))
 
         self._all_locked_data.sort(key=lambda x: x[0].lower())
 
-        # Добавляем в список
+        # Создаём ряды для каждого домена
         for domain, strategy, proto in self._all_locked_data:
-            text = f"{domain}  →  стратегия #{strategy}  [{proto.upper()}]"
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, (domain, strategy, proto))
-            self.locked_list.addItem(item)
+            row = LockedDomainRow(domain, strategy, proto)
+            key = f"{domain}:{proto}"
+            self._domain_rows[key] = row
+            self.rows_layout.addWidget(row)
 
         self._update_count()
+        self._apply_filter()
 
     def _filter_list(self, text: str):
         """Фильтрует список по введённому тексту"""
-        search = text.lower().strip()
-        for i in range(self.locked_list.count()):
-            item = self.locked_list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data:
-                domain = data[0].lower()
-                item.setHidden(search not in domain if search else False)
+        self._apply_filter()
 
-    def _show_context_menu(self, pos):
-        """Показывает контекстное меню для выбранного элемента"""
-        item = self.locked_list.itemAt(pos)
-        if not item:
-            return
+    def _apply_filter(self):
+        """Применяет текущий фильтр к рядам"""
+        search = self.search_input.text().lower().strip()
+        for key, row in self._domain_rows.items():
+            domain = row.domain.lower()
+            row.setVisible(search in domain if search else True)
 
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if not data:
-            return
+    def _on_row_strategy_changed(self, domain: str, new_strategy: int, askey: str):
+        """Автосохранение при изменении стратегии в SpinBox"""
+        # Проверяем, не заблокирована ли эта стратегия для домена
+        blocked_manager = self._get_blocked_manager()
+        if blocked_manager.is_blocked(domain, new_strategy):
+            self._show_blocked_warning(domain, new_strategy)
+            log(f"[USER] Попытка изменить на заблокированную стратегию #{new_strategy} для {domain}", "WARNING")
+            # Восстанавливаем предыдущее значение в SpinBox
+            key = f"{domain}:{askey}"
+            if key in self._domain_rows:
+                row = self._domain_rows[key]
+                # Получаем текущее значение из менеджера
+                runner = self._get_runner()
+                if runner and hasattr(runner, 'locked_manager'):
+                    current = runner.locked_manager.locked_by_askey.get(askey, {}).get(domain, 1)
+                elif askey in self._direct_locked_by_askey:
+                    current = self._direct_locked_by_askey[askey].get(domain, 1)
+                else:
+                    current = 1
+                row.strat_spin.blockSignals(True)
+                row.strat_spin.setValue(current)
+                row.strat_spin.blockSignals(False)
+            return  # Не сохраняем заблокированную стратегию
 
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2d2d2d;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-                color: white;
-            }
-            QMenu::item:selected {
-                background-color: rgba(76, 175, 80, 0.3);
-            }
-        """)
-        unlock_action = menu.addAction(qta.icon("mdi.lock-open", color="#4CAF50"), "Разлочить")
-        block_action = menu.addAction(qta.icon("mdi.block-helper", color="#e91e63"), "Заблокировать (не работает)")
-
-        action = menu.exec(self.locked_list.mapToGlobal(pos))
-        if action == unlock_action:
-            self._unlock_by_data(data)
-        elif action == block_action:
-            self._block_by_data(data)
-
-    def _unlock_by_data(self, data):
-        """Разлочивает стратегию по данным"""
         runner = self._get_runner()
-        if not runner:
-            return
+        if runner and hasattr(runner, 'locked_manager'):
+            # Используем lock для изменения (он автоматически сохраняет)
+            # user_lock=True - ручное изменение через UI не перезаписывается auto-lock
+            runner.locked_manager.lock(domain, new_strategy, askey, user_lock=True)
+            log(f"[USER] Изменена стратегия: {domain} [{askey.upper()}] -> #{new_strategy}", "INFO")
+            # Регенерируем learned-strategies.lua и перезапускаем для применения user lock
+            if runner.is_running():
+                runner._generate_learned_lua()
+                log("[USER] Перезапуск оркестратора для применения user lock...", "INFO")
+                runner.restart()
+        else:
+            # Без runner - сохраняем напрямую в реестр
+            from orchestra.locked_strategies_manager import LockedStrategiesManager
+            temp_manager = LockedStrategiesManager()
+            temp_manager.load()
+            temp_manager.lock(domain, new_strategy, askey, user_lock=True)
+            # Обновляем локальный кэш
+            if askey in self._direct_locked_by_askey:
+                self._direct_locked_by_askey[askey][domain] = new_strategy
+            log(f"[USER] Изменена стратегия (direct): {domain} [{askey.upper()}] -> #{new_strategy}", "INFO")
 
-        domain, strategy, proto = data
-        runner.locked_manager.unlock(domain, proto)
-        log(f"Разлочена стратегия #{strategy} для {domain} [{proto.upper()}]", "INFO")
-        self._refresh_data()
-        # Перезапускаем оркестратор чтобы сбросить hrec.nstrategy для этого домена
-        if runner.is_running():
-            QMessageBox.information(
-                self,
-                "Перезапуск оркестратора",
-                f"Стратегия #{strategy} разлочена для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
-            )
-            runner.restart()
-
-    def _block_by_data(self, data):
-        """Блокирует стратегию (добавляет в чёрный список)"""
+    def _on_row_delete_requested(self, domain: str, askey: str):
+        """Разлочивание при нажатии кнопки удаления"""
         runner = self._get_runner()
-        if not runner:
-            return
-
-        domain, strategy, proto = data
-        # Сначала разлочиваем, потом блокируем
-        runner.locked_manager.unlock(domain, proto)
-        runner.blocked_manager.block(domain, strategy, proto)
-        log(f"Заблокирована стратегия #{strategy} для {domain} [{proto.upper()}] — оркестратор найдёт другую", "INFO")
-        self._refresh_data()
-        # Перезапускаем оркестратор чтобы применить блокировку
-        if runner.is_running():
-            QMessageBox.information(
-                self,
-                "Перезапуск оркестратора",
-                f"Стратегия #{strategy} заблокирована для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
-            )
-            runner.restart()
+        if runner and hasattr(runner, 'locked_manager'):
+            runner.locked_manager.unlock(domain, askey)
+            log(f"Разлочена стратегия для {domain} [{askey.upper()}]", "INFO")
+            self._refresh_data()
+            # Перезапускаем оркестратор
+            if runner.is_running():
+                QMessageBox.information(
+                    self,
+                    "Перезапуск оркестратора",
+                    f"Стратегия разлочена для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
+                )
+                runner.restart()
+        else:
+            # Без runner - удаляем напрямую из реестра
+            from orchestra.locked_strategies_manager import LockedStrategiesManager
+            temp_manager = LockedStrategiesManager()
+            temp_manager.load()
+            temp_manager.unlock(domain, askey)
+            # Обновляем локальный кэш
+            if askey in self._direct_locked_by_askey and domain in self._direct_locked_by_askey[askey]:
+                del self._direct_locked_by_askey[askey][domain]
+            log(f"Разлочена стратегия (direct) для {domain} [{askey.upper()}]", "INFO")
+            self._refresh_data()
 
     def _update_count(self):
         """Обновляет счётчик"""
         runner = self._get_runner()
         if runner:
-            tls_count = len(runner.locked_strategies)
-            http_count = len(runner.http_locked_strategies)
-            udp_count = len(runner.udp_locked_strategies)
-        elif hasattr(self, '_direct_locked'):
-            tls_count = len(self._direct_locked)
-            http_count = len(self._direct_http_locked)
-            udp_count = len(self._direct_udp_locked)
+            locked_data = runner.locked_manager.locked_by_askey
+        elif hasattr(self, '_direct_locked_by_askey'):
+            locked_data = self._direct_locked_by_askey
         else:
             self.count_label.setText("Нажмите 'Обновить' для загрузки данных")
             return
 
-        total = tls_count + http_count + udp_count
-        self.count_label.setText(
-            f"Всего залочено: {total} (TLS: {tls_count}, HTTP: {http_count}, UDP: {udp_count})"
-        )
+        # Подсчёт по всем askey
+        counts = {askey: len(locked_data.get(askey, {})) for askey in ASKEY_ALL}
+        total = sum(counts.values())
 
-    def _on_domain_changed(self, index):
-        """При смене домена обновляем номер стратегии"""
-        data = self.domain_combo.itemData(index)
-        if data:
-            self.strat_spin.setValue(data[1])
+        # Формируем вывод с разбиением по TCP/UDP
+        tcp_count = counts.get('tls', 0) + counts.get('http', 0) + counts.get('mtproto', 0)
+        udp_count = sum(counts.get(k, 0) for k in ['quic', 'discord', 'wireguard', 'dns', 'stun', 'unknown'])
+
+        self.count_label.setText(
+            f"Всего залочено: {total} (TCP: {tcp_count}, UDP: {udp_count})"
+        )
 
     def _lock_strategy(self):
         """Залочивает стратегию"""
-        runner = self._get_runner()
-        if not runner:
+        domain = self.domain_input.text().strip().lower()
+        if not domain:
             return
 
         strategy = self.strat_spin.value()
+        askey = self.proto_combo.currentText().lower()
 
-        # Приоритет: если в поле ввода есть текст - используем его
-        custom_domain = self.custom_domain_input.text().strip().lower()
-        if custom_domain:
-            domain = custom_domain
-            proto_text = self.custom_proto_combo.currentText()
-            if "TLS" in proto_text:
-                proto = "tls"
-            elif "HTTP" in proto_text:
-                proto = "http"
-            else:
-                proto = "udp"
-            # Очищаем поле после добавления
-            self.custom_domain_input.clear()
+        # Проверяем, не заблокирована ли эта стратегия для домена
+        blocked_manager = self._get_blocked_manager()
+        if blocked_manager.is_blocked(domain, strategy):
+            self._show_blocked_warning(domain, strategy)
+            log(f"[USER] Попытка залочить заблокированную стратегию #{strategy} для {domain}", "WARNING")
+            return  # Не лочим заблокированную стратегию
+
+        runner = self._get_runner()
+        if runner and hasattr(runner, 'locked_manager'):
+            # user_lock=True - ручное добавление через UI не перезаписывается auto-lock
+            runner.locked_manager.lock(domain, strategy, askey, user_lock=True)
+            log(f"[USER] Залочена стратегия #{strategy} для {domain} [{askey.upper()}]", "INFO")
+            # Регенерируем learned-strategies.lua и перезапускаем для применения user lock
+            if runner.is_running():
+                runner._generate_learned_lua()
+                log("[USER] Перезапуск оркестратора для применения user lock...", "INFO")
+                runner.restart()
         else:
-            # Используем выбор из комбобокса
-            data = self.domain_combo.currentData()
-            if not data:
-                return
-            domain, _, proto = data
+            # Без runner - сохраняем напрямую
+            from orchestra.locked_strategies_manager import LockedStrategiesManager
+            temp_manager = LockedStrategiesManager()
+            temp_manager.load()
+            temp_manager.lock(domain, strategy, askey, user_lock=True)
+            # Обновляем локальный кэш
+            if askey in self._direct_locked_by_askey:
+                self._direct_locked_by_askey[askey][domain] = strategy
+            log(f"[USER] Залочена стратегия (direct) #{strategy} для {domain} [{askey.upper()}]", "INFO")
 
-        runner.locked_manager.lock(domain, strategy, proto)
-        log(f"Залочена стратегия #{strategy} для {domain} [{proto.upper()}]", "INFO")
+        # Очищаем поле и обновляем список
+        self.domain_input.clear()
         self._refresh_data()
 
     def _unlock_all(self):
@@ -577,7 +639,7 @@ class OrchestraLockedPage(BasePage):
         if not runner:
             return
 
-        total = len(runner.locked_strategies) + len(runner.http_locked_strategies) + len(runner.udp_locked_strategies)
+        total = sum(len(strategies) for strategies in runner.locked_manager.locked_by_askey.values())
         if total == 0:
             return
 
@@ -588,12 +650,10 @@ class OrchestraLockedPage(BasePage):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            for domain in list(runner.locked_strategies.keys()):
-                runner.locked_manager.unlock(domain, "tls")
-            for domain in list(runner.http_locked_strategies.keys()):
-                runner.locked_manager.unlock(domain, "http")
-            for ip in list(runner.udp_locked_strategies.keys()):
-                runner.locked_manager.unlock(ip, "udp")
+            # Разлочиваем все домены по всем askey
+            for askey in ASKEY_ALL:
+                for domain in list(runner.locked_manager.locked_by_askey.get(askey, {}).keys()):
+                    runner.locked_manager.unlock(domain, askey)
             log(f"Разлочены все {total} стратегий", "INFO")
             self._refresh_data()
             # Перезапускаем оркестратор чтобы сбросить все hrec.nstrategy

@@ -74,22 +74,43 @@ class Patterns:
     # LUA: strategy-stats: PRELOADED youtube.com = strategy 15 [tls]
     preloaded = re.compile(r"PRELOADED (\S+) = strategy (\d+)(?: \[(\S+)\])?")
 
-    # LUA: strategy_quality: LOCK youtube.com -> strat=2
-    # Hostname может содержать пробелы, поэтому матчим до " -> strat="
-    lock = re.compile(r"strategy_quality: LOCK (.+?) -> strat=(\d+)")
+    # LUA: slm_quality: [tls] LOCK: dns.sb -> strat=6  (NEW with protocol tag)
+    # LUA: slm_quality: LOCK youtube.com -> strat=2  (NEW without tag)
+    # LUA: strategy_quality: LOCK youtube.com -> strat=2  (LEGACY)
+    # Groups: 1=protocol (tls/quic/unknown/None), 2=hostname, 3=strategy
+    lock = re.compile(r"(?:strategy_quality|slm_quality):? (?:\[(\w+)\] )?LOCK:? (.+?) -> strat=(\d+)")
 
-    # LUA: strategy_quality: UNLOCK youtube.com
-    # Hostname до конца строки (может содержать пробелы для UDP)
-    unlock = re.compile(r"strategy_quality: UNLOCK (.+?)$")
+    # LUA: slm_quality: [tls] UNLOCK: dns.sb strat=5 (now blocked)  (NEW with protocol tag)
+    # LUA: slm_quality: UNLOCK youtube.com strat=5 (now blocked)  (NEW without tag)
+    # LUA: strategy_quality: UNLOCK youtube.com  (LEGACY)
+    # Groups: 1=protocol (tls/quic/unknown/None), 2=hostname
+    unlock = re.compile(r"(?:strategy_quality|slm_quality):? (?:\[(\w+)\] )?UNLOCK:? (\S+)")
 
-    # LUA: strategy_quality: RESET hostname
-    reset = re.compile(r"strategy_quality: RESET (.+?)$")
+    # LUA: slm_quality: RESET hostname  (NEW)
+    # LUA: strategy_quality: RESET hostname  (LEGACY)
+    reset = re.compile(r"(?:strategy_quality|slm_quality): RESET (\S+)")
 
-    # LUA: strategy_quality: youtube.com strat=2 SUCCESS 3/5
-    success = re.compile(r"strategy_quality: (.+?) strat=(\d+) SUCCESS (\d+)/(\d+)")
+    # LUA: slm_quality: [tls] github.com strat=1 SUCCESS 1/1  (NEW with protocol tag)
+    # LUA: slm_quality: [unknown] udp 103.3.0.0 strat=1 SUCCESS 1/1  (UDP with protocol tag)
+    # LUA: slm_quality: [quic] google.com strat=2 SUCCESS 1/1  (QUIC with protocol tag)
+    # LUA: slm_quality: youtube.com strat=2 SUCCESS 3/5  (NEW without tag)
+    # LUA: slm_quality: udp 178.18.0.0 strat=1 SUCCESS 1/1  (UDP without tag)
+    # LUA: strategy_quality: youtube.com strat=2 SUCCESS 3/5  (LEGACY)
+    # NOTE: (?:\[(\w+)\] )? captures optional "[protocol] " prefix (e.g. [tls], [unknown], [quic]) into group 1
+    # NOTE: (?:udp )? skips optional "udp " prefix to avoid capturing it in hostname
+    # Groups: 1=protocol (tls/quic/unknown/discord/None), 2=hostname, 3=strategy, 4=successes, 5=total
+    success = re.compile(r"(?:strategy_quality|slm_quality): (?:\[(\w+)\] )?(?:udp )?(.+?) strat=(\d+) SUCCESS (\d+)/(\d+)")
 
-    # LUA: strategy_quality: youtube.com strat=2 FAIL 1/4
-    fail = re.compile(r"strategy_quality: (.+?) strat=(\d+) FAIL (\d+)/(\d+)")
+    # LUA: slm_quality: [tls] github.com strat=1 FAIL 0/1  (NEW with protocol tag)
+    # LUA: slm_quality: [unknown] udp 239.192.0.0 strat=1 FAIL 0/1  (UDP with protocol tag)
+    # LUA: slm_quality: [quic] google.com strat=2 FAIL 0/1  (QUIC with protocol tag)
+    # LUA: slm_quality: youtube.com strat=2 FAIL 1/4  (NEW without tag)
+    # LUA: slm_quality: udp 178.18.0.0 strat=1 FAIL 0/3  (UDP without tag)
+    # LUA: strategy_quality: youtube.com strat=2 FAIL 1/4  (LEGACY)
+    # NOTE: (?:\[(\w+)\] )? captures optional "[protocol] " prefix (e.g. [tls], [unknown], [quic]) into group 1
+    # NOTE: (?:udp )? skips optional "udp " prefix to avoid capturing it in hostname
+    # Groups: 1=protocol (tls/quic/unknown/discord/None), 2=hostname, 3=strategy, 4=successes, 5=total
+    fail = re.compile(r"(?:strategy_quality|slm_quality): (?:\[(\w+)\] )?(?:udp )?(.+?) strat=(\d+) FAIL (\d+)/(\d+)")
 
     # LUA: strategy-stats: HISTORY youtube.com s2 successes=10 failures=2 rate=83%
     history = re.compile(r"HISTORY (\S+) s(\d+) successes=(\d+) failures=(\d+) rate=(\d+)%")
@@ -158,6 +179,7 @@ class EventType(Enum):
     APPLIED = "applied"
     LOCK = "lock"
     UNLOCK = "unlock"
+    RESET = "reset"
     SUCCESS = "success"
     FAIL = "fail"
     ROTATE = "rotate"
@@ -283,6 +305,8 @@ class LogParser:
         self.last_applied: dict[tuple[str, str], int] = {}
         # Последний хост по протоколу
         self.last_host_by_proto: dict[str, str] = {}
+        # Кэш протокола для каждого hostname (решает race condition)
+        self.host_to_proto: dict[str, str] = {}
 
     def _cache_hostname(self, ip: str, hostname: str):
         """Сохраняет связку IP → hostname в кэш"""
@@ -318,8 +342,9 @@ class LogParser:
         # UDP протоколы
         if self.current_proto == "udp":
             # Используем конкретный l7proto если известен
-            if self.current_l7proto in ('quic', 'stun', 'discord', 'wireguard', 'dht'):
+            if self.current_l7proto in ('quic', 'stun', 'discord', 'wireguard', 'dht', 'unknown'):
                 return self.current_l7proto
+            # Fallback если l7proto вообще None
             return "udp"
 
         # TCP протоколы
@@ -408,6 +433,9 @@ class LogParser:
             if hostname and not hostname.replace('.', '').isdigit():
                 self.current_host = nld_cut(hostname, 2)
                 self._cache_hostname(ip, self.current_host)
+                # Сохраняем протокол для hostname (TLS или HTTP)
+                proto_key = "http" if l7proto == "http" or int(port) == 80 else "tls"
+                self.host_to_proto[self.current_host] = proto_key
             else:
                 self.current_host = self.ip_to_hostname.get(ip)
 
@@ -432,6 +460,13 @@ class LogParser:
 
             if not is_local_ip(ip):
                 self.current_host = ip  # Для UDP используем полный IP
+                # Сохраняем протокол для IP (UDP)
+                self.host_to_proto[ip] = "udp"
+                # Ограничиваем размер кэша
+                if len(self.host_to_proto) > 2000:
+                    keys = list(self.host_to_proto.keys())
+                    for k in keys[:1000]:
+                        del self.host_to_proto[k]
             else:
                 self.current_host = None
 
@@ -604,13 +639,48 @@ class LogParser:
             )
 
         # === LOCK ===
-        m = Patterns.lock.search(line) or Patterns.legacy_lock.search(line)
+        # Patterns.lock: Groups: 1=protocol, 2=hostname, 3=strategy
+        # Patterns.legacy_lock: Groups: 1=hostname, 2=strategy, 3=proto_tag
+        m = Patterns.lock.search(line)
+        if m:
+            proto_from_log = m.group(1)  # [tls], [quic], [unknown], or None
+            hostname = m.group(2)
+            strategy = int(m.group(3))
+
+            # Приоритет 1: протокол из Lua лога (самый точный источник)
+            if proto_from_log:
+                proto = proto_from_log.lower()
+                is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht", "unknown")
+            else:
+                # Приоритет 2: контекст из предыдущих строк
+                proto = self._get_proto_from_context()
+                is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht")
+
+            # Fallback: проверяем hostname если контекст не определён
+            if not proto_from_log and not self.current_proto and not is_udp:
+                is_udp = self._is_udp_hostname(hostname)
+                if is_udp:
+                    proto = "udp"
+
+            # Для UDP НЕ режем IP (используем полный)
+            host_key = hostname if is_udp else nld_cut(hostname, 2)
+
+            return ParsedEvent(
+                event_type=EventType.LOCK,
+                hostname=host_key,
+                strategy=strategy,
+                l7proto=proto,
+                raw_line=line
+            )
+
+        # Legacy LOCK: Groups: 1=hostname, 2=strategy, 3=proto_tag
+        m = Patterns.legacy_lock.search(line)
         if m:
             hostname = m.group(1)
             strategy = int(m.group(2))
             proto_tag = m.group(3) if len(m.groups()) >= 3 else None
 
-            # Определяем протокол динамически по контексту (tcp/udp + l7proto)
+            # Определяем протокол динамически по контексту
             proto = self._get_proto_from_context()
             is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht")
 
@@ -645,7 +715,28 @@ class LogParser:
             )
 
         # === UNLOCK ===
-        m = Patterns.unlock.search(line) or Patterns.auto_unlock.search(line) or Patterns.legacy_unlock.search(line)
+        # Patterns.unlock: Groups: 1=protocol (or None), 2=hostname
+        # Patterns.auto_unlock, Patterns.legacy_unlock: Groups: 1=hostname
+        m = Patterns.unlock.search(line)
+        if m:
+            proto_from_log = m.group(1)  # [tls], [quic], [unknown], or None
+            hostname = m.group(2)
+
+            # Определяем протокол
+            if proto_from_log:
+                proto = proto_from_log.lower()
+            else:
+                proto = self._get_proto_from_context()
+
+            return ParsedEvent(
+                event_type=EventType.UNLOCK,
+                hostname=hostname,
+                l7proto=proto,
+                raw_line=line
+            )
+
+        # Legacy UNLOCK / AUTO-UNLOCK: Groups: 1=hostname
+        m = Patterns.auto_unlock.search(line) or Patterns.legacy_unlock.search(line)
         if m:
             hostname = m.group(1)
             return ParsedEvent(
@@ -654,23 +745,42 @@ class LogParser:
                 raw_line=line
             )
 
+        # === RESET ===
+        m = Patterns.reset.search(line)
+        if m:
+            hostname = m.group(1)
+            return ParsedEvent(
+                event_type=EventType.RESET,
+                hostname=hostname,
+                raw_line=line
+            )
+
         # === SUCCESS ===
+        # Groups: 1=protocol (tls/quic/unknown/discord/None), 2=hostname, 3=strategy, 4=successes, 5=total
         m = Patterns.success.search(line)
         if m:
-            hostname, strat, successes, total = m.groups()
+            proto_from_log, hostname, strat, successes, total = m.groups()
+            host_key = nld_cut(hostname, 2)
 
-            # Определяем протокол динамически по контексту (tcp/udp + l7proto)
-            proto = self._get_proto_from_context()
-            is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht")
+            # Приоритет 1: протокол из Lua лога (самый точный источник)
+            if proto_from_log:
+                proto = proto_from_log.lower()
+            else:
+                # Приоритет 2: сохранённый протокол для hostname (решает race condition)
+                proto = self.host_to_proto.get(host_key)
+                if not proto:
+                    # Приоритет 3: текущий контекст
+                    proto = self._get_proto_from_context()
 
-            # Fallback: проверяем hostname если контекст не определён
-            if not self.current_proto and not is_udp:
-                is_udp = self._is_udp_hostname(hostname)
-                if is_udp:
+            is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht", "unknown")
+
+            # Fallback: проверяем hostname ТОЛЬКО если протокол не был явно указан в логе
+            # НЕ перезаписываем proto_from_log - это приоритетный источник
+            if not proto_from_log and (not proto or proto == "tls"):
+                if self._is_udp_hostname(hostname):
+                    is_udp = True
                     proto = "udp"
-
-            # Для UDP НЕ режем IP
-            host_key = hostname if is_udp else nld_cut(hostname, 2)
+                    host_key = hostname  # Для UDP НЕ режем IP
 
             return ParsedEvent(
                 event_type=EventType.SUCCESS,
@@ -683,21 +793,31 @@ class LogParser:
             )
 
         # === FAIL ===
+        # Groups: 1=protocol (tls/quic/unknown/discord/None), 2=hostname, 3=strategy, 4=successes, 5=total
         m = Patterns.fail.search(line)
         if m:
-            hostname, strat, successes, total = m.groups()
+            proto_from_log, hostname, strat, successes, total = m.groups()
+            host_key = nld_cut(hostname, 2)
 
-            # Определяем протокол динамически по контексту (tcp/udp + l7proto)
-            proto = self._get_proto_from_context()
-            is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht")
+            # Приоритет 1: протокол из Lua лога (самый точный источник)
+            if proto_from_log:
+                proto = proto_from_log.lower()
+            else:
+                # Приоритет 2: сохранённый протокол для hostname (решает race condition)
+                proto = self.host_to_proto.get(host_key)
+                if not proto:
+                    # Приоритет 3: текущий контекст
+                    proto = self._get_proto_from_context()
 
-            # Fallback: проверяем hostname если контекст не определён
-            if not self.current_proto and not is_udp:
-                is_udp = self._is_udp_hostname(hostname)
-                if is_udp:
+            is_udp = proto in ("udp", "quic", "stun", "discord", "wireguard", "dht", "unknown")
+
+            # Fallback: проверяем hostname ТОЛЬКО если протокол не был явно указан в логе
+            # НЕ перезаписываем proto_from_log - это приоритетный источник
+            if not proto_from_log and (not proto or proto == "tls"):
+                if self._is_udp_hostname(hostname):
+                    is_udp = True
                     proto = "udp"
-
-            host_key = hostname if is_udp else nld_cut(hostname, 2)
+                    host_key = hostname  # Для UDP НЕ режем IP
 
             return ParsedEvent(
                 event_type=EventType.FAIL,

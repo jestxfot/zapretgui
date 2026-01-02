@@ -91,6 +91,44 @@ def is_zapret1_direct_mode(method: str) -> bool:
     """
     return method in ZAPRET1_DIRECT_MODES
 
+
+def get_current_winws_exe() -> str:
+    """
+    ЕДИНАЯ точка определения winws.exe для всего проекта.
+
+    Получает текущий метод запуска из реестра и возвращает
+    соответствующий путь к исполняемому файлу.
+
+    Returns:
+        Путь к winws2.exe для Zapret 2 режимов (direct, direct_orchestra, orchestra),
+        winws.exe для Zapret 1 режимов (bat, direct_zapret1 и др.)
+
+    Примечание:
+        Используйте эту функцию когда метод запуска не передаётся явно.
+        Если метод известен заранее, используйте get_winws_exe_for_method(method).
+    """
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, level="DEBUG": print(f"[{level}] {msg}")
+
+    try:
+        # Импортируем здесь чтобы избежать циклических зависимостей
+        from strategy_menu import get_strategy_launch_method
+
+        method = get_strategy_launch_method()
+        exe_path = get_winws_exe_for_method(method)
+
+        log(f"get_current_winws_exe(): method={method}, exe={os.path.basename(exe_path)}", "DEBUG")
+
+        return exe_path
+
+    except Exception as e:
+        # Fallback - возвращаем winws2.exe (Zapret 2) как основной вариант
+        log(f"get_current_winws_exe() error: {e}, fallback to winws2.exe", "DEBUG")
+        return WINWS2_EXE
+
+
 # ═══════════════════════════════════════════════════════════════════
 
 ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")

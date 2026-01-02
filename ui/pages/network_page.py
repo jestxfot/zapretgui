@@ -745,7 +745,7 @@ class NetworkPage(BasePage):
         self.add_section_title("DNS")
         
         # Карточка
-        self.force_dns_card = SettingsCard("Принудительно прописывает DNS.SB + OpenDNS для обхода блокировок")
+        self.force_dns_card = SettingsCard("Принудительно прописывает Google DNS для обхода блокировок")
         dns_layout = QVBoxLayout()
         dns_layout.setSpacing(8)
         
@@ -753,7 +753,7 @@ class NetworkPage(BasePage):
         self.force_dns_toggle = Win11ToggleRow(
             "fa5s.shield-alt",
             "Принудительный DNS",
-            "Устанавливает DNS.SB + OpenDNS на активные адаптеры",
+            "Устанавливает Google DNS на активные адаптеры",
             "#60cdff"
         )
         self.force_dns_toggle.setChecked(self._force_dns_active)

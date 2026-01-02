@@ -3,7 +3,7 @@
 
 import os
 from queue import Queue, Empty
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QFrame, QCheckBox,
@@ -78,6 +78,139 @@ from log import log
 from orchestra import MAX_ORCHESTRA_LOGS
 
 
+class DangerResetButton(QPushButton):
+    """Кнопка сброса с двойным подтверждением, красным стилем и анимацией корзинки"""
+
+    reset_confirmed = pyqtSignal()
+
+    def __init__(self, text: str = "Сбросить", confirm_text: str = "Это всё сотрёт!", parent=None):
+        super().__init__(text, parent)
+        self._default_text = text
+        self._confirm_text = confirm_text
+        self._pending = False
+        self._hovered = False
+
+        # Иконка
+        self._update_icon()
+        self.setIconSize(QSize(16, 16))
+        self.setFixedHeight(32)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Таймер сброса состояния
+        self._reset_timer = QTimer(self)
+        self._reset_timer.setSingleShot(True)
+        self._reset_timer.timeout.connect(self._reset_state)
+
+        # Анимация иконки (качание)
+        self._shake_timer = QTimer(self)
+        self._shake_timer.timeout.connect(self._animate_shake)
+        self._shake_step = 0
+
+        self._update_style()
+
+    def _update_icon(self, rotation: int = 0):
+        """Обновляет иконку с опциональным углом поворота"""
+        color = '#ff6b6b' if self._pending else 'white'
+        icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.redo-alt'
+        if rotation != 0:
+            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
+        else:
+            self.setIcon(qta.icon(icon_name, color=color))
+
+    def _update_style(self):
+        """Обновляет стили кнопки"""
+        if self._pending:
+            # Состояние подтверждения - красный цвет (danger)
+            if self._hovered:
+                bg = "rgba(255, 107, 107, 0.35)"
+            else:
+                bg = "rgba(255, 107, 107, 0.25)"
+            text_color = "#ff6b6b"
+            border = "1px solid rgba(255, 107, 107, 0.5)"
+        else:
+            # Обычное состояние
+            if self._hovered:
+                bg = "rgba(255, 255, 255, 0.15)"
+            else:
+                bg = "rgba(255, 255, 255, 0.08)"
+            text_color = "#ffffff"
+            border = "none"
+
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg};
+                border: {border};
+                border-radius: 4px;
+                color: {text_color};
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+        """)
+
+    def _animate_shake(self):
+        """Анимация качания иконки корзинки"""
+        self._shake_step += 1
+        if self._shake_step > 8:
+            self._shake_timer.stop()
+            self._shake_step = 0
+            self._update_icon(0)
+            return
+
+        # Качаем иконку влево-вправо
+        rotations = [0, -15, 15, -12, 12, -8, 8, -4, 0]
+        rotation = rotations[min(self._shake_step, len(rotations) - 1)]
+        self._update_icon(rotation)
+
+    def _start_shake_animation(self):
+        """Запускает анимацию качания"""
+        self._shake_step = 0
+        self._shake_timer.start(50)
+
+    def _reset_state(self):
+        """Сбрасывает состояние кнопки"""
+        self._pending = False
+        self.setText(self._default_text)
+        self._update_icon()
+        self._update_style()
+        self._shake_timer.stop()
+
+    def mousePressEvent(self, event):
+        """Обработка клика"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._pending:
+                # Второй клик - подтверждение
+                self._reset_timer.stop()
+                self._pending = False
+                self.setText("✓ Сброшено")
+                self._update_icon()
+                self._update_style()
+                self.reset_confirmed.emit()
+                # Вернуть исходное состояние через 1.5 сек
+                QTimer.singleShot(1500, self._reset_state)
+            else:
+                # Первый клик - переход в режим подтверждения
+                self._pending = True
+                self.setText(self._confirm_text)
+                self._update_icon()
+                self._update_style()
+                self._start_shake_animation()
+                # Сбросить через 3 секунды если не подтверждено
+                self._reset_timer.start(3000)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+
+
 class OrchestraPage(BasePage):
     """Страница оркестратора с логами обучения"""
 
@@ -92,7 +225,7 @@ class OrchestraPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            "Оркестратор v0.9.2 (Alpha)",
+            "Оркестратор v0.9.6 (Beta)",
             "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).\nЧтобы начать обучение зайдите на сайт и через несколько секунд обновите вкладку. Продолжайте это пока стратегия не будет помечена как LOCKED",
             parent
         )
@@ -257,37 +390,33 @@ class OrchestraPage(BasePage):
         btn_row1 = QHBoxLayout()
 
         self.clear_log_btn = QPushButton("Очистить лог")
-        self.clear_log_btn.setIcon(qta.icon("mdi.delete", color="#ff6b6b"))
+        self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color="white"))
+        self.clear_log_btn.setIconSize(QSize(16, 16))
+        self.clear_log_btn.setFixedHeight(32)
+        self.clear_log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_log_btn.clicked.connect(self._clear_log)
         self.clear_log_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 107, 107, 0.1);
-                border: 1px solid rgba(255, 107, 107, 0.3);
-                border-radius: 6px;
-                color: #ff6b6b;
-                padding: 8px 16px;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
             QPushButton:hover {
-                background: rgba(255, 107, 107, 0.2);
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
             }
         """)
         btn_row1.addWidget(self.clear_log_btn)
 
-        self.clear_learned_btn = QPushButton("Сбросить обучение")
-        self.clear_learned_btn.setIcon(qta.icon("mdi.restart", color="#ff9800"))
-        self.clear_learned_btn.clicked.connect(self._clear_learned)
-        self.clear_learned_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 152, 0, 0.1);
-                border: 1px solid rgba(255, 152, 0, 0.3);
-                border-radius: 6px;
-                color: #ff9800;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 152, 0, 0.2);
-            }
-        """)
+        self.clear_learned_btn = DangerResetButton("Сбросить обучение", "Это всё сотрёт!")
+        self.clear_learned_btn.reset_confirmed.connect(self._clear_learned)
         btn_row1.addWidget(self.clear_learned_btn)
 
         btn_row1.addStretch()
@@ -317,16 +446,22 @@ class OrchestraPage(BasePage):
             QListWidget {
                 background-color: rgba(0,0,0,0.2);
                 border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
+                border-radius: 6px;
                 color: rgba(255,255,255,0.8);
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
             }
             QListWidget::item {
-                padding: 4px;
+                padding: 6px 8px;
+                border-radius: 4px;
+                margin: 2px 4px;
+            }
+            QListWidget::item:hover {
+                background-color: rgba(255,255,255,0.06);
             }
             QListWidget::item:selected {
                 background-color: rgba(138,43,226,0.3);
+                border: 1px solid rgba(138,43,226,0.4);
             }
         """)
         self.log_history_list.itemDoubleClicked.connect(self._view_log_history)
@@ -346,19 +481,27 @@ class OrchestraPage(BasePage):
         log_history_buttons.addStretch()
 
         clear_all_logs_btn = QPushButton("Очистить все")
-        clear_all_logs_btn.setIcon(qta.icon("mdi.delete-sweep", color="#ff6b6b"))
+        clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color="white"))
+        clear_all_logs_btn.setIconSize(QSize(16, 16))
+        clear_all_logs_btn.setFixedHeight(32)
+        clear_all_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_all_logs_btn.clicked.connect(self._clear_all_log_history)
         clear_all_logs_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 107, 107, 0.1);
-                border: 1px solid rgba(255, 107, 107, 0.3);
-                border-radius: 6px;
-                color: #ff6b6b;
-                padding: 6px 12px;
-                font-size: 11px;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
             QPushButton:hover {
-                background: rgba(255, 107, 107, 0.2);
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
             }
         """)
         log_history_buttons.addWidget(clear_all_logs_btn)
@@ -895,9 +1038,22 @@ class OrchestraPage(BasePage):
             app = self.window()
             if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
                 runner = app.orchestra_runner
-                runner.locked_manager.lock(domain, strategy, protocol)
-                self.append_log(f"[INFO] 🔒 Залочена стратегия #{strategy} для {domain} [{protocol.upper()}]")
+                runner.locked_manager.lock(domain, strategy, protocol, user_lock=True)
+                self.append_log(f"[INFO] [USER] 🔒 Залочена стратегия #{strategy} для {domain} [{protocol.upper()}]")
                 self._update_learned_domains()
+
+                # User lock требует перезапуска чтобы Lua его увидел
+                is_running = runner.is_running()
+                self.append_log(f"[DEBUG] is_running={is_running}, process={runner.running_process}")
+                if is_running:
+                    self.append_log("[INFO] Применяю user lock (перезапуск)...")
+                    runner.stop()
+                    if runner.start():  # start() calls prepare() internally
+                        self.append_log("[INFO] ✓ User lock применён")
+                    else:
+                        self.append_log("[ERROR] Не удалось перезапустить оркестратор")
+                else:
+                    self.append_log("[WARNING] Оркестратор не запущен, user lock сохранён в реестр")
             else:
                 self.append_log("[ERROR] Оркестратор не инициализирован")
         except Exception as e:

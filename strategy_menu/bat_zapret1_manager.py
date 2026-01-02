@@ -75,8 +75,11 @@ class BatZapret1Manager:
 
         self.strategies_cache = {}
 
+        # DEBUG: Логируем путь к папке
+        log(f"DEBUG: Сканирование папки стратегий: {self.local_dir}", "DEBUG")
+
         if not os.path.isdir(self.local_dir):
-            log(f"Папка стратегий не найдена: {self.local_dir}", "⚠ WARNING")
+            log(f"Папка стратегий не найдена: {self.local_dir}", "WARNING")
             self.cache_loaded = True
             self._loaded = True
             return self.strategies_cache
@@ -94,6 +97,13 @@ class BatZapret1Manager:
                               os.path.splitext(f)[0].lower() not in txt_names]
 
             log(f"Найдено файлов стратегий: {len(strategy_files)}", "DEBUG")
+
+            # DEBUG: Проверяем наличие general_alt11_191 в списке файлов
+            general_files = [f for f in strategy_files if 'general_alt11_191' in f]
+            if general_files:
+                log(f"DEBUG: general_alt11_191 файлы найдены: {general_files}", "DEBUG")
+            else:
+                log("DEBUG: general_alt11_191 файлы НЕ найдены в списке", "WARNING")
 
             for strategy_file in strategy_files:
                 file_path = os.path.join(self.local_dir, strategy_file)
@@ -123,10 +133,16 @@ class BatZapret1Manager:
 
                 self.strategies_cache[strategy_id] = metadata
 
-            log(f"Загружено {len(self.strategies_cache)} стратегий из файлов", "⚙ manager")
+            # DEBUG: Финальная проверка наличия general_alt11_191
+            if 'general_alt11_191' in self.strategies_cache:
+                log("DEBUG: general_alt11_191 ДОБАВЛЕН в strategies_cache", "DEBUG")
+            else:
+                log("DEBUG: general_alt11_191 НЕ добавлен в strategies_cache", "WARNING")
+
+            log(f"Загружено {len(self.strategies_cache)} стратегий из файлов", "DEBUG")
 
         except Exception as e:
-            log(f"Ошибка сканирования файлов стратегий: {e}", "❌ ERROR")
+            log(f"Ошибка сканирования файлов стратегий: {e}", "ERROR")
 
         self.cache_loaded = True
         self._loaded = True
@@ -221,7 +237,7 @@ class BatZapret1Manager:
             return
 
         self._scan_strategy_files()
-        log(f"Preload завершён: {len(self.strategies_cache)} стратегий", "⚙ manager")
+        log(f"Preload завершён: {len(self.strategies_cache)} стратегий", "DEBUG")
 
     def get_strategies_list(self, force_update: bool = False) -> dict:
         """Возвращает словарь стратегий."""
@@ -267,12 +283,12 @@ class BatZapret1Manager:
 
     def download_strategies_index_from_internet(self) -> dict:
         """ЗАГЛУШКА: загрузка из интернета отключена."""
-        log("Загрузка из интернета отключена - используются локальные .bat файлы", "⚠ WARNING")
+        log("Загрузка из интернета отключена - используются локальные .bat файлы", "WARNING")
         return self.strategies_cache
 
     def download_single_strategy_bat(self, strategy_id: str) -> str | None:
         """ЗАГЛУШКА: загрузка из интернета отключена."""
-        log(f"Загрузка стратегии {strategy_id} из интернета отключена", "⚠ WARNING")
+        log(f"Загрузка стратегии {strategy_id} из интернета отключена", "WARNING")
         return None
 
     def check_strategy_version_status(self, strategy_id: str, strategies_cache: dict = None) -> str:
