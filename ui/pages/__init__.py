@@ -30,6 +30,7 @@ from .orchestra_blocked_page import OrchestraBlockedPage
 from .orchestra_whitelist_page import OrchestraWhitelistPage
 from .orchestra_ratings_page import OrchestraRatingsPage
 from .preset_config_page import PresetConfigPage
+from .unified_strategies_page import UnifiedStrategiesPage
 
 __all__ = [
     'HomePage',
@@ -61,5 +62,6 @@ __all__ = [
     'OrchestraWhitelistPage',  # Страница белого списка оркестратора
     'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
     'PresetConfigPage',  # Страница редактора preset-zapret2.txt
+    'UnifiedStrategiesPage',  # Страница с единым списком стратегий и фильтрацией
 ]
 
