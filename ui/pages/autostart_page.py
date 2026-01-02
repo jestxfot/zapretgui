@@ -623,7 +623,7 @@ class AutostartPage(BasePage):
         self.strategies_layout.setContentsMargins(0, 0, 0, 0)
         self.strategies_layout.setSpacing(12)
         
-        # Служба Windows (для Direct режима)
+        # Служба Windows (для Direct режима) - СКРЫТО: пока не реализовано
         self.service_option = AutostartOptionCard(
             "fa5s.server",
             "Служба Windows",
@@ -633,8 +633,9 @@ class AutostartPage(BasePage):
         )
         self.service_option.clicked.connect(self._on_service_autostart)
         self.strategies_layout.addWidget(self.service_option)
-        
-        # Задача при входе
+        self.service_option.hide()  # Временно скрыто
+
+        # Задача при входе - СКРЫТО: пока не реализовано
         self.logon_option = AutostartOptionCard(
             "fa5s.user",
             "Задача при входе пользователя",
@@ -642,8 +643,9 @@ class AutostartPage(BasePage):
         )
         self.logon_option.clicked.connect(self._on_logon_autostart)
         self.strategies_layout.addWidget(self.logon_option)
-        
-        # Задача при загрузке
+        self.logon_option.hide()  # Временно скрыто
+
+        # Задача при загрузке - СКРЫТО: пока не реализовано
         self.boot_option = AutostartOptionCard(
             "fa5s.power-off",
             "Задача при загрузке системы",
@@ -651,6 +653,7 @@ class AutostartPage(BasePage):
         )
         self.boot_option.clicked.connect(self._on_boot_autostart)
         self.strategies_layout.addWidget(self.boot_option)
+        self.boot_option.hide()  # Временно скрыто
         
         self.add_widget(self.strategies_container)
         
@@ -701,27 +704,17 @@ class AutostartPage(BasePage):
 
             if method == "direct":
                 self.mode_label.setText("Прямой запуск (Zapret 2)")
-                self.service_option.setVisible(True)
-                self.logon_option.setVisible(True)
-                self.boot_option.setVisible(True)
             elif method == "direct_orchestra":
                 self.mode_label.setText("Оркестратор Zapret 2")
-                # В режиме оркестратора нет BAT/командной строки для задач
-                self.service_option.setVisible(False)
-                self.logon_option.setVisible(False)
-                self.boot_option.setVisible(False)
             elif method == "orchestra":
                 self.mode_label.setText("Оркестр (автообучение)")
-                # В режиме оркестратора нет BAT/командной строки для задач
-                self.service_option.setVisible(False)
-                self.logon_option.setVisible(False)
-                self.boot_option.setVisible(False)
             else:
                 self.mode_label.setText("Классический (BAT файлы)")
-                # Для BAT режима скрываем службу Windows, но показываем задачи
-                self.service_option.setVisible(False)
-                self.logon_option.setVisible(True)
-                self.boot_option.setVisible(True)
+
+            # Опции службы/задач временно скрыты - пока не реализованы
+            self.service_option.setVisible(False)
+            self.logon_option.setVisible(False)
+            self.boot_option.setVisible(False)
 
         except Exception as e:
             log(f"Ошибка обновления режима: {e}", "WARNING")

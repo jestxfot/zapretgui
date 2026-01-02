@@ -662,6 +662,52 @@ def set_out_range_youtube(value: int) -> bool:
     return _set_out_range_value("YouTube", value)
 
 
+# ==================== РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) ====================
+
+FILTER_MODE_PATH = rf"{REGISTRY_PATH}\DirectMethod"
+
+def get_filter_mode() -> str:
+    """
+    Получает режим фильтрации для Zapret 2 Direct.
+
+    Returns:
+        "hostlist" - фильтрация по доменам (по умолчанию)
+        "ipset" - фильтрация по IP адресам
+    """
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, FILTER_MODE_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "FilterMode")
+            if value in ("ipset", "hostlist"):
+                return value
+            return "hostlist"  # По умолчанию
+    except:
+        return "hostlist"  # По умолчанию
+
+
+def set_filter_mode(mode: str) -> bool:
+    """
+    Устанавливает режим фильтрации для Zapret 2 Direct.
+
+    Args:
+        mode: "hostlist" или "ipset"
+
+    Returns:
+        True если успешно сохранено
+    """
+    if mode not in ("ipset", "hostlist"):
+        log(f"Неверный режим фильтрации: {mode}", "WARNING")
+        return False
+
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, FILTER_MODE_PATH) as key:
+            winreg.SetValueEx(key, "FilterMode", 0, winreg.REG_SZ, mode)
+            log(f"Режим фильтрации изменён на: {mode}", "INFO")
+            return True
+    except Exception as e:
+        log(f"Ошибка сохранения режима фильтрации: {e}", "ERROR")
+        return False
+
+
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
 
 def invalidate_direct_selections_cache():
@@ -810,6 +856,64 @@ def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> boo
     if result:
         invalidate_direct_selections_cache()  # Сбрасываем кэш
     return result
+
+
+def regenerate_preset_file() -> bool:
+    """
+    Перегенерирует preset-zapret2.txt с текущими настройками.
+
+    Используется когда нужно обновить preset файл без перезапуска DPI,
+    например при смене режима фильтрации (hostlist/ipset).
+
+    Returns:
+        True если успешно, False при ошибке
+    """
+    try:
+        from config import PROGRAMDATA_PATH
+        from datetime import datetime
+        import os
+
+        # Получаем текущие выборы
+        selections = get_direct_strategy_selections()
+
+        # Проверяем есть ли активные стратегии
+        has_active = any(v and v != "none" for v in selections.values())
+        if not has_active:
+            log("Нет активных стратегий для генерации preset", "DEBUG")
+            return False
+
+        # Импортируем combine_strategies
+        from strategy_menu.strategy_lists_separated import combine_strategies
+
+        # Генерируем аргументы
+        combined = combine_strategies(**selections)
+        args_str = combined.get('args', '')
+
+        if not args_str:
+            log("Пустые аргументы после combine_strategies", "WARNING")
+            return False
+
+        # Записываем в файл
+        preset_path = os.path.join(PROGRAMDATA_PATH, "preset-zapret2.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(preset_path, 'w', encoding='utf-8') as f:
+            f.write(f"# Strategy: Прямой запуск (Запрет 2)\n")
+            f.write(f"# Generated: {timestamp}\n")
+
+            # Разбиваем args_str на отдельные аргументы и записываем
+            # args_str может содержать аргументы разделённые пробелами или уже быть в нужном формате
+            for line in args_str.split('\n'):
+                line = line.strip()
+                if line:
+                    f.write(f"{line}\n")
+
+        log(f"Preset файл перегенерирован: {preset_path}", "INFO")
+        return True
+
+    except Exception as e:
+        log(f"Ошибка перегенерации preset файла: {e}", "ERROR")
+        return False
 
 
 # ==================== ИМПОРТ СТРАТЕГИЙ ====================
@@ -1013,7 +1117,11 @@ __all__ = [
     'set_out_range_discord',
     'get_out_range_youtube',
     'set_out_range_youtube',
-    
+
+    # Filter mode (ipset/hostlist)
+    'get_filter_mode',
+    'set_filter_mode',
+
     # Debug log настройки
     'get_debug_log_enabled',
     'set_debug_log_enabled',
@@ -1064,10 +1172,13 @@ __all__ = [
     # Алиасы для совместимости
     'save_direct_strategy_selection',
     'save_direct_strategy_selections',
-    
+
     # Комбинирование стратегий
     'combine_strategies',
     'calculate_required_filters',
+
+    # Регенерация preset файла
+    'regenerate_preset_file',
 ]
 
 # Алиасы для совместимости со старым кодом

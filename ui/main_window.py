@@ -15,7 +15,8 @@ from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
     HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage
+    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
+    PresetConfigPage, StrategySortPage
 )
 
 import qtawesome as qta
@@ -108,101 +109,109 @@ class MainWindowUI:
         self.strategies_page = StrategiesPage(self)
         self.pages_stack.addWidget(self.strategies_page)
 
-        # Hostlist (индекс 3)
+        # Сортировка стратегий (индекс 3)
+        self.strategy_sort_page = StrategySortPage(self)
+        self.pages_stack.addWidget(self.strategy_sort_page)
+
+        # Конфиг preset-zapret2.txt (индекс 4)
+        self.preset_config_page = PresetConfigPage(self)
+        self.pages_stack.addWidget(self.preset_config_page)
+
+        # Hostlist (индекс 5)
         self.hostlist_page = HostlistPage(self)
         self.pages_stack.addWidget(self.hostlist_page)
 
-        # IPset (индекс 4)
+        # IPset (индекс 6)
         self.ipset_page = IpsetPage(self)
         self.pages_stack.addWidget(self.ipset_page)
 
-        # Блобы - управление бинарными данными для Zapret 2 (индекс 5)
+        # Блобы - управление бинарными данными для Zapret 2 (индекс 7)
         self.blobs_page = BlobsPage(self)
         self.pages_stack.addWidget(self.blobs_page)
 
-        # Редактор стратегий (индекс 6)
+        # Редактор стратегий (индекс 8)
         self.editor_page = EditorPage(self)
         self.pages_stack.addWidget(self.editor_page)
 
-        # Настройки DPI (индекс 7)
+        # Настройки DPI (индекс 9)
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
 
         # === МОИ СПИСКИ ===
-        # Исключения netrogat.txt (индекс 8)
+        # Исключения netrogat.txt (индекс 10)
         self.netrogat_page = NetrogatPage(self)
         self.pages_stack.addWidget(self.netrogat_page)
 
-        # Мои домены - управление other2.txt (индекс 9)
+        # Мои домены - управление other2.txt (индекс 11)
         self.custom_domains_page = CustomDomainsPage(self)
         self.pages_stack.addWidget(self.custom_domains_page)
 
-        # Мои IP - управление my-ipset.txt (индекс 10)
+        # Мои IP - управление my-ipset.txt (индекс 12)
         self.custom_ipset_page = CustomIpSetPage(self)
         self.pages_stack.addWidget(self.custom_ipset_page)
         # === КОНЕЦ МОИ СПИСКИ ===
 
-        # Автозапуск (индекс 11)
+        # Автозапуск (индекс 13)
         self.autostart_page = AutostartPage(self)
         self.pages_stack.addWidget(self.autostart_page)
 
-        # Сеть (индекс 12)
+        # Сеть (индекс 14)
         self.network_page = NetworkPage(self)
         self.pages_stack.addWidget(self.network_page)
 
-        # Диагностика соединения (индекс 13)
+        # Диагностика соединения (индекс 15)
         self.connection_page = ConnectionTestPage(self)
         self.pages_stack.addWidget(self.connection_page)
 
-        # DNS подмена - подпункт диагностики (индекс 14)
+        # DNS подмена - подпункт диагностики (индекс 16)
         self.dns_check_page = DNSCheckPage(self)
         self.pages_stack.addWidget(self.dns_check_page)
 
-        # Hosts - разблокировка сервисов (индекс 15)
+        # Hosts - разблокировка сервисов (индекс 17)
         self.hosts_page = HostsPage(self)
         self.pages_stack.addWidget(self.hosts_page)
 
-        # BlockCheck (индекс 16)
+        # BlockCheck (индекс 18)
         self.blockcheck_page = BlockcheckPage(self)
         self.pages_stack.addWidget(self.blockcheck_page)
 
-        # Оформление (индекс 17)
+        # Оформление (индекс 19)
         self.appearance_page = AppearancePage(self)
         self.pages_stack.addWidget(self.appearance_page)
 
-        # Premium (индекс 18)
+        # Premium (индекс 20)
         self.premium_page = PremiumPage(self)
         self.pages_stack.addWidget(self.premium_page)
 
-        # Логи (индекс 19)
+        # Логи (индекс 21)
         self.logs_page = LogsPage(self)
         self.pages_stack.addWidget(self.logs_page)
 
-        # Серверы обновлений (индекс 20)
+        # Серверы обновлений (индекс 22)
         self.servers_page = ServersPage(self)
         self.pages_stack.addWidget(self.servers_page)
 
-        # О программе (индекс 21)
+        # О программе (индекс 23)
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
 
-        # Оркестр - автообучение (индекс 22, скрытая вкладка)
+        # Оркестр - автообучение (индекс 24, скрытая вкладка)
         self.orchestra_page = OrchestraPage(self)
         self.pages_stack.addWidget(self.orchestra_page)
 
-        # Залоченные стратегии оркестратора (индекс 23, вместо Hostlist при оркестраторе)
+        # Залоченные стратегии оркестратора (индекс 25, вместо Hostlist при оркестраторе)
         self.orchestra_locked_page = OrchestraLockedPage(self)
         self.pages_stack.addWidget(self.orchestra_locked_page)
 
-        # Заблокированные стратегии оркестратора (индекс 24, вместо IPset при оркестраторе)
+        # Заблокированные стратегии оркестратора (индекс 26, вместо IPset при оркестраторе)
         self.orchestra_blocked_page = OrchestraBlockedPage(self)
         self.pages_stack.addWidget(self.orchestra_blocked_page)
 
-        # Белый список оркестратора (индекс 25, вместо Исключений при оркестраторе)
+        # Белый список оркестратора (индекс 27, вместо Исключений при оркестраторе)
         self.orchestra_whitelist_page = OrchestraWhitelistPage(self)
         self.pages_stack.addWidget(self.orchestra_whitelist_page)
 
-        # История стратегий с рейтингами (индекс 26)
+        # История стратегий с рейтингами (индекс 28)
         self.orchestra_ratings_page = OrchestraRatingsPage(self)
         self.pages_stack.addWidget(self.orchestra_ratings_page)
 
@@ -289,6 +298,14 @@ class MainWindowUI:
         # Подключаем сигналы от OrchestraPage
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
+
+        # Связываем страницу сортировки со страницей стратегий (асинхронное обновление фильтров)
+        self.strategy_sort_page.filters_changed.connect(
+            self.strategies_page.on_external_filters_changed
+        )
+        self.strategy_sort_page.sort_changed.connect(
+            self.strategies_page.on_external_sort_changed
+        )
 
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""

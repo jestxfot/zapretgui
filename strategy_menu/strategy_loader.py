@@ -1,15 +1,28 @@
 """
-Загрузчик стратегий из JSON файлов.
+Загрузчик стратегий из TXT файлов (INI-подобный формат).
 
 Стратегии загружаются из:
 1. {INDEXJSON_FOLDER}/strategies/builtin/ - встроенные стратегии (обновляются с программой)
 2. {INDEXJSON_FOLDER}/strategies/user/ - пользовательские стратегии (сохраняются при обновлении)
 
-Каждая категория имеет свой JSON файл:
-- tcp.json - TCP стратегии (YouTube, Discord TCP, и т.д.)
-- udp.json - UDP стратегии (QUIC, игры)
-- http80.json - HTTP порт 80
-- discord_voice.json - Discord голос
+Каждая категория имеет свой TXT файл:
+- tcp.txt - TCP стратегии (YouTube, Discord TCP, и т.д.)
+- udp.txt - UDP стратегии (QUIC, игры)
+- http80.txt - HTTP порт 80
+- discord_voice.txt - Discord голос
+
+Формат TXT файла:
+    [strategy_id]
+    name = Название стратегии
+    author = Автор
+    label = recommended|experimental|game|deprecated
+    description = Описание
+    blobs = blob1, blob2
+    --arg1=value1
+    --arg2=value2
+
+    [another_strategy]
+    ...
 """
 
 import json
@@ -28,7 +41,13 @@ STRATEGIES_DIR = Path(INDEXJSON_FOLDER) / "strategies"
 _LOCAL_STRATEGIES_DIR = Path(__file__).parent
 
 # Fallback на соседнюю папку zapret (для разработки из IDE)
-_DEV_ZAPRET_DIR = Path(__file__).parent.parent.parent.parent / "zapret" / "json" / "strategies"
+# H:\Privacy\zapretgui -> H:\Privacy\zapret
+_DEV_ZAPRET_DIR = Path(__file__).parent.parent.parent / "zapret" / "json" / "strategies"
+
+
+def _has_categories_file(directory: Path) -> bool:
+    """Проверяет наличие файла категорий (TXT или JSON)"""
+    return (directory / "categories.txt").exists() or (directory / "categories.json").exists()
 
 
 def _get_builtin_dir() -> Path:
@@ -36,19 +55,19 @@ def _get_builtin_dir() -> Path:
     global_builtin = STRATEGIES_DIR / "builtin"
     local_builtin = _LOCAL_STRATEGIES_DIR / "builtin"
     dev_builtin = _DEV_ZAPRET_DIR / "builtin"
-    
-    # 1. Если глобальная папка существует и содержит categories.json - используем её
-    if global_builtin.exists() and (global_builtin / "categories.json").exists():
+
+    # 1. Если глобальная папка существует и содержит categories.txt/.json - используем её
+    if global_builtin.exists() and _has_categories_file(global_builtin):
         return global_builtin
-    
+
     # 2. Проверяем соседнюю папку zapret (для разработки из IDE)
-    if dev_builtin.exists() and (dev_builtin / "categories.json").exists():
+    if dev_builtin.exists() and _has_categories_file(dev_builtin):
         return dev_builtin
-    
+
     # 3. Проверяем локальную папку strategy_menu/strategies/builtin
-    if local_builtin.exists() and (local_builtin / "categories.json").exists():
+    if local_builtin.exists() and _has_categories_file(local_builtin):
         return local_builtin
-    
+
     # Возвращаем глобальную по умолчанию
     return global_builtin
 
@@ -105,6 +124,169 @@ def load_json_file(filepath: Path) -> Optional[Dict]:
     except Exception as e:
         log(f"Ошибка чтения {filepath}: {e}", "ERROR")
         return None
+
+
+def load_txt_file(filepath: Path) -> Optional[Dict]:
+    """
+    Загружает стратегии из TXT файла в INI-подобном формате.
+
+    Формат:
+        [strategy_id]
+        name = Название стратегии
+        author = Автор
+        label = recommended|experimental|game|deprecated
+        description = Описание
+        blobs = blob1, blob2
+        --arg1=value1
+        --arg2=value2
+
+        [another_strategy]
+        ...
+
+    Returns:
+        Dict в формате {'strategies': [...]} или None при ошибке
+    """
+    try:
+        if not filepath.exists():
+            return None
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        strategies = []
+        current_strategy = None
+        current_args = []
+
+        for line in content.splitlines():
+            line = line.rstrip()
+
+            # Пропускаем пустые строки
+            if not line:
+                continue
+
+            # Пропускаем комментарии (строки начинающиеся с #)
+            if line.startswith('#'):
+                continue
+
+            # Начало новой стратегии [id]
+            if line.startswith('[') and line.endswith(']'):
+                # Сохраняем предыдущую стратегию
+                if current_strategy is not None:
+                    current_strategy['args'] = '\n'.join(current_args)
+                    strategies.append(current_strategy)
+
+                # Начинаем новую
+                strategy_id = line[1:-1].strip()
+                current_strategy = {
+                    'id': strategy_id,
+                    'name': strategy_id,  # По умолчанию имя = id
+                    'description': '',
+                    'author': 'unknown',
+                    'label': None,
+                    'blobs': [],
+                    'args': ''
+                }
+                current_args = []
+                continue
+
+            # Если нет текущей стратегии - пропускаем
+            if current_strategy is None:
+                continue
+
+            # Аргументы (строки начинающиеся с --)
+            if line.startswith('--'):
+                current_args.append(line)
+                continue
+
+            # Метаданные (key = value)
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key = key.strip().lower()
+                value = value.strip()
+
+                if key == 'name':
+                    current_strategy['name'] = value
+                elif key == 'author':
+                    current_strategy['author'] = value
+                elif key == 'label':
+                    current_strategy['label'] = value if value else None
+                elif key == 'description':
+                    current_strategy['description'] = value
+                elif key == 'blobs':
+                    # blobs = tls7, tls_google -> ['tls7', 'tls_google']
+                    current_strategy['blobs'] = [b.strip() for b in value.split(',') if b.strip()]
+
+        # Сохраняем последнюю стратегию
+        if current_strategy is not None:
+            current_strategy['args'] = '\n'.join(current_args)
+            strategies.append(current_strategy)
+
+        log(f"Загружено {len(strategies)} стратегий из TXT: {filepath.name}", "DEBUG")
+        return {'strategies': strategies}
+
+    except Exception as e:
+        log(f"Ошибка чтения TXT {filepath}: {e}", "ERROR")
+        return None
+
+
+def save_txt_file(filepath: Path, data: Dict) -> bool:
+    """
+    Сохраняет стратегии в TXT файл в INI-подобном формате.
+
+    Args:
+        filepath: Путь к файлу
+        data: Dict с ключом 'strategies' содержащим список стратегий
+
+    Returns:
+        True при успехе
+    """
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = []
+        strategies = data.get('strategies', [])
+
+        for i, strategy in enumerate(strategies):
+            if i > 0:
+                lines.append('')  # Пустая строка между стратегиями
+
+            # [id]
+            lines.append(f"[{strategy.get('id', 'unknown')}]")
+
+            # Метаданные
+            if strategy.get('name'):
+                lines.append(f"name = {strategy['name']}")
+            if strategy.get('author') and strategy['author'] != 'unknown':
+                lines.append(f"author = {strategy['author']}")
+            if strategy.get('label'):
+                lines.append(f"label = {strategy['label']}")
+            if strategy.get('description'):
+                lines.append(f"description = {strategy['description']}")
+            if strategy.get('blobs'):
+                blobs = ', '.join(strategy['blobs'])
+                lines.append(f"blobs = {blobs}")
+
+            # Аргументы
+            args = strategy.get('args', '')
+            if args:
+                # Разбиваем на строки если это одна длинная строка
+                if '\n' in args:
+                    for arg_line in args.split('\n'):
+                        if arg_line.strip():
+                            lines.append(arg_line.strip())
+                else:
+                    # Разбиваем по пробелам, каждый --arg на новую строку
+                    for part in args.split():
+                        if part.startswith('--'):
+                            lines.append(part)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+
+        return True
+    except Exception as e:
+        log(f"Ошибка сохранения TXT {filepath}: {e}", "ERROR")
+        return False
 
 
 def save_json_file(filepath: Path, data: Dict) -> bool:
@@ -228,14 +410,33 @@ def normalize_strategy(strategy: Dict, auto_number: bool = False) -> Dict:
     }
 
 
+def _load_strategy_file(directory: Path, basename: str) -> Optional[Dict]:
+    """
+    Загружает файл стратегий в TXT (INI-подобном) формате.
+
+    Args:
+        directory: Директория с файлами
+        basename: Имя файла без расширения (например 'tcp' или 'tcp_orchestra')
+
+    Returns:
+        Dict с ключом 'strategies' или None
+    """
+    txt_file = directory / f"{basename}.txt"
+    if txt_file.exists():
+        return load_txt_file(txt_file)
+
+    return None
+
+
 def load_category_strategies(category: str, strategy_set: str = None) -> Dict[str, Dict]:
     """
     Загружает стратегии для категории из builtin и user директорий.
     User стратегии имеют приоритет (перезаписывают builtin с тем же id).
+    Поддерживает TXT (INI-подобный) и JSON форматы. TXT имеет приоритет.
 
     Args:
         category: Имя категории (tcp, udp, http80, discord_voice)
-        strategy_set: Набор стратегий (None = стандартный, "orchestra" = tcp_orchestra.json и т.д.)
+        strategy_set: Набор стратегий (None = стандартный, "orchestra" = tcp_orchestra и т.д.)
 
     Returns:
         Словарь {strategy_id: strategy_dict}
@@ -243,44 +444,44 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
     ensure_directories()
     strategies = {}
 
-    # Определяем имя файла на основе strategy_set
+    # Определяем базовое имя файла на основе strategy_set
     if strategy_set:
-        filename = f"{category}_{strategy_set}.json"
+        basename = f"{category}_{strategy_set}"
     else:
-        filename = f"{category}.json"
+        basename = category
 
-    # Загружаем builtin стратегии
-    builtin_file = _get_builtin_dir() / filename
+    builtin_dir = _get_builtin_dir()
+
+    # Загружаем builtin стратегии (TXT или JSON)
+    builtin_data = _load_strategy_file(builtin_dir, basename)
 
     # Если файл с суффиксом не найден, fallback на стандартный
-    if strategy_set and not builtin_file.exists():
-        log(f"Файл {filename} не найден, используем стандартный {category}.json", "DEBUG")
-        builtin_file = _get_builtin_dir() / f"{category}.json"
+    if builtin_data is None and strategy_set:
+        log(f"Файл {basename}.txt/.json не найден, используем стандартный {category}", "DEBUG")
+        builtin_data = _load_strategy_file(builtin_dir, category)
 
-    # Специальная логика для Zapret 1: все UDP категории используют один файл udp_zapret1.json
-    if strategy_set == "zapret1" and not builtin_file.exists():
-        # UDP категории (youtube_udp, udp_discord, amazon_udp, roblox_udp, ovh_udp, ipset_udp)
+    # Специальная логика для Zapret 1: все UDP категории используют один файл
+    if builtin_data is None and strategy_set == "zapret1":
+        # UDP категории
         if category.endswith("_udp") or category.startswith("udp_") or category == "udp":
-            filename = "udp_zapret1.json"
-            builtin_file = _get_builtin_dir() / filename
-            log(f"Zapret 1: используем {filename} для UDP категории '{category}'", "DEBUG")
-        # Discord Voice отдельно
+            basename = "udp_zapret1"
+            builtin_data = _load_strategy_file(builtin_dir, basename)
+            log(f"Zapret 1: используем {basename} для UDP категории '{category}'", "DEBUG")
+        # Discord Voice
         elif category == "discord_voice":
-            filename = "discord_voice_zapret1.json"
-            builtin_file = _get_builtin_dir() / filename
-            log(f"Zapret 1: используем {filename} для Discord Voice", "DEBUG")
+            basename = "discord_voice_zapret1"
+            builtin_data = _load_strategy_file(builtin_dir, basename)
+            log(f"Zapret 1: используем {basename} для Discord Voice", "DEBUG")
         # HTTP80 категории
         elif category == "http80" or category.endswith("_http80"):
-            filename = "http80_zapret1.json"
-            builtin_file = _get_builtin_dir() / filename
-            log(f"Zapret 1: используем {filename} для HTTP80 категории '{category}'", "DEBUG")
+            basename = "http80_zapret1"
+            builtin_data = _load_strategy_file(builtin_dir, basename)
+            log(f"Zapret 1: используем {basename} для HTTP80 категории '{category}'", "DEBUG")
         # TCP категории (все остальные)
         else:
-            filename = "tcp_zapret1.json"
-            builtin_file = _get_builtin_dir() / filename
-            log(f"Zapret 1: используем {filename} для TCP категории '{category}'", "DEBUG")
-
-    builtin_data = load_json_file(builtin_file)
+            basename = "tcp_zapret1"
+            builtin_data = _load_strategy_file(builtin_dir, basename)
+            log(f"Zapret 1: используем {basename} для TCP категории '{category}'", "DEBUG")
 
     # Авто-нумерация :strategy=N только для orchestra
     auto_number = (strategy_set == "orchestra")
@@ -296,8 +497,7 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
                 log(f"Пропущена невалидная builtin стратегия: {error}", "WARNING")
 
     # Загружаем user стратегии (перезаписывают builtin)
-    user_file = _get_user_dir() / f"{category}.json"
-    user_data = load_json_file(user_file)
+    user_data = _load_strategy_file(_get_user_dir(), category)
 
     if user_data and 'strategies' in user_data:
         for strategy in user_data['strategies']:
@@ -476,24 +676,180 @@ def load_strategies_as_dict(category: str, strategy_set: str = None) -> Dict[str
 
 # ==================== ЗАГРУЗКА КАТЕГОРИЙ ====================
 
+def load_categories_txt(filepath: Path) -> Optional[Dict]:
+    """
+    Загружает категории из TXT файла в INI-подобном формате.
+
+    Формат:
+        # Categories configuration
+        version = 1.0
+        description = Описание
+
+        [category_key]
+        full_name = Название категории
+        description = Описание
+        tooltip = Подсказка с \n для переносов строк
+        color = #ff6666
+        default_strategy = strategy_id
+        ports = 80, 443
+        protocol = TCP
+        order = 1
+        command_order = 3
+        needs_new_separator = true
+        command_group = youtube
+        icon_name = fa5b.youtube
+        icon_color = #FF0000
+        base_filter = --filter-tcp=80,443 --ipset=ipset-youtube.txt
+        strategy_type = tcp
+        strip_payload = true
+        requires_all_ports = true
+
+        [another_category]
+        ...
+
+    Returns:
+        Dict в формате {'version': '...', 'description': '...', 'categories': [...]} или None при ошибке
+    """
+    try:
+        if not filepath.exists():
+            return None
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        categories = []
+        current_category = None
+        file_version = '1.0'
+        file_description = ''
+
+        for line in content.splitlines():
+            line = line.rstrip()
+
+            # Пропускаем пустые строки
+            if not line:
+                continue
+
+            # Пропускаем комментарии (строки начинающиеся с #)
+            if line.startswith('#'):
+                continue
+
+            # Начало новой категории [key]
+            if line.startswith('[') and line.endswith(']'):
+                # Сохраняем предыдущую категорию
+                if current_category is not None:
+                    categories.append(current_category)
+
+                # Начинаем новую
+                category_key = line[1:-1].strip()
+                current_category = {
+                    'key': category_key,
+                    'full_name': category_key,  # По умолчанию имя = key
+                }
+                continue
+
+            # Метаданные (key = value)
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key = key.strip().lower()
+                value = value.strip()
+
+                # Глобальные метаданные файла (до первой категории)
+                if current_category is None:
+                    if key == 'version':
+                        file_version = value
+                    elif key == 'description':
+                        file_description = value
+                    continue
+
+                # Метаданные категории
+                if key == 'full_name':
+                    current_category['full_name'] = value
+                elif key == 'description':
+                    current_category['description'] = value
+                elif key == 'tooltip':
+                    # tooltip может содержать \n - оставляем как есть
+                    current_category['tooltip'] = value
+                elif key == 'color':
+                    current_category['color'] = value
+                elif key == 'default_strategy':
+                    current_category['default_strategy'] = value
+                elif key == 'ports':
+                    current_category['ports'] = value
+                elif key == 'protocol':
+                    current_category['protocol'] = value
+                elif key == 'order':
+                    try:
+                        current_category['order'] = int(value)
+                    except ValueError:
+                        current_category['order'] = 0
+                elif key == 'command_order':
+                    try:
+                        current_category['command_order'] = int(value)
+                    except ValueError:
+                        current_category['command_order'] = 0
+                elif key == 'needs_new_separator':
+                    current_category['needs_new_separator'] = value.lower() == 'true'
+                elif key == 'command_group':
+                    current_category['command_group'] = value
+                elif key == 'icon_name':
+                    current_category['icon_name'] = value
+                elif key == 'icon_color':
+                    current_category['icon_color'] = value
+                elif key == 'base_filter':
+                    current_category['base_filter'] = value
+                elif key == 'base_filter_ipset':
+                    current_category['base_filter_ipset'] = value
+                elif key == 'base_filter_hostlist':
+                    current_category['base_filter_hostlist'] = value
+                elif key == 'strategy_type':
+                    current_category['strategy_type'] = value
+                elif key == 'strip_payload':
+                    current_category['strip_payload'] = value.lower() == 'true'
+                elif key == 'requires_all_ports':
+                    current_category['requires_all_ports'] = value.lower() == 'true'
+
+        # Сохраняем последнюю категорию
+        if current_category is not None:
+            categories.append(current_category)
+
+        log(f"Загружено {len(categories)} категорий из TXT: {filepath.name}", "DEBUG")
+        return {
+            'version': file_version,
+            'description': file_description,
+            'categories': categories
+        }
+
+    except Exception as e:
+        log(f"Ошибка чтения TXT категорий {filepath}: {e}", "ERROR")
+        return None
+
+
 def load_categories() -> Dict[str, Dict]:
     """
-    Загружает категории (вкладки сервисов) из JSON файлов.
-    
+    Загружает категории (вкладки сервисов) из TXT или JSON файлов.
+
     Порядок загрузки:
-    1. builtin/categories.json - встроенные категории
-    2. user/categories.json - пользовательские категории (добавляются к builtin)
-    
+    1. builtin/categories.txt (или .json как fallback) - встроенные категории
+    2. user/categories.txt (или .json как fallback) - пользовательские категории (добавляются к builtin)
+
     Returns:
         Словарь {category_key: category_data}
     """
     ensure_directories()
     categories = {}
-    
-    # Загружаем builtin категории
-    builtin_file = _get_builtin_dir() / "categories.json"
-    builtin_data = load_json_file(builtin_file)
-    
+
+    builtin_dir = _get_builtin_dir()
+
+    # Загружаем builtin категории (сначала TXT, потом JSON как fallback)
+    builtin_txt = builtin_dir / "categories.txt"
+    builtin_json = builtin_dir / "categories.json"
+
+    builtin_data = None
+    if builtin_txt.exists():
+        builtin_data = load_categories_txt(builtin_txt)
+    elif builtin_json.exists():
+        builtin_data = load_json_file(builtin_json)
+
     if builtin_data and 'categories' in builtin_data:
         for cat in builtin_data['categories']:
             key = cat.get('key')
@@ -502,12 +858,19 @@ def load_categories() -> Dict[str, Dict]:
                 categories[key] = cat
         log(f"Загружено {len(categories)} встроенных категорий", "DEBUG")
     else:
-        log(f"Не найден файл категорий: {builtin_file}", "WARNING")
-    
+        log(f"Не найден файл категорий в {builtin_dir}", "WARNING")
+
     # Загружаем user категории (добавляются/перезаписывают builtin)
-    user_file = _get_user_dir() / "categories.json"
-    user_data = load_json_file(user_file)
-    
+    user_dir = _get_user_dir()
+    user_txt = user_dir / "categories.txt"
+    user_json = user_dir / "categories.json"
+
+    user_data = None
+    if user_txt.exists():
+        user_data = load_categories_txt(user_txt)
+    elif user_json.exists():
+        user_data = load_json_file(user_json)
+
     if user_data and 'categories' in user_data:
         user_count = 0
         for cat in user_data['categories']:
@@ -522,7 +885,7 @@ def load_categories() -> Dict[str, Dict]:
                 user_count += 1
         if user_count > 0:
             log(f"Загружено {user_count} пользовательских категорий", "DEBUG")
-    
+
     return categories
 
 

@@ -179,8 +179,12 @@ class CategoryInfo:
     icon_name: str = 'fa5s.globe'
     icon_color: str = '#2196F3'
     
-    # Фильтр для категории (hostlist, ipset, filter-tcp/udp)
+    # Фильтр для категории когда НЕТ выбора между режимами (единственный вариант)
     base_filter: str = ""
+    # Фильтр для ipset режима (когда ЕСТЬ выбор между ipset и hostlist)
+    base_filter_ipset: str = ""
+    # Фильтр для hostlist режима (когда ЕСТЬ выбор между ipset и hostlist)
+    base_filter_hostlist: str = ""
     # Тип базовых стратегий: "tcp", "udp", "http80", "discord_voice"
     strategy_type: str = "tcp"
     # Требует ли категория агрессивного режима (все порты)
@@ -224,6 +228,8 @@ def _load_categories_from_json() -> Dict[str, CategoryInfo]:
                     icon_name=data.get('icon_name', 'fa5s.globe'),
                     icon_color=data.get('icon_color', '#2196F3'),
                     base_filter=data.get('base_filter', ''),
+                    base_filter_ipset=data.get('base_filter_ipset', ''),
+                    base_filter_hostlist=data.get('base_filter_hostlist', ''),
                     strategy_type=data.get('strategy_type', 'tcp'),
                     requires_all_ports=data.get('requires_all_ports', False),
                     strip_payload=data.get('strip_payload', False),
@@ -374,24 +380,39 @@ class StrategiesRegistry:
     def get_strategy_args_safe(self, category_key: str, strategy_id: str) -> Optional[str]:
         """
         Получить полные аргументы стратегии.
-        
+
         Логика:
         1. Если strategy_id == "none" - возвращаем пустую строку
         2. Для discord_voice - если args содержит --filter - используем как есть
         3. Для остальных - склеиваем base_filter + техника
         4. Если strip_payload=True - убираем --payload= из аргументов
+        5. Учитывает filter_mode из настроек (hostlist/ipset)
         """
         # Проверка на none
         if strategy_id == "none":
             return ""
-        
+
         category_info = self.get_category_info(category_key)
         if not category_info:
             log(f"Категория {category_key} не найдена", "⚠ WARNING")
             return None
-        
+
         strategy_type = category_info.strategy_type
-        base_filter = category_info.base_filter
+
+        # Выбираем base_filter на основе filter_mode из настроек
+        from strategy_menu import get_filter_mode
+        filter_mode = get_filter_mode()  # "hostlist" или "ipset"
+
+        # Определяем какой фильтр использовать
+        if category_info.base_filter_ipset and category_info.base_filter_hostlist:
+            # Есть выбор между режимами - используем в зависимости от filter_mode
+            if filter_mode == "hostlist":
+                base_filter = category_info.base_filter_hostlist
+            else:
+                base_filter = category_info.base_filter_ipset
+        else:
+            # Нет выбора - используем base_filter (единственный вариант)
+            base_filter = category_info.base_filter
         
         # Получаем стратегию из BASE файла
         base_strategies = _lazy_import_base_strategies(strategy_type)

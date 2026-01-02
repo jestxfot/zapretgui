@@ -597,11 +597,11 @@ class SideNavBar(QWidget):
         self._parent_widget = parent
         self._loading_state = False  # Флаг, чтобы не сохранять при загрузке
         # Ключи реестра для запоминания сворачивания групп
-        # (индексы обновлены после добавления секций оркестратора, whitelist и ratings)
+        # (индексы обновлены после добавления секции "Сортировка")
         self._collapsible_registry_keys = {
             2: "SidebarStrategiesExpanded",
-            11: "SidebarMyListsExpanded",
-            18: "SidebarDiagnosticsExpanded",
+            13: "SidebarMyListsExpanded",
+            20: "SidebarDiagnosticsExpanded",
         }
         
         # Анимация ширины
@@ -704,30 +704,32 @@ class SideNavBar(QWidget):
             ("fa5s.home", "Главная", False),           # 0
             ("fa5s.play-circle", "Управление", False), # 1
             ("fa5s.cog", "Стратегии", "collapsible"),  # 2 - сворачиваемая секция (меняется на "Оркестратор" в режиме оркестратора)
-            ("fa5s.list", "Hostlist", True),           # 3 - подпункт
-            ("fa5s.server", "IPset", True),            # 4 - подпункт
-            ("fa5s.cube", "Блобы", True),              # 5 - подпункт (управление блобами для Zapret 2)
-            ("fa5s.edit", "Редактор", True),           # 6 - подпункт (редактор стратегий)
-            ("fa5s.lock", "Залоченные", True),         # 7 - подпункт (оркестратор: залоченные стратегии)
-            ("fa5s.ban", "Заблокированные", True),     # 8 - подпункт (оркестратор: чёрный список)
-            ("mdi.chart-bar", "Рейтинги", True),       # 9 - подпункт (оркестратор: история стратегий с рейтингами)
-            ("fa5s.sliders-h", "Настройки DPI", True), # 10 - подпункт (всегда внизу группы)
-            (None, "Мои списки", "collapsible_header"),# 11 - текстовый заголовок со сворачиванием подпунктов
-            ("fa5s.ban", "Исключения", True),          # 12 - подпункт (netrogat.txt) - скрывается в режиме оркестратора
-            ("fa5s.shield-alt", "Белый список", True), # 13 - подпункт (whitelist оркестратора) - только в режиме оркестратора
-            ("fa5s.plus-circle", "Мои hostlist", True),  # 14 - подпункт (other2.txt) - скрывается в режиме оркестратора
-            ("fa5s.network-wired", "Мои ipset", True),    # 15 - подпункт (my-ipset.txt) - скрывается в режиме оркестратора
-            ("fa5s.rocket", "Автозапуск", False),      # 16
-            ("fa5s.network-wired", "Сеть", False),     # 17
-            ("fa5s.wifi", "Диагностика", "collapsible"),  # 18 - сворачиваемая секция
-            ("fa5s.search", "DNS подмена", True),      # 19 - подпункт диагностики
-            ("fa5s.globe", "Hosts", False),            # 20 - разблокировка сервисов
-            ("fa5s.shield-alt", "BlockCheck", False),  # 21
-            ("fa5s.palette", "Оформление", False),     # 22
-            ("fa5s.star", "Донат", False),             # 23
-            ("fa5s.file-alt", "Логи", False),          # 24
-            ("fa5s.sync-alt", "Обновления", False),    # 25 - серверы обновлений
-            ("fa5s.info-circle", "О программе", False),# 26
+            ("fa5s.sliders-h", "Сортировка", True),    # 3 - подпункт (сортировка и фильтры стратегий)
+            ("fa5s.file-code", "Конфиг", True),        # 4 - подпункт (редактор preset-zapret2.txt)
+            ("fa5s.list", "Hostlist", True),           # 5 - подпункт
+            ("fa5s.server", "IPset", True),            # 6 - подпункт
+            ("fa5s.cube", "Блобы", True),              # 7 - подпункт (управление блобами для Zapret 2)
+            ("fa5s.edit", "Редактор", True),           # 8 - подпункт (редактор стратегий)
+            ("fa5s.lock", "Залоченные", True),         # 9 - подпункт (оркестратор: залоченные стратегии)
+            ("fa5s.ban", "Заблокированные", True),     # 10 - подпункт (оркестратор: чёрный список)
+            ("mdi.chart-bar", "Рейтинги", True),       # 11 - подпункт (оркестратор: история стратегий с рейтингами)
+            ("fa5s.cogs", "Настройки DPI", True),      # 12 - подпункт (всегда внизу группы)
+            (None, "Мои списки", "collapsible_header"),# 13 - текстовый заголовок со сворачиванием подпунктов
+            ("fa5s.ban", "Исключения", True),          # 14 - подпункт (netrogat.txt) - скрывается в режиме оркестратора
+            ("fa5s.shield-alt", "Белый список", True), # 15 - подпункт (whitelist оркестратора) - только в режиме оркестратора
+            ("fa5s.plus-circle", "Мои hostlist", True),  # 16 - подпункт (other2.txt) - скрывается в режиме оркестратора
+            ("fa5s.network-wired", "Мои ipset", True),    # 17 - подпункт (my-ipset.txt) - скрывается в режиме оркестратора
+            ("fa5s.rocket", "Автозапуск", False),      # 18
+            ("fa5s.network-wired", "Сеть", False),     # 19
+            ("fa5s.wifi", "Диагностика", "collapsible"),  # 20 - сворачиваемая секция
+            ("fa5s.search", "DNS подмена", True),      # 21 - подпункт диагностики
+            ("fa5s.globe", "Hosts", False),            # 22 - разблокировка сервисов
+            ("fa5s.shield-alt", "BlockCheck", False),  # 23
+            ("fa5s.palette", "Оформление", False),     # 24
+            ("fa5s.star", "Донат", False),             # 25
+            ("fa5s.file-alt", "Логи", False),          # 26
+            ("fa5s.sync-alt", "Обновления", False),    # 27 - серверы обновлений
+            ("fa5s.info-circle", "О программе", False),# 28
         ]
 
         # Счётчик реальных индексов страниц (без заголовков)
@@ -736,24 +738,28 @@ class SideNavBar(QWidget):
         self._header_labels = []  # Заголовки секций/групп для скрытия при сворачивании
         self._sub_buttons = []  # Подпункты для скрытия при сворачивании сайдбара
         self._blobs_button = None  # Ссылка на кнопку "Блобы" для управления видимостью
-        self._blobs_section_index = 5  # Индекс секции "Блобы"
+        self._blobs_section_index = 7  # Индекс секции "Блобы" (обновлён после добавления "Сортировка")
 
-        # Индексы секций оркестратора (вместо Hostlist/IPset/Редактор при режиме оркестратора)
-        self._orchestra_locked_section = 7   # Залоченные
-        self._orchestra_blocked_section = 8  # Заблокированные
-        self._orchestra_ratings_section = 9  # Рейтинги (история стратегий)
-        self._hostlist_section = 3           # Hostlist
-        self._ipset_section = 4              # IPset
-        self._editor_section = 6             # Редактор
+        # Индексы секций (обновлены после добавления "Сортировка")
+        self._strategy_sort_section = 3      # Сортировка стратегий
+        self._preset_config_section = 4      # Конфиг preset-zapret2.txt
+        self._hostlist_section = 5           # Hostlist
+        self._ipset_section = 6              # IPset
+        self._editor_section = 8             # Редактор
+        self._orchestra_locked_section = 9   # Залоченные
+        self._orchestra_blocked_section = 10 # Заблокированные
+        self._orchestra_ratings_section = 11 # Рейтинги (история стратегий)
         self._strategies_section = 2         # Секция "Стратегии" / "Оркестратор"
-        self._dpi_settings_section = 10      # Настройки DPI
-        self._netrogat_section = 12          # Исключения (netrogat.txt)
-        self._whitelist_section = 13         # Белый список оркестратора
-        self._custom_hostlist_section = 14   # Мои hostlist
-        self._custom_ipset_section = 15      # Мои ipset
+        self._dpi_settings_section = 12      # Настройки DPI
+        self._netrogat_section = 14          # Исключения (netrogat.txt)
+        self._whitelist_section = 15         # Белый список оркестратора
+        self._custom_hostlist_section = 16   # Мои hostlist
+        self._custom_ipset_section = 17      # Мои ipset
 
         # Кнопки для переключения режима оркестратора
         self._strategies_button = None       # Кнопка "Стратегии" / "Оркестратор"
+        self._strategy_sort_button = None    # Кнопка "Сортировка"
+        self._preset_config_button = None    # Кнопка "Конфиг"
         self._hostlist_button = None
         self._ipset_button = None
         self._editor_button = None
@@ -771,12 +777,12 @@ class SideNavBar(QWidget):
         current_collapsible_parent = None
 
         # Специальные индексы страниц для секций оркестратора (они в конце pages_stack)
-        # Секции 7, 8, 9, 13 должны маппиться на страницы 23, 24, 26, 25 (а не на следующие по счёту)
+        # Секции 9, 10, 11, 15 должны маппиться на страницы 25, 26, 28, 27 (а не на следующие по счёту)
         ORCHESTRA_PAGE_MAPPING = {
-            self._orchestra_locked_section: 23,   # Секция 7 → Страница 23
-            self._orchestra_blocked_section: 24,  # Секция 8 → Страница 24
-            self._orchestra_ratings_section: 26,  # Секция 9 → Страница 26
-            self._whitelist_section: 25,          # Секция 13 → Страница 25
+            self._orchestra_locked_section: 25,   # Секция 9 → Страница 25
+            self._orchestra_blocked_section: 26,  # Секция 10 → Страница 26
+            self._orchestra_ratings_section: 28,  # Секция 11 → Страница 28
+            self._whitelist_section: 27,          # Секция 15 → Страница 27
         }
 
         for i, (icon, text, is_sub) in enumerate(self.sections):
@@ -826,7 +832,11 @@ class SideNavBar(QWidget):
                     self._collapsible_groups[current_collapsible_parent].append(btn)
 
                 # Сохраняем ссылки на кнопки для управления видимостью
-                if i == self._blobs_section_index:
+                if i == self._strategy_sort_section:
+                    self._strategy_sort_button = btn
+                elif i == self._preset_config_section:
+                    self._preset_config_button = btn
+                elif i == self._blobs_section_index:
                     self._blobs_button = btn
                 elif i == self._hostlist_section:
                     self._hostlist_button = btn
@@ -1223,20 +1233,27 @@ class SideNavBar(QWidget):
         self.set_section(page_index)
     
     def update_blobs_visibility(self):
-        """Обновляет видимость вкладки 'Блобы' в зависимости от режима запуска"""
-        if self._blobs_button is None:
-            return
-
+        """Обновляет видимость вкладок 'Блобы', 'Конфиг' и 'Сортировка' в зависимости от режима запуска"""
         try:
             from strategy_menu import get_strategy_launch_method
-            # Блобы доступны для direct, direct_orchestra и direct_zapret1 режимов
+            # Блобы, Конфиг и Сортировка доступны для direct, direct_orchestra и direct_zapret1 режимов
             is_direct = get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1")
-            self._blobs_button.setVisible(is_direct)
+            if self._blobs_button:
+                self._blobs_button.setVisible(is_direct)
+            if self._preset_config_button:
+                self._preset_config_button.setVisible(is_direct)
+            if self._strategy_sort_button:
+                self._strategy_sort_button.setVisible(is_direct)
         except Exception as e:
             from log import log
-            log(f"Ошибка проверки режима для блобов: {e}", "DEBUG")
+            log(f"Ошибка проверки режима для блобов/конфига/сортировки: {e}", "DEBUG")
             # По умолчанию показываем
-            self._blobs_button.setVisible(True)
+            if self._blobs_button:
+                self._blobs_button.setVisible(True)
+            if self._preset_config_button:
+                self._preset_config_button.setVisible(True)
+            if self._strategy_sort_button:
+                self._strategy_sort_button.setVisible(True)
 
     def update_orchestra_visibility(self):
         """
@@ -1256,7 +1273,11 @@ class SideNavBar(QWidget):
             log(f"Ошибка проверки режима оркестратора: {e}", "DEBUG")
             is_orchestra = False
 
-        # Скрываем/показываем Hostlist, IPset, Редактор
+        # Скрываем/показываем Сортировка, Конфиг, Hostlist, IPset, Редактор
+        if self._strategy_sort_button:
+            self._strategy_sort_button.setVisible(not is_orchestra)
+        if self._preset_config_button:
+            self._preset_config_button.setVisible(not is_orchestra)
         if self._hostlist_button:
             self._hostlist_button.setVisible(not is_orchestra)
         if self._ipset_button:

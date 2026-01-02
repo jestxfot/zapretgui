@@ -87,7 +87,7 @@ def _resolve_single_arg(
 
         return arg
 
-    # Обработка файлов из lists/
+    # Обработка файлов из lists/ (БЕЗ @ - просто путь)
     for prefix in LISTS_PREFIXES:
         if arg.startswith(prefix):
             _, filename = arg.split("=", 1)

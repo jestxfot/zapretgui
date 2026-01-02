@@ -4,6 +4,7 @@
 from .home_page import HomePage
 from .control_page import ControlPage
 from .strategies_page import StrategiesPage
+from .strategy_sort_page import StrategySortPage
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
 from .blobs_page import BlobsPage
@@ -28,11 +29,13 @@ from .orchestra_locked_page import OrchestraLockedPage
 from .orchestra_blocked_page import OrchestraBlockedPage
 from .orchestra_whitelist_page import OrchestraWhitelistPage
 from .orchestra_ratings_page import OrchestraRatingsPage
+from .preset_config_page import PresetConfigPage
 
 __all__ = [
     'HomePage',
-    'ControlPage', 
+    'ControlPage',
     'StrategiesPage',
+    'StrategySortPage',  # Страница сортировки и фильтров стратегий
     'HostlistPage',
     'IpsetPage',
     'BlobsPage',  # Управление блобами для Zapret 2
@@ -57,5 +60,6 @@ __all__ = [
     'OrchestraBlockedPage',  # Страница заблокированных стратегий оркестратора
     'OrchestraWhitelistPage',  # Страница белого списка оркестратора
     'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
+    'PresetConfigPage',  # Страница редактора preset-zapret2.txt
 ]
 

@@ -48,7 +48,7 @@ VPS_SERVERS = [
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
         'priority': 2,
-        'use_for_telegram': False,
+        'use_for_telegram': True,  # ← Telegram теперь здесь (стабильный сервер)
     },
     {
         'id': 'vps2',
@@ -63,7 +63,7 @@ VPS_SERVERS = [
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
         'priority': 3,
-        'use_for_telegram': True,
+        'use_for_telegram': False,  # ← Резервный сервер нестабилен
     },
 ]
 

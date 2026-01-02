@@ -2,14 +2,13 @@
 """Страница выбора стратегий"""
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher, QThread
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QFrame, QScrollArea, QPushButton,
                              QSizePolicy, QMessageBox, QApplication,
-                             QButtonGroup, QStackedWidget)
+                             QButtonGroup, QStackedWidget, QPlainTextEdit)
 from PyQt6.QtGui import QFont, QTextOption, QPainter, QColor, QPen
 import qtawesome as qta
 import os
-import shlex
 import math
 
 from typing import List
@@ -143,226 +142,6 @@ class StatusIndicator(QWidget):
         """Показывает галочку успеха"""
         self.spinner.stop()
         self.stack.setCurrentWidget(self.check_icon)
-
-
-class CommandLineWidget(QFrame):
-    """Виджет командной строки - всегда развернутый"""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.command_line = ""
-        self.formatted_command = ""
-        self._build_ui()
-        
-    def _build_ui(self):
-        self.setStyleSheet("""
-            CommandLineWidget {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-            }
-        """)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
-        
-        # Заголовок
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
-        
-        # Иконка терминала
-        terminal_icon = QLabel()
-        terminal_icon.setPixmap(qta.icon('fa5s.terminal', color='#60cdff').pixmap(14, 14))
-        header_layout.addWidget(terminal_icon)
-        
-        title = QLabel("Командная строка")
-        title.setStyleSheet("color: #60cdff; font-weight: 600; font-size: 12px;")
-        header_layout.addWidget(title)
-        
-        self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px;")
-        header_layout.addWidget(self.info_label)
-        
-        header_layout.addStretch()
-        
-        # Кнопки
-        btn_style = """
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: rgba(255,255,255,0.7);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px;
-                padding: 4px 12px;
-                font-size: 10px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-            }
-        """
-        
-        copy_btn = QPushButton("CMD")
-        copy_btn.setToolTip("Копировать для CMD")
-        copy_btn.setStyleSheet(btn_style)
-        copy_btn.clicked.connect(self._copy_to_clipboard)
-        header_layout.addWidget(copy_btn)
-        self.copy_btn = copy_btn
-        
-        copy_ps = QPushButton("PS")
-        copy_ps.setToolTip("Копировать для PowerShell")
-        copy_ps.setStyleSheet(btn_style)
-        copy_ps.clicked.connect(self._copy_formatted)
-        header_layout.addWidget(copy_ps)
-        
-        layout.addLayout(header_layout)
-        
-        # Текстовое поле - всегда видно
-        self.text_edit = ScrollBlockingTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setFont(QFont("Consolas", 9))
-        self.text_edit.setMinimumHeight(140)
-        self.text_edit.setStyleSheet("""
-            QTextEdit {
-                background: #1a1a1a;
-                color: #d4d4d4;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 6px;
-                padding: 10px;
-            }
-        """)
-        self.text_edit.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
-        layout.addWidget(self.text_edit, 1)  # stretch=1 чтобы занимало доступное место
-            
-    def generate_command(self):
-        """Генерирует командную строку"""
-        try:
-            from strategy_menu import get_strategy_launch_method
-
-            if get_strategy_launch_method() not in ("direct", "direct_orchestra", "direct_zapret1"):
-                self.text_edit.setPlainText("Командная строка доступна только в прямом режиме запуска")
-                self.info_label.setText("BAT режим")
-                return
-                
-            from strategy_menu.strategy_lists_separated import combine_strategies
-            from strategy_menu.apply_filters import apply_all_filters
-            from strategy_menu import get_direct_strategy_selections, get_default_selections
-            from config import WINWS2_EXE, WINWS_EXE, WINDIVERT_FILTER
-
-            launch_method = get_strategy_launch_method()
-
-            # Выбираем exe в зависимости от режима
-            if launch_method == "direct_zapret1":
-                target_exe = WINWS_EXE  # Zapret 1
-            else:
-                target_exe = WINWS2_EXE  # Zapret 2
-
-            # Получаем выборы
-            try:
-                category_selections = get_direct_strategy_selections()
-            except:
-                category_selections = get_default_selections()
-
-            if not category_selections:
-                self.text_edit.setPlainText("Нет выбранных стратегий")
-                return
-
-            # Комбинируем стратегии
-            combined = combine_strategies(**category_selections)
-            args = shlex.split(combined['args'], posix=False)
-
-            # Разрешаем пути
-            exe_dir = os.path.dirname(target_exe)
-            work_dir = os.path.dirname(exe_dir)
-            lists_dir = os.path.join(work_dir, "lists")
-            bin_dir = os.path.join(work_dir, "bin")
-
-            resolved_args = self._resolve_paths(args, lists_dir, bin_dir, WINDIVERT_FILTER)
-            resolved_args = apply_all_filters(resolved_args, lists_dir)
-
-            # Формируем команду
-            cmd_parts = [target_exe] + resolved_args
-            full_cmd_parts = []
-            for arg in cmd_parts:
-                if ' ' in arg and not (arg.startswith('"') and arg.endswith('"')):
-                    full_cmd_parts.append(f'"{arg}"')
-                else:
-                    full_cmd_parts.append(arg)
-                    
-            self.command_line = ' '.join(full_cmd_parts)
-            self.formatted_command = self._format_for_display(full_cmd_parts)
-
-            # Показываем в text_edit
-            self.text_edit.setPlainText(self.formatted_command)
-            self.info_label.setText(f"{len(self.command_line)} симв. | {len(resolved_args)} арг.")
-            
-        except Exception as e:
-            log(f"Ошибка генерации команды: {e}", "ERROR")
-            self.text_edit.setPlainText(f"Ошибка: {e}")
-            
-    def _resolve_paths(self, args, lists_dir, bin_dir, filter_dir):
-        """Разрешает пути в аргументах через общую функцию"""
-        from utils.args_resolver import resolve_args_paths
-        return resolve_args_paths(args, lists_dir, bin_dir, filter_dir)
-        
-    def _format_for_display(self, cmd_parts):
-        """Форматирует для отображения с переносами"""
-        if not cmd_parts:
-            return ""
-            
-        lines = []
-        current_line = []
-        
-        for i, arg in enumerate(cmd_parts):
-            if i == 0:
-                lines.append(arg)
-                continue
-                
-            should_break = (
-                arg == "--new" or
-                arg.startswith("--filter-") or
-                arg.startswith("--blob=") or
-                arg.startswith("--lua-init=") or
-                arg.startswith("--wf-")
-            )
-            
-            if should_break:
-                if current_line:
-                    lines.append("  " + " ".join(current_line) + " `")
-                    current_line = []
-                if arg == "--new":
-                    lines.append("  --new `")
-                else:
-                    current_line.append(arg)
-            else:
-                current_line.append(arg)
-                
-        if current_line:
-            lines.append("  " + " ".join(current_line))
-            
-        if lines and lines[-1].endswith(" `"):
-            lines[-1] = lines[-1][:-2]
-            
-        return "\n".join(lines)
-        
-    def _copy_to_clipboard(self):
-        """Копирует однострочную команду"""
-        if not self.command_line:
-            self.generate_command()
-        if self.command_line:
-            QApplication.clipboard().setText(self.command_line)
-            old_text = self.copy_btn.text()
-            self.copy_btn.setText("✓")
-            QTimer.singleShot(1500, lambda: self.copy_btn.setText(old_text))
-            
-    def _copy_formatted(self):
-        """Копирует форматированную команду"""
-        if not self.formatted_command:
-            self.generate_command()
-        if self.formatted_command:
-            QApplication.clipboard().setText(self.formatted_command)
 
 
 class ResetActionButton(QPushButton):
@@ -514,7 +293,6 @@ class StrategiesPage(QWidget):
         self._bat_table = None
         self._initialized = False
         self._current_mode = None
-        self.cmd_widget = None
         self._file_watcher = None
         self._watcher_active = False
         
@@ -546,43 +324,34 @@ class StrategiesPage(QWidget):
         
     def _build_ui(self):
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
-        # Заголовок страницы
-        header = QWidget()
-        header.setStyleSheet("background-color: transparent;")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(32, 24, 32, 16)
-        
-        title = QLabel("Стратегии")
-        title.setStyleSheet("""
+        self.main_layout.setContentsMargins(32, 24, 32, 0)
+        self.main_layout.setSpacing(12)
+
+        # Заголовок страницы (фиксированный, не прокручивается)
+        self.title_label = QLabel("Стратегии DPI")
+        self.title_label.setStyleSheet("""
             QLabel {
                 color: #ffffff;
                 font-size: 28px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+                padding-bottom: 4px;
             }
         """)
-        header_layout.addWidget(title)
-        
-        subtitle = QLabel("Настройка методов обхода блокировок")
-        subtitle.setStyleSheet("""
+        self.main_layout.addWidget(self.title_label)
+
+        # Описание страницы
+        self.subtitle_label = QLabel("Выберите стратегию обхода блокировок для разных типов трафика")
+        self.subtitle_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
                 font-size: 13px;
+                padding-bottom: 8px;
             }
         """)
-        header_layout.addWidget(subtitle)
+        self.subtitle_label.setWordWrap(True)
+        self.main_layout.addWidget(self.subtitle_label)
 
-        # Кнопка для добавления своего сайта
-        from config.telegram_links import open_telegram_link
-        add_site_btn = ActionButton("Добавить свой сайт", "fa5b.telegram")
-        add_site_btn.clicked.connect(lambda: open_telegram_link("zaprethelp", post=18408))
-        header_layout.addWidget(add_site_btn)
-        
-        self.main_layout.addWidget(header)
-        
         # Текущая стратегия (будет добавлен в scroll_area)
         self.current_widget = QWidget()
         self.current_widget.setStyleSheet("background-color: transparent;")
@@ -668,10 +437,9 @@ class StrategiesPage(QWidget):
         self.content_container = QWidget()
         self.content_container.setStyleSheet("background-color: transparent;")
         self.content_layout = QVBoxLayout(self.content_container)
-        # Уменьшаем горизонтальные отступы, чтобы сблизить колонку сайтов и таблицу стратегий
-        self.content_layout.setContentsMargins(14, 0, 14, 20)
+        self.content_layout.setContentsMargins(0, 0, 0, 24)
         self.content_layout.setSpacing(12)
-        
+
         # Плейсхолдер загрузки
         self.loading_label = QLabel("⏳ Загрузка...")
         self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
@@ -694,6 +462,11 @@ class StrategiesPage(QWidget):
             self._initialized = True
             # Загружаем контент сразу, без задержки
             QTimer.singleShot(0, self._load_content)
+            # После загрузки синхронизируем с StrategySortPage
+            QTimer.singleShot(100, self._sync_filters_from_sort_page)
+        else:
+            # Страница уже инициализирована - просто синхронизируем фильтры
+            self._sync_filters_from_sort_page()
             
     def _clear_content(self):
         """Очищает контент"""
@@ -710,7 +483,6 @@ class StrategiesPage(QWidget):
 
         self._strategy_widget = None
         self._bat_table = None
-        self.cmd_widget = None
         self.loading_label = None
         self.search_bar = None
         self._all_bat_strategies = []
@@ -758,28 +530,19 @@ class StrategiesPage(QWidget):
             from strategy_menu.strategies_registry import registry
             from strategy_menu import get_direct_strategy_selections, get_default_selections
             
-            # Текущая стратегия (в начале контента)
+            # Текущая стратегия (после заголовка и описания)
             if hasattr(self, 'current_widget') and self.current_widget:
                 if self.current_widget.parent() != self.content_container:
-                    self.content_layout.insertWidget(0, self.current_widget)
+                    self.content_layout.addWidget(self.current_widget)
 
-            # Заголовок секции
-            section_header = QLabel("Выберите стратегию для каждого типа трафика")
-            section_header.setStyleSheet("""
-                QLabel {
-                    color: #60cdff;
-                    font-size: 14px;
-                    font-weight: 600;
-                    padding-bottom: 8px;
-                }
-            """)
-            self.content_layout.addWidget(section_header)
-
-            # Создаём поисковую панель для Direct режима
+            # Поисковая панель - только поиск по тексту
+            # Фильтры и сортировка на отдельной странице StrategySortPage
             self.search_bar = StrategySearchBar(self)
             self.search_bar.search_changed.connect(self._on_direct_search_changed)
-            self.search_bar.filters_changed.connect(self._on_direct_filters_changed)
-            self.search_bar.sort_changed.connect(self._on_direct_sort_changed)
+            # Скрываем фильтры и сортировку - они на отдельной странице
+            self.search_bar._label_combo.hide()
+            self.search_bar._desync_combo.hide()
+            self.search_bar._sort_combo.hide()
             self.content_layout.addWidget(self.search_bar)
 
             # Панель действий
@@ -802,25 +565,21 @@ class StrategiesPage(QWidget):
             self._reset_btn = ResetActionButton("Сбросить", confirm_text="По умолчанию")
             self._reset_btn.reset_confirmed.connect(self._reset_to_defaults)
             actions_layout.addWidget(self._reset_btn)
-            
-            # Кнопка перезапуска с анимацией
-            self._restart_btn = ActionButton("Перезапустить", "fa5s.redo-alt")
-            self._restart_btn.clicked.connect(self._restart_dpi)
-            actions_layout.addWidget(self._restart_btn)
-            
-            # Анимация вращения для кнопки перезапуска
-            self._restart_icon_normal = qta.icon('fa5s.redo-alt', color='white')
-            self._restart_spin_animation = qta.Spin(self._restart_btn, interval=10, step=8)
-            self._restart_icon_spinning = qta.icon('fa5s.redo-alt', color='#60cdff', animation=self._restart_spin_animation)
-            
+
             actions_layout.addStretch()
             actions_card.add_layout(actions_layout)
             self.content_layout.addWidget(actions_card)
-            
-            # Загружаем выборы из реестра
+
+            # Загружаем выборы из реестра или восстанавливаем сохранённые
             try:
-                self.category_selections = get_direct_strategy_selections()
-                log(f"Загружены выборы стратегий из реестра: {len(self.category_selections)} категорий", "DEBUG")
+                # Если есть сохранённый выбор от перезагрузки - используем его
+                if hasattr(self, '_pending_selections') and self._pending_selections:
+                    self.category_selections = self._pending_selections
+                    self._pending_selections = None  # Очищаем после использования
+                    log(f"Восстановлены выборы стратегий после перезагрузки: {len(self.category_selections)} категорий", "DEBUG")
+                else:
+                    self.category_selections = get_direct_strategy_selections()
+                    log(f"Загружены выборы стратегий из реестра: {len(self.category_selections)} категорий", "DEBUG")
             except Exception as e:
                 log(f"Ошибка загрузки выборов из реестра: {e}, используем значения по умолчанию", "WARNING")
                 self.category_selections = get_default_selections()
@@ -842,7 +601,7 @@ class StrategiesPage(QWidget):
             # Очищаем существующие вкладки
             self._strategy_widget.clear()
             self._strategy_widget._tab_category_keys = []
-            
+
             # Создаём вкладки для ВСЕХ категорий (по порядку)
             for idx, category_key in enumerate(category_keys):
                 category_info = registry.get_category_info(category_key)
@@ -874,15 +633,6 @@ class StrategiesPage(QWidget):
             # Подписываемся на изменение рейтингов для обновления подсветки
             self._setup_rating_callback()
 
-            # Отступ перед командной строкой
-            self.content_layout.addSpacing(20)
-
-            # Виджет командной строки (отдельный блок внизу)
-            self.cmd_widget = CommandLineWidget()
-            self.cmd_widget.setMinimumHeight(200)  # Увеличенная высота
-            self.cmd_widget.setMaximumHeight(250)  # Ограничение максимальной высоты
-            self.content_layout.addWidget(self.cmd_widget, 0)  # stretch=0 - не растягивается, остаётся внизу
-
             # Обновляем цвета иконок всех вкладок на основе выборов
             self._strategy_widget.update_all_tab_icons(self.category_selections)
 
@@ -896,9 +646,8 @@ class StrategiesPage(QWidget):
             # Добавляем кнопку "+" в конец списка категорий
             self._strategy_widget.add_add_button()
             
-            # Обновляем отображение и командную строку сразу
+            # Обновляем отображение
             self._update_current_strategies_display()
-            self._generate_command_line()
 
             # ✅ Обновляем отображение фильтров на странице DPI Settings
             self._update_dpi_filters_display()
@@ -928,11 +677,14 @@ class StrategiesPage(QWidget):
             elif hasattr(self.parent_app, 'parent_app') and hasattr(self.parent_app.parent_app, 'strategy_manager'):
                 strategy_manager = self.parent_app.parent_app.strategy_manager
 
-            # Создаём поисковую панель для BAT режима
+            # Поисковая панель - только поиск по тексту
+            # Фильтры и сортировка на отдельной странице StrategySortPage
             self.search_bar = StrategySearchBar(self)
             self.search_bar.search_changed.connect(self._on_bat_search_changed)
-            self.search_bar.filters_changed.connect(self._on_bat_filters_changed)
-            self.search_bar.sort_changed.connect(self._on_bat_sort_changed)
+            # Скрываем фильтры и сортировку - они на отдельной странице
+            self.search_bar._label_combo.hide()
+            self.search_bar._desync_combo.hide()
+            self.search_bar._sort_combo.hide()
             self.content_layout.addWidget(self.search_bar)
 
             # Создаём таблицу - минималистичный дизайн
@@ -1314,20 +1066,20 @@ class StrategiesPage(QWidget):
         try:
             if not self._watcher_active:
                 return  # Уже остановлен
-            
+
             if self._file_watcher:
                 # Удаляем все пути из мониторинга
                 directories = self._file_watcher.directories()
                 files = self._file_watcher.files()
-                
+
                 if directories:
                     self._file_watcher.removePaths(directories)
                 if files:
                     self._file_watcher.removePaths(files)
-            
+
             self._watcher_active = False
-            log(f"⏸️ Мониторинг .bat файлов остановлен", "DEBUG")
-            
+            log(f"Мониторинг .bat файлов остановлен", "DEBUG")
+
         except Exception as e:
             log(f"Ошибка остановки мониторинга: {e}", "DEBUG")
     
@@ -1984,7 +1736,7 @@ class StrategiesPage(QWidget):
         log(f"Отключаю {len(categories_to_disable)} категорий из-за отключения фильтра {filter_key}", "INFO")
 
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies
+            from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
             from strategy_menu.strategies_registry import registry
 
             # Получаем все ключи категорий для определения индексов вкладок
@@ -1995,6 +1747,9 @@ class StrategiesPage(QWidget):
                 save_direct_strategy_selection(category_key, "none")
                 self.category_selections[category_key] = "none"
                 log(f"  → Отключена категория: {category_key}", "DEBUG")
+
+            # Перегенерируем preset файл
+            regenerate_preset_file()
 
             # Обновляем UI вкладок (делаем иконки серыми)
             self._refresh_all_tab_colors()
@@ -2007,10 +1762,6 @@ class StrategiesPage(QWidget):
 
             # Обновляем отображение фильтров (теперь с меньшим количеством активных)
             self._update_dpi_filters_display()
-
-            # Обновляем командную строку
-            if self.cmd_widget:
-                self.cmd_widget.generate_command()
 
             # Проверяем, остались ли активные стратегии
             if not self._has_any_active_strategy():
@@ -2087,13 +1838,16 @@ class StrategiesPage(QWidget):
     def _on_strategy_item_clicked(self, category_key: str, strategy_id: str):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws2"""
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies
+            from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
             from strategy_menu.strategy_lists_separated import calculate_required_filters
 
             # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
             save_direct_strategy_selection(category_key, strategy_id)
             self.category_selections[category_key] = strategy_id
             log(f"Выбрана стратегия: {category_key} = {strategy_id}", "INFO")
+
+            # Перегенерируем preset файл сразу после сохранения выбора
+            regenerate_preset_file()
 
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
             current_tab_index = self._strategy_widget.currentIndex()
@@ -2106,10 +1860,6 @@ class StrategiesPage(QWidget):
             # ✅ Обновляем отображение фильтров на странице DPI Settings
             self._update_dpi_filters_display()
 
-            # Обновляем командную строку сразу
-            if self.cmd_widget:
-                self.cmd_widget.generate_command()
-            
             # Проверяем, есть ли хотя бы одна активная стратегия
             if not self._has_any_active_strategy():
                 log("⚠️ Нет активных стратегий - останавливаем DPI", "INFO")
@@ -2169,21 +1919,29 @@ class StrategiesPage(QWidget):
         """Перезагружает стратегии (direct режим)"""
         try:
             from strategy_menu.strategies_registry import registry
+
+            # Сохраняем текущий выбор ПЕРЕД перезагрузкой
+            saved_selections = getattr(self, 'category_selections', {}).copy()
+
             registry.reload_strategies()
-            
+
             self.stop_watching()  # Останавливаем мониторинг при перезагрузке
             self._current_mode = None
             self._initialized = False
+
+            # Сохраняем выбор для восстановления после загрузки UI
+            self._pending_selections = saved_selections
+
             self._clear_content()
-            
+
             self.loading_label = QLabel("⏳ Перезагрузка...")
             self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6);")
             self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content_layout.addWidget(self.loading_label)
-            
+
             # Загружаем сразу
             QTimer.singleShot(0, self._load_content)
-            
+
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
             
@@ -2281,9 +2039,10 @@ class StrategiesPage(QWidget):
                 return
             
             # В Direct режимах проверяем наличие активных стратегий
-            from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+            from strategy_menu import get_strategy_launch_method
             if get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1"):
-                selections = get_direct_strategy_selections()
+                # Используем текущий выбор из UI, а не из реестра
+                selections = getattr(self, 'category_selections', {})
                 if not self._has_any_active_strategy(selections):
                     log("⚠️ Нет активных стратегий - перезапуск невозможен", "WARNING")
                     QMessageBox.warning(
@@ -2354,11 +2113,11 @@ class StrategiesPage(QWidget):
             launch_method = get_strategy_launch_method()
             
             if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
-                # Прямой запуск - берём текущие настройки и формируем правильный формат
-                from strategy_menu import get_direct_strategy_selections
+                # Прямой запуск - берём текущий выбор из UI
                 from strategy_menu.strategy_lists_separated import combine_strategies
 
-                selections = get_direct_strategy_selections()
+                # Используем текущий выбор из UI, а не из реестра
+                selections = getattr(self, 'category_selections', {})
 
                 # Проверяем, есть ли хотя бы одна активная стратегия
                 if not self._has_any_active_strategy(selections):
@@ -2400,26 +2159,17 @@ class StrategiesPage(QWidget):
         if hasattr(self, '_restart_btn') and hasattr(self, '_restart_icon_normal'):
             self._restart_spin_animation.stop()
             self._restart_btn.setIcon(self._restart_icon_normal)
-            
-    def _generate_command_line(self):
-        """Генерирует командную строку"""
-        if self.cmd_widget:
-            self.cmd_widget.generate_command()
-            
-    def _show_cmd(self):
-        """Разворачивает/сворачивает виджет командной строки"""
-        if hasattr(self, 'cmd_widget') and self.cmd_widget:
-            self.cmd_widget.generate_command()
-            
+
     def _apply_strategy(self):
         """Применяет выбранную стратегию (direct режим)"""
         try:
-            from strategy_menu import combine_strategies, save_direct_strategy_selections
-            
+            from strategy_menu import combine_strategies, save_direct_strategy_selections, regenerate_preset_file
+
             save_direct_strategy_selections(self.category_selections)
+            regenerate_preset_file()
             combined = combine_strategies(**self.category_selections)
             self.strategy_selected.emit("combined", "Прямой запуск")
-            
+
             log("Стратегия применена", "INFO")
             
         except Exception as e:
@@ -2692,16 +2442,12 @@ class StrategiesPage(QWidget):
             log(f"Ошибка фильтрации BAT стратегий: {e}", "ERROR")
 
     def _on_bat_search_changed(self, text: str):
-        """Обработчик изменения текста поиска"""
-        self._apply_bat_filter()
+        """Обработчик изменения текста поиска (асинхронно)"""
+        QTimer.singleShot(0, self._apply_bat_filter)
 
     def _on_bat_filters_changed(self, query):
-        """Обработчик изменения фильтров"""
-        self._apply_bat_filter()
-
-    def _on_bat_sort_changed(self, sort_key: str, reverse: bool):
-        """Обработчик изменения сортировки"""
-        self._apply_bat_filter()
+        """Обработчик изменения фильтров (асинхронно)"""
+        QTimer.singleShot(0, self._apply_bat_filter)
 
     def _convert_dict_to_strategy_info_list(self, strategies_dict: dict) -> List[StrategyInfo]:
         """Конвертирует dict стратегий в List[StrategyInfo] для фильтрации и сортировки.
@@ -2891,16 +2637,236 @@ class StrategiesPage(QWidget):
             log(f"Ошибка фильтрации Direct стратегий: {e}", "ERROR")
 
     def _on_direct_search_changed(self, text: str):
-        """Обработчик поиска для Direct режима"""
-        self._apply_direct_filter()
+        """Обработчик поиска для Direct режима (асинхронно)"""
+        QTimer.singleShot(0, self._apply_direct_filter)
 
     def _on_direct_filters_changed(self, query):
-        """Обработчик фильтров для Direct режима"""
-        self._apply_direct_filter()
+        """Обработчик фильтров для Direct режима (асинхронно)"""
+        QTimer.singleShot(0, self._apply_direct_filter)
 
-    def _on_direct_sort_changed(self, sort_key: str, reverse: bool):
-        """Обработчик сортировки для Direct режима"""
-        self._apply_direct_filter()
+    # ==================== Внешние фильтры (от StrategySortPage) ====================
+
+    def on_external_filters_changed(self, query):
+        """Обработчик изменения фильтров с внешней страницы (асинхронно)
+
+        Args:
+            query: SearchQuery объект с текущими фильтрами
+        """
+        # Сохраняем query для использования
+        self._external_query = query
+        # Запускаем асинхронное обновление через QTimer чтобы не фризить UI
+        QTimer.singleShot(0, self._apply_external_filters_async)
+
+    def on_external_sort_changed(self, sort_key: str, reverse: bool):
+        """Обработчик изменения сортировки с внешней страницы (асинхронно)
+
+        Args:
+            sort_key: Ключ сортировки (default, name, rating)
+            reverse: Обратный порядок
+        """
+        self._external_sort_key = sort_key
+        self._external_sort_reverse = reverse
+        QTimer.singleShot(0, self._apply_external_sort_async)
+
+    def _apply_external_filters_async(self):
+        """Асинхронно применяет внешние фильтры"""
+        try:
+            query = getattr(self, '_external_query', None)
+            if query is None:
+                return
+
+            # Проверяем что страница инициализирована
+            if not self._initialized:
+                return
+
+            # Определяем текущий режим и применяем
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+
+            if method in ("direct", "direct_orchestra", "direct_zapret1"):
+                self._apply_direct_filter_with_query(query)
+            elif method == "bat":
+                self._apply_bat_filter_with_query(query)
+
+        except Exception as e:
+            log(f"Ошибка применения внешних фильтров: {e}", "ERROR")
+
+    def _apply_external_sort_async(self):
+        """Асинхронно применяет внешнюю сортировку"""
+        try:
+            sort_key = getattr(self, '_external_sort_key', 'default')
+            reverse = getattr(self, '_external_sort_reverse', False)
+
+            # Проверяем что страница инициализирована
+            if not self._initialized:
+                return
+
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+
+            if method in ("direct", "direct_orchestra", "direct_zapret1"):
+                self._apply_direct_sort_with_params(sort_key, reverse)
+            elif method == "bat":
+                self._apply_bat_sort_with_params(sort_key, reverse)
+
+        except Exception as e:
+            log(f"Ошибка применения внешней сортировки: {e}", "ERROR")
+
+    def _apply_direct_filter_with_query(self, query):
+        """Применяет фильтр к Direct режиму с заданным query
+
+        Args:
+            query: SearchQuery объект с критериями фильтрации
+        """
+        try:
+            if not self._strategy_widget:
+                return
+
+            current_index = self._strategy_widget.currentIndex()
+            widget = self._strategy_widget.widget(current_index)
+            if not widget:
+                return
+
+            category_key = widget.property("category_key")
+            if not category_key and hasattr(self._strategy_widget, '_tab_category_keys'):
+                keys = self._strategy_widget._tab_category_keys
+                if 0 <= current_index < len(keys):
+                    category_key = keys[current_index]
+
+            if not category_key or category_key not in self._all_direct_strategies:
+                return
+
+            # Получаем оригинальные данные
+            original_strategies = self._all_direct_strategies.get(category_key, {})
+            favorites_list = self._all_direct_favorites.get(category_key, [])
+            current_selection = self._all_direct_selections.get(category_key, None)
+
+            # Применяем фильтр
+            filtered_strategies = self._filter_direct_strategies(original_strategies, query)
+
+            # Получаем параметры сортировки (из внешнего источника или по умолчанию)
+            sort_key = getattr(self, '_external_sort_key', 'default')
+            reverse = getattr(self, '_external_sort_reverse', False)
+
+            # Конвертируем и сортируем
+            favorites_set = set(favorites_list)
+            for strategy_id, strategy_data in filtered_strategies.items():
+                strategy_data['is_favorite'] = strategy_id in favorites_set
+
+            strategy_info_list = self._convert_direct_dict_to_strategy_info_list(filtered_strategies, category_key)
+            sorted_strategies = self.filter_engine.sort_strategies(strategy_info_list, sort_key, reverse)
+
+            # Конвертируем обратно в dict
+            sorted_dict = {}
+            for strategy_info in sorted_strategies:
+                strategy_id = strategy_info.id
+                if strategy_id in filtered_strategies:
+                    sorted_dict[strategy_id] = filtered_strategies[strategy_id]
+
+            skip_grouping = sort_key in ("name", "rating")
+            widget._loaded = False
+            self._build_category_ui(widget, current_index, category_key, sorted_dict, favorites_list, current_selection, skip_grouping=skip_grouping)
+
+            log(f"Direct внешняя фильтрация {category_key}: {len(sorted_dict)} из {len(original_strategies)}", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка применения внешнего фильтра Direct: {e}", "ERROR")
+
+    def _apply_bat_filter_with_query(self, query):
+        """Применяет фильтр к BAT режиму с заданным query
+
+        Args:
+            query: SearchQuery объект с критериями фильтрации
+        """
+        try:
+            if not self._all_bat_strategies or not self._bat_table:
+                return
+
+            # Фильтруем
+            filtered = self.filter_engine.filter_strategies(self._all_bat_strategies, query)
+
+            # Получаем параметры сортировки (из внешнего источника или по умолчанию)
+            sort_key = getattr(self, '_external_sort_key', 'default')
+            reverse = getattr(self, '_external_sort_reverse', False)
+
+            sorted_strategies = self.filter_engine.sort_strategies(filtered, sort_key, reverse)
+
+            # Конвертируем в dict формат
+            filtered_dict = {}
+            for strategy in sorted_strategies:
+                strategy_id = strategy.id
+                if strategy_id in self._all_bat_strategies_dict:
+                    filtered_dict[strategy_id] = self._all_bat_strategies_dict[strategy_id]
+
+            skip_grouping = sort_key in ("name", "rating")
+            self._bat_table.populate_strategies(filtered_dict, "bat", skip_grouping=skip_grouping)
+
+            log(f"BAT внешняя фильтрация: {len(sorted_strategies)} из {len(self._all_bat_strategies)}", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка применения внешнего фильтра BAT: {e}", "ERROR")
+
+    def _apply_direct_sort_with_params(self, sort_key: str, reverse: bool):
+        """Применяет сортировку к Direct режиму с заданными параметрами
+
+        Args:
+            sort_key: Ключ сортировки
+            reverse: Обратный порядок
+        """
+        # Сохраняем параметры и применяем полный фильтр
+        self._external_sort_key = sort_key
+        self._external_sort_reverse = reverse
+
+        # Получаем текущий query (из внешнего источника или пустой)
+        query = getattr(self, '_external_query', None)
+        if query is None:
+            query = SearchQuery()
+
+        self._apply_direct_filter_with_query(query)
+
+    def _apply_bat_sort_with_params(self, sort_key: str, reverse: bool):
+        """Применяет сортировку к BAT режиму с заданными параметрами
+
+        Args:
+            sort_key: Ключ сортировки
+            reverse: Обратный порядок
+        """
+        # Сохраняем параметры и применяем полный фильтр
+        self._external_sort_key = sort_key
+        self._external_sort_reverse = reverse
+
+        # Получаем текущий query (из внешнего источника или пустой)
+        query = getattr(self, '_external_query', None)
+        if query is None:
+            query = SearchQuery()
+
+        self._apply_bat_filter_with_query(query)
+
+    def _sync_filters_from_sort_page(self):
+        """Синхронизирует фильтры с StrategySortPage при показе страницы"""
+        try:
+            # Получаем ссылку на главное окно
+            parent = self.parent()
+            while parent and not hasattr(parent, 'strategy_sort_page'):
+                parent = parent.parent()
+
+            if parent and hasattr(parent, 'strategy_sort_page'):
+                sort_page = parent.strategy_sort_page
+
+                # Получаем текущие фильтры
+                query = sort_page.get_query()
+                sort_key, reverse = sort_page.get_sort_key()
+
+                # Сохраняем и применяем
+                self._external_query = query
+                self._external_sort_key = sort_key
+                self._external_sort_reverse = reverse
+
+                # Асинхронно применяем
+                QTimer.singleShot(50, self._apply_external_filters_async)
+
+        except Exception as e:
+            log(f"Ошибка синхронизации фильтров: {e}", "DEBUG")
 
     def closeEvent(self, event):
         """Очистка ресурсов при закрытии"""

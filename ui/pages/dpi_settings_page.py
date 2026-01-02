@@ -2,8 +2,8 @@
 """Страница настроек DPI"""
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF, pyqtSignal, QTimer
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFrame, QCheckBox, QSpinBox)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QFrame, QCheckBox, QSpinBox, QComboBox)
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont
 import qtawesome as qta
 
@@ -402,9 +402,150 @@ class Win11NumberRow(QWidget):
         self.spinbox.setValue(value)
         if block_signals:
             self.spinbox.blockSignals(False)
-        
+
     def value(self) -> int:
         return self.spinbox.value()
+
+
+class Win11ComboRow(QWidget):
+    """Строка с выпадающим списком в стиле Windows 11"""
+
+    currentIndexChanged = pyqtSignal(int)
+    currentTextChanged = pyqtSignal(str)
+
+    def __init__(self, icon_name: str, title: str, description: str = "",
+                 icon_color: str = "#60cdff", items: list = None, parent=None):
+        super().__init__(parent)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 6, 0, 6)
+        layout.setSpacing(12)
+
+        # Иконка
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(18, 18))
+        icon_label.setFixedSize(22, 22)
+        layout.addWidget(icon_label)
+
+        # Текст
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(1)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 500;
+            }
+        """)
+        text_layout.addWidget(title_label)
+
+        if description:
+            desc_label = QLabel(description)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(255, 255, 255, 0.5);
+                    font-size: 11px;
+                }
+            """)
+            text_layout.addWidget(desc_label)
+
+        layout.addLayout(text_layout, 1)
+
+        # ComboBox
+        self.combo = QComboBox()
+        self.combo.setFixedWidth(160)
+        self.combo.setFixedHeight(28)
+        self.combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 4px;
+                padding: 2px 10px;
+                color: #ffffff;
+                font-size: 12px;
+            }}
+            QComboBox:hover {{
+                background-color: #33444E;
+                border: 1px solid rgba(51, 68, 78, 0.8);
+            }}
+            QComboBox:focus {{
+                border: 1px solid {icon_color};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #ffffff;
+                margin-right: 5px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #2d2d2d;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                selection-background-color: #33444E;
+                color: #ffffff;
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                background-color: transparent;
+                padding: 4px 8px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: #3d5058;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: #33444E;
+            }}
+            QScrollBar:vertical {{
+                width: 0px;
+            }}
+            QScrollBar:horizontal {{
+                height: 0px;
+            }}
+            QComboBox::indicator {{
+                width: 0px;
+                height: 0px;
+            }}
+        """)
+
+        if items:
+            for text, data in items:
+                self.combo.addItem(text, data)
+
+        self.combo.currentIndexChanged.connect(self.currentIndexChanged.emit)
+        self.combo.currentTextChanged.connect(self.currentTextChanged.emit)
+        layout.addWidget(self.combo)
+
+    def setCurrentData(self, data, block_signals: bool = False):
+        """Устанавливает текущий элемент по данным"""
+        if block_signals:
+            self.combo.blockSignals(True)
+        index = self.combo.findData(data)
+        if index >= 0:
+            self.combo.setCurrentIndex(index)
+        if block_signals:
+            self.combo.blockSignals(False)
+
+    def currentData(self):
+        """Возвращает данные текущего элемента"""
+        return self.combo.currentData()
+
+    def setCurrentIndex(self, index: int, block_signals: bool = False):
+        if block_signals:
+            self.combo.blockSignals(True)
+        self.combo.setCurrentIndex(index)
+        if block_signals:
+            self.combo.blockSignals(False)
+
+    def currentIndex(self) -> int:
+        return self.combo.currentIndex()
 
 
 class DpiSettingsPage(BasePage):
@@ -533,13 +674,32 @@ class DpiSettingsPage(BasePage):
         out_range_layout.addWidget(self.out_range_discord)
         
         self.out_range_youtube = Win11NumberRow(
-            "mdi.youtube", "YouTube", 
+            "mdi.youtube", "YouTube",
             "Лимит пакетов для YouTube трафика", "#ff0000",
             min_val=0, max_val=999, default_val=10)
         out_range_layout.addWidget(self.out_range_youtube)
-        
+
         method_layout.addWidget(self.out_range_container)
-        
+
+        # ─────────────────────────────────────────────────────────────────────
+        # РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) - только для Zapret 2 Direct
+        # ─────────────────────────────────────────────────────────────────────
+        self.filter_mode_container = QWidget()
+        filter_mode_layout = QVBoxLayout(self.filter_mode_container)
+        filter_mode_layout.setContentsMargins(0, 0, 0, 0)
+        filter_mode_layout.setSpacing(0)
+
+        self.filter_mode_combo = Win11ComboRow(
+            "fa5s.filter", "Режим фильтрации",
+            "Hostlist - по доменам, IPset - по IP адресам", "#60cdff",
+            items=[
+                ("Hostlist", "hostlist"),
+                ("IPset", "ipset"),
+            ])
+        filter_mode_layout.addWidget(self.filter_mode_combo)
+
+        method_layout.addWidget(self.filter_mode_container)
+
         # Разделитель 2
         separator2 = QFrame()
         separator2.setFrameShape(QFrame.Shape.HLine)
@@ -756,6 +916,9 @@ class DpiSettingsPage(BasePage):
             # Out-range settings
             self._load_out_range_settings()
 
+            # Filter mode settings
+            self._load_filter_mode_settings()
+
             # Orchestra settings
             self._load_orchestra_settings()
 
@@ -851,6 +1014,38 @@ class DpiSettingsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка загрузки настроек out-range: {e}", "WARNING")
+
+    def _load_filter_mode_settings(self):
+        """Загружает настройку режима фильтрации (hostlist/ipset)"""
+        try:
+            from strategy_menu import get_filter_mode
+
+            # Загружаем текущее значение
+            current_mode = get_filter_mode()  # "hostlist" или "ipset"
+            self.filter_mode_combo.setCurrentData(current_mode, block_signals=True)
+
+            # Подключаем обработчик изменения
+            self.filter_mode_combo.currentIndexChanged.connect(self._on_filter_mode_changed)
+
+        except Exception as e:
+            log(f"Ошибка загрузки настройки filter_mode: {e}", "WARNING")
+
+    def _on_filter_mode_changed(self, index: int):
+        """Обработчик изменения режима фильтрации"""
+        try:
+            from strategy_menu import set_filter_mode, regenerate_preset_file
+
+            mode = self.filter_mode_combo.currentData()
+            if mode in ("hostlist", "ipset"):
+                set_filter_mode(mode)
+                log(f"Режим фильтрации изменён на: {mode}", "INFO")
+
+                # Перегенерируем preset файл с новым режимом фильтрации
+                # DPI НЕ перезапускаем - пользователь сам решит когда
+                regenerate_preset_file()
+
+        except Exception as e:
+            log(f"Ошибка изменения режима фильтрации: {e}", "ERROR")
 
     def _load_orchestra_settings(self):
         """Загружает настройки оркестратора"""
@@ -1270,6 +1465,10 @@ class DpiSettingsPage(BasePage):
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
             self.out_range_container.setVisible(is_direct_mode)
+
+            # Filter mode только для Zapret 2 Direct (не для zapret1 и bat)
+            is_zapret2_direct = method in ("direct", "direct_orchestra")
+            self.filter_mode_container.setVisible(is_zapret2_direct)
 
             # Discord restart только для Zapret 1/2 (без оркестратора)
             self.discord_restart_container.setVisible(is_zapret_mode)
