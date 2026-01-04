@@ -13,12 +13,36 @@ WRONG (slow):              RIGHT (fast):
 4. Wait...                3. Done!
 ```
 
-### 1. AT SESSION START:
+### 1. EXPLORE FIRST - UNDERSTAND BEFORE FIXING:
+
+**BEFORE calling any editor agents, ALWAYS call Explore agent first!**
+
+```
+WRONG:                          RIGHT:
+─────────                       ─────────
+1. User asks to fix bug         1. User asks to fix bug
+2. Immediately call editor      2. Call Explore agent first:
+   agent to fix                    "How does X work? Show me
+3. Agent breaks code               related files and logic"
+   (didn't understand)          3. READ and UNDERSTAND the response
+                                4. NOW call editor agents with
+                                   full context
+```
+
+**Explore agent tasks:**
+- "How does DPIManager start winws2?"
+- "Show me all files related to strategy loading"
+- "What functions use the registry?"
+- "Explain the flow from button click to process start"
+
+**Only AFTER you understand the code, launch editor agents!**
+
+### 2. AT SESSION START:
 1. Read TODO.md for current tasks
 2. Write your tasks to TODO.md
 3. **YOU ARE MANAGER!** Don't edit code yourself, delegate to agents
 
-### 2. ALWAYS USE AGENTS (minimum 3-5 parallel!):
+### 3. ALWAYS USE AGENTS (minimum 3-5 parallel!):
 
 | Task | Agent | Required |
 |------|-------|----------|
@@ -29,12 +53,12 @@ WRONG (slow):              RIGHT (fast):
 | After changes | `qa-reviewer` | RECOMMENDED |
 | UI/UX styles | `ui-designer` | RECOMMENDED |
 
-### 3. NEVER DO YOURSELF:
+### 4. NEVER DO YOURSELF:
 - Don't edit files directly (use agents!)
 - Don't search code via Grep/Glob directly (use Explore!)
 - Don't launch agents ONE BY ONE (launch 4-5 parallel!)
 
-### 4. DELEGATE PARALLEL:
+### 5. DELEGATE PARALLEL:
 - Launch 4-5 agents in ONE message
 - Split task into independent parts
 - Each agent gets own subtask
