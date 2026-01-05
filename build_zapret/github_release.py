@@ -84,7 +84,7 @@ GITHUB_CONFIG = {
     "upload_settings": {
         "use_cli_for_large_files": True,  # Использовать GitHub CLI для больших файлов
         "large_file_threshold_mb": 40,    # Порог в МБ для переключения на CLI
-        "retry_attempts": 3,               # Количество попыток при ошибках
+        "retry_attempts": 10,              # Количество попыток при ошибках
         "chunk_size_mb": 5                # Размер чанка для загрузки
     }
 }
@@ -535,9 +535,10 @@ class GitHubReleaseManager:
         
         upload_url = f"https://uploads.github.com/repos/{self.repo_owner}/{self.repo_name}/releases/{release_id}/assets"
         
-        max_attempts = GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3)
-        
-        for attempt in range(max_attempts):
+        # Бесконечные попытки загрузки пока не получится
+        attempt = 0
+
+        while True:
             try:
                 upload_session = requests.Session()
                 upload_session.headers.update(self.headers)
@@ -602,21 +603,21 @@ class GitHubReleaseManager:
                 else:
                     raise Exception(f"HTTP {response.status_code}: {response.text}")
                     
-            except (requests.exceptions.ConnectionError, 
+            except (requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout,
-                    ConnectionAbortedError) as e:
-                if attempt < max_attempts - 1:
-                    wait_time = (attempt + 1) * 5
-                    if hasattr(self, 'log_queue') and self.log_queue:
-                        self.log_queue.put(
-                            f"⚠️ Ошибка загрузки (попытка {attempt + 1}/{max_attempts}): {type(e).__name__}. "
-                            f"Повтор через {wait_time} сек..."
-                        )
-                    time.sleep(wait_time)
-                else:
-                    raise
-        
-        raise Exception(f"Не удалось загрузить файл после {max_attempts} попыток")
+                    requests.exceptions.SSLError,
+                    ConnectionAbortedError,
+                    Exception) as e:
+                attempt += 1
+                # Увеличиваем время ожидания с каждой попыткой (макс 60 сек)
+                wait_time = min(attempt * 5, 60)
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put(
+                        f"⚠️ Ошибка загрузки (попытка {attempt}): {type(e).__name__}. "
+                        f"Повтор через {wait_time} сек..."
+                    )
+                time.sleep(wait_time)
+                # Продолжаем бесконечно
         
     def delete_asset(self, asset_id: int):
         """Удалить asset из release"""

@@ -250,7 +250,8 @@ class CategoriesTabPanel(QWidget):
         if 0 <= index < self.list_widget.count():
             item = self.list_widget.item(index)
             if item:
-                item.setToolTip(tooltip)
+                # PyQt6 requires HTML for line breaks in tooltips
+                item.setToolTip(tooltip.replace('\n', '<br>') if tooltip else '')
 
     def clear(self):
         """Очищает все вкладки"""

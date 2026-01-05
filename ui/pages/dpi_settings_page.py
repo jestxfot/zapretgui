@@ -112,30 +112,32 @@ class Win11ToggleRow(QWidget):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(1)
         text_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         title_label = QLabel(title)
         title_label.setStyleSheet("""
             QLabel {
+                background: transparent;
                 color: #ffffff;
                 font-size: 13px;
                 font-weight: 500;
             }
         """)
         text_layout.addWidget(title_label)
-        
+
         if description:
             desc_label = QLabel(description)
             desc_label.setWordWrap(True)
             desc_label.setStyleSheet("""
                 QLabel {
+                    background: transparent;
                     color: rgba(255, 255, 255, 0.5);
                     font-size: 11px;
                 }
             """)
             text_layout.addWidget(desc_label)
-            
+
         layout.addLayout(text_layout, 1)
-        
+
         # Toggle
         self.toggle = Win11ToggleSwitch()
         self.toggle.toggled.connect(self.toggled.emit)
@@ -435,6 +437,7 @@ class Win11ComboRow(QWidget):
         title_label = QLabel(title)
         title_label.setStyleSheet("""
             QLabel {
+                background: transparent;
                 color: #ffffff;
                 font-size: 13px;
                 font-weight: 500;
@@ -447,6 +450,7 @@ class Win11ComboRow(QWidget):
             desc_label.setWordWrap(True)
             desc_label.setStyleSheet("""
                 QLabel {
+                    background: transparent;
                     color: rgba(255, 255, 255, 0.5);
                     font-size: 11px;
                 }
@@ -462,18 +466,17 @@ class Win11ComboRow(QWidget):
         self.combo.setStyleSheet(f"""
             QComboBox {{
                 background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                border: none;
                 border-radius: 4px;
                 padding: 2px 10px;
                 color: #ffffff;
                 font-size: 12px;
             }}
             QComboBox:hover {{
-                background-color: #33444E;
-                border: 1px solid rgba(51, 68, 78, 0.8);
+                background-color: rgba(255, 255, 255, 0.10);
             }}
             QComboBox:focus {{
-                border: 1px solid {icon_color};
+                background-color: rgba(255, 255, 255, 0.12);
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -488,8 +491,9 @@ class Win11ComboRow(QWidget):
             }}
             QComboBox QAbstractItemView {{
                 background-color: #2d2d2d;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                selection-background-color: #33444E;
+                border: none;
+                border-radius: 8px;
+                selection-background-color: rgba(96, 205, 255, 0.2);
                 color: #ffffff;
                 outline: none;
             }}
@@ -680,25 +684,6 @@ class DpiSettingsPage(BasePage):
         out_range_layout.addWidget(self.out_range_youtube)
 
         method_layout.addWidget(self.out_range_container)
-
-        # ─────────────────────────────────────────────────────────────────────
-        # РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) - только для Zapret 2 Direct
-        # ─────────────────────────────────────────────────────────────────────
-        self.filter_mode_container = QWidget()
-        filter_mode_layout = QVBoxLayout(self.filter_mode_container)
-        filter_mode_layout.setContentsMargins(0, 0, 0, 0)
-        filter_mode_layout.setSpacing(0)
-
-        self.filter_mode_combo = Win11ComboRow(
-            "fa5s.filter", "Режим фильтрации",
-            "Hostlist - по доменам, IPset - по IP адресам", "#60cdff",
-            items=[
-                ("Hostlist", "hostlist"),
-                ("IPset", "ipset"),
-            ])
-        filter_mode_layout.addWidget(self.filter_mode_combo)
-
-        method_layout.addWidget(self.filter_mode_container)
 
         # Разделитель 2
         separator2 = QFrame()
@@ -916,9 +901,6 @@ class DpiSettingsPage(BasePage):
             # Out-range settings
             self._load_out_range_settings()
 
-            # Filter mode settings
-            self._load_filter_mode_settings()
-
             # Orchestra settings
             self._load_orchestra_settings()
 
@@ -1014,38 +996,6 @@ class DpiSettingsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка загрузки настроек out-range: {e}", "WARNING")
-
-    def _load_filter_mode_settings(self):
-        """Загружает настройку режима фильтрации (hostlist/ipset)"""
-        try:
-            from strategy_menu import get_filter_mode
-
-            # Загружаем текущее значение
-            current_mode = get_filter_mode()  # "hostlist" или "ipset"
-            self.filter_mode_combo.setCurrentData(current_mode, block_signals=True)
-
-            # Подключаем обработчик изменения
-            self.filter_mode_combo.currentIndexChanged.connect(self._on_filter_mode_changed)
-
-        except Exception as e:
-            log(f"Ошибка загрузки настройки filter_mode: {e}", "WARNING")
-
-    def _on_filter_mode_changed(self, index: int):
-        """Обработчик изменения режима фильтрации"""
-        try:
-            from strategy_menu import set_filter_mode, regenerate_preset_file
-
-            mode = self.filter_mode_combo.currentData()
-            if mode in ("hostlist", "ipset"):
-                set_filter_mode(mode)
-                log(f"Режим фильтрации изменён на: {mode}", "INFO")
-
-                # Перегенерируем preset файл с новым режимом фильтрации
-                # DPI НЕ перезапускаем - пользователь сам решит когда
-                regenerate_preset_file()
-
-        except Exception as e:
-            log(f"Ошибка изменения режима фильтрации: {e}", "ERROR")
 
     def _load_orchestra_settings(self):
         """Загружает настройки оркестратора"""
@@ -1465,10 +1415,6 @@ class DpiSettingsPage(BasePage):
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
             self.out_range_container.setVisible(is_direct_mode)
-
-            # Filter mode только для Zapret 2 Direct (не для zapret1 и bat)
-            is_zapret2_direct = method in ("direct", "direct_orchestra")
-            self.filter_mode_container.setVisible(is_zapret2_direct)
 
             # Discord restart только для Zapret 1/2 (без оркестратора)
             self.discord_restart_container.setVisible(is_zapret_mode)

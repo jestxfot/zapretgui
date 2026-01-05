@@ -13,10 +13,10 @@ from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
 from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
-    HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
+    HomePage, ControlPage, StrategiesPage, StrategyDetailPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
-    PresetConfigPage, StrategySortPage
+    PresetConfigPage
 )
 
 import qtawesome as qta
@@ -109,109 +109,109 @@ class MainWindowUI:
         self.strategies_page = StrategiesPage(self)
         self.pages_stack.addWidget(self.strategies_page)
 
-        # Сортировка стратегий (индекс 3)
-        self.strategy_sort_page = StrategySortPage(self)
-        self.pages_stack.addWidget(self.strategy_sort_page)
+        # Детальная страница выбора стратегий для категории (индекс 3)
+        self.strategy_detail_page = StrategyDetailPage(self)
+        self.pages_stack.addWidget(self.strategy_detail_page)
 
         # Конфиг preset-zapret2.txt (индекс 4)
         self.preset_config_page = PresetConfigPage(self)
         self.pages_stack.addWidget(self.preset_config_page)
 
-        # Hostlist (индекс 5)
+        # Hostlist (индекс 6)
         self.hostlist_page = HostlistPage(self)
         self.pages_stack.addWidget(self.hostlist_page)
 
-        # IPset (индекс 6)
+        # IPset (индекс 7)
         self.ipset_page = IpsetPage(self)
         self.pages_stack.addWidget(self.ipset_page)
 
-        # Блобы - управление бинарными данными для Zapret 2 (индекс 7)
+        # Блобы - управление бинарными данными для Zapret 2 (индекс 8)
         self.blobs_page = BlobsPage(self)
         self.pages_stack.addWidget(self.blobs_page)
 
-        # Редактор стратегий (индекс 8)
+        # Редактор стратегий (индекс 9)
         self.editor_page = EditorPage(self)
         self.pages_stack.addWidget(self.editor_page)
 
-        # Настройки DPI (индекс 9)
+        # Настройки DPI (индекс 10)
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
 
         # === МОИ СПИСКИ ===
-        # Исключения netrogat.txt (индекс 10)
+        # Исключения netrogat.txt (индекс 11)
         self.netrogat_page = NetrogatPage(self)
         self.pages_stack.addWidget(self.netrogat_page)
 
-        # Мои домены - управление other2.txt (индекс 11)
+        # Мои домены - управление other2.txt (индекс 12)
         self.custom_domains_page = CustomDomainsPage(self)
         self.pages_stack.addWidget(self.custom_domains_page)
 
-        # Мои IP - управление my-ipset.txt (индекс 12)
+        # Мои IP - управление my-ipset.txt (индекс 13)
         self.custom_ipset_page = CustomIpSetPage(self)
         self.pages_stack.addWidget(self.custom_ipset_page)
         # === КОНЕЦ МОИ СПИСКИ ===
 
-        # Автозапуск (индекс 13)
+        # Автозапуск (индекс 14)
         self.autostart_page = AutostartPage(self)
         self.pages_stack.addWidget(self.autostart_page)
 
-        # Сеть (индекс 14)
+        # Сеть (индекс 15)
         self.network_page = NetworkPage(self)
         self.pages_stack.addWidget(self.network_page)
 
-        # Диагностика соединения (индекс 15)
+        # Диагностика соединения (индекс 16)
         self.connection_page = ConnectionTestPage(self)
         self.pages_stack.addWidget(self.connection_page)
 
-        # DNS подмена - подпункт диагностики (индекс 16)
+        # DNS подмена - подпункт диагностики (индекс 17)
         self.dns_check_page = DNSCheckPage(self)
         self.pages_stack.addWidget(self.dns_check_page)
 
-        # Hosts - разблокировка сервисов (индекс 17)
+        # Hosts - разблокировка сервисов (индекс 18)
         self.hosts_page = HostsPage(self)
         self.pages_stack.addWidget(self.hosts_page)
 
-        # BlockCheck (индекс 18)
+        # BlockCheck (индекс 19)
         self.blockcheck_page = BlockcheckPage(self)
         self.pages_stack.addWidget(self.blockcheck_page)
 
-        # Оформление (индекс 19)
+        # Оформление (индекс 20)
         self.appearance_page = AppearancePage(self)
         self.pages_stack.addWidget(self.appearance_page)
 
-        # Premium (индекс 20)
+        # Premium (индекс 21)
         self.premium_page = PremiumPage(self)
         self.pages_stack.addWidget(self.premium_page)
 
-        # Логи (индекс 21)
+        # Логи (индекс 22)
         self.logs_page = LogsPage(self)
         self.pages_stack.addWidget(self.logs_page)
 
-        # Серверы обновлений (индекс 22)
+        # Серверы обновлений (индекс 23)
         self.servers_page = ServersPage(self)
         self.pages_stack.addWidget(self.servers_page)
 
-        # О программе (индекс 23)
+        # О программе (индекс 24)
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
 
-        # Оркестр - автообучение (индекс 24, скрытая вкладка)
+        # Оркестр - автообучение (индекс 25, скрытая вкладка)
         self.orchestra_page = OrchestraPage(self)
         self.pages_stack.addWidget(self.orchestra_page)
 
-        # Залоченные стратегии оркестратора (индекс 25, вместо Hostlist при оркестраторе)
+        # Залоченные стратегии оркестратора (индекс 26, вместо Hostlist при оркестраторе)
         self.orchestra_locked_page = OrchestraLockedPage(self)
         self.pages_stack.addWidget(self.orchestra_locked_page)
 
-        # Заблокированные стратегии оркестратора (индекс 26, вместо IPset при оркестраторе)
+        # Заблокированные стратегии оркестратора (индекс 27, вместо IPset при оркестраторе)
         self.orchestra_blocked_page = OrchestraBlockedPage(self)
         self.pages_stack.addWidget(self.orchestra_blocked_page)
 
-        # Белый список оркестратора (индекс 27, вместо Исключений при оркестраторе)
+        # Белый список оркестратора (индекс 28, вместо Исключений при оркестраторе)
         self.orchestra_whitelist_page = OrchestraWhitelistPage(self)
         self.pages_stack.addWidget(self.orchestra_whitelist_page)
 
-        # История стратегий с рейтингами (индекс 28)
+        # История стратегий с рейтингами (индекс 29)
         self.orchestra_ratings_page = OrchestraRatingsPage(self)
         self.pages_stack.addWidget(self.orchestra_ratings_page)
 
@@ -247,6 +247,15 @@ class MainWindowUI:
         # Подключаем сигнал выбора стратегии из новой страницы
         if hasattr(self.strategies_page, 'strategy_selected'):
             self.strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+
+        # Подключаем навигацию к детальной странице стратегий
+        if hasattr(self.strategies_page, 'open_category_detail'):
+            self.strategies_page.open_category_detail.connect(self._on_open_category_detail)
+
+        # Подключаем сигналы от детальной страницы стратегий
+        if hasattr(self, 'strategy_detail_page'):
+            self.strategy_detail_page.back_clicked.connect(self._on_strategy_detail_back)
+            self.strategy_detail_page.strategy_selected.connect(self._on_strategy_detail_selected)
         
         # Сигналы от страницы автозапуска
         self.autostart_page.autostart_enabled.connect(self._on_autostart_enabled)
@@ -298,14 +307,6 @@ class MainWindowUI:
         # Подключаем сигналы от OrchestraPage
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
-
-        # Связываем страницу сортировки со страницей стратегий (асинхронное обновление фильтров)
-        self.strategy_sort_page.filters_changed.connect(
-            self.strategies_page.on_external_filters_changed
-        )
-        self.strategy_sort_page.sort_changed.connect(
-            self.strategies_page.on_external_sort_changed
-        )
 
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""
@@ -796,3 +797,53 @@ class MainWindowUI:
             self.pages_stack.setCurrentIndex(index)
             # Затем обновляем sidebar для синхронизации выделения
             self.side_nav.set_page(index)
+
+    def _on_open_category_detail(self, category_key: str, current_strategy_id: str):
+        """Обработчик открытия детальной страницы категории"""
+        from log import log
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                log(f"Категория не найдена: {category_key}", "WARNING")
+                return
+
+            # Показываем детальную страницу с данными категории
+            self.strategy_detail_page.show_category(category_key, category_info, current_strategy_id)
+
+            # Переключаемся на детальную страницу
+            index = self.pages_stack.indexOf(self.strategy_detail_page)
+            if index >= 0:
+                self.pages_stack.setCurrentIndex(index)
+
+        except Exception as e:
+            log(f"Ошибка открытия детальной страницы: {e}", "ERROR")
+
+    def _on_strategy_detail_back(self):
+        """Обработчик кнопки 'Назад' на детальной странице"""
+        from log import log
+        # Возвращаемся на страницу стратегий
+        index = self.pages_stack.indexOf(self.strategies_page)
+        if index >= 0:
+            self.pages_stack.setCurrentIndex(index)
+            # Обновляем sidebar для синхронизации выделения
+            self.side_nav.set_page(index)
+        log("Возврат на страницу стратегий", "DEBUG")
+
+    def _on_strategy_detail_selected(self, category_key: str, strategy_id: str):
+        """Обработчик выбора стратегии на детальной странице"""
+        from log import log
+        from PyQt6.QtCore import QTimer
+        try:
+            # Применяем выбор через strategies_page
+            self.strategies_page.apply_strategy_selection(category_key, strategy_id)
+            # Остаёмся на странице - пользователь сам вернётся когда захочет
+            log(f"Применена стратегия: {category_key} = {strategy_id}", "INFO")
+
+            # Показываем галочку успеха после задержки (время на перезапуск DPI)
+            if strategy_id != "none":
+                QTimer.singleShot(1500, self.strategy_detail_page.show_success)
+
+        except Exception as e:
+            log(f"Ошибка применения стратегии: {e}", "ERROR")

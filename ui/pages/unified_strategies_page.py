@@ -10,6 +10,7 @@ from PyQt6.QtCore import pyqtSignal
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from ui.widgets import UnifiedStrategiesList
+from ui.widgets.strategy_selection_dialog import StrategySelectionDialog
 from log import log
 
 
@@ -79,7 +80,7 @@ class UnifiedStrategiesPage(BasePage):
 
             # Создаем unified список
             self._unified_list = UnifiedStrategiesList(self)
-            self._unified_list.strategy_selected.connect(self._on_strategy_selected)
+            self._unified_list.strategy_selected.connect(self._open_strategy_dialog)
             self._unified_list.selections_changed.connect(self._on_selections_changed)
 
             # Строим список
@@ -96,8 +97,29 @@ class UnifiedStrategiesPage(BasePage):
             import traceback
             log(traceback.format_exc(), "DEBUG")
 
-    def _on_strategy_selected(self, category_key: str, strategy_id: str):
-        """Обработчик выбора стратегии из ComboBox в списке"""
+    def _open_strategy_dialog(self, category_key: str, current_strategy_id: str):
+        """Открывает диалог выбора стратегии для категории"""
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                return
+
+            dialog = StrategySelectionDialog(
+                category_key=category_key,
+                category_info=category_info,
+                current_strategy_id=current_strategy_id,
+                parent=self
+            )
+            dialog.strategy_selected.connect(self._on_dialog_strategy_selected)
+            dialog.exec()
+
+        except Exception as e:
+            log(f"Ошибка открытия диалога: {e}", "ERROR")
+
+    def _on_dialog_strategy_selected(self, category_key: str, strategy_id: str, args: list):
+        """Обработчик выбора стратегии в диалоге"""
         try:
             from strategy_menu import save_direct_strategy_selection, regenerate_preset_file
 
@@ -105,14 +127,16 @@ class UnifiedStrategiesPage(BasePage):
             save_direct_strategy_selection(category_key, strategy_id)
             self.category_selections[category_key] = strategy_id
 
-            # Обновляем UI
+            # Обновляем UI (нужно получить название стратегии)
             if self._unified_list:
+                from strategy_menu.strategies_registry import registry
+                name = registry.get_strategy_name_safe(category_key, strategy_id) if strategy_id != 'none' else "Отключено"
                 self._unified_list.update_selection(category_key, strategy_id)
 
             # Перегенерируем preset
             regenerate_preset_file()
 
-            # Эмитим сигнал
+            # Эмитим сигналы
             self.strategy_selected.emit(category_key, strategy_id)
             self.strategies_changed.emit(self.category_selections)
 

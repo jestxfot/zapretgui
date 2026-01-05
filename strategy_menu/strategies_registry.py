@@ -13,6 +13,7 @@
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass, field
 from log import log
+from .command_builder import build_syndata_args, build_category_args, strip_payload_from_args, get_filter_mode
 
 # ==================== LAZY IMPORTS ====================
 
@@ -87,44 +88,6 @@ def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> 
         log(f"Ошибка загрузки JSON стратегий типа '{strategy_type}': {e}", "WARNING")
 
     return {}
-
-
-# Кэш для strip_payload результатов (оптимизация - избегаем повторных regex)
-_strip_payload_cache: Dict[str, str] = {}
-
-
-def _strip_payload_from_args(args: str) -> str:
-    """
-    Удаляет --payload=... из аргументов стратегии.
-
-    Используется для IPset категорий без фильтра портов,
-    чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS/HTTP.
-
-    Args:
-        args: Строка аргументов стратегии
-
-    Returns:
-        Строка аргументов без --payload=
-    """
-    # Кэширование для оптимизации
-    if args in _strip_payload_cache:
-        return _strip_payload_cache[args]
-
-    import re
-
-    # Убираем --payload=... (например: --payload=tls_client_hello или --payload=http_req)
-    result = re.sub(r'--payload=[^\s]+\s*', '', args)
-
-    # Также убираем --filter-l7=... если есть (это фильтр по типу трафика)
-    result = re.sub(r'--filter-l7=[^\s]+\s*', '', result)
-
-    # Очищаем множественные пробелы
-    result = ' '.join(result.split())
-
-    # Кэшируем результат
-    _strip_payload_cache[args] = result
-
-    return result
 
 
 def _lazy_import_base_strategies(strategy_type: str) -> Dict:
@@ -300,7 +263,8 @@ def get_category_icon(category_key: str):
         return qta.icon('fa5s.globe', color='#2196F3')
     except:
         return None
-    
+
+
 # ==================== ОСНОВНЫЕ ФУНКЦИИ ====================
 
 class StrategiesRegistry:
@@ -399,9 +363,8 @@ class StrategiesRegistry:
 
         strategy_type = category_info.strategy_type
 
-        # Выбираем base_filter на основе filter_mode из настроек
-        from strategy_menu import get_filter_mode
-        filter_mode = get_filter_mode()  # "hostlist" или "ipset"
+        # Выбираем base_filter на основе filter_mode из реестра (ПО КАТЕГОРИИ)
+        filter_mode = get_filter_mode(category_key)
 
         # Определяем какой фильтр использовать
         if category_info.base_filter_ipset and category_info.base_filter_hostlist:
@@ -431,13 +394,7 @@ class StrategiesRegistry:
         # Если args пустой - категория отключена
         if not base_args:
             return ""
-        
-        # ✅ Если strip_payload=True - убираем --payload= из аргументов
-        # Это нужно для IPset категорий без фильтра портов,
-        # чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS
-        if category_info.strip_payload:
-            base_args = _strip_payload_from_args(base_args)
-        
+
         # Для discord_voice - проверяем, содержит ли args уже фильтры
         if strategy_type == "discord_voice":
             if "--filter-" in base_args or "--new" in base_args:
@@ -445,13 +402,8 @@ class StrategiesRegistry:
                 return base_args
             # Простая стратегия - добавляем base_filter
 
-        # Склеиваем: base_filter + техника
-        if base_filter and base_args:
-            return f"{base_filter} {base_args}"
-        elif base_filter:
-            return base_filter
-        else:
-            return base_args
+        # Склеиваем: base_filter + syndata + техника (через command_builder)
+        return build_category_args(base_filter, base_args, category_key, category_info.strip_payload)
 
     def get_strategy_name_safe(self, category_key: str, strategy_id: str) -> str:
         """Получить имя стратегии"""

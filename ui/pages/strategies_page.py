@@ -1,13 +1,13 @@
 # ui/pages/strategies_page.py
 """
-Новая страница выбора стратегий с единым списком и фильтрацией.
-Заменяет старый CategoriesTabPanel на UnifiedStrategiesList.
+Страница выбора стратегий с единым списком категорий.
+При клике на категорию открывается отдельная страница StrategyDetailPage.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QSizePolicy, QMessageBox, QDialog
+    QFrame, QPushButton, QSizePolicy, QMessageBox
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
@@ -16,227 +16,6 @@ from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from ui.widgets import UnifiedStrategiesList
 from log import log
-
-
-class StrategySelectionDialog(QDialog):
-    """
-    Диалог выбора стратегии для конкретной категории.
-    Открывается при клике на категорию в UnifiedStrategiesList.
-    """
-
-    strategy_selected = pyqtSignal(str, str)  # (category_key, strategy_id)
-
-    def __init__(self, category_key: str, category_info, current_strategy: str, parent=None):
-        super().__init__(parent)
-        self._category_key = category_key
-        self._category_info = category_info
-        self._current_strategy = current_strategy
-        self._build_ui()
-
-    def _build_ui(self):
-        """Создает UI диалога"""
-        self.setWindowTitle(f"Выбор стратегии: {self._category_info.full_name}")
-        self.setMinimumSize(550, 450)
-        self.setStyleSheet("""
-            QDialog {
-                background: #1a1a1a;
-            }
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        # Заголовок
-        header = QLabel(self._category_info.full_name)
-        header.setFont(QFont("Segoe UI Semibold", 14))
-        header.setStyleSheet("color: white;")
-        layout.addWidget(header)
-
-        # Описание
-        if hasattr(self._category_info, 'description') and self._category_info.description:
-            desc = QLabel(self._category_info.description)
-            desc.setStyleSheet("color: rgba(255,255,255,0.6);")
-            desc.setWordWrap(True)
-            layout.addWidget(desc)
-
-        # Scroll area для списка стратегий
-        from PyQt6.QtWidgets import QScrollArea
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                width: 6px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 3px;
-                min-height: 20px;
-            }
-        """)
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(4)
-
-        # Загружаем стратегии для этой категории
-        self._load_strategies(content_layout)
-
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll, 1)
-
-        # Кнопки
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch()
-
-        # Кнопка "Отключить"
-        disable_btn = QPushButton("Отключить")
-        disable_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 100, 100, 0.2);
-                border: 1px solid rgba(255, 100, 100, 0.3);
-                border-radius: 6px;
-                color: #ff6464;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 100, 100, 0.3);
-            }
-        """)
-        disable_btn.clicked.connect(self._on_disable)
-        buttons_layout.addWidget(disable_btn)
-
-        # Кнопка "Отмена"
-        cancel_btn = QPushButton("Отмена")
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: rgba(255, 255, 255, 0.8);
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-        """)
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(cancel_btn)
-
-        layout.addLayout(buttons_layout)
-
-    def _load_strategies(self, layout: QVBoxLayout):
-        """Загружает список стратегий для категории"""
-        try:
-            from strategy_menu.strategies_registry import registry
-
-            strategies = registry.get_category_strategies(self._category_key)
-            if not strategies:
-                label = QLabel("Нет доступных стратегий")
-                label.setStyleSheet("color: rgba(255,255,255,0.5);")
-                layout.addWidget(label)
-                return
-
-            for strategy_id, strategy_data in strategies.items():
-                item = self._create_strategy_item(strategy_id, strategy_data)
-                layout.addWidget(item)
-
-        except Exception as e:
-            log(f"Ошибка загрузки стратегий: {e}", "ERROR")
-
-    def _create_strategy_item(self, strategy_id: str, strategy_data: dict) -> QFrame:
-        """Создает элемент стратегии"""
-        frame = QFrame()
-        frame.setCursor(Qt.CursorShape.PointingHandCursor)
-        frame.setProperty("strategy_id", strategy_id)
-
-        is_selected = strategy_id == self._current_strategy
-
-        if is_selected:
-            frame.setStyleSheet("""
-                QFrame {
-                    background: rgba(96, 205, 255, 0.15);
-                    border: 1px solid rgba(96, 205, 255, 0.3);
-                    border-radius: 6px;
-                }
-                QFrame:hover {
-                    background: rgba(96, 205, 255, 0.2);
-                }
-            """)
-        else:
-            frame.setStyleSheet("""
-                QFrame {
-                    background: rgba(255, 255, 255, 0.03);
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                    border-radius: 6px;
-                }
-                QFrame:hover {
-                    background: rgba(255, 255, 255, 0.06);
-                }
-            """)
-
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
-
-        # Название
-        name = strategy_data.get('name', strategy_id)
-        name_label = QLabel(name)
-        name_label.setFont(QFont("Segoe UI", 10))
-        name_label.setStyleSheet("color: white; background: transparent;")
-        layout.addWidget(name_label)
-
-        # Описание
-        desc = strategy_data.get('description', '')
-        if desc:
-            desc_label = QLabel(desc)
-            desc_label.setStyleSheet("color: rgba(255,255,255,0.5); background: transparent;")
-            desc_label.setWordWrap(True)
-            layout.addWidget(desc_label)
-
-        # Label (если есть)
-        label = strategy_data.get('label', '')
-        if label:
-            label_colors = {
-                "recommended": ("#4CAF50", "Рекомендуется"),
-                "experimental": ("#ff9800", "Экспериментальная"),
-                "game": ("#9c27b0", "Для игр"),
-                "caution": ("#f44336", "Осторожно"),
-            }
-            if label in label_colors:
-                color, text = label_colors[label]
-                badge = QLabel(text)
-                badge.setFont(QFont("Segoe UI", 8))
-                badge.setStyleSheet(f"""
-                    QLabel {{
-                        background: {color}30;
-                        color: {color};
-                        border: 1px solid {color}50;
-                        border-radius: 8px;
-                        padding: 2px 8px;
-                    }}
-                """)
-                layout.addWidget(badge)
-
-        # Обработчик клика
-        frame.mousePressEvent = lambda e, sid=strategy_id: self._on_strategy_clicked(sid)
-
-        return frame
-
-    def _on_strategy_clicked(self, strategy_id: str):
-        """Обработчик выбора стратегии"""
-        self.strategy_selected.emit(self._category_key, strategy_id)
-        self.accept()
-
-    def _on_disable(self):
-        """Отключает категорию"""
-        self.strategy_selected.emit(self._category_key, "none")
-        self.accept()
 
 
 class ResetActionButton(QPushButton):
@@ -313,15 +92,16 @@ class ResetActionButton(QPushButton):
 
 class StrategiesPage(BasePage):
     """
-    Новая страница выбора стратегий с единым списком и фильтрацией.
+    Страница выбора стратегий с единым списком категорий.
 
-    Использует UnifiedStrategiesList вместо CategoriesTabPanel.
-    Поддерживает фильтрацию по TCP/UDP/Discord/Voice/Games.
+    При клике на категорию эмитит сигнал open_category_detail для навигации
+    к отдельной странице StrategyDetailPage.
     """
 
     strategy_selected = pyqtSignal(str, str)  # category_key, strategy_id
     strategies_changed = pyqtSignal(dict)  # все выборы
     launch_method_changed = pyqtSignal(str)  # для совместимости
+    open_category_detail = pyqtSignal(str, str)  # category_key, current_strategy_id
 
     def __init__(self, parent=None):
         super().__init__(
@@ -363,7 +143,57 @@ class StrategiesPage(BasePage):
             from strategy_menu.strategies_registry import registry
             from strategy_menu import get_direct_strategy_selections
 
-            # Панель действий
+            # Карточка с кнопкой Telegram (выделенная, акцентная)
+            telegram_card = SettingsCard()
+            telegram_layout = QHBoxLayout()
+            telegram_layout.setContentsMargins(0, 0, 0, 0)
+            telegram_layout.setSpacing(16)
+
+            # Описательный текст слева
+            telegram_hint = QLabel("Хотите добавить свою категорию? Напишите нам!")
+            telegram_hint.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    color: rgba(255, 255, 255, 0.6);
+                    font-size: 13px;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }
+            """)
+            telegram_layout.addWidget(telegram_hint)
+
+            # Кнопка Telegram - тёмная
+            telegram_btn = QPushButton("  ОТКРЫТЬ TELEGRAM БОТА")
+            telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color="#ffffff"))
+            telegram_btn.setIconSize(QSize(18, 18))
+            telegram_btn.setFixedHeight(36)
+            telegram_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            telegram_btn.clicked.connect(self._open_custom_domains)
+            telegram_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2d2d2d;
+                    border: 1px solid #3d3d3d;
+                    border-radius: 6px;
+                    color: #ffffff;
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }
+                QPushButton:hover {
+                    background-color: #3a3a3a;
+                    border-color: #4a4a4a;
+                }
+                QPushButton:pressed {
+                    background-color: #252525;
+                }
+            """)
+            telegram_layout.addWidget(telegram_btn)
+            telegram_layout.addStretch()
+
+            telegram_card.add_layout(telegram_layout)
+            self.content_layout.addWidget(telegram_card)
+
+            # Панель действий (toolbar)
             actions_card = SettingsCard()
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
@@ -391,13 +221,14 @@ class StrategiesPage(BasePage):
             actions_layout.addWidget(self._clear_btn)
 
             actions_layout.addStretch()
+
             actions_card.add_layout(actions_layout)
             self.content_layout.addWidget(actions_card)
 
             # Загружаем выборы из реестра
             self.category_selections = get_direct_strategy_selections()
 
-            # Создаем unified список
+            # Список категорий (без правой панели - теперь отдельная страница)
             self._unified_list = UnifiedStrategiesList(self)
             self._unified_list.strategy_selected.connect(self._on_category_clicked)
             self._unified_list.selections_changed.connect(self._on_selections_changed)
@@ -409,7 +240,7 @@ class StrategiesPage(BasePage):
             self.content_layout.addWidget(self._unified_list, 1)
 
             self._built = True
-            log("StrategiesPage (новая) построена", "INFO")
+            log("StrategiesPage построена", "INFO")
 
         except Exception as e:
             log(f"Ошибка построения StrategiesPage: {e}", "ERROR")
@@ -417,27 +248,15 @@ class StrategiesPage(BasePage):
             log(traceback.format_exc(), "DEBUG")
 
     def _on_category_clicked(self, category_key: str, strategy_id: str):
-        """Обработчик клика по категории - открывает диалог выбора"""
+        """Обработчик клика по категории - открывает страницу выбора стратегий"""
         try:
-            from strategy_menu.strategies_registry import registry
-
-            category_info = registry.get_category_info(category_key)
-            if not category_info:
-                return
-
             current_strategy = self.category_selections.get(category_key, 'none')
-
-            dialog = StrategySelectionDialog(
-                category_key, category_info, current_strategy, self
-            )
-            dialog.strategy_selected.connect(self._on_strategy_selected)
-            dialog.exec()
-
+            self.open_category_detail.emit(category_key, current_strategy)
         except Exception as e:
-            log(f"Ошибка открытия диалога: {e}", "ERROR")
+            log(f"Ошибка открытия детальной страницы: {e}", "ERROR")
 
-    def _on_strategy_selected(self, category_key: str, strategy_id: str):
-        """Обработчик выбора стратегии в диалоге"""
+    def apply_strategy_selection(self, category_key: str, strategy_id: str):
+        """Применяет выбор стратегии (вызывается из StrategyDetailPage)"""
         try:
             from strategy_menu import (
                 save_direct_strategy_selection,
@@ -678,3 +497,8 @@ class StrategiesPage(BasePage):
     def reload_for_mode_change(self):
         """Совместимость: перезагружает страницу при смене режима"""
         self._reload_strategies()
+
+    def _open_custom_domains(self):
+        """Открывает Telegram канал с инструкциями по добавлению сайтов"""
+        from config.telegram_links import open_telegram_link
+        open_telegram_link("zaprethelp", post=18408)

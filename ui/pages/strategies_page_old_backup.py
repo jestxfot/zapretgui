@@ -16,6 +16,7 @@ from typing import List
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from ui.widgets import StrategySearchBar
+from ui.widgets.win11_spinner import Win11Spinner
 from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from strategy_menu.strategy_info import StrategyInfo
 from config import BAT_FOLDER, INDEXJSON_FOLDER

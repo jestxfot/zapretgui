@@ -138,34 +138,58 @@ ICON_LARGE = 20
 
 ### Карточки и контейнеры
 
+**ВАЖНО: НЕ используй border! Только фон и border-radius.**
+
 ```css
-/* SettingsCard стиль */
+/* SettingsCard стиль - БЕЗ BORDER! */
 QFrame {
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: none;  /* НЕ используй border! */
     border-radius: 8px;
     padding: 16px;
 }
 QFrame:hover {
     background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 ```
+
+### Вложенные элементы (ВАЖНО!)
+
+**Для labels/text внутри контейнеров с фоном - ВСЕГДА `background: transparent;`**
+
+```css
+/* Заголовок внутри карточки */
+QLabel {
+    background: transparent;  /* ОБЯЗАТЕЛЬНО! */
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Описание внутри карточки */
+QLabel {
+    background: transparent;  /* ОБЯЗАТЕЛЬНО! */
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+}
+```
+
+**Почему:** Без `background: transparent;` вложенные QLabel могут наследовать/перекрывать фон родителя, создавая эффект "двойного фона".
 
 ### Поля ввода
 
 ```css
+/* БЕЗ BORDER - только изменение фона при focus */
 QLineEdit, QComboBox {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    border: none;  /* НЕ используй border! */
     border-radius: 6px;
     color: #ffffff;
     padding: 8px 12px;
     selection-background-color: rgba(96, 205, 255, 0.3);
 }
 QLineEdit:focus, QComboBox:focus {
-    border: 1px solid #60cdff;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.08);  /* Подсветка фоном, не border */
 }
 ```
 

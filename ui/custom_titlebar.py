@@ -42,7 +42,8 @@ class DraggableWidget(QWidget):
     # Имена классов которые являются кликабельными
     INTERACTIVE_CLASS_NAMES = {
         "Win11RadioOption", "Win11ToggleRow", "Win11NumberRow",
-        "AutostartOptionCard", "ThemeCard", "StatusCard"
+        "AutostartOptionCard", "ThemeCard", "StatusCard",
+        "ClickableLabel",  # Кликабельный заголовок для breadcrumb навигации
     }
     
     def __init__(self, parent=None):

@@ -5,10 +5,8 @@
 """
 
 from typing import Dict, List, Set, Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QFrame, QSizePolicy
-)
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtCore import pyqtSignal
 
 from .filter_chip_button import FilterButtonGroup
 from .collapsible_group import CollapsibleGroup
@@ -78,7 +76,7 @@ class UnifiedStrategiesList(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        """Создает базовый UI"""
+        """Создает базовый UI (без вложенного scroll - используем scroll родителя)"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -88,43 +86,15 @@ class UnifiedStrategiesList(QWidget):
         self._filter_group.filters_changed.connect(self._on_filters_changed)
         layout.addWidget(self._filter_group)
 
-        # Scroll area для групп
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setStyleSheet("""
-            QScrollArea {
-                background: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                width: 6px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 3px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
-
-        # Контейнер для групп
+        # Контейнер для групп (без scroll - родитель BasePage уже scroll area)
         self._content = QWidget()
+        self._content.setStyleSheet("background: transparent;")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(0, 0, 8, 0)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(12)
         self._content_layout.addStretch()
 
-        self._scroll_area.setWidget(self._content)
-        layout.addWidget(self._scroll_area, 1)
+        layout.addWidget(self._content)
 
     def build_list(
         self,
@@ -188,10 +158,20 @@ class UnifiedStrategiesList(QWidget):
         log(f"UnifiedStrategiesList: построено {len(self._groups)} групп, "
             f"{len(self._items)} категорий", "INFO")
 
+    def _get_strategy_name(self, cat_key: str, strategy_id: str) -> str:
+        """Получает название стратегии по ID"""
+        if strategy_id == 'none':
+            return "Отключено"
+        try:
+            return registry.get_strategy_name_safe(cat_key, strategy_id)
+        except:
+            return strategy_id
+
     def _create_category_item(self, cat_key: str, cat_info) -> StrategyRadioItem:
         """Создает элемент для категории"""
         # Получаем текущую выбранную стратегию
         selected_strategy = self._selections.get(cat_key, 'none')
+        strategy_name = self._get_strategy_name(cat_key, selected_strategy)
 
         # Формируем описание
         desc_parts = []
@@ -201,29 +181,44 @@ class UnifiedStrategiesList(QWidget):
             desc_parts.append(f"порты: {cat_info.ports}")
         description = " | ".join(desc_parts) if desc_parts else ""
 
+        # Получаем tooltip
+        tooltip = getattr(cat_info, 'tooltip', '') or ""
+
+        # Determine list_type based on user's SELECTED filter mode (not availability)
+        # 'ipset' if user selected ipset, 'hostlist' if user selected hostlist, None if neither available
+        has_ipset = bool(getattr(cat_info, 'base_filter_ipset', ''))
+        has_hostlist = bool(getattr(cat_info, 'base_filter_hostlist', ''))
+        if has_ipset and has_hostlist:
+            # Get user's selected mode from registry
+            from strategy_menu.command_builder import get_filter_mode
+            list_type = get_filter_mode(cat_key)  # returns "hostlist" or "ipset"
+        elif has_ipset:
+            list_type = 'ipset'
+        elif has_hostlist:
+            list_type = 'hostlist'
+        else:
+            list_type = None
+
         item = StrategyRadioItem(
             category_key=cat_key,
             name=cat_info.full_name,
             description=description,
             icon_name=getattr(cat_info, 'icon_name', None),
             icon_color=getattr(cat_info, 'icon_color', '#2196F3'),
+            tooltip=tooltip,
+            list_type=list_type,
             parent=self
         )
-        item.selected.connect(self._on_item_selected)
-
-        # Загружаем стратегии в ComboBox
-        strategies = registry.get_category_strategies(cat_key)
-        item.load_strategies(strategies)
+        item.clicked.connect(self._on_item_clicked)
 
         # Устанавливаем выбранную стратегию
-        item.set_current_strategy(selected_strategy)
+        item.set_strategy(selected_strategy, strategy_name)
 
         return item
 
-    def _on_item_selected(self, category_key: str, strategy_id: str):
-        """Обработчик выбора стратегии из ComboBox"""
-        # Обновляем локальное состояние и пробрасываем сигнал наверх
-        self._selections[category_key] = strategy_id
+    def _on_item_clicked(self, category_key: str):
+        """Обработчик клика по элементу категории"""
+        strategy_id = self._selections.get(category_key, 'none')
         self.strategy_selected.emit(category_key, strategy_id)
 
     def _on_group_toggled(self, group_key: str, is_expanded: bool):
@@ -316,7 +311,8 @@ class UnifiedStrategiesList(QWidget):
         # Обновляем отображение элемента
         item = self._items.get(category_key)
         if item:
-            item.set_current_strategy(strategy_id)
+            strategy_name = self._get_strategy_name(category_key, strategy_id)
+            item.set_strategy(strategy_id, strategy_name)
 
         self.selections_changed.emit(self._selections)
 
@@ -330,7 +326,8 @@ class UnifiedStrategiesList(QWidget):
         for cat_key, strategy_id in selections.items():
             item = self._items.get(cat_key)
             if item:
-                item.set_current_strategy(strategy_id)
+                strategy_name = self._get_strategy_name(cat_key, strategy_id)
+                item.set_strategy(strategy_id, strategy_name)
 
     def reset_filters(self):
         """Сбрасывает фильтры"""

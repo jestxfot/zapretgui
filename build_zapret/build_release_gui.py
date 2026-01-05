@@ -1,6 +1,43 @@
 # build_zapret/build_release_gui.py
+"""
+Build Release Script - CLI и GUI для сборки Zapret
+
+===============================================================================
+БЫСТРАЯ СБОРКА ЧЕРЕЗ КОМАНДНУЮ СТРОКУ (для ИИ):
+===============================================================================
+
+# Сборка test канала (по умолчанию ислопьзовать её):
+ & C:/Users/Admin/AppData/Local/Microsoft/WindowsApps/python3.12.exe build_zapret/build_release_gui.py --cli
+
+# Сборка stable канала:
+ & C:/Users/Admin/AppData/Local/Microsoft/WindowsApps/python3.12.exe build_zapret/build_release_gui.py --cli --channel stable
+з
+# С указанием версии:
+ & C:/Users/Admin/AppData/Local/Microsoft/WindowsApps/python3.12.exe build_zapret/build_release_gui.py --cli --channel test --version 16.5.0.0
+
+# Только локальная сборка (используем редко, PyInstaller + Inno, без GitHub/SSH):
+ & C:/Users/Admin/AppData/Local/Microsoft/WindowsApps/python3.12.exe build_zapret/build_release_gui.py --cli --local-only
+
+# Запуск GUI (по умолчанию без аргументов):
+ & C:/Users/Admin/AppData/Local/Microsoft/WindowsApps/python3.12.exe build_zapret/build_release_gui.py
+
+===============================================================================
+АРГУМЕНТЫ CLI:
+===============================================================================
+
+--cli          : Режим командной строки (без GUI)
+--channel      : Канал сборки: test или stable (default: test)
+--version      : Версия X.X.X.X (default: следующая автоматически)
+--notes        : Release notes (default: "Zapret {version}")
+--local-only   : Только локальная сборка (без GitHub/SSH/Telegram)
+--no-telegram  : Без публикации в Telegram
+--method       : Метод: pyinstaller или nuitka (default: pyinstaller)
+
+===============================================================================
+"""
 
 from __future__ import annotations
+import argparse
 import ctypes, json, os, re, shutil, subprocess, sys, tempfile, textwrap, urllib.request
 from pathlib import Path
 from datetime import date
@@ -13,9 +50,9 @@ from queue import Queue
 import time
 
 
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ МОДУЛЕЙ СБОРКИ
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 
 # Импорт PyInstaller функций
 try:
@@ -48,9 +85,9 @@ except ImportError:
     def create_version_info(channel: str, version: str, root_path: Path) -> Path:
         raise ImportError("Модуль nuitka_builder недоступен")
 
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ GITHUB МОДУЛЯ
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 def setup_github_imports():
     """Настройка импорта GitHub модуля"""
     try:
@@ -100,9 +137,9 @@ def setup_github_imports():
 # Настраиваем импорт
 create_github_release, is_github_enabled, get_github_config_info, GITHUB_AVAILABLE = setup_github_imports()
 
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ SSH + TELEGRAM МОДУЛЯ
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 def setup_ssh_imports():
     """Настройка импорта SSH модуля"""
     try:
@@ -128,9 +165,9 @@ def check_telegram_configured() -> tuple[bool, str]:
     session_file = Path(__file__).parent / "zapret_uploader.session"
     
     if not session_file.exists():
-        return False, "⚠️ Требуется авторизация (telegram_auth_pyrogram.py)"
+        return False, "️ Требуется авторизация (telegram_auth_pyrogram.py)"
     
-    return True, "✅ Pyrogram сессия активна"
+    return True, " Pyrogram сессия активна"
 
 # Скрываем консоль Windows
 if sys.platform == "win32":
@@ -159,9 +196,9 @@ def find_project_root(start: Path) -> Path:
 
 ROOT = find_project_root(Path(__file__).resolve())
 
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, capture: bool = False):
     """Единая функция для запуска команд"""
     if isinstance(cmd, (list, tuple)):
@@ -203,7 +240,7 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
     if res.stderr and hasattr(run, 'log_queue'):
         for line in res.stderr.strip().split('\n'):
             if line.strip():
-                run.log_queue.put(f"❌ {line}")
+                run.log_queue.put(f"[X] {line}")
     
     # Проверяем код возврата
     if check and res.returncode != 0:
@@ -215,7 +252,7 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
             error_msg += f"\n\nВывод:\n{res.stdout}"
             
         if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"❌ {error_msg}")
+            run.log_queue.put(f"[X] {error_msg}")
             
         if capture:
             raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
@@ -408,7 +445,7 @@ def update_versions_file(channel: str, new_version: str):
             
     except Exception as e:
         if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
+            run.log_queue.put(f"️ Ошибка обновления версий: {e}")
 
 def _taskkill(exe: str):
     run(f'taskkill /F /T /IM "{exe}" >nul 2>&1', check=False)
@@ -478,9 +515,9 @@ def write_build_info(channel: str, version: str):
     if hasattr(run, 'log_queue'):
         run.log_queue.put("✔ build_info.py updated")
 
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 #  GUI КЛАСС
-# ════════════════════════════════════════════════════════════════
+# ================================================================
 class BuildReleaseGUI:
     def __init__(self):
         self.root = tk.Tk()
@@ -594,7 +631,7 @@ class BuildReleaseGUI:
         title_frame = ttk.Frame(main_container)
         title_frame.pack(fill='x', pady=(0, 20))
         
-        ttk.Label(title_frame, text="🚀 Zapret Release Builder", 
+        ttk.Label(title_frame, text=" Zapret Release Builder", 
                  style='Title.TLabel').pack(side='left')
         
         # Информация о версиях
@@ -613,7 +650,7 @@ class BuildReleaseGUI:
         # Информация о файле версий
         versions_file_path = Path(__file__).parent / "version_Local.json"
         file_info_label = ttk.Label(self.version_info_frame, 
-                                text=f"📄 Файл: {versions_file_path.name}", 
+                                text=f" Файл: {versions_file_path.name}", 
                                 style='Info.TLabel', foreground='gray')
         file_info_label.pack(anchor='w')
 
@@ -623,14 +660,14 @@ class BuildReleaseGUI:
         github_frame.pack(fill='x', pady=(0, 15))
         
         if not GITHUB_AVAILABLE:
-            ttk.Label(github_frame, text="❌ GitHub модуль недоступен!", 
+            ttk.Label(github_frame, text="[X] GitHub модуль недоступен!", 
                      style='Info.TLabel', foreground='red').pack(side='left')
         elif not is_github_enabled():
-            ttk.Label(github_frame, text="⚠️ GitHub не настроен! Настройте токен в build_tools/github_release.py", 
+            ttk.Label(github_frame, text="️ GitHub не настроен! Настройте токен в build_tools/github_release.py", 
                      style='Info.TLabel', foreground='orange').pack(side='left')
         else:
             status_text = get_github_config_info()
-            ttk.Label(github_frame, text=f"✅ {status_text}", 
+            ttk.Label(github_frame, text=f" {status_text}", 
                      style='Info.TLabel', foreground='green').pack(side='left')
 
         # SSH статус
@@ -639,14 +676,14 @@ class BuildReleaseGUI:
         ssh_frame.pack(fill='x', pady=(0, 15))
 
         if not SSH_AVAILABLE:
-            ttk.Label(ssh_frame, text="❌ SSH модуль недоступен!", 
+            ttk.Label(ssh_frame, text="[X] SSH модуль недоступен!", 
                     style='Info.TLabel', foreground='red').pack(side='left')
         elif not is_ssh_configured():
-            ttk.Label(ssh_frame, text="⚠️ SSH не настроен (установите: pip install paramiko)", 
+            ttk.Label(ssh_frame, text="️ SSH не настроен (установите: pip install paramiko)", 
                     style='Info.TLabel', foreground='orange').pack(side='left')
         else:
             status_text = get_ssh_config_info()
-            ttk.Label(ssh_frame, text=f"✅ {status_text}", 
+            ttk.Label(ssh_frame, text=f" {status_text}", 
                     style='Info.TLabel', foreground='green').pack(side='left')
 
         # Telegram публикация
@@ -665,7 +702,7 @@ class BuildReleaseGUI:
         self.publish_telegram_var = tk.BooleanVar(value=telegram_ok)
         self.publish_telegram_check = ttk.Checkbutton(
             telegram_frame,
-            text="📢 Опубликовать в Telegram канал после SSH",
+            text=" Опубликовать в Telegram канал после SSH",
             variable=self.publish_telegram_var,
             state='normal' if telegram_ok else 'disabled'
         )
@@ -675,7 +712,7 @@ class BuildReleaseGUI:
         if not telegram_ok or not (Path(__file__).parent / "zapret_uploader.session").exists():
             auth_button = ttk.Button(
                 telegram_frame,
-                text="🔑 Авторизация Telegram",
+                text=" Авторизация Telegram",
                 command=self.run_telegram_auth
             )
             auth_button.pack(side='right', padx=(10, 0))
@@ -728,7 +765,7 @@ class BuildReleaseGUI:
         method_buttons_frame.pack(side='left', padx=(10, 0))
         
         # RadioButton для PyInstaller
-        pyinstaller_status = "✅" if PYINSTALLER_AVAILABLE and check_pyinstaller_available() else "❌"
+        pyinstaller_status = "" if PYINSTALLER_AVAILABLE and check_pyinstaller_available() else "[X]"
         self.pyinstaller_radio = ttk.Radiobutton(method_buttons_frame, 
                                                 text=f"PyInstaller {pyinstaller_status} (рекомендуется)", 
                                                 variable=self.build_method_var, 
@@ -736,7 +773,7 @@ class BuildReleaseGUI:
         self.pyinstaller_radio.pack(side='left', padx=(0, 20))
 
         # RadioButton для Nuitka
-        nuitka_status = "✅" if NUITKA_AVAILABLE and check_nuitka_available() else "❌"
+        nuitka_status = "" if NUITKA_AVAILABLE and check_nuitka_available() else "[X]"
         self.nuitka_radio = ttk.Radiobutton(method_buttons_frame, 
                                         text=f"Nuitka {nuitka_status} (быстрее)", 
                                         variable=self.build_method_var, 
@@ -820,7 +857,7 @@ class BuildReleaseGUI:
             self.versions_info = versions
             self.update_version_labels()
         except Exception as e:
-            self.log_queue.put(f"❌ Ошибка загрузки версий: {e}")
+            self.log_queue.put(f"[X] Ошибка загрузки версий: {e}")
             self.versions_info = {"stable": "16.2.1.3", "test": "16.4.1.9"}
             self.update_version_labels()
         
@@ -915,12 +952,12 @@ class BuildReleaseGUI:
         msg = f"Канал: {channel.upper()}\nВерсия: {version}\n"
         msg += f"Метод сборки: {build_method.upper()}\n\n"
         msg += "Релиз будет опубликован на:\n"
-        msg += "  • GitHub ✅\n"
+        msg += "  • GitHub \n"
         
         if SSH_AVAILABLE and is_ssh_configured():
-            msg += "  • SSH VPS ✅\n"
+            msg += "  • SSH VPS \n"
             if publish_telegram:
-                msg += "  • Telegram канал ✅\n"
+                msg += "  • Telegram канал \n"
         
         msg += "\nПродолжить сборку?"
         
@@ -980,11 +1017,11 @@ class BuildReleaseGUI:
                 self.root.after(0, lambda p=progress: self.progress_var.set(p))
                 time.sleep(0.5)
                 
-            self.log_queue.put("\n✅ СБОРКА ЗАВЕРШЕНА УСПЕШНО!")
+            self.log_queue.put("\n СБОРКА ЗАВЕРШЕНА УСПЕШНО!")
             self.root.after(0, self.build_complete)
             
         except Exception as e:
-            self.log_queue.put(f"\n❌ ОШИБКА: {str(e)}")
+            self.log_queue.put(f"\n[X] ОШИБКА: {str(e)}")
             import traceback
             self.log_queue.put(traceback.format_exc())
             self.root.after(0, lambda: self.build_error(str(e)))
@@ -1002,15 +1039,15 @@ class BuildReleaseGUI:
         self.log_queue.put(f"🔧 Канал: {channel.upper()}")
         
         if publish_telegram:
-            self.log_queue.put(f"📢 Telegram: будет опубликовано со 2-го сервера после деплоя")
+            self.log_queue.put(f" Telegram: будет опубликовано со 2-го сервера после деплоя")
         
-        # ✅ Вызываем функцию с флагом публикации
+        #  Вызываем функцию с флагом публикации
         success, message = deploy_to_all_servers(
             file_path=produced,
             channel=channel,
             version=version,
             notes=notes,
-            publish_telegram=publish_telegram,  # ✅ Передаём флаг
+            publish_telegram=publish_telegram,  #  Передаём флаг
             log_queue=self.log_queue
         )
         
@@ -1018,7 +1055,7 @@ class BuildReleaseGUI:
             raise Exception(f"SSH деплой не удался: {message}")
         
         self.log_queue.put(f"\n{'='*60}")
-        self.log_queue.put(f"✅ SSH ДЕПЛОЙ ЗАВЕРШЕН")
+        self.log_queue.put(f" SSH ДЕПЛОЙ ЗАВЕРШЕН")
         self.log_queue.put(f"{'='*60}")
         self.log_queue.put(message)
 
@@ -1060,7 +1097,7 @@ class BuildReleaseGUI:
         
         cmd = [
             str(iscc_path),
-            f'/DCHANNEL={channel}',  # ✅ Строковый канал: "stable" или "test"
+            f'/DCHANNEL={channel}',  #  Строковый канал: "stable" или "test"
             f'/DVERSION={version}',
             str(target_iss)
         ]
@@ -1088,14 +1125,14 @@ class BuildReleaseGUI:
                     if result.stdout:
                         self.log_queue.put(result.stdout)
                     if result.stderr:
-                        self.log_queue.put(f"❌ {result.stderr}")
+                        self.log_queue.put(f"[X] {result.stderr}")
                     raise RuntimeError(f"Inno Setup код: {result.returncode}")
                 
                 if not temp_file.exists():
                     raise FileNotFoundError(f"Не создан: {temp_file}")
                 
                 size_mb = temp_file.stat().st_size / 1024 / 1024
-                self.log_queue.put(f"✅ Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
+                self.log_queue.put(f" Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
                 
                 if final_file.exists():
                     backup = final_file.with_suffix('.old.exe')
@@ -1108,10 +1145,10 @@ class BuildReleaseGUI:
                         final_file.rename(backup)
                         self.log_queue.put(f"  → Старый файл → {backup.name}")
                     except Exception as e:
-                        self.log_queue.put(f"  ⚠️ Не удалось переместить старый: {e}")
+                        self.log_queue.put(f"  ️ Не удалось переместить старый: {e}")
                 
                 temp_file.rename(final_file)
-                self.log_queue.put(f"✅ Готово: {final_name}.exe")
+                self.log_queue.put(f" Готово: {final_name}.exe")
                 
                 # Удаляем старые бэкапы
                 def cleanup():
@@ -1133,7 +1170,7 @@ class BuildReleaseGUI:
                 time.sleep(3)
                 
             except Exception as e:
-                self.log_queue.put(f"❌ Ошибка: {e}")
+                self.log_queue.put(f"[X] Ошибка: {e}")
                 if temp_file.exists():
                     try:
                         temp_file.unlink()
@@ -1213,38 +1250,270 @@ class BuildReleaseGUI:
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
 
+# ================================================================
+#  CLI РЕЖИМ
+# ================================================================
+
+def cli_log(msg: str):
+    """Вывод в консоль для CLI режима"""
+    print(msg)
+
+def cli_build(args) -> int:
+    """
+    Сборка через командную строку (без GUI).
+    Возвращает 0 при успехе, 1 при ошибке.
+    """
+    import sys, io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
+    try:
+        channel = args.channel
+        version = args.version or get_suggested_version(channel)
+        version = normalize_to_4(version)
+        notes = args.notes or f"Zapret {version}"
+        method = args.method
+        local_only = args.local_only
+        no_telegram = args.no_telegram
+
+        print("\n" + "=" * 60)
+        print(" ZAPRET CLI BUILD")
+        print("=" * 60)
+        print(f"📦 Канал: {channel.upper()}")
+        print(f"📌 Версия: {version}")
+        print(f"🔧 Метод: {method}")
+        print(f"📝 Notes: {notes[:50]}..." if len(notes) > 50 else f"📝 Notes: {notes}")
+        if local_only:
+            print("️  Локальная сборка (без GitHub/SSH/Telegram)")
+        print("=" * 60 + "\n")
+
+        # Валидация версии
+        VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+        if not VERSION_RE.fullmatch(version):
+            print(f"[X] Неверный формат версии: {version}")
+            print("   Используйте формат X.X.X.X (4 цифры)")
+            return 1
+
+        # Проверка методов сборки
+        if method == "nuitka" and not NUITKA_AVAILABLE:
+            print("[X] Nuitka недоступна!")
+            return 1
+        if method == "pyinstaller" and not PYINSTALLER_AVAILABLE:
+            print("[X] PyInstaller недоступен!")
+            return 1
+
+        # Проверка GitHub если не local-only
+        if not local_only:
+            if not GITHUB_AVAILABLE:
+                print("[X] GitHub модуль недоступен!")
+                return 1
+            if not is_github_enabled():
+                print("[X] GitHub не настроен!")
+                return 1
+
+        # 1. Обновление build_info.py
+        print("\n[1/4] 📝 Обновление build_info.py...")
+        write_build_info(channel, version)
+        print(" build_info.py обновлен")
+
+        # 2. Сборка PyInstaller/Nuitka
+        if method == "nuitka":
+            print("\n[2/4] 🔨 Сборка Nuitka...")
+            run_nuitka(channel, version, ROOT, PY, run, None)
+        else:
+            print("\n[2/4] 🔨 Создание spec файла...")
+            create_spec_file(channel, ROOT, None)
+            print("\n[2.5/4] 🔨 Сборка PyInstaller...")
+            run_pyinstaller(channel, ROOT, run, None)
+        print(" Сборка завершена")
+
+        # 3. Inno Setup
+        print("\n[3/4] 📦 Сборка Inno Setup...")
+        cli_run_inno_setup(channel, version)
+        print(" Инсталлятор создан")
+
+        # 4. GitHub/SSH/Telegram (если не local-only)
+        if not local_only:
+            print("\n[4/4] 🌐 Публикация...")
+
+            produced = ROOT / f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+            if not produced.exists():
+                print(f"[X] Файл не найден: {produced}")
+                return 1
+
+            # GitHub
+            print("  → GitHub release...")
+            url = create_github_release(channel, version, produced, notes, None)
+            if url:
+                print(f"   GitHub: {url}")
+            else:
+                print("  [X] GitHub release не создан!")
+                return 1
+
+            # SSH
+            if SSH_AVAILABLE and is_ssh_configured():
+                print("  → SSH деплой...")
+                publish_tg = not no_telegram
+                success, message = deploy_to_all_servers(
+                    file_path=produced,
+                    channel=channel,
+                    version=version,
+                    notes=notes,
+                    publish_telegram=publish_tg,
+                    log_queue=None
+                )
+                if success:
+                    print(f"   SSH: {message}")
+                else:
+                    print(f"  ️ SSH: {message}")
+        else:
+            print("\n[4/4] ⏭️  Пропуск публикации (--local-only)")
+
+        # Обновление версий
+        update_versions_file(channel, version)
+
+        print("\n" + "=" * 60)
+        print(" СБОРКА ЗАВЕРШЕНА УСПЕШНО!")
+        print("=" * 60 + "\n")
+
+        return 0
+
+    except Exception as e:
+        import traceback
+        print(f"\n[X] ОШИБКА: {e}")
+        print(traceback.format_exc())
+        return 1
+
+
+def cli_run_inno_setup(channel: str, version: str):
+    """Inno Setup для CLI режима"""
+    import time
+
+    project_root = Path("H:/Privacy/zapretgui")
+    universal_iss = project_root / "zapret_universal.iss"
+    target_iss = project_root / f"zapret_{channel}.iss"
+
+    timestamp = int(time.time())
+    temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
+    final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}"
+
+    temp_file = project_root / f"{temp_name}.exe"
+    final_file = project_root / f"{final_name}.exe"
+
+    if not universal_iss.exists():
+        raise FileNotFoundError(f"ISS не найден: {universal_iss}")
+
+    iss_content = universal_iss.read_text(encoding='utf-8')
+    iss_content = re.sub(
+        r'OutputBaseFilename\s*=\s*.*',
+        f'OutputBaseFilename={temp_name}',
+        iss_content
+    )
+    target_iss.write_text(iss_content, encoding='utf-8')
+
+    iscc_path = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
+    if not iscc_path.exists():
+        iscc_path = Path(r"C:\Program Files\Inno Setup 6\ISCC.exe")
+    if not iscc_path.exists():
+        raise FileNotFoundError("Inno Setup не найден!")
+
+    cmd = [
+        str(iscc_path),
+        f'/DCHANNEL={channel}',
+        f'/DVERSION={version}',
+        str(target_iss)
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr)
+        raise RuntimeError(f"Inno Setup код: {result.returncode}")
+
+    if not temp_file.exists():
+        raise FileNotFoundError(f"Не создан: {temp_file}")
+
+    if final_file.exists():
+        final_file.unlink()
+
+    temp_file.rename(final_file)
+    size_mb = final_file.stat().st_size / 1024 / 1024
+    print(f"  → {final_name}.exe ({size_mb:.1f} MB)")
+
+
+# ================================================================
+#  GUI РЕЖИМ
+# ================================================================
+
 def run_without_console():
-    """Перезапускает скрипт через pythonw.exe"""
+    """Перезапускает скрипт через pythonw.exe (только для GUI)"""
     if sys.executable.endswith('python.exe'):
         pythonw = sys.executable.replace('python.exe', 'pythonw.exe')
         if Path(pythonw).exists():
-            subprocess.Popen([pythonw] + sys.argv, 
+            subprocess.Popen([pythonw] + sys.argv,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             sys.exit(0)
 
 
 def main():
-    """Главная функция"""
+    """Главная функция - CLI или GUI"""
+    parser = argparse.ArgumentParser(
+        description="Zapret Release Builder - CLI и GUI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Примеры:
+  python build_release_gui.py --cli                    # Быстрая сборка test
+  python build_release_gui.py --cli --channel stable   # Сборка stable
+  python build_release_gui.py --cli --local-only       # Без публикации
+  python build_release_gui.py                          # Запуск GUI
+        """
+    )
+    parser.add_argument('--cli', action='store_true',
+                        help='Режим командной строки (без GUI)')
+    parser.add_argument('--channel', default='test', choices=['test', 'stable'],
+                        help='Канал сборки (default: test)')
+    parser.add_argument('--version', default=None,
+                        help='Версия X.X.X.X (default: следующая автоматически)')
+    parser.add_argument('--notes', default=None,
+                        help='Release notes')
+    parser.add_argument('--local-only', action='store_true',
+                        help='Только локальная сборка (без GitHub/SSH/Telegram)')
+    parser.add_argument('--no-telegram', action='store_true',
+                        help='Без публикации в Telegram')
+    parser.add_argument('--method', default='pyinstaller', choices=['pyinstaller', 'nuitka'],
+                        help='Метод сборки (default: pyinstaller)')
+
+    args = parser.parse_args()
+
+    # CLI режим
+    if args.cli:
+        #if not is_admin():
+            #print("Требуются права администратора!")
+            #print("   Перезапустите от имени администратора.")
+            #sys.exit(1)
+        sys.exit(cli_build(args))
+
+    # GUI режим
     try:
         run_without_console()
-        
+
         if not is_admin():
             print("Перезапуск с правами администратора…")
             elevate_as_admin()
-            
+
         app = BuildReleaseGUI()
         app.run()
-        
+
     except Exception as e:
         import traceback
         error_msg = f"Критическая ошибка:\n\n{str(e)}\n\n{traceback.format_exc()}"
-        
+
         try:
             messagebox.showerror("Критическая ошибка", error_msg)
         except:
             print(error_msg)
             input("\nНажмите Enter для выхода...")
-        
+
         sys.exit(1)
 
 

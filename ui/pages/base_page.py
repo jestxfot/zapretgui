@@ -161,3 +161,18 @@ class BasePage(QScrollArea):
         if return_widget:
             return label
 
+    def wheelEvent(self, event):
+        """Ускоренная прокрутка колёсиком мыши (3x)"""
+        scrollbar = self.verticalScrollBar()
+        delta = event.angleDelta().y()
+
+        # Умножаем дельту на 3 для быстрой прокрутки
+        multiplier = 3
+        new_value = scrollbar.value() - int(delta * multiplier / 120 * scrollbar.singleStep())
+
+        # Ограничиваем значение
+        new_value = max(scrollbar.minimum(), min(scrollbar.maximum(), new_value))
+        scrollbar.setValue(new_value)
+
+        event.accept()
+

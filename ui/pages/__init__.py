@@ -4,7 +4,7 @@
 from .home_page import HomePage
 from .control_page import ControlPage
 from .strategies_page import StrategiesPage
-from .strategy_sort_page import StrategySortPage
+from .strategy_detail_page import StrategyDetailPage
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
 from .blobs_page import BlobsPage
@@ -36,7 +36,7 @@ __all__ = [
     'HomePage',
     'ControlPage',
     'StrategiesPage',
-    'StrategySortPage',  # Страница сортировки и фильтров стратегий
+    'StrategyDetailPage',  # Детальная страница выбора стратегий для категории
     'HostlistPage',
     'IpsetPage',
     'BlobsPage',  # Управление блобами для Zapret 2
