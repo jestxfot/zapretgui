@@ -172,7 +172,7 @@ def _build_base_args_from_filters(
     - TCP порты перехватываются целиком через --wf-tcp-out (Zapret 2) или --wf-tcp= (Zapret 1)
     - UDP порты перехватываются целиком через --wf-udp-out (Zapret 2) или --wf-udp= (Zapret 1)
     - Raw-part фильтры перехватывают только конкретные пакеты по сигнатуре
-    - Для режима direct_orchestra также добавляется --wf-tcp-in с теми же портами
+    - Для режима direct_zapret2_orchestra также добавляется --wf-tcp-in с теми же портами
     - Для режима direct_zapret1 НЕ добавляются Lua аргументы
     """
     parts = []
@@ -202,7 +202,7 @@ def _build_base_args_from_filters(
         else:
             parts.append(f"--wf-tcp-out={tcp_ports_str}")
             # Для режима Оркестратор Zapret 2 также перехватываем входящий TCP
-            if launch_method == "direct_orchestra":
+            if launch_method == "direct_zapret2_orchestra":
                 parts.append(f"--wf-tcp-in={tcp_ports_str}")
 
     # === UDP порты ===
@@ -335,7 +335,7 @@ def combine_strategies(*args, **kwargs) -> dict:
             # ✅ Заменяем out-range для Discord и YouTube категорий
             # ⚠️ ВАЖНО: --out-range есть ТОЛЬКО в Zapret 2 (winws2.exe)
             # В Zapret 1 (winws.exe) этой опции НЕТ!
-            if launch_method in ("direct", "direct_orchestra"):
+            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
                 if category_key == "discord" and out_range_discord > 0:
                     args = _replace_out_range(args, out_range_discord)
                 elif category_key == "discord_voice" and out_range_discord > 0:

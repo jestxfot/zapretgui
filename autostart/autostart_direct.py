@@ -64,7 +64,7 @@ def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
 def setup_direct_autostart_task(
     winws_exe: str,
     strategy_args: List[str],
-    strategy_name: str = "Direct",
+    strategy_name: str = "direct_zapret2",
     ui_error_cb: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
@@ -147,7 +147,7 @@ def setup_direct_autostart_task(
 def setup_direct_autostart_service(
     winws_exe: str,
     strategy_args: List[str],
-    strategy_name: str = "Direct",
+    strategy_name: str = "direct_zapret2",
     ui_error_cb: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
@@ -432,7 +432,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         from config.config import get_current_winws_exe
 
         # Используем единую функцию определения exe
-        # direct_zapret1 → winws.exe, direct/direct_orchestra → winws2.exe
+        # direct_zapret1 → winws.exe, direct/direct_zapret2_orchestra → winws2.exe
         winws_exe = get_current_winws_exe()
 
         # Получаем выборы стратегий
@@ -447,11 +447,11 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         
         log(f"Собрано {len(args)} аргументов", "INFO")
         
-        return args, "Direct", winws_exe
+        return args, "direct_zapret2", winws_exe
         
     except Exception as e:
         log(f"Ошибка сбора аргументов: {e}", "❌ ERROR")
-        return [], "Direct", ""
+        return [], "direct_zapret2", ""
 
 
 def _delete_task(task_name: str) -> bool:

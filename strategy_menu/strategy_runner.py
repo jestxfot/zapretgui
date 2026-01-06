@@ -229,7 +229,8 @@ class StrategyRunner:
 
     def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
         """
-        Записывает аргументы в preset-zapret2.txt для загрузки через @файл
+        Записывает аргументы в preset файл для загрузки через @файл.
+        Использует preset-zapret1.txt для winws.exe и preset-zapret2.txt для winws2.exe.
 
         Args:
             args: Список аргументов командной строки
@@ -238,7 +239,14 @@ class StrategyRunner:
         Returns:
             Путь к созданному файлу
         """
-        preset_path = os.path.join(self.work_dir, "preset-zapret2.txt")
+        # Determine preset filename based on exe type
+        exe_name = os.path.basename(self.winws_exe).lower()
+        if exe_name == "winws.exe":
+            preset_filename = "preset-zapret1.txt"
+        else:
+            preset_filename = "preset-zapret2.txt"
+
+        preset_path = os.path.join(self.work_dir, preset_filename)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Преобразуем пути в относительные для читаемости

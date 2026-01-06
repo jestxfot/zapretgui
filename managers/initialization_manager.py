@@ -361,8 +361,8 @@ class InitializationManager:
 
         launch_method = get_strategy_launch_method()
 
-        # Для режимов direct/direct_orchestra/direct_zapret1 проверяем выбранные категории
-        if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+        # Для режимов direct/direct_zapret2_orchestra/direct_zapret1 проверяем выбранные категории
+        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
             selections = get_direct_strategy_selections()
             # Проверяем есть ли хотя бы одна категория не равная 'none'
             has_any = any(v and v != 'none' for v in selections.values())

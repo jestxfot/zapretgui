@@ -700,11 +700,11 @@ class AutostartPage(BasePage):
             method = get_strategy_launch_method()
 
             # Режим оркестратора - только автозапуск программы
-            is_orchestra = method in ("orchestra", "direct_orchestra")
+            is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
 
-            if method == "direct":
+            if method == "direct_zapret2":
                 self.mode_label.setText("Прямой запуск (Zapret 2)")
-            elif method == "direct_orchestra":
+            elif method == "direct_zapret2_orchestra":
                 self.mode_label.setText("Оркестратор Zapret 2")
             elif method == "orchestra":
                 self.mode_label.setText("Оркестр (автообучение)")
@@ -864,7 +864,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra", "direct_zapret1"):
+            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 self._setup_direct_service()
             else:
                 self._setup_bat_service()
@@ -878,7 +878,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra", "direct_zapret1"):
+            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 self._setup_direct_logon_task()
             else:
                 self._setup_bat_logon_task()
@@ -892,7 +892,7 @@ class AutostartPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct", "direct_orchestra", "direct_zapret1"):
+            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 self._setup_direct_boot_task()
             else:
                 self._setup_bat_service()  # Для BAT это служба

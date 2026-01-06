@@ -1236,8 +1236,8 @@ class SideNavBar(QWidget):
         """Обновляет видимость вкладок 'Блобы', 'Конфиг' и 'Сортировка' в зависимости от режима запуска"""
         try:
             from strategy_menu import get_strategy_launch_method
-            # Блобы, Конфиг и Сортировка доступны для direct, direct_orchestra и direct_zapret1 режимов
-            is_direct = get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1")
+            # Блобы, Конфиг и Сортировка доступны для direct, direct_zapret2_orchestra и direct_zapret1 режимов
+            is_direct = get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
             if self._blobs_button:
                 self._blobs_button.setVisible(is_direct)
             if self._preset_config_button:
@@ -1267,7 +1267,7 @@ class SideNavBar(QWidget):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            is_orchestra = method in ("orchestra", "direct_orchestra")
+            is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
         except Exception as e:
             from log import log
             log(f"Ошибка проверки режима оркестратора: {e}", "DEBUG")

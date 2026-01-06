@@ -594,18 +594,18 @@ class DpiSettingsPage(BasePage):
             icon_color="#60cdff",
             recommended=True
         )
-        self.method_direct.clicked.connect(lambda: self._select_method("direct"))
+        self.method_direct.clicked.connect(lambda: self._select_method("direct_zapret2"))
         method_layout.addWidget(self.method_direct)
 
         # Оркестратор Zapret 2 (direct с другим набором стратегий)
-        self.method_direct_orchestra = Win11RadioOption(
+        self.method_direct_zapret2_orchestra = Win11RadioOption(
             "Оркестраторный Zapret 2",
             "Запуск Zapret 2 со стратегиями оркестратора внутри каждого профиля. Позволяет настроить для каждого сайта свой оркерстратор. Не сохраняет состояние для повышенной агрессии обхода.",
             icon_name="mdi.brain",
             icon_color="#9c27b0"
         )
-        self.method_direct_orchestra.clicked.connect(lambda: self._select_method("direct_orchestra"))
-        method_layout.addWidget(self.method_direct_orchestra)
+        self.method_direct_zapret2_orchestra.clicked.connect(lambda: self._select_method("direct_zapret2_orchestra"))
+        method_layout.addWidget(self.method_direct_zapret2_orchestra)
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
@@ -930,8 +930,8 @@ class DpiSettingsPage(BasePage):
     
     def _update_method_selection(self, method: str):
         """Обновляет визуальное состояние выбора метода"""
-        self.method_direct.setSelected(method == "direct")
-        self.method_direct_orchestra.setSelected(method == "direct_orchestra")
+        self.method_direct.setSelected(method == "direct_zapret2")
+        self.method_direct_zapret2_orchestra.setSelected(method == "direct_zapret2_orchestra")
         self.method_direct_zapret1.setSelected(method == "direct_zapret1")
         self.method_bat.setSelected(method == "bat")
         self.method_orchestra.setSelected(method == "orchestra")
@@ -941,26 +941,26 @@ class DpiSettingsPage(BasePage):
         try:
             from strategy_menu import (
                 set_strategy_launch_method, get_strategy_launch_method, invalidate_direct_selections_cache,
-                is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
+                is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
             )
             from strategy_menu.strategies_registry import registry
 
             # Запоминаем предыдущий метод для определения необходимости перезагрузки стратегий
             previous_method = get_strategy_launch_method()
 
-            # ✅ При ПЕРВОМ переключении на direct_orchestra - сбрасываем все стратегии в "none"
-            if method == "direct_orchestra" and not is_direct_orchestra_initialized():
+            # ✅ При ПЕРВОМ переключении на direct_zapret2_orchestra - сбрасываем все стратегии в "none"
+            if method == "direct_zapret2_orchestra" and not is_direct_zapret2_orchestra_initialized():
                 log("🆕 Первая инициализация режима DirectOrchestra - сброс всех стратегий в 'none'", "INFO")
-                clear_direct_orchestra_strategies()
-                set_direct_orchestra_initialized(True)
+                clear_direct_zapret2_orchestra_strategies()
+                set_direct_zapret2_orchestra_initialized(True)
 
             set_strategy_launch_method(method)
             self._update_method_selection(method)
             self._update_filters_visibility()
 
             # Перезагружаем стратегии если меняется набор стратегий
-            # (например с direct на direct_orchestra, direct_zapret1 или наоборот)
-            direct_methods = ("direct", "direct_orchestra", "direct_zapret1")
+            # (например с direct на direct_zapret2_orchestra, direct_zapret1 или наоборот)
+            direct_methods = ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
             if previous_method in direct_methods or method in direct_methods:
                 if previous_method != method:
                     log(f"Смена метода {previous_method} -> {method}, перезагрузка стратегий...", "INFO")
@@ -1304,7 +1304,7 @@ class DpiSettingsPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущие настройки
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -1457,17 +1457,17 @@ class DpiSettingsPage(BasePage):
             method = get_strategy_launch_method()
 
             # Режимы
-            is_direct_mode = method in ("direct", "direct_orchestra", "direct_zapret1")
-            is_orchestra_mode = method in ("orchestra", "direct_orchestra")
-            is_zapret_mode = method in ("direct", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
+            is_direct_mode = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
+            is_orchestra_mode = method in ("orchestra", "direct_zapret2_orchestra")
+            is_zapret_mode = method in ("direct_zapret2", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
-            # Показываем фильтры для direct, direct_orchestra и direct_zapret1
+            # Показываем фильтры для direct, direct_zapret2_orchestra и direct_zapret1
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
             self.out_range_container.setVisible(is_direct_mode)
 
             # Filter mode только для Zapret 2 Direct (не для zapret1 и bat)
-            is_zapret2_direct = method in ("direct", "direct_orchestra")
+            is_zapret2_direct = method in ("direct_zapret2", "direct_zapret2_orchestra")
             self.filter_mode_container.setVisible(is_zapret2_direct)
 
             # Discord restart только для Zapret 1/2 (без оркестратора)

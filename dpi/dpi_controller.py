@@ -43,7 +43,7 @@ class DPIStartWorker(QObject):
                     self.app_instance.splash.set_progress(75, "Останавливаем предыдущий процесс...", "")
 
                 # Останавливаем через соответствующий метод
-                if self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+                if self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                     from strategy_menu.strategy_runner import get_strategy_runner
                     runner = get_strategy_runner(self._get_winws_exe())
                     runner.stop()
@@ -82,8 +82,8 @@ class DPIStartWorker(QObject):
             # Выбираем метод запуска
             if self.launch_method == "orchestra":
                 success = self._start_orchestra()
-            elif self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
-                # direct_orchestra работает так же как direct, но с другим набором стратегий
+            elif self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                # direct_zapret2_orchestra работает так же как direct, но с другим набором стратегий
                 # direct_zapret1 работает так же как direct, но использует winws.exe и tcp_zapret1.json
                 success = self._start_direct()
             else:
@@ -329,7 +329,7 @@ class DPIStopWorker(QObject):
             # Выбираем метод остановки
             if self.launch_method == "orchestra":
                 success = self._stop_orchestra()
-            elif self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+            elif self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 success = self._stop_direct()
             else:
                 success = self._stop_bat()
@@ -431,7 +431,7 @@ class StopAndExitWorker(QObject):
                 # Дополнительная очистка
                 from utils.process_killer import kill_winws_all
                 kill_winws_all()
-            elif self.launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+            elif self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 from strategy_menu.strategy_runner import get_strategy_runner
                 runner = get_strategy_runner(self._get_winws_exe())
                 runner.stop()
@@ -465,7 +465,7 @@ class DPIController:
 
         Args:
             selected_mode: Стратегия для запуска
-            launch_method: Метод запуска ("direct" или "bat"). Если None - читается из реестра
+            launch_method: Метод запуска ("direct_zapret2" или "bat"). Если None - читается из реестра
         """
         # Проверка на уже запущенный поток
         try:
@@ -486,7 +486,7 @@ class DPIController:
 
         # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана, берем из реестра
         elif selected_mode is None or selected_mode == 'default':
-            if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Для Direct режима берем сохраненные выборы из реестра
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -634,9 +634,9 @@ class DPIController:
         # Показываем состояние запуска
         if launch_method == "orchestra":
             method_name = "оркестр"
-        elif launch_method == "direct":
+        elif launch_method == "direct_zapret2":
             method_name = "прямой"
-        elif launch_method == "direct_orchestra":
+        elif launch_method == "direct_zapret2_orchestra":
             method_name = "оркестратор Z2"
         elif launch_method == "direct_zapret1":
             method_name = "прямой Z1"
@@ -706,9 +706,9 @@ class DPIController:
         # Показываем состояние остановки
         if launch_method == "orchestra":
             method_name = "оркестр"
-        elif launch_method == "direct":
+        elif launch_method == "direct_zapret2":
             method_name = "прямой"
-        elif launch_method == "direct_orchestra":
+        elif launch_method == "direct_zapret2_orchestra":
             method_name = "оркестратор Z2"
         elif launch_method == "direct_zapret1":
             method_name = "прямой Z1"

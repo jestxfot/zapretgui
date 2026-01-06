@@ -288,6 +288,9 @@ class MainWindowUI:
         # Подключаем смену метода запуска стратегий (от страницы настроек DPI)
         self.dpi_settings_page.launch_method_changed.connect(self._on_launch_method_changed)
 
+        # Подключаем обновление PresetConfigPage при смене метода запуска
+        self.dpi_settings_page.launch_method_changed.connect(self.preset_config_page.refresh_for_current_mode)
+
         # Подключаем отключение фильтров → отключение категорий
         self.dpi_settings_page.filter_disabled.connect(self.strategies_page.disable_categories_for_filter)
 
@@ -431,7 +434,7 @@ class MainWindowUI:
                 if hasattr(self, 'orchestra_page'):
                     self.orchestra_page.start_monitoring()
 
-            elif method in ("direct", "direct_orchestra", "direct_zapret1"):
+            elif method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Zapret 2 - Direct режим, Оркестратор Zapret 2 или Zapret 1 Direct
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategy_lists_separated import combine_strategies
@@ -439,9 +442,9 @@ class MainWindowUI:
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
 
-                if method == "direct":
+                if method == "direct_zapret2":
                     mode_name = "Прямой запуск"
-                elif method == "direct_orchestra":
+                elif method == "direct_zapret2_orchestra":
                     mode_name = "Оркестратор Z2"
                 else:
                     mode_name = "Прямой Z1"

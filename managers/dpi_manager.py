@@ -32,7 +32,7 @@ class DPIManager(QObject):
         launch_method = get_strategy_launch_method()
         
         # 3. Запускаем соответствующий режим
-        if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
             self._start_direct_mode()
         elif launch_method == "orchestra":
             self._start_orchestra_mode()
@@ -57,16 +57,16 @@ class DPIManager(QObject):
         """⚡ Запускает Direct режим (комбинированные стратегии)"""
         from strategy_menu import (
             get_direct_strategy_selections, get_strategy_launch_method,
-            is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
+            is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
         )
         from strategy_menu.strategy_lists_separated import combine_strategies
 
-        # ✅ При ПЕРВОМ запуске в режиме direct_orchestra - сбрасываем все стратегии в "none"
+        # ✅ При ПЕРВОМ запуске в режиме direct_zapret2_orchestra - сбрасываем все стратегии в "none"
         launch_method = get_strategy_launch_method()
-        if launch_method == "direct_orchestra" and not is_direct_orchestra_initialized():
+        if launch_method == "direct_zapret2_orchestra" and not is_direct_zapret2_orchestra_initialized():
             log("🆕 Первая инициализация DirectOrchestra при автозапуске - сброс всех стратегий в 'none'", "INFO")
-            clear_direct_orchestra_strategies()
-            set_direct_orchestra_initialized(True)
+            clear_direct_zapret2_orchestra_strategies()
+            set_direct_zapret2_orchestra_initialized(True)
 
         # Получаем выборы пользователя и комбинируем стратегии
         selections = get_direct_strategy_selections()
@@ -95,7 +95,7 @@ class DPIManager(QObject):
         self.app.current_strategy_label.setText("Прямой запуск")
         self.app.current_strategy_name = "Прямой запуск"
         self._update_splash(65, "Запуск Direct режима...")
-        # ✅ Передаём актуальный launch_method (direct, direct_orchestra, direct_zapret1)
+        # ✅ Передаём актуальный launch_method (direct, direct_zapret2_orchestra, direct_zapret1)
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
 

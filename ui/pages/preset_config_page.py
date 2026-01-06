@@ -1,5 +1,5 @@
 # ui/pages/preset_config_page.py
-"""Страница редактора конфига preset-zapret2.txt"""
+"""Страница редактора конфига preset-zapret1.txt / preset-zapret2.txt"""
 
 import os
 import subprocess
@@ -15,32 +15,67 @@ import psutil
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from config import MAIN_DIRECTORY
+from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
+from strategy_menu import get_strategy_launch_method
 from log import log
 
 
 class PresetConfigPage(BasePage):
-    """Страница редактора конфига preset-zapret2.txt"""
+    """Страница редактора конфига preset-zapret1.txt / preset-zapret2.txt"""
 
     def __init__(self, parent=None):
-        super().__init__("Конфиг запуска", "Редактор preset-zapret2.txt", parent)
+        # Сначала определяем путь к файлу, чтобы использовать в subtitle
+        self._preset_path, self._preset_display_name = self._get_current_preset_path()
+
+        super().__init__("Конфиг запуска", f"Редактор {self._preset_display_name}", parent)
 
         self._is_loading = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(self._save_file)
 
-        self._preset_path = os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt")
         self._last_mtime = 0  # Для отслеживания изменений файла
 
         self._build_ui()
         self._setup_shortcuts()
         self._load_file()
 
-        # Таймер для проверки статуса winws2.exe и изменений файла
+        # Таймер для проверки статуса winws.exe/winws2.exe и изменений файла
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._on_timer_tick)
         self._status_timer.start(1000)  # Каждую секунду
         self._update_winws_status()  # Начальная проверка
+
+    def _get_current_preset_path(self) -> tuple[str, str]:
+        """Returns (preset_path, display_name) based on current mode"""
+        method = get_strategy_launch_method()
+        if method in ZAPRET2_MODES or method == "direct_zapret2_orchestra":
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"), "preset-zapret2.txt (Zapret 2)")
+        elif method in ZAPRET1_DIRECT_MODES or method == "direct_zapret1":
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret1.txt"), "preset-zapret1.txt (Zapret 1)")
+        else:
+            # BAT mode or other - default to Zapret 2
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"), "preset-zapret2.txt (Zapret 2)")
+
+    def refresh_for_current_mode(self):
+        """Called when strategy launch method changes - reloads correct preset file"""
+        new_path, new_display = self._get_current_preset_path()
+        if new_path != self._preset_path:
+            # Save pending changes to old file first
+            if self._save_timer.isActive():
+                self._save_timer.stop()
+                self._save_file()
+
+            # Switch to new file
+            self._preset_path = new_path
+            self._preset_display_name = new_display
+            self._load_file()
+            self._update_title_label()
+
+    def _update_title_label(self):
+        """Update subtitle to show which file is being edited"""
+        if hasattr(self, 'subtitle_label'):
+            self.subtitle_label.setText(f"Редактор {self._preset_display_name}")
 
     def _build_ui(self):
         """Строит UI страницы"""
@@ -109,21 +144,22 @@ class PresetConfigPage(BasePage):
         pass
 
     def _load_file(self):
-        """Загружает файл с диска"""
+        """Загружает файл с диска, создаёт если не существует"""
         self._is_loading = True
         try:
-            if os.path.exists(self._preset_path):
-                with open(self._preset_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                self.editor.setPlainText(content)
-                self._last_mtime = os.path.getmtime(self._preset_path)
-                self._update_status("Загружено")
-            else:
-                self.editor.setPlainText("")
-                self._last_mtime = 0
-                self._update_status("Файл не найден")
+            if not os.path.exists(self._preset_path):
+                # Create empty file with comment header
+                with open(self._preset_path, 'w', encoding='utf-8') as f:
+                    f.write(f"# {self._preset_display_name}\n# Add your winws arguments here, one per line\n\n")
+                log(f"Создан новый файл: {self._preset_path}", "INFO")
+
+            with open(self._preset_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.editor.setPlainText(content)
+            self._last_mtime = os.path.getmtime(self._preset_path)
+            self._update_status("Загружено")
         except Exception as e:
-            log(f"Ошибка загрузки preset-zapret2.txt: {e}", "ERROR")
+            log(f"Ошибка загрузки {os.path.basename(self._preset_path)}: {e}", "ERROR")
             self._update_status(f"Ошибка: {e}")
         finally:
             self._is_loading = False
@@ -148,10 +184,10 @@ class PresetConfigPage(BasePage):
             self._last_mtime = os.path.getmtime(self._preset_path)
             now = datetime.now().strftime("%H:%M:%S")
             self._update_status(f"Сохранено {now}")
-            log(f"Сохранен preset-zapret2.txt", "DEBUG")
+            log(f"Сохранен {os.path.basename(self._preset_path)}", "DEBUG")
 
         except Exception as e:
-            log(f"Ошибка сохранения preset-zapret2.txt: {e}", "ERROR")
+            log(f"Ошибка сохранения {os.path.basename(self._preset_path)}: {e}", "ERROR")
             self._update_status(f"Ошибка: {e}")
 
     def _open_in_notepad(self):
@@ -163,7 +199,7 @@ class PresetConfigPage(BasePage):
                 self._save_file()
 
             subprocess.Popen(['notepad.exe', self._preset_path])
-            log(f"Открыт preset-zapret2.txt в блокноте", "DEBUG")
+            log(f"Открыт {os.path.basename(self._preset_path)} в блокноте", "DEBUG")
 
         except Exception as e:
             log(f"Ошибка открытия в блокноте: {e}", "ERROR")
@@ -175,7 +211,14 @@ class PresetConfigPage(BasePage):
         self._refresh_status_label()
 
     def _update_winws_status(self):
-        """Проверяет статус winws2.exe и обновляет статус-бар"""
+        """Проверяет статус winws.exe/winws2.exe и обновляет статус-бар"""
+        # Определяем какой процесс искать в зависимости от режима
+        method = get_strategy_launch_method()
+        if method in ZAPRET2_MODES or method == "direct_zapret2_orchestra":
+            expected_process = "winws2.exe"
+        else:
+            expected_process = "winws.exe"
+
         try:
             for proc in psutil.process_iter(['name', 'pid']):
                 try:
@@ -187,7 +230,7 @@ class PresetConfigPage(BasePage):
                         return
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
-            self._process_status = "⚫ winws2.exe не запущен"
+            self._process_status = f"⚫ {expected_process} не запущен"
         except Exception as e:
             self._process_status = f"❓ Ошибка: {e}"
         self._refresh_status_label()

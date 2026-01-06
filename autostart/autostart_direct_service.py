@@ -85,7 +85,7 @@ exit /b !EXIT_CODE!
 def setup_direct_service(
     winws_exe: str,
     strategy_args: List[str],
-    strategy_name: str = "Direct",
+    strategy_name: str = "direct_zapret2",
     ui_error_cb: Optional[Callable[[str], None]] = None
 ) -> bool:
     """

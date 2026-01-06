@@ -49,7 +49,7 @@ WINWS2_EXE = os.path.join(EXE_FOLDER, "winws2.exe")    # Для прямого �
 # ОПРЕДЕЛЕНИЕ EXE ПО МЕТОДУ ЗАПУСКА
 # ═══════════════════════════════════════════════════════════════════
 # Все режимы, которые используют winws2.exe (Zapret 2 с Lua)
-ZAPRET2_MODES = ("direct", "direct_orchestra", "orchestra")
+ZAPRET2_MODES = ("direct_zapret2", "direct_zapret2_orchestra", "orchestra")
 # Режимы, которые используют winws.exe (Zapret 1) напрямую (не через BAT)
 ZAPRET1_DIRECT_MODES = ("direct_zapret1",)
 
@@ -58,7 +58,7 @@ def get_winws_exe_for_method(method: str) -> str:
     Возвращает путь к winws exe в зависимости от метода запуска.
 
     Args:
-        method: Метод запуска (direct, direct_orchestra, orchestra, bat, direct_zapret1)
+        method: Метод запуска (direct, direct_zapret2_orchestra, orchestra, bat, direct_zapret1)
 
     Returns:
         Путь к winws2.exe для Zapret 2 режимов, winws.exe для остальных
@@ -100,7 +100,7 @@ def get_current_winws_exe() -> str:
     соответствующий путь к исполняемому файлу.
 
     Returns:
-        Путь к winws2.exe для Zapret 2 режимов (direct, direct_orchestra, orchestra),
+        Путь к winws2.exe для Zapret 2 режимов (direct, direct_zapret2_orchestra, orchestra),
         winws.exe для Zapret 1 режимов (bat, direct_zapret1 и др.)
 
     Примечание:

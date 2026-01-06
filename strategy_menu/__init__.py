@@ -11,14 +11,14 @@ from config import reg, REGISTRY_PATH
 
 DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
 DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
-DIRECT_ORCHESTRA_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
+direct_zapret2_orchestra_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
 DIRECT_ZAPRET1_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectZapret1Strategy"
 
 
 # ==================== ФЛАГ ИНИЦИАЛИЗАЦИИ ОРКЕСТРАТОРА ====================
 
-def is_direct_orchestra_initialized() -> bool:
-    """Проверяет, был ли режим direct_orchestra уже инициализирован (первый запуск)"""
+def is_direct_zapret2_orchestra_initialized() -> bool:
+    """Проверяет, был ли режим direct_zapret2_orchestra уже инициализирован (первый запуск)"""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "DirectOrchestraInitialized")
@@ -27,8 +27,8 @@ def is_direct_orchestra_initialized() -> bool:
         return False
 
 
-def set_direct_orchestra_initialized(initialized: bool = True) -> bool:
-    """Устанавливает флаг инициализации режима direct_orchestra"""
+def set_direct_zapret2_orchestra_initialized(initialized: bool = True) -> bool:
+    """Устанавливает флаг инициализации режима direct_zapret2_orchestra"""
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
             winreg.SetValueEx(key, "DirectOrchestraInitialized", 0, winreg.REG_DWORD, 1 if initialized else 0)
@@ -39,8 +39,8 @@ def set_direct_orchestra_initialized(initialized: bool = True) -> bool:
         return False
 
 
-def clear_direct_orchestra_strategies() -> bool:
-    """Очищает все сохранённые стратегии для режима direct_orchestra (устанавливает все в 'none')"""
+def clear_direct_zapret2_orchestra_strategies() -> bool:
+    """Очищает все сохранённые стратегии для режима direct_zapret2_orchestra (устанавливает все в 'none')"""
     from .strategies_registry import registry
 
     try:
@@ -49,7 +49,7 @@ def clear_direct_orchestra_strategies() -> bool:
         # Устанавливаем все категории в "none"
         for category_key in registry.get_all_category_keys():
             reg_key = _category_to_reg_key(category_key)
-            reg(DIRECT_ORCHESTRA_STRATEGY_KEY, reg_key, "none")
+            reg(direct_zapret2_orchestra_STRATEGY_KEY, reg_key, "none")
 
         # Сбрасываем кэш
         invalidate_direct_selections_cache()
@@ -65,8 +65,8 @@ def clear_direct_orchestra_strategies() -> bool:
 def _get_current_strategy_key() -> str:
     """Возвращает ключ реестра для выборов стратегий в зависимости от метода запуска"""
     method = get_strategy_launch_method()
-    if method == "direct_orchestra":
-        return DIRECT_ORCHESTRA_STRATEGY_KEY
+    if method == "direct_zapret2_orchestra":
+        return direct_zapret2_orchestra_STRATEGY_KEY
     elif method == "direct_zapret1":
         return DIRECT_ZAPRET1_STRATEGY_KEY
     return DIRECT_STRATEGY_KEY
@@ -78,9 +78,9 @@ def get_strategy_launch_method():
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
             value, _ = winreg.QueryValueEx(key, "StrategyLaunchMethod")
-            return value.lower() if value else "direct"
+            return value.lower() if value else "direct_zapret2"
     except:
-        default_method = "direct"
+        default_method = "direct_zapret2"
         set_strategy_launch_method(default_method)
         log(f"Установлен метод запуска по умолчанию: {default_method}", "INFO")
         return default_method
@@ -759,9 +759,9 @@ def get_direct_strategy_selections() -> dict:
                         selections[category_key] = value
                     else:
                         # ⚠️ Стратегия не найдена - используем значение по умолчанию
-                        # Для direct_orchestra всегда "none", для direct - default из категории
+                        # Для direct_zapret2_orchestra всегда "none", для direct - default из категории
                         method = get_strategy_launch_method()
-                        if method == "direct_orchestra":
+                        if method == "direct_zapret2_orchestra":
                             default_value = "none"
                         else:
                             default_value = default_selections.get(category_key, "none")
@@ -778,8 +778,8 @@ def get_direct_strategy_selections() -> dict:
         method = get_strategy_launch_method()
         for key, default_value in default_selections.items():
             if key not in selections:
-                # Для direct_orchestra по умолчанию все категории отключены
-                if method == "direct_orchestra":
+                # Для direct_zapret2_orchestra по умолчанию все категории отключены
+                if method == "direct_zapret2_orchestra":
                     selections[key] = "none"
                 else:
                     selections[key] = default_value
@@ -834,10 +834,10 @@ def get_direct_strategy_for_category(category_key: str) -> str:
     if value:
         return value
 
-    # Для direct_orchestra по умолчанию все категории отключены
+    # Для direct_zapret2_orchestra по умолчанию все категории отключены
     # (пользователь должен явно выбрать что включить)
     method = get_strategy_launch_method()
-    if method == "direct_orchestra":
+    if method == "direct_zapret2_orchestra":
         return "none"
 
     # Для обычного direct возвращаем значение по умолчанию из категории
@@ -1135,9 +1135,9 @@ __all__ = [
     'invalidate_direct_selections_cache',
 
     # Инициализация DirectOrchestra
-    'is_direct_orchestra_initialized',
-    'set_direct_orchestra_initialized',
-    'clear_direct_orchestra_strategies',
+    'is_direct_zapret2_orchestra_initialized',
+    'set_direct_zapret2_orchestra_initialized',
+    'clear_direct_zapret2_orchestra_strategies',
 
     # Оценки стратегий
     'get_all_strategy_ratings',
