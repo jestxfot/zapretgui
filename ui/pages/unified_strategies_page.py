@@ -52,7 +52,7 @@ class UnifiedStrategiesPage(BasePage):
         """Строит содержимое страницы"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections
+            from strategy_menu import get_direct_strategy_selections
 
             # Панель действий
             actions_card = SettingsCard()
@@ -76,7 +76,7 @@ class UnifiedStrategiesPage(BasePage):
             self.content_layout.addWidget(actions_card)
 
             # Загружаем выборы из реестра
-            self.category_selections = strategy_selections.get_all()
+            self.category_selections = get_direct_strategy_selections()
 
             # Создаем unified список
             self._unified_list = UnifiedStrategiesList(self)
@@ -121,10 +121,10 @@ class UnifiedStrategiesPage(BasePage):
     def _on_dialog_strategy_selected(self, category_key: str, strategy_id: str, args: list):
         """Обработчик выбора стратегии в диалоге"""
         try:
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections, preset_regenerator
+            from strategy_menu import save_direct_strategy_selection, regenerate_preset_file
 
             # Сохраняем выбор
-            strategy_selections.set(category_key, strategy_id)
+            save_direct_strategy_selection(category_key, strategy_id)
             self.category_selections[category_key] = strategy_id
 
             # Обновляем UI (нужно получить название стратегии)
@@ -134,7 +134,7 @@ class UnifiedStrategiesPage(BasePage):
                 self._unified_list.update_selection(category_key, strategy_id)
 
             # Перегенерируем preset
-            preset_regenerator.regenerate()
+            regenerate_preset_file()
 
             # Эмитим сигналы
             self.strategy_selected.emit(category_key, strategy_id)
@@ -156,7 +156,7 @@ class UnifiedStrategiesPage(BasePage):
     def _apply_changes(self):
         """Применяет изменения - перезапускает DPI"""
         try:
-            from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+            from strategy_menu import combine_strategies
 
             # Проверяем есть ли активные стратегии
             has_active = any(
@@ -173,7 +173,7 @@ class UnifiedStrategiesPage(BasePage):
                 return
 
             # Комбинируем стратегии
-            combined = build_full_command(**self.category_selections)
+            combined = combine_strategies(**self.category_selections)
             combined_data = {
                 'id': 'DIRECT_MODE',
                 'name': 'Прямой запуск (Запрет 2)',

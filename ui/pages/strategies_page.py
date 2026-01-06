@@ -141,7 +141,7 @@ class StrategiesPage(BasePage):
         """Строит содержимое страницы"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections
+            from strategy_menu import get_direct_strategy_selections
 
             # Карточка с кнопкой Telegram (выделенная, акцентная)
             telegram_card = SettingsCard()
@@ -226,7 +226,7 @@ class StrategiesPage(BasePage):
             self.content_layout.addWidget(actions_card)
 
             # Загружаем выборы из реестра
-            self.category_selections = strategy_selections.get_all()
+            self.category_selections = get_direct_strategy_selections()
 
             # Список категорий (без правой панели - теперь отдельная страница)
             self._unified_list = UnifiedStrategiesList(self)
@@ -258,10 +258,15 @@ class StrategiesPage(BasePage):
     def apply_strategy_selection(self, category_key: str, strategy_id: str):
         """Применяет выбор стратегии (вызывается из StrategyDetailPage)"""
         try:
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections, preset_regenerator
+            from strategy_menu import (
+                save_direct_strategy_selection,
+                regenerate_preset_file,
+                invalidate_direct_selections_cache
+            )
 
             # Сохраняем выбор в реестр
-            strategy_selections.set(category_key, strategy_id)
+            save_direct_strategy_selection(category_key, strategy_id)
+            invalidate_direct_selections_cache()
 
             self.category_selections[category_key] = strategy_id
 
@@ -270,7 +275,7 @@ class StrategiesPage(BasePage):
                 self._unified_list.update_selection(category_key, strategy_id)
 
             # Перегенерируем preset
-            preset_regenerator.regenerate()
+            regenerate_preset_file()
 
             # Эмитим сигналы
             self.strategy_selected.emit(category_key, strategy_id)
@@ -282,7 +287,7 @@ class StrategiesPage(BasePage):
             self._apply_changes()
 
         except Exception as e:
-            log(f"Ошибка выбора стратегии {category_key}={strategy_id}: {e}", "ERROR")
+            log(f"Ошибка сохранения выбора: {e}", "ERROR")
 
     def _on_selections_changed(self, selections: dict):
         """Обработчик изменения выборов"""
@@ -292,7 +297,7 @@ class StrategiesPage(BasePage):
     def _apply_changes(self):
         """Применяет изменения - перезапускает DPI если запущен"""
         try:
-            from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+            from strategy_menu import combine_strategies
 
             # Проверяем есть ли активные стратегии
             has_active = any(
@@ -320,7 +325,7 @@ class StrategiesPage(BasePage):
                 return
 
             # Комбинируем стратегии
-            combined = build_full_command(**self.category_selections)
+            combined = combine_strategies(**self.category_selections)
             combined_data = {
                 'id': 'DIRECT_MODE',
                 'name': 'Прямой запуск (Запрет 2)',
@@ -338,11 +343,11 @@ class StrategiesPage(BasePage):
         """Перезагружает стратегии"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections
+            from strategy_menu import get_direct_strategy_selections, invalidate_direct_selections_cache
 
             # Перезагружаем реестр
             registry.reload_strategies()
-            strategy_selections.invalidate_cache()
+            invalidate_direct_selections_cache()
 
             # Перестраиваем UI
             self._built = False
@@ -365,13 +370,18 @@ class StrategiesPage(BasePage):
         """Сбрасывает все стратегии к значениям по умолчанию"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections, preset_regenerator
+            from strategy_menu import (
+                save_direct_strategy_selections,
+                regenerate_preset_file,
+                invalidate_direct_selections_cache
+            )
 
             # Получаем значения по умолчанию
             defaults = registry.get_default_selections()
 
             # Сохраняем в реестр
-            strategy_selections.set_all(defaults)
+            save_direct_strategy_selections(defaults)
+            invalidate_direct_selections_cache()
 
             self.category_selections = defaults.copy()
 
@@ -380,7 +390,7 @@ class StrategiesPage(BasePage):
                 self._unified_list.set_selections(defaults)
 
             # Перегенерируем preset
-            preset_regenerator.regenerate()
+            regenerate_preset_file()
 
             # Применяем изменения
             self._apply_changes()
@@ -394,13 +404,18 @@ class StrategiesPage(BasePage):
         """Отключает все стратегии"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections, preset_regenerator
+            from strategy_menu import (
+                save_direct_strategy_selections,
+                regenerate_preset_file,
+                invalidate_direct_selections_cache
+            )
 
             # Устанавливаем все в 'none'
             cleared = {key: 'none' for key in registry.get_all_category_keys()}
 
             # Сохраняем в реестр
-            strategy_selections.set_all(cleared)
+            save_direct_strategy_selections(cleared)
+            invalidate_direct_selections_cache()
 
             self.category_selections = cleared
 
@@ -409,7 +424,7 @@ class StrategiesPage(BasePage):
                 self._unified_list.set_selections(cleared)
 
             # Перегенерируем preset
-            preset_regenerator.regenerate()
+            regenerate_preset_file()
 
             # Применяем изменения (остановит DPI)
             self._apply_changes()
@@ -449,10 +464,10 @@ class StrategiesPage(BasePage):
     def _update_current_strategies_display(self):
         """Совместимость: обновляет отображение текущих стратегий"""
         try:
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections
+            from strategy_menu import get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
 
-            selections = strategy_selections.get_all()
+            selections = get_direct_strategy_selections()
             active_count = sum(1 for s in selections.values() if s and s != 'none')
 
             if active_count > 0:

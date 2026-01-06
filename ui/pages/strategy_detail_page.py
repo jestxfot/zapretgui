@@ -16,47 +16,6 @@ from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
 from ui.widgets.win11_spinner import Win11Spinner
 from log import log
-from strategy_menu.blobs import get_blobs_info
-
-
-class TlsModToggle(QPushButton):
-    """Toggle-кнопка для tls_mod параметра"""
-
-    def __init__(self, text: str, parent=None):
-        super().__init__(text, parent)
-        self.setCheckable(True)
-        self.setFixedHeight(26)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggled.connect(self._update_style)
-        self._update_style(False)
-
-    def _update_style(self, checked: bool):
-        if checked:
-            self.setStyleSheet("""
-                QPushButton {
-                    background: #60cdff;
-                    color: #000000;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 0 10px;
-                    font-size: 11px;
-                    font-weight: 600;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.08);
-                    color: rgba(255, 255, 255, 0.7);
-                    border: none;
-                    border-radius: 4px;
-                    padding: 0 10px;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.12);
-                }
-            """)
 
 
 class FilterModeSelector(QWidget):
@@ -92,8 +51,6 @@ class FilterModeSelector(QWidget):
 
     def _select(self, mode: str):
         if mode != self._current_mode:
-            from log import log
-            log(f"[FilterModeSelector] Выбран режим: {mode}", "DEBUG")
             self._current_mode = mode
             self._update_styles()
             self.mode_changed.emit(mode)
@@ -557,14 +514,6 @@ class StrategyDetailPage(BasePage):
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._active_filters = set()  # Активные фильтры по технике
 
-        # Защита от быстрого переключения стратегий
-        self._is_switching = False  # Флаг блокировки во время переключения
-        self._pending_strategy_id = None  # Ожидающая стратегия (для debounce)
-        self._switch_timer = QTimer(self)  # Таймер debounce
-        self._switch_timer.setSingleShot(True)
-        self._switch_timer.setInterval(150)  # 150ms debounce
-        self._switch_timer.timeout.connect(self._apply_pending_strategy)
-
         self._build_content()
 
     def _build_content(self):
@@ -708,78 +657,6 @@ class StrategyDetailPage(BasePage):
         toolbar_layout.addWidget(self._filter_mode_frame)
 
         # ═══════════════════════════════════════════════════════════════
-        # OUT-RANGE SETTINGS (отдельная опция)
-        # ═══════════════════════════════════════════════════════════════
-        self._out_range_frame = QFrame()
-        self._out_range_frame.setStyleSheet("QFrame { background: transparent; }")
-        out_range_layout = QHBoxLayout(self._out_range_frame)
-        out_range_layout.setContentsMargins(0, 6, 0, 6)
-        out_range_layout.setSpacing(12)
-
-        # Icon
-        out_range_icon = QLabel()
-        out_range_icon.setFixedSize(22, 22)
-        out_range_icon.setPixmap(qta.icon("fa5s.sliders-h", color="#60cdff").pixmap(18, 18))
-        out_range_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        out_range_layout.addWidget(out_range_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        # Text
-        out_range_text_layout = QVBoxLayout()
-        out_range_text_layout.setSpacing(2)
-        out_range_title = QLabel("Out-Range")
-        out_range_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
-        out_range_desc = QLabel("Диапазон обрабатываемых пакетов")
-        out_range_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
-        out_range_text_layout.addWidget(out_range_title)
-        out_range_text_layout.addWidget(out_range_desc)
-        out_range_layout.addLayout(out_range_text_layout)
-
-        out_range_layout.addStretch()
-
-        # Mode selector (d/n) - две кнопки как у Hostlist/IPset
-        self._out_range_d_btn = QPushButton("d")
-        self._out_range_n_btn = QPushButton("n")
-
-        for btn in [self._out_range_d_btn, self._out_range_n_btn]:
-            btn.setFixedHeight(28)
-            btn.setMinimumWidth(32)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self._out_range_d_btn.setToolTip("data packets only")
-        self._out_range_n_btn.setToolTip("all packets")
-        # IMPORTANT: lambda must accept optional 'checked' parameter from clicked signal
-        self._out_range_d_btn.clicked.connect(lambda checked=False: self._set_out_range_mode("d"))
-        self._out_range_n_btn.clicked.connect(lambda checked=False: self._set_out_range_mode("n"))
-
-        # По умолчанию n
-        self._out_range_mode = "n"
-        self._update_out_range_mode_styles()
-
-        out_range_layout.addWidget(self._out_range_d_btn)
-        out_range_layout.addWidget(self._out_range_n_btn)
-
-        # Spinbox
-        self._out_range_spin = QSpinBox()
-        self._out_range_spin.setRange(0, 100)
-        self._out_range_spin.setValue(4)  # По умолчанию 4
-        self._out_range_spin.setSpecialValueText("off")
-        self._out_range_spin.setToolTip("--out-range=-dN или --out-range=-nN")
-        self._out_range_spin.setStyleSheet("""
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: white;
-                min-width: 75px;
-            }
-        """)
-        self._out_range_spin.valueChanged.connect(self._save_out_range_settings)
-        out_range_layout.addWidget(self._out_range_spin)
-
-        toolbar_layout.addWidget(self._out_range_frame)
-
-        # ═══════════════════════════════════════════════════════════════
         # SYNDATA SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._syndata_frame = QFrame()
@@ -877,135 +754,62 @@ class StrategyDetailPage(BasePage):
         blob_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         blob_label.setFixedWidth(60)
         self._blob_combo = QComboBox()
+        self._blob_combo.addItems([
+            "none",
+            "tls_google",
+            "tls7",
+            "fake_default_tls",
+            "tls_data_default",
+            "tls_clienthello_www_google_com",
+            "tls_clienthello_vk_com",
+            "fake_default_http",
+        ])
         self._blob_combo.setStyleSheet(combo_style)
         self._blob_combo.currentTextChanged.connect(self._save_syndata_settings)
-        self._populate_blob_combo()  # Динамическая загрузка из blobs.py
         blob_row.addWidget(blob_label)
         blob_row.addWidget(self._blob_combo)
         blob_row.addStretch()
         settings_layout.addLayout(blob_row)
 
-        # tls_mod selector row - toggle buttons (can be combined)
+        # tls_mod selector row
         tls_mod_row = QHBoxLayout()
         tls_mod_row.setSpacing(8)
         tls_mod_label = QLabel("tls_mod:")
         tls_mod_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         tls_mod_label.setFixedWidth(60)
+        self._tls_mod_combo = QComboBox()
+        self._tls_mod_combo.addItems(["none", "rnd", "rndsni", "sni=google.com"])
+        self._tls_mod_combo.setStyleSheet(combo_style)
+        self._tls_mod_combo.currentTextChanged.connect(self._save_syndata_settings)
         tls_mod_row.addWidget(tls_mod_label)
-
-        # Toggle buttons для комбинируемых модов
-        self._tls_mod_buttons = {}
-        for mod_name in ["rnd", "rndsni", "dupsid", "padencap"]:
-            btn = TlsModToggle(mod_name)
-            btn.toggled.connect(self._save_syndata_settings)
-            self._tls_mod_buttons[mod_name] = btn
-            tls_mod_row.addWidget(btn)
-
-        # sni= input
-        sni_label = QLabel("sni=")
-        sni_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent; margin-left: 8px;")
-        tls_mod_row.addWidget(sni_label)
-        self._sni_input = QLineEdit()
-        self._sni_input.setPlaceholderText("google.com")
-        self._sni_input.setFixedWidth(100)
-        self._sni_input.setFixedHeight(26)
-        self._sni_input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(255,255,255,0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 8px;
-                font-size: 11px;
-            }
-            QLineEdit:focus {
-                background: rgba(255,255,255,0.12);
-            }
-        """)
-        self._sni_input.textChanged.connect(self._save_syndata_settings)
-        tls_mod_row.addWidget(self._sni_input)
-
+        tls_mod_row.addWidget(self._tls_mod_combo)
         tls_mod_row.addStretch()
         settings_layout.addLayout(tls_mod_row)
 
-        # IP AutoTTL row - автоматический TTL
-        autottl_row = QHBoxLayout()
-        autottl_row.setSpacing(8)
-        autottl_label = QLabel("ip_autottl:")
-        autottl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
-        autottl_label.setFixedWidth(70)
-        autottl_row.addWidget(autottl_label)
-
-        # Toggle для включения/выключения autottl
-        self._autottl_toggle = QPushButton("off")
-        self._autottl_toggle.setCheckable(True)
-        self._autottl_toggle.setChecked(False)
-        self._autottl_toggle.setFixedHeight(28)
-        self._autottl_toggle.setMinimumWidth(40)
-        self._autottl_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._autottl_toggle.clicked.connect(self._on_autottl_toggle)
-        autottl_row.addWidget(self._autottl_toggle)
-
-        # Delta presets: -1 до -8 (отрицательные для DPI bypass)
-        self._autottl_delta_presets = {}
-        delta_values = [-1, -2, -3, -4, -5, -6, -7, -8]
-        for delta in delta_values:
-            btn = QPushButton(str(delta))
-            btn.setFixedHeight(28)
-            btn.setMinimumWidth(32)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda checked, d=delta: self._set_autottl_delta(d))
-            self._autottl_delta_presets[delta] = btn
-            autottl_row.addWidget(btn)
-
-        # Min-Max спинбоксы
-        min_label = QLabel("min:")
-        min_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
-        autottl_row.addWidget(min_label)
-
-        self._autottl_min_spin = QSpinBox()
-        self._autottl_min_spin.setRange(1, 255)
-        self._autottl_min_spin.setValue(3)
-        self._autottl_min_spin.setFixedWidth(50)
-        self._autottl_min_spin.setStyleSheet("""
+        # IP TTL row
+        ttl_row = QHBoxLayout()
+        ttl_row.setSpacing(8)
+        ttl_label = QLabel("ip_ttl:")
+        ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        ttl_label.setFixedWidth(60)
+        self._ip_ttl_spin = QSpinBox()
+        self._ip_ttl_spin.setRange(0, 255)
+        self._ip_ttl_spin.setValue(0)
+        self._ip_ttl_spin.setSpecialValueText("auto")
+        self._ip_ttl_spin.setStyleSheet("""
             QSpinBox {
                 background: rgba(255,255,255,0.06);
                 border: none;
                 border-radius: 4px;
-                padding: 4px;
+                padding: 4px 8px;
                 color: white;
             }
         """)
-        self._autottl_min_spin.valueChanged.connect(self._save_syndata_settings)
-        autottl_row.addWidget(self._autottl_min_spin)
-
-        max_label = QLabel("max:")
-        max_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
-        autottl_row.addWidget(max_label)
-
-        self._autottl_max_spin = QSpinBox()
-        self._autottl_max_spin.setRange(1, 255)
-        self._autottl_max_spin.setValue(20)
-        self._autottl_max_spin.setFixedWidth(50)
-        self._autottl_max_spin.setStyleSheet("""
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
-                border-radius: 4px;
-                padding: 4px;
-                color: white;
-            }
-        """)
-        self._autottl_max_spin.valueChanged.connect(self._save_syndata_settings)
-        autottl_row.addWidget(self._autottl_max_spin)
-
-        # Инициализация стилей
-        self._autottl_enabled = False
-        self._autottl_delta = -1
-        self._update_autottl_styles()
-
-        autottl_row.addStretch()
-        settings_layout.addLayout(autottl_row)
+        self._ip_ttl_spin.valueChanged.connect(self._save_syndata_settings)
+        ttl_row.addWidget(ttl_label)
+        ttl_row.addWidget(self._ip_ttl_spin)
+        ttl_row.addStretch()
+        settings_layout.addLayout(ttl_row)
 
         # TCP flags row
         flags_row = QHBoxLayout()
@@ -1022,81 +826,8 @@ class StrategyDetailPage(BasePage):
         flags_row.addStretch()
         settings_layout.addLayout(flags_row)
 
-        # Send row - отправка дубликата с repeats
-        send_row = QHBoxLayout()
-        send_row.setSpacing(8)
-        send_label = QLabel("send:")
-        send_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
-        send_label.setFixedWidth(60)
-
-        # Toggle для включения send
-        self._send_toggle = TlsModToggle("вкл")
-        self._send_toggle.setChecked(True)  # По умолчанию включен
-        self._send_toggle.setFixedWidth(40)
-        self._send_toggle.toggled.connect(self._save_syndata_settings)
-
-        # repeats spinbox
-        repeats_label = QLabel("repeats:")
-        repeats_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent; margin-left: 8px;")
-        self._send_repeats_spin = QSpinBox()
-        self._send_repeats_spin.setRange(1, 20)
-        self._send_repeats_spin.setValue(2)  # По умолчанию 2
-        self._send_repeats_spin.setToolTip("--lua-desync=send:repeats=N")
-        self._send_repeats_spin.setStyleSheet("""
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: white;
-            }
-        """)
-        self._send_repeats_spin.valueChanged.connect(self._save_syndata_settings)
-
-        send_row.addWidget(send_label)
-        send_row.addWidget(self._send_toggle)
-        send_row.addWidget(repeats_label)
-        send_row.addWidget(self._send_repeats_spin)
-        send_row.addStretch()
-        settings_layout.addLayout(send_row)
-
         syndata_layout.addWidget(self._syndata_settings)
         toolbar_layout.addWidget(self._syndata_frame)
-
-        # ═══════════════════════════════════════════════════════════════
-        # КНОПКА СБРОСА НАСТРОЕК КАТЕГОРИИ
-        # ═══════════════════════════════════════════════════════════════
-        self._reset_frame = QFrame()
-        self._reset_frame.setStyleSheet("QFrame { background: transparent; }")
-        reset_layout = QHBoxLayout(self._reset_frame)
-        reset_layout.setContentsMargins(0, 6, 0, 6)
-        reset_layout.setSpacing(12)
-
-        reset_layout.addStretch()
-
-        # Кнопка сброса настроек категории
-        self._reset_settings_btn = QPushButton("Сбросить настройки")
-        self._reset_settings_btn.setIcon(qta.icon("fa5s.undo", color="#ff8a65"))
-        self._reset_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._reset_settings_btn.setToolTip("Сбросить syndata, send, out-range и filter mode к значениям по умолчанию")
-        self._reset_settings_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 138, 101, 0.1);
-                border: 1px solid rgba(255, 138, 101, 0.3);
-                border-radius: 6px;
-                color: #ff8a65;
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 138, 101, 0.2);
-                border-color: rgba(255, 138, 101, 0.5);
-            }
-        """)
-        self._reset_settings_btn.clicked.connect(self._reset_category_settings)
-        reset_layout.addWidget(self._reset_settings_btn)
-
-        toolbar_layout.addWidget(self._reset_frame)
 
         self.layout.addWidget(self._toolbar_frame)
 
@@ -1191,12 +922,6 @@ class StrategyDetailPage(BasePage):
             current_strategy_id: ID текущей выбранной стратегии
         """
         log(f"StrategyDetailPage.show_category: {category_key}, current={current_strategy_id}", "DEBUG")
-
-        # Сбрасываем состояние debounce и блокировки при смене категории
-        self._switch_timer.stop()
-        self._pending_strategy_id = None
-        self._is_switching = False
-
         self._category_key = category_key
         self._category_info = category_info
         self._current_strategy_id = current_strategy_id or "none"
@@ -1225,7 +950,6 @@ class StrategyDetailPage(BasePage):
         if has_ipset and has_hostlist:
             self._filter_mode_frame.setVisible(True)
             saved_filter_mode = self._load_category_filter_mode(category_key)
-            log(f"[load_category] Категория: {category_key}, загруженный режим: {saved_filter_mode}", "DEBUG")
             self._filter_mode_selector.setCurrentMode(saved_filter_mode, block_signals=True)
         else:
             self._filter_mode_frame.setVisible(False)
@@ -1246,10 +970,6 @@ class StrategyDetailPage(BasePage):
         # Загружаем syndata настройки для категории
         syndata_settings = self._load_syndata_settings(category_key)
         self._apply_syndata_settings(syndata_settings)
-
-        # Load out-range settings
-        out_range_settings = self._load_out_range_settings(category_key)
-        self._apply_out_range_settings(out_range_settings)
 
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
@@ -1345,15 +1065,6 @@ class StrategyDetailPage(BasePage):
         if not self._category_key:
             return
 
-        # Блокируем быстрые переключения
-        if self._is_switching:
-            log(f"Toggle ignored - already switching", "DEBUG")
-            return
-
-        # Останавливаем pending операцию если есть
-        self._switch_timer.stop()
-        self._pending_strategy_id = None
-
         if enabled:
             # Включаем - выбираем стратегию по умолчанию или первую доступную
             strategy_to_select = self._get_default_strategy()
@@ -1365,16 +1076,10 @@ class StrategyDetailPage(BasePage):
                 if strategy_to_select in self._strategy_rows:
                     self._strategy_rows[strategy_to_select].set_selected(True)
                 self._selected_strategy_id = strategy_to_select
-
-                self._is_switching = True
                 # Показываем анимацию загрузки
                 self.show_loading()
-                # Блокируем UI на время запуска DPI
-                self.set_strategies_enabled(False)
                 self.strategy_selected.emit(self._category_key, strategy_to_select)
                 log(f"Категория {self._category_key} включена со стратегией {strategy_to_select}", "INFO")
-                # Снимаем блокировку через задержку (500ms для гарантированного старта DPI)
-                QTimer.singleShot(500, self._unlock_switching)
             else:
                 log(f"Нет доступных стратегий для {self._category_key}", "WARNING")
                 self._enable_toggle.setChecked(False, block_signals=True)
@@ -1387,15 +1092,8 @@ class StrategyDetailPage(BasePage):
             # Скрываем галочку
             self._stop_loading()
             self._success_icon.hide()
-
-            # Блокируем UI на время остановки DPI
-            self.set_strategies_enabled(False)
-
-            self._is_switching = True
             self.strategy_selected.emit(self._category_key, "none")
             log(f"Категория {self._category_key} отключена", "INFO")
-            # Снимаем блокировку через задержку (500ms для гарантированной остановки DPI)
-            QTimer.singleShot(500, self._unlock_switching)
 
     def _get_default_strategy(self) -> str:
         """Возвращает стратегию по умолчанию для текущей категории"""
@@ -1428,113 +1126,71 @@ class StrategyDetailPage(BasePage):
         if not self._category_key:
             return
 
-        log(f"[_on_filter_mode_changed] Категория: {self._category_key}, новый режим: {new_mode}", "DEBUG")
-        # Используем централизованный модуль: сохранит в реестр + перезапустит DPI
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        rs.save_filter_mode(self._category_key, new_mode)
-        log(f"Режим фильтрации для {self._category_key}: {new_mode} СОХРАНЕН", "INFO")
-
-        # Перезапускаем winws2 если категория включена
-        if self._selected_strategy_id and self._selected_strategy_id != "none":
-            self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
-
-    def _set_out_range_mode(self, mode: str):
-        """Устанавливает режим out-range (d или n)"""
-        log(f"_set_out_range_mode called: mode={mode}", "DEBUG")
-        if mode not in ("d", "n"):
-            log(f"Invalid out-range mode: {mode}", "WARNING")
-            return
-        self._out_range_mode = mode
-        self._update_out_range_mode_styles()
-        self._save_out_range_settings()
-        log(f"Out-range mode successfully set to: {self._out_range_mode}", "DEBUG")
-
-    def _update_out_range_mode_styles(self):
-        """Обновляет стили кнопок d/n"""
-        active_style = """
-            QPushButton {
-                background: #60cdff;
-                border: none;
-                border-radius: 4px;
-                color: #000000;
-                font-size: 13px;
-                font-weight: 700;
-                padding: 0 8px;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: 500;
-                padding: 0 8px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.15);
-            }
-        """
-        if self._out_range_mode == "d":
-            self._out_range_d_btn.setStyleSheet(active_style)
-            self._out_range_n_btn.setStyleSheet(inactive_style)
-        else:
-            self._out_range_d_btn.setStyleSheet(inactive_style)
-            self._out_range_n_btn.setStyleSheet(active_style)
-
-    def _save_out_range_settings(self):
-        """Сохраняет out-range настройки в реестр"""
-        if not self._category_key:
-            log("_save_out_range_settings: category_key is empty, skipping", "WARNING")
-            return
-
-        # Используем централизованный модуль
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        settings = {
-            "mode": self._out_range_mode,
-            "value": self._out_range_spin.value(),
-        }
-        rs.save_out_range(self._category_key, settings)
-
-        # Перезапускаем winws2 если категория включена
-        if self._selected_strategy_id and self._selected_strategy_id != "none":
-            self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
-
-    def _load_out_range_settings(self, category_key: str) -> dict:
-        """Загружает out-range настройки из реестра"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        return rs.load_out_range(category_key)
-
-    def _apply_out_range_settings(self, settings: dict):
-        """Применяет out-range настройки к UI"""
-        self._out_range_spin.blockSignals(True)
-
-        self._out_range_mode = settings.get("mode", "n")
-        self._update_out_range_mode_styles()
-        self._out_range_spin.setValue(settings.get("value", 4))
-
-        self._out_range_spin.blockSignals(False)
+        # new_mode is passed directly from signal
+        self._save_category_filter_mode(self._category_key, new_mode)
+        log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
 
     def _save_category_filter_mode(self, category_key: str, mode: str):
         """Сохраняет режим фильтрации для категории в реестр"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        rs.save_filter_mode(category_key, mode)
+        try:
+            from config import REGISTRY_PATH
+            import winreg
+
+            key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                winreg.SetValueEx(key, category_key, 0, winreg.REG_SZ, mode)
+        except Exception as e:
+            log(f"Ошибка сохранения filter_mode для {category_key}: {e}", "WARNING")
 
     def _load_category_filter_mode(self, category_key: str) -> str:
         """Загружает режим фильтрации для категории из реестра"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        return rs.load_filter_mode(category_key)
+        try:
+            from config import REGISTRY_PATH
+            import winreg
+
+            key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, category_key)
+                # Только hostlist или ipset, default → hostlist
+                if value == "ipset":
+                    return "ipset"
+                return "hostlist"
+        except FileNotFoundError:
+            return "hostlist"
+        except Exception as e:
+            log(f"Ошибка загрузки filter_mode для {category_key}: {e}", "DEBUG")
+            return "hostlist"
 
     def _save_category_sort(self, category_key: str, sort_order: str):
         """Сохраняет порядок сортировки для категории в реестр"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        rs.save_sort_order(category_key, sort_order)
+        try:
+            from config import REGISTRY_PATH
+            import winreg
+
+            key_path = f"{REGISTRY_PATH}\\CategorySort"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                winreg.SetValueEx(key, category_key, 0, winreg.REG_SZ, sort_order)
+        except Exception as e:
+            log(f"Ошибка сохранения sort_order для {category_key}: {e}", "WARNING")
 
     def _load_category_sort(self, category_key: str) -> str:
         """Загружает порядок сортировки для категории из реестра"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        return rs.load_sort_order(category_key)
+        try:
+            from config import REGISTRY_PATH
+            import winreg
+
+            key_path = f"{REGISTRY_PATH}\\CategorySort"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, category_key)
+                # Валидные значения: default, name_asc, name_desc
+                if value in ("default", "name_asc", "name_desc"):
+                    return value
+                return "default"
+        except FileNotFoundError:
+            return "default"
+        except Exception as e:
+            log(f"Ошибка загрузки sort_order для {category_key}: {e}", "DEBUG")
+            return "default"
 
     # ═══════════════════════════════════════════════════════════════
     # SYNDATA SETTINGS METHODS
@@ -1545,177 +1201,63 @@ class StrategyDetailPage(BasePage):
         self._syndata_settings.setVisible(checked)
         self._save_syndata_settings()
 
-    def _populate_blob_combo(self):
-        """Загружает список блобов из blobs.py в комбобокс"""
-        self._blob_combo.blockSignals(True)
-        self._blob_combo.clear()
-        self._blob_combo.addItem("none")
-        try:
-            blobs_info = get_blobs_info()
-            for blob_name, info in sorted(blobs_info.items()):
-                self._blob_combo.addItem(blob_name)
-                # Tooltip с описанием
-                idx = self._blob_combo.count() - 1
-                desc = info.get("description", "")
-                if desc:
-                    self._blob_combo.setItemData(idx, desc, Qt.ItemDataRole.ToolTipRole)
-        except Exception as e:
-            log(f"Ошибка загрузки блобов: {e}", "WARNING")
-            # Fallback - добавляем базовые блобы
-            self._blob_combo.addItems(["tls_google", "fake_default_tls"])
-        self._blob_combo.blockSignals(False)
-
-    def _get_tls_mod_value(self) -> str:
-        """Собирает значение tls_mod из toggle-кнопок и sni input"""
-        mods = []
-        for mod_name, btn in self._tls_mod_buttons.items():
-            if btn.isChecked():
-                mods.append(mod_name)
-        # Добавляем sni= если заполнено
-        sni_value = self._sni_input.text().strip()
-        if sni_value:
-            mods.append(f"sni={sni_value}")
-        return ",".join(mods) if mods else "none"
-
     def _save_syndata_settings(self):
-        """Сохраняет syndata настройки для текущей категории в реестр и перезапускает winws2"""
+        """Сохраняет syndata настройки для текущей категории в реестр"""
         if not self._category_key:
             return
-
-        # Собираем настройки из UI
+        import json
         settings = {
             "enabled": self._syndata_toggle.isChecked(),
             "blob": self._blob_combo.currentText(),
-            "tls_mod": self._get_tls_mod_value(),
-            "autottl_enabled": self._autottl_enabled,
-            "autottl_delta": self._autottl_delta,
-            "autottl_min": self._autottl_min_spin.value(),
-            "autottl_max": self._autottl_max_spin.value(),
+            "tls_mod": self._tls_mod_combo.currentText(),
+            "ip_ttl": self._ip_ttl_spin.value(),
             "tcp_flags_unset": self._tcp_flags_combo.currentText(),
-            "send_enabled": self._send_toggle.isChecked(),
-            "send_repeats": self._send_repeats_spin.value(),
         }
+        try:
+            from config import REGISTRY_PATH
+            import winreg
 
-        # Используем централизованный модуль
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        rs.save_syndata(self._category_key, settings)
-
-        # Перезапускаем winws2 если категория включена
-        if self._selected_strategy_id and self._selected_strategy_id != "none":
-            self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
-
-    def _on_autottl_toggle(self, checked: bool):
-        """Toggle autottl on/off"""
-        self._autottl_enabled = checked
-        self._autottl_toggle.setText("on" if checked else "off")
-        self._update_autottl_styles()
-        self._save_syndata_settings()
-
-    def _set_autottl_delta(self, delta: int):
-        """Устанавливает delta и включает autottl"""
-        self._autottl_enabled = True
-        self._autottl_delta = delta
-        self._autottl_toggle.setChecked(True)
-        self._autottl_toggle.setText("on")
-        self._update_autottl_styles()
-        self._save_syndata_settings()
-
-    def _update_autottl_styles(self):
-        """Обновляет стили кнопок autottl"""
-        # Стиль toggle
-        if self._autottl_enabled:
-            self._autottl_toggle.setStyleSheet("""
-                QPushButton {
-                    background: rgba(34, 197, 94, 0.3);
-                    border: 1px solid rgba(34, 197, 94, 0.6);
-                    border-radius: 4px;
-                    color: #22c55e;
-                    font-size: 12px;
-                    font-weight: bold;
-                    padding: 4px 8px;
-                }
-            """)
-        else:
-            self._autottl_toggle.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.06);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    border-radius: 4px;
-                    color: rgba(255, 255, 255, 0.5);
-                    font-size: 12px;
-                    padding: 4px 8px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                }
-            """)
-
-        # Стили пресетов delta
-        active_style = """
-            QPushButton {
-                background: rgba(96, 165, 250, 0.3);
-                border: 1px solid rgba(96, 165, 250, 0.6);
-                border-radius: 4px;
-                color: #60a5fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 4px 6px;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 12px;
-                padding: 4px 6px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-        """
-        disabled_style = """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 4px;
-                color: rgba(255, 255, 255, 0.3);
-                font-size: 12px;
-                padding: 4px 6px;
-            }
-        """
-
-        for delta, btn in self._autottl_delta_presets.items():
-            if not self._autottl_enabled:
-                btn.setStyleSheet(disabled_style)
-            elif delta == self._autottl_delta:
-                btn.setStyleSheet(active_style)
-            else:
-                btn.setStyleSheet(inactive_style)
-
-        # Включаем/выключаем min/max спинбоксы
-        self._autottl_min_spin.setEnabled(self._autottl_enabled)
-        self._autottl_max_spin.setEnabled(self._autottl_enabled)
+            key_path = f"{REGISTRY_PATH}\\CategorySyndata"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                winreg.SetValueEx(key, self._category_key, 0, winreg.REG_SZ, json.dumps(settings))
+            log(f"Syndata settings saved for {self._category_key}: {settings}", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка сохранения syndata для {self._category_key}: {e}", "WARNING")
 
     def _load_syndata_settings(self, category_key: str) -> dict:
         """Загружает syndata настройки для категории из реестра"""
-        from strategy_menu.preset_configuration_zapret2 import registry_settings as rs
-        return rs.load_syndata(category_key)
+        import json
+        default_settings = {
+            "enabled": True,
+            "blob": "tls_google",
+            "tls_mod": "none",
+            "ip_ttl": 0,
+            "tcp_flags_unset": "none",
+        }
+        try:
+            from config import REGISTRY_PATH
+            import winreg
+
+            key_path = f"{REGISTRY_PATH}\\CategorySyndata"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, category_key)
+                loaded = json.loads(value)
+                # Merge with defaults for backward compatibility
+                return {**default_settings, **loaded}
+        except FileNotFoundError:
+            return default_settings
+        except Exception as e:
+            log(f"Ошибка загрузки syndata для {category_key}: {e}", "DEBUG")
+            return default_settings
 
     def _apply_syndata_settings(self, settings: dict):
         """Применяет syndata настройки к UI без эмиссии сигналов сохранения"""
         # Блокируем сигналы чтобы не вызывать save при загрузке
         self._syndata_toggle.blockSignals(True)
         self._blob_combo.blockSignals(True)
-        self._autottl_min_spin.blockSignals(True)
-        self._autottl_max_spin.blockSignals(True)
+        self._tls_mod_combo.blockSignals(True)
+        self._ip_ttl_spin.blockSignals(True)
         self._tcp_flags_combo.blockSignals(True)
-        self._sni_input.blockSignals(True)
-        self._send_toggle.blockSignals(True)
-        self._send_repeats_spin.blockSignals(True)
-        for btn in self._tls_mod_buttons.values():
-            btn.blockSignals(True)
 
         self._syndata_toggle.setChecked(settings.get("enabled", True))
         self._syndata_settings.setVisible(settings.get("enabled", True))
@@ -1725,81 +1267,44 @@ class StrategyDetailPage(BasePage):
         if blob_index >= 0:
             self._blob_combo.setCurrentIndex(blob_index)
 
-        # Парсим tls_mod и применяем к кнопкам
         tls_mod_value = settings.get("tls_mod", "none")
-        # Сбрасываем все кнопки и sni input
-        for btn in self._tls_mod_buttons.values():
-            btn.setChecked(False)
-        self._sni_input.clear()
-        # Применяем сохранённые значения
-        if tls_mod_value and tls_mod_value != "none":
-            for mod in tls_mod_value.split(","):
-                mod = mod.strip()
-                if mod.startswith("sni="):
-                    self._sni_input.setText(mod[4:])
-                elif mod in self._tls_mod_buttons:
-                    self._tls_mod_buttons[mod].setChecked(True)
+        tls_mod_index = self._tls_mod_combo.findText(tls_mod_value)
+        if tls_mod_index >= 0:
+            self._tls_mod_combo.setCurrentIndex(tls_mod_index)
 
-        # AutoTTL
-        self._autottl_enabled = settings.get("autottl_enabled", False)
-        self._autottl_delta = settings.get("autottl_delta", 1)
-        self._autottl_toggle.setChecked(self._autottl_enabled)
-        self._autottl_toggle.setText("on" if self._autottl_enabled else "off")
-        self._autottl_min_spin.setValue(settings.get("autottl_min", 3))
-        self._autottl_max_spin.setValue(settings.get("autottl_max", 20))
-        self._update_autottl_styles()
+        self._ip_ttl_spin.setValue(settings.get("ip_ttl", 0))
 
         tcp_flags_value = settings.get("tcp_flags_unset", "none")
         tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
         if tcp_flags_index >= 0:
             self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
 
-        self._send_toggle.setChecked(settings.get("send_enabled", True))
-        self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
-
         # Разблокируем сигналы
         self._syndata_toggle.blockSignals(False)
         self._blob_combo.blockSignals(False)
-        self._autottl_min_spin.blockSignals(False)
-        self._autottl_max_spin.blockSignals(False)
+        self._tls_mod_combo.blockSignals(False)
+        self._ip_ttl_spin.blockSignals(False)
         self._tcp_flags_combo.blockSignals(False)
-        self._sni_input.blockSignals(False)
-        self._send_toggle.blockSignals(False)
-        self._send_repeats_spin.blockSignals(False)
-        for btn in self._tls_mod_buttons.values():
-            btn.blockSignals(False)
 
     def get_syndata_settings(self) -> dict:
         """Возвращает текущие syndata настройки для использования в командной строке"""
         return {
             "enabled": self._syndata_toggle.isChecked(),
             "blob": self._blob_combo.currentText(),
-            "tls_mod": self._get_tls_mod_value(),
+            "tls_mod": self._tls_mod_combo.currentText(),
         }
 
     def _on_row_clicked(self, strategy_id: str):
-        """Обработчик клика по строке стратегии - выбор активной с debounce"""
-        # КРИТИЧНО: блокируем все клики во время переключения
-        if self._is_switching:
-            log(f"Row click BLOCKED - already switching", "DEBUG")
-            return
-
-        # Если это та же стратегия - игнорируем
-        if strategy_id == self._selected_strategy_id and not self._pending_strategy_id:
-            return
-
+        """Обработчик клика по строке стратегии - выбор активной"""
         # Снимаем выделение с предыдущей
         if self._selected_strategy_id in self._strategy_rows:
             self._strategy_rows[self._selected_strategy_id].set_selected(False)
-        # Также снимаем с pending если она была
-        if self._pending_strategy_id and self._pending_strategy_id in self._strategy_rows:
-            self._strategy_rows[self._pending_strategy_id].set_selected(False)
-
         # Выделяем новую
         if strategy_id in self._strategy_rows:
             self._strategy_rows[strategy_id].set_selected(True)
+        self._selected_strategy_id = strategy_id
 
-        # Синхронизируем toggle визуально сразу
+        # Синхронизируем toggle
         if strategy_id != "none":
             self._enable_toggle.setChecked(True, block_signals=True)
             # Показываем анимацию загрузки
@@ -1808,47 +1313,9 @@ class StrategyDetailPage(BasePage):
             self._stop_loading()
             self._success_icon.hide()
 
-        # Сохраняем pending стратегию и перезапускаем таймер (debounce)
-        self._pending_strategy_id = strategy_id
-        self._switch_timer.stop()
-        self._switch_timer.start()
-
-        log(f"Strategy click (debounced): {strategy_id}, pending...", "DEBUG")
-
-    def _apply_pending_strategy(self):
-        """Применяет отложенную стратегию после debounce таймера"""
-        if not self._pending_strategy_id:
-            return
-
-        strategy_id = self._pending_strategy_id
-        self._pending_strategy_id = None
-
-        # Проверяем что не происходит другое переключение
-        if self._is_switching:
-            log(f"Skipping strategy apply - already switching", "DEBUG")
-            return
-
-        self._is_switching = True
-
-        try:
-            # Блокируем UI на время перезапуска DPI
-            self.set_strategies_enabled(False)
-
-            # Обновляем selected_strategy_id только после debounce
-            self._selected_strategy_id = strategy_id
-
-            # Применяем стратегию (но остаёмся на странице)
-            if self._category_key:
-                log(f"Applying strategy: {self._category_key}/{strategy_id}", "DEBUG")
-                self.strategy_selected.emit(self._category_key, strategy_id)
-        finally:
-            # Снимаем блокировку через небольшую задержку
-            # чтобы дать время на обработку сигнала
-            QTimer.singleShot(100, self._unlock_switching)
-
-    def _unlock_switching(self):
-        """Снимает блокировку переключения"""
-        self._is_switching = False
+        # Применяем стратегию (но остаёмся на странице)
+        if self._category_key:
+            self.strategy_selected.emit(self._category_key, strategy_id)
 
     def _update_status_icon(self, active: bool):
         """Обновляет галочку статуса в заголовке"""
@@ -1872,26 +1339,6 @@ class StrategyDetailPage(BasePage):
         self._stop_loading()
         self._success_icon.setPixmap(qta.icon('fa5s.check-circle', color='#4ade80').pixmap(16, 16))
         self._success_icon.show()
-        # Разблокируем UI после успешного запуска
-        self.set_strategies_enabled(True)
-
-    def set_strategies_enabled(self, enabled: bool):
-        """Блокирует/разблокирует список стратегий"""
-        for row in self._strategy_rows.values():
-            row.setEnabled(enabled)
-            # КРИТИЧНО: блокируем сигналы чтобы клики не накапливались в очереди
-            row.blockSignals(not enabled)
-
-        # Также блокируем поиск, фильтры и toggle
-        if hasattr(self, '_search_input'):
-            self._search_input.setEnabled(enabled)
-        if hasattr(self, '_filter_chips'):
-            for chip in self._filter_chips.values():
-                chip.setEnabled(enabled)
-        if hasattr(self, '_enable_toggle'):
-            self._enable_toggle.setEnabled(enabled)
-
-        log(f"Strategies UI {'enabled' if enabled else 'disabled'} (signals {'unblocked' if enabled else 'BLOCKED'})", "DEBUG")
 
     def _on_args_changed(self, strategy_id: str, args: list):
         """Обработчик изменения аргументов стратегии"""
@@ -1997,77 +1444,3 @@ class StrategyDetailPage(BasePage):
         for i, row in enumerate(rows):
             self._strategies_layout.removeWidget(row)
             self._strategies_layout.insertWidget(i, row)
-
-    def _reset_category_settings(self):
-        """Сбрасывает все настройки категории к значениям по умолчанию"""
-        if not self._category_key:
-            return
-
-        log(f"Сброс настроек категории {self._category_key} к значениям по умолчанию", "INFO")
-
-        # Значения по умолчанию для syndata
-        default_syndata = {
-            "enabled": True,
-            "blob": "none",
-            "tls_mod": "none",
-            "autottl_enabled": False,
-            "autottl_delta": -1,
-            "autottl_min": 3,
-            "autottl_max": 20,
-            "tcp_flags_unset": "none",
-            "send_enabled": True,
-            "send_repeats": 2,
-        }
-
-        # Значения по умолчанию для out-range
-        default_out_range = {
-            "mode": "n",
-            "value": 4,
-        }
-
-        # Значение по умолчанию для filter_mode
-        default_filter_mode = "hostlist"
-
-        # Применяем настройки к UI
-        self._apply_syndata_settings(default_syndata)
-        self._apply_out_range_settings(default_out_range)
-        self._filter_mode_selector.setCurrentMode(default_filter_mode, block_signals=True)
-
-        # Сохраняем дефолты в реестр (а не удаляем!)
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-            import json
-
-            # Сохраняем syndata дефолты
-            try:
-                key_path = f"{REGISTRY_PATH}\\CategorySyndata"
-                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    winreg.SetValueEx(key, self._category_key, 0, winreg.REG_SZ, json.dumps(default_syndata))
-            except Exception as e:
-                log(f"Ошибка сохранения syndata: {e}", "DEBUG")
-
-            # Сохраняем out-range дефолты
-            try:
-                key_path = f"{REGISTRY_PATH}\\CategoryOutRange"
-                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    winreg.SetValueEx(key, self._category_key, 0, winreg.REG_SZ, json.dumps(default_out_range))
-            except Exception as e:
-                log(f"Ошибка сохранения out_range: {e}", "DEBUG")
-
-            # Сохраняем filter_mode дефолт
-            try:
-                key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
-                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    winreg.SetValueEx(key, self._category_key, 0, winreg.REG_SZ, default_filter_mode)
-            except Exception as e:
-                log(f"Ошибка сохранения filter_mode: {e}", "DEBUG")
-
-            log(f"Настройки категории {self._category_key} сброшены к дефолтам", "INFO")
-
-            # Перезапускаем winws2 если категория включена
-            if self._selected_strategy_id and self._selected_strategy_id != "none":
-                self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
-
-        except Exception as e:
-            log(f"Ошибка сброса настроек категории: {e}", "ERROR")

@@ -145,8 +145,7 @@ class CategoryTabLoader(QObject):
         """Загружает данные категории в фоновом потоке"""
         try:
             from strategy_menu.strategies_registry import registry
-            from strategy_menu.preset_configuration_zapret2 import strategy_selections
-            from strategy_menu import get_favorite_strategies
+            from strategy_menu import get_direct_strategy_selections, get_favorite_strategies
 
             # Загружаем стратегии для категории
             strategies_dict = registry.get_category_strategies(self.category_key)
@@ -155,7 +154,7 @@ class CategoryTabLoader(QObject):
             favorites_list = get_favorite_strategies(self.category_key) or []
 
             # Загружаем текущий выбор
-            selections = strategy_selections.get_all()
+            selections = get_direct_strategy_selections()
             current_selection = selections.get(self.category_key, "none")
 
             log(f"Категория {self.category_key}: загружено {len(strategies_dict)} стратегий", "DEBUG")

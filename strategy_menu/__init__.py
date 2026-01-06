@@ -52,7 +52,7 @@ def clear_direct_orchestra_strategies() -> bool:
             reg(DIRECT_ORCHESTRA_STRATEGY_KEY, reg_key, "none")
 
         # Сбрасываем кэш
-        strategy_selections.invalidate_cache()
+        invalidate_direct_selections_cache()
 
         log("✅ Все стратегии DirectOrchestra установлены в 'none'", "INFO")
         return True
@@ -140,6 +140,14 @@ def set_keep_dialog_open(enabled: bool) -> bool:
 _favorites_cache = {}
 _favorites_cache_time = 0
 FAVORITES_CACHE_TTL = 5.0  # 5 секунд (было 0.5)
+
+# Кэш выборов стратегий для Direct режима
+_direct_selections_cache = None
+_direct_selections_cache_time = 0
+DIRECT_SELECTIONS_CACHE_TTL = 5.0  # 5 секунд
+
+# Кэш предупреждений о невалидных стратегиях (чтобы не спамить)
+_warned_invalid_strategies = set()
 
 def get_favorites_for_category(category_key):
     """Получает избранные стратегии для категории (с кэшем)"""
@@ -654,6 +662,214 @@ def set_out_range_youtube(value: int) -> bool:
     return _set_out_range_value("YouTube", value)
 
 
+# ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
+
+def invalidate_direct_selections_cache():
+    """Сбрасывает кэш выборов стратегий"""
+    global _direct_selections_cache_time
+    _direct_selections_cache_time = 0
+
+
+def get_direct_strategy_selections() -> dict:
+    """
+    Возвращает сохраненные выборы стратегий для прямого запуска.
+
+    ✅ Кэширует результат на 5 секунд для быстрого доступа
+    ✅ Валидирует каждый сохранённый strategy_id:
+    - Если стратегия не найдена в реестре, использует значение по умолчанию
+    - Логирует предупреждения о замене невалидных стратегий
+    """
+    import time
+    global _direct_selections_cache, _direct_selections_cache_time
+
+    # Проверяем кэш
+    current_time = time.time()
+    if _direct_selections_cache is not None and \
+       current_time - _direct_selections_cache_time < DIRECT_SELECTIONS_CACHE_TTL:
+        return _direct_selections_cache.copy()
+
+    from .strategies_registry import registry
+
+    try:
+        selections = {}
+        default_selections = registry.get_default_selections()
+        invalid_count = 0
+
+        strategy_key = _get_current_strategy_key()
+        for category_key in registry.get_all_category_keys():
+            reg_key = _category_to_reg_key(category_key)
+            value = reg(strategy_key, reg_key)
+
+            if value:
+                # ✅ Валидация: проверяем существование стратегии
+                if value == "none":
+                    # "none" - специальное значение, всегда валидно
+                    selections[category_key] = value
+                else:
+                    # Проверяем что стратегия существует в реестре
+                    args = registry.get_strategy_args_safe(category_key, value)
+                    if args is not None:
+                        # Стратегия найдена
+                        selections[category_key] = value
+                    else:
+                        # ⚠️ Стратегия не найдена - используем значение по умолчанию
+                        # Для direct_orchestra всегда "none", для direct - default из категории
+                        method = get_strategy_launch_method()
+                        if method == "direct_orchestra":
+                            default_value = "none"
+                        else:
+                            default_value = default_selections.get(category_key, "none")
+                        selections[category_key] = default_value
+                        invalid_count += 1
+                        # Логируем только один раз за сессию
+                        warn_key = f"{category_key}:{value}"
+                        if warn_key not in _warned_invalid_strategies:
+                            _warned_invalid_strategies.add(warn_key)
+                            log(f"⚠️ Стратегия '{value}' не найдена в категории '{category_key}', "
+                                f"заменена на '{default_value}'", "WARNING")
+
+        # Заполняем недостающие значения
+        method = get_strategy_launch_method()
+        for key, default_value in default_selections.items():
+            if key not in selections:
+                # Для direct_orchestra по умолчанию все категории отключены
+                if method == "direct_orchestra":
+                    selections[key] = "none"
+                else:
+                    selections[key] = default_value
+
+        # Сохраняем в кэш
+        _direct_selections_cache = selections
+        _direct_selections_cache_time = current_time
+
+        return selections
+
+    except Exception as e:
+        log(f"Ошибка загрузки выборов стратегий: {e}", "❌ ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        from .strategies_registry import registry
+        return registry.get_default_selections()
+
+
+def set_direct_strategy_selections(selections: dict) -> bool:
+    """Сохраняет выборы стратегий для прямого запуска"""
+    from .strategies_registry import registry
+
+    try:
+        success = True
+        strategy_key = _get_current_strategy_key()
+
+        for category_key, strategy_id in selections.items():
+            if category_key in registry.get_all_category_keys():
+                reg_key = _category_to_reg_key(category_key)
+                result = reg(strategy_key, reg_key, strategy_id)
+                success = success and (result is not False)
+
+        if success:
+            invalidate_direct_selections_cache()  # Сбрасываем кэш
+            log("Выборы стратегий сохранены", "DEBUG")
+
+        return success
+
+    except Exception as e:
+        log(f"Ошибка сохранения выборов: {e}", "❌ ERROR")
+        return False
+
+
+def get_direct_strategy_for_category(category_key: str) -> str:
+    """Получает выбранную стратегию для конкретной категории"""
+    from .strategies_registry import registry
+
+    strategy_key = _get_current_strategy_key()
+    reg_key = _category_to_reg_key(category_key)
+    value = reg(strategy_key, reg_key)
+
+    if value:
+        return value
+
+    # Для direct_orchestra по умолчанию все категории отключены
+    # (пользователь должен явно выбрать что включить)
+    method = get_strategy_launch_method()
+    if method == "direct_orchestra":
+        return "none"
+
+    # Для обычного direct возвращаем значение по умолчанию из категории
+    category_info = registry.get_category_info(category_key)
+    if category_info:
+        return category_info.default_strategy
+
+    return "none"
+
+
+def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> bool:
+    """Сохраняет выбранную стратегию для категории"""
+    strategy_key = _get_current_strategy_key()
+    reg_key = _category_to_reg_key(category_key)
+    result = reg(strategy_key, reg_key, strategy_id)
+    if result:
+        invalidate_direct_selections_cache()  # Сбрасываем кэш
+    return result
+
+
+def regenerate_preset_file() -> bool:
+    """
+    Перегенерирует preset-zapret2.txt с текущими настройками.
+
+    Используется когда нужно обновить preset файл без перезапуска DPI,
+    например при смене режима фильтрации (hostlist/ipset).
+
+    Returns:
+        True если успешно, False при ошибке
+    """
+    try:
+        from config import PROGRAMDATA_PATH
+        from datetime import datetime
+        import os
+
+        # Получаем текущие выборы
+        selections = get_direct_strategy_selections()
+
+        # Проверяем есть ли активные стратегии
+        has_active = any(v and v != "none" for v in selections.values())
+        if not has_active:
+            log("Нет активных стратегий для генерации preset", "DEBUG")
+            return False
+
+        # Импортируем combine_strategies
+        from strategy_menu.strategy_lists_separated import combine_strategies
+
+        # Генерируем аргументы
+        combined = combine_strategies(**selections)
+        args_str = combined.get('args', '')
+
+        if not args_str:
+            log("Пустые аргументы после combine_strategies", "WARNING")
+            return False
+
+        # Записываем в файл
+        preset_path = os.path.join(PROGRAMDATA_PATH, "preset-zapret2.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(preset_path, 'w', encoding='utf-8') as f:
+            f.write(f"# Strategy: Прямой запуск (Запрет 2)\n")
+            f.write(f"# Generated: {timestamp}\n")
+
+            # Разбиваем args_str на отдельные аргументы и записываем
+            # args_str может содержать аргументы разделённые пробелами или уже быть в нужном формате
+            for line in args_str.split('\n'):
+                line = line.strip()
+                if line:
+                    f.write(f"{line}\n")
+
+        log(f"Preset файл перегенерирован: {preset_path}", "INFO")
+        return True
+
+    except Exception as e:
+        log(f"Ошибка перегенерации preset файла: {e}", "ERROR")
+        return False
+
+
 # ==================== ИМПОРТ СТРАТЕГИЙ ====================
 
 from .strategies_registry import (
@@ -860,8 +1076,13 @@ __all__ = [
     'get_debug_log_enabled',
     'set_debug_log_enabled',
     
-    # Константы
+    # Выборы стратегий
     'DIRECT_STRATEGY_KEY',
+    'get_direct_strategy_selections',
+    'set_direct_strategy_selections',
+    'get_direct_strategy_for_category',
+    'set_direct_strategy_for_category',
+    'invalidate_direct_selections_cache',
 
     # Инициализация DirectOrchestra
     'is_direct_orchestra_initialized',
@@ -898,19 +1119,21 @@ __all__ = [
     'get_all_wf_filters',
     'set_all_wf_filters',
     
+    # Алиасы для совместимости
+    'save_direct_strategy_selection',
+    'save_direct_strategy_selections',
+
     # Комбинирование стратегий
-    'build_full_command',
-    'combine_strategies',  # deprecated alias
+    'combine_strategies',
     'calculate_required_filters',
-    
-    # Выборы стратегий (модули)
-    'strategy_selections',
-    'preset_regenerator',
+
+    # Регенерация preset файла
+    'regenerate_preset_file',
 ]
 
-# Импорт build_full_command и calculate_required_filters из preset_configuration_zapret2
-from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command, calculate_required_filters
-from strategy_menu.preset_configuration_zapret2 import strategy_selections, preset_regenerator
+# Алиасы для совместимости со старым кодом
+save_direct_strategy_selection = set_direct_strategy_for_category
+save_direct_strategy_selections = set_direct_strategy_selections
 
-# Алиас для обратной совместимости (временно)
-combine_strategies = build_full_command  # deprecated alias
+# Импорт combine_strategies и calculate_required_filters из strategy_lists_separated
+from strategy_menu.strategy_lists_separated import combine_strategies, calculate_required_filters

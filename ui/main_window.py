@@ -434,11 +434,11 @@ class MainWindowUI:
 
             elif method in ("direct", "direct_orchestra", "direct_zapret1"):
                 # Zapret 2 - Direct режим, Оркестратор Zapret 2 или Zapret 1 Direct
-                from strategy_menu.preset_configuration_zapret2 import strategy_selections
-                from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+                from strategy_menu import get_direct_strategy_selections
+                from strategy_menu.strategy_lists_separated import combine_strategies
 
-                selections = strategy_selections.get_all()
-                combined = build_full_command(**selections)
+                selections = get_direct_strategy_selections()
+                combined = combine_strategies(**selections)
 
                 if method == "direct":
                     mode_name = "Прямой запуск"
@@ -842,14 +842,8 @@ class MainWindowUI:
             log(f"Применена стратегия: {category_key} = {strategy_id}", "INFO")
 
             # Показываем галочку успеха после задержки (время на перезапуск DPI)
-            # UI разблокируется автоматически через show_success()
             if strategy_id != "none":
                 QTimer.singleShot(1500, self.strategy_detail_page.show_success)
-            else:
-                # Для "none" сразу разблокируем UI
-                self.strategy_detail_page.set_strategies_enabled(True)
 
         except Exception as e:
             log(f"Ошибка применения стратегии: {e}", "ERROR")
-            # Разблокируем UI при ошибке
-            self.strategy_detail_page.set_strategies_enabled(True)

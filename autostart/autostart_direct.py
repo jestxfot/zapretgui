@@ -427,8 +427,8 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     Собирает аргументы для текущей Direct стратегии
     """
     try:
-        from strategy_menu.preset_configuration_zapret2 import strategy_selections
-        from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+        from strategy_menu import get_direct_strategy_selections
+        from strategy_menu.strategy_lists_separated import combine_strategies
         from config.config import get_current_winws_exe
 
         # Используем единую функцию определения exe
@@ -436,10 +436,10 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
         winws_exe = get_current_winws_exe()
 
         # Получаем выборы стратегий
-        selections = strategy_selections.get_all()
-
+        selections = get_direct_strategy_selections()
+        
         # Комбинируем стратегии
-        combined = build_full_command(selections)
+        combined = combine_strategies(**selections)
         
         # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
         import shlex
