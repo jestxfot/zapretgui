@@ -387,12 +387,13 @@ class HomePage(BasePage):
     def _update_strategy_card_with_icons(self, strategy_name: str):
         """Обновляет карточку стратегии с иконками категорий"""
         try:
-            from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+            from strategy_menu import get_strategy_launch_method
+            from strategy_menu.preset_configuration_zapret2 import strategy_selections
             from strategy_menu.strategies_registry import registry
             
             # Для Direct режимов показываем иконки
             if get_strategy_launch_method() in ("direct", "direct_orchestra", "direct_zapret1"):
-                selections = get_direct_strategy_selections()
+                selections = strategy_selections.get_all()
                 
                 # Собираем данные о категориях: (icon_name, icon_color, is_active)
                 categories_data = []

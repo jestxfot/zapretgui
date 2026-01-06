@@ -162,7 +162,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from managers.ui_manager import UIManager
-    from managers.dpi_manager import DPIManager
+
     from managers.heavy_init_manager import HeavyInitManager
     from managers.process_monitor_manager import ProcessMonitorManager
     from managers.subscription_manager import SubscriptionManager
@@ -174,7 +174,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     from ui.theme import ThemeHandler
     # ✅ ДОБАВЛЯЕМ TYPE HINTS для менеджеров
     ui_manager: 'UIManager'
-    dpi_manager: 'DPIManager' 
+
     heavy_init_manager: 'HeavyInitManager'
     process_monitor_manager: 'ProcessMonitorManager'
     subscription_manager: 'SubscriptionManager'
@@ -364,8 +364,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
     def delayed_dpi_start(self) -> None:
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
-        if hasattr(self, 'dpi_manager'):
-            self.dpi_manager.delayed_dpi_start()
+        if hasattr(self, 'dpi_controller'):
+            self.dpi_controller.delayed_dpi_start()
 
     def update_autostart_ui(self, service_running: bool) -> None:
         """Обновляет интерфейс при включении/выключении автозапуска"""
@@ -424,15 +424,16 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
                     # Получаем стратегию из сохранённых настроек
-                    from strategy_menu.strategy_lists_separated import combine_strategies
-                    from strategy_menu import get_direct_strategy_selections, get_default_selections
-                        
+                    from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+                    from strategy_menu.preset_configuration_zapret2 import strategy_selections
+                    from strategy_menu import get_default_selections
+
                     try:
-                        category_selections = get_direct_strategy_selections()
+                        category_selections = strategy_selections.get_all()
                     except:
                         category_selections = get_default_selections()
                     
-                    combined_strategy = combine_strategies(**category_selections)
+                    combined_strategy = build_full_command(**category_selections)
                     combined_args = combined_strategy['args']
                     
                     combined_data = {
@@ -627,14 +628,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         from managers.heavy_init_manager import HeavyInitManager
         from managers.process_monitor_manager import ProcessMonitorManager
         from managers.ui_manager import UIManager
-        from managers.dpi_manager import DPIManager
+
 
         self.initialization_manager = InitializationManager(self)
         self.subscription_manager = SubscriptionManager(self)
         self.heavy_init_manager = HeavyInitManager(self)
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
-        self.dpi_manager = DPIManager(self)
+
         
         # Обновляем прогресс splash
         if self.splash:

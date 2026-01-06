@@ -453,12 +453,116 @@ class StopAndExitWorker(QObject):
 
 class DPIController:
     """Основной контроллер для управления DPI"""
+    # Включает логику автозапуска (бывший DPIManager)
     
     def __init__(self, app_instance):
         self.app = app_instance
         self._dpi_start_thread = None
         self._dpi_stop_thread = None
         self._stop_exit_thread = None
+        self._autostart_initiated = False  # Защита от двойного автозапуска
+
+    def delayed_dpi_start(self) -> None:
+        if self._autostart_initiated:
+            log("Автозапуск DPI уже выполнен", "DEBUG")
+            return
+        self._autostart_initiated = True
+        from config import get_dpi_autostart
+        if not get_dpi_autostart():
+            log("Автозапуск DPI отключён", "INFO")
+            self._finish_splash("Готово", "Автозапуск отключен")
+            self._update_autostart_ui(running=False)
+            return
+        launch_method = get_strategy_launch_method()
+        if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
+            self._autostart_direct_mode()
+        elif launch_method == "orchestra":
+            self._autostart_orchestra_mode()
+        else:
+            self._autostart_bat_mode()
+
+    def _update_autostart_ui(self, running: bool):
+        if hasattr(self.app, 'ui_manager'):
+            self.app.ui_manager.update_ui_state(running=running)
+
+    def _update_splash(self, progress: int, message: str, subtitle: str = ""):
+        if hasattr(self.app, 'splash') and self.app.splash:
+            self.app.splash.set_progress(progress, message, subtitle)
+
+    def _finish_splash(self, message: str, subtitle: str = ""):
+        self._update_splash(100, message, subtitle)
+
+    def _autostart_direct_mode(self):
+        from strategy_menu import is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
+        from strategy_menu.preset_configuration_zapret2 import strategy_selections
+        from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+        launch_method = get_strategy_launch_method()
+        if launch_method == "direct_orchestra" and not is_direct_orchestra_initialized():
+            clear_direct_orchestra_strategies()
+            set_direct_orchestra_initialized(True)
+        selections = strategy_selections.get_all()
+        combined = build_full_command(**selections)
+        if combined.get('_active_categories', 0) == 0:
+            self.app.set_status("⚠️ Выберите хотя бы одну категорию")
+            self._finish_splash("Готово", "Категории не выбраны")
+            self._update_autostart_ui(running=False)
+            return
+        strategy_data = {'id': 'DIRECT_MODE', 'name': 'Прямой запуск', 'is_combined': True, 'args': combined['args'], 'selections': selections}
+        log(f"Автозапуск Direct: {selections}", "INFO")
+        self.app.current_strategy_label.setText("Прямой запуск")
+        self.app.current_strategy_name = "Прямой запуск"
+        self._update_splash(65, "Запуск Direct режима...")
+        self.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
+        self._update_autostart_ui(running=True)
+
+    def _autostart_bat_mode(self):
+        from config.reg import get_last_bat_strategy
+        strategy_name = get_last_bat_strategy()
+        log(f"Автозапуск BAT: «{strategy_name}»", "INFO")
+        self.app.current_strategy_label.setText(strategy_name)
+        self.app.current_strategy_name = strategy_name
+        self._update_splash(65, f"Запуск '{strategy_name}'...")
+        self.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
+        self._update_autostart_ui(running=True)
+
+    def _autostart_orchestra_mode(self):
+        try:
+            from orchestra import OrchestraRunner
+            if not hasattr(self.app, 'orchestra_runner'):
+                self.app.orchestra_runner = OrchestraRunner()
+            self.app.orchestra_runner.restart_callback = self._on_discord_fail_restart
+            self._update_splash(65, "Подготовка оркестратора...")
+            if not self.app.orchestra_runner.prepare():
+                self._finish_splash("Ошибка", "Не удалось подготовить")
+                self._update_autostart_ui(running=False)
+                return
+            if not self.app.orchestra_runner.start():
+                self._finish_splash("Ошибка", "Не удалось запустить")
+                self._update_autostart_ui(running=False)
+                return
+            self.app.current_strategy_label.setText("Оркестр")
+            self.app.current_strategy_name = "Оркестр"
+            self._update_autostart_ui(running=True)
+            self._finish_splash("Готово", "Оркестратор запущен")
+            if hasattr(self.app, 'orchestra_page'):
+                self.app.orchestra_page.start_monitoring()
+        except Exception as e:
+            log(f"Ошибка запуска Orchestra: {e}", "ERROR")
+            self._update_autostart_ui(running=False)
+
+    def _on_discord_fail_restart(self):
+        try:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(500, self._do_discord_restart)
+        except Exception as e:
+            log(f"Ошибка перезапуска Discord: {e}", "ERROR")
+
+    def _do_discord_restart(self):
+        try:
+            if hasattr(self.app, 'discord_manager') and self.app.discord_manager:
+                self.app.discord_manager.restart_discord_if_running()
+        except Exception as e:
+            log(f"Ошибка перезапуска Discord: {e}", "ERROR")
 
     def start_dpi_async(self, selected_mode=None, launch_method=None):
         """Асинхронно запускает DPI без блокировки UI
@@ -488,15 +592,15 @@ class DPIController:
         elif selected_mode is None or selected_mode == 'default':
             if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 # Для Direct режима берем сохраненные выборы из реестра
-                from strategy_menu import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
-                
+                from strategy_menu.preset_configuration_zapret2 import strategy_selections
+                from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
+
                 # Получаем сохраненные выборы категорий из реестра
-                saved_selections = get_direct_strategy_selections()
+                saved_selections = strategy_selections.get_all()
                 log(f"Загружены сохраненные выборы из реестра: {saved_selections}", "DEBUG")
                 
                 # Создаем комбинированную стратегию на основе сохраненных выборов
-                combined = combine_strategies(**saved_selections)
+                combined = build_full_command(**saved_selections)
                 
                 # ✅ Проверка на пустую стратегию (все категории = 'none')
                 active_categories = combined.get('_active_categories', 0)
@@ -603,9 +707,8 @@ class DPIController:
             
             # Сохраняем выборы в реестр для будущего использования
             if 'selections' in selected_mode:
-                from strategy_menu import set_direct_strategy_selections
-                selections = selected_mode['selections']
-                set_direct_strategy_selections(selections)
+                from strategy_menu.preset_configuration_zapret2 import strategy_selections
+                strategy_selections.set_all(selected_mode['selections'])
             
         elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
             # Встроенная стратегия (ID, название)

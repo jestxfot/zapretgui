@@ -13,7 +13,7 @@
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass, field
 from log import log
-from .command_builder import build_syndata_args, build_category_args, strip_payload_from_args, get_filter_mode
+from .preset_configuration_zapret2.command_builder import build_syndata_args, build_category_args, strip_payload_from_args, get_filter_mode
 
 # ==================== LAZY IMPORTS ====================
 

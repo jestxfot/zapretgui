@@ -135,14 +135,14 @@ class InitializationManager:
     def _init_strategy_cache(self):
         """Прогрев кэша стратегий для быстрого открытия вкладок"""
         try:
-            from strategy_menu import get_direct_strategy_selections
+            from strategy_menu.preset_configuration_zapret2 import strategy_selections
             from strategy_menu.strategies_registry import registry
 
             # Прогреваем кэш отсортированных ключей
             registry.get_all_category_keys_sorted()
 
             # Прогреваем кэш выборов стратегий
-            get_direct_strategy_selections()
+            strategy_selections.get_all()
 
             log("Кэш стратегий прогрет", "DEBUG")
 
@@ -357,13 +357,14 @@ class InitializationManager:
 
     def _on_start_clicked(self):
         """Обработчик нажатия кнопки запуска с проверкой выбранной стратегии"""
-        from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
+        from strategy_menu import get_strategy_launch_method
+        from strategy_menu.preset_configuration_zapret2 import strategy_selections
 
         launch_method = get_strategy_launch_method()
 
         # Для режимов direct/direct_orchestra/direct_zapret1 проверяем выбранные категории
         if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
-            selections = get_direct_strategy_selections()
+            selections = strategy_selections.get_all()
             # Проверяем есть ли хотя бы одна категория не равная 'none'
             has_any = any(v and v != 'none' for v in selections.values())
             if not has_any:
@@ -412,9 +413,7 @@ class InitializationManager:
             from utils.file_manager import ensure_required_files
             ensure_required_files()
             
-            # DPI Manager
-            from managers.dpi_manager import DPIManager
-            self.app.dpi_manager = DPIManager(self.app)
+            # DPI Manager - удален, логика перенесена в DPIController
             
             # Process Monitor
             if hasattr(self.app, 'process_monitor_manager'):
@@ -792,8 +791,8 @@ class InitializationManager:
             # Проверка локальных файлов и автозапуск DPI
             if hasattr(self.app, 'heavy_init_manager'):
                 if self.app.heavy_init_manager.check_local_files():
-                    if hasattr(self.app, 'dpi_manager'):
-                        QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
+                    if hasattr(self.app, 'dpi_controller'):
+                        QTimer.singleShot(1000, self.app.dpi_controller.delayed_dpi_start)
             
             # Обновления проверяются вручную на вкладке "Серверы"
                 

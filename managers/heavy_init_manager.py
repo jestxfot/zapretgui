@@ -136,8 +136,8 @@ class HeavyInitManager:
                         self.app.ui_manager.update_strategies_list()
             
             # Автозапуск DPI если настроен
-            if hasattr(self.app, 'dpi_manager'):
-                self.app.dpi_manager.delayed_dpi_start()
+            if hasattr(self.app, 'dpi_controller'):
+                self.app.dpi_controller.delayed_dpi_start()
             
             # Combobox-фикс через UI Manager
             for delay in (0, 100, 200):

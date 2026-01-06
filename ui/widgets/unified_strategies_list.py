@@ -190,7 +190,7 @@ class UnifiedStrategiesList(QWidget):
         has_hostlist = bool(getattr(cat_info, 'base_filter_hostlist', ''))
         if has_ipset and has_hostlist:
             # Get user's selected mode from registry
-            from strategy_menu.command_builder import get_filter_mode
+            from strategy_menu.preset_configuration_zapret2.command_builder import get_filter_mode
             list_type = get_filter_mode(cat_key)  # returns "hostlist" or "ipset"
         elif has_ipset:
             list_type = 'ipset'

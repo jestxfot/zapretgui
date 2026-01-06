@@ -922,9 +922,10 @@ class DpiSettingsPage(BasePage):
         """Обработчик выбора метода"""
         try:
             from strategy_menu import (
-                set_strategy_launch_method, get_strategy_launch_method, invalidate_direct_selections_cache,
+                set_strategy_launch_method, get_strategy_launch_method,
                 is_direct_orchestra_initialized, set_direct_orchestra_initialized, clear_direct_orchestra_strategies
             )
+            from strategy_menu.preset_configuration_zapret2 import strategy_selections
             from strategy_menu.strategies_registry import registry
 
             # Запоминаем предыдущий метод для определения необходимости перезагрузки стратегий
@@ -947,7 +948,7 @@ class DpiSettingsPage(BasePage):
                 if previous_method != method:
                     log(f"Смена метода {previous_method} -> {method}, перезагрузка стратегий...", "INFO")
                     # Сбрасываем кэш выборов - они будут перечитаны из реестра
-                    invalidate_direct_selections_cache()
+                    strategy_selections.invalidate_cache()
                     registry.reload_strategies()
 
             self.launch_method_changed.emit(method)
@@ -1256,11 +1257,11 @@ class DpiSettingsPage(BasePage):
             
             if launch_method in ("direct", "direct_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущие настройки
-                from strategy_menu import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
+                from strategy_menu.preset_configuration_zapret2 import strategy_selections
+                from strategy_menu.preset_configuration_zapret2.command_builder import build_full_command
 
-                selections = get_direct_strategy_selections()
-                combined = combine_strategies(**selections)
+                selections = strategy_selections.get_all()
+                combined = build_full_command(**selections)
 
                 # Формируем данные в правильном формате
                 selected_mode = {
@@ -1353,10 +1354,10 @@ class DpiSettingsPage(BasePage):
 
         try:
             from strategy_menu.filters_config import get_categories_to_disable_on_filter_off
-            from strategy_menu import get_direct_strategy_selections
+            from strategy_menu.preset_configuration_zapret2 import strategy_selections
 
             # Получаем текущие выборы
-            current_selections = get_direct_strategy_selections()
+            current_selections = strategy_selections.get_all()
 
             # Определяем какие категории нужно отключить
             categories_to_disable = get_categories_to_disable_on_filter_off(filter_key, current_selections)
