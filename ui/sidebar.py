@@ -1231,6 +1231,11 @@ class SideNavBar(QWidget):
                 return
         # Fallback - если не нашли, пробуем как set_section
         self.set_section(page_index)
+
+    def set_strategies_page_index(self, page_index: int):
+        """Обновляет индекс страницы для секции 'Стратегии'."""
+        if hasattr(self, '_strategies_section'):
+            self._section_to_page[self._strategies_section] = page_index
     
     def update_blobs_visibility(self):
         """Обновляет видимость вкладок 'Блобы', 'Конфиг' и 'Сортировка' в зависимости от режима запуска"""

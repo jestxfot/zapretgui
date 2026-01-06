@@ -1,4 +1,4 @@
-# ui/pages/strategies_page.py
+# ui/pages/zapret2/direct_zapret2_strategies_page.py
 """Страница выбора стратегий"""
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher, QThread
@@ -280,7 +280,7 @@ class ResetActionButton(QPushButton):
         super().leaveEvent(event)
 
 
-class StrategiesPage(QWidget):
+class Zapret2DirectStrategiesPage(QWidget):
     """Страница стратегий - поддерживает оба режима: direct и bat"""
     
     launch_method_changed = pyqtSignal(str)
@@ -505,12 +505,11 @@ class StrategiesPage(QWidget):
             self._current_mode = mode
             self._clear_content()
             
-            if mode in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                self.stop_watching()  # Останавливаем мониторинг для экономии ресурсов
-                self._load_direct_mode()
-            else:
-                self._load_bat_mode()
-                self.start_watching()  # Запускаем мониторинг для bat режима
+            if mode not in ("direct_zapret2", "direct_zapret2_orchestra"):
+                log(f"Запрошен режим {mode}, страница рассчитана на direct_zapret2", "DEBUG")
+
+            self.stop_watching()
+            self._load_direct_mode()
                 
         except Exception as e:
             log(f"Ошибка загрузки контента: {e}", "ERROR")
@@ -2040,7 +2039,7 @@ class StrategiesPage(QWidget):
             
             # В Direct режимах проверяем наличие активных стратегий
             from strategy_menu import get_strategy_launch_method
-            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra"):
                 # Используем текущий выбор из UI, а не из реестра
                 selections = getattr(self, 'category_selections', {})
                 if not self._has_any_active_strategy(selections):
@@ -2112,7 +2111,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
                 # Прямой запуск - берём текущий выбор из UI
                 from launcher_common import combine_strategies
 
@@ -2182,7 +2181,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
 
-            if get_strategy_launch_method() not in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if get_strategy_launch_method() not in ("direct_zapret2", "direct_zapret2_orchestra"):
                 self.current_strategy_label.setToolTip("")
                 self.current_strategy_label.show()
                 self.current_strategy_container.hide()
@@ -2289,7 +2288,7 @@ class StrategiesPage(QWidget):
         """Обновляет отображение текущей стратегии"""
         try:
             from strategy_menu import get_strategy_launch_method
-            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra"):
                 self._update_current_strategies_display()
             elif name and name != "Автостарт DPI отключен":
                 self.current_strategy_label.setText(name)
@@ -2683,7 +2682,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if method in ("direct_zapret2", "direct_zapret2_orchestra"):
                 self._apply_direct_filter_with_query(query)
             elif method == "bat":
                 self._apply_bat_filter_with_query(query)
@@ -2704,7 +2703,7 @@ class StrategiesPage(QWidget):
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
 
-            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if method in ("direct_zapret2", "direct_zapret2_orchestra"):
                 self._apply_direct_sort_with_params(sort_key, reverse)
             elif method == "bat":
                 self._apply_bat_sort_with_params(sort_key, reverse)

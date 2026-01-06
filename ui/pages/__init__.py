@@ -3,7 +3,9 @@
 
 from .home_page import HomePage
 from .control_page import ControlPage
-from .strategies_page import StrategiesPage
+from .zapret1.zapret1_direct_strategies_page import Zapret1DirectStrategiesPage
+from .zapret2.direct_zapret2_strategies_page import Zapret2DirectStrategiesPage
+from strategy_menu.bat import BatStrategiesPage
 from .strategy_sort_page import StrategySortPage
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
@@ -34,7 +36,9 @@ from .preset_config_page import PresetConfigPage
 __all__ = [
     'HomePage',
     'ControlPage',
-    'StrategiesPage',
+    'Zapret1DirectStrategiesPage',
+    'Zapret2DirectStrategiesPage',
+    'BatStrategiesPage',
     'StrategySortPage',  # Страница сортировки и фильтров стратегий
     'HostlistPage',
     'IpsetPage',

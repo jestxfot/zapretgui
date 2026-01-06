@@ -4,7 +4,9 @@
 Используется в:
 - strategy_menu/strategy_runner.py
 - autostart/autostart_direct.py
-- ui/pages/strategies_page.py
+- ui/pages/zapret1/zapret1_direct_strategies_page.py
+- ui/pages/zapret2/direct_zapret2_strategies_page.py
+- strategy_menu/bat/bat_strategies_page.py
 """
 
 import os

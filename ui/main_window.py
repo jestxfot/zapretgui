@@ -13,7 +13,8 @@ from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
 from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
-    HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
+    HomePage, ControlPage, Zapret1DirectStrategiesPage, Zapret2DirectStrategiesPage, BatStrategiesPage,
+    HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage
@@ -106,8 +107,9 @@ class MainWindowUI:
         self.pages_stack.addWidget(self.control_page)
         
         # Стратегии (индекс 2)
-        self.strategies_page = StrategiesPage(self)
-        self.pages_stack.addWidget(self.strategies_page)
+        self.zapret2_direct_strategies_page = Zapret2DirectStrategiesPage(self)
+        self.pages_stack.addWidget(self.zapret2_direct_strategies_page)
+        self.strategies_page = self.zapret2_direct_strategies_page
 
         # Сортировка стратегий (индекс 3)
         self.strategy_sort_page = StrategySortPage(self)
@@ -215,6 +217,43 @@ class MainWindowUI:
         self.orchestra_ratings_page = OrchestraRatingsPage(self)
         self.pages_stack.addWidget(self.orchestra_ratings_page)
 
+        # Дополнительные страницы стратегий (вне основного индекса)
+        self.zapret1_direct_strategies_page = Zapret1DirectStrategiesPage(self)
+        self.pages_stack.addWidget(self.zapret1_direct_strategies_page)
+
+        self.bat_strategies_page = BatStrategiesPage(self)
+        self.pages_stack.addWidget(self.bat_strategies_page)
+
+        # Подбираем актуальную страницу стратегий по текущему режиму
+        try:
+            from strategy_menu import get_strategy_launch_method
+            self._set_strategies_page_for_method(get_strategy_launch_method())
+        except Exception:
+            pass
+
+    def _get_strategies_page_for_method(self, method: str):
+        if method in ("direct_zapret2", "direct_zapret2_orchestra"):
+            return self.zapret2_direct_strategies_page
+        if method == "direct_zapret1":
+            return self.zapret1_direct_strategies_page
+        if method == "bat":
+            return self.bat_strategies_page
+        return self.zapret2_direct_strategies_page
+
+    def _set_strategies_page_for_method(self, method: str):
+        page = self._get_strategies_page_for_method(method)
+        self.strategies_page = page
+
+        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'set_strategies_page_index'):
+            page_index = self.pages_stack.indexOf(page)
+            if page_index >= 0:
+                self.side_nav.set_strategies_page_index(page_index)
+
+        if hasattr(page, 'select_strategy_btn'):
+            self.select_strategy_btn = page.select_strategy_btn
+        if hasattr(page, 'current_strategy_label'):
+            self.current_strategy_label = page.current_strategy_label
+
     def _setup_compatibility_attrs(self):
         """Создает атрибуты для совместимости со старым кодом"""
         
@@ -245,8 +284,15 @@ class MainWindowUI:
         self.theme_changed = self.appearance_page.theme_changed
         
         # Подключаем сигнал выбора стратегии из новой страницы
-        if hasattr(self.strategies_page, 'strategy_selected'):
-            self.strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+        strategy_pages = [
+            self.zapret2_direct_strategies_page,
+            self.zapret1_direct_strategies_page,
+            self.bat_strategies_page,
+        ]
+
+        for page in strategy_pages:
+            if hasattr(page, 'strategy_selected'):
+                page.strategy_selected.connect(self._on_strategy_selected_from_page)
         
         # Сигналы от страницы автозапуска
         self.autostart_page.autostart_enabled.connect(self._on_autostart_enabled)
@@ -292,23 +338,29 @@ class MainWindowUI:
         self.dpi_settings_page.launch_method_changed.connect(self.preset_config_page.refresh_for_current_mode)
 
         # Подключаем отключение фильтров → отключение категорий
-        self.dpi_settings_page.filter_disabled.connect(self.strategies_page.disable_categories_for_filter)
+        for page in strategy_pages:
+            if hasattr(page, 'disable_categories_for_filter'):
+                self.dpi_settings_page.filter_disabled.connect(page.disable_categories_for_filter)
 
         # Для совместимости - если strategies_page также имеет сигнал
-        if hasattr(self.strategies_page, 'launch_method_changed'):
-            self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
+        for page in strategy_pages:
+            if hasattr(page, 'launch_method_changed'):
+                page.launch_method_changed.connect(self._on_launch_method_changed)
 
         # Подключаем сигналы от OrchestraPage
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
 
         # Связываем страницу сортировки со страницей стратегий (асинхронное обновление фильтров)
-        self.strategy_sort_page.filters_changed.connect(
-            self.strategies_page.on_external_filters_changed
-        )
-        self.strategy_sort_page.sort_changed.connect(
-            self.strategies_page.on_external_sort_changed
-        )
+        for page in strategy_pages:
+            if hasattr(page, 'on_external_filters_changed'):
+                self.strategy_sort_page.filters_changed.connect(
+                    page.on_external_filters_changed
+                )
+            if hasattr(page, 'on_external_sort_changed'):
+                self.strategy_sort_page.sort_changed.connect(
+                    page.on_external_sort_changed
+                )
 
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""
@@ -364,6 +416,8 @@ class MainWindowUI:
         """Завершает переключение метода после остановки процесса"""
         from log import log
         from config import get_winws_exe_for_method, is_zapret2_mode
+
+        self._set_strategies_page_for_method(method)
 
         # ✅ Очищаем службы WinDivert через Win API
         try:
