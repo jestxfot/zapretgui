@@ -167,13 +167,6 @@ a = Analysis(
         'http.server',
         'xmlrpc',
         'pydoc',
-        # Qt bindings - оставляем только PyQt6
-        'PySide6',
-        'PySide6.QtCore',
-        'PySide6.QtGui',
-        'PySide6.QtWidgets',
-        'PySide2',
-        'PyQt5',
     ],
     noarchive=False,
 )
