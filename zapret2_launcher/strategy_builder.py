@@ -1,4 +1,4 @@
-# strategy_menu/strategy_lists_v2.py
+# zapret2_launcher/strategy_builder.py
 """
 Strategy list builder for Zapret 2 (winws2.exe).
 
@@ -16,8 +16,8 @@ support Zapret 1 (winws.exe). For V1 compatibility, use strategy_lists_v1.py.
 import re
 import os
 from log import log
-from .strategies_registry import registry
-from strategy_menu.blobs import build_args_with_deduped_blobs
+from strategy_menu.strategies_registry import registry
+from launcher_common.blobs import build_args_with_deduped_blobs
 
 
 # ==================== COMMON UTILITIES ====================
@@ -34,7 +34,7 @@ def calculate_required_filters(category_strategies: dict) -> dict:
     Returns:
         dict with filter flags
     """
-    from .filters_config import get_filter_for_category, FILTERS
+    from launcher_common.port_filters import get_filter_for_category, FILTERS
 
     # Initialize all filters as False
     filters = {key: False for key in FILTERS.keys()}

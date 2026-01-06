@@ -424,7 +424,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
                     # Получаем стратегию из сохранённых настроек
-                    from strategy_menu.strategy_lists_separated import combine_strategies
+                    from launcher_common import combine_strategies
                     from strategy_menu import get_direct_strategy_selections, get_default_selections
                         
                     try:

@@ -296,7 +296,7 @@ class BatZapret1Manager:
         strategies = strategies_cache if strategies_cache is not None else self.get_strategies_list()
         if strategy_id not in strategies:
             return 'unknown'
-        
+
         info = strategies[strategy_id]
         file_path = info.get('file_path')
         if file_path:

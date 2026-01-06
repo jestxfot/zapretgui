@@ -48,7 +48,7 @@ def stop_dpi_direct(app: "LupiDPIApp"):
 
         # 1. Останавливаем через StrategyRunner
         try:
-            from strategy_menu.strategy_runner import get_strategy_runner
+            from launcher_common import get_strategy_runner
             from config.config import get_current_winws_exe
 
             # Используем единую функцию определения exe

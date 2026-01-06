@@ -1,4 +1,4 @@
-# strategy_menu/strategy_runner_v2.py
+# zapret2_launcher/strategy_runner.py
 """
 Strategy runner for Zapret 2 (winws2.exe) with hot-reload support.
 
@@ -17,9 +17,9 @@ from typing import Optional, List, Callable
 from datetime import datetime
 
 from log import log
-from .strategy_runner_base import StrategyRunnerBase, log_full_command
-from .apply_filters import apply_all_filters
-from .constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
+from launcher_common.runner_base import StrategyRunnerBase, log_full_command
+from launcher_common.args_filters import apply_all_filters
+from launcher_common.constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
 from dpi.process_health_check import (
     check_process_health,
     get_last_crash_info,

@@ -34,7 +34,7 @@ def create_direct_service_bat(
     try:
         from .autostart_direct import _resolve_file_paths
         from config import MAIN_DIRECTORY
-        from strategy_menu.apply_filters import apply_all_filters
+        from launcher_common import apply_all_filters
         
         # Разрешаем пути
         resolved_args = _resolve_file_paths(strategy_args, work_dir)
@@ -95,7 +95,7 @@ def setup_direct_service(
     try:
         from config import MAIN_DIRECTORY, LOGS_FOLDER
         from .autostart_direct import _resolve_file_paths
-        from strategy_menu.apply_filters import apply_all_filters
+        from launcher_common import apply_all_filters
         from .nssm_service import (
             get_nssm_path, 
             create_service_with_nssm, 

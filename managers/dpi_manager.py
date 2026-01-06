@@ -59,7 +59,7 @@ class DPIManager(QObject):
             get_direct_strategy_selections, get_strategy_launch_method,
             is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
         )
-        from strategy_menu.strategy_lists_separated import combine_strategies
+        from launcher_common import combine_strategies
 
         # ✅ При ПЕРВОМ запуске в режиме direct_zapret2_orchestra - сбрасываем все стратегии в "none"
         launch_method = get_strategy_launch_method()

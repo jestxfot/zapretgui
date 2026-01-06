@@ -383,7 +383,7 @@ class MainWindowUI:
         
         # ✅ Помечаем StrategyRunner для пересоздания
         try:
-            from strategy_menu.strategy_runner import invalidate_strategy_runner
+            from launcher_common import invalidate_strategy_runner
             invalidate_strategy_runner()
         except Exception as e:
             log(f"Ошибка инвалидации StrategyRunner: {e}", "WARNING")
@@ -437,7 +437,7 @@ class MainWindowUI:
             elif method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Zapret 2 - Direct режим, Оркестратор Zapret 2 или Zapret 1 Direct
                 from strategy_menu import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
+                from launcher_common import combine_strategies
 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)

@@ -44,7 +44,7 @@ class DPIStartWorker(QObject):
 
                 # Останавливаем через соответствующий метод
                 if self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                    from strategy_menu.strategy_runner import get_strategy_runner
+                    from launcher_common import get_strategy_runner
                     runner = get_strategy_runner(self._get_winws_exe())
                     runner.stop()
                 else:
@@ -113,8 +113,8 @@ class DPIStartWorker(QObject):
     def _start_direct(self):
         """Запуск через прямой метод (StrategyRunner)"""
         try:
-            from strategy_menu.strategy_runner import get_strategy_runner
-            
+            from launcher_common import get_strategy_runner
+
             # Получаем runner
             runner = get_strategy_runner(self._get_winws_exe())
             
@@ -348,9 +348,9 @@ class DPIStopWorker(QObject):
     def _stop_direct(self):
         """Остановка через новый метод"""
         try:
-            from strategy_menu.strategy_runner import get_strategy_runner
+            from launcher_common import get_strategy_runner
             from utils.process_killer import kill_winws_all
-            
+
             runner = get_strategy_runner(self._get_winws_exe())
             success = runner.stop()
             
@@ -432,7 +432,7 @@ class StopAndExitWorker(QObject):
                 from utils.process_killer import kill_winws_all
                 kill_winws_all()
             elif self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                from strategy_menu.strategy_runner import get_strategy_runner
+                from launcher_common import get_strategy_runner
                 runner = get_strategy_runner(self._get_winws_exe())
                 runner.stop()
 
@@ -489,8 +489,8 @@ class DPIController:
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Для Direct режима берем сохраненные выборы из реестра
                 from strategy_menu import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
-                
+                from launcher_common import combine_strategies
+
                 # Получаем сохраненные выборы категорий из реестра
                 saved_selections = get_direct_strategy_selections()
                 log(f"Загружены сохраненные выборы из реестра: {saved_selections}", "DEBUG")

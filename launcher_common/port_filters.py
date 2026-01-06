@@ -1,4 +1,4 @@
-# strategy_menu/filters_config.py
+# launcher_common/port_filters.py
 """
 Конфигурация фильтров портов и их связь с категориями.
 
@@ -198,7 +198,7 @@ def get_categories_for_filter(filter_key: str) -> List[str]:
     Returns:
         List[str] - список ключей категорий
     """
-    from .strategies_registry import registry
+    from strategy_menu.strategies_registry import registry
 
     categories = []
     all_category_keys = registry.get_all_category_keys()
@@ -222,7 +222,7 @@ def build_filter_to_categories_map() -> Dict[str, List[str]]:
     """
     filter_map = {key: [] for key in FILTERS.keys()}
 
-    from .strategies_registry import registry
+    from strategy_menu.strategies_registry import registry
     all_category_keys = registry.get_all_category_keys()
 
     for category_key in all_category_keys:
@@ -245,7 +245,7 @@ def build_category_to_filters_map() -> Dict[str, Set[str]]:
     """
     category_map = {}
 
-    from .strategies_registry import registry
+    from strategy_menu.strategies_registry import registry
     all_category_keys = registry.get_all_category_keys()
 
     for category_key in all_category_keys:

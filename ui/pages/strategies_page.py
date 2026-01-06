@@ -1707,7 +1707,7 @@ class StrategiesPage(QWidget):
     def _update_dpi_filters_display(self):
         """Обновляет отображение фильтров на странице DPI Settings"""
         try:
-            from strategy_menu.strategy_lists_separated import calculate_required_filters
+            from launcher_common import calculate_required_filters
 
             # Вычисляем нужные фильтры по текущим выбранным категориям
             filters = calculate_required_filters(self.category_selections)
@@ -1839,7 +1839,7 @@ class StrategiesPage(QWidget):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws2"""
         try:
             from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
-            from strategy_menu.strategy_lists_separated import calculate_required_filters
+            from launcher_common import calculate_required_filters
 
             # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
             save_direct_strategy_selection(category_key, strategy_id)
@@ -2114,7 +2114,7 @@ class StrategiesPage(QWidget):
             
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущий выбор из UI
-                from strategy_menu.strategy_lists_separated import combine_strategies
+                from launcher_common import combine_strategies
 
                 # Используем текущий выбор из UI, а не из реестра
                 selections = getattr(self, 'category_selections', {})

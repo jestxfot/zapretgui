@@ -157,7 +157,7 @@ class BatDPIStart:
     def _start_dpi_direct(self, selected_mode: Optional[Any]) -> bool:
         """Запускает DPI напрямую через StrategyRunner"""
         try:
-            from strategy_menu.strategy_runner import get_strategy_runner
+            from launcher_common import get_strategy_runner
             from config.config import WINWS_EXE
 
             # Для BAT режима (Zapret 1) ВСЕГДА используем winws.exe
@@ -427,7 +427,7 @@ class BatDPIStart:
         - Запускает процесс
         """
         try:
-            from strategy_menu.strategy_runner import get_strategy_runner
+            from launcher_common import get_strategy_runner
             from config.config import WINWS_EXE
 
             # Для BAT режима (Zapret 1) ВСЕГДА используем winws.exe (не winws2.exe!)

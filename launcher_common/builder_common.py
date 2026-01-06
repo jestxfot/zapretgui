@@ -1,4 +1,4 @@
-# strategy_menu/strategy_lists_common.py
+# launcher_common/builder_common.py
 
 """
 Common utilities for strategy lists - shared between V1 and V2.
@@ -8,8 +8,8 @@ import re
 import os
 from log import log
 from .constants import LABEL_RECOMMENDED, LABEL_GAME, LABEL_CAUTION, LABEL_EXPERIMENTAL, LABEL_STABLE
-from .strategies_registry import registry
-from strategy_menu.blobs import build_args_with_deduped_blobs
+from strategy_menu.strategies_registry import registry
+from .blobs import build_args_with_deduped_blobs
 
 
 def calculate_required_filters(category_strategies: dict) -> dict:
@@ -24,7 +24,7 @@ def calculate_required_filters(category_strategies: dict) -> dict:
     Returns:
         dict с флагами фильтров
     """
-    from .filters_config import get_filter_for_category, FILTERS
+    from .port_filters import get_filter_for_category, FILTERS
 
     # Инициализируем все фильтры как False
     filters = {key: False for key in FILTERS.keys()}

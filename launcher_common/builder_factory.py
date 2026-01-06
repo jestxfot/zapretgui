@@ -1,4 +1,4 @@
-# strategy_menu/strategy_lists_separated.py
+# launcher_common/builder_factory.py
 """
 Factory module for strategy lists.
 Выбирает между V1 и V2 реализациями в зависимости от режима.
@@ -15,7 +15,7 @@ from log import log
 from strategy_menu import get_strategy_launch_method
 
 # Re-export common utilities for backwards compatibility
-from .strategy_lists_common import (
+from .builder_common import (
     calculate_required_filters,
     _apply_settings,
     _clean_spaces,
@@ -25,8 +25,8 @@ from .strategy_lists_common import (
 )
 
 # Import both implementations
-from .strategy_lists_v1 import combine_strategies_v1
-from .strategy_lists_v2 import combine_strategies_v2
+from zapret1_launcher.strategy_builder import combine_strategies_v1
+from zapret2_launcher.strategy_builder import combine_strategies_v2
 
 
 def combine_strategies(**kwargs) -> dict:

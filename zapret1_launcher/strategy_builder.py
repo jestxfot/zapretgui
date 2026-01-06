@@ -1,4 +1,4 @@
-# strategy_menu/strategy_lists_v1.py
+# zapret1_launcher/strategy_builder.py
 """
 Strategy list builder for Zapret 1 (winws.exe).
 
@@ -16,8 +16,8 @@ support Zapret 2 features. For V2 compatibility, use strategy_lists_v2.py.
 import re
 import os
 from log import log
-from .strategies_registry import registry
-from .strategy_lists_common import (
+from strategy_menu.strategies_registry import registry
+from launcher_common.builder_common import (
     calculate_required_filters,
     _apply_settings,
     _clean_spaces,
@@ -25,7 +25,7 @@ from .strategy_lists_common import (
     get_active_categories_count,
     validate_category_strategies
 )
-from strategy_menu.blobs import build_args_with_deduped_blobs
+from launcher_common.blobs import build_args_with_deduped_blobs
 
 
 # ==================== V1-SPECIFIC FUNCTIONS ====================

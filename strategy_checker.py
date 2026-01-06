@@ -69,7 +69,7 @@ class StrategyChecker:
             selections = get_direct_strategy_selections()
             
             # Это комбинированная стратегия
-            from strategy_menu.strategy_lists_separated import combine_strategies
+            from launcher_common import combine_strategies
             from strategy_menu.strategies_registry import registry
             
             # Получаем комбинированную конфигурацию

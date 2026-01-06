@@ -21,7 +21,7 @@ from ui.sidebar import SettingsCard, ActionButton
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
 from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
-from strategy_menu.strategy_runner import get_current_runner
+from launcher_common import get_current_runner
 
 # Паттерны для определения РЕАЛЬНЫХ ошибок (строгие)
 ERROR_PATTERNS = [

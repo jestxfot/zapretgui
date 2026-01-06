@@ -35,7 +35,7 @@ def _build_command_line(winws_exe: str, args: List[str], work_dir: str) -> str:
     """
     Строит командную строку для winws.exe с правильным экранированием
     """
-    from strategy_menu.apply_filters import apply_all_filters
+    from launcher_common import apply_all_filters
     
     # Разрешаем пути к файлам
     resolved_args = _resolve_file_paths(args, work_dir)
@@ -178,7 +178,7 @@ def setup_direct_autostart_service(
         _delete_task(DIRECT_BOOT_TASK_NAME)
         
         # Разрешаем пути и применяем фильтры для XML
-        from strategy_menu.apply_filters import apply_all_filters
+        from launcher_common import apply_all_filters
         resolved_args = _resolve_file_paths(strategy_args, work_dir)
         lists_dir = os.path.join(work_dir, "lists")
         resolved_args = apply_all_filters(resolved_args, lists_dir)
@@ -297,7 +297,7 @@ def _create_task_with_bat_fallback(
     Создает задачу через .bat файл когда командная строка слишком длинная
     """
     try:
-        from strategy_menu.apply_filters import apply_all_filters
+        from launcher_common import apply_all_filters
         
         # Создаем .bat файл
         bat_path = os.path.join(work_dir, "zapret_autostart.bat")
@@ -428,7 +428,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     """
     try:
         from strategy_menu import get_direct_strategy_selections
-        from strategy_menu.strategy_lists_separated import combine_strategies
+        from launcher_common import combine_strategies
         from config.config import get_current_winws_exe
 
         # Используем единую функцию определения exe

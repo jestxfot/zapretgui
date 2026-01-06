@@ -883,7 +883,7 @@ def regenerate_preset_file() -> bool:
             return False
 
         # Импортируем combine_strategies
-        from strategy_menu.strategy_lists_separated import combine_strategies
+        from launcher_common import combine_strategies
 
         # Генерируем аргументы
         combined = combine_strategies(**selections)
@@ -1176,6 +1176,13 @@ __all__ = [
     # Комбинирование стратегий
     'combine_strategies',
     'calculate_required_filters',
+    'apply_all_filters',
+
+    # Launcher functions (re-exported from launcher_common)
+    'get_strategy_runner',
+    'reset_strategy_runner',
+    'invalidate_strategy_runner',
+    'get_current_runner',
 
     # Регенерация preset файла
     'regenerate_preset_file',
@@ -1185,5 +1192,13 @@ __all__ = [
 save_direct_strategy_selection = set_direct_strategy_for_category
 save_direct_strategy_selections = set_direct_strategy_selections
 
-# Импорт combine_strategies и calculate_required_filters из strategy_lists_separated
-from strategy_menu.strategy_lists_separated import combine_strategies, calculate_required_filters
+# Re-export launcher functions for backwards compatibility
+from launcher_common import (
+    get_strategy_runner,
+    reset_strategy_runner,
+    invalidate_strategy_runner,
+    get_current_runner,
+    combine_strategies,
+    calculate_required_filters,
+    apply_all_filters
+)

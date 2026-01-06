@@ -1,4 +1,4 @@
-# strategy_menu/strategy_runner.py
+# launcher_common/runner_factory.py
 """
 Factory module for strategy runners.
 Выбирает между StrategyRunnerV1 и StrategyRunnerV2 в зависимости от режима.
@@ -8,9 +8,9 @@ from typing import Optional
 from log import log
 
 # Import both runner classes
-from .strategy_runner_v1 import StrategyRunnerV1
-from .strategy_runner_v2 import StrategyRunnerV2
-from .strategy_runner_base import StrategyRunnerBase
+from zapret1_launcher.strategy_runner import StrategyRunnerV1
+from zapret2_launcher.strategy_runner import StrategyRunnerV2
+from .runner_base import StrategyRunnerBase
 
 # For backwards compatibility
 StrategyRunner = StrategyRunnerV2  # Default to V2

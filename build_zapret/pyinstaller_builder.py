@@ -340,7 +340,8 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
     spec_path = root_path / "zapret_build.spec"
     work = Path(tempfile.mkdtemp(prefix="pyi_"))
     out = root_path.parent / "zapret"
-    
+    exe_path = None  # Инициализируем до try блока
+
     try:
         if log_queue:
             log_queue.put("🔨 Запуск PyInstaller...")
@@ -387,8 +388,9 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
         except Exception:
             pass
 
-        # ✅ Подписываем exe файл если есть сертификат
-        sign_exe_if_available(exe_path, log_queue)
+        # ✅ Подписываем exe файл если есть сертификат и сборка прошла успешно
+        if exe_path is not None and exe_path.exists():
+            sign_exe_if_available(exe_path, log_queue)
 
 
 def cleanup_pyinstaller_temp(log_queue: Optional[Any] = None, max_age_hours: int = 1) -> int:

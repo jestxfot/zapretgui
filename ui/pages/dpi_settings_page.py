@@ -1307,7 +1307,7 @@ class DpiSettingsPage(BasePage):
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Прямой запуск - берём текущие настройки
                 from strategy_menu import get_direct_strategy_selections
-                from strategy_menu.strategy_lists_separated import combine_strategies
+                from launcher_common import combine_strategies
 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
@@ -1402,7 +1402,7 @@ class DpiSettingsPage(BasePage):
         log(f"Фильтр {filter_key} отключён вручную, определяю зависимые категории...", "INFO")
 
         try:
-            from strategy_menu.filters_config import get_categories_to_disable_on_filter_off
+            from launcher_common.port_filters import get_categories_to_disable_on_filter_off
             from strategy_menu import get_direct_strategy_selections
 
             # Получаем текущие выборы
