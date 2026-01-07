@@ -1113,24 +1113,34 @@ class DpiSettingsPage(BasePage):
             if not app or not hasattr(app, 'dpi_controller'):
                 log("DPI контроллер не найден для перезапуска", "DEBUG")
                 return
-            
+
+            # Для режима direct_zapret2 используем унифицированный механизм
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+
+            if launch_method == "direct_zapret2":
+                from dpi.zapret2_core_restart import trigger_dpi_reload
+                trigger_dpi_reload(app, reason="settings_changed")
+                return
+
+            # Для остальных режимов (orchestra, zapret1, bat) - старая логика
             # Проверяем, запущен ли процесс
             if not app.dpi_starter.check_process_running_wmi(silent=True):
                 log("DPI не запущен, перезапуск не требуется", "DEBUG")
                 return
-                
-            log("🔄 Перезапуск DPI после изменения настроек...", "INFO")
-            
+
+            log("Перезапуск DPI после изменения настроек...", "INFO")
+
             # Асинхронно останавливаем
             app.dpi_controller.stop_dpi_async()
-            
+
             # Запускаем таймер для проверки остановки и перезапуска
             self._restart_check_count = 0
             if not hasattr(self, '_restart_timer') or self._restart_timer is None:
                 self._restart_timer = QTimer(self)
                 self._restart_timer.timeout.connect(self._check_stopped_and_restart)
             self._restart_timer.start(300)  # Проверяем каждые 300мс
-            
+
         except Exception as e:
             log(f"Ошибка перезапуска DPI: {e}", "ERROR")
     

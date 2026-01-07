@@ -15,6 +15,7 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.pages.dpi_settings_page import Win11ToggleRow
+from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
 from launcher_common.blobs import get_blobs_info
 from log import log
@@ -1139,6 +1140,22 @@ class StrategyDetailPage(BasePage):
         syndata_layout.addWidget(self._syndata_settings)
         toolbar_layout.addWidget(self._syndata_frame)
 
+        # ═══════════════════════════════════════════════════════════════
+        # RESET SETTINGS BUTTON
+        # ═══════════════════════════════════════════════════════════════
+        reset_row = QHBoxLayout()
+        reset_row.setContentsMargins(0, 8, 0, 0)
+        reset_row.addStretch()
+
+        self._reset_settings_btn = ResetActionButton(
+            "Сбросить настройки",
+            confirm_text="Сбросить все?"
+        )
+        self._reset_settings_btn.reset_confirmed.connect(self._on_reset_settings_confirmed)
+        reset_row.addWidget(self._reset_settings_btn)
+
+        toolbar_layout.addLayout(reset_row)
+
         self.layout.addWidget(self._toolbar_frame)
 
         # Поиск по стратегиям
@@ -1635,7 +1652,7 @@ class StrategyDetailPage(BasePage):
             "out_range_mode": "n",  # "n" (packets count) or "d" (delay)
             "tcp_flags_unset": "none",
             # Send параметры (по умолчанию ВЫКЛЮЧЕНО)
-            "send_enabled": False,
+            "send_enabled": True,
             "send_repeats": 2,
             "send_ip_ttl": 0,
             "send_ip6_ttl": 0,
@@ -1706,8 +1723,8 @@ class StrategyDetailPage(BasePage):
             self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
 
         # Применяем Send настройки
-        self._send_toggle.setChecked(settings.get("send_enabled", False))
-        self._send_settings.setVisible(settings.get("send_enabled", False))
+        self._send_toggle.setChecked(settings.get("send_enabled", True))
+        self._send_settings.setVisible(settings.get("send_enabled", True))
         self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
         self._send_ip_ttl_spin.setValue(settings.get("send_ip_ttl", 0))
         self._send_ip6_ttl_spin.setValue(settings.get("send_ip6_ttl", 0))
@@ -1743,6 +1760,28 @@ class StrategyDetailPage(BasePage):
             "blob": self._blob_combo.currentText(),
             "tls_mod": self._tls_mod_combo.currentText(),
         }
+
+    def _on_reset_settings_confirmed(self):
+        """Сбрасывает настройки syndata/send/out_range/filter_mode на значения по умолчанию"""
+        if not self._category_key:
+            return
+
+        from dpi.zapret2_settings_reset import reset_category_settings, get_default_category_settings
+
+        # 1. Сбросить в реестре
+        if reset_category_settings(self._category_key):
+            log(f"Настройки категории {self._category_key} сброшены", "INFO")
+
+            # 2. Применить дефолты к UI
+            default_settings = get_default_category_settings()
+            self._apply_syndata_settings(default_settings)
+
+            # 3. Сбросить filter_mode на "hostlist" в UI
+            if hasattr(self, '_filter_mode_frame') and self._filter_mode_frame.isVisible():
+                self._filter_mode_selector.setCurrentMode("hostlist", block_signals=True)
+
+            # 4. Сохранить и перезапустить DPI (debouncer внутри _save_syndata_settings)
+            self._save_syndata_settings()
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
