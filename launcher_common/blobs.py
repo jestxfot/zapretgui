@@ -5,7 +5,7 @@
 Блобы загружаются из JSON файла и могут использоваться в нескольких стратегиях.
 
 Поддерживает:
-1. Системные блобы из json/blobs.json (секция "blobs")
+1. HARDCODED_BLOBS - системные блобы, жёстко заданные в коде
 2. Пользовательские блобы из json/blobs.json (секция "user_blobs")
 3. Автоматическую дедупликацию при сборке командной строки
 """
@@ -126,12 +126,61 @@ def reload_blobs() -> dict:
     return get_blobs()
 
 
-def get_blobs_info() -> dict:
+def get_system_blobs_info() -> dict:
     """
-    Возвращает расширенную информацию о блобах для UI.
+    Возвращает информацию о всех системных блобах (из HARDCODED_BLOBS).
 
     Returns:
-        Словарь {имя_блоба: {value, description, is_user, exists}}
+        dict: {
+            "blob_name": {
+                "value": "@bin/file.bin" или "0x...",
+                "type": "file" или "hex",
+                "is_user": False,
+                "exists": True/False (для файлов),
+                "description": ""
+            }
+        }
+    """
+    from zapret2_launcher.strategy_builder import HARDCODED_BLOBS
+    from config import BIN_FOLDER
+
+    # Парсим HARDCODED_BLOBS строку
+    # Формат: "--blob=name:value --blob=name2:value2 ..."
+    pattern = r'--blob=([^:]+):([^\s]+)'
+
+    result = {}
+    for match in re.finditer(pattern, HARDCODED_BLOBS):
+        name = match.group(1)
+        value = match.group(2)
+
+        # Определяем тип
+        if value.startswith("0x"):
+            blob_type = "hex"
+            exists = True  # hex значения всегда "существуют"
+        else:
+            blob_type = "file"
+            # Проверяем существование файла
+            file_path = value[1:] if value.startswith("@") else value
+            full_path = os.path.join(BIN_FOLDER, file_path)
+            exists = os.path.exists(full_path)
+
+        result[name] = {
+            "value": value,
+            "type": blob_type,
+            "is_user": False,
+            "exists": exists,
+            "description": ""  # Системные блобы без описания
+        }
+
+    return result
+
+
+def _load_user_blobs_info() -> dict:
+    """
+    Загружает информацию о пользовательских блобах из JSON.
+
+    Returns:
+        dict: Словарь с информацией о пользовательских блобах
     """
     from config import BIN_FOLDER
 
@@ -139,72 +188,76 @@ def get_blobs_info() -> dict:
     result = {}
 
     try:
-        if os.path.exists(json_path):
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        if not os.path.exists(json_path):
+            return {}
 
-            # Системные блобы
-            if "blobs" in data and isinstance(data["blobs"], dict):
-                for name, blob_data in data["blobs"].items():
-                    if name.startswith("_"):
-                        continue
-                    if not isinstance(blob_data, dict):
-                        continue
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
 
-                    info = {
-                        "description": blob_data.get("description", ""),
-                        "is_user": False,
-                        "exists": True
-                    }
+        user_blobs_data = data.get("user_blobs", {})
 
-                    if "hex" in blob_data:
-                        info["value"] = blob_data["hex"]
-                        info["type"] = "hex"
-                    elif "path" in blob_data:
-                        path = blob_data["path"]
-                        if not os.path.isabs(path):
-                            full_path = os.path.join(BIN_FOLDER, path)
-                        else:
-                            full_path = path
-                        info["value"] = f"@{full_path}"
-                        info["path"] = full_path
-                        info["type"] = "file"
-                        info["exists"] = os.path.exists(full_path)
+        for name, blob_data in user_blobs_data.items():
+            if name.startswith("_"):  # Пропускаем комментарии
+                continue
+            if not isinstance(blob_data, dict):
+                continue
 
-                    result[name] = info
+            info = {
+                "description": blob_data.get("description", "Пользовательский блоб"),
+                "is_user": True,
+                "exists": True
+            }
 
-            # Пользовательские блобы
-            if "user_blobs" in data and isinstance(data["user_blobs"], dict):
-                for name, blob_data in data["user_blobs"].items():
-                    if name.startswith("_"):
-                        continue
-                    if not isinstance(blob_data, dict):
-                        continue
+            # Определяем тип и значение
+            if "hex" in blob_data:
+                value = blob_data["hex"]
+                info["value"] = value
+                info["type"] = "hex"
+            elif "path" in blob_data:
+                path = blob_data["path"]
+                # Если относительный путь - добавляем @
+                if not path.startswith("@"):
+                    value = f"@{path}"
+                else:
+                    value = path
+                info["value"] = value
+                info["type"] = "file"
 
-                    info = {
-                        "description": blob_data.get("description", "Пользовательский блоб"),
-                        "is_user": True,
-                        "exists": True
-                    }
+                # Проверяем существование
+                file_path = value[1:] if value.startswith("@") else value
+                if not os.path.isabs(file_path):
+                    full_path = os.path.join(BIN_FOLDER, file_path)
+                else:
+                    full_path = file_path
+                info["path"] = full_path
+                info["exists"] = os.path.exists(full_path)
+            else:
+                continue
 
-                    if "hex" in blob_data:
-                        info["value"] = blob_data["hex"]
-                        info["type"] = "hex"
-                    elif "path" in blob_data:
-                        path = blob_data["path"]
-                        if not os.path.isabs(path):
-                            full_path = os.path.join(BIN_FOLDER, path)
-                        else:
-                            full_path = path
-                        info["value"] = f"@{full_path}"
-                        info["path"] = full_path
-                        info["type"] = "file"
-                        info["exists"] = os.path.exists(full_path)
-
-                    result[name] = info
+            result[name] = info
 
     except Exception as e:
-        log(f"❌ Ошибка получения информации о блобах: {e}", "ERROR")
+        log(f"Ошибка загрузки user blobs: {e}", "ERROR")
+
+    return result
+
+
+def get_blobs_info() -> dict:
+    """
+    Возвращает информацию обо ВСЕХ блобах (системные + пользовательские).
+
+    Returns:
+        dict: {имя_блоба: {value, type, description, is_user, exists}}
+    """
+    # Загружаем системные блобы
+    system_blobs = get_system_blobs_info()
+
+    # Загружаем пользовательские блобы
+    user_blobs = _load_user_blobs_info()
+
+    # Объединяем (пользовательские перезаписывают системные если есть конфликт)
+    result = system_blobs.copy()
+    result.update(user_blobs)
 
     return result
 
@@ -486,3 +539,46 @@ def collect_blobs_from_strategies(strategies: list[dict]) -> list[str]:
             all_blobs.extend(strategy["blobs"])
     # Убираем дубликаты, сохраняя порядок
     return list(dict.fromkeys(all_blobs))
+
+
+def get_user_blobs_args() -> str:
+    """
+    Возвращает строку с определениями ТОЛЬКО пользовательских блобов.
+    Системные блобы игнорируются - они захардкожены в HARDCODED_BLOBS.
+
+    Returns:
+        Строка с --blob=name:value для каждого пользовательского блоба,
+        или пустая строка если пользовательских блобов нет.
+    """
+    from config import BIN_FOLDER
+
+    json_path = _get_blobs_json_path()
+    user_blobs_parts = []
+
+    try:
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Загружаем ТОЛЬКО пользовательские блобы
+            if "user_blobs" in data and isinstance(data["user_blobs"], dict):
+                for name, blob_data in data["user_blobs"].items():
+                    if name.startswith("_"):  # Пропускаем комментарии
+                        continue
+                    if not isinstance(blob_data, dict):
+                        continue
+
+                    # Hex значение
+                    if "hex" in blob_data:
+                        user_blobs_parts.append(f"--blob={name}:{blob_data['hex']}")
+                    # Путь к файлу
+                    elif "path" in blob_data:
+                        path = blob_data["path"]
+                        if not os.path.isabs(path):
+                            path = os.path.join(BIN_FOLDER, path)
+                        user_blobs_parts.append(f"--blob={name}:@{path}")
+
+    except Exception as e:
+        log(f"Ошибка загрузки пользовательских блобов: {e}", "ERROR")
+
+    return " ".join(user_blobs_parts)

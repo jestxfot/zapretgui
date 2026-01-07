@@ -13,6 +13,7 @@
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass, field
 from log import log
+from strategy_menu.command_builder import strip_payload_from_args
 
 # ==================== LAZY IMPORTS ====================
 
@@ -87,44 +88,6 @@ def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> 
         log(f"Ошибка загрузки JSON стратегий типа '{strategy_type}': {e}", "WARNING")
 
     return {}
-
-
-# Кэш для strip_payload результатов (оптимизация - избегаем повторных regex)
-_strip_payload_cache: Dict[str, str] = {}
-
-
-def _strip_payload_from_args(args: str) -> str:
-    """
-    Удаляет --payload=... из аргументов стратегии.
-
-    Используется для IPset категорий без фильтра портов,
-    чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS/HTTP.
-
-    Args:
-        args: Строка аргументов стратегии
-
-    Returns:
-        Строка аргументов без --payload=
-    """
-    # Кэширование для оптимизации
-    if args in _strip_payload_cache:
-        return _strip_payload_cache[args]
-
-    import re
-
-    # Убираем --payload=... (например: --payload=tls_client_hello или --payload=http_req)
-    result = re.sub(r'--payload=[^\s]+\s*', '', args)
-
-    # Также убираем --filter-l7=... если есть (это фильтр по типу трафика)
-    result = re.sub(r'--filter-l7=[^\s]+\s*', '', result)
-
-    # Очищаем множественные пробелы
-    result = ' '.join(result.split())
-
-    # Кэшируем результат
-    _strip_payload_cache[args] = result
-
-    return result
 
 
 def _lazy_import_base_strategies(strategy_type: str) -> Dict:
@@ -436,7 +399,7 @@ class StrategiesRegistry:
         # Это нужно для IPset категорий без фильтра портов,
         # чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS
         if category_info.strip_payload:
-            base_args = _strip_payload_from_args(base_args)
+            base_args = strip_payload_from_args(base_args)
         
         # Для discord_voice - проверяем, содержит ли args уже фильтры
         if strategy_type == "discord_voice":

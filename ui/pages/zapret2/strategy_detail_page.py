@@ -811,6 +811,32 @@ class StrategyDetailPage(BasePage):
         ttl_row.addStretch()
         settings_layout.addLayout(ttl_row)
 
+        # Out Range row
+        out_range_row = QHBoxLayout()
+        out_range_row.setSpacing(8)
+        out_range_label = QLabel("out_range:")
+        out_range_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        out_range_label.setFixedWidth(60)
+        self._out_range_spin = QSpinBox()
+        self._out_range_spin.setRange(0, 100)
+        self._out_range_spin.setValue(0)
+        self._out_range_spin.setSpecialValueText("off")
+        self._out_range_spin.setToolTip("--out-range: ограничение количества исходящих пакетов для обработки (0 = без ограничения)")
+        self._out_range_spin.setStyleSheet("""
+            QSpinBox {
+                background: rgba(255,255,255,0.06);
+                border: none;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: white;
+            }
+        """)
+        self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
+        out_range_row.addWidget(out_range_label)
+        out_range_row.addWidget(self._out_range_spin)
+        out_range_row.addStretch()
+        settings_layout.addLayout(out_range_row)
+
         # TCP flags row
         flags_row = QHBoxLayout()
         flags_row.setSpacing(8)
@@ -1211,6 +1237,7 @@ class StrategyDetailPage(BasePage):
             "blob": self._blob_combo.currentText(),
             "tls_mod": self._tls_mod_combo.currentText(),
             "ip_ttl": self._ip_ttl_spin.value(),
+            "out_range": self._out_range_spin.value(),
             "tcp_flags_unset": self._tcp_flags_combo.currentText(),
         }
         try:
@@ -1232,6 +1259,7 @@ class StrategyDetailPage(BasePage):
             "blob": "tls_google",
             "tls_mod": "none",
             "ip_ttl": 0,
+            "out_range": 0,
             "tcp_flags_unset": "none",
         }
         try:
@@ -1257,6 +1285,7 @@ class StrategyDetailPage(BasePage):
         self._blob_combo.blockSignals(True)
         self._tls_mod_combo.blockSignals(True)
         self._ip_ttl_spin.blockSignals(True)
+        self._out_range_spin.blockSignals(True)
         self._tcp_flags_combo.blockSignals(True)
 
         self._syndata_toggle.setChecked(settings.get("enabled", True))
@@ -1273,6 +1302,7 @@ class StrategyDetailPage(BasePage):
             self._tls_mod_combo.setCurrentIndex(tls_mod_index)
 
         self._ip_ttl_spin.setValue(settings.get("ip_ttl", 0))
+        self._out_range_spin.setValue(settings.get("out_range", 0))
 
         tcp_flags_value = settings.get("tcp_flags_unset", "none")
         tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
@@ -1284,6 +1314,7 @@ class StrategyDetailPage(BasePage):
         self._blob_combo.blockSignals(False)
         self._tls_mod_combo.blockSignals(False)
         self._ip_ttl_spin.blockSignals(False)
+        self._out_range_spin.blockSignals(False)
         self._tcp_flags_combo.blockSignals(False)
 
     def get_syndata_settings(self) -> dict:

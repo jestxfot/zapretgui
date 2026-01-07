@@ -16,7 +16,75 @@ import re
 import os
 from log import log
 from strategy_menu.strategies_registry import registry
-from launcher_common.blobs import build_args_with_deduped_blobs
+from launcher_common.blobs import extract_and_dedupe_blobs, get_user_blobs_args
+from strategy_menu.command_builder import build_syndata_args, get_out_range_args
+
+
+# ==================== ЗАХАРДКОЖЕННЫЕ СИСТЕМНЫЕ БЛОБЫ ====================
+# Все системные блобы добавляются в начало preset файла.
+# Это избегает динамической генерации и упрощает код.
+# Пути к файлам относительные (@bin/...) - они разрешаются winws2.exe.
+HARDCODED_BLOBS = (
+    "--blob=tls_google:@bin/tls_clienthello_www_google_com.bin "
+    "--blob=tls1:@bin/tls_clienthello_1.bin "
+    "--blob=tls2:@bin/tls_clienthello_2.bin "
+    "--blob=tls2n:@bin/tls_clienthello_2n.bin "
+    "--blob=tls3:@bin/tls_clienthello_3.bin "
+    "--blob=tls4:@bin/tls_clienthello_4.bin "
+    "--blob=tls5:@bin/tls_clienthello_5.bin "
+    "--blob=tls6:@bin/tls_clienthello_6.bin "
+    "--blob=tls7:@bin/tls_clienthello_7.bin "
+    "--blob=tls8:@bin/tls_clienthello_8.bin "
+    "--blob=tls9:@bin/tls_clienthello_9.bin "
+    "--blob=tls10:@bin/tls_clienthello_10.bin "
+    "--blob=tls11:@bin/tls_clienthello_11.bin "
+    "--blob=tls12:@bin/tls_clienthello_12.bin "
+    "--blob=tls13:@bin/tls_clienthello_13.bin "
+    "--blob=tls14:@bin/tls_clienthello_14.bin "
+    "--blob=tls17:@bin/tls_clienthello_17.bin "
+    "--blob=tls18:@bin/tls_clienthello_18.bin "
+    "--blob=tls_sber:@bin/tls_clienthello_sberbank_ru.bin "
+    "--blob=tls_vk:@bin/tls_clienthello_vk_com.bin "
+    "--blob=tls_vk_kyber:@bin/tls_clienthello_vk_com_kyber.bin "
+    "--blob=tls_deepseek:@bin/tls_clienthello_chat_deepseek_com.bin "
+    "--blob=tls_max:@bin/tls_clienthello_max_ru.bin "
+    "--blob=tls_iana:@bin/tls_clienthello_iana_org.bin "
+    "--blob=tls_4pda:@bin/tls_clienthello_4pda_to.bin "
+    "--blob=tls_gosuslugi:@bin/tls_clienthello_gosuslugi_ru.bin "
+    "--blob=syndata3:@bin/tls_clienthello_3.bin "
+    "--blob=syn_packet:@bin/syn_packet.bin "
+    "--blob=dtls_w3:@bin/dtls_clienthello_w3_org.bin "
+    "--blob=quic_google:@bin/quic_initial_www_google_com.bin "
+    "--blob=quic_vk:@bin/quic_initial_vk_com.bin "
+    "--blob=quic1:@bin/quic_1.bin "
+    "--blob=quic2:@bin/quic_2.bin "
+    "--blob=quic3:@bin/quic_3.bin "
+    "--blob=quic4:@bin/quic_4.bin "
+    "--blob=quic5:@bin/quic_5.bin "
+    "--blob=quic6:@bin/quic_6.bin "
+    "--blob=quic7:@bin/quic_7.bin "
+    "--blob=quic_test:@bin/quic_test_00.bin "
+    "--blob=fake_tls:@bin/fake_tls_1.bin "
+    "--blob=fake_tls_1:@bin/fake_tls_1.bin "
+    "--blob=fake_tls_2:@bin/fake_tls_2.bin "
+    "--blob=fake_tls_3:@bin/fake_tls_3.bin "
+    "--blob=fake_tls_4:@bin/fake_tls_4.bin "
+    "--blob=fake_tls_5:@bin/fake_tls_5.bin "
+    "--blob=fake_tls_6:@bin/fake_tls_6.bin "
+    "--blob=fake_tls_7:@bin/fake_tls_7.bin "
+    "--blob=fake_tls_8:@bin/fake_tls_8.bin "
+    "--blob=fake_quic:@bin/fake_quic.bin "
+    "--blob=fake_quic_1:@bin/fake_quic_1.bin "
+    "--blob=fake_quic_2:@bin/fake_quic_2.bin "
+    "--blob=fake_quic_3:@bin/fake_quic_3.bin "
+    "--blob=fake_default_quic:@bin/fake_quic.bin "
+    "--blob=fake_default_udp:0x00000000000000000000000000000000 "
+    "--blob=http_req:@bin/http_iana_org.bin "
+    "--blob=hex_0e0e0f0e:0x0E0E0F0E "
+    "--blob=hex_0f0e0e0f:0x0F0E0E0F "
+    "--blob=hex_0f0f0f0f:0x0F0F0F0F "
+    "--blob=hex_00:0x00"
+)
 
 
 # ==================== COMMON UTILITIES ====================
@@ -352,6 +420,46 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         # Get full arguments via registry (base_filter + technique)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
+            # ==================== SYNDATA INJECTION ====================
+            # Apply syndata settings from UI (if enabled for this category)
+            #
+            # ВАЖНО: Порядок аргументов:
+            # {base_filter} {out_range} {syndata} {strategy}
+            # Пример:
+            #   --filter-tcp=80,443 --hostlist=youtube.txt --out-range=-d10 --lua-desync=syndata:blob=tls7 --lua-desync=multisplit:pos=1,midsld
+            #   ├─ base_filter ─────────────────────────┤├─ out_range ─┤├─ syndata ─────────────────┤├─ strategy ──────────────────────────┤
+            #
+            syndata_args = build_syndata_args(category_key)
+            out_range_args = get_out_range_args(category_key)
+
+            # Если есть что вставить - разделяем args на base_filter и strategy части
+            if syndata_args or out_range_args:
+                # Разделяем по первому --lua-desync= (это начало strategy части)
+                if " --lua-desync=" in args:
+                    parts = args.split(" --lua-desync=", 1)
+                    base_filter_part = parts[0]  # Всё до первого --lua-desync=
+                    strategy_part = "--lua-desync=" + parts[1]  # Первый --lua-desync= и всё после
+                else:
+                    # Нет --lua-desync= - вся строка это base_filter
+                    base_filter_part = args
+                    strategy_part = ""
+
+                # Собираем в правильном порядке: base_filter + out_range + syndata + strategy
+                result_parts = [base_filter_part]
+
+                if out_range_args:
+                    result_parts.append(out_range_args)
+                    log(f"[V2] Applied out_range for '{category_key}': {out_range_args}", "DEBUG")
+
+                if syndata_args:
+                    result_parts.append(syndata_args)
+                    log(f"[V2] Applied syndata for '{category_key}': {syndata_args}", "DEBUG")
+
+                if strategy_part:
+                    result_parts.append(strategy_part)
+
+                args = " ".join(result_parts)
+
             category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))
 
@@ -374,10 +482,18 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         if category_info and category_info.needs_new_separator and not is_last:
             category_args_parts.append("--new")
 
-    # Deduplicate blobs: extract all --blob=... from categories,
-    # remove duplicates and move to the beginning of command line
+    # ==================== БЛОБЫ И АРГУМЕНТЫ КАТЕГОРИЙ ====================
+    # Системные блобы захардкожены в HARDCODED_BLOBS
+    # Пользовательские блобы загружаются динамически
+    # Из аргументов категорий удаляются дублирующиеся блобы
     category_args_str = " ".join(category_args_parts)
-    deduped_args = build_args_with_deduped_blobs([category_args_str])
+
+    # Извлекаем только пользовательские блобы (если есть)
+    user_blobs = get_user_blobs_args()
+
+    # Удаляем дублирующиеся --blob=... из аргументов категорий,
+    # т.к. все системные блобы уже есть в HARDCODED_BLOBS
+    _, cleaned_category_args = extract_and_dedupe_blobs([category_args_str])
 
     # Build final command line
     args_parts = []
@@ -397,10 +513,14 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         args_parts.append(f"--debug=@{log_path}")
         log(f"[V2] Debug log enabled: {log_path}", "INFO")
 
+    # Порядок: base_args → захардкоженные блобы → пользовательские блобы → аргументы категорий
     if base_args:
         args_parts.append(base_args)
-    if deduped_args:
-        args_parts.append(deduped_args)
+    args_parts.append(HARDCODED_BLOBS)
+    if user_blobs:
+        args_parts.append(user_blobs)
+    if cleaned_category_args:
+        args_parts.append(cleaned_category_args)
 
     combined_args = " ".join(args_parts)
 

@@ -92,7 +92,6 @@ class DPIManager(QObject):
         log(f"Автозапуск Direct: {selections}", "INFO")
 
         # Обновляем UI и запускаем
-        self.app.current_strategy_label.setText("Прямой запуск")
         self.app.current_strategy_name = "Прямой запуск"
         self._update_splash(65, "Запуск Direct режима...")
         # ✅ Передаём актуальный launch_method (direct, direct_zapret2_orchestra, direct_zapret1)
@@ -107,7 +106,6 @@ class DPIManager(QObject):
         log(f"Автозапуск BAT: «{strategy_name}»", "INFO")
 
         # Обновляем UI и запускаем
-        self.app.current_strategy_label.setText(strategy_name)
         self.app.current_strategy_name = strategy_name
         self._update_splash(65, f"Запуск '{strategy_name}'...")
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
@@ -150,7 +148,6 @@ class DPIManager(QObject):
                 return
 
             # Обновляем UI
-            self.app.current_strategy_label.setText("Оркестр (автообучение)")
             self.app.current_strategy_name = "Оркестр"
             self._update_ui(running=True)
             self._finish_splash("Готово", "Оркестратор запущен")

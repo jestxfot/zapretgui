@@ -38,7 +38,9 @@
       "Bash(xxd:*)",
       "Bash(python3:*)",
       "Bash(if not exist \"h:\\\\Privacy\\\\zapretgui\\\\launcher_common\" mkdir \"h:\\\\Privacy\\\\zapretgui\\\\launcher_common\")",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(sort:*)",
+      "Skill(o)"
     ]
   }
 }
