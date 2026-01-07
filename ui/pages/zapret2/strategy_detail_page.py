@@ -7,7 +7,8 @@
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-    QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox
+    QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
+    QCheckBox
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
@@ -15,6 +16,7 @@ import qtawesome as qta
 from ui.pages.base_page import BasePage
 from ui.pages.dpi_settings_page import Win11ToggleRow
 from ui.widgets.win11_spinner import Win11Spinner
+from launcher_common.blobs import get_blobs_info
 from log import log
 
 
@@ -657,6 +659,288 @@ class StrategyDetailPage(BasePage):
         toolbar_layout.addWidget(self._filter_mode_frame)
 
         # ═══════════════════════════════════════════════════════════════
+        # OUT RANGE SETTINGS
+        # ═══════════════════════════════════════════════════════════════
+        self._out_range_frame = QFrame()
+        self._out_range_frame.setStyleSheet("QFrame { background: transparent; }")
+        out_range_main_layout = QHBoxLayout(self._out_range_frame)
+        out_range_main_layout.setContentsMargins(0, 6, 0, 6)
+        out_range_main_layout.setSpacing(12)
+
+        # Icon
+        out_range_icon = QLabel()
+        out_range_icon.setFixedSize(22, 22)
+        out_range_icon.setPixmap(qta.icon("fa5s.filter", color="#60cdff").pixmap(18, 18))
+        out_range_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        out_range_main_layout.addWidget(out_range_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        # Text
+        out_range_text_layout = QVBoxLayout()
+        out_range_text_layout.setSpacing(2)
+        out_range_title = QLabel("Out Range")
+        out_range_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        out_range_desc = QLabel("Ограничение исходящих пакетов для обработки")
+        out_range_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        out_range_text_layout.addWidget(out_range_title)
+        out_range_text_layout.addWidget(out_range_desc)
+        out_range_main_layout.addLayout(out_range_text_layout)
+
+        out_range_main_layout.addStretch()
+
+        # Mode selector (n/d buttons)
+        mode_label = QLabel("Режим:")
+        mode_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        out_range_main_layout.addWidget(mode_label)
+
+        self._out_range_mode_n = QPushButton("n")
+        self._out_range_mode_d = QPushButton("d")
+        for btn in [self._out_range_mode_n, self._out_range_mode_d]:
+            btn.setFixedSize(32, 28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setToolTip("n = packets count, d = delay")
+
+        self._out_range_mode_n.clicked.connect(lambda: self._select_out_range_mode("n"))
+        self._out_range_mode_d.clicked.connect(lambda: self._select_out_range_mode("d"))
+
+        # Set initial state
+        self._out_range_mode = "n"
+        self._update_out_range_mode_styles()
+
+        out_range_main_layout.addWidget(self._out_range_mode_n)
+        out_range_main_layout.addWidget(self._out_range_mode_d)
+
+        # Value spinbox
+        value_label = QLabel("Значение:")
+        value_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent; margin-left: 12px;")
+        out_range_main_layout.addWidget(value_label)
+
+        self._out_range_spin = QSpinBox()
+        self._out_range_spin.setRange(1, 999)
+        self._out_range_spin.setValue(8)
+        self._out_range_spin.setToolTip("--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
+        self._out_range_spin.setStyleSheet("""
+            QSpinBox {
+                background: rgba(255,255,255,0.06);
+                border: none;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: white;
+                min-width: 60px;
+            }
+        """)
+        self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
+        out_range_main_layout.addWidget(self._out_range_spin)
+
+        toolbar_layout.addWidget(self._out_range_frame)
+
+        # ═══════════════════════════════════════════════════════════════
+        # SEND SETTINGS (collapsible)
+        # ═══════════════════════════════════════════════════════════════
+        self._send_frame = QFrame()
+        self._send_frame.setStyleSheet("QFrame { background: transparent; }")
+        send_layout = QVBoxLayout(self._send_frame)
+        send_layout.setContentsMargins(0, 6, 0, 6)
+        send_layout.setSpacing(8)
+
+        # Header row with toggle
+        send_header = QHBoxLayout()
+        send_header.setSpacing(12)
+        send_icon = QLabel()
+        send_icon.setFixedSize(22, 22)
+        send_icon.setPixmap(qta.icon("fa5s.paper-plane", color="#60cdff").pixmap(18, 18))
+        send_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        send_header.addWidget(send_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        send_title_layout = QVBoxLayout()
+        send_title_layout.setSpacing(2)
+        send_title = QLabel("Send параметры")
+        send_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        send_desc = QLabel("Отправка копий пакетов")
+        send_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        send_title_layout.addWidget(send_title)
+        send_title_layout.addWidget(send_desc)
+        send_header.addLayout(send_title_layout)
+        send_header.addStretch()
+
+        # Enable toggle switch (Win11 style)
+        self._send_toggle = QPushButton()
+        self._send_toggle.setCheckable(True)
+        self._send_toggle.setFixedSize(44, 22)
+        self._send_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._send_toggle.toggled.connect(self._on_send_toggled)
+        self._send_toggle.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 11px;
+                border: none;
+            }
+            QPushButton:checked {
+                background: #60cdff;
+            }
+        """)
+        send_header.addWidget(self._send_toggle)
+
+        send_layout.addLayout(send_header)
+
+        # Settings panel (shown when enabled)
+        self._send_settings = QFrame()
+        self._send_settings.setVisible(False)
+        self._send_settings.setStyleSheet("QFrame { background: transparent; }")
+        send_settings_layout = QVBoxLayout(self._send_settings)
+        send_settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
+        send_settings_layout.setSpacing(8)
+
+        # Combo style for Send section
+        send_combo_style = """
+            QComboBox {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                padding: 4px 8px;
+                min-width: 140px;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid rgba(255, 255, 255, 0.7);
+                margin-right: 8px;
+            }
+            QComboBox QAbstractItemView {
+                background: #2d2d2d;
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                selection-background-color: rgba(96, 205, 255, 0.3);
+            }
+        """
+
+        # SpinBox style for Send section
+        send_spinbox_style = """
+            QSpinBox {
+                background: rgba(255,255,255,0.06);
+                border: none;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: white;
+            }
+        """
+
+        # send_repeats row
+        repeats_row = QHBoxLayout()
+        repeats_row.setSpacing(8)
+        repeats_label = QLabel("repeats:")
+        repeats_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        repeats_label.setFixedWidth(60)
+        self._send_repeats_spin = QSpinBox()
+        self._send_repeats_spin.setRange(0, 10)
+        self._send_repeats_spin.setValue(2)
+        self._send_repeats_spin.setToolTip("Количество повторных отправок пакета (дефолт: 2)")
+        self._send_repeats_spin.setStyleSheet(send_spinbox_style)
+        self._send_repeats_spin.valueChanged.connect(self._save_syndata_settings)
+        repeats_row.addWidget(repeats_label)
+        repeats_row.addWidget(self._send_repeats_spin)
+        repeats_row.addStretch()
+        send_settings_layout.addLayout(repeats_row)
+
+        # send_ip_ttl row
+        send_ip_ttl_row = QHBoxLayout()
+        send_ip_ttl_row.setSpacing(8)
+        send_ip_ttl_label = QLabel("ip_ttl:")
+        send_ip_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        send_ip_ttl_label.setFixedWidth(60)
+        self._send_ip_ttl_spin = QSpinBox()
+        self._send_ip_ttl_spin.setRange(0, 255)
+        self._send_ip_ttl_spin.setValue(0)
+        self._send_ip_ttl_spin.setSpecialValueText("auto")
+        self._send_ip_ttl_spin.setToolTip("TTL для IPv4 отправляемых пакетов (0 = auto)")
+        self._send_ip_ttl_spin.setStyleSheet(send_spinbox_style)
+        self._send_ip_ttl_spin.valueChanged.connect(self._save_syndata_settings)
+        send_ip_ttl_row.addWidget(send_ip_ttl_label)
+        send_ip_ttl_row.addWidget(self._send_ip_ttl_spin)
+        send_ip_ttl_row.addStretch()
+        send_settings_layout.addLayout(send_ip_ttl_row)
+
+        # send_ip6_ttl row
+        send_ip6_ttl_row = QHBoxLayout()
+        send_ip6_ttl_row.setSpacing(8)
+        send_ip6_ttl_label = QLabel("ip6_ttl:")
+        send_ip6_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        send_ip6_ttl_label.setFixedWidth(60)
+        self._send_ip6_ttl_spin = QSpinBox()
+        self._send_ip6_ttl_spin.setRange(0, 255)
+        self._send_ip6_ttl_spin.setValue(0)
+        self._send_ip6_ttl_spin.setSpecialValueText("auto")
+        self._send_ip6_ttl_spin.setToolTip("TTL для IPv6 отправляемых пакетов (0 = auto)")
+        self._send_ip6_ttl_spin.setStyleSheet(send_spinbox_style)
+        self._send_ip6_ttl_spin.valueChanged.connect(self._save_syndata_settings)
+        send_ip6_ttl_row.addWidget(send_ip6_ttl_label)
+        send_ip6_ttl_row.addWidget(self._send_ip6_ttl_spin)
+        send_ip6_ttl_row.addStretch()
+        send_settings_layout.addLayout(send_ip6_ttl_row)
+
+        # send_ip_id row
+        send_ip_id_row = QHBoxLayout()
+        send_ip_id_row.setSpacing(8)
+        send_ip_id_label = QLabel("ip_id:")
+        send_ip_id_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        send_ip_id_label.setFixedWidth(60)
+        self._send_ip_id_combo = QComboBox()
+        self._send_ip_id_combo.addItems(["none", "seq", "rnd", "zero"])
+        self._send_ip_id_combo.setToolTip("Режим IP ID для отправляемых пакетов")
+        self._send_ip_id_combo.setStyleSheet(send_combo_style)
+        self._send_ip_id_combo.currentTextChanged.connect(self._save_syndata_settings)
+        send_ip_id_row.addWidget(send_ip_id_label)
+        send_ip_id_row.addWidget(self._send_ip_id_combo)
+        send_ip_id_row.addStretch()
+        send_settings_layout.addLayout(send_ip_id_row)
+
+        # send_badsum row
+        send_badsum_row = QHBoxLayout()
+        send_badsum_row.setSpacing(8)
+        send_badsum_label = QLabel("badsum:")
+        send_badsum_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        send_badsum_label.setFixedWidth(60)
+        self._send_badsum_check = QCheckBox()
+        self._send_badsum_check.setToolTip("Отправлять пакеты с неправильной контрольной суммой")
+        self._send_badsum_check.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.08);
+            }
+            QCheckBox::indicator:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QCheckBox::indicator:checked {
+                background: #60cdff;
+            }
+        """)
+        self._send_badsum_check.stateChanged.connect(self._save_syndata_settings)
+        send_badsum_row.addWidget(send_badsum_label)
+        send_badsum_row.addWidget(self._send_badsum_check)
+        send_badsum_row.addStretch()
+        send_settings_layout.addLayout(send_badsum_row)
+
+        send_layout.addWidget(self._send_settings)
+        toolbar_layout.addWidget(self._send_frame)
+
+        # ═══════════════════════════════════════════════════════════════
         # SYNDATA SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._syndata_frame = QFrame()
@@ -754,16 +1038,14 @@ class StrategyDetailPage(BasePage):
         blob_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         blob_label.setFixedWidth(60)
         self._blob_combo = QComboBox()
-        self._blob_combo.addItems([
-            "none",
-            "tls_google",
-            "tls7",
-            "fake_default_tls",
-            "tls_data_default",
-            "tls_clienthello_www_google_com",
-            "tls_clienthello_vk_com",
-            "fake_default_http",
-        ])
+        # Get all available blobs (system + user)
+        try:
+            all_blobs = get_blobs_info()
+            blob_names = ["none"] + sorted(all_blobs.keys())
+        except Exception:
+            # Fallback to basic list if blobs module fails
+            blob_names = ["none", "tls_google", "tls7"]
+        self._blob_combo.addItems(blob_names)
         self._blob_combo.setStyleSheet(combo_style)
         self._blob_combo.currentTextChanged.connect(self._save_syndata_settings)
         blob_row.addWidget(blob_label)
@@ -786,56 +1068,57 @@ class StrategyDetailPage(BasePage):
         tls_mod_row.addStretch()
         settings_layout.addLayout(tls_mod_row)
 
-        # IP TTL row
-        ttl_row = QHBoxLayout()
-        ttl_row.setSpacing(8)
-        ttl_label = QLabel("ip_ttl:")
-        ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
-        ttl_label.setFixedWidth(60)
-        self._ip_ttl_spin = QSpinBox()
-        self._ip_ttl_spin.setRange(0, 255)
-        self._ip_ttl_spin.setValue(0)
-        self._ip_ttl_spin.setSpecialValueText("auto")
-        self._ip_ttl_spin.setStyleSheet("""
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: white;
-            }
-        """)
-        self._ip_ttl_spin.valueChanged.connect(self._save_syndata_settings)
-        ttl_row.addWidget(ttl_label)
-        ttl_row.addWidget(self._ip_ttl_spin)
-        ttl_row.addStretch()
-        settings_layout.addLayout(ttl_row)
+        # IP AutoTTL row (delta, min-max)
+        autottl_row = QHBoxLayout()
+        autottl_row.setSpacing(8)
+        autottl_label = QLabel("autottl:")
+        autottl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        autottl_label.setFixedWidth(60)
 
-        # Out Range row
-        out_range_row = QHBoxLayout()
-        out_range_row.setSpacing(8)
-        out_range_label = QLabel("out_range:")
-        out_range_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
-        out_range_label.setFixedWidth(60)
-        self._out_range_spin = QSpinBox()
-        self._out_range_spin.setRange(0, 100)
-        self._out_range_spin.setValue(0)
-        self._out_range_spin.setSpecialValueText("off")
-        self._out_range_spin.setToolTip("--out-range: ограничение количества исходящих пакетов для обработки (0 = без ограничения)")
-        self._out_range_spin.setStyleSheet("""
+        autottl_spinbox_style = """
             QSpinBox {
                 background: rgba(255,255,255,0.06);
                 border: none;
                 border-radius: 4px;
                 padding: 4px 8px;
                 color: white;
+                min-width: 50px;
             }
-        """)
-        self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
-        out_range_row.addWidget(out_range_label)
-        out_range_row.addWidget(self._out_range_spin)
-        out_range_row.addStretch()
-        settings_layout.addLayout(out_range_row)
+        """
+
+        # Delta spinbox (-10 to +10, default -2)
+        self._autottl_delta_spin = QSpinBox()
+        self._autottl_delta_spin.setRange(-10, 10)
+        self._autottl_delta_spin.setValue(-2)
+        self._autottl_delta_spin.setPrefix("d:")
+        self._autottl_delta_spin.setToolTip("Delta: смещение от измеренного TTL (по умолчанию -2)")
+        self._autottl_delta_spin.setStyleSheet(autottl_spinbox_style)
+        self._autottl_delta_spin.valueChanged.connect(self._save_syndata_settings)
+
+        # Min spinbox (1-255, default 3)
+        self._autottl_min_spin = QSpinBox()
+        self._autottl_min_spin.setRange(1, 255)
+        self._autottl_min_spin.setValue(3)
+        self._autottl_min_spin.setPrefix("min:")
+        self._autottl_min_spin.setToolTip("Минимальный TTL (по умолчанию 3)")
+        self._autottl_min_spin.setStyleSheet(autottl_spinbox_style)
+        self._autottl_min_spin.valueChanged.connect(self._save_syndata_settings)
+
+        # Max spinbox (1-255, default 20)
+        self._autottl_max_spin = QSpinBox()
+        self._autottl_max_spin.setRange(1, 255)
+        self._autottl_max_spin.setValue(20)
+        self._autottl_max_spin.setPrefix("max:")
+        self._autottl_max_spin.setToolTip("Максимальный TTL (по умолчанию 20)")
+        self._autottl_max_spin.setStyleSheet(autottl_spinbox_style)
+        self._autottl_max_spin.valueChanged.connect(self._save_syndata_settings)
+
+        autottl_row.addWidget(autottl_label)
+        autottl_row.addWidget(self._autottl_delta_spin)
+        autottl_row.addWidget(self._autottl_min_spin)
+        autottl_row.addWidget(self._autottl_max_spin)
+        autottl_row.addStretch()
+        settings_layout.addLayout(autottl_row)
 
         # TCP flags row
         flags_row = QHBoxLayout()
@@ -1156,6 +1439,10 @@ class StrategyDetailPage(BasePage):
         self._save_category_filter_mode(self._category_key, new_mode)
         log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
 
+        # Перегенерируем preset файл с новым режимом фильтрации
+        from strategy_menu import regenerate_preset_file
+        regenerate_preset_file()
+
     def _save_category_filter_mode(self, category_key: str, mode: str):
         """Сохраняет режим фильтрации для категории в реестр"""
         try:
@@ -1219,8 +1506,60 @@ class StrategyDetailPage(BasePage):
             return "default"
 
     # ═══════════════════════════════════════════════════════════════
+    # OUT RANGE METHODS
+    # ═══════════════════════════════════════════════════════════════
+
+    def _select_out_range_mode(self, mode: str):
+        """Выбор режима out_range (n или d)"""
+        if mode != self._out_range_mode:
+            self._out_range_mode = mode
+            self._update_out_range_mode_styles()
+            self._save_syndata_settings()
+
+    def _update_out_range_mode_styles(self):
+        """Обновляет стили кнопок режима out_range"""
+        active_style = """
+            QPushButton {
+                background: #60cdff;
+                border: none;
+                color: #000000;
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 4px;
+            }
+        """
+        inactive_style = """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+        """
+
+        if self._out_range_mode == "n":
+            self._out_range_mode_n.setStyleSheet(active_style)
+            self._out_range_mode_n.setChecked(True)
+            self._out_range_mode_d.setStyleSheet(inactive_style)
+            self._out_range_mode_d.setChecked(False)
+        else:
+            self._out_range_mode_n.setStyleSheet(inactive_style)
+            self._out_range_mode_n.setChecked(False)
+            self._out_range_mode_d.setStyleSheet(active_style)
+            self._out_range_mode_d.setChecked(True)
+
+    # ═══════════════════════════════════════════════════════════════
     # SYNDATA SETTINGS METHODS
     # ═══════════════════════════════════════════════════════════════
+
+    def _on_send_toggled(self, checked: bool):
+        """Обработчик включения/выключения send параметров"""
+        self._send_settings.setVisible(checked)
+        self._save_syndata_settings()
 
     def _on_syndata_toggled(self, checked: bool):
         """Обработчик включения/выключения syndata параметров"""
@@ -1236,9 +1575,20 @@ class StrategyDetailPage(BasePage):
             "enabled": self._syndata_toggle.isChecked(),
             "blob": self._blob_combo.currentText(),
             "tls_mod": self._tls_mod_combo.currentText(),
-            "ip_ttl": self._ip_ttl_spin.value(),
+            # AutoTTL settings (delta, min-max)
+            "autottl_delta": self._autottl_delta_spin.value(),
+            "autottl_min": self._autottl_min_spin.value(),
+            "autottl_max": self._autottl_max_spin.value(),
             "out_range": self._out_range_spin.value(),
+            "out_range_mode": self._out_range_mode,  # "n" or "d"
             "tcp_flags_unset": self._tcp_flags_combo.currentText(),
+            # Send параметры
+            "send_enabled": self._send_toggle.isChecked(),
+            "send_repeats": self._send_repeats_spin.value(),
+            "send_ip_ttl": self._send_ip_ttl_spin.value(),
+            "send_ip6_ttl": self._send_ip6_ttl_spin.value(),
+            "send_ip_id": self._send_ip_id_combo.currentText(),
+            "send_badsum": self._send_badsum_check.isChecked(),
         }
         try:
             from config import REGISTRY_PATH
@@ -1258,9 +1608,20 @@ class StrategyDetailPage(BasePage):
             "enabled": True,
             "blob": "tls_google",
             "tls_mod": "none",
-            "ip_ttl": 0,
-            "out_range": 0,
+            # AutoTTL defaults: delta=-2, min=3, max=20
+            "autottl_delta": -2,
+            "autottl_min": 3,
+            "autottl_max": 20,
+            "out_range": 8,
+            "out_range_mode": "n",  # "n" (packets count) or "d" (delay)
             "tcp_flags_unset": "none",
+            # Send параметры (по умолчанию ВЫКЛЮЧЕНО)
+            "send_enabled": False,
+            "send_repeats": 2,
+            "send_ip_ttl": 0,
+            "send_ip6_ttl": 0,
+            "send_ip_id": "none",
+            "send_badsum": False,
         }
         try:
             from config import REGISTRY_PATH
@@ -1284,9 +1645,18 @@ class StrategyDetailPage(BasePage):
         self._syndata_toggle.blockSignals(True)
         self._blob_combo.blockSignals(True)
         self._tls_mod_combo.blockSignals(True)
-        self._ip_ttl_spin.blockSignals(True)
+        self._autottl_delta_spin.blockSignals(True)
+        self._autottl_min_spin.blockSignals(True)
+        self._autottl_max_spin.blockSignals(True)
         self._out_range_spin.blockSignals(True)
         self._tcp_flags_combo.blockSignals(True)
+        # Блокируем сигналы Send виджетов
+        self._send_toggle.blockSignals(True)
+        self._send_repeats_spin.blockSignals(True)
+        self._send_ip_ttl_spin.blockSignals(True)
+        self._send_ip6_ttl_spin.blockSignals(True)
+        self._send_ip_id_combo.blockSignals(True)
+        self._send_badsum_check.blockSignals(True)
 
         self._syndata_toggle.setChecked(settings.get("enabled", True))
         self._syndata_settings.setVisible(settings.get("enabled", True))
@@ -1301,21 +1671,51 @@ class StrategyDetailPage(BasePage):
         if tls_mod_index >= 0:
             self._tls_mod_combo.setCurrentIndex(tls_mod_index)
 
-        self._ip_ttl_spin.setValue(settings.get("ip_ttl", 0))
-        self._out_range_spin.setValue(settings.get("out_range", 0))
+        # AutoTTL settings
+        self._autottl_delta_spin.setValue(settings.get("autottl_delta", -2))
+        self._autottl_min_spin.setValue(settings.get("autottl_min", 3))
+        self._autottl_max_spin.setValue(settings.get("autottl_max", 20))
+        self._out_range_spin.setValue(settings.get("out_range", 8))
+
+        # Применяем режим out_range
+        self._out_range_mode = settings.get("out_range_mode", "n")
+        self._update_out_range_mode_styles()
 
         tcp_flags_value = settings.get("tcp_flags_unset", "none")
         tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
         if tcp_flags_index >= 0:
             self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
 
+        # Применяем Send настройки
+        self._send_toggle.setChecked(settings.get("send_enabled", False))
+        self._send_settings.setVisible(settings.get("send_enabled", False))
+        self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
+        self._send_ip_ttl_spin.setValue(settings.get("send_ip_ttl", 0))
+        self._send_ip6_ttl_spin.setValue(settings.get("send_ip6_ttl", 0))
+
+        send_ip_id = settings.get("send_ip_id", "none")
+        send_ip_id_index = self._send_ip_id_combo.findText(send_ip_id)
+        if send_ip_id_index >= 0:
+            self._send_ip_id_combo.setCurrentIndex(send_ip_id_index)
+
+        self._send_badsum_check.setChecked(settings.get("send_badsum", False))
+
         # Разблокируем сигналы
         self._syndata_toggle.blockSignals(False)
         self._blob_combo.blockSignals(False)
         self._tls_mod_combo.blockSignals(False)
-        self._ip_ttl_spin.blockSignals(False)
+        self._autottl_delta_spin.blockSignals(False)
+        self._autottl_min_spin.blockSignals(False)
+        self._autottl_max_spin.blockSignals(False)
         self._out_range_spin.blockSignals(False)
         self._tcp_flags_combo.blockSignals(False)
+        # Разблокируем сигналы Send виджетов
+        self._send_toggle.blockSignals(False)
+        self._send_repeats_spin.blockSignals(False)
+        self._send_ip_ttl_spin.blockSignals(False)
+        self._send_ip6_ttl_spin.blockSignals(False)
+        self._send_ip_id_combo.blockSignals(False)
+        self._send_badsum_check.blockSignals(False)
 
     def get_syndata_settings(self) -> dict:
         """Возвращает текущие syndata настройки для использования в командной строке"""

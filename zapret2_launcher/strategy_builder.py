@@ -17,13 +17,14 @@ import os
 from log import log
 from strategy_menu.strategies_registry import registry
 from launcher_common.blobs import extract_and_dedupe_blobs, get_user_blobs_args
-from strategy_menu.command_builder import build_syndata_args, get_out_range_args
+from strategy_menu.command_builder import build_syndata_args, get_out_range_args, build_send_args
 
 
 # ==================== ЗАХАРДКОЖЕННЫЕ СИСТЕМНЫЕ БЛОБЫ ====================
 # Все системные блобы добавляются в начало preset файла.
 # Это избегает динамической генерации и упрощает код.
 # Пути к файлам относительные (@bin/...) - они разрешаются winws2.exe.
+# fake_default_quic, fake_default_tls, fake_default_http уже есть в коде и его указывать не надо будет ошибка Error: duplicate blob name
 HARDCODED_BLOBS = (
     "--blob=tls_google:@bin/tls_clienthello_www_google_com.bin "
     "--blob=tls1:@bin/tls_clienthello_1.bin "
@@ -77,7 +78,6 @@ HARDCODED_BLOBS = (
     "--blob=fake_quic_1:@bin/fake_quic_1.bin "
     "--blob=fake_quic_2:@bin/fake_quic_2.bin "
     "--blob=fake_quic_3:@bin/fake_quic_3.bin "
-    "--blob=fake_default_quic:@bin/fake_quic.bin "
     "--blob=fake_default_udp:0x00000000000000000000000000000000 "
     "--blob=http_req:@bin/http_iana_org.bin "
     "--blob=hex_0e0e0f0e:0x0E0E0F0E "
@@ -420,20 +420,21 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         # Get full arguments via registry (base_filter + technique)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
-            # ==================== SYNDATA INJECTION ====================
-            # Apply syndata settings from UI (if enabled for this category)
+            # ==================== SYNDATA/SEND INJECTION ====================
+            # Apply syndata and send settings from UI (if enabled for this category)
             #
             # ВАЖНО: Порядок аргументов:
-            # {base_filter} {out_range} {syndata} {strategy}
+            # {base_filter} {out_range} {send} {syndata} {strategy}
             # Пример:
-            #   --filter-tcp=80,443 --hostlist=youtube.txt --out-range=-d10 --lua-desync=syndata:blob=tls7 --lua-desync=multisplit:pos=1,midsld
-            #   ├─ base_filter ─────────────────────────┤├─ out_range ─┤├─ syndata ─────────────────┤├─ strategy ──────────────────────────┤
+            #   --filter-tcp=80,443 --hostlist=youtube.txt --out-range=-n8 --lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls7 --lua-desync=multisplit:pos=1,midsld
+            #   ├─ base_filter ─────────────────────────┤├─ out_range ─┤├─ send ────────────────────┤├─ syndata ─────────────────┤├─ strategy ──────────────────────────┤
             #
-            syndata_args = build_syndata_args(category_key)
             out_range_args = get_out_range_args(category_key)
+            send_args = build_send_args(category_key)
+            syndata_args = build_syndata_args(category_key)
 
             # Если есть что вставить - разделяем args на base_filter и strategy части
-            if syndata_args or out_range_args:
+            if syndata_args or out_range_args or send_args:
                 # Разделяем по первому --lua-desync= (это начало strategy части)
                 if " --lua-desync=" in args:
                     parts = args.split(" --lua-desync=", 1)
@@ -444,12 +445,16 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
                     base_filter_part = args
                     strategy_part = ""
 
-                # Собираем в правильном порядке: base_filter + out_range + syndata + strategy
+                # Собираем в правильном порядке: base_filter + out_range + send + syndata + strategy
                 result_parts = [base_filter_part]
 
                 if out_range_args:
                     result_parts.append(out_range_args)
                     log(f"[V2] Applied out_range for '{category_key}': {out_range_args}", "DEBUG")
+
+                if send_args:
+                    result_parts.append(send_args)
+                    log(f"[V2] Applied send for '{category_key}': {send_args}", "DEBUG")
 
                 if syndata_args:
                     result_parts.append(syndata_args)

@@ -361,9 +361,9 @@ class StrategiesRegistry:
 
         strategy_type = category_info.strategy_type
 
-        # Выбираем base_filter на основе filter_mode из настроек
-        from strategy_menu import get_filter_mode
-        filter_mode = get_filter_mode()  # "hostlist" или "ipset"
+        # Выбираем base_filter на основе filter_mode из настроек (per-category)
+        from strategy_menu.command_builder import get_filter_mode
+        filter_mode = get_filter_mode(category_key)  # "hostlist" или "ipset"
 
         # Определяем какой фильтр использовать
         if category_info.base_filter_ipset and category_info.base_filter_hostlist:

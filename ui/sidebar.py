@@ -1248,8 +1248,8 @@ class SideNavBar(QWidget):
         
         # Эмитим сигнал с PageName (не числовым индексом!)
         page_name = self._section_to_page.get(index)
-        if page_name is not None:
-            self.section_changed.emit(page_name)
+        # Always emit - main_window handles None for collapsible groups dynamically
+        self.section_changed.emit(page_name)
         
     def set_section(self, index: int):
         """Программно устанавливает раздел по индексу кнопки"""

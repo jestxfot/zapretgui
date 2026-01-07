@@ -10,7 +10,6 @@
 | Задача | Агент | Обязательность |
 |--------|-------|----------------|
 | Любой поиск по коду | `Explore` | **ОБЯЗАТЕЛЬНО** |
-| Редактирование Python | `general-purpose` | **ОБЯЗАТЕЛЬНО** |
 | Редактирование Lua | `orchestra-lua-reviewer` | **ОБЯЗАТЕЛЬНО** |
 | Большие задачи (>3 шагов) | `python-engineer` | **ОБЯЗАТЕЛЬНО** |
 | После любых изменений | `qa-reviewer` | **РЕКОМЕНДУЕТСЯ** |
@@ -102,17 +101,8 @@
 
 ### ОБЯЗАТЕЛЬНО: Используй агентов для экономии ресурсов
 
-**Встроенные агенты Claude Code:**
-| Агент | Когда использовать |
-|-------|-------------------|
-| `general-purpose` | Создание/редактирование файлов, многошаговые задачи, работа с большими файлами |
-| `Explore` | Поиск по кодовой базе, анализ структуры, ответы на вопросы о коде |
-| `Plan` | Планирование архитектуры перед имплементацией |
-| `claude-code-guide` | Документация Claude Code, Agent SDK, API Anthropic |
-| `statusline-setup` | Настройка статус-линии Claude Code |
-
 **ПРАВИЛА:**
-1. **Большие файлы (>50 строк)** → ВСЕГДА используй агента `general-purpose`
+1. **Большие файлы (>50 строк)** → ВСЕГДА используй агента `python-engineer`
 2. **JSON файлы со стратегиями** → ВСЕГДА агент (они большие, ты зависнешь)
 3. **Поиск по проекту** → используй `Explore` вместо ручного Grep/Glob
 4. **Несколько задач сразу** → запускай агентов ПАРАЛЛЕЛЬНО (в одном сообщении)
@@ -151,9 +141,8 @@ python -m PyInstaller zapret_build.spec
 # Stable channel: compile zapret_stable.iss
 ```
 
-**Note:** The application requires administrator privileges to run (for WinDivert driver access and network manipulation).
-
 ## Architecture
+Всегда спрашивай что за режим direct_zapret2 или direct_zapret1 или orchestra и так далее. Режимов много!
 
 ### Multi-Manager Pattern
 

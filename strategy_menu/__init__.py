@@ -622,52 +622,6 @@ def set_debug_log_enabled(enabled: bool) -> bool:
         return False
 
 
-# ==================== РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) ====================
-
-FILTER_MODE_PATH = rf"{REGISTRY_PATH}\DirectMethod"
-
-def get_filter_mode() -> str:
-    """
-    Получает режим фильтрации для Zapret 2 Direct.
-
-    Returns:
-        "hostlist" - фильтрация по доменам (по умолчанию)
-        "ipset" - фильтрация по IP адресам
-    """
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, FILTER_MODE_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "FilterMode")
-            if value in ("ipset", "hostlist"):
-                return value
-            return "hostlist"  # По умолчанию
-    except:
-        return "hostlist"  # По умолчанию
-
-
-def set_filter_mode(mode: str) -> bool:
-    """
-    Устанавливает режим фильтрации для Zapret 2 Direct.
-
-    Args:
-        mode: "hostlist" или "ipset"
-
-    Returns:
-        True если успешно сохранено
-    """
-    if mode not in ("ipset", "hostlist"):
-        log(f"Неверный режим фильтрации: {mode}", "WARNING")
-        return False
-
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, FILTER_MODE_PATH) as key:
-            winreg.SetValueEx(key, "FilterMode", 0, winreg.REG_SZ, mode)
-            log(f"Режим фильтрации изменён на: {mode}", "INFO")
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения режима фильтрации: {e}", "ERROR")
-        return False
-
-
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
 
 def invalidate_direct_selections_cache():
@@ -1071,10 +1025,6 @@ __all__ = [
     'set_remove_hostlists_enabled',
     'get_remove_ipsets_enabled',
     'set_remove_ipsets_enabled',
-
-    # Filter mode (ipset/hostlist)
-    'get_filter_mode',
-    'set_filter_mode',
 
     # Debug log настройки
     'get_debug_log_enabled',

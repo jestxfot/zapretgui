@@ -651,25 +651,6 @@ class DpiSettingsPage(BasePage):
         self.method_bat.clicked.connect(lambda: self._select_method("bat"))
         method_layout.addWidget(self.method_bat)
 
-        # ─────────────────────────────────────────────────────────────────────
-        # РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) - только для Zapret 2 Direct
-        # ─────────────────────────────────────────────────────────────────────
-        self.filter_mode_container = QWidget()
-        filter_mode_layout = QVBoxLayout(self.filter_mode_container)
-        filter_mode_layout.setContentsMargins(0, 0, 0, 0)
-        filter_mode_layout.setSpacing(0)
-
-        self.filter_mode_combo = Win11ComboRow(
-            "fa5s.filter", "Режим фильтрации",
-            "Hostlist - по доменам, IPset - по IP адресам", "#60cdff",
-            items=[
-                ("Hostlist", "hostlist"),
-                ("IPset", "ipset"),
-            ])
-        filter_mode_layout.addWidget(self.filter_mode_combo)
-
-        method_layout.addWidget(self.filter_mode_container)
-
         # Разделитель 2
         separator2 = QFrame()
         separator2.setFrameShape(QFrame.Shape.HLine)
@@ -883,9 +864,6 @@ class DpiSettingsPage(BasePage):
             # Discord restart setting
             self._load_discord_restart_setting()
 
-            # Filter mode settings
-            self._load_filter_mode_settings()
-
             # Orchestra settings
             self._load_orchestra_settings()
 
@@ -962,38 +940,6 @@ class DpiSettingsPage(BasePage):
             log(f"Автоперезапуск Discord {status}", "INFO")
         except Exception as e:
             log(f"Ошибка сохранения настройки Discord: {e}", "ERROR")
-
-    def _load_filter_mode_settings(self):
-        """Загружает настройку режима фильтрации (hostlist/ipset)"""
-        try:
-            from strategy_menu import get_filter_mode
-
-            # Загружаем текущее значение
-            current_mode = get_filter_mode()  # "hostlist" или "ipset"
-            self.filter_mode_combo.setCurrentData(current_mode, block_signals=True)
-
-            # Подключаем обработчик изменения
-            self.filter_mode_combo.currentIndexChanged.connect(self._on_filter_mode_changed)
-
-        except Exception as e:
-            log(f"Ошибка загрузки настройки filter_mode: {e}", "WARNING")
-
-    def _on_filter_mode_changed(self, index: int):
-        """Обработчик изменения режима фильтрации"""
-        try:
-            from strategy_menu import set_filter_mode, regenerate_preset_file
-
-            mode = self.filter_mode_combo.currentData()
-            if mode in ("hostlist", "ipset"):
-                set_filter_mode(mode)
-                log(f"Режим фильтрации изменён на: {mode}", "INFO")
-
-                # Перегенерируем preset файл с новым режимом фильтрации
-                # DPI НЕ перезапускаем - пользователь сам решит когда
-                regenerate_preset_file()
-
-        except Exception as e:
-            log(f"Ошибка изменения режима фильтрации: {e}", "ERROR")
 
     def _load_orchestra_settings(self):
         """Загружает настройки оркестратора"""
@@ -1386,10 +1332,6 @@ class DpiSettingsPage(BasePage):
             # Показываем фильтры для direct, direct_zapret2_orchestra и direct_zapret1
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
-
-            # Filter mode только для Zapret 2 Direct (не для zapret1 и bat)
-            is_zapret2_direct = method in ("direct_zapret2", "direct_zapret2_orchestra")
-            self.filter_mode_container.setVisible(is_zapret2_direct)
 
             # Discord restart только для Zapret 1/2 (без оркестратора)
             self.discord_restart_container.setVisible(is_zapret_mode)

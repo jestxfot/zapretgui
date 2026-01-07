@@ -28,9 +28,18 @@ def strip_payload_from_args(args: str) -> str:
     return re.sub(r'--payload=[^\s]+\s*', '', args)
 
 
-def replace_out_range(args: str, value: int) -> str:
-    """Заменяет значение --out-range в аргументах"""
-    return re.sub(r'--out-range=[^\s]+', f'--out-range=-n{value}', args)
+def replace_out_range(args: str, value: int, mode: str = "n") -> str:
+    """
+    Заменяет значение --out-range в аргументах.
+
+    Args:
+        args: строка аргументов
+        value: значение (1-999)
+        mode: режим "n" (packets count) или "d" (delay)
+    """
+    if mode not in ("n", "d"):
+        mode = "n"
+    return re.sub(r'--out-range=[^\s]+', f'--out-range=-{mode}{value}', args)
 
 
 def extract_payload(args: str) -> tuple[str, str]:
@@ -67,7 +76,7 @@ def build_syndata_args(category_key: str) -> str:
     Собирает --lua-desync=syndata:... из настроек реестра.
 
     Returns:
-        str: например "--lua-desync=syndata:blob=tls7:ip_ttl=5" или ""
+        str: например "--lua-desync=syndata:blob=tls7:ip_autottl=-2,3-20" или ""
     """
     try:
         import winreg
@@ -91,9 +100,11 @@ def build_syndata_args(category_key: str) -> str:
                     if tls_mod and tls_mod != "none":
                         parts.append(f"tls_mod={tls_mod}")
 
-                    ip_ttl = settings.get("ip_ttl", 0)
-                    if ip_ttl and ip_ttl > 0:
-                        parts.append(f"ip_ttl={ip_ttl}")
+                    # AutoTTL: ip_autottl=delta,min-max
+                    autottl_delta = settings.get("autottl_delta", -2)
+                    autottl_min = settings.get("autottl_min", 3)
+                    autottl_max = settings.get("autottl_max", 20)
+                    parts.append(f"ip_autottl={autottl_delta},{autottl_min}-{autottl_max}")
 
                     tcp_flags = settings.get("tcp_flags_unset", "none")
                     if tcp_flags and tcp_flags != "none":
@@ -115,16 +126,67 @@ def build_syndata_args(category_key: str) -> str:
 
 def get_out_range_args(category_key: str) -> str:
     """
-    Возвращает --out-range=-dVALUE или пустую строку.
+    Возвращает --out-range=-{mode}{value} (всегда, дефолт -n8).
 
     out_range - это ОТДЕЛЬНЫЙ аргумент командной строки,
     а НЕ часть syndata.
 
-    Правильно:   --out-range=-d10 --lua-desync=syndata:blob=tls7
+    Режимы:
+        -n = packets count (количество пакетов)
+        -d = delay (задержка)
+
+    Правильно:   --out-range=-n8 --lua-desync=syndata:blob=tls7
     Неправильно: --lua-desync=syndata:blob=tls7:out_range=10
 
+    ВАЖНО: --out-range добавляется ВСЕГДА для каждой категории.
+    Дефолтные значения: mode="n", value=8
+
     Returns:
-        str: например "--out-range=-d5" или ""
+        str: например "--out-range=-n8" или "--out-range=-d10"
+    """
+    DEFAULT_OUT_RANGE = 8
+    DEFAULT_MODE = "n"
+    try:
+        import winreg
+        for base_path in [r"Software\Zapret2DevReg", r"Software\Zapret2Reg"]:
+            try:
+                key_path = f"{base_path}\\CategorySyndata"
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                    value, _ = winreg.QueryValueEx(key, category_key)
+                    settings = json.loads(value)
+
+                    out_range = settings.get("out_range", DEFAULT_OUT_RANGE)
+                    if out_range is None or out_range == 0:
+                        out_range = DEFAULT_OUT_RANGE
+
+                    # Получаем режим (n или d)
+                    out_range_mode = settings.get("out_range_mode", DEFAULT_MODE)
+                    if out_range_mode not in ("n", "d"):
+                        out_range_mode = DEFAULT_MODE
+
+                    return f"--out-range=-{out_range_mode}{out_range}"
+            except FileNotFoundError:
+                continue
+    except Exception:
+        pass
+    # Всегда возвращаем дефолтное значение
+    return f"--out-range=-{DEFAULT_MODE}{DEFAULT_OUT_RANGE}"
+
+
+def build_send_args(category_key: str) -> str:
+    """
+    Собирает --lua-desync=send:... из настроек реестра.
+
+    Параметры send:
+        - send_enabled (bool) - включена ли функция send
+        - send_repeats (int, 0-10) - количество повторов
+        - send_ip_ttl (int, 0-255) - TTL для IPv4
+        - send_ip6_ttl (int, 0-255) - TTL для IPv6
+        - send_ip_id (str: "none", "seq", "rnd", "zero") - режим IP ID
+        - send_badsum (bool) - испортить checksum
+
+    Returns:
+        str: например "--lua-desync=send:repeats=2:ip_ttl=5:badsum" или ""
     """
     try:
         import winreg
@@ -135,13 +197,41 @@ def get_out_range_args(category_key: str) -> str:
                     value, _ = winreg.QueryValueEx(key, category_key)
                     settings = json.loads(value)
 
-                    if not settings.get("enabled", False):
+                    # Проверяем, включен ли send
+                    if not settings.get("send_enabled", False):
                         return ""
 
-                    out_range = settings.get("out_range", 0)
-                    if out_range and out_range > 0:
-                        return f"--out-range=-d{out_range}"
-                    return ""
+                    parts = ["send"]
+
+                    # repeats (0-10)
+                    repeats = settings.get("send_repeats", 0)
+                    if repeats and repeats > 0:
+                        parts.append(f"repeats={repeats}")
+
+                    # ip_ttl (0-255)
+                    ip_ttl = settings.get("send_ip_ttl", 0)
+                    if ip_ttl and ip_ttl > 0:
+                        parts.append(f"ip_ttl={ip_ttl}")
+
+                    # ip6_ttl (0-255)
+                    ip6_ttl = settings.get("send_ip6_ttl", 0)
+                    if ip6_ttl and ip6_ttl > 0:
+                        parts.append(f"ip6_ttl={ip6_ttl}")
+
+                    # ip_id (none, seq, rnd, zero)
+                    ip_id = settings.get("send_ip_id", "none")
+                    if ip_id and ip_id != "none":
+                        parts.append(f"ip_id={ip_id}")
+
+                    # badsum (bool)
+                    badsum = settings.get("send_badsum", False)
+                    if badsum:
+                        parts.append("badsum")
+
+                    # Всегда возвращаем хотя бы --lua-desync=send если включено
+                    if len(parts) > 1:
+                        return f"--lua-desync={':'.join(parts)}"
+                    return "--lua-desync=send"
             except FileNotFoundError:
                 continue
     except Exception:
