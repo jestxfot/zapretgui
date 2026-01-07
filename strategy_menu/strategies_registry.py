@@ -13,7 +13,6 @@
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass, field
 from log import log
-from strategy_menu.command_builder import strip_payload_from_args
 
 # ==================== LAZY IMPORTS ====================
 
@@ -399,6 +398,8 @@ class StrategiesRegistry:
         # Это нужно для IPset категорий без фильтра портов,
         # чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS
         if category_info.strip_payload:
+            # Lazy import для избежания циклического импорта
+            from strategy_menu.command_builder import strip_payload_from_args
             base_args = strip_payload_from_args(base_args)
         
         # Для discord_voice - проверяем, содержит ли args уже фильтры

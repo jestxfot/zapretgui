@@ -16,6 +16,9 @@ import json
 
 from log import log
 
+# Примечание: blobs.json находится в H:\Privacy\zapret\json\blobs.json
+# (не в папке проекта zapretgui, а в родительской папке zapret)
+
 # Кэш для блобов - заполняется при первом вызове get_blobs()
 _BLOBS_CACHE = None
 _BLOBS_JSON_PATH = None
@@ -161,6 +164,9 @@ def get_system_blobs_info() -> dict:
             blob_type = "file"
             # Проверяем существование файла
             file_path = value[1:] if value.startswith("@") else value
+            # Убираем "bin/" если есть, т.к. BIN_FOLDER уже указывает на bin/
+            if file_path.startswith("bin/") or file_path.startswith("bin\\"):
+                file_path = file_path[4:]
             full_path = os.path.join(BIN_FOLDER, file_path)
             exists = os.path.exists(full_path)
 
