@@ -26,11 +26,11 @@ class PageName(Enum):
     # === Основные страницы ===
     HOME = auto()                    # Главная
     CONTROL = auto()                 # Управление DPI
-    STRATEGIES = auto()              # Стратегии (общая страница)
     ZAPRET2_DIRECT = auto()          # Zapret 2 Direct стратегии
     ZAPRET2_ORCHESTRA = auto()       # Zapret 2 Orchestra (direct_zapret2_orchestra режим)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     BAT_STRATEGIES = auto()          # BAT стратегии
+    STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     STRATEGY_SORT = auto()           # Сортировка стратегий
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
     HOSTLIST = auto()                # Hostlist
@@ -117,10 +117,11 @@ class SectionName(Enum):
 
 
 # Маппинг Section -> Page (какую страницу открывать при клике на секцию)
+# None означает что секция collapsible - при клике определяется динамически в main_window
 SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.HOME: PageName.HOME,
     SectionName.CONTROL: PageName.CONTROL,
-    SectionName.STRATEGIES: PageName.STRATEGIES,
+    SectionName.STRATEGIES: None,  # Collapsible группа, целевая страница определяется по методу запуска
     SectionName.STRATEGY_SORT: PageName.STRATEGY_SORT,
     SectionName.PRESET_CONFIG: PageName.PRESET_CONFIG,
     SectionName.HOSTLIST: PageName.HOSTLIST,
@@ -195,10 +196,10 @@ ORCHESTRA_ONLY_SECTIONS: set[SectionName] = {
 
 # Страницы стратегий (для переключения по режиму запуска)
 STRATEGY_PAGES: set[PageName] = {
-    PageName.STRATEGIES,
     PageName.ZAPRET2_DIRECT,
     PageName.ZAPRET2_ORCHESTRA,
     PageName.ZAPRET1_DIRECT,
     PageName.BAT_STRATEGIES,
+    PageName.STRATEGY_DETAIL,
     PageName.ORCHESTRA,
 }

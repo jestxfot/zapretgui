@@ -4,7 +4,6 @@ Strategy list builder for Zapret 1 (winws.exe).
 
 Simplified version WITHOUT:
 - --lua-init (no Lua support in V1)
-- --out-range (not supported in V1)
 - --wf-tcp-out= / --wf-udp-out= (uses old syntax --wf-tcp= / --wf-udp=)
 - --wf-tcp-in= (no orchestra mode in V1)
 - --wf-raw-part= (no raw filters in V1)
@@ -103,23 +102,6 @@ def _build_base_args_v1(
     return result
 
 
-def _remove_out_range(args: str) -> str:
-    """
-    Removes --out-range from strategy arguments.
-
-    V1 (winws.exe) does NOT support --out-range option.
-    This function strips any --out-range=... from the command line.
-
-    Args:
-        args: Strategy arguments string
-
-    Returns:
-        Arguments with --out-range removed
-    """
-    result = re.sub(r'--out-range=[^\s]+\s*', '', args)
-    return _clean_spaces(result)
-
-
 def _remove_lua_init(args: str) -> str:
     """
     Removes all --lua-init arguments from strategy arguments.
@@ -183,7 +165,6 @@ def _sanitize_args_for_v1(args: str) -> str:
 
     Removes all V2-only features:
     - --lua-init
-    - --out-range
     - --wf-tcp-out= (converts to --wf-tcp=)
     - --wf-udp-out= (converts to --wf-udp=)
     - --wf-tcp-in= (removed)
@@ -200,9 +181,6 @@ def _sanitize_args_for_v1(args: str) -> str:
     # Remove Lua initialization
     result = _remove_lua_init(result)
 
-    # Remove --out-range
-    result = _remove_out_range(result)
-
     # Convert V2 syntax to V1
     result = _convert_v2_syntax_to_v1(result)
 
@@ -216,7 +194,6 @@ def combine_strategies_v1(**kwargs) -> dict:
     Simplified version without:
     - Lua library support (no --lua-init)
     - Orchestra mode (no --wf-tcp-in=)
-    - --out-range support
     - Raw filters (no --wf-raw-part=)
 
     Uses V1 WinDivert syntax:
@@ -291,7 +268,7 @@ def combine_strategies_v1(**kwargs) -> dict:
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
             # Sanitize args for V1 compatibility
-            # Removes --lua-init, --out-range, converts V2 syntax
+            # Removes --lua-init, converts V2 syntax
             args = _sanitize_args_for_v1(args)
 
             category_info = registry.get_category_info(category_key)
@@ -391,7 +368,6 @@ __all__ = [
 
     # V1-specific internal (for testing)
     '_build_base_args_v1',
-    '_remove_out_range',
     '_remove_lua_init',
     '_convert_v2_syntax_to_v1',
     '_sanitize_args_for_v1',

@@ -3,12 +3,11 @@
 
 from .home_page import HomePage
 from .control_page import ControlPage
-from .strategies_page import StrategiesPage
 from .strategies_page_base import StrategiesPageBase
-from .zapret2_direct_strategies_page import Zapret2DirectStrategiesPage
 from .zapret2_orchestra_strategies_page import Zapret2OrchestraStrategiesPage
 from .zapret1_direct_strategies_page import Zapret1DirectStrategiesPage
 from .bat_strategies_page import BatStrategiesPage
+from .zapret2 import Zapret2StrategiesPageNew, StrategyDetailPage
 from .strategy_sort_page import StrategySortPage
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
@@ -39,12 +38,12 @@ from .preset_config_page import PresetConfigPage
 __all__ = [
     'HomePage',
     'ControlPage',
-    'StrategiesPage',
-    'Zapret2DirectStrategiesPage',
     'Zapret2OrchestraStrategiesPage',
     'StrategiesPageBase',
     'Zapret1DirectStrategiesPage',
     'BatStrategiesPage',
+    'Zapret2StrategiesPageNew',  # Новая страница Zapret2 из zapret2/
+    'StrategyDetailPage',  # Страница детального просмотра стратегии
     'StrategySortPage',  # Страница сортировки и фильтров стратегий
     'HostlistPage',
     'IpsetPage',

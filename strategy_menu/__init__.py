@@ -622,46 +622,6 @@ def set_debug_log_enabled(enabled: bool) -> bool:
         return False
 
 
-# ==================== OUT-RANGE НАСТРОЙКИ ====================
-
-OUT_RANGE_PATH = rf"{REGISTRY_PATH}\OutRange"
-
-def _get_out_range_value(key_name: str, default: int = 10) -> int:
-    """Получает значение out-range из реестра"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, OUT_RANGE_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, key_name)
-            return int(value)
-    except:
-        return default
-
-def _set_out_range_value(key_name: str, value: int) -> bool:
-    """Сохраняет значение out-range в реестр"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, OUT_RANGE_PATH) as key:
-            winreg.SetValueEx(key, key_name, 0, winreg.REG_DWORD, max(0, int(value)))
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения OutRange {key_name}: {e}", "❌ ERROR")
-        return False
-
-def get_out_range_discord() -> int:
-    """Возвращает значение out-range для Discord (по умолчанию 10)"""
-    return _get_out_range_value("Discord", default=10)
-
-def set_out_range_discord(value: int) -> bool:
-    """Устанавливает значение out-range для Discord"""
-    return _set_out_range_value("Discord", value)
-
-def get_out_range_youtube() -> int:
-    """Возвращает значение out-range для YouTube (по умолчанию 10)"""
-    return _get_out_range_value("YouTube", default=10)
-
-def set_out_range_youtube(value: int) -> bool:
-    """Устанавливает значение out-range для YouTube"""
-    return _set_out_range_value("YouTube", value)
-
-
 # ==================== РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) ====================
 
 FILTER_MODE_PATH = rf"{REGISTRY_PATH}\DirectMethod"
@@ -1111,12 +1071,6 @@ __all__ = [
     'set_remove_hostlists_enabled',
     'get_remove_ipsets_enabled',
     'set_remove_ipsets_enabled',
-    
-    # Out-range настройки
-    'get_out_range_discord',
-    'set_out_range_discord',
-    'get_out_range_youtube',
-    'set_out_range_youtube',
 
     # Filter mode (ipset/hostlist)
     'get_filter_mode',

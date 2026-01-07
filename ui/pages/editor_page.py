@@ -108,7 +108,7 @@ class StrategyEditorDialog(QDialog):
         self.args_edit = ScrollBlockingPlainTextEdit()
         self.args_edit.setPlaceholderText(
             "Введите аргументы для winws...\n"
-            "Пример: --payload=tls_client_hello --out-range=-d10 --lua-desync=fake:blob=tls_google"
+            "Пример: --payload=tls_client_hello --lua-desync=fake:blob=tls_google"
         )
         self.args_edit.setStyleSheet("""
             QPlainTextEdit {

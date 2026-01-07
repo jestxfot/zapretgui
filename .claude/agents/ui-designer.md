@@ -1,7 +1,7 @@
 ---
 name: ui-designer
 description: "UI/UX дизайнер. Следит за согласованностью интерфейса в стиле Windows 11 Fluent Design."
-model: opus
+model: sonnet
 color: purple
 ---
 

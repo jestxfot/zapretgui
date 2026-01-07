@@ -7,7 +7,6 @@ Full version WITH:
 - --wf-tcp-out= (V2 syntax)
 - --wf-udp-out= (V2 syntax)
 - --wf-tcp-in= (orchestra mode)
-- --out-range support
 
 This module is designed specifically for Zapret 2 (winws2.exe) and does NOT
 support Zapret 1 (winws.exe). For V1 compatibility, use strategy_lists_v1.py.
@@ -261,38 +260,6 @@ def _build_base_args_v2(
     return result
 
 
-def _replace_out_range(args: str, value: int) -> str:
-    """
-    Replaces --out-range in strategy arguments (V2 only).
-
-    Removes existing --out-range and inserts new one after --filter-tcp/--filter-udp.
-
-    NOTE: --out-range is ONLY available in Zapret 2 (winws2.exe).
-    Zapret 1 (winws.exe) does NOT support this option.
-
-    Args:
-        args: Strategy arguments string
-        value: Out-range value (will be formatted as -d{value})
-
-    Returns:
-        Arguments with replaced --out-range
-    """
-    # Remove existing --out-range=...
-    args = re.sub(r'--out-range=[^\s]+\s*', '', args)
-    args = args.strip()
-
-    # Insert new --out-range after --filter-tcp=... or --filter-udp=... or --filter-l7=...
-    match = re.search(r'(--filter-(?:tcp|udp|l7)=[^\s]+)', args)
-    if match:
-        insert_pos = match.end()
-        args = args[:insert_pos] + f" --out-range=-d{value}" + args[insert_pos:]
-    else:
-        # If no filter, add at the beginning
-        args = f"--out-range=-d{value} {args}"
-
-    return _clean_spaces(args)
-
-
 def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
     """
     Combines strategies for Zapret 2 (winws2.exe).
@@ -301,7 +268,6 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
     - Lua library support (--lua-init)
     - V2 WinDivert syntax (--wf-tcp-out=, --wf-udp-out=)
     - Orchestra mode support (--wf-tcp-in=)
-    - --out-range support
 
     Args:
         is_orchestra: If True, enables orchestra mode with --wf-tcp-in=
@@ -372,11 +338,6 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
     active_categories = []  # [(category_key, args, category_info), ...]
     descriptions = []
 
-    # Load out-range settings
-    from strategy_menu import get_out_range_discord, get_out_range_youtube
-    out_range_discord = get_out_range_discord()
-    out_range_youtube = get_out_range_youtube()
-
     for category_key in category_keys_ordered:
         strategy_id = category_strategies.get(category_key)
 
@@ -391,14 +352,6 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         # Get full arguments via registry (base_filter + technique)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
-            # Apply out-range for Discord and YouTube categories (V2 only!)
-            if category_key == "discord" and out_range_discord > 0:
-                args = _replace_out_range(args, out_range_discord)
-            elif category_key == "discord_voice" and out_range_discord > 0:
-                args = _replace_out_range(args, out_range_discord)
-            elif category_key == "youtube" and out_range_youtube > 0:
-                args = _replace_out_range(args, out_range_youtube)
-
             category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))
 
@@ -543,7 +496,6 @@ __all__ = [
 
     # Internal (for testing)
     '_build_base_args_v2',
-    '_replace_out_range',
     '_apply_settings',
     '_clean_spaces',
 ]

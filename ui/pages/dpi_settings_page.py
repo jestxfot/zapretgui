@@ -589,7 +589,7 @@ class DpiSettingsPage(BasePage):
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
             "Zapret 2",
-            "Прямой запуск с гибкими настройками. Поддерживает фильтры трафика, out-range и раздельные стратегии.",
+            "Прямой запуск с гибкими настройками. Поддерживает фильтры трафика и раздельные стратегии.",
             icon_name="mdi.rocket-launch",
             icon_color="#60cdff",
             recommended=True
@@ -650,36 +650,6 @@ class DpiSettingsPage(BasePage):
         )
         self.method_bat.clicked.connect(lambda: self._select_method("bat"))
         method_layout.addWidget(self.method_bat)
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # OUT-RANGE НАСТРОЙКИ (только для Zapret 2)
-        # ─────────────────────────────────────────────────────────────────────
-        self.out_range_container = QWidget()
-        out_range_layout = QVBoxLayout(self.out_range_container)
-        out_range_layout.setContentsMargins(0, 0, 0, 0)
-        out_range_layout.setSpacing(6)
-        
-        out_range_label = QLabel("Лимит пакетов (--out-range)")
-        out_range_label.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 600;")
-        out_range_layout.addWidget(out_range_label)
-        
-        out_range_desc = QLabel("Сколько пакетов обрабатывать (0 = без лимита)")
-        out_range_desc.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px; margin-bottom: 4px;")
-        out_range_layout.addWidget(out_range_desc)
-        
-        self.out_range_discord = Win11NumberRow(
-            "mdi.discord", "Discord", 
-            "Лимит пакетов для Discord трафика", "#7289da",
-            min_val=0, max_val=999, default_val=5)
-        out_range_layout.addWidget(self.out_range_discord)
-        
-        self.out_range_youtube = Win11NumberRow(
-            "mdi.youtube", "YouTube",
-            "Лимит пакетов для YouTube трафика", "#ff0000",
-            min_val=0, max_val=999, default_val=10)
-        out_range_layout.addWidget(self.out_range_youtube)
-
-        method_layout.addWidget(self.out_range_container)
 
         # ─────────────────────────────────────────────────────────────────────
         # РЕЖИМ ФИЛЬТРАЦИИ (IPSET/HOSTLIST) - только для Zapret 2 Direct
@@ -913,9 +883,6 @@ class DpiSettingsPage(BasePage):
             # Discord restart setting
             self._load_discord_restart_setting()
 
-            # Out-range settings
-            self._load_out_range_settings()
-
             # Filter mode settings
             self._load_filter_mode_settings()
 
@@ -995,25 +962,6 @@ class DpiSettingsPage(BasePage):
             log(f"Автоперезапуск Discord {status}", "INFO")
         except Exception as e:
             log(f"Ошибка сохранения настройки Discord: {e}", "ERROR")
-    
-    def _load_out_range_settings(self):
-        """Загружает настройки out-range"""
-        try:
-            from strategy_menu import (
-                get_out_range_discord, set_out_range_discord,
-                get_out_range_youtube, set_out_range_youtube
-            )
-
-            # Загружаем значения (блокируем сигналы)
-            self.out_range_discord.setValue(get_out_range_discord(), block_signals=True)
-            self.out_range_youtube.setValue(get_out_range_youtube(), block_signals=True)
-
-            # Подключаем сигналы сохранения
-            self.out_range_discord.valueChanged.connect(self._on_out_range_discord_changed)
-            self.out_range_youtube.valueChanged.connect(self._on_out_range_youtube_changed)
-
-        except Exception as e:
-            log(f"Ошибка загрузки настроек out-range: {e}", "WARNING")
 
     def _load_filter_mode_settings(self):
         """Загружает настройку режима фильтрации (hostlist/ipset)"""
@@ -1186,32 +1134,6 @@ class DpiSettingsPage(BasePage):
         except Exception as e:
             log(f"Ошибка сохранения настройки UnlockFails: {e}", "ERROR")
 
-    def _on_out_range_discord_changed(self, value: int):
-        """Обработчик изменения out-range для Discord"""
-        try:
-            from strategy_menu import set_out_range_discord
-            set_out_range_discord(value)
-            log(f"Out-range Discord: -d{value}", "DEBUG")
-            # Обновляем командную строку
-            self.filters_changed.emit()
-            # Перезапускаем DPI асинхронно
-            self._restart_dpi_async()
-        except Exception as e:
-            log(f"Ошибка сохранения out-range Discord: {e}", "ERROR")
-    
-    def _on_out_range_youtube_changed(self, value: int):
-        """Обработчик изменения out-range для YouTube"""
-        try:
-            from strategy_menu import set_out_range_youtube
-            set_out_range_youtube(value)
-            log(f"Out-range YouTube: -d{value}", "DEBUG")
-            # Обновляем командную строку
-            self.filters_changed.emit()
-            # Перезапускаем DPI асинхронно
-            self._restart_dpi_async()
-        except Exception as e:
-            log(f"Ошибка сохранения out-range YouTube: {e}", "ERROR")
-    
     def _get_app(self):
         """Получает ссылку на главное приложение"""
         try:
@@ -1251,7 +1173,7 @@ class DpiSettingsPage(BasePage):
                 log("DPI не запущен, перезапуск не требуется", "DEBUG")
                 return
                 
-            log("🔄 Перезапуск DPI после изменения out-range...", "INFO")
+            log("🔄 Перезапуск DPI после изменения настроек...", "INFO")
             
             # Асинхронно останавливаем
             app.dpi_controller.stop_dpi_async()
@@ -1324,7 +1246,7 @@ class DpiSettingsPage(BasePage):
                 # BAT режим
                 app.dpi_controller.start_dpi_async()
                 
-            log("✅ DPI перезапущен с новыми настройками out-range", "INFO")
+            log("✅ DPI перезапущен с новыми настройками", "INFO")
             
         except Exception as e:
             log(f"Ошибка запуска DPI: {e}", "ERROR")
@@ -1464,7 +1386,6 @@ class DpiSettingsPage(BasePage):
             # Показываем фильтры для direct, direct_zapret2_orchestra и direct_zapret1
             self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
-            self.out_range_container.setVisible(is_direct_mode)
 
             # Filter mode только для Zapret 2 Direct (не для zapret1 и bat)
             is_zapret2_direct = method in ("direct_zapret2", "direct_zapret2_orchestra")

@@ -13,10 +13,12 @@ from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
 from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
-    HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
+    HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
-    PresetConfigPage, StrategySortPage, Zapret2DirectStrategiesPage, Zapret2OrchestraStrategiesPage, Zapret1DirectStrategiesPage, BatStrategiesPage
+    PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
+    Zapret2StrategiesPageNew, StrategyDetailPage,
+    Zapret1DirectStrategiesPage, BatStrategiesPage
 )
 
 import qtawesome as qta
@@ -105,14 +107,14 @@ class MainWindowUI:
         # Управление
         self.control_page = ControlPage(self)
         self.pages_stack.addWidget(self.control_page)
-        
-        # Стратегии
-        self.strategies_page = StrategiesPage(self)
-        self.pages_stack.addWidget(self.strategies_page)
 
-        # Zapret 2 Direct стратегии
-        self.zapret2_strategies_page = Zapret2DirectStrategiesPage(self)
+        # Zapret 2 Direct стратегии (NEW UI)
+        self.zapret2_strategies_page = Zapret2StrategiesPageNew(self)
         self.pages_stack.addWidget(self.zapret2_strategies_page)
+
+        # Strategy Detail Page (for category drill-down)
+        self.strategy_detail_page = StrategyDetailPage(self)
+        self.pages_stack.addWidget(self.strategy_detail_page)
 
         # Zapret 2 Orchestra стратегии
         self.zapret2_orchestra_strategies_page = Zapret2OrchestraStrategiesPage(self)
@@ -236,8 +238,8 @@ class MainWindowUI:
         self.pages: dict[PageName, QWidget] = {
             PageName.HOME: self.home_page,
             PageName.CONTROL: self.control_page,
-            PageName.STRATEGIES: self.strategies_page,
             PageName.ZAPRET2_DIRECT: self.zapret2_strategies_page,
+            PageName.STRATEGY_DETAIL: self.strategy_detail_page,
             PageName.ZAPRET2_ORCHESTRA: self.zapret2_orchestra_strategies_page,
             PageName.ZAPRET1_DIRECT: self.zapret1_strategies_page,
             PageName.BAT_STRATEGIES: self.bat_strategies_page,
@@ -287,32 +289,22 @@ class MainWindowUI:
         # Основные кнопки - ссылки на реальные кнопки в страницах
         self.start_btn = self.home_page.start_btn
         self.stop_btn = self.home_page.stop_btn
-        
+
         # Кнопки управления
-        # select_strategy_btn теперь скрытая заглушка (стратегии выбираются на странице)
-        self.select_strategy_btn = self.strategies_page.select_strategy_btn
         self.test_connection_btn = self.home_page.test_btn
         self.open_folder_btn = self.home_page.folder_btn
-        
+
         # Кнопки о программе
         self.server_status_btn = self.about_page.update_btn
         self.subscription_btn = self.about_page.premium_btn
-        
-        # Метка текущей стратегии
-        self.current_strategy_label = self.strategies_page.current_strategy_label
         
     def _connect_page_signals(self):
         """Подключает сигналы от страниц"""
         
         # Сигналы-прокси для основного класса
-        # select_strategy_clicked теперь не нужен - стратегии выбираются на странице
         self.start_clicked = self.home_page.start_btn.clicked
         self.stop_clicked = self.home_page.stop_btn.clicked
         self.theme_changed = self.appearance_page.theme_changed
-        
-        # Подключаем сигнал выбора стратегии из новой страницы
-        if hasattr(self.strategies_page, 'strategy_selected'):
-            self.strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
 
         # Zapret 1 Direct сигналы
         if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'strategy_selected'):
@@ -321,6 +313,17 @@ class MainWindowUI:
         # Zapret 2 Direct сигналы
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'strategy_selected'):
             self.zapret2_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+
+        # Zapret 2 NEW UI - navigation signals
+        if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'open_category_detail'):
+            self.zapret2_strategies_page.open_category_detail.connect(self._on_open_category_detail)
+
+        # Strategy Detail Page signals
+        if hasattr(self, 'strategy_detail_page'):
+            if hasattr(self.strategy_detail_page, 'back_clicked'):
+                self.strategy_detail_page.back_clicked.connect(self._on_strategy_detail_back)
+            if hasattr(self.strategy_detail_page, 'strategy_selected'):
+                self.strategy_detail_page.strategy_selected.connect(self._on_strategy_detail_selected)
 
         # Zapret 2 Orchestra сигналы
         if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'strategy_selected'):
@@ -373,24 +376,23 @@ class MainWindowUI:
         # Подключаем обновление PresetConfigPage при смене метода запуска
         self.dpi_settings_page.launch_method_changed.connect(self.preset_config_page.refresh_for_current_mode)
 
-        # Подключаем отключение фильтров → отключение категорий
-        self.dpi_settings_page.filter_disabled.connect(self.strategies_page.disable_categories_for_filter)
-
-        # Для совместимости - если strategies_page также имеет сигнал
-        if hasattr(self.strategies_page, 'launch_method_changed'):
-            self.strategies_page.launch_method_changed.connect(self._on_launch_method_changed)
+        # Подключаем отключение фильтров -> отключение категорий (для всех страниц стратегий)
+        if hasattr(self.zapret2_strategies_page, 'disable_categories_for_filter'):
+            self.dpi_settings_page.filter_disabled.connect(self.zapret2_strategies_page.disable_categories_for_filter)
 
         # Подключаем сигналы от OrchestraPage
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
 
         # Связываем страницу сортировки со страницей стратегий (асинхронное обновление фильтров)
-        self.strategy_sort_page.filters_changed.connect(
-            self.strategies_page.on_external_filters_changed
-        )
-        self.strategy_sort_page.sort_changed.connect(
-            self.strategies_page.on_external_sort_changed
-        )
+        if hasattr(self.zapret2_strategies_page, 'on_external_filters_changed'):
+            self.strategy_sort_page.filters_changed.connect(
+                self.zapret2_strategies_page.on_external_filters_changed
+            )
+        if hasattr(self.zapret2_strategies_page, 'on_external_sort_changed'):
+            self.strategy_sort_page.sort_changed.connect(
+                self.zapret2_strategies_page.on_external_sort_changed
+            )
 
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""
@@ -470,9 +472,15 @@ class MainWindowUI:
         except Exception as e:
             log(f"Ошибка инвалидации StrategyRunner: {e}", "WARNING")
         
-        # ✅ Перезагружаем страницу стратегий для нового режима
-        if hasattr(self, 'strategies_page') and hasattr(self.strategies_page, 'reload_for_mode_change'):
-            self.strategies_page.reload_for_mode_change()
+        # ✅ Перезагружаем страницы стратегий для нового режима
+        if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'reload_for_mode_change'):
+            self.zapret2_strategies_page.reload_for_mode_change()
+        if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'reload_for_mode_change'):
+            self.zapret2_orchestra_strategies_page.reload_for_mode_change()
+        if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'reload_for_mode_change'):
+            self.zapret1_strategies_page.reload_for_mode_change()
+        if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'reload_for_mode_change'):
+            self.bat_strategies_page.reload_for_mode_change()
         
         # ✅ Обновляем видимость вкладки "Блобы" в сайдбаре
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
@@ -498,8 +506,8 @@ class MainWindowUI:
                 return
             
             # Показываем спиннер на странице стратегий
-            if hasattr(self, 'strategies_page'):
-                self.strategies_page.show_loading()
+            if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'show_loading'):
+                self.zapret2_strategies_page.show_loading()
             
             if method == "orchestra":
                 # Оркестр - автоматическое обучение
@@ -549,8 +557,8 @@ class MainWindowUI:
                     self.current_strategy_name = "Прямой запуск"
 
                 # Обновляем отображение на странице стратегий
-                if hasattr(self, 'strategies_page'):
-                    self.strategies_page._update_current_strategies_display()
+                if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, '_update_current_strategies_display'):
+                    self.zapret2_strategies_page._update_current_strategies_display()
 
             else:
                 # Zapret 1 - BAT режим (отдельный ключ реестра)
@@ -568,25 +576,24 @@ class MainWindowUI:
                     if hasattr(self, 'current_strategy_name'):
                         self.current_strategy_name = last_strategy
                     
-                    # Обновляем отображение на странице стратегий
-                    if hasattr(self, 'strategies_page'):
-                        self.strategies_page.current_strategy_label.setText(f"🎯 {last_strategy}")
+                    # Обновляем отображение на странице BAT стратегий
+                    if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'current_strategy_label'):
+                        self.bat_strategies_page.current_strategy_label.setText(f"🎯 {last_strategy}")
                 else:
                     log("⏸️ BAT режим: нет сохранённой стратегии для автозапуска", "INFO")
-                    if hasattr(self, 'strategies_page'):
-                        self.strategies_page.show_success()
-                        self.strategies_page.current_strategy_label.setText("Не выбрана")
-            
-            # Запускаем мониторинг процесса
-            if hasattr(self, 'strategies_page'):
-                self.strategies_page._start_process_monitoring()
-                
+                    if hasattr(self, 'bat_strategies_page'):
+                        if hasattr(self.bat_strategies_page, 'show_success'):
+                            self.bat_strategies_page.show_success()
+                        if hasattr(self.bat_strategies_page, 'current_strategy_label'):
+                            self.bat_strategies_page.current_strategy_label.setText("Не выбрана")
+
+            # Запускаем мониторинг процесса на соответствующей странице
+            # (каждая страница стратегий имеет свой мониторинг)
+
         except Exception as e:
             log(f"Ошибка автозапуска после переключения режима: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
-            if hasattr(self, 'strategies_page'):
-                self.strategies_page.show_success()
         
     def _proxy_start_click(self):
         """Прокси для сигнала start от control_page"""
@@ -628,11 +635,12 @@ class MainWindowUI:
         """Обработчик смены раздела в навигации
 
         Args:
-            page_name: PageName страницы которую нужно показать
+            page_name: PageName страницы которую нужно показать (может быть None для collapsible групп)
         """
-        # Если переключаемся на страницу стратегий, показываем нужную страницу
-        # в зависимости от текущего метода запуска
-        if page_name == PageName.STRATEGIES:
+        # Если page_name is None - это клик на collapsible группу (например, Strategies)
+        # В этом случае определяем целевую страницу динамически
+        if page_name is None:
+            # Предполагаем что это клик на группу Strategies
             try:
                 from strategy_menu import get_strategy_launch_method
                 method = get_strategy_launch_method()
@@ -652,7 +660,9 @@ class MainWindowUI:
                 self.show_page(target_page)
                 return
             except Exception:
-                pass
+                # Fallback на Zapret 2 Direct
+                self.show_page(PageName.ZAPRET2_DIRECT)
+                return
 
         # Для остальных страниц - просто переключаем
         self.show_page(page_name)
@@ -769,10 +779,14 @@ class MainWindowUI:
             
     def update_current_strategy_display(self, strategy_name: str):
         """Обновляет отображение текущей стратегии"""
-        self.current_strategy_label.setText(strategy_name)
-        self.strategies_page.update_current_strategy(strategy_name)
         self.control_page.update_strategy(strategy_name)
-        
+
+        # Обновляем на активных страницах стратегий (если метод есть)
+        for page_attr in ('zapret2_strategies_page', 'zapret2_orchestra_strategies_page', 'zapret1_strategies_page', 'bat_strategies_page'):
+            page = getattr(self, page_attr, None)
+            if page and hasattr(page, 'update_current_strategy'):
+                page.update_current_strategy(strategy_name)
+
         # Для главной страницы обрезаем длинное название
         display_name = strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
         if hasattr(self.home_page, '_truncate_strategy_name'):
@@ -838,14 +852,70 @@ class MainWindowUI:
         """Обработчик выбора стратегии из новой страницы"""
         from log import log
         log(f"Стратегия выбрана из страницы: {strategy_id} - {strategy_name}", "INFO")
-        
+
         # Обновляем отображение
         self.update_current_strategy_display(strategy_name)
-        
+
         # Вызываем обработчик в главном приложении если есть
         if hasattr(self, 'parent_app') and hasattr(self.parent_app, 'on_strategy_selected_from_dialog'):
             self.parent_app.on_strategy_selected_from_dialog(strategy_id, strategy_name)
-    
+
+    def _on_open_category_detail(self, category_key: str, current_strategy_id: str):
+        """Handler for opening category detail page from StrategiesPage"""
+        from log import log
+        from strategy_menu.strategies_registry import registry
+
+        try:
+            # Get category info
+            category_info = registry.get_category_info(category_key)
+            if not category_info:
+                log(f"Category not found: {category_key}", "ERROR")
+                return
+
+            # Show the detail page with category data
+            if hasattr(self.strategy_detail_page, 'show_category'):
+                self.strategy_detail_page.show_category(
+                    category_key,
+                    category_info,
+                    current_strategy_id
+                )
+
+            # Navigate to detail page
+            self.show_page(PageName.STRATEGY_DETAIL)
+
+            log(f"Opened category detail: {category_key}", "DEBUG")
+
+        except Exception as e:
+            log(f"Error opening category detail: {e}", "ERROR")
+
+    def _on_strategy_detail_back(self):
+        """Handler for back button click in StrategyDetailPage"""
+        from strategy_menu import get_strategy_launch_method
+
+        # Navigate back to the appropriate strategies page
+        method = get_strategy_launch_method()
+
+        if method == "direct_zapret2_orchestra":
+            self.show_page(PageName.ZAPRET2_ORCHESTRA)
+        elif method == "direct_zapret2":
+            self.show_page(PageName.ZAPRET2_DIRECT)
+        elif method == "direct_zapret1":
+            self.show_page(PageName.ZAPRET1_DIRECT)
+        else:
+            self.show_page(PageName.BAT_STRATEGIES)
+
+    def _on_strategy_detail_selected(self, category_key: str, strategy_id: str):
+        """Handler for strategy selection in StrategyDetailPage.
+        Note: Uses (category_key, strategy_id) unlike _on_strategy_selected_from_page.
+        """
+        from log import log
+
+        log(f"Strategy selected from detail: {category_key} = {strategy_id}", "INFO")
+
+        # Update the parent StrategiesPage to reflect the selection
+        if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'apply_strategy_selection'):
+            self.zapret2_strategies_page.apply_strategy_selection(category_key, strategy_id)
+
     def init_autostart_page(self, app_instance, bat_folder: str, json_folder: str, strategy_name: str = None):
         """Инициализирует страницу автозапуска с необходимыми параметрами"""
         self.autostart_page.set_app_instance(app_instance)
@@ -875,6 +945,8 @@ class MainWindowUI:
 
     def _navigate_to_strategies(self):
         """Переключается на страницу стратегий с учётом метода запуска"""
+        from log import log
+
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
@@ -891,8 +963,10 @@ class MainWindowUI:
                 target_page = PageName.BAT_STRATEGIES
 
             self.show_page(target_page)
-        except Exception:
-            self.show_page(PageName.STRATEGIES)
+        except Exception as e:
+            log(f"Ошибка определения метода запуска стратегий: {e}", "ERROR")
+            # Fallback на Zapret 2 Direct как самый распространённый
+            self.show_page(PageName.ZAPRET2_DIRECT)
 
         self.side_nav.set_section_by_name(SectionName.STRATEGIES)
 

@@ -1,7 +1,7 @@
 ---
 name: doc-writer
 description: "Пишет документацию, README, комментарии. Только по запросу пользователя."
-model: opus
+model: sonnet
 color: green
 ---
 

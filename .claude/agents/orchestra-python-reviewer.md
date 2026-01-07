@@ -1,7 +1,7 @@
 ---
 name: orchestra-python-reviewer
 description: Агент для Python-кода оркестратора. Работает ПО ЧАСТЯМ (max 100 строк за раз), анализирует ПЕРЕД редактированием. Используй для orchestra/*.py файлов.
-model: opus
+model: sonnet
 color: green
 ---
 

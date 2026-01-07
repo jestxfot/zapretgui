@@ -318,7 +318,6 @@ class StrategyRunnerV1:
         Unlike V2:
         - No hot-reload
         - No --lua-* arguments
-        - No --out-range
 
         Args:
             custom_args: List of command line arguments

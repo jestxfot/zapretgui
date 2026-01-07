@@ -1,7 +1,7 @@
 ---
 name: qa-reviewer
 description: "QA инженер. Проверяет качество кода после каждого агента. Ищет баги, проверяет синтаксис."
-model: opus
+model: sonnet
 color: red
 ---
 

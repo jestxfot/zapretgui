@@ -1,7 +1,7 @@
 ---
 name: strategy-search-expert
 description: "Эксперт по системе поиска стратегий. Управляет SearchBar, FilterEngine, адаптерами."
-model: opus
+model: sonnet
 color: cyan
 ---
 

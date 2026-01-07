@@ -1,7 +1,7 @@
 ---
 name: lua-strategy-creator
 description: "Создатель новых Lua стратегий для winws2. Пишет НОВЫЙ Lua код с нуля для обхода DPI. Реализует инновационные техники на основе идей от dpi-bypass-researcher. Работает с winws2 API, dissector, rawsend."
-model: opus
+model: sonnet
 color: green
 ---
 

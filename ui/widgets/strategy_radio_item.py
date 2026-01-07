@@ -1,0 +1,194 @@
+# ui/widgets/strategy_radio_item.py
+"""
+Кнопка категории для выбора стратегии в стиле Windows 11 Fluent Design.
+При клике эмитит сигнал для открытия диалога выбора стратегии.
+"""
+
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QFont, QCursor
+import qtawesome as qta
+
+
+class StrategyRadioItem(QFrame):
+    """
+    Кнопка категории для выбора стратегии.
+
+    Структура:
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ 🎬 YouTube TCP  |  TCP 443  |  ● Default Strategy              │
+    └─────────────────────────────────────────────────────────────────┘
+
+    При клике эмитит сигнал clicked(category_key) для открытия диалога.
+
+    Signals:
+        clicked(str): category_key при клике
+    """
+
+    clicked = pyqtSignal(str)
+
+    def __init__(
+        self,
+        category_key: str,
+        name: str,
+        description: str = "",
+        icon_name: str = None,
+        icon_color: str = "#2196F3",
+        tooltip: str = "",
+        list_type: str = None,
+        parent=None
+    ):
+        super().__init__(parent)
+        self._category_key = category_key
+        self._name = name
+        self._description = description
+        self._icon_name = icon_name
+        self._icon_color = icon_color
+        self._tooltip = tooltip
+        self._list_type = list_type
+
+        # Текущая стратегия
+        self._strategy_id = "none"
+        self._strategy_name = "Отключено"
+
+        self._build_ui()
+        self._apply_style()
+
+        # Устанавливаем тултип после построения UI
+        # PyQt6 requires HTML for line breaks in tooltips
+        if self._tooltip:
+            self.setToolTip(self._tooltip.replace('\n', '<br>'))
+
+    @property
+    def category_key(self) -> str:
+        return self._category_key
+
+    def _build_ui(self):
+        """Создает UI элемента"""
+        self.setMinimumHeight(44)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        # Иконка категории (опционально)
+        if self._icon_name:
+            try:
+                icon = qta.icon(self._icon_name, color=self._icon_color)
+                icon_label = QLabel()
+                icon_label.setPixmap(icon.pixmap(18, 18))
+                icon_label.setFixedSize(18, 18)
+                layout.addWidget(icon_label)
+            except Exception:
+                pass  # Игнорируем ошибки иконок
+
+        # Название категории
+        self._name_label = QLabel(self._name)
+        name_font = QFont("Segoe UI", 10)
+        name_font.setWeight(QFont.Weight.Medium)
+        self._name_label.setFont(name_font)
+        self._name_label.setStyleSheet("color: #ffffff; background: transparent;")
+        layout.addWidget(self._name_label)
+
+        # Описание (protocol | ports)
+        if self._description:
+            desc_label = QLabel(self._description)
+            desc_label.setFont(QFont("Segoe UI", 9))
+            desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); background: transparent;")
+            layout.addWidget(desc_label)
+
+        # Badge для hostlist/ipset
+        if self._list_type:
+            self._list_badge = QLabel(self._list_type)
+            if self._list_type == "hostlist":
+                badge_bg = "#00B900"  # Green like "Рекомендуется"
+            else:  # ipset
+                badge_bg = "#8B5CF6"  # Purple
+            self._list_badge.setStyleSheet(f"""
+                QLabel {{
+                    background: {badge_bg};
+                    color: #ffffff;
+                    border-radius: 8px;
+                    padding: 1px 6px;
+                    font-size: 9px;
+                    font-weight: 600;
+                }}
+            """)
+            layout.addWidget(self._list_badge)
+
+        # Растяжение
+        layout.addStretch(1)
+
+        # Статус точка
+        self._status_dot = QLabel()
+        self._status_dot.setFont(QFont("Segoe UI", 9))
+        self._status_dot.setStyleSheet("color: #888888; background: transparent;")
+        self._status_dot.setText("●")
+        layout.addWidget(self._status_dot)
+
+        # Название стратегии
+        self._strategy_label = QLabel("Отключено")
+        self._strategy_label.setFont(QFont("Segoe UI", 9))
+        self._strategy_label.setStyleSheet("color: #ffffff; background: transparent;")
+        layout.addWidget(self._strategy_label)
+
+    def _apply_style(self):
+        """Применяет стили к кнопке"""
+        self.setStyleSheet("""
+            StrategyRadioItem {
+                background: rgba(255, 255, 255, 0.03);
+                border: none;
+                border-radius: 6px;
+            }
+            StrategyRadioItem:hover {
+                background: rgba(255, 255, 255, 0.06);
+            }
+            QToolTip {
+                background-color: #2d2d2d;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 12px;
+                font-family: 'Segoe UI', sans-serif;
+            }
+        """)
+
+    def set_strategy(self, strategy_id: str, strategy_name: str):
+        """Устанавливает текущую стратегию.
+
+        Args:
+            strategy_id: ID стратегии ('none' для отключенной)
+            strategy_name: Название стратегии для отображения
+        """
+        self._strategy_id = strategy_id
+        self._strategy_name = strategy_name
+
+        # Обновляем UI
+        self._strategy_label.setText(strategy_name)
+
+        # Обновляем цвет точки
+        if self.is_active():
+            self._status_dot.setStyleSheet("color: #6ccb5f; background: transparent;")
+        else:
+            self._status_dot.setStyleSheet("color: #888888; background: transparent;")
+
+    def get_strategy_id(self) -> str:
+        """Возвращает текущий strategy_id."""
+        return self._strategy_id
+
+    def is_active(self) -> bool:
+        """Возвращает True если стратегия активна (не 'none')."""
+        return self._strategy_id != "none"
+
+    def mousePressEvent(self, event):
+        """Обработчик клика - эмитит сигнал clicked"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self._category_key)
+        super().mousePressEvent(event)
+
+    def set_visible_by_filter(self, visible: bool):
+        """Устанавливает видимость (для фильтрации)"""
+        self.setVisible(visible)

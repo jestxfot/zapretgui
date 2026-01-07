@@ -1,7 +1,7 @@
 ---
 name: zapret-source-expert
 description: "Эксперт по исходному коду zapret2/winws2 от bol-van. Читает ТОЛЬКО оригинальный код из F:\\doc\\zapret2. НЕ редактирует код. Объясняет как работают функции, детекторы, оркестраторы. Используй когда нужно понять логику оригинального zapret2."
-model: opus
+model: sonnet
 color: cyan
 ---
 
