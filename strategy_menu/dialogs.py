@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from log import log
-from .constants import LABEL_TEXTS, LABEL_COLORS
+from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
 
 class StrategyInfoDialog(QDialog):
     """Отдельное окно для отображения подробной информации о стратегии."""

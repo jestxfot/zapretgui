@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
-from .constants import LABEL_TEXTS, LABEL_COLORS
+from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
 
 # Константы стилей - оптимизированы для минимизации setStyleSheet вызовов
 _STYLE_SELECTED = """

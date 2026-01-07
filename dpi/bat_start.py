@@ -6,7 +6,7 @@ import psutil
 from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strategy_menu.bat_zapret1_manager import BatZapret1Manager
+    from zapret1_launcher.bat_manager import BatZapret1Manager
     from main import LupiDPIApp
 
 from log import log

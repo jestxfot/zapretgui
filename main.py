@@ -115,6 +115,7 @@ from ui.theme_subscription_manager import ThemeSubscriptionManager
 from log import log
 
 from config import CHANNEL
+from ui.page_names import PageName, SectionName
 
 def _set_attr_if_exists(name: str, on: bool = True) -> None:
     """Безопасно включает атрибут, если он есть в текущей версии Qt."""
@@ -845,14 +846,10 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     def show_subscription_dialog(self) -> None:
         """Переключается на страницу Premium"""
         try:
-            # Переключаемся на страницу Premium через sidebar
+            # Переключаемся на страницу Premium через sidebar (используя SectionName)
             if hasattr(self, 'side_nav'):
-                # Индекс страницы Premium в sidebar
-                # Главная(0), Управление(1), Стратегии(2), Hostlist(3), IPset(4), Настройки DPI(5),
-                # Автозапуск(6), Сеть(7), Оформление(8), Premium(9), Логи(10), О программе(11)
-                premium_index = 10
-                self.side_nav.set_section(premium_index)
-            
+                self.side_nav.set_section_by_name(SectionName.PREMIUM)
+
         except Exception as e:
             log(f"Ошибка при переходе на страницу Premium: {e}", level="❌ ERROR")
             self.set_status(f"Ошибка: {e}")
@@ -865,17 +862,16 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.set_status(f"Ошибка при открытии папки: {str(e)}")
 
     def open_connection_test(self) -> None:
-        """✅ Переключает на вкладку диагностики соединений."""
+        """Переключает на вкладку диагностики соединений."""
         try:
-            if hasattr(self, "connection_page") and hasattr(self, "pages_stack"):
-                page_index = self.pages_stack.indexOf(self.connection_page)
-                if page_index >= 0:
-                    if hasattr(self, "side_nav"):
-                        self.side_nav.set_page(page_index)
-                    try:
-                        self.connection_page.start_btn.setFocus()
-                    except Exception:
-                        pass
+            # Используем новый API навигации через PageName
+            if self.show_page(PageName.CONNECTION_TEST):
+                if hasattr(self, "side_nav"):
+                    self.side_nav.set_page_by_name(PageName.CONNECTION_TEST)
+                try:
+                    self.connection_page.start_btn.setFocus()
+                except Exception:
+                    pass
                 log("Открыта вкладка диагностики соединения", "INFO")
         except Exception as e:
             log(f"Ошибка при открытии вкладки тестирования: {e}", "❌ ERROR")

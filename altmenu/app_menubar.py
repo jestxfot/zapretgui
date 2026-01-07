@@ -386,23 +386,25 @@ class AppMenuBar(QMenuBar):
         Переключается на вкладку Логи в основном интерфейсе.
         """
         try:
+            from ui.page_names import PageName, SectionName
+
             # Находим главное окно и переключаемся на страницу логов
             main_window = self._pw
-            if main_window and hasattr(main_window, 'main_widget'):
-                main_content = main_window.main_widget
-                if hasattr(main_content, 'sidebar') and hasattr(main_content, 'pages_stack'):
-                    # Индекс страницы логов (6 - после Оформление)
-                    logs_page_index = 6
-                    main_content.sidebar.set_current_index(logs_page_index)
-                    main_content.pages_stack.setCurrentIndex(logs_page_index)
-                    log("Переключение на страницу логов", "DEBUG")
-                    return
-            
+
+            # Проверяем наличие show_page метода для переключения
+            if main_window and hasattr(main_window, 'show_page'):
+                main_window.show_page(PageName.LOGS)
+                # Также обновляем sidebar
+                if hasattr(main_window, 'side_nav'):
+                    main_window.side_nav.set_section_by_name(SectionName.LOGS)
+                log("Переключение на страницу логов", "DEBUG")
+                return
+
             # Fallback: если не нашли - открываем папку с логами
             import subprocess
             from config import LOGS_FOLDER
             subprocess.run(['explorer', LOGS_FOLDER], check=False)
-            
+
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self._pw or self,

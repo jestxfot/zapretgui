@@ -29,6 +29,8 @@ a = Analysis(
         'ui.pages.home_page',
         'ui.pages.control_page',
         'ui.pages.strategies_page',
+        'ui.pages.zapret1_strategies_page',
+        'ui.pages.direct_zapret2_strategies_page',
         'ui.pages.network_page',
         'ui.pages.autostart_page',
         'ui.pages.appearance_page',
@@ -164,6 +166,9 @@ a = Analysis(
         'pip',
         'distutils',
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
+        # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
+        'PySide6',
+        'shiboken6',
         'http.server',
         'xmlrpc',
         'pydoc',

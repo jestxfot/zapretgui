@@ -109,8 +109,8 @@ class InitializationManager:
     def _init_strategy_manager(self):
         """Быстрая синхронная инициализация Strategy Manager (локально)"""
         try:
-            # ВАЖНО: импортируем из 'strategy_menu.bat_zapret1_manager', чтобы избежать побочных эффектов
-            from strategy_menu.bat_zapret1_manager import BatZapret1Manager
+            # ВАЖНО: импортируем из 'zapret1_launcher.bat_manager'
+            from zapret1_launcher.bat_manager import BatZapret1Manager
             from config import STRATEGIES_FOLDER, INDEXJSON_FOLDER
             import os
 
@@ -391,10 +391,10 @@ class InitializationManager:
         try:
             if hasattr(self.app, '_navigate_to_strategies'):
                 self.app._navigate_to_strategies()
-            elif hasattr(self.app, 'side_nav') and hasattr(self.app, 'pages_stack') and hasattr(self.app, 'strategies_page'):
-                index = self.app.pages_stack.indexOf(self.app.strategies_page)
-                if index >= 0:
-                    self.app.side_nav.set_page(index)
+            elif hasattr(self.app, 'show_page'):
+                # Используем новый API с PageName enum
+                from ui.page_names import PageName
+                self.app.show_page(PageName.STRATEGIES)
         except Exception as e:
             log(f"Ошибка навигации на страницу стратегий: {e}", "DEBUG")
 

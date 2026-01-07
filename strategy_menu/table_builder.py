@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QTableWidget, QTableWidgetItem, QWidget,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor, QBrush, QCursor
 
-from .constants import LABEL_TEXTS, LABEL_COLORS
+from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
 
 # Цвета подсветки рейтинга стратегий (полупрозрачные)
 RATING_COLORS = {

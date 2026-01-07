@@ -284,7 +284,7 @@ class ArgsPreviewDialog(QDialog):
             self.original_args = ""
         
         # Метка
-        from .constants import LABEL_TEXTS, LABEL_COLORS
+        from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
         label = strategy_data.get('label')
         if label and label in LABEL_TEXTS:
             self.label_widget.setText(LABEL_TEXTS[label])
