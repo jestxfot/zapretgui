@@ -208,10 +208,10 @@ def build_send_args(category_key: str) -> str:
                     if repeats and repeats > 0:
                         parts.append(f"repeats={repeats}")
 
-                    # ip_ttl (0-255)
-                    ip_ttl = settings.get("send_ip_ttl", 0)
-                    if ip_ttl and ip_ttl > 0:
-                        parts.append(f"ip_ttl={ip_ttl}")
+                    # send_ip_ttl (0-255) - TTL для send пакетов
+                    send_ip_ttl = settings.get("send_ip_ttl", 0)
+                    if send_ip_ttl and send_ip_ttl > 0:
+                        parts.append(f"ip_ttl={send_ip_ttl}")
 
                     # ip6_ttl (0-255)
                     ip6_ttl = settings.get("send_ip6_ttl", 0)

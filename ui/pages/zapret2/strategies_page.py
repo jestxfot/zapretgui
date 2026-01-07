@@ -1,4 +1,4 @@
-# ui/pages/strategies_page.py
+# ui/pages/zapret2/strategies_page.py
 """
 Страница выбора стратегий с единым списком категорий.
 При клике на категорию открывается отдельная страница StrategyDetailPage.
