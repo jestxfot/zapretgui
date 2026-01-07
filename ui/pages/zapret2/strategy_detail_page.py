@@ -515,6 +515,7 @@ class StrategyDetailPage(BasePage):
         self._strategy_rows = {}
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._active_filters = set()  # Активные фильтры по технике
+        self._reload_debouncer = None  # DPI reload debouncer для syndata
 
         self._build_content()
 
@@ -1439,9 +1440,13 @@ class StrategyDetailPage(BasePage):
         self._save_category_filter_mode(self._category_key, new_mode)
         log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
 
-        # Перегенерируем preset файл с новым режимом фильтрации
-        from strategy_menu import regenerate_preset_file
-        regenerate_preset_file()
+        # Используем единый механизм (regenerate_preset_file вызывается внутри)
+        from dpi.zapret2_core_restart import trigger_dpi_reload
+        trigger_dpi_reload(
+            self.parent_app,
+            reason="filter_mode_changed",
+            category_key=self._category_key
+        )
 
     def _save_category_filter_mode(self, category_key: str, mode: str):
         """Сохраняет режим фильтрации для категории в реестр"""
@@ -1556,6 +1561,12 @@ class StrategyDetailPage(BasePage):
     # SYNDATA SETTINGS METHODS
     # ═══════════════════════════════════════════════════════════════
 
+    def _ensure_reload_debouncer(self):
+        """Ленивая инициализация debouncer для перезапуска DPI"""
+        if self._reload_debouncer is None and self.parent_app:
+            from dpi.zapret2_core_restart import DPIReloadDebouncer
+            self._reload_debouncer = DPIReloadDebouncer(self.parent_app, delay_ms=500)
+
     def _on_send_toggled(self, checked: bool):
         """Обработчик включения/выключения send параметров"""
         self._send_settings.setVisible(checked)
@@ -1600,6 +1611,14 @@ class StrategyDetailPage(BasePage):
             log(f"Syndata settings saved for {self._category_key}: {settings}", "DEBUG")
         except Exception as e:
             log(f"Ошибка сохранения syndata для {self._category_key}: {e}", "WARNING")
+
+        # Триггерим перезапуск DPI с debounce (для SpinBox)
+        self._ensure_reload_debouncer()
+        if self._reload_debouncer:
+            self._reload_debouncer.schedule_reload(
+                reason="syndata_changed",
+                category_key=self._category_key
+            )
 
     def _load_syndata_settings(self, category_key: str) -> dict:
         """Загружает syndata настройки для категории из реестра"""

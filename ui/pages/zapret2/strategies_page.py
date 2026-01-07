@@ -296,48 +296,11 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def _apply_changes(self):
         """Применяет изменения - перезапускает DPI если запущен"""
-        try:
-            from strategy_menu import combine_strategies
-
-            # Проверяем есть ли активные стратегии
-            has_active = any(
-                sid and sid != 'none'
-                for sid in self.category_selections.values()
-            )
-
-            app = self.parent_app
-            if not hasattr(app, 'dpi_controller') or not app.dpi_controller:
-                log("dpi_controller не найден", "DEBUG")
-                return
-
-            # Проверяем запущен ли DPI
-            is_running = False
-            if hasattr(app, 'dpi_starter') and app.dpi_starter:
-                is_running = app.dpi_starter.check_process_running_wmi(silent=True)
-
-            if not is_running:
-                log("DPI не запущен, пропускаем перезапуск", "DEBUG")
-                return
-
-            if not has_active:
-                # Нет активных стратегий - останавливаем
-                app.dpi_controller.stop_dpi_async()
-                return
-
-            # Комбинируем стратегии
-            combined = combine_strategies(**self.category_selections)
-            combined_data = {
-                'id': 'DIRECT_MODE',
-                'name': 'Прямой запуск (Запрет 2)',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': self.category_selections.copy()
-            }
-
-            app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-
-        except Exception as e:
-            log(f"Ошибка применения изменений: {e}", "ERROR")
+        from dpi.zapret2_core_restart import trigger_dpi_reload
+        trigger_dpi_reload(
+            self.parent_app,
+            reason="strategy_changed"
+        )
 
     def _reload_strategies(self):
         """Перезагружает стратегии"""
