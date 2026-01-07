@@ -515,8 +515,6 @@ class MainWindowUI:
                 self.dpi_controller.start_dpi_async(selected_mode=None, launch_method="orchestra")
 
                 # Обновляем GUI
-                if hasattr(self, 'current_strategy_label'):
-                    self.current_strategy_label.setText("Оркестр")
                 if hasattr(self, 'current_strategy_name'):
                     self.current_strategy_name = "Оркестр"
 
@@ -551,8 +549,6 @@ class MainWindowUI:
                 self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
                 # Обновляем GUI
-                if hasattr(self, 'current_strategy_label'):
-                    self.current_strategy_label.setText("Прямой запуск")
                 if hasattr(self, 'current_strategy_name'):
                     self.current_strategy_name = "Прямой запуск"
 
@@ -571,8 +567,6 @@ class MainWindowUI:
                     self.dpi_controller.start_dpi_async(selected_mode=last_strategy, launch_method="bat")
                     
                     # Обновляем GUI
-                    if hasattr(self, 'current_strategy_label'):
-                        self.current_strategy_label.setText(last_strategy)
                     if hasattr(self, 'current_strategy_name'):
                         self.current_strategy_name = last_strategy
                     

@@ -411,8 +411,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 from config.reg import set_last_bat_strategy
                 set_last_bat_strategy(strategy_name)
             
-            # Обновляем метку с текущей стратегией
-            self.current_strategy_label.setText(strategy_name)
+            # Обновляем метку с текущей стратегией (на страницах стратегий)
+            # current_strategy_label теперь на отдельных страницах, не на главном окне
             
             # Обновляем новые страницы интерфейса
             if hasattr(self, 'update_current_strategy_display'):
