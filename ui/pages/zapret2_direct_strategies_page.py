@@ -62,8 +62,8 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
         self._all_direct_strategies = {}  # {category_key: strategies_dict}
         self._all_direct_favorites = {}   # {category_key: favorites_list}
         self._all_direct_selections = {}  # {category_key: current_selection}
-
-        self._build_ui()
+        # ВАЖНО: _build_ui() уже вызывается в StrategiesPageBase.__init__()
+        # Не вызываем его здесь повторно!
         
     def _build_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -200,6 +200,7 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
         
     def showEvent(self, event):
         """При показе страницы загружаем стратегии"""
+        print(f"[DEBUG] Zapret2DirectStrategiesPage.showEvent called, _initialized={self._initialized}")
         super().showEvent(event)
         if not self._initialized:
             self._initialized = True
@@ -213,6 +214,7 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
             
     def _clear_content(self):
         """Очищает контент"""
+        print("[DEBUG] Zapret2DirectStrategiesPage._clear_content called")
         # Сохраняем current_widget (не удаляем при очистке)
         if hasattr(self, 'current_widget') and self.current_widget:
             self.content_layout.removeWidget(self.current_widget)
@@ -237,9 +239,11 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
 
     def _load_content(self):
         """Загружает контент в зависимости от режима"""
+        print("[DEBUG] Zapret2DirectStrategiesPage._load_content started")
         try:
             from strategy_menu import get_strategy_launch_method
             mode = get_strategy_launch_method()
+            print(f"[DEBUG] _load_content: mode={mode}, _current_mode={self._current_mode}")
             
             # Если режим не изменился и контент уже загружен - пропускаем
             if mode == self._current_mode and (self._strategy_widget or self._bat_table):
@@ -267,6 +271,7 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
             
     def _load_direct_mode(self):
         """Загружает интерфейс для direct режима (Zapret 2)"""
+        print("[DEBUG] Zapret2DirectStrategiesPage._load_direct_mode started")
         try:
             from strategy_menu.categories_tab_panel import CategoriesTabPanel
             from strategy_menu.strategies_registry import registry
