@@ -133,7 +133,14 @@ class StrategyRunnerV2(StrategyRunnerBase):
         log(f"StrategyRunnerV2 initialized with hot-reload support", "INFO")
 
     def get_preset_filename(self) -> str:
-        """Returns preset filename for Zapret 2"""
+        """Returns preset filename for Zapret 2 based on current launch method"""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+            if method == "direct_zapret2_orchestra":
+                return "preset-zapret2-orchestra.txt"
+        except Exception:
+            pass
         return "preset-zapret2.txt"
 
     def _on_config_changed(self):

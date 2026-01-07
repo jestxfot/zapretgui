@@ -45,7 +45,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#ProjectPath}
-OutputBaseFilename=Zapret2Setup_test_1767797422_tmp
+OutputBaseFilename=Zapret2Setup_test_1767802452_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ Иконка установщика (используем абсолютный путь)

@@ -6,6 +6,7 @@ from .control_page import ControlPage
 from .strategies_page import StrategiesPage
 from .strategies_page_base import StrategiesPageBase
 from .zapret2_direct_strategies_page import Zapret2DirectStrategiesPage
+from .zapret2_orchestra_strategies_page import Zapret2OrchestraStrategiesPage
 from .zapret1_direct_strategies_page import Zapret1DirectStrategiesPage
 from .bat_strategies_page import BatStrategiesPage
 from .strategy_sort_page import StrategySortPage
@@ -40,6 +41,7 @@ __all__ = [
     'ControlPage',
     'StrategiesPage',
     'Zapret2DirectStrategiesPage',
+    'Zapret2OrchestraStrategiesPage',
     'StrategiesPageBase',
     'Zapret1DirectStrategiesPage',
     'BatStrategiesPage',

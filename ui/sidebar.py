@@ -1311,21 +1311,31 @@ class SideNavBar(QWidget):
         - Показываем: Залоченные, Заблокированные
         - Меняем название "Стратегии" на "Оркестратор" и иконку
         При обычном режиме - наоборот.
+
+        ВАЖНО: direct_zapret2_orchestra - это гибридный режим, который:
+        - Показывает вкладки оркестратора (Залоченные, Заблокированные)
+        - НО НЕ скрывает Конфиг и Сортировка (они нужны для настройки стратегий)
         """
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
+            # is_orchestra - любой режим с оркестратором (для показа вкладок Залоченные/Заблокированные)
             is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
+            # is_full_orchestra - только полный оркестратор (автообучение), скрывает Конфиг/Сортировка
+            is_full_orchestra = method == "orchestra"
         except Exception as e:
             from log import log
             log(f"Ошибка проверки режима оркестратора: {e}", "DEBUG")
             is_orchestra = False
+            is_full_orchestra = False
 
-        # Скрываем/показываем Сортировка, Конфиг, Hostlist, IPset, Редактор
+        # Скрываем/показываем Сортировка, Конфиг - только для ПОЛНОГО оркестратора
+        # direct_zapret2_orchestra сохраняет эти кнопки видимыми
         if self._strategy_sort_button:
-            self._strategy_sort_button.setVisible(not is_orchestra)
+            self._strategy_sort_button.setVisible(not is_full_orchestra)
         if self._preset_config_button:
-            self._preset_config_button.setVisible(not is_orchestra)
+            self._preset_config_button.setVisible(not is_full_orchestra)
+        # Hostlist, IPset, Редактор - скрываем для любого режима оркестратора
         if self._hostlist_button:
             self._hostlist_button.setVisible(not is_orchestra)
         if self._ipset_button:

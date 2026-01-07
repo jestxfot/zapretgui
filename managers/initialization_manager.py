@@ -387,16 +387,27 @@ class InitializationManager:
         self.app.dpi_controller.start_dpi_async()
 
     def _navigate_to_strategies(self):
-        """Перенаправляет на страницу выбора стратегий"""
+        """Переходит на страницу стратегий"""
         try:
-            if hasattr(self.app, '_navigate_to_strategies'):
-                self.app._navigate_to_strategies()
-            elif hasattr(self.app, 'show_page'):
-                # Используем новый API с PageName enum
-                from ui.page_names import PageName
-                self.app.show_page(PageName.STRATEGIES)
+            from strategy_menu import get_strategy_launch_method
+            from ui.page_names import PageName, SectionName
+
+            method = get_strategy_launch_method()
+
+            if method == "orchestra":
+                target_page = PageName.ORCHESTRA
+            elif method in ("direct_zapret2", "direct_zapret2_orchestra"):
+                target_page = PageName.ZAPRET2_DIRECT
+            elif method == "direct_zapret1":
+                target_page = PageName.ZAPRET1_DIRECT
+            else:  # bat
+                target_page = PageName.BAT_STRATEGIES
+
+            self.app.show_page(target_page)
+            if hasattr(self.app, 'side_nav'):
+                self.app.side_nav.set_section_by_name(SectionName.STRATEGIES)
         except Exception as e:
-            log(f"Ошибка навигации на страницу стратегий: {e}", "DEBUG")
+            log(f"Ошибка навигации на стратегии: {e}", "ERROR")
 
     # ═══════════════════════════════════════════════════════════════════
     # ФАЗА 2: Инициализация менеджеров (разбито на логические группы)

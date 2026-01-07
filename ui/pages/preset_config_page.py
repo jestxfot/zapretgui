@@ -49,13 +49,21 @@ class PresetConfigPage(BasePage):
     def _get_current_preset_path(self) -> tuple[str, str]:
         """Returns (preset_path, display_name) based on current mode"""
         method = get_strategy_launch_method()
-        if method in ZAPRET2_MODES or method == "direct_zapret2_orchestra":
-            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"), "preset-zapret2.txt (Zapret 2)")
+
+        if method == "direct_zapret2_orchestra":
+            # Orchestra режим использует отдельный файл
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2-orchestra.txt"),
+                    "preset-zapret2-orchestra.txt (Zapret 2 Orchestra)")
+        elif method in ZAPRET2_MODES or method == "direct_zapret2":
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"),
+                    "preset-zapret2.txt (Zapret 2)")
         elif method in ZAPRET1_DIRECT_MODES or method == "direct_zapret1":
-            return (os.path.join(MAIN_DIRECTORY, "preset-zapret1.txt"), "preset-zapret1.txt (Zapret 1)")
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret1.txt"),
+                    "preset-zapret1.txt (Zapret 1)")
         else:
             # BAT mode or other - default to Zapret 2
-            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"), "preset-zapret2.txt (Zapret 2)")
+            return (os.path.join(MAIN_DIRECTORY, "preset-zapret2.txt"),
+                    "preset-zapret2.txt (Zapret 2)")
 
     def refresh_for_current_mode(self):
         """Called when strategy launch method changes - reloads correct preset file"""

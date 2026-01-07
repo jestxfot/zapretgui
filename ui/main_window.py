@@ -16,7 +16,7 @@ from ui.pages import (
     HomePage, ControlPage, StrategiesPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
-    PresetConfigPage, StrategySortPage, Zapret2DirectStrategiesPage, Zapret1DirectStrategiesPage, BatStrategiesPage
+    PresetConfigPage, StrategySortPage, Zapret2DirectStrategiesPage, Zapret2OrchestraStrategiesPage, Zapret1DirectStrategiesPage, BatStrategiesPage
 )
 
 import qtawesome as qta
@@ -113,6 +113,10 @@ class MainWindowUI:
         # Zapret 2 Direct стратегии
         self.zapret2_strategies_page = Zapret2DirectStrategiesPage(self)
         self.pages_stack.addWidget(self.zapret2_strategies_page)
+
+        # Zapret 2 Orchestra стратегии
+        self.zapret2_orchestra_strategies_page = Zapret2OrchestraStrategiesPage(self)
+        self.pages_stack.addWidget(self.zapret2_orchestra_strategies_page)
 
         # Zapret 1 Direct стратегии
         self.zapret1_strategies_page = Zapret1DirectStrategiesPage(self)
@@ -234,6 +238,7 @@ class MainWindowUI:
             PageName.CONTROL: self.control_page,
             PageName.STRATEGIES: self.strategies_page,
             PageName.ZAPRET2_DIRECT: self.zapret2_strategies_page,
+            PageName.ZAPRET2_ORCHESTRA: self.zapret2_orchestra_strategies_page,
             PageName.ZAPRET1_DIRECT: self.zapret1_strategies_page,
             PageName.BAT_STRATEGIES: self.bat_strategies_page,
             PageName.STRATEGY_SORT: self.strategy_sort_page,
@@ -316,6 +321,10 @@ class MainWindowUI:
         # Zapret 2 Direct сигналы
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'strategy_selected'):
             self.zapret2_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+
+        # Zapret 2 Orchestra сигналы
+        if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'strategy_selected'):
+            self.zapret2_orchestra_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
 
         # BAT страница сигналы
         if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'strategy_selected'):
@@ -629,8 +638,10 @@ class MainWindowUI:
                 method = get_strategy_launch_method()
 
                 # Определяем целевую страницу по методу запуска
-                if method == "orchestra" or method == "direct_zapret2_orchestra":
+                if method == "orchestra":
                     target_page = PageName.ORCHESTRA
+                elif method == "direct_zapret2_orchestra":
+                    target_page = PageName.ZAPRET2_ORCHESTRA
                 elif method == "direct_zapret2":
                     target_page = PageName.ZAPRET2_DIRECT
                 elif method == "direct_zapret1":
@@ -863,10 +874,26 @@ class MainWindowUI:
         self.side_nav.set_section_by_name(SectionName.CONTROL)
 
     def _navigate_to_strategies(self):
-        """Переключается на страницу стратегий (или оркестра если выбран режим оркестра)"""
-        # Всегда переходим на секцию стратегий в sidebar,
-        # _on_section_changed сделает редирект на оркестр если нужно
-        self.show_page(PageName.STRATEGIES)
+        """Переключается на страницу стратегий с учётом метода запуска"""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+
+            if method == "orchestra":
+                target_page = PageName.ORCHESTRA
+            elif method == "direct_zapret2_orchestra":
+                target_page = PageName.ZAPRET2_ORCHESTRA  # Оркестратор Zapret 2 - отдельная страница
+            elif method == "direct_zapret2":
+                target_page = PageName.ZAPRET2_DIRECT
+            elif method == "direct_zapret1":
+                target_page = PageName.ZAPRET1_DIRECT
+            else:  # bat
+                target_page = PageName.BAT_STRATEGIES
+
+            self.show_page(target_page)
+        except Exception:
+            self.show_page(PageName.STRATEGIES)
+
         self.side_nav.set_section_by_name(SectionName.STRATEGIES)
 
     def _navigate_to_dpi_settings(self):

@@ -1,5 +1,8 @@
-# ui/pages/zapret2/direct_zapret2_strategies_page.py
-"""Страница выбора стратегий"""
+# ui/pages/zapret2_orchestra_strategies_page.py
+"""
+Страница выбора стратегий для режима Orchestra (direct_zapret2_orchestra).
+Специализированная версия для работы с orchestra стратегиями.
+"""
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -23,8 +26,8 @@ from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
 
-class Zapret2DirectStrategiesPage(StrategiesPageBase):
-    """Страница стратегий для режима Direct Zapret 2 (direct_zapret2)"""
+class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
+    """Страница стратегий для режима Orchestra (direct_zapret2_orchestra)"""
     
     launch_method_changed = pyqtSignal(str)
     strategy_selected = pyqtSignal(str, str)
@@ -33,16 +36,18 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
         super().__init__(parent)
         self.parent_app = parent
         self._strategy_widget = None
+        self._bat_table = None
         self._initialized = False
+        self._current_mode = None
         self._file_watcher = None
         self._watcher_active = False
-
+        
         # Таймер для проверки статуса процесса
         self._process_check_timer = QTimer(self)
         self._process_check_timer.timeout.connect(self._check_process_status)
         self._process_check_attempts = 0
         self._max_check_attempts = 30  # 30 попыток * 200мс = 6 секунд максимум
-
+        
         # Абсолютный таймаут для защиты от зависания спиннера
         self._absolute_timeout_timer = QTimer(self)
         self._absolute_timeout_timer.setSingleShot(True)
@@ -50,8 +55,11 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
 
         # Поисковая панель и фильтрация
         self.filter_engine = StrategyFilterEngine()
-        self.search_bar = None  # Создаётся в _load_direct_mode
+        self.search_bar = None  # Создаётся в _load_*_mode
+        self._bat_adapter = None
         self._json_adapter = None
+        self._all_bat_strategies = []  # Кэш всех BAT стратегий
+        self._all_bat_strategies_dict = {}  # Оригинальный dict стратегий для фильтрации
 
         # Кэш данных для Direct режима (для фильтрации)
         self._all_direct_strategies = {}  # {category_key: strategies_dict}
@@ -197,6 +205,16 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
         """При показе страницы загружаем стратегии"""
         super().showEvent(event)
 
+        # Проверяем не изменился ли режим с момента последней загрузки
+        try:
+            from strategy_menu import get_strategy_launch_method
+            current_method = get_strategy_launch_method()
+            if self._current_mode and self._current_mode != current_method:
+                # Режим изменился - нужна полная перезагрузка
+                self._initialized = False
+        except Exception:
+            pass
+
         if not self._initialized:
             self._initialized = True
             # Загружаем контент сразу, без задержки
@@ -221,21 +239,33 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
                 item.widget().deleteLater()
 
         self._strategy_widget = None
+        self._bat_table = None
         self.loading_label = None
         self.search_bar = None
+        self._all_bat_strategies = []
+        self._all_bat_strategies_dict = {}
         # Очищаем кэш Direct режима
         self._all_direct_strategies = {}
         self._all_direct_favorites = {}
         self._all_direct_selections = {}
 
     def _load_content(self):
-        """Загружает стратегии для режима direct_zapret2"""
+        """Загружает контент для режима Orchestra"""
         try:
-            # Если контент уже загружен - пропускаем
-            if self._strategy_widget:
+            from strategy_menu import get_strategy_launch_method
+            mode = get_strategy_launch_method()
+
+            # Если режим не изменился и контент уже загружен - пропускаем
+            if mode == self._current_mode and (self._strategy_widget or self._bat_table):
                 return
 
+            self._current_mode = mode
             self._clear_content()
+
+            # Эта страница предназначена только для orchestra режима
+            if mode != "direct_zapret2_orchestra":
+                log(f"Zapret2OrchestraStrategiesPage: запрошен режим {mode}, страница рассчитана на direct_zapret2_orchestra", "WARNING")
+
             self.stop_watching()
             self._load_direct_mode()
                 
@@ -251,7 +281,7 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
             self.content_layout.addWidget(error_label)
             
     def _load_direct_mode(self):
-        """Загружает интерфейс для direct режима (Zapret 2)"""
+        """Загружает интерфейс для режима Orchestra (Zapret 2)"""
         try:
             from strategy_menu.categories_tab_panel import CategoriesTabPanel
             from strategy_menu.strategies_registry import registry
@@ -1056,39 +1086,39 @@ class Zapret2DirectStrategiesPage(StrategiesPageBase):
             self._stop_absolute_timeout()
             self.show_success()  # При ошибке тоже убираем спиннер
         
-    def reload_strategies(self):
-        """Перезагружает стратегии"""
-        self.stop_watching()
-        self._stop_process_monitoring()
-        self._stop_absolute_timeout()
+    def reload_for_mode_change(self):
+        """Перезагружает страницу при смене режима"""
+        self.stop_watching()  # Останавливаем мониторинг при смене режима
+        self._stop_process_monitoring()  # Останавливаем мониторинг процесса (+ абсолютный таймаут)
+        self._stop_absolute_timeout()  # Дополнительная защита
+        self._current_mode = None
         self._initialized = False
         self._clear_content()
 
-        # Очищаем кэш стратегий
+        # Очищаем кэш стратегий чтобы загрузить правильный набор для нового режима
         try:
             from strategy_menu.strategies_registry import registry
             registry.reload_strategies()
+            log("Кэш стратегий очищен для смены режима", "DEBUG")
         except Exception as e:
             log(f"Ошибка очистки кэша стратегий: {e}", "DEBUG")
 
-        # Сбрасываем UI
-        self.current_strategy_label.setText("Загрузка...")
+        # Сбрасываем текущую стратегию при переключении режима
+        self.current_strategy_label.setText("⏳ Загрузка...")
         self.current_strategy_label.show()
         self.current_strategy_container.hide()
+
+        # Показываем спиннер загрузки
         self.show_loading()
 
         # Добавляем плейсхолдер
-        self.loading_label = QLabel("Загрузка...")
+        self.loading_label = QLabel("⏳ Загрузка...")
         self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
 
         # Загружаем с небольшой задержкой для плавности UI
         QTimer.singleShot(100, self._load_content)
-
-    def reload_for_mode_change(self):
-        """Алиас для reload_strategies (для совместимости)"""
-        self.reload_strategies()
 
     def _on_tab_changed(self, index):
         """При смене вкладки загружаем контент (direct режим)"""

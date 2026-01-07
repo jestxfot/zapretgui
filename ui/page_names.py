@@ -28,6 +28,7 @@ class PageName(Enum):
     CONTROL = auto()                 # Управление DPI
     STRATEGIES = auto()              # Стратегии (общая страница)
     ZAPRET2_DIRECT = auto()          # Zapret 2 Direct стратегии
+    ZAPRET2_ORCHESTRA = auto()       # Zapret 2 Orchestra (direct_zapret2_orchestra режим)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     BAT_STRATEGIES = auto()          # BAT стратегии
     STRATEGY_SORT = auto()           # Сортировка стратегий
@@ -196,6 +197,7 @@ ORCHESTRA_ONLY_SECTIONS: set[SectionName] = {
 STRATEGY_PAGES: set[PageName] = {
     PageName.STRATEGIES,
     PageName.ZAPRET2_DIRECT,
+    PageName.ZAPRET2_ORCHESTRA,
     PageName.ZAPRET1_DIRECT,
     PageName.BAT_STRATEGIES,
     PageName.ORCHESTRA,
