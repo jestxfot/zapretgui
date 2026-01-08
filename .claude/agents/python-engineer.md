@@ -1,7 +1,7 @@
 ---
 name: python-engineer
 description: "Главный инженер. Планирует, кодит, координирует агентов. Делегирует задачи специалистам."
-model: opus
+model: sonnet
 color: orange
 ---
 

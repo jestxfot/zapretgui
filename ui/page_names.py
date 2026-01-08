@@ -38,6 +38,7 @@ class PageName(Enum):
     BLOBS = auto()                   # Блобы
     EDITOR = auto()                  # Редактор стратегий
     DPI_SETTINGS = auto()            # Настройки DPI
+    PRESETS = auto()                 # Пресеты настроек (только direct_zapret2)
 
     # === Мои списки ===
     NETROGAT = auto()                # Исключения (netrogat.txt)
@@ -90,6 +91,7 @@ class SectionName(Enum):
     ORCHESTRA_BLOCKED = auto()       # - Заблокированные
     ORCHESTRA_RATINGS = auto()       # - Рейтинги
     DPI_SETTINGS = auto()            # - Настройки DPI
+    PRESETS = auto()                 # - Пресеты настроек
 
     # === Мои списки (collapsible группа) ===
     MY_LISTS_HEADER = auto()         # Заголовок группы (header, не страница!)
@@ -132,6 +134,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.ORCHESTRA_BLOCKED: PageName.ORCHESTRA_BLOCKED,
     SectionName.ORCHESTRA_RATINGS: PageName.ORCHESTRA_RATINGS,
     SectionName.DPI_SETTINGS: PageName.DPI_SETTINGS,
+    SectionName.PRESETS: PageName.PRESETS,
     SectionName.MY_LISTS_HEADER: None,  # Заголовок, нет страницы!
     SectionName.NETROGAT: PageName.NETROGAT,
     SectionName.ORCHESTRA_WHITELIST: PageName.ORCHESTRA_WHITELIST,
@@ -172,6 +175,7 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
         SectionName.ORCHESTRA_BLOCKED,
         SectionName.ORCHESTRA_RATINGS,
         SectionName.DPI_SETTINGS,
+        SectionName.PRESETS,
     ],
     SectionName.MY_LISTS_HEADER: [
         SectionName.NETROGAT,

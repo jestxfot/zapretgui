@@ -117,11 +117,40 @@ class DPIStartWorker(QObject):
 
             # Получаем runner
             runner = get_strategy_runner(self._get_winws_exe())
-            
+
             mode_param = self.selected_mode
-            
+
+            # ✅ НОВЫЙ РЕЖИМ: Запуск из готового preset файла (без реестра)
+            if isinstance(mode_param, dict) and mode_param.get('is_preset_file'):
+                preset_path = mode_param.get('preset_path', '')
+                strategy_name = mode_param.get('name', 'Пресет')
+
+                log(f"Запуск из preset файла: {preset_path}", "INFO")
+
+                if not preset_path:
+                    log("Путь к preset файлу не указан", "❌ ERROR")
+                    self.progress.emit("❌ Ошибка: не указан путь к preset файлу")
+                    return False
+
+                import os
+                if not os.path.exists(preset_path):
+                    log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
+                    self.progress.emit("❌ Preset файл не найден")
+                    return False
+
+                # Запускаем напрямую через @file (hot-reload будет работать!)
+                success = runner.start_from_preset_file(preset_path, strategy_name)
+
+                if success:
+                    log(f"Пресет '{strategy_name}' успешно запущен", "✅ SUCCESS")
+                    return True
+                else:
+                    log("Не удалось запустить пресет", "❌ ERROR")
+                    self.progress.emit("❌ Ошибка запуска. Попробуйте перезапустить программу")
+                    return False
+
             # Обработка комбинированных стратегий
-            if isinstance(mode_param, dict) and mode_param.get('is_combined'):
+            elif isinstance(mode_param, dict) and mode_param.get('is_combined'):
                 strategy_name = mode_param.get('name', 'Комбинированная стратегия')
                 args_str = mode_param.get('args', '')
                 
@@ -484,36 +513,48 @@ class DPIController:
         if launch_method == "orchestra":
             selected_mode = {'is_orchestra': True, 'name': 'Оркестр'}
 
-        # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана, берем из реестра
+        # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана - используем готовый preset файл
         elif selected_mode is None or selected_mode == 'default':
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                # Для Direct режима берем сохраненные выборы из реестра
-                from strategy_menu import get_direct_strategy_selections
-                from launcher_common import combine_strategies
+                # Для Direct режима используем готовый preset-zapret2.txt
+                # Файл уже содержит все аргументы - UI обновляет его через PresetManager
+                from presets import get_active_preset_path, get_active_preset_name
+                import os
 
-                # Получаем сохраненные выборы категорий из реестра
-                saved_selections = get_direct_strategy_selections()
-                log(f"Загружены сохраненные выборы из реестра: {saved_selections}", "DEBUG")
-                
-                # Создаем комбинированную стратегию на основе сохраненных выборов
-                combined = combine_strategies(**saved_selections)
-                
-                # ✅ Проверка на пустую стратегию (все категории = 'none')
-                active_categories = combined.get('_active_categories', 0)
-                if active_categories == 0:
-                    log("Нет активных категорий (все выборы = 'none'), запуск отменён", level="WARNING")
-                    self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")
+                preset_path = get_active_preset_path()
+                preset_name = get_active_preset_name() or "Default"
+
+                if not preset_path.exists():
+                    log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
+                    self.app.set_status("❌ Preset файл не найден. Создайте пресет в настройках")
                     if hasattr(self.app, 'ui_manager'):
                         self.app.ui_manager.update_ui_state(running=False)
                     return
-                
+
+                # Проверяем что файл не пустой
+                try:
+                    content = preset_path.read_text(encoding='utf-8').strip()
+                    # Проверяем наличие WinDivert фильтров
+                    has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                    if not has_filters:
+                        log("Preset файл не содержит активных фильтров", "WARNING")
+                        self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")
+                        if hasattr(self.app, 'ui_manager'):
+                            self.app.ui_manager.update_ui_state(running=False)
+                        return
+                except Exception as e:
+                    log(f"Ошибка чтения preset файла: {e}", "❌ ERROR")
+                    self.app.set_status(f"❌ Ошибка чтения preset: {e}")
+                    if hasattr(self.app, 'ui_manager'):
+                        self.app.ui_manager.update_ui_state(running=False)
+                    return
+
                 selected_mode = {
-                    'is_combined': True,
-                    'name': combined.get('description', 'Сохраненная стратегия'),
-                    'args': combined['args'],
-                    'selections': saved_selections
+                    'is_preset_file': True,
+                    'name': f"Пресет: {preset_name}",
+                    'preset_path': str(preset_path)
                 }
-                log(f"Используется сохраненная комбинированная стратегия: {selected_mode['name']}", "INFO")
+                log(f"Используется preset файл: {preset_path}", "INFO")
                 
             else:  # BAT режим
                 # Для BAT режима берем последнюю выбранную стратегию из реестра

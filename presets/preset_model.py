@@ -1,0 +1,339 @@
+# presets/preset_model.py
+"""
+Data models for preset system.
+
+Preset = collection of category configurations with metadata.
+Each category has TCP and/or UDP strategy arguments.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional
+
+
+@dataclass
+class SyndataSettings:
+    """
+    Syndata/Send settings for a category.
+
+    These control advanced DPI bypass parameters.
+    """
+    # Syndata parameters
+    enabled: bool = True
+    blob: str = "tls_google"
+    tls_mod: str = "none"
+    autottl_delta: int = -2
+    autottl_min: int = 3
+    autottl_max: int = 20
+    out_range: int = 8
+    out_range_mode: str = "n"  # "n" (packets count) or "d" (delay)
+    tcp_flags_unset: str = "none"
+
+    # Send parameters
+    send_enabled: bool = True
+    send_repeats: int = 2
+    send_ip_ttl: int = 0
+    send_ip6_ttl: int = 0
+    send_ip_id: str = "none"
+    send_badsum: bool = False
+
+    def to_dict(self) -> Dict:
+        """Converts to dictionary for serialization."""
+        return {
+            "enabled": self.enabled,
+            "blob": self.blob,
+            "tls_mod": self.tls_mod,
+            "autottl_delta": self.autottl_delta,
+            "autottl_min": self.autottl_min,
+            "autottl_max": self.autottl_max,
+            "out_range": self.out_range,
+            "out_range_mode": self.out_range_mode,
+            "tcp_flags_unset": self.tcp_flags_unset,
+            "send_enabled": self.send_enabled,
+            "send_repeats": self.send_repeats,
+            "send_ip_ttl": self.send_ip_ttl,
+            "send_ip6_ttl": self.send_ip6_ttl,
+            "send_ip_id": self.send_ip_id,
+            "send_badsum": self.send_badsum,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "SyndataSettings":
+        """Creates SyndataSettings from dictionary."""
+        return cls(
+            enabled=data.get("enabled", True),
+            blob=data.get("blob", "tls_google"),
+            tls_mod=data.get("tls_mod", "none"),
+            autottl_delta=data.get("autottl_delta", -2),
+            autottl_min=data.get("autottl_min", 3),
+            autottl_max=data.get("autottl_max", 20),
+            out_range=data.get("out_range", 8),
+            out_range_mode=data.get("out_range_mode", "n"),
+            tcp_flags_unset=data.get("tcp_flags_unset", "none"),
+            send_enabled=data.get("send_enabled", True),
+            send_repeats=data.get("send_repeats", 2),
+            send_ip_ttl=data.get("send_ip_ttl", 0),
+            send_ip6_ttl=data.get("send_ip6_ttl", 0),
+            send_ip_id=data.get("send_ip_id", "none"),
+            send_badsum=data.get("send_badsum", False),
+        )
+
+    @classmethod
+    def get_defaults(cls) -> "SyndataSettings":
+        """Returns default settings instance."""
+        return cls()
+
+
+@dataclass
+class CategoryConfig:
+    """
+    Configuration for a single category (e.g., youtube, discord).
+
+    A category can have separate TCP and UDP strategies.
+    ID of strategy = its arguments (no string IDs needed).
+
+    Attributes:
+        name: Category name (e.g., "youtube", "discord")
+        tcp_args: TCP strategy arguments (e.g., "--lua-desync=multisplit:pos=1,midsld")
+        udp_args: UDP strategy arguments (e.g., "--lua-desync=fake:blob=quic1")
+        tcp_enabled: Whether TCP strategy is enabled
+        udp_enabled: Whether UDP strategy is enabled
+        filter_mode: "hostlist" or "ipset" - how domains are filtered
+        tcp_port: Port for TCP filter (default "443")
+        udp_port: Port for UDP filter (default "443")
+        syndata: Syndata/Send settings for this category
+        sort_order: Sort order for strategies list ("default", "name_asc", "name_desc")
+    """
+    name: str
+    tcp_args: str = ""
+    udp_args: str = ""
+    tcp_enabled: bool = True
+    udp_enabled: bool = True
+    filter_mode: str = "hostlist"  # "hostlist" or "ipset"
+    tcp_port: str = "443"
+    udp_port: str = "443"
+    syndata: SyndataSettings = field(default_factory=SyndataSettings)
+    sort_order: str = "default"  # "default", "name_asc", "name_desc"
+
+    def get_hostlist_file(self) -> str:
+        """Returns hostlist filename for this category."""
+        return f"{self.name}.txt"
+
+    def get_ipset_file(self) -> str:
+        """Returns ipset filename for this category (with ipset- prefix)."""
+        return f"ipset-{self.name}.txt"
+
+    def get_filter_file(self) -> str:
+        """Returns filter file based on filter_mode."""
+        if self.filter_mode == "ipset":
+            return self.get_ipset_file()
+        return self.get_hostlist_file()
+
+    def has_tcp(self) -> bool:
+        """Returns True if TCP strategy is configured."""
+        return bool(self.tcp_args.strip())
+
+    def has_udp(self) -> bool:
+        """Returns True if UDP strategy is configured."""
+        return bool(self.udp_args.strip())
+
+    def to_dict(self) -> Dict:
+        """Converts to dictionary for serialization."""
+        return {
+            "name": self.name,
+            "tcp_args": self.tcp_args,
+            "udp_args": self.udp_args,
+            "tcp_enabled": self.tcp_enabled,
+            "udp_enabled": self.udp_enabled,
+            "filter_mode": self.filter_mode,
+            "tcp_port": self.tcp_port,
+            "udp_port": self.udp_port,
+            "syndata": self.syndata.to_dict(),
+            "sort_order": self.sort_order,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "CategoryConfig":
+        """Creates CategoryConfig from dictionary."""
+        # Parse syndata if present
+        syndata_data = data.get("syndata", {})
+        syndata = SyndataSettings.from_dict(syndata_data) if syndata_data else SyndataSettings()
+
+        return cls(
+            name=data.get("name", "unknown"),
+            tcp_args=data.get("tcp_args", ""),
+            udp_args=data.get("udp_args", ""),
+            tcp_enabled=data.get("tcp_enabled", True),
+            udp_enabled=data.get("udp_enabled", True),
+            filter_mode=data.get("filter_mode", "hostlist"),
+            tcp_port=data.get("tcp_port", "443"),
+            udp_port=data.get("udp_port", "443"),
+            syndata=syndata,
+            sort_order=data.get("sort_order", "default"),
+        )
+
+
+@dataclass
+class Preset:
+    """
+    Complete preset configuration.
+
+    A preset contains:
+    - Metadata (name, timestamps)
+    - Base arguments (lua-init, wf-*, blobs)
+    - Category configurations (youtube, discord, etc.)
+
+    Attributes:
+        name: Preset name (e.g., "Default", "Gaming", "Streaming")
+        created: Creation timestamp (ISO format)
+        modified: Last modification timestamp (ISO format)
+        description: Optional description
+        categories: Dict of category name -> CategoryConfig
+        base_args: Base arguments (lua-init, wf-tcp-out, blobs)
+        is_builtin: True if this is a built-in preset (cannot be deleted)
+    """
+    name: str
+    created: str = field(default_factory=lambda: datetime.now().isoformat())
+    modified: str = field(default_factory=lambda: datetime.now().isoformat())
+    description: str = ""
+    categories: Dict[str, CategoryConfig] = field(default_factory=dict)
+    base_args: str = ""
+    is_builtin: bool = False
+
+    # Default base args for new presets
+    DEFAULT_BASE_ARGS = """--lua-init=@lua/zapret-lib.lua
+--lua-init=@lua/zapret-antidpi.lua
+--lua-init=@lua/zapret-auto.lua
+--lua-init=@lua/custom_funcs.lua
+--wf-tcp-out=443
+--wf-udp-out=443"""
+
+    def __post_init__(self):
+        """Initialize base_args with default if empty."""
+        if not self.base_args:
+            self.base_args = self.DEFAULT_BASE_ARGS
+
+    def get_category(self, name: str) -> Optional[CategoryConfig]:
+        """Gets category config by name."""
+        return self.categories.get(name)
+
+    def set_category(self, config: CategoryConfig) -> None:
+        """Sets or updates category config."""
+        self.categories[config.name] = config
+        self.touch()
+
+    def remove_category(self, name: str) -> bool:
+        """Removes category. Returns True if removed."""
+        if name in self.categories:
+            del self.categories[name]
+            self.touch()
+            return True
+        return False
+
+    def list_categories(self) -> List[str]:
+        """Returns list of category names."""
+        return list(self.categories.keys())
+
+    def touch(self) -> None:
+        """Updates modified timestamp."""
+        self.modified = datetime.now().isoformat()
+
+    def get_enabled_categories(self) -> List[CategoryConfig]:
+        """Returns list of categories with at least one enabled protocol."""
+        result = []
+        for cat in self.categories.values():
+            if (cat.tcp_enabled and cat.has_tcp()) or (cat.udp_enabled and cat.has_udp()):
+                result.append(cat)
+        return result
+
+    def to_dict(self) -> Dict:
+        """Converts to dictionary for serialization."""
+        return {
+            "name": self.name,
+            "created": self.created,
+            "modified": self.modified,
+            "description": self.description,
+            "base_args": self.base_args,
+            "is_builtin": self.is_builtin,
+            "categories": {
+                name: cat.to_dict()
+                for name, cat in self.categories.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Preset":
+        """Creates Preset from dictionary."""
+        categories = {}
+        for name, cat_data in data.get("categories", {}).items():
+            categories[name] = CategoryConfig.from_dict(cat_data)
+
+        return cls(
+            name=data.get("name", "Unnamed"),
+            created=data.get("created", datetime.now().isoformat()),
+            modified=data.get("modified", datetime.now().isoformat()),
+            description=data.get("description", ""),
+            base_args=data.get("base_args", ""),
+            is_builtin=data.get("is_builtin", False),
+            categories=categories,
+        )
+
+    @classmethod
+    def create_default(cls, name: str = "Default") -> "Preset":
+        """
+        Creates a default preset with common categories.
+
+        Returns:
+            New Preset with youtube and discord categories.
+        """
+        preset = cls(name=name)
+
+        # Add youtube category
+        preset.categories["youtube"] = CategoryConfig(
+            name="youtube",
+            tcp_args="--lua-desync=multisplit:pos=1,midsld",
+            udp_args="--lua-desync=fake:blob=quic1",
+            filter_mode="hostlist",
+        )
+
+        # Add discord category
+        preset.categories["discord"] = CategoryConfig(
+            name="discord",
+            tcp_args="--lua-desync=fake:blob=tls7",
+            udp_args="--lua-desync=fake:blob=quic1",
+            filter_mode="hostlist",
+        )
+
+        return preset
+
+
+def validate_preset(preset: Preset) -> List[str]:
+    """
+    Validates preset configuration.
+
+    Returns:
+        List of error messages (empty if valid).
+    """
+    errors = []
+
+    if not preset.name or not preset.name.strip():
+        errors.append("Preset name is required")
+
+    if not preset.base_args or not preset.base_args.strip():
+        errors.append("Base arguments are required")
+
+    # Check for required lua-init
+    if "--lua-init=" not in preset.base_args:
+        errors.append("Base args must include --lua-init")
+
+    # Check categories
+    for name, cat in preset.categories.items():
+        if cat.tcp_enabled and cat.has_tcp():
+            if "--lua-desync=" not in cat.tcp_args and "--dpi-desync=" not in cat.tcp_args:
+                errors.append(f"Category {name} TCP: missing desync arguments")
+
+        if cat.udp_enabled and cat.has_udp():
+            if "--lua-desync=" not in cat.udp_args and "--dpi-desync=" not in cat.udp_args:
+                errors.append(f"Category {name} UDP: missing desync arguments")
+
+    return errors

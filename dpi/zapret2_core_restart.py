@@ -61,15 +61,23 @@ def _is_dpi_running(app: 'LupiDPIApp') -> bool:
 
 def _has_active_strategies() -> bool:
     """
-    Проверяет есть ли активные стратегии (не все = 'none').
+    Проверяет есть ли активные стратегии в preset файле.
+
+    Проверяет наличие WinDivert фильтров (--wf-tcp-out, --wf-udp-out).
 
     Returns:
-        True если есть хотя бы одна активная стратегия
+        True если есть хотя бы один активный фильтр
     """
     try:
-        from strategy_menu import get_direct_strategy_selections
-        selections = get_direct_strategy_selections()
-        return any(sid and sid != 'none' for sid in selections.values())
+        from presets import get_active_preset_path
+
+        preset_path = get_active_preset_path()
+        if not preset_path.exists():
+            return False
+
+        content = preset_path.read_text(encoding='utf-8')
+        return any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+
     except Exception as e:
         log(f"Ошибка проверки активных стратегий: {e}", "ERROR")
         return False
@@ -83,11 +91,11 @@ def trigger_dpi_reload(
     """
     Унифицированный механизм перезагрузки DPI для режима direct_zapret2.
 
-    Выполняет:
-    1. Проверяет что текущий режим = direct_zapret2
-    2. Вызывает regenerate_preset_file() для обновления preset-zapret2.txt
-    3. Проверяет запущен ли DPI через app.dpi_starter.check_process_running_wmi()
-    4. Если запущен - перезапускает через app.dpi_controller.start_dpi_async()
+    НОВАЯ АРХИТЕКТУРА (без реестра):
+    - Preset файл уже обновлен UI через PresetManager.sync_preset_to_active_file()
+    - Hot-reload: ConfigFileWatcher в StrategyRunnerV2 автоматически перезапустит
+      winws2.exe когда обнаружит изменение preset-zapret2.txt
+    - Эта функция нужна только для немедленного перезапуска если hot-reload выключен
 
     Args:
         app: Главное приложение (LupiDPIApp)
@@ -97,6 +105,7 @@ def trigger_dpi_reload(
             - "strategy_changed" - изменилась выбранная стратегия
             - "send_changed" - изменились настройки send
             - "out_range_changed" - изменился out_range
+            - "preset_switched" - переключился пресет
         category_key: Опциональная категория которая изменилась
 
     Returns:
@@ -112,52 +121,45 @@ def trigger_dpi_reload(
         log("trigger_dpi_reload: dpi_controller не найден", "DEBUG")
         return False
 
-    # 3. Регенерируем preset файл
-    try:
-        from strategy_menu import regenerate_preset_file
-        regenerate_preset_file()
-        log(f"Preset файл обновлен (причина: {reason})", "DEBUG")
-    except Exception as e:
-        log(f"Ошибка регенерации preset файла: {e}", "ERROR")
-        # Продолжаем - возможно preset уже актуален
-
-    # 4. Проверяем запущен ли DPI
+    # 3. Проверяем запущен ли DPI
     if not _is_dpi_running(app):
         log(f"trigger_dpi_reload: DPI не запущен, перезапуск не требуется", "DEBUG")
         return False
 
-    # 5. Проверяем есть ли активные стратегии
-    if not _has_active_strategies():
-        log("Нет активных стратегий - останавливаем DPI", "INFO")
-        app.dpi_controller.stop_dpi_async()
-        return True
-
-    # 6. Комбинируем стратегии и перезапускаем
+    # 4. Проверяем наличие preset файла с активными фильтрами
     try:
-        from strategy_menu import get_direct_strategy_selections, combine_strategies
+        from presets import get_active_preset_path
+        preset_path = get_active_preset_path()
 
-        selections = get_direct_strategy_selections()
-        combined = combine_strategies(**selections)
+        if not preset_path.exists():
+            log("Preset файл не найден - останавливаем DPI", "WARNING")
+            app.dpi_controller.stop_dpi_async()
+            return True
 
-        combined_data = {
-            'id': 'DIRECT_MODE',
-            'name': 'Прямой запуск (Запрет 2)',
-            'is_combined': True,
-            'args': combined['args'],
-            'selections': selections.copy()
-        }
+        # Проверяем наличие активных фильтров
+        content = preset_path.read_text(encoding='utf-8')
+        has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
 
-        category_info = f" [{category_key}]" if category_key else ""
-        log(f"Перезапуск DPI{category_info} (причина: {reason})", "INFO")
-
-        app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-        return True
+        if not has_filters:
+            log("Preset файл не содержит активных фильтров - останавливаем DPI", "INFO")
+            app.dpi_controller.stop_dpi_async()
+            return True
 
     except Exception as e:
-        log(f"Ошибка перезапуска DPI: {e}", "ERROR")
-        import traceback
-        log(traceback.format_exc(), "DEBUG")
-        return False
+        log(f"Ошибка проверки preset файла: {e}", "ERROR")
+        # Продолжаем - пусть hot-reload обработает
+
+    # 5. Hot-reload: ConfigFileWatcher автоматически перезапустит winws2.exe
+    #    когда обнаружит изменение preset-zapret2.txt
+    #    Но если нужен немедленный перезапуск - делаем явно
+    category_info = f" [{category_key}]" if category_key else ""
+    log(f"DPI reload{category_info} (причина: {reason}) - hot-reload сработает автоматически", "INFO")
+
+    # Для немедленного эффекта можно явно перезапустить
+    # (hot-reload имеет задержку ~1 сек)
+    # app.dpi_controller.start_dpi_async()  # Закомментировано - полагаемся на hot-reload
+
+    return True
 
 
 class DPIReloadDebouncer:

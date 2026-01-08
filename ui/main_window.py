@@ -18,7 +18,7 @@ from ui.pages import (
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
     Zapret2StrategiesPageNew, StrategyDetailPage,
-    Zapret1DirectStrategiesPage, BatStrategiesPage
+    Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage
 )
 
 import qtawesome as qta
@@ -156,6 +156,10 @@ class MainWindowUI:
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
 
+        # Пресеты настроек (только direct_zapret2)
+        self.presets_page = PresetsPage(self)
+        self.pages_stack.addWidget(self.presets_page)
+
         # === МОИ СПИСКИ ===
         # Исключения netrogat.txt
         self.netrogat_page = NetrogatPage(self)
@@ -250,6 +254,7 @@ class MainWindowUI:
             PageName.BLOBS: self.blobs_page,
             PageName.EDITOR: self.editor_page,
             PageName.DPI_SETTINGS: self.dpi_settings_page,
+            PageName.PRESETS: self.presets_page,
             PageName.NETROGAT: self.netrogat_page,
             PageName.CUSTOM_DOMAINS: self.custom_domains_page,
             PageName.CUSTOM_IPSET: self.custom_ipset_page,
@@ -394,6 +399,21 @@ class MainWindowUI:
                 self.zapret2_strategies_page.on_external_sort_changed
             )
 
+        # Подключаем сигналы от PresetsPage
+        if hasattr(self, 'presets_page') and hasattr(self.presets_page, 'preset_switched'):
+            self.presets_page.preset_switched.connect(self._on_preset_switched)
+
+    def _on_preset_switched(self, preset_name: str):
+        """Обработчик переключения пресета - перезапускает DPI если запущен"""
+        from log import log
+        log(f"Пресет переключен: {preset_name}", "INFO")
+
+        # Перезапуск DPI если он запущен
+        if hasattr(self, 'dpi_controller') and self.dpi_controller:
+            if self.dpi_controller.is_running():
+                log("DPI запущен - выполняем перезапуск после смены пресета", "INFO")
+                self.dpi_controller.restart_dpi_async()
+
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""
         from log import log
@@ -489,6 +509,10 @@ class MainWindowUI:
         # ✅ Обновляем видимость вкладок оркестратора (Залоченные/Заблокированные vs Hostlist/IPset/Редактор)
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_orchestra_visibility'):
             self.side_nav.update_orchestra_visibility()
+
+        # ✅ Обновляем видимость вкладки "Пресеты" (только для direct_zapret2)
+        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_presets_visibility'):
+            self.side_nav.update_presets_visibility()
 
         log(f"✅ Переключение на режим '{method}' завершено", "INFO")
         

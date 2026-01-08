@@ -132,6 +132,51 @@ class StrategyRunnerBase(ABC):
         """Returns the preset filename for this runner type (e.g., preset-zapret1.txt)"""
         pass
 
+    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+        """
+        Starts strategy directly from existing preset file.
+
+        This is the preferred method for launching DPI in the new architecture
+        where preset files are managed by PresetManager instead of registry.
+
+        Default implementation reads the file and calls start_strategy_custom.
+        Subclasses (like StrategyRunnerV2) may override for more efficient handling.
+
+        Args:
+            preset_path: Path to preset file (e.g., preset-zapret2.txt)
+            strategy_name: Strategy name for logs
+
+        Returns:
+            True if strategy started successfully
+        """
+        if not os.path.exists(preset_path):
+            log(f"Preset file not found: {preset_path}", "ERROR")
+            return False
+
+        try:
+            # Read preset file and parse arguments
+            with open(preset_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            args = []
+            for line in lines:
+                line = line.strip()
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+                args.append(line)
+
+            if not args:
+                log(f"Preset file is empty or has no valid arguments: {preset_path}", "ERROR")
+                return False
+
+            log(f"Starting from preset file: {preset_path} ({len(args)} args)", "INFO")
+            return self.start_strategy_custom(args, strategy_name)
+
+        except Exception as e:
+            log(f"Error reading preset file: {e}", "ERROR")
+            return False
+
     def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
         """
         Writes arguments to preset file for loading via @file.

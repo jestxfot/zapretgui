@@ -716,6 +716,7 @@ class SideNavBar(QWidget):
             ("fa5s.ban", "Заблокированные", True),     # ORCHESTRA_BLOCKED - подпункт (оркестратор: чёрный список)
             ("mdi.chart-bar", "Рейтинги", True),       # ORCHESTRA_RATINGS - подпункт (оркестратор: история стратегий с рейтингами)
             ("fa5s.cogs", "Настройки DPI", True),      # DPI_SETTINGS - подпункт (всегда внизу группы)
+            ("mdi.folder-cog", "Пресеты", True),      # PRESETS - подпункт (управление пресетами, только direct_zapret2)
             (None, "Мои списки", "collapsible_header"),# MY_LISTS_HEADER - текстовый заголовок со сворачиванием подпунктов
             ("fa5s.ban", "Исключения", True),          # NETROGAT - подпункт (netrogat.txt) - скрывается в режиме оркестратора
             ("fa5s.shield-alt", "Белый список", True), # ORCHESTRA_WHITELIST - подпункт (whitelist оркестратора) - только в режиме оркестратора
@@ -756,22 +757,23 @@ class SideNavBar(QWidget):
             SectionName.ORCHESTRA_BLOCKED: 10,
             SectionName.ORCHESTRA_RATINGS: 11,
             SectionName.DPI_SETTINGS: 12,
-            SectionName.MY_LISTS_HEADER: 13,
-            SectionName.NETROGAT: 14,
-            SectionName.ORCHESTRA_WHITELIST: 15,
-            SectionName.CUSTOM_HOSTLIST: 16,
-            SectionName.CUSTOM_IPSET: 17,
-            SectionName.AUTOSTART: 18,
-            SectionName.NETWORK: 19,
-            SectionName.DIAGNOSTICS: 20,
-            SectionName.DNS_CHECK: 21,
-            SectionName.HOSTS: 22,
-            SectionName.BLOCKCHECK: 23,
-            SectionName.APPEARANCE: 24,
-            SectionName.PREMIUM: 25,
-            SectionName.LOGS: 26,
-            SectionName.SERVERS: 27,
-            SectionName.ABOUT: 28,
+            SectionName.PRESETS: 13,
+            SectionName.MY_LISTS_HEADER: 14,
+            SectionName.NETROGAT: 15,
+            SectionName.ORCHESTRA_WHITELIST: 16,
+            SectionName.CUSTOM_HOSTLIST: 17,
+            SectionName.CUSTOM_IPSET: 18,
+            SectionName.AUTOSTART: 19,
+            SectionName.NETWORK: 20,
+            SectionName.DIAGNOSTICS: 21,
+            SectionName.DNS_CHECK: 22,
+            SectionName.HOSTS: 23,
+            SectionName.BLOCKCHECK: 24,
+            SectionName.APPEARANCE: 25,
+            SectionName.PREMIUM: 26,
+            SectionName.LOGS: 27,
+            SectionName.SERVERS: 28,
+            SectionName.ABOUT: 29,
         }
 
         # Обратный маппинг: числовой индекс i -> SectionName
@@ -797,7 +799,8 @@ class SideNavBar(QWidget):
         self._whitelist_button = None        # Кнопка "Белый список"
         self._custom_hostlist_button = None  # Кнопка "Мои hostlist"
         self._custom_ipset_button = None     # Кнопка "Мои ipset"
-        
+        self._presets_button = None          # Кнопка "Пресеты"
+
         # Группы подпунктов для сворачивания
         self._collapsible_groups = {}  # parent_index -> [sub_button_widgets]
         current_collapsible_parent = None
@@ -877,6 +880,8 @@ class SideNavBar(QWidget):
                     self._custom_hostlist_button = btn
                 elif i == _idx[SectionName.CUSTOM_IPSET]:
                     self._custom_ipset_button = btn
+                elif i == _idx[SectionName.PRESETS]:
+                    self._presets_button = btn
             else:
                 btn = NavButton(icon, text, self)
                 btn.setMinimumHeight(36)
@@ -897,7 +902,8 @@ class SideNavBar(QWidget):
         # Обновляем видимость вкладок в зависимости от режима
         self.update_blobs_visibility()
         self.update_orchestra_visibility()
-        
+        self.update_presets_visibility()
+
         # Растягивающий спейсер внутри контейнера
         nav_layout.addStretch(1)
         
@@ -1376,6 +1382,24 @@ class SideNavBar(QWidget):
             self._custom_hostlist_button.setVisible(not is_orchestra)
         if self._custom_ipset_button:
             self._custom_ipset_button.setVisible(not is_orchestra)
+
+    def update_presets_visibility(self):
+        """
+        Обновляет видимость вкладки 'Пресеты'.
+        Пресеты доступны ТОЛЬКО в режиме direct_zapret2.
+        """
+        try:
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+            is_direct_zapret2 = method == "direct_zapret2"
+            if self._presets_button:
+                self._presets_button.setVisible(is_direct_zapret2)
+        except Exception as e:
+            from log import log
+            log(f"Ошибка проверки режима для пресетов: {e}", "DEBUG")
+            # По умолчанию скрываем
+            if self._presets_button:
+                self._presets_button.setVisible(False)
 
 
 class SettingsCard(QFrame):

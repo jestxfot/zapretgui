@@ -40,7 +40,12 @@
       "Bash(if not exist \"h:\\\\Privacy\\\\zapretgui\\\\launcher_common\" mkdir \"h:\\\\Privacy\\\\zapretgui\\\\launcher_common\")",
       "Bash(grep:*)",
       "Bash(sort:*)",
-      "Skill(o)"
+      "Skill(o)",
+      "Bash(source ~/.bashrc)",
+      "Bash(echo:*)",
+      "Bash(export ALL_PROXY=\"socks5://127.0.0.1:10808\")",
+      "Bash(systemctl:*)",
+      "Bash(pkill:*)"
     ]
   }
 }

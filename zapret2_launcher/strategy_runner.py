@@ -245,6 +245,121 @@ class StrategyRunnerV2(StrategyRunnerBase):
             self.running_process = None
             return False
 
+    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+        """
+        Starts strategy directly from existing preset file.
+
+        This is the new primary method for launching DPI - it uses an already
+        prepared preset file instead of generating args from registry.
+
+        Features:
+        - Hot-reload support (monitors preset file for changes)
+        - No registry access needed
+        - Preset file already contains all arguments
+
+        Args:
+            preset_path: Path to preset file (e.g., preset-zapret2.txt)
+            strategy_name: Strategy name for logs
+
+        Returns:
+            True if strategy started successfully
+        """
+        from utils.process_killer import kill_winws_force
+
+        if not os.path.exists(preset_path):
+            log(f"Preset file not found: {preset_path}", "ERROR")
+            return False
+
+        try:
+            # Stop previous process and watcher
+            if self.running_process and self.is_running():
+                log("Stopping previous process before starting new one", "INFO")
+                self.stop()
+
+            # Cleanup
+            log("Cleaning up previous winws processes...", "DEBUG")
+            kill_winws_force()
+            self._fast_cleanup_services()
+
+            # Unload WinDivert drivers for complete cleanup
+            try:
+                from utils.service_manager import unload_driver
+                for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
+                    try:
+                        unload_driver(driver)
+                    except:
+                        pass
+            except:
+                pass
+
+            time.sleep(0.3)
+
+            # Store preset file path for hot-reload
+            self._preset_file_path = preset_path
+
+            # Build command with @file
+            cmd = [self.winws_exe, f"@{preset_path}"]
+
+            log(f"Starting from preset file: {preset_path}", "INFO")
+            log(f"Strategy: {strategy_name}", "INFO")
+
+            # Start process
+            self.running_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                startupinfo=self._create_startup_info(),
+                creationflags=CREATE_NO_WINDOW,
+                cwd=self.work_dir
+            )
+
+            # Save info
+            self.current_strategy_name = strategy_name
+            self.current_strategy_args = [f"@{preset_path}"]
+
+            # Quick startup check
+            time.sleep(0.2)
+
+            if self.running_process.poll() is None:
+                log(f"Strategy '{strategy_name}' started from preset (PID: {self.running_process.pid})", "SUCCESS")
+
+                # Start hot-reload watcher after successful start
+                self._start_config_watcher()
+
+                return True
+            else:
+                exit_code = self.running_process.returncode
+                log(f"Strategy '{strategy_name}' exited immediately (code: {exit_code})", "ERROR")
+
+                stderr_output = ""
+                try:
+                    stderr_output = self.running_process.stderr.read().decode('utf-8', errors='ignore')
+                    if stderr_output:
+                        log(f"Error: {stderr_output[:500]}", "ERROR")
+                except:
+                    pass
+
+                self.running_process = None
+                self.current_strategy_name = None
+                self.current_strategy_args = None
+                self._preset_file_path = None
+
+                return False
+
+        except Exception as e:
+            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            for line in diagnosis.split('\n'):
+                log(line, "ERROR")
+
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            self.running_process = None
+            self.current_strategy_name = None
+            self.current_strategy_args = None
+            self._preset_file_path = None
+            return False
+
     def _start_config_watcher(self):
         """Start watching the preset file for changes"""
         if self._config_watcher:

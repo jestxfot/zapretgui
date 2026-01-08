@@ -18,6 +18,7 @@ from ui.pages.dpi_settings_page import Win11ToggleRow
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
 from launcher_common.blobs import get_blobs_info
+from presets import PresetManager, SyndataSettings
 from log import log
 
 
@@ -108,6 +109,98 @@ class FilterModeSelector(QWidget):
 
     def currentMode(self) -> str:
         return self._current_mode
+
+
+class TTLButtonSelector(QWidget):
+    """
+    Универсальный селектор значения через ряд кнопок.
+    Используется для send_ip_ttl, autottl_delta, autottl_min, autottl_max
+    """
+    value_changed = pyqtSignal(int)  # Эмитит выбранное значение
+
+    def __init__(self, values: list, labels: list = None, parent=None):
+        """
+        Args:
+            values: список int значений для кнопок, например [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+            labels: опциональные метки для кнопок, например ["off", "1", "2", ...]
+                   Если None - используются str(value)
+        """
+        super().__init__(parent)
+        self._values = values
+        self._labels = labels or [str(v) for v in values]
+        self._current_value = values[0]
+        self._buttons = []
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)  # Маленький отступ между кнопками
+
+        for i, (value, label) in enumerate(zip(self._values, self._labels)):
+            btn = QPushButton(label)
+            btn.setFixedSize(36, 24)  # Увеличено с 28 для видимости текста
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked, v=value: self._select(v))
+            self._buttons.append((btn, value))
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        self._update_styles()
+
+    def _select(self, value: int):
+        if value != self._current_value:
+            self._current_value = value
+            self._update_styles()
+            self.value_changed.emit(value)
+
+    def _update_styles(self):
+        active_style = """
+            QPushButton {
+                background: #60cdff;
+                border: none;
+                color: #000000;
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 4px;
+                padding: 0 2px;
+            }
+        """
+        inactive_style = """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 12px;
+                border-radius: 4px;
+                padding: 0 2px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+        """
+        for btn, value in self._buttons:
+            if value == self._current_value:
+                btn.setStyleSheet(active_style)
+                btn.setChecked(True)
+            else:
+                btn.setStyleSheet(inactive_style)
+                btn.setChecked(False)
+
+    def setValue(self, value: int, block_signals: bool = False):
+        """Устанавливает значение программно"""
+        if value in self._values:
+            if block_signals:
+                self.blockSignals(True)
+            self._current_value = value
+            self._update_styles()
+            if block_signals:
+                self.blockSignals(False)
+
+    def value(self) -> int:
+        """Возвращает текущее значение"""
+        return self._current_value
 
 
 class ClickableLabel(QLabel):
@@ -516,9 +609,29 @@ class StrategyDetailPage(BasePage):
         self._strategy_rows = {}
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._active_filters = set()  # Активные фильтры по технике
-        self._reload_debouncer = None  # DPI reload debouncer для syndata
+        self._waiting_for_process_start = False  # Флаг ожидания запуска DPI
+        self._process_monitor_connected = False  # Флаг подключения к process_monitor
+        self._fallback_timer = None  # Таймер защиты от бесконечного спиннера
+
+        # PresetManager for category settings storage
+        self._preset_manager = PresetManager(
+            on_dpi_reload_needed=self._on_dpi_reload_needed
+        )
 
         self._build_content()
+
+        # Подключаемся к process_monitor для отслеживания статуса DPI
+        self._connect_process_monitor()
+
+    def _on_dpi_reload_needed(self):
+        """Callback for PresetManager when DPI reload is needed."""
+        from dpi.zapret2_core_restart import trigger_dpi_reload
+        if self.parent_app:
+            trigger_dpi_reload(
+                self.parent_app,
+                reason="preset_settings_changed",
+                category_key=self._category_key
+            )
 
     def _build_content(self):
         """Строит содержимое страницы"""
@@ -697,7 +810,7 @@ class StrategyDetailPage(BasePage):
         self._out_range_mode_n = QPushButton("n")
         self._out_range_mode_d = QPushButton("d")
         for btn in [self._out_range_mode_n, self._out_range_mode_d]:
-            btn.setFixedSize(32, 28)
+            btn.setFixedSize(36, 28)  # Увеличил ширину для видимости букв
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
             btn.setToolTip("n = packets count, d = delay")
@@ -861,15 +974,14 @@ class StrategyDetailPage(BasePage):
         send_ip_ttl_label = QLabel("ip_ttl:")
         send_ip_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         send_ip_ttl_label.setFixedWidth(60)
-        self._send_ip_ttl_spin = QSpinBox()
-        self._send_ip_ttl_spin.setRange(0, 255)
-        self._send_ip_ttl_spin.setValue(0)
-        self._send_ip_ttl_spin.setSpecialValueText("auto")
-        self._send_ip_ttl_spin.setToolTip("TTL для IPv4 отправляемых пакетов (0 = auto)")
-        self._send_ip_ttl_spin.setStyleSheet(send_spinbox_style)
-        self._send_ip_ttl_spin.valueChanged.connect(self._save_syndata_settings)
+        self._send_ip_ttl_selector = TTLButtonSelector(
+            values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        )
+        self._send_ip_ttl_selector.setToolTip("TTL для IPv4 отправляемых пакетов (off = auto)")
+        self._send_ip_ttl_selector.value_changed.connect(self._save_syndata_settings)
         send_ip_ttl_row.addWidget(send_ip_ttl_label)
-        send_ip_ttl_row.addWidget(self._send_ip_ttl_spin)
+        send_ip_ttl_row.addWidget(self._send_ip_ttl_selector)
         send_ip_ttl_row.addStretch()
         send_settings_layout.addLayout(send_ip_ttl_row)
 
@@ -879,15 +991,14 @@ class StrategyDetailPage(BasePage):
         send_ip6_ttl_label = QLabel("ip6_ttl:")
         send_ip6_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         send_ip6_ttl_label.setFixedWidth(60)
-        self._send_ip6_ttl_spin = QSpinBox()
-        self._send_ip6_ttl_spin.setRange(0, 255)
-        self._send_ip6_ttl_spin.setValue(0)
-        self._send_ip6_ttl_spin.setSpecialValueText("auto")
-        self._send_ip6_ttl_spin.setToolTip("TTL для IPv6 отправляемых пакетов (0 = auto)")
-        self._send_ip6_ttl_spin.setStyleSheet(send_spinbox_style)
-        self._send_ip6_ttl_spin.valueChanged.connect(self._save_syndata_settings)
+        self._send_ip6_ttl_selector = TTLButtonSelector(
+            values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        )
+        self._send_ip6_ttl_selector.setToolTip("TTL для IPv6 отправляемых пакетов (off = auto)")
+        self._send_ip6_ttl_selector.value_changed.connect(self._save_syndata_settings)
         send_ip6_ttl_row.addWidget(send_ip6_ttl_label)
-        send_ip6_ttl_row.addWidget(self._send_ip6_ttl_spin)
+        send_ip6_ttl_row.addWidget(self._send_ip6_ttl_selector)
         send_ip6_ttl_row.addStretch()
         send_settings_layout.addLayout(send_ip6_ttl_row)
 
@@ -1070,57 +1181,70 @@ class StrategyDetailPage(BasePage):
         tls_mod_row.addStretch()
         settings_layout.addLayout(tls_mod_row)
 
-        # IP AutoTTL row (delta, min-max)
-        autottl_row = QHBoxLayout()
-        autottl_row.setSpacing(8)
-        autottl_label = QLabel("autottl:")
-        autottl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
-        autottl_label.setFixedWidth(60)
+        # ═══════════════════════════════════════════════════════════════
+        # AUTOTTL SETTINGS (три строки с кнопками)
+        # ═══════════════════════════════════════════════════════════════
+        autottl_header = QLabel("AutoTTL")
+        autottl_header.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        settings_layout.addWidget(autottl_header)
 
-        autottl_spinbox_style = """
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: white;
-                min-width: 50px;
-            }
-        """
+        # Контейнер для трёх строк autottl
+        autottl_container = QVBoxLayout()
+        autottl_container.setSpacing(6)
+        autottl_container.setContentsMargins(0, 0, 0, 0)
 
-        # Delta spinbox (-10 to +10, default -2)
-        self._autottl_delta_spin = QSpinBox()
-        self._autottl_delta_spin.setRange(-10, 10)
-        self._autottl_delta_spin.setValue(-2)
-        self._autottl_delta_spin.setPrefix("d:")
-        self._autottl_delta_spin.setToolTip("Delta: смещение от измеренного TTL (по умолчанию -2)")
-        self._autottl_delta_spin.setStyleSheet(autottl_spinbox_style)
-        self._autottl_delta_spin.valueChanged.connect(self._save_syndata_settings)
+        # --- Delta row ---
+        delta_row = QHBoxLayout()
+        delta_row.setSpacing(8)
+        delta_label = QLabel("d:")
+        delta_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        delta_label.setFixedWidth(30)
+        self._autottl_delta_selector = TTLButtonSelector(
+            values=[-1, -2, -3, -4, -5, -6, -7, -8, -9],
+            labels=["-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
+        )
+        self._autottl_delta_selector.setToolTip("Delta: смещение от измеренного TTL")
+        self._autottl_delta_selector.value_changed.connect(self._save_syndata_settings)
+        delta_row.addWidget(delta_label)
+        delta_row.addWidget(self._autottl_delta_selector)
+        delta_row.addStretch()
+        autottl_container.addLayout(delta_row)
 
-        # Min spinbox (1-255, default 3)
-        self._autottl_min_spin = QSpinBox()
-        self._autottl_min_spin.setRange(1, 255)
-        self._autottl_min_spin.setValue(3)
-        self._autottl_min_spin.setPrefix("min:")
-        self._autottl_min_spin.setToolTip("Минимальный TTL (по умолчанию 3)")
-        self._autottl_min_spin.setStyleSheet(autottl_spinbox_style)
-        self._autottl_min_spin.valueChanged.connect(self._save_syndata_settings)
+        # --- Min row ---
+        min_row = QHBoxLayout()
+        min_row.setSpacing(8)
+        min_label = QLabel("min:")
+        min_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        min_label.setFixedWidth(30)
+        self._autottl_min_selector = TTLButtonSelector(
+            values=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            labels=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+        )
+        self._autottl_min_selector.setToolTip("Минимальный TTL")
+        self._autottl_min_selector.value_changed.connect(self._save_syndata_settings)
+        min_row.addWidget(min_label)
+        min_row.addWidget(self._autottl_min_selector)
+        min_row.addStretch()
+        autottl_container.addLayout(min_row)
 
-        # Max spinbox (1-255, default 20)
-        self._autottl_max_spin = QSpinBox()
-        self._autottl_max_spin.setRange(1, 255)
-        self._autottl_max_spin.setValue(20)
-        self._autottl_max_spin.setPrefix("max:")
-        self._autottl_max_spin.setToolTip("Максимальный TTL (по умолчанию 20)")
-        self._autottl_max_spin.setStyleSheet(autottl_spinbox_style)
-        self._autottl_max_spin.valueChanged.connect(self._save_syndata_settings)
+        # --- Max row ---
+        max_row = QHBoxLayout()
+        max_row.setSpacing(8)
+        max_label = QLabel("max:")
+        max_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        max_label.setFixedWidth(30)
+        self._autottl_max_selector = TTLButtonSelector(
+            values=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+            labels=["15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25"]
+        )
+        self._autottl_max_selector.setToolTip("Максимальный TTL")
+        self._autottl_max_selector.value_changed.connect(self._save_syndata_settings)
+        max_row.addWidget(max_label)
+        max_row.addWidget(self._autottl_max_selector)
+        max_row.addStretch()
+        autottl_container.addLayout(max_row)
 
-        autottl_row.addWidget(autottl_label)
-        autottl_row.addWidget(self._autottl_delta_spin)
-        autottl_row.addWidget(self._autottl_min_spin)
-        autottl_row.addWidget(self._autottl_max_spin)
-        autottl_row.addStretch()
-        settings_layout.addLayout(autottl_row)
+        settings_layout.addLayout(autottl_container)
 
         # TCP flags row
         flags_row = QHBoxLayout()
@@ -1453,79 +1577,32 @@ class StrategyDetailPage(BasePage):
         if not self._category_key:
             return
 
-        # new_mode is passed directly from signal
+        # Save via PresetManager (triggers DPI reload automatically)
         self._save_category_filter_mode(self._category_key, new_mode)
         log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
 
-        # Используем единый механизм (regenerate_preset_file вызывается внутри)
-        from dpi.zapret2_core_restart import trigger_dpi_reload
-        trigger_dpi_reload(
-            self.parent_app,
-            reason="filter_mode_changed",
-            category_key=self._category_key
+    def _save_category_filter_mode(self, category_key: str, mode: str):
+        """Сохраняет режим фильтрации для категории через PresetManager"""
+        self._preset_manager.update_category_filter_mode(
+            category_key, mode, save_and_sync=True
         )
 
-    def _save_category_filter_mode(self, category_key: str, mode: str):
-        """Сохраняет режим фильтрации для категории в реестр"""
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-
-            key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                winreg.SetValueEx(key, category_key, 0, winreg.REG_SZ, mode)
-        except Exception as e:
-            log(f"Ошибка сохранения filter_mode для {category_key}: {e}", "WARNING")
-
     def _load_category_filter_mode(self, category_key: str) -> str:
-        """Загружает режим фильтрации для категории из реестра"""
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-
-            key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                value, _ = winreg.QueryValueEx(key, category_key)
-                # Только hostlist или ipset, default → hostlist
-                if value == "ipset":
-                    return "ipset"
-                return "hostlist"
-        except FileNotFoundError:
-            return "hostlist"
-        except Exception as e:
-            log(f"Ошибка загрузки filter_mode для {category_key}: {e}", "DEBUG")
-            return "hostlist"
+        """Загружает режим фильтрации для категории из PresetManager"""
+        return self._preset_manager.get_category_filter_mode(category_key)
 
     def _save_category_sort(self, category_key: str, sort_order: str):
-        """Сохраняет порядок сортировки для категории в реестр"""
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-
-            key_path = f"{REGISTRY_PATH}\\CategorySort"
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                winreg.SetValueEx(key, category_key, 0, winreg.REG_SZ, sort_order)
-        except Exception as e:
-            log(f"Ошибка сохранения sort_order для {category_key}: {e}", "WARNING")
+        """Сохраняет порядок сортировки для категории через PresetManager"""
+        # Sort order is UI-only parameter, doesn't affect DPI
+        # But save_and_sync=True is needed to persist changes to disk
+        # (hot-reload may trigger but sort_order has no effect on winws2)
+        self._preset_manager.update_category_sort_order(
+            category_key, sort_order, save_and_sync=True
+        )
 
     def _load_category_sort(self, category_key: str) -> str:
-        """Загружает порядок сортировки для категории из реестра"""
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-
-            key_path = f"{REGISTRY_PATH}\\CategorySort"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                value, _ = winreg.QueryValueEx(key, category_key)
-                # Валидные значения: default, name_asc, name_desc
-                if value in ("default", "name_asc", "name_desc"):
-                    return value
-                return "default"
-        except FileNotFoundError:
-            return "default"
-        except Exception as e:
-            log(f"Ошибка загрузки sort_order для {category_key}: {e}", "DEBUG")
-            return "default"
+        """Загружает порядок сортировки для категории из PresetManager"""
+        return self._preset_manager.get_category_sort_order(category_key)
 
     # ═══════════════════════════════════════════════════════════════
     # OUT RANGE METHODS
@@ -1548,6 +1625,7 @@ class StrategyDetailPage(BasePage):
                 font-size: 12px;
                 font-weight: 600;
                 border-radius: 4px;
+                padding: 0 4px;
             }
         """
         inactive_style = """
@@ -1557,6 +1635,7 @@ class StrategyDetailPage(BasePage):
                 color: rgba(255, 255, 255, 0.7);
                 font-size: 12px;
                 border-radius: 4px;
+                padding: 0 4px;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -1578,12 +1657,6 @@ class StrategyDetailPage(BasePage):
     # SYNDATA SETTINGS METHODS
     # ═══════════════════════════════════════════════════════════════
 
-    def _ensure_reload_debouncer(self):
-        """Ленивая инициализация debouncer для перезапуска DPI"""
-        if self._reload_debouncer is None and self.parent_app:
-            from dpi.zapret2_core_restart import DPIReloadDebouncer
-            self._reload_debouncer = DPIReloadDebouncer(self.parent_app, delay_ms=500)
-
     def _on_send_toggled(self, checked: bool):
         """Обработчик включения/выключения send параметров"""
         self._send_settings.setVisible(checked)
@@ -1595,85 +1668,41 @@ class StrategyDetailPage(BasePage):
         self._save_syndata_settings()
 
     def _save_syndata_settings(self):
-        """Сохраняет syndata настройки для текущей категории в реестр"""
+        """Сохраняет syndata настройки для текущей категории через PresetManager"""
         if not self._category_key:
             return
-        import json
-        settings = {
-            "enabled": self._syndata_toggle.isChecked(),
-            "blob": self._blob_combo.currentText(),
-            "tls_mod": self._tls_mod_combo.currentText(),
-            # AutoTTL settings (delta, min-max)
-            "autottl_delta": self._autottl_delta_spin.value(),
-            "autottl_min": self._autottl_min_spin.value(),
-            "autottl_max": self._autottl_max_spin.value(),
-            "out_range": self._out_range_spin.value(),
-            "out_range_mode": self._out_range_mode,  # "n" or "d"
-            "tcp_flags_unset": self._tcp_flags_combo.currentText(),
-            # Send параметры
-            "send_enabled": self._send_toggle.isChecked(),
-            "send_repeats": self._send_repeats_spin.value(),
-            "send_ip_ttl": self._send_ip_ttl_spin.value(),
-            "send_ip6_ttl": self._send_ip6_ttl_spin.value(),
-            "send_ip_id": self._send_ip_id_combo.currentText(),
-            "send_badsum": self._send_badsum_check.isChecked(),
-        }
-        try:
-            from config import REGISTRY_PATH
-            import winreg
 
-            key_path = f"{REGISTRY_PATH}\\CategorySyndata"
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                winreg.SetValueEx(key, self._category_key, 0, winreg.REG_SZ, json.dumps(settings))
-            log(f"Syndata settings saved for {self._category_key}: {settings}", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка сохранения syndata для {self._category_key}: {e}", "WARNING")
+        # Build SyndataSettings from UI
+        syndata = SyndataSettings(
+            enabled=self._syndata_toggle.isChecked(),
+            blob=self._blob_combo.currentText(),
+            tls_mod=self._tls_mod_combo.currentText(),
+            autottl_delta=self._autottl_delta_selector.value(),
+            autottl_min=self._autottl_min_selector.value(),
+            autottl_max=self._autottl_max_selector.value(),
+            out_range=self._out_range_spin.value(),
+            out_range_mode=self._out_range_mode,
+            tcp_flags_unset=self._tcp_flags_combo.currentText(),
+            send_enabled=self._send_toggle.isChecked(),
+            send_repeats=self._send_repeats_spin.value(),
+            send_ip_ttl=self._send_ip_ttl_selector.value(),
+            send_ip6_ttl=self._send_ip6_ttl_selector.value(),
+            send_ip_id=self._send_ip_id_combo.currentText(),
+            send_badsum=self._send_badsum_check.isChecked(),
+        )
 
-        # Триггерим перезапуск DPI с debounce (для SpinBox)
-        self._ensure_reload_debouncer()
-        if self._reload_debouncer:
-            self._reload_debouncer.schedule_reload(
-                reason="syndata_changed",
-                category_key=self._category_key
-            )
+        log(f"Syndata settings saved for {self._category_key}: {syndata.to_dict()}", "DEBUG")
+
+        # Save with sync=True - ConfigFileWatcher will trigger hot-reload automatically
+        # when it detects the preset file change
+        self._preset_manager.update_category_syndata(
+            self._category_key, syndata, save_and_sync=True
+        )
 
     def _load_syndata_settings(self, category_key: str) -> dict:
-        """Загружает syndata настройки для категории из реестра"""
-        import json
-        default_settings = {
-            "enabled": True,
-            "blob": "tls_google",
-            "tls_mod": "none",
-            # AutoTTL defaults: delta=-2, min=3, max=20
-            "autottl_delta": -2,
-            "autottl_min": 3,
-            "autottl_max": 20,
-            "out_range": 8,
-            "out_range_mode": "n",  # "n" (packets count) or "d" (delay)
-            "tcp_flags_unset": "none",
-            # Send параметры (по умолчанию ВЫКЛЮЧЕНО)
-            "send_enabled": True,
-            "send_repeats": 2,
-            "send_ip_ttl": 0,
-            "send_ip6_ttl": 0,
-            "send_ip_id": "none",
-            "send_badsum": False,
-        }
-        try:
-            from config import REGISTRY_PATH
-            import winreg
-
-            key_path = f"{REGISTRY_PATH}\\CategorySyndata"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                value, _ = winreg.QueryValueEx(key, category_key)
-                loaded = json.loads(value)
-                # Merge with defaults for backward compatibility
-                return {**default_settings, **loaded}
-        except FileNotFoundError:
-            return default_settings
-        except Exception as e:
-            log(f"Ошибка загрузки syndata для {category_key}: {e}", "DEBUG")
-            return default_settings
+        """Загружает syndata настройки для категории из PresetManager"""
+        syndata = self._preset_manager.get_category_syndata(category_key)
+        return syndata.to_dict()
 
     def _apply_syndata_settings(self, settings: dict):
         """Применяет syndata настройки к UI без эмиссии сигналов сохранения"""
@@ -1681,16 +1710,12 @@ class StrategyDetailPage(BasePage):
         self._syndata_toggle.blockSignals(True)
         self._blob_combo.blockSignals(True)
         self._tls_mod_combo.blockSignals(True)
-        self._autottl_delta_spin.blockSignals(True)
-        self._autottl_min_spin.blockSignals(True)
-        self._autottl_max_spin.blockSignals(True)
+        # TTLButtonSelector использует block_signals=True при setValue
         self._out_range_spin.blockSignals(True)
         self._tcp_flags_combo.blockSignals(True)
         # Блокируем сигналы Send виджетов
         self._send_toggle.blockSignals(True)
         self._send_repeats_spin.blockSignals(True)
-        self._send_ip_ttl_spin.blockSignals(True)
-        self._send_ip6_ttl_spin.blockSignals(True)
         self._send_ip_id_combo.blockSignals(True)
         self._send_badsum_check.blockSignals(True)
 
@@ -1708,9 +1733,9 @@ class StrategyDetailPage(BasePage):
             self._tls_mod_combo.setCurrentIndex(tls_mod_index)
 
         # AutoTTL settings
-        self._autottl_delta_spin.setValue(settings.get("autottl_delta", -2))
-        self._autottl_min_spin.setValue(settings.get("autottl_min", 3))
-        self._autottl_max_spin.setValue(settings.get("autottl_max", 20))
+        self._autottl_delta_selector.setValue(settings.get("autottl_delta", -2), block_signals=True)
+        self._autottl_min_selector.setValue(settings.get("autottl_min", 3), block_signals=True)
+        self._autottl_max_selector.setValue(settings.get("autottl_max", 20), block_signals=True)
         self._out_range_spin.setValue(settings.get("out_range", 8))
 
         # Применяем режим out_range
@@ -1726,8 +1751,8 @@ class StrategyDetailPage(BasePage):
         self._send_toggle.setChecked(settings.get("send_enabled", True))
         self._send_settings.setVisible(settings.get("send_enabled", True))
         self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
-        self._send_ip_ttl_spin.setValue(settings.get("send_ip_ttl", 0))
-        self._send_ip6_ttl_spin.setValue(settings.get("send_ip6_ttl", 0))
+        self._send_ip_ttl_selector.setValue(settings.get("send_ip_ttl", 0), block_signals=True)
+        self._send_ip6_ttl_selector.setValue(settings.get("send_ip6_ttl", 0), block_signals=True)
 
         send_ip_id = settings.get("send_ip_id", "none")
         send_ip_id_index = self._send_ip_id_combo.findText(send_ip_id)
@@ -1740,16 +1765,12 @@ class StrategyDetailPage(BasePage):
         self._syndata_toggle.blockSignals(False)
         self._blob_combo.blockSignals(False)
         self._tls_mod_combo.blockSignals(False)
-        self._autottl_delta_spin.blockSignals(False)
-        self._autottl_min_spin.blockSignals(False)
-        self._autottl_max_spin.blockSignals(False)
+        # TTLButtonSelector не требует разблокировки (block_signals=True при setValue)
         self._out_range_spin.blockSignals(False)
         self._tcp_flags_combo.blockSignals(False)
         # Разблокируем сигналы Send виджетов
         self._send_toggle.blockSignals(False)
         self._send_repeats_spin.blockSignals(False)
-        self._send_ip_ttl_spin.blockSignals(False)
-        self._send_ip6_ttl_spin.blockSignals(False)
         self._send_ip_id_combo.blockSignals(False)
         self._send_badsum_check.blockSignals(False)
 
@@ -1766,22 +1787,17 @@ class StrategyDetailPage(BasePage):
         if not self._category_key:
             return
 
-        from dpi.zapret2_settings_reset import reset_category_settings, get_default_category_settings
-
-        # 1. Сбросить в реестре
-        if reset_category_settings(self._category_key):
+        # 1. Reset via PresetManager (saves to preset file)
+        if self._preset_manager.reset_category_settings(self._category_key):
             log(f"Настройки категории {self._category_key} сброшены", "INFO")
 
-            # 2. Применить дефолты к UI
-            default_settings = get_default_category_settings()
-            self._apply_syndata_settings(default_settings)
+            # 2. Apply defaults to UI
+            default_syndata = SyndataSettings.get_defaults()
+            self._apply_syndata_settings(default_syndata.to_dict())
 
-            # 3. Сбросить filter_mode на "hostlist" в UI
+            # 3. Reset filter_mode to "hostlist" in UI
             if hasattr(self, '_filter_mode_frame') and self._filter_mode_frame.isVisible():
                 self._filter_mode_selector.setCurrentMode("hostlist", block_signals=True)
-
-            # 4. Сохранить и перезапустить DPI (debouncer внутри _save_syndata_settings)
-            self._save_syndata_settings()
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
@@ -1818,16 +1834,77 @@ class StrategyDetailPage(BasePage):
         """Показывает анимированный спиннер загрузки"""
         self._success_icon.hide()
         self._spinner.start()
+        self._waiting_for_process_start = True  # Ждём запуска DPI
+        # Убедимся, что мы подключены к process_monitor
+        if not self._process_monitor_connected:
+            self._connect_process_monitor()
+        # Запускаем fallback таймер на случай если сигнал не придет
+        self._start_fallback_timer()
 
     def _stop_loading(self):
         """Останавливает анимацию загрузки"""
         self._spinner.stop()
+        self._waiting_for_process_start = False  # Больше не ждём
+        self._stop_fallback_timer()
+
+    def _start_fallback_timer(self):
+        """Запускает fallback таймер для защиты от бесконечного спиннера"""
+        self._stop_fallback_timer()  # Остановим предыдущий если был
+        self._fallback_timer = QTimer(self)
+        self._fallback_timer.setSingleShot(True)
+        self._fallback_timer.timeout.connect(self._on_fallback_timeout)
+        self._fallback_timer.start(10000)  # 10 секунд максимум
+
+    def _stop_fallback_timer(self):
+        """Останавливает fallback таймер"""
+        if self._fallback_timer:
+            self._fallback_timer.stop()
+            self._fallback_timer = None
+
+    def _on_fallback_timeout(self):
+        """Вызывается если сигнал processStatusChanged не пришел за 10 секунд"""
+        if self._waiting_for_process_start:
+            log("StrategyDetailPage: fallback timeout - показываем галочку", "DEBUG")
+            self.show_success()
 
     def show_success(self):
         """Показывает зелёную галочку успеха"""
         self._stop_loading()
         self._success_icon.setPixmap(qta.icon('fa5s.check-circle', color='#4ade80').pixmap(16, 16))
         self._success_icon.show()
+
+    def _connect_process_monitor(self):
+        """Подключается к сигналу processStatusChanged от ProcessMonitorThread"""
+        if self._process_monitor_connected:
+            return  # Уже подключены
+
+        try:
+            if self.parent_app and hasattr(self.parent_app, 'process_monitor'):
+                process_monitor = self.parent_app.process_monitor
+                if process_monitor is not None:
+                    process_monitor.processStatusChanged.connect(self._on_process_status_changed)
+                    self._process_monitor_connected = True
+                    log("StrategyDetailPage: подключен к processStatusChanged", "DEBUG")
+        except Exception as e:
+            log(f"StrategyDetailPage: ошибка подключения к process_monitor: {e}", "DEBUG")
+
+    def _on_process_status_changed(self, is_running: bool):
+        """
+        Обработчик изменения статуса процесса DPI.
+        Вызывается когда winws.exe/winws2.exe запускается или останавливается.
+        """
+        try:
+            if is_running and self._waiting_for_process_start:
+                # DPI запустился и мы ждали этого - показываем галочку
+                log("StrategyDetailPage: DPI запущен, показываем галочку", "DEBUG")
+                self.show_success()
+            elif not is_running:
+                # DPI остановлен - скрываем галочку и спиннер
+                self._stop_loading()
+                self._success_icon.hide()
+                log("StrategyDetailPage: DPI остановлен, скрываем индикаторы", "DEBUG")
+        except Exception as e:
+            log(f"StrategyDetailPage._on_process_status_changed error: {e}", "DEBUG")
 
     def _on_args_changed(self, strategy_id: str, args: list):
         """Обработчик изменения аргументов стратегии"""

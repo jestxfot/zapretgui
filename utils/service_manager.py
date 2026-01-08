@@ -90,7 +90,7 @@ def stop_service(service_name: str) -> bool:
             try:
                 # Останавливаем службу
                 service_status = SERVICE_STATUS()
-                result = ControlService(service, 1, ctypes.pointer(service_status))  # 1 = SERVICE_CONTROL_STOP
+                result = ControlService(service, 1, ctypes.byref(service_status))  # 1 = SERVICE_CONTROL_STOP
                 
                 if result:
                     log(f"✅ Служба {service_name} остановлена через Win API", "DEBUG")
