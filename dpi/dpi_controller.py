@@ -1010,6 +1010,38 @@ class DPIController:
             # Обнуляем ссылки
             self._dpi_start_thread = None
             self._dpi_stop_thread = None
-            
+
         except Exception as e:
             log(f"Ошибка при очистке потоков DPI контроллера: {e}", "❌ ERROR")
+
+    def is_running(self) -> bool:
+        """
+        Проверяет запущен ли DPI процесс.
+
+        Returns:
+            True если процесс запущен, False иначе
+        """
+        return self.app.dpi_starter.check_process_running_wmi(silent=True)
+
+    def restart_dpi_async(self):
+        """
+        Перезапускает DPI асинхронно (останавливает и снова запускает).
+
+        Если DPI не запущен - просто запускает.
+        Если запущен - останавливает, ждёт 500ms, затем запускает.
+        """
+        from PyQt6.QtCore import QTimer
+
+        log("Перезапуск DPI...", "INFO")
+
+        if self.is_running():
+            # DPI запущен - останавливаем, потом запускаем через таймер
+            log("DPI запущен, останавливаем перед перезапуском", "DEBUG")
+            self.stop_dpi_async()
+
+            # Запускаем снова через 500ms (чтобы остановка успела завершиться)
+            QTimer.singleShot(500, lambda: self.start_dpi_async())
+        else:
+            # DPI не запущен - просто запускаем
+            log("DPI не запущен, запускаем", "DEBUG")
+            self.start_dpi_async()

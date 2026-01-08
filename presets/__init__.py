@@ -95,8 +95,8 @@ def ensure_default_preset_exists() -> bool:
     Ensures that a default preset exists for direct_zapret2 mode.
 
     Checks if preset-zapret2.txt exists. If not:
-    1. Creates a Default preset with basic youtube/discord categories
-    2. Copies it to preset-zapret2.txt (active preset)
+    1. Copies the built-in default.txt template to preset-zapret2.txt
+    2. Also copies to presets/Default.txt for the presets list
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -105,6 +105,8 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
+    import shutil
+    from pathlib import Path
 
     active_path = get_active_preset_path()
 
@@ -113,31 +115,35 @@ def ensure_default_preset_exists() -> bool:
         log("Active preset file already exists", "DEBUG")
         return True
 
-    log("Active preset file not found, creating default preset...", "INFO")
+    log("Active preset file not found, creating from default template...", "INFO")
 
     try:
-        # Create PresetManager and use it to create default preset
-        manager = PresetManager()
+        # Path to built-in default.txt template
+        default_template = Path(__file__).parent / "default.txt"
 
-        # Check if Default preset exists in presets folder
-        if not preset_exists("Default"):
-            # Create default preset
-            preset = manager.create_default_preset("Default")
-            if not preset:
-                log("Failed to create default preset", "ERROR")
-                return False
-            log("Created Default preset in presets folder", "INFO")
+        if not default_template.exists():
+            log(f"Default template not found at {default_template}", "ERROR")
+            return False
 
-        # Switch to Default preset (copies to preset-zapret2.txt)
-        # Don't reload DPI since we're just initializing
-        success = manager.switch_preset("Default", reload_dpi=False)
+        # Ensure presets directory exists
+        presets_dir = get_presets_dir()
+        presets_dir.mkdir(parents=True, exist_ok=True)
 
-        if success:
-            log("Default preset activated successfully", "INFO")
-        else:
-            log("Failed to activate default preset", "ERROR")
+        # Copy to preset-zapret2.txt (active preset)
+        shutil.copy2(default_template, active_path)
+        log(f"Copied default template to {active_path}", "DEBUG")
 
-        return success
+        # Copy to presets/Default.txt (for presets list)
+        default_preset_path = presets_dir / "Default.txt"
+        if not default_preset_path.exists():
+            shutil.copy2(default_template, default_preset_path)
+            log(f"Copied default template to {default_preset_path}", "DEBUG")
+
+        # Set active preset name in registry
+        set_active_preset_name("Default")
+
+        log("Default preset created from template successfully", "INFO")
+        return True
 
     except Exception as e:
         log(f"Error creating default preset: {e}", "ERROR")

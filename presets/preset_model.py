@@ -119,12 +119,12 @@ class CategoryConfig:
     sort_order: str = "default"  # "default", "name_asc", "name_desc"
 
     def get_hostlist_file(self) -> str:
-        """Returns hostlist filename for this category."""
-        return f"{self.name}.txt"
+        """Returns hostlist filename for this category with relative path."""
+        return f"lists/{self.name}.txt"
 
     def get_ipset_file(self) -> str:
-        """Returns ipset filename for this category (with ipset- prefix)."""
-        return f"ipset-{self.name}.txt"
+        """Returns ipset filename for this category with relative path (with ipset- prefix)."""
+        return f"lists/ipset-{self.name}.txt"
 
     def get_filter_file(self) -> str:
         """Returns filter file based on filter_mode."""
@@ -282,35 +282,6 @@ class Preset:
             is_builtin=data.get("is_builtin", False),
             categories=categories,
         )
-
-    @classmethod
-    def create_default(cls, name: str = "Default") -> "Preset":
-        """
-        Creates a default preset with common categories.
-
-        Returns:
-            New Preset with youtube and discord categories.
-        """
-        preset = cls(name=name)
-
-        # Add youtube category
-        preset.categories["youtube"] = CategoryConfig(
-            name="youtube",
-            tcp_args="--lua-desync=multisplit:pos=1,midsld",
-            udp_args="--lua-desync=fake:blob=quic1",
-            filter_mode="hostlist",
-        )
-
-        # Add discord category
-        preset.categories["discord"] = CategoryConfig(
-            name="discord",
-            tcp_args="--lua-desync=fake:blob=tls7",
-            udp_args="--lua-desync=fake:blob=quic1",
-            filter_mode="hostlist",
-        )
-
-        return preset
-
 
 def validate_preset(preset: Preset) -> List[str]:
     """

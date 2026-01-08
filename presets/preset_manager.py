@@ -371,7 +371,7 @@ class PresetManager:
 
     def create_default_preset(self, name: str = "Default") -> Optional[Preset]:
         """
-        Creates a default preset with basic categories.
+        Creates a default preset by copying from the built-in template.
 
         Args:
             name: Preset name
@@ -384,12 +384,21 @@ class PresetManager:
             return None
 
         try:
-            preset = Preset.create_default(name)
+            # Path to built-in default.txt template
+            default_template = Path(__file__).parent / "default.txt"
 
-            if save_preset(preset):
-                log(f"Created default preset '{name}'", "INFO")
-                return preset
-            return None
+            if not default_template.exists():
+                log(f"Default template not found at {default_template}", "ERROR")
+                return None
+
+            # Copy template to presets folder with the given name
+            dest_path = get_preset_path(name)
+            shutil.copy2(default_template, dest_path)
+
+            log(f"Created preset '{name}' from default template", "INFO")
+
+            # Load and return the created preset
+            return load_preset(name)
 
         except Exception as e:
             log(f"Error creating default preset: {e}", "ERROR")

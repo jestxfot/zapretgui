@@ -68,6 +68,7 @@ Source: "{#SourcePath}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignor
 Source: "{#SourcePath}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SourcePath}\presets\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ Копируем lists, но исключаем пользовательские файлы (other2.txt, my-ipset.txt, netrogat.txt)
 Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
