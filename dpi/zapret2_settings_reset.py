@@ -73,52 +73,37 @@ def reset_category_settings(category_key: str) -> bool:
     """
     Сбрасывает настройки категории на значения по умолчанию.
 
-    Реализация через УДАЛЕНИЕ ключа из реестра, а не запись дефолтов.
-    Это позволяет _load_syndata_settings() автоматически применить дефолты
-    при следующей загрузке.
-
-    Удаляет настройки из: CategorySyndata, CategoryFilterMode, CategorySort.
+    Использует PresetManager для сброса настроек в активном пресете.
+    Это автоматически:
+    - Сбрасывает syndata на дефолты
+    - Устанавливает filter_mode = "hostlist"
+    - Устанавливает sort_order = "default"
+    - Сохраняет preset файл
+    - Вызывает DPI reload через callback
 
     Args:
-        category_key: Ключ категории (например "youtube_https")
+        category_key: Ключ категории (например "youtube")
 
     Returns:
-        True если успешно (включая случай когда ключ не существовал),
-        False при ошибке
+        True если успешно, False при ошибке
     """
     try:
-        from config import REGISTRY_PATH
-        import winreg
+        from presets import PresetManager
 
-        keys_to_clear = [
-            f"{REGISTRY_PATH}\\CategorySyndata",
-            f"{REGISTRY_PATH}\\CategoryFilterMode",
-            f"{REGISTRY_PATH}\\CategorySort",
-        ]
+        manager = PresetManager()
+        success = manager.reset_category_settings(category_key)
 
-        for key_path in keys_to_clear:
-            try:
-                with winreg.OpenKey(
-                    winreg.HKEY_CURRENT_USER,
-                    key_path,
-                    0,
-                    winreg.KEY_SET_VALUE
-                ) as key:
-                    try:
-                        winreg.DeleteValue(key, category_key)
-                        log(f"Удален ключ {category_key} из {key_path}", "DEBUG")
-                    except FileNotFoundError:
-                        # Ключ не существует - это нормально
-                        pass
-            except FileNotFoundError:
-                # Родительский ключ не существует - это тоже нормально
-                pass
+        if success:
+            log(f"Настройки категории {category_key} сброшены через PresetManager", "INFO")
+        else:
+            log(f"Не удалось сбросить настройки категории {category_key}", "WARNING")
 
-        log(f"Настройки категории {category_key} сброшены", "INFO")
-        return True
+        return success
 
     except Exception as e:
         log(f"Ошибка сброса настроек категории {category_key}: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
         return False
 
 
@@ -126,37 +111,44 @@ def reset_all_categories_settings() -> bool:
     """
     Сбрасывает настройки ВСЕХ категорий.
 
-    Удаляет целиком ключи реестра CategorySyndata, CategoryFilterMode, CategorySort.
+    Получает список категорий из активного пресета и сбрасывает каждую.
 
     Returns:
-        True если успешно, False при ошибке
+        True если все категории успешно сброшены, False при ошибке
     """
     try:
-        from config import REGISTRY_PATH
-        import winreg
+        from presets import PresetManager
 
-        subkeys_to_delete = [
-            "CategorySyndata",
-            "CategoryFilterMode",
-            "CategorySort",
-        ]
+        manager = PresetManager()
+        preset = manager.get_active_preset()
 
-        for subkey in subkeys_to_delete:
-            try:
-                key_path = f"{REGISTRY_PATH}\\{subkey}"
-                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
-                log(f"Удален ключ реестра {key_path}", "DEBUG")
-            except FileNotFoundError:
-                # Ключ не существует - это нормально
-                pass
-            except Exception as e:
-                log(f"Ошибка удаления ключа {subkey}: {e}", "WARNING")
+        if not preset:
+            log("Нет активного пресета для сброса категорий", "WARNING")
+            return False
 
-        log("Все настройки категорий сброшены", "INFO")
-        return True
+        if not preset.categories:
+            log("Нет категорий в активном пресете", "INFO")
+            return True
+
+        # Сбрасываем каждую категорию
+        all_success = True
+        reset_count = 0
+
+        for category_key in list(preset.categories.keys()):
+            success = manager.reset_category_settings(category_key)
+            if success:
+                reset_count += 1
+            else:
+                all_success = False
+                log(f"Ошибка сброса категории {category_key}", "WARNING")
+
+        log(f"Сброшено {reset_count} из {len(preset.categories)} категорий", "INFO")
+        return all_success
 
     except Exception as e:
         log(f"Ошибка сброса всех настроек категорий: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
         return False
 
 

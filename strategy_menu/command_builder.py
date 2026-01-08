@@ -11,7 +11,6 @@ Command Builder Module
 """
 
 import re
-import json
 from typing import Optional
 
 from launcher_common.blobs import get_blobs
@@ -73,55 +72,48 @@ def extract_payload(args: str) -> tuple[str, str]:
 
 def build_syndata_args(category_key: str) -> str:
     """
-    Собирает --lua-desync=syndata:... из настроек реестра.
+    Собирает --lua-desync=syndata:... из настроек активного пресета.
 
     Returns:
         str: например "--lua-desync=syndata:blob=tls7:ip_autottl=-2,3-20" или ""
     """
     try:
-        import winreg
-        for base_path in [r"Software\Zapret2DevReg", r"Software\Zapret2Reg"]:
-            try:
-                key_path = f"{base_path}\\CategorySyndata"
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    value, _ = winreg.QueryValueEx(key, category_key)
-                    settings = json.loads(value)
+        from presets import PresetManager
+        preset_manager = PresetManager()
+        syndata = preset_manager.get_category_syndata(category_key)
 
-                    if not settings.get("enabled", False):
-                        return ""
+        if not syndata.enabled:
+            return ""
 
-                    parts = ["syndata"]
+        parts = ["syndata"]
 
-                    blob = settings.get("blob", "none")
-                    if blob and blob != "none":
-                        parts.append(f"blob={blob}")
+        blob = syndata.blob
+        if blob and blob != "none":
+            parts.append(f"blob={blob}")
 
-                    tls_mod = settings.get("tls_mod", "none")
-                    if tls_mod and tls_mod != "none":
-                        parts.append(f"tls_mod={tls_mod}")
+        tls_mod = syndata.tls_mod
+        if tls_mod and tls_mod != "none":
+            parts.append(f"tls_mod={tls_mod}")
 
-                    # AutoTTL: ip_autottl=delta,min-max
-                    autottl_delta = settings.get("autottl_delta", -2)
-                    autottl_min = settings.get("autottl_min", 3)
-                    autottl_max = settings.get("autottl_max", 20)
-                    parts.append(f"ip_autottl={autottl_delta},{autottl_min}-{autottl_max}")
+        # AutoTTL: ip_autottl=delta,min-max
+        parts.append(f"ip_autottl={syndata.autottl_delta},{syndata.autottl_min}-{syndata.autottl_max}")
 
-                    tcp_flags = settings.get("tcp_flags_unset", "none")
-                    if tcp_flags and tcp_flags != "none":
-                        parts.append(f"tcp_flags_unset={tcp_flags}")
+        tcp_flags = syndata.tcp_flags_unset
+        if tcp_flags and tcp_flags != "none":
+            parts.append(f"tcp_flags_unset={tcp_flags}")
 
-                    # ВАЖНО: out_range НЕ добавляется в syndata!
-                    # Он передается как отдельный аргумент --out-range=-dVALUE
-                    # Используй get_out_range_args() для получения этого аргумента
+        # ВАЖНО: out_range НЕ добавляется в syndata!
+        # Он передается как отдельный аргумент --out-range=-dVALUE
+        # Используй get_out_range_args() для получения этого аргумента
 
-                    if len(parts) > 1:
-                        return f"--lua-desync={':'.join(parts)}"
-                    return "--lua-desync=syndata"
-            except FileNotFoundError:
-                continue
-    except Exception:
-        pass
-    return ""
+        if len(parts) > 1:
+            return f"--lua-desync={':'.join(parts)}"
+        return "--lua-desync=syndata"
+
+    except Exception as e:
+        from log import log
+        log(f"Error building syndata_args for {category_key}: {e}", "DEBUG")
+        return ""
 
 
 def get_out_range_args(category_key: str) -> str:
@@ -147,35 +139,31 @@ def get_out_range_args(category_key: str) -> str:
     DEFAULT_OUT_RANGE = 8
     DEFAULT_MODE = "n"
     try:
-        import winreg
-        for base_path in [r"Software\Zapret2DevReg", r"Software\Zapret2Reg"]:
-            try:
-                key_path = f"{base_path}\\CategorySyndata"
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    value, _ = winreg.QueryValueEx(key, category_key)
-                    settings = json.loads(value)
+        from presets import PresetManager
+        preset_manager = PresetManager()
+        syndata = preset_manager.get_category_syndata(category_key)
 
-                    out_range = settings.get("out_range", DEFAULT_OUT_RANGE)
-                    if out_range is None or out_range == 0:
-                        out_range = DEFAULT_OUT_RANGE
+        out_range = syndata.out_range
+        if out_range is None or out_range == 0:
+            out_range = DEFAULT_OUT_RANGE
 
-                    # Получаем режим (n или d)
-                    out_range_mode = settings.get("out_range_mode", DEFAULT_MODE)
-                    if out_range_mode not in ("n", "d"):
-                        out_range_mode = DEFAULT_MODE
+        # Получаем режим (n или d)
+        out_range_mode = syndata.out_range_mode
+        if out_range_mode not in ("n", "d"):
+            out_range_mode = DEFAULT_MODE
 
-                    return f"--out-range=-{out_range_mode}{out_range}"
-            except FileNotFoundError:
-                continue
-    except Exception:
-        pass
-    # Всегда возвращаем дефолтное значение
-    return f"--out-range=-{DEFAULT_MODE}{DEFAULT_OUT_RANGE}"
+        return f"--out-range=-{out_range_mode}{out_range}"
+
+    except Exception as e:
+        from log import log
+        log(f"Error getting out_range_args for {category_key}: {e}", "DEBUG")
+        # Всегда возвращаем дефолтное значение
+        return f"--out-range=-{DEFAULT_MODE}{DEFAULT_OUT_RANGE}"
 
 
 def build_send_args(category_key: str) -> str:
     """
-    Собирает --lua-desync=send:... из настроек реестра.
+    Собирает --lua-desync=send:... из настроек активного пресета.
 
     Параметры send:
         - send_enabled (bool) - включена ли функция send
@@ -189,54 +177,50 @@ def build_send_args(category_key: str) -> str:
         str: например "--lua-desync=send:repeats=2:ip_ttl=5:badsum" или ""
     """
     try:
-        import winreg
-        for base_path in [r"Software\Zapret2DevReg", r"Software\Zapret2Reg"]:
-            try:
-                key_path = f"{base_path}\\CategorySyndata"
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                    value, _ = winreg.QueryValueEx(key, category_key)
-                    settings = json.loads(value)
+        from presets import PresetManager
+        preset_manager = PresetManager()
+        syndata = preset_manager.get_category_syndata(category_key)
 
-                    # Проверяем, включен ли send
-                    if not settings.get("send_enabled", False):
-                        return ""
+        # Проверяем, включен ли send
+        if not syndata.send_enabled:
+            return ""
 
-                    parts = ["send"]
+        parts = ["send"]
 
-                    # repeats (0-10)
-                    repeats = settings.get("send_repeats", 0)
-                    if repeats and repeats > 0:
-                        parts.append(f"repeats={repeats}")
+        # repeats (0-10)
+        repeats = syndata.send_repeats
+        if repeats and repeats > 0:
+            parts.append(f"repeats={repeats}")
 
-                    # send_ip_ttl (0-255) - TTL для send пакетов
-                    send_ip_ttl = settings.get("send_ip_ttl", 0)
-                    if send_ip_ttl and send_ip_ttl > 0:
-                        parts.append(f"ip_ttl={send_ip_ttl}")
+        # send_ip_ttl (0-255) - TTL для send пакетов
+        send_ip_ttl = syndata.send_ip_ttl
+        if send_ip_ttl and send_ip_ttl > 0:
+            parts.append(f"ip_ttl={send_ip_ttl}")
 
-                    # ip6_ttl (0-255)
-                    ip6_ttl = settings.get("send_ip6_ttl", 0)
-                    if ip6_ttl and ip6_ttl > 0:
-                        parts.append(f"ip6_ttl={ip6_ttl}")
+        # ip6_ttl (0-255)
+        ip6_ttl = syndata.send_ip6_ttl
+        if ip6_ttl and ip6_ttl > 0:
+            parts.append(f"ip6_ttl={ip6_ttl}")
 
-                    # ip_id (none, seq, rnd, zero)
-                    ip_id = settings.get("send_ip_id", "none")
-                    if ip_id and ip_id != "none":
-                        parts.append(f"ip_id={ip_id}")
+        # ip_id (none, seq, rnd, zero)
+        ip_id = syndata.send_ip_id
+        if ip_id and ip_id != "none":
+            parts.append(f"ip_id={ip_id}")
 
-                    # badsum (bool)
-                    badsum = settings.get("send_badsum", False)
-                    if badsum:
-                        parts.append("badsum")
+        # badsum (bool)
+        badsum = syndata.send_badsum
+        if badsum:
+            parts.append("badsum")
 
-                    # Всегда возвращаем хотя бы --lua-desync=send если включено
-                    if len(parts) > 1:
-                        return f"--lua-desync={':'.join(parts)}"
-                    return "--lua-desync=send"
-            except FileNotFoundError:
-                continue
-    except Exception:
-        pass
-    return ""
+        # Всегда возвращаем хотя бы --lua-desync=send если включено
+        if len(parts) > 1:
+            return f"--lua-desync={':'.join(parts)}"
+        return "--lua-desync=send"
+
+    except Exception as e:
+        from log import log
+        log(f"Error building send_args for {category_key}: {e}", "DEBUG")
+        return ""
 
 
 # ===================== CATEGORY ARGS =====================
@@ -295,19 +279,19 @@ def preview_syndata(category_key: str) -> str:
 
 def get_filter_mode(category_key: str) -> str:
     """
-    Получает режим фильтрации для категории из реестра.
+    Получает режим фильтрации для категории из активного пресета.
 
     Returns:
         "hostlist" или "ipset"
     """
     try:
-        import winreg
-        from config import REGISTRY_PATH
-        key_path = f"{REGISTRY_PATH}\\CategoryFilterMode"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            value, _ = winreg.QueryValueEx(key, category_key)
-            if value == "ipset":
-                return "ipset"
-            return "hostlist"
-    except:
+        from presets import PresetManager
+        preset_manager = PresetManager()
+        filter_mode = preset_manager.get_category_filter_mode(category_key)
+        if filter_mode in ("hostlist", "ipset"):
+            return filter_mode
+        return "hostlist"
+    except Exception as e:
+        from log import log
+        log(f"Error getting filter_mode for {category_key}: {e}", "DEBUG")
         return "hostlist"

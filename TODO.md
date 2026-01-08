@@ -11,6 +11,15 @@
 
 ## В процессе
 
+### Claude - Рефакторинг zapret2_settings_reset.py + preset форматирование
+- [x] Задача 1: Убрать реестр из zapret2_settings_reset.py, использовать PresetManager
+- [x] Задача 2: Исправить форматирование preset файлов (всё в одну строку)
+  - [x] Найдена причина: strategy_menu/__init__.py:803-823
+  - [x] Проблема: combine_strategies() возвращает командную строку с пробелами
+  - [ ] Исправление: использовать shlex.split() для разбивки
+- [~] Делегирование python-engineer для выполнения обеих задач
+- [ ] Запустить qa-reviewer для проверки
+
 ### python-engineer - Рефакторинг blocked_strategies_manager.py
 - [~] Прочитать locked_strategies_manager.py как эталон
 - [ ] Добавить разделение по протоколам (blocked_by_askey)

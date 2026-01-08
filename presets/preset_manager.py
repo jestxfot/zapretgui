@@ -838,3 +838,193 @@ class PresetManager:
 
         # Then sync to active file (triggers DPI reload via callback)
         return self.sync_preset_to_active_file(preset)
+
+    # ========================================================================
+    # STRATEGY SELECTION OPERATIONS
+    # ========================================================================
+
+    def get_strategy_selections(self) -> dict:
+        """
+        Gets strategy selections from active preset.
+
+        Returns:
+            Dict of category_key -> strategy_id
+        """
+        preset = self.get_active_preset()
+        if not preset:
+            return {}
+
+        selections = {}
+        for cat_key, cat_config in preset.categories.items():
+            selections[cat_key] = cat_config.strategy_id
+        return selections
+
+    def set_strategy_selection(
+        self,
+        category_key: str,
+        strategy_id: str,
+        save_and_sync: bool = True
+    ) -> bool:
+        """
+        Sets strategy selection for a category.
+
+        Args:
+            category_key: Category name (e.g., "youtube")
+            strategy_id: Strategy ID (e.g., "youtube_tcp_split") or "none"
+            save_and_sync: If True, save preset and sync to active file
+
+        Returns:
+            True if successful
+        """
+        preset = self.get_active_preset()
+        if not preset:
+            log(f"Cannot set strategy: no active preset", "WARNING")
+            return False
+
+        # Create category if not exists
+        if category_key not in preset.categories:
+            preset.categories[category_key] = CategoryConfig(name=category_key)
+
+        preset.categories[category_key].strategy_id = strategy_id
+
+        # Update tcp_args/udp_args based on strategy_id
+        self._update_category_args_from_strategy(preset, category_key, strategy_id)
+
+        preset.touch()
+
+        if save_and_sync:
+            return self._save_and_sync_preset(preset)
+
+        return True
+
+    def _update_category_args_from_strategy(
+        self,
+        preset: Preset,
+        category_key: str,
+        strategy_id: str
+    ) -> None:
+        """
+        Updates tcp_args/udp_args based on strategy_id.
+
+        Args:
+            preset: Preset to update
+            category_key: Category name
+            strategy_id: Strategy ID
+        """
+        from strategy_menu.strategies_registry import registry
+
+        cat = preset.categories.get(category_key)
+        if not cat:
+            return
+
+        if strategy_id == "none":
+            # Clear args when strategy is disabled
+            cat.tcp_args = ""
+            cat.udp_args = ""
+            return
+
+        # Get args from registry
+        args = registry.get_strategy_args_safe(category_key, strategy_id)
+        if args:
+            # Determine if this is TCP or UDP strategy based on category info
+            category_info = registry.get_category_info(category_key)
+            if category_info:
+                # Most strategies apply to TCP
+                # UDP categories have special handling
+                if "_udp" in category_key or category_info.strategy_type.endswith("_udp"):
+                    cat.udp_args = args
+                else:
+                    cat.tcp_args = args
+
+    def set_strategy_selections(
+        self,
+        selections: dict,
+        save_and_sync: bool = True
+    ) -> bool:
+        """
+        Sets multiple strategy selections at once.
+
+        Args:
+            selections: Dict of category_key -> strategy_id
+            save_and_sync: If True, save preset and sync to active file
+
+        Returns:
+            True if successful
+        """
+        preset = self.get_active_preset()
+        if not preset:
+            log(f"Cannot set strategies: no active preset", "WARNING")
+            return False
+
+        for cat_key, strategy_id in selections.items():
+            if cat_key not in preset.categories:
+                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+            preset.categories[cat_key].strategy_id = strategy_id
+            # Update args from strategy_id
+            self._update_category_args_from_strategy(preset, cat_key, strategy_id)
+
+        preset.touch()
+
+        if save_and_sync:
+            return self._save_and_sync_preset(preset)
+
+        return True
+
+    def reset_strategy_selections_to_defaults(self, save_and_sync: bool = True) -> bool:
+        """
+        Resets all strategy selections to defaults from registry.
+
+        Returns:
+            True if successful
+        """
+        from strategy_menu.strategies_registry import registry
+
+        preset = self.get_active_preset()
+        if not preset:
+            log(f"Cannot reset strategies: no active preset", "WARNING")
+            return False
+
+        defaults = registry.get_default_selections()
+
+        for cat_key, default_strategy in defaults.items():
+            if cat_key not in preset.categories:
+                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+            preset.categories[cat_key].strategy_id = default_strategy
+            # Update args from strategy_id
+            self._update_category_args_from_strategy(preset, cat_key, default_strategy)
+
+        preset.touch()
+
+        if save_and_sync:
+            return self._save_and_sync_preset(preset)
+
+        return True
+
+    def clear_all_strategy_selections(self, save_and_sync: bool = True) -> bool:
+        """
+        Sets all strategy selections to "none".
+
+        Returns:
+            True if successful
+        """
+        from strategy_menu.strategies_registry import registry
+
+        preset = self.get_active_preset()
+        if not preset:
+            log(f"Cannot clear strategies: no active preset", "WARNING")
+            return False
+
+        for cat_key in registry.get_all_category_keys():
+            if cat_key not in preset.categories:
+                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+            preset.categories[cat_key].strategy_id = "none"
+            # Clear args when strategy is "none"
+            preset.categories[cat_key].tcp_args = ""
+            preset.categories[cat_key].udp_args = ""
+
+        preset.touch()
+
+        if save_and_sync:
+            return self._save_and_sync_preset(preset)
+
+        return True

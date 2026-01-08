@@ -814,13 +814,29 @@ def regenerate_preset_file() -> bool:
         with open(preset_path, 'w', encoding='utf-8') as f:
             f.write(f"# Strategy: Прямой запуск (Запрет 2)\n")
             f.write(f"# Generated: {timestamp}\n")
+            f.write("\n")
 
-            # Разбиваем args_str на отдельные аргументы и записываем
-            # args_str может содержать аргументы разделённые пробелами или уже быть в нужном формате
-            for line in args_str.split('\n'):
-                line = line.strip()
-                if line:
-                    f.write(f"{line}\n")
+            # Разбиваем args_str на отдельные аргументы
+            # combine_strategies() возвращает командную строку с аргументами через пробел
+            # Используем shlex для правильного парсинга
+            import shlex
+
+            try:
+                args_list = shlex.split(args_str)
+            except Exception as e:
+                log(f"Ошибка парсинга args_str через shlex: {e}", "WARNING")
+                # Фолбек на простой split по пробелам
+                args_list = args_str.split()
+
+            # Записываем каждый аргумент на отдельной строке
+            for arg in args_list:
+                arg = arg.strip()
+                if arg:
+                    f.write(f"{arg}\n")
+
+                    # Добавляем пустую строку после --new для читаемости
+                    if arg == "--new":
+                        f.write("\n")
 
         log(f"Preset файл перегенерирован: {preset_path}", "INFO")
         return True

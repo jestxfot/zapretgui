@@ -90,10 +90,12 @@ class CategoryConfig:
     Configuration for a single category (e.g., youtube, discord).
 
     A category can have separate TCP and UDP strategies.
-    ID of strategy = its arguments (no string IDs needed).
+    Strategy is identified by strategy_id (e.g., "youtube_tcp_split").
+    Args are generated from strategy_id via strategies_registry.
 
     Attributes:
         name: Category name (e.g., "youtube", "discord")
+        strategy_id: ID of selected strategy (e.g., "youtube_tcp_split", "none")
         tcp_args: TCP strategy arguments (e.g., "--lua-desync=multisplit:pos=1,midsld")
         udp_args: UDP strategy arguments (e.g., "--lua-desync=fake:blob=quic1")
         tcp_enabled: Whether TCP strategy is enabled
@@ -105,6 +107,7 @@ class CategoryConfig:
         sort_order: Sort order for strategies list ("default", "name_asc", "name_desc")
     """
     name: str
+    strategy_id: str = "none"  # ID of selected strategy
     tcp_args: str = ""
     udp_args: str = ""
     tcp_enabled: bool = True
@@ -141,6 +144,7 @@ class CategoryConfig:
         """Converts to dictionary for serialization."""
         return {
             "name": self.name,
+            "strategy_id": self.strategy_id,
             "tcp_args": self.tcp_args,
             "udp_args": self.udp_args,
             "tcp_enabled": self.tcp_enabled,
@@ -161,6 +165,7 @@ class CategoryConfig:
 
         return cls(
             name=data.get("name", "unknown"),
+            strategy_id=data.get("strategy_id", "none"),
             tcp_args=data.get("tcp_args", ""),
             udp_args=data.get("udp_args", ""),
             tcp_enabled=data.get("tcp_enabled", True),
