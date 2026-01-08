@@ -134,11 +134,10 @@ class HeavyInitManager:
                 if self.app.strategy_manager.already_loaded:
                     if hasattr(self.app, 'ui_manager'):
                         self.app.ui_manager.update_strategies_list()
-            
-            # Автозапуск DPI если настроен
-            if hasattr(self.app, 'dpi_manager'):
-                self.app.dpi_manager.delayed_dpi_start()
-            
+
+            # ✅ Автозапуск DPI теперь управляется через initialization_manager._post_init_tasks()
+            # НЕ вызываем delayed_dpi_start() здесь, чтобы избежать двойного вызова и конфликтов
+
             # Combobox-фикс через UI Manager
             for delay in (0, 100, 200):
                 QTimer.singleShot(delay, lambda: (

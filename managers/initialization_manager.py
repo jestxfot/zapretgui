@@ -807,8 +807,17 @@ class InitializationManager:
             # Проверка локальных файлов и автозапуск DPI
             if hasattr(self.app, 'heavy_init_manager'):
                 if self.app.heavy_init_manager.check_local_files():
-                    if hasattr(self.app, 'dpi_manager'):
-                        QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
+                    # Проверяем режим запуска ПЕРЕД делегированием
+                    from strategy_menu import get_strategy_launch_method
+                    launch_method = get_strategy_launch_method()
+
+                    if launch_method == "direct_zapret2":
+                        # Отдельный путь для direct_zapret2 (использует preset файл)
+                        QTimer.singleShot(1000, self._start_direct_zapret2_autostart)
+                    else:
+                        # Все остальные режимы через dpi_manager
+                        if hasattr(self.app, 'dpi_manager'):
+                            QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
             
             # Обновления проверяются вручную на вкладке "Серверы"
                 
@@ -816,3 +825,54 @@ class InitializationManager:
             log(f"Ошибка post-init задач: {e}", "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+
+    def _start_direct_zapret2_autostart(self):
+        """Автозапуск для режима direct_zapret2 (использует preset файл)"""
+        # 1. Проверяем включен ли автозапуск
+        from config import get_dpi_autostart
+        if not get_dpi_autostart():
+            log("Автозапуск DPI отключен", "INFO")
+            self.app.set_status("Готово")
+            return
+
+        # 2. Проверяем наличие preset файла
+        from preset_zapret2 import (
+            get_active_preset_path,
+            get_active_preset_name,
+            ensure_default_preset_exists,
+        )
+
+        try:
+            ensure_default_preset_exists()
+            preset_path = get_active_preset_path()
+            preset_name = get_active_preset_name() or "Default"
+
+            if not preset_path.exists():
+                log(f"Preset файл не найден: {preset_path}", "ERROR")
+                self.app.set_status("Ошибка: preset файл не найден")
+                return
+
+            # 3. Формируем selected_mode для запуска из preset файла
+            selected_mode = {
+                "is_preset_file": True,
+                "name": f"Пресет: {preset_name}",
+                "preset_path": str(preset_path),
+            }
+
+            log(f"Автозапуск direct_zapret2 из preset файла: {preset_path}", "INFO")
+
+            # 4. Запускаем через dpi_controller
+            self.app.current_strategy_name = f"Пресет: {preset_name}"
+            self.app.dpi_controller.start_dpi_async(
+                selected_mode=selected_mode, launch_method="direct_zapret2"
+            )
+
+            # 5. Обновляем UI
+            if hasattr(self.app, "ui_manager"):
+                self.app.ui_manager.update_ui_state(running=True)
+
+        except Exception as e:
+            log(f"Ошибка автозапуска direct_zapret2: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            self.app.set_status(f"Ошибка автозапуска: {e}")

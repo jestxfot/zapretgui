@@ -30,9 +30,11 @@ class DPIManager(QObject):
         # 2. Определяем режим запуска (Direct или BAT)
         from strategy_menu import get_strategy_launch_method
         launch_method = get_strategy_launch_method()
-        
+
         # 3. Запускаем соответствующий режим
-        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+        # ⚠️ ВАЖНО: direct_zapret2 обрабатывается отдельно в initialization_manager._start_direct_zapret2_autostart()
+        # и использует preset файл, поэтому НЕ включаем его здесь (иначе будет двойной вызов и перезапись файла)
+        if launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
             self._start_direct_mode()
         elif launch_method == "orchestra":
             self._start_orchestra_mode()
