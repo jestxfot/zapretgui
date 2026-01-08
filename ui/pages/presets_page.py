@@ -149,12 +149,13 @@ class PresetCard(QFrame):
             self.activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
             buttons_row.addWidget(self.activate_btn)
 
-        # Переименовать
-        self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
-        self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
-        buttons_row.addWidget(self.rename_btn)
+        # Переименовать (недоступно для встроенных)
+        if not self._is_builtin:
+            self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
+            self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.rename_btn)
 
-        # Дублировать
+        # Дублировать (доступно для всех)
         self.duplicate_btn = self._create_action_button("Дублировать", "fa5s.copy")
         self.duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
         buttons_row.addWidget(self.duplicate_btn)
@@ -165,10 +166,11 @@ class PresetCard(QFrame):
             self.delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self.preset_name))
             buttons_row.addWidget(self.delete_btn)
 
-        # Экспорт
-        self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
-        self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
-        buttons_row.addWidget(self.export_btn)
+        # Экспорт (недоступно для встроенных)
+        if not self._is_builtin:
+            self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
+            self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.export_btn)
 
         buttons_row.addStretch()
         main_layout.addLayout(buttons_row)

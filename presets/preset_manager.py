@@ -426,7 +426,7 @@ class PresetManager:
         """
         Deletes preset.
 
-        Cannot delete currently active preset.
+        Cannot delete currently active preset or built-in presets.
 
         Args:
             name: Preset name
@@ -440,12 +440,19 @@ class PresetManager:
             log(f"Cannot delete active preset '{name}'", "WARNING")
             return False
 
+        # Check if builtin (also checked in storage layer)
+        preset = load_preset(name)
+        if preset and preset.is_builtin:
+            log(f"Cannot delete built-in preset '{name}'", "WARNING")
+            return False
+
         return delete_preset(name)
 
     def rename_preset(self, old_name: str, new_name: str) -> bool:
         """
         Renames preset.
 
+        Cannot rename built-in presets.
         Updates active preset name in registry if renamed preset is active.
 
         Args:
@@ -455,6 +462,12 @@ class PresetManager:
         Returns:
             True if renamed
         """
+        # Check if builtin (also checked in storage layer)
+        preset = load_preset(old_name)
+        if preset and preset.is_builtin:
+            log(f"Cannot rename built-in preset '{old_name}'", "WARNING")
+            return False
+
         if rename_preset(old_name, new_name):
             # Update active preset name if this was active
             if get_active_preset_name() == old_name:
@@ -483,6 +496,8 @@ class PresetManager:
         """
         Exports preset to external file.
 
+        Cannot export built-in presets.
+
         Args:
             name: Preset name
             dest_path: Destination path
@@ -490,6 +505,12 @@ class PresetManager:
         Returns:
             True if exported
         """
+        # Check if builtin (also checked in storage layer)
+        preset = load_preset(name)
+        if preset and preset.is_builtin:
+            log(f"Cannot export built-in preset '{name}'", "WARNING")
+            return False
+
         return export_preset(name, dest_path)
 
     def import_preset(self, src_path: Path, name: Optional[str] = None) -> bool:

@@ -18,6 +18,7 @@ from log import log
 
 # Lazy imports to avoid circular dependencies
 _PROGRAMDATA_PATH: Optional[str] = None
+_MAIN_DIRECTORY: Optional[str] = None
 
 
 def _get_programdata_path() -> str:
@@ -27,6 +28,15 @@ def _get_programdata_path() -> str:
         from config import PROGRAMDATA_PATH
         _PROGRAMDATA_PATH = PROGRAMDATA_PATH
     return _PROGRAMDATA_PATH
+
+
+def _get_main_directory() -> str:
+    """Lazily gets MAIN_DIRECTORY to avoid import cycles."""
+    global _MAIN_DIRECTORY
+    if _MAIN_DIRECTORY is None:
+        from config import MAIN_DIRECTORY
+        _MAIN_DIRECTORY = MAIN_DIRECTORY
+    return _MAIN_DIRECTORY
 
 
 # ============================================================================
@@ -170,9 +180,12 @@ def load_preset(name: str) -> Optional["Preset"]:
         data: PresetData = parse_preset_file(preset_path)
 
         # Convert to Preset model
+        # Force is_builtin=True for "Default" preset (built-in protection)
+        is_builtin = data.is_builtin or name.lower() == "default"
         preset = Preset(
             name=data.name if data.name != "Unnamed" else name,
             base_args=data.base_args,
+            is_builtin=is_builtin,
         )
 
         # Parse metadata from raw_header
@@ -262,6 +275,7 @@ def save_preset(preset: "Preset") -> bool:
         data = PresetData(
             name=preset.name,
             base_args=preset.base_args,
+            is_builtin=preset.is_builtin,
         )
 
         # Build raw header
@@ -274,7 +288,9 @@ def save_preset(preset: "Preset") -> bool:
         for cat_name, cat in preset.categories.items():
             # TCP block
             if cat.tcp_enabled and cat.has_tcp():
-                filter_file = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                # Convert to absolute path for winws2.exe
+                filter_file = os.path.join(_get_main_directory(), filter_file_relative)
 
                 # Build full args
                 args_lines = [
@@ -299,7 +315,9 @@ def save_preset(preset: "Preset") -> bool:
             # UDP block
             if cat.udp_enabled and cat.has_udp():
                 # For UDP, typically use ipset
-                filter_file = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                # Convert to absolute path for winws2.exe
+                filter_file = os.path.join(_get_main_directory(), filter_file_relative)
 
                 args_lines = [
                     f"--filter-udp={cat.udp_port}",
@@ -346,12 +364,20 @@ def delete_preset(name: str) -> bool:
     """
     Deletes preset file.
 
+    Cannot delete built-in presets (is_builtin=True).
+
     Args:
         name: Preset name
 
     Returns:
         True if deleted successfully
     """
+    # Check if preset is builtin
+    preset = load_preset(name)
+    if preset and preset.is_builtin:
+        log(f"Cannot delete built-in preset '{name}'", "WARNING")
+        return False
+
     preset_path = get_preset_path(name)
 
     if not preset_path.exists():
@@ -371,6 +397,8 @@ def rename_preset(old_name: str, new_name: str) -> bool:
     """
     Renames preset file.
 
+    Cannot rename built-in presets (is_builtin=True).
+
     Args:
         old_name: Current preset name
         new_name: New preset name
@@ -378,6 +406,12 @@ def rename_preset(old_name: str, new_name: str) -> bool:
     Returns:
         True if renamed successfully
     """
+    # Check if preset is builtin
+    preset = load_preset(old_name)
+    if preset and preset.is_builtin:
+        log(f"Cannot rename built-in preset '{old_name}'", "WARNING")
+        return False
+
     old_path = get_preset_path(old_name)
     new_path = get_preset_path(new_name)
 
@@ -390,8 +424,7 @@ def rename_preset(old_name: str, new_name: str) -> bool:
         return False
 
     try:
-        # Load, update name, save with new name
-        preset = load_preset(old_name)
+        # We already loaded preset above, just update name
         if preset is None:
             return False
 
@@ -471,6 +504,8 @@ def export_preset(name: str, dest_path: Path) -> bool:
     """
     Exports preset to external file.
 
+    Cannot export built-in presets (is_builtin=True).
+
     Args:
         name: Preset name
         dest_path: Destination path
@@ -478,6 +513,12 @@ def export_preset(name: str, dest_path: Path) -> bool:
     Returns:
         True if exported successfully
     """
+    # Check if preset is builtin
+    preset = load_preset(name)
+    if preset and preset.is_builtin:
+        log(f"Cannot export built-in preset '{name}'", "WARNING")
+        return False
+
     preset_path = get_preset_path(name)
 
     if not preset_path.exists():
