@@ -28,9 +28,10 @@ from log import log
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ДЕФОЛТНЫЕ НАСТРОЙКИ КАТЕГОРИИ
+# ДЕФОЛТНЫЕ НАСТРОЙКИ КАТЕГОРИИ (FALLBACK)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Fallback настройки для категорий, НЕ включённых в DEFAULT_PRESET_CONTENT
 DEFAULT_CATEGORY_SETTINGS = {
     # ═══════ SYNDATA параметры ═══════
     "enabled": True,
@@ -59,14 +60,51 @@ DEFAULT_CATEGORY_SETTINGS = {
 # API ФУНКЦИИ
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_default_category_settings() -> dict:
+def get_default_category_settings(category_key: str = None) -> dict:
     """
-    Возвращает словарь с дефолтными настройками категории.
+    Возвращает дефолтные настройки для категории.
+
+    Парсит DEFAULT_PRESET_CONTENT и извлекает настройки для указанной категории.
+    Если категория включена в Default.txt - берёт настройки оттуда.
+    Если категории нет в Default.txt - возвращает DEFAULT_CATEGORY_SETTINGS (fallback).
+
+    Args:
+        category_key: Имя категории (например "youtube", "discord").
+                     Если None - возвращает fallback настройки.
 
     Returns:
-        dict: Копия DEFAULT_CATEGORY_SETTINGS
+        dict: Словарь с дефолтными настройками категории
     """
-    return DEFAULT_CATEGORY_SETTINGS.copy()
+    # Fallback если category_key не указан
+    if category_key is None:
+        return DEFAULT_CATEGORY_SETTINGS.copy()
+
+    try:
+        from preset_zapret2.preset_defaults import (
+            get_default_category_settings as get_parsed_defaults,
+            get_category_default_syndata
+        )
+
+        # Получаем все настройки из DEFAULT_PRESET_CONTENT
+        all_defaults = get_parsed_defaults()
+
+        # Ищем настройки для нашей категории
+        if category_key not in all_defaults:
+            # Категории нет в DEFAULT_PRESET_CONTENT → возвращаем fallback
+            log(f"Категория {category_key} не найдена в DEFAULT_PRESET_CONTENT, используем fallback", "DEBUG")
+            return DEFAULT_CATEGORY_SETTINGS.copy()
+
+        # Парсим syndata настройки из DEFAULT_PRESET_CONTENT
+        syndata_settings = get_category_default_syndata(category_key)
+
+        log(f"Используем настройки из DEFAULT_PRESET_CONTENT для {category_key}", "DEBUG")
+        return syndata_settings
+
+    except Exception as e:
+        log(f"Ошибка получения дефолтных настроек для {category_key}: {e}", "WARNING")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        return DEFAULT_CATEGORY_SETTINGS.copy()
 
 
 def reset_category_settings(category_key: str) -> bool:

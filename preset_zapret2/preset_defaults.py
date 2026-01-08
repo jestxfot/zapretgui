@@ -91,22 +91,23 @@ DEFAULT_PRESET_CONTENT = """# Preset: Default
 # Category: youtube (TCP)
 --filter-tcp=80,443
 --hostlist=lists/youtube.txt
---lua-desync=multidisorder_legacy_midsld
-
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multidisorder_legacy:pos=1,midsld
 --new
 
 # Category: YouTube QUIC
 --filter-udp=443
 --ipset=lists/ipset-youtube.txt
---lua-desync=multidisorder_legacy_midsld
-
+--lua-desync=multidisorder_legacy:pos=1,midsld
 --new
 
 # Category: discord (TCP)
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
---lua-desync=multidisorder_legacy_midsld
-
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multidisorder_legacy:pos=1,midsld
 --new
 
 # Category: discord_voice (UDP/STUN)
@@ -115,3 +116,245 @@ DEFAULT_PRESET_CONTENT = """# Preset: Default
 --out-range=-d10
 --lua-desync=fake:blob=0x00:repeats=6
 """
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEFAULT SETTINGS PARSER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_DEFAULT_SETTINGS_CACHE = None
+
+
+def get_default_category_settings() -> dict:
+    """
+    Парсит DEFAULT_PRESET_CONTENT и возвращает дефолтные настройки для всех категорий.
+
+    Возвращает словарь вида:
+    {
+        "youtube": {
+            "filter_mode": "hostlist",
+            "tcp_enabled": True,
+            "tcp_port": "80,443",
+            "tcp_args": "--lua-desync=multidisorder_legacy:pos=1,midsld",
+            "udp_enabled": False,
+        },
+        "YouTube QUIC": {
+            "filter_mode": "ipset",
+            "tcp_enabled": False,
+            "udp_enabled": True,
+            "udp_port": "443",
+            "udp_args": "--lua-desync=multidisorder_legacy:pos=1,midsld",
+        },
+        ...
+    }
+
+    Кэширует результат при первом вызове.
+
+    Returns:
+        dict: Словарь с дефолтными настройками категорий
+    """
+    global _DEFAULT_SETTINGS_CACHE
+
+    # Возвращаем из кэша если уже парсили
+    if _DEFAULT_SETTINGS_CACHE is not None:
+        return _DEFAULT_SETTINGS_CACHE
+
+    from .txt_preset_parser import parse_preset_content
+
+    try:
+        # Парсим DEFAULT_PRESET_CONTENT
+        preset_data = parse_preset_content(DEFAULT_PRESET_CONTENT)
+
+        # Конвертируем CategoryBlock в удобный формат
+        settings = {}
+
+        for block in preset_data.categories:
+            category_name = block.category
+
+            if category_name not in settings:
+                settings[category_name] = {
+                    "filter_mode": block.filter_mode,
+                    "tcp_enabled": False,
+                    "tcp_port": "",
+                    "tcp_args": "",
+                    "udp_enabled": False,
+                    "udp_port": "",
+                    "udp_args": "",
+                }
+
+            cat_settings = settings[category_name]
+
+            # Записываем настройки по протоколу
+            if block.protocol == "tcp":
+                cat_settings["tcp_enabled"] = True
+                cat_settings["tcp_port"] = block.port
+                cat_settings["tcp_args"] = block.strategy_args
+                # TCP filter_mode имеет приоритет (обычно hostlist)
+                cat_settings["filter_mode"] = block.filter_mode
+            elif block.protocol == "udp":
+                cat_settings["udp_enabled"] = True
+                cat_settings["udp_port"] = block.port
+                cat_settings["udp_args"] = block.strategy_args
+                # Обновляем filter_mode для UDP только если TCP нет
+                if not cat_settings["tcp_enabled"]:
+                    cat_settings["filter_mode"] = block.filter_mode
+
+        # Кэшируем результат
+        _DEFAULT_SETTINGS_CACHE = settings
+        return settings
+
+    except Exception as e:
+        # Если парсинг не удался, возвращаем пустой словарь
+        from log import log
+        log(f"Failed to parse DEFAULT_PRESET_CONTENT: {e}", "ERROR")
+        return {}
+
+
+def get_category_default_filter_mode(category_name: str) -> str:
+    """
+    Возвращает дефолтный filter_mode для категории из DEFAULT_PRESET_CONTENT.
+
+    Args:
+        category_name: Имя категории (например "youtube", "YouTube QUIC")
+
+    Returns:
+        str: "hostlist", "ipset" или "hostlist" (fallback)
+    """
+    settings = get_default_category_settings()
+
+    if category_name in settings:
+        return settings[category_name].get("filter_mode", "hostlist")
+
+    # Fallback: hostlist
+    return "hostlist"
+
+
+def parse_syndata_from_args(args_str: str) -> dict:
+    """
+    Парсит syndata настройки из строки аргументов.
+
+    Извлекает параметры из строк вида:
+    - --lua-desync=send:repeats=2:ttl=0
+    - --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+    - --out-range=-n8
+
+    Args:
+        args_str: Строка с аргументами (может содержать несколько строк)
+
+    Returns:
+        dict: Словарь с параметрами syndata/send/out_range
+    """
+    result = {
+        "enabled": False,
+        "blob": "tls_google",
+        "tls_mod": "none",
+        "autottl_delta": 0,
+        "autottl_min": 3,
+        "autottl_max": 20,
+        "tcp_flags_unset": "none",
+        "out_range": 0,
+        "out_range_mode": "n",
+        "send_enabled": False,
+        "send_repeats": 0,
+        "send_ip_ttl": 0,
+        "send_ip6_ttl": 0,
+        "send_ip_id": "none",
+        "send_badsum": False,
+    }
+
+    import re
+
+    # Парсим --lua-desync=syndata:...
+    syndata_match = re.search(r'--lua-desync=syndata:([^\n]+)', args_str)
+    if syndata_match:
+        result["enabled"] = True
+        syndata_str = syndata_match.group(1)
+
+        # blob=tls_google
+        blob_match = re.search(r'blob=([^:]+)', syndata_str)
+        if blob_match:
+            result["blob"] = blob_match.group(1)
+
+        # ip_autottl=-2,3-20
+        autottl_match = re.search(r'ip_autottl=(-?\d+),(\d+)-(\d+)', syndata_str)
+        if autottl_match:
+            result["autottl_delta"] = int(autottl_match.group(1))
+            result["autottl_min"] = int(autottl_match.group(2))
+            result["autottl_max"] = int(autottl_match.group(3))
+
+        # tls_mod=...
+        tls_mod_match = re.search(r'tls_mod=([^:]+)', syndata_str)
+        if tls_mod_match:
+            result["tls_mod"] = tls_mod_match.group(1)
+
+    # Парсим --lua-desync=send:...
+    send_match = re.search(r'--lua-desync=send:([^\n]+)', args_str)
+    if send_match:
+        result["send_enabled"] = True
+        send_str = send_match.group(1)
+
+        # repeats=2
+        repeats_match = re.search(r'repeats=(\d+)', send_str)
+        if repeats_match:
+            result["send_repeats"] = int(repeats_match.group(1))
+
+        # ttl=...
+        ttl_match = re.search(r'ttl=(\d+)', send_str)
+        if ttl_match:
+            result["send_ip_ttl"] = int(ttl_match.group(1))
+
+        # ttl6=...
+        ttl6_match = re.search(r'ttl6=(\d+)', send_str)
+        if ttl6_match:
+            result["send_ip6_ttl"] = int(ttl6_match.group(1))
+
+        # badsum=true
+        if 'badsum=true' in send_str:
+            result["send_badsum"] = True
+
+    # Парсим --out-range=-n8 или -d10
+    out_range_match = re.search(r'--out-range=-([nd])(\d+)', args_str)
+    if out_range_match:
+        result["out_range_mode"] = out_range_match.group(1)
+        result["out_range"] = int(out_range_match.group(2))
+
+    return result
+
+
+def get_category_default_syndata(category_name: str) -> dict:
+    """
+    Возвращает дефолтные syndata настройки для категории из DEFAULT_PRESET_CONTENT.
+
+    Args:
+        category_name: Имя категории (например "youtube", "discord")
+
+    Returns:
+        dict: Словарь с syndata параметрами (enabled, blob, autottl_*, send_*, out_range)
+    """
+    settings = get_default_category_settings()
+
+    if category_name not in settings:
+        # Fallback: дефолтные настройки
+        return {
+            "enabled": True,
+            "blob": "tls_google",
+            "autottl_delta": -2,
+            "autottl_min": 3,
+            "autottl_max": 20,
+            "send_enabled": True,
+            "send_repeats": 2,
+            "out_range": 8,
+            "out_range_mode": "n",
+        }
+
+    cat_settings = settings[category_name]
+
+    # Объединяем tcp_args и udp_args для парсинга
+    all_args = ""
+    if cat_settings.get("tcp_enabled") and cat_settings.get("tcp_args"):
+        all_args += cat_settings["tcp_args"] + "\n"
+    if cat_settings.get("udp_enabled") and cat_settings.get("udp_args"):
+        all_args += cat_settings["udp_args"]
+
+    # Парсим syndata параметры
+    return parse_syndata_from_args(all_args)

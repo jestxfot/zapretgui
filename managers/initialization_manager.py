@@ -581,11 +581,18 @@ class InitializationManager:
             # Обновляем UI состояние
             from autostart.registry_check import is_autostart_enabled
             autostart_exists = is_autostart_enabled()
-            
+
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_autostart_ui(autostart_exists)
                 self.app.ui_manager.update_ui_state(running=False)
-            
+
+            # Combobox-фикс через UI Manager (из HeavyInitManager)
+            for delay in (0, 100, 200):
+                QTimer.singleShot(delay, lambda: (
+                    self.app.ui_manager.force_enable_combos()
+                    if hasattr(self.app, 'ui_manager') else None
+                ))
+
             self.init_tasks_completed.add('managers')
             self._on_managers_init_done()
             log("✅ Managers init finalized", "DEBUG")
@@ -778,21 +785,14 @@ class InitializationManager:
     def _on_managers_init_done(self):
         """
         Обработчик успешной инициализации менеджеров:
-        - запускает Heavy Init (если есть)
-        - пытается «завершить» общую инициализацию сразу, без ожидания таймера
+        - обновляет статус
+        - завершает общую инициализацию
         """
-        log("Менеджеры инициализированы, запускаем Heavy Init", "✅ SUCCESS")
+        log("Менеджеры инициализированы", "✅ SUCCESS")
         try:
             self.app.set_status("Инициализация завершена")
         except Exception:
             pass
-
-        # Heavy Init
-        if hasattr(self.app, 'heavy_init_manager'):
-            QTimer.singleShot(100, self.app.heavy_init_manager.start_heavy_init)
-            log("🔵 Heavy Init запланирован", "DEBUG")
-        else:
-            log("❌ Heavy Init Manager не найден", "ERROR")
 
         # Пробуем завершить общую инициализацию уже сейчас
         self._check_and_complete_initialization()
@@ -804,27 +804,54 @@ class InitializationManager:
         self._post_init_scheduled = True
 
         try:
-            # Проверка локальных файлов и автозапуск DPI
-            if hasattr(self.app, 'heavy_init_manager'):
-                if self.app.heavy_init_manager.check_local_files():
-                    # Проверяем режим запуска ПЕРЕД делегированием
-                    from strategy_menu import get_strategy_launch_method
-                    launch_method = get_strategy_launch_method()
+            # Проверка winws.exe
+            if not self._check_winws_exists():
+                log("winws.exe не найден", "❌ ERROR")
+                self.app.set_status("❌ winws.exe не найден")
+                return
 
-                    if launch_method == "direct_zapret2":
-                        # Отдельный путь для direct_zapret2 (использует preset файл)
-                        QTimer.singleShot(1000, self._start_direct_zapret2_autostart)
-                    else:
-                        # Все остальные режимы через dpi_manager
-                        if hasattr(self.app, 'dpi_manager'):
-                            QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
-            
+            log("✅ winws.exe найден", "DEBUG")
+
+            # Проверяем режим запуска ПЕРЕД делегированием
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+
+            if launch_method == "direct_zapret2":
+                # Отдельный путь для direct_zapret2 (использует preset файл)
+                QTimer.singleShot(1000, self._start_direct_zapret2_autostart)
+            else:
+                # Все остальные режимы через dpi_manager
+                if hasattr(self.app, 'dpi_manager'):
+                    QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
+
             # Обновления проверяются вручную на вкладке "Серверы"
-                
+
         except Exception as e:
             log(f"Ошибка post-init задач: {e}", "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+
+    def _check_winws_exists(self) -> bool:
+        """Проверка наличия winws.exe"""
+        try:
+            import os
+            from config import get_winws_exe_for_method
+            from strategy_menu import get_strategy_launch_method
+
+            launch_method = get_strategy_launch_method()
+            target_file = get_winws_exe_for_method(launch_method)
+
+            return os.path.exists(target_file)
+
+        except Exception as e:
+            log(f"Ошибка при проверке winws.exe: {e}", "DEBUG")
+            # Fallback на WINWS_EXE
+            try:
+                from config import WINWS_EXE
+                import os
+                return os.path.exists(WINWS_EXE)
+            except:
+                return False
 
     def _start_direct_zapret2_autostart(self):
         """Автозапуск для режима direct_zapret2 (использует preset файл)"""

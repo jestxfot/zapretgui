@@ -298,8 +298,8 @@ def save_preset(preset: "Preset") -> bool:
             # TCP block
             if cat.tcp_enabled and cat.has_tcp():
                 filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                # Convert to absolute path for winws2.exe
-                filter_file = os.path.join(_get_main_directory(), filter_file_relative)
+                # Convert to absolute path for winws2.exe and normalize slashes
+                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
 
                 # Build full args
                 args_lines = [
@@ -327,8 +327,8 @@ def save_preset(preset: "Preset") -> bool:
             if cat.udp_enabled and cat.has_udp():
                 # For UDP, typically use ipset
                 filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                # Convert to absolute path for winws2.exe
-                filter_file = os.path.join(_get_main_directory(), filter_file_relative)
+                # Convert to absolute path for winws2.exe and normalize slashes
+                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
 
                 args_lines = [
                     f"--filter-udp={cat.udp_port}",
@@ -350,6 +350,9 @@ def save_preset(preset: "Preset") -> bool:
                     strategy_args=cat.udp_args,
                 )
                 data.categories.append(block)
+
+        # Deduplicate categories before writing
+        data.deduplicate_categories()
 
         # Write file
         success = generate_preset_file(data, preset_path, atomic=True)

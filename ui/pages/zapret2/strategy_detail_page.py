@@ -1808,9 +1808,11 @@ class StrategyDetailPage(BasePage):
             default_syndata = SyndataSettings.get_defaults()
             self._apply_syndata_settings(default_syndata.to_dict())
 
-            # 3. Reset filter_mode to "hostlist" in UI
+            # 3. Reset filter_mode to default from DEFAULT_PRESET_CONTENT
             if hasattr(self, '_filter_mode_frame') and self._filter_mode_frame.isVisible():
-                self._filter_mode_selector.setCurrentMode("hostlist", block_signals=True)
+                from preset_zapret2 import get_category_default_filter_mode
+                default_filter_mode = get_category_default_filter_mode(self._category_key)
+                self._filter_mode_selector.setCurrentMode(default_filter_mode, block_signals=True)
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""

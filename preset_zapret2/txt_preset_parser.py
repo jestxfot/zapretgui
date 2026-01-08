@@ -94,6 +94,36 @@ class PresetData:
         """Checks if preset has this category (any protocol)"""
         return any(block.category == category for block in self.categories)
 
+    def deduplicate_categories(self) -> None:
+        """
+        Removes duplicate category blocks from the list.
+
+        Uses category:protocol as unique key. If duplicates exist,
+        keeps the LAST occurrence (most recent update).
+
+        Example:
+            Before: [youtube:tcp, discord:tcp, youtube:tcp]
+            After:  [discord:tcp, youtube:tcp]
+        """
+        seen = {}  # key -> index
+        unique_blocks = []
+
+        for block in self.categories:
+            key = block.get_key()  # "category:protocol"
+
+            # If we've seen this key before, remove the old one
+            if key in seen:
+                # Replace old block with new one
+                old_index = seen[key]
+                unique_blocks[old_index] = None  # Mark for removal
+
+            # Add new block
+            seen[key] = len(unique_blocks)
+            unique_blocks.append(block)
+
+        # Filter out None entries (replaced blocks)
+        self.categories = [b for b in unique_blocks if b is not None]
+
 
 def extract_category_from_args(args: str) -> Tuple[str, str, str]:
     """
@@ -470,6 +500,9 @@ def parse_preset_content(content: str) -> PresetData:
         )
 
         data.categories.append(block)
+
+    # Deduplicate in case file already contains duplicates
+    data.deduplicate_categories()
 
     log(f"Parsed preset '{data.name}': {len(data.categories)} category blocks", "DEBUG")
 

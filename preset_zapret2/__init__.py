@@ -90,6 +90,14 @@ from .txt_preset_parser import (
     update_category_in_preset,
 )
 
+# Default settings parser
+from .preset_defaults import (
+    get_default_category_settings,
+    get_category_default_filter_mode,
+    get_category_default_syndata,
+    parse_syndata_from_args,
+)
+
 def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
@@ -215,6 +223,10 @@ __all__ = [
     # Utility functions
     "ensure_default_preset_exists",
     "restore_default_preset",
+    "get_default_category_settings",
+    "get_category_default_filter_mode",
+    "get_category_default_syndata",
+    "parse_syndata_from_args",
     # Parser
     "PresetData",
     "CategoryBlock",

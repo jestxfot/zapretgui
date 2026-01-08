@@ -156,10 +156,18 @@ class PresetConfigPage(BasePage):
         self._is_loading = True
         try:
             if not os.path.exists(self._preset_path):
-                # Create empty file with comment header
-                with open(self._preset_path, 'w', encoding='utf-8') as f:
-                    f.write(f"# {self._preset_display_name}\n# Add your winws arguments here, one per line\n\n")
-                log(f"Создан новый файл: {self._preset_path}", "INFO")
+                # Check if we're in direct_zapret2 mode - use ensure_default_preset_exists()
+                method = get_strategy_launch_method()
+                if method == "direct_zapret2":
+                    # Use the proper preset creation function with DEFAULT_PRESET_CONTENT
+                    from preset_zapret2 import ensure_default_preset_exists
+                    ensure_default_preset_exists()
+                    log(f"Создан дефолтный пресет через ensure_default_preset_exists()", "INFO")
+                else:
+                    # For other modes (zapret1, orchestra) - create empty file with comment header
+                    with open(self._preset_path, 'w', encoding='utf-8') as f:
+                        f.write(f"# {self._preset_display_name}\n# Add your winws arguments here, one per line\n\n")
+                    log(f"Создан новый пустой файл: {self._preset_path}", "INFO")
 
             with open(self._preset_path, 'r', encoding='utf-8') as f:
                 content = f.read()

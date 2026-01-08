@@ -164,7 +164,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from managers.ui_manager import UIManager
     from managers.dpi_manager import DPIManager
-    from managers.heavy_init_manager import HeavyInitManager
     from managers.process_monitor_manager import ProcessMonitorManager
     from managers.subscription_manager import SubscriptionManager
     from managers.initialization_manager import InitializationManager
@@ -175,8 +174,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     from ui.theme import ThemeHandler
     # ✅ ДОБАВЛЯЕМ TYPE HINTS для менеджеров
     ui_manager: 'UIManager'
-    dpi_manager: 'DPIManager' 
-    heavy_init_manager: 'HeavyInitManager'
+    dpi_manager: 'DPIManager'
     process_monitor_manager: 'ProcessMonitorManager'
     subscription_manager: 'SubscriptionManager'
     initialization_manager: 'InitializationManager'
@@ -203,9 +201,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
         
         # ✅ Очищаем менеджеры через их методы
-        if hasattr(self, 'heavy_init_manager'):
-            self.heavy_init_manager.cleanup()
-        
         if hasattr(self, 'process_monitor_manager'):
             self.process_monitor_manager.stop_monitoring()
         
@@ -520,8 +515,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Флаги для защиты от двойных вызовов
         self._splash_closed = False
         self._dpi_autostart_initiated = False
-        self._heavy_init_started = False
-        self._heavy_init_thread = None
 
         # ✅ FRAMELESS WINDOW - убираем стандартную рамку
         from PyQt6.QtCore import Qt
@@ -651,14 +644,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Создаем менеджеры
         from managers.initialization_manager import InitializationManager
         from managers.subscription_manager import SubscriptionManager
-        from managers.heavy_init_manager import HeavyInitManager
         from managers.process_monitor_manager import ProcessMonitorManager
         from managers.ui_manager import UIManager
         from managers.dpi_manager import DPIManager
 
         self.initialization_manager = InitializationManager(self)
         self.subscription_manager = SubscriptionManager(self)
-        self.heavy_init_manager = HeavyInitManager(self)
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
         self.dpi_manager = DPIManager(self)

@@ -55,6 +55,7 @@ slm_get_best(hostkey, skip_strategy) -> number|nil
 
 | Задача | Агент | Дата |
 |--------|-------|------|
+| Удалён HeavyInitManager, функциональность перенесена в InitializationManager | Claude | 2026-01-09 |
 | Переделан механизм default.txt - хранится как константа в коде (preset_defaults.py) | Claude | 2026-01-08 |
 | Добавлена функция restore_default_preset() для восстановления Default.txt | Claude | 2026-01-08 |
 | Пересоздан default.txt с 3 категориями: youtube tcp, discord tcp, discord_voice udp | Claude | 2026-01-08 |

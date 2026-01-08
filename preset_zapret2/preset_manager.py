@@ -79,6 +79,10 @@ class PresetManager:
         self.on_preset_switched = on_preset_switched
         self.on_dpi_reload_needed = on_dpi_reload_needed
 
+        # Cache for active preset to avoid repeated file parsing
+        self._active_preset_cache: Optional[Preset] = None
+        self._active_preset_mtime: float = 0.0
+
     # ========================================================================
     # LIST OPERATIONS
     # ========================================================================
@@ -167,22 +171,38 @@ class PresetManager:
 
     def get_active_preset(self) -> Optional[Preset]:
         """
-        Loads the currently active preset.
+        Loads the currently active preset with caching.
 
-        First checks registry for active preset name,
-        then loads from presets/ folder.
-        If not found, parses preset-zapret2.txt directly.
+        First checks cache validity (file mtime).
+        If cache is invalid, loads from presets/ folder or parses preset-zapret2.txt.
 
         Returns:
             Active Preset or None
         """
+        # Check cache validity
+        if self._active_preset_cache is not None:
+            current_mtime = self._get_active_file_mtime()
+            if current_mtime == self._active_preset_mtime and current_mtime > 0:
+                # Cache is valid
+                return self._active_preset_cache
+
+        # Cache miss or invalid - load preset
         name = get_active_preset_name()
+        preset = None
 
         if name and preset_exists(name):
-            return load_preset(name)
+            preset = load_preset(name)
 
-        # Fallback: parse preset-zapret2.txt directly
-        return self._load_from_active_file()
+        if not preset:
+            # Fallback: parse preset-zapret2.txt directly
+            preset = self._load_from_active_file()
+
+        # Update cache
+        if preset:
+            self._active_preset_cache = preset
+            self._active_preset_mtime = self._get_active_file_mtime()
+
+        return preset
 
     def _load_from_active_file(self) -> Optional[Preset]:
         """
@@ -236,6 +256,31 @@ class PresetManager:
             log(f"Error loading from active file: {e}", "ERROR")
             return None
 
+    def _get_active_file_mtime(self) -> float:
+        """
+        Gets modification time of active preset file.
+
+        Returns:
+            mtime as float timestamp, 0.0 if file does not exist
+        """
+        try:
+            active_path = get_active_preset_path()
+            if active_path.exists():
+                return os.path.getmtime(str(active_path))
+            return 0.0
+        except Exception as e:
+            log(f"Error getting active file mtime: {e}", "WARNING")
+            return 0.0
+
+    def _invalidate_active_preset_cache(self) -> None:
+        """
+        Invalidates the active preset cache.
+
+        Should be called after any modification to the active preset.
+        """
+        self._active_preset_cache = None
+        self._active_preset_mtime = 0.0
+
     # ========================================================================
     # SWITCH OPERATIONS
     # ========================================================================
@@ -274,6 +319,9 @@ class PresetManager:
 
             # Update registry
             set_active_preset_name(name)
+
+            # Invalidate cache after switch
+            self._invalidate_active_preset_cache()
 
             log(f"Switched to preset '{name}'", "INFO")
 
@@ -600,9 +648,9 @@ class PresetManager:
             for cat_name, cat in preset.categories.items():
                 if cat.tcp_enabled and cat.has_tcp():
                     filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                    # Convert to absolute path for winws2.exe
+                    # Convert to absolute path for winws2.exe and normalize slashes
                     from config import MAIN_DIRECTORY
-                    filter_file = os.path.join(MAIN_DIRECTORY, filter_file_relative)
+                    filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
 
                     args_lines = [
                         f"--filter-tcp={cat.tcp_port}",
@@ -628,8 +676,8 @@ class PresetManager:
                 if cat.udp_enabled and cat.has_udp():
                     # For UDP, typically use ipset
                     filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                    # Convert to absolute path for winws2.exe
-                    filter_file = os.path.join(MAIN_DIRECTORY, filter_file_relative)
+                    # Convert to absolute path for winws2.exe and normalize slashes
+                    filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
 
                     args_lines = [
                         f"--filter-udp={cat.udp_port}",
@@ -652,10 +700,16 @@ class PresetManager:
                     )
                     data.categories.append(block)
 
+            # Deduplicate categories before writing
+            data.deduplicate_categories()
+
             # Write
             success = generate_preset_file(data, active_path, atomic=True)
 
             if success:
+                # Invalidate cache after sync
+                self._invalidate_active_preset_cache()
+
                 log(f"Synced preset to active file", "DEBUG")
 
                 # Trigger DPI reload
@@ -719,7 +773,7 @@ class PresetManager:
 
         # Create category if not exists
         if category_key not in preset.categories:
-            preset.categories[category_key] = CategoryConfig(name=category_key)
+            preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
         preset.categories[category_key].syndata = syndata
         preset.touch()
@@ -777,7 +831,7 @@ class PresetManager:
 
         # Create category if not exists
         if category_key not in preset.categories:
-            preset.categories[category_key] = CategoryConfig(name=category_key)
+            preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
         preset.categories[category_key].filter_mode = filter_mode
         preset.touch()
@@ -835,7 +889,7 @@ class PresetManager:
 
         # Create category if not exists
         if category_key not in preset.categories:
-            preset.categories[category_key] = CategoryConfig(name=category_key)
+            preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
         preset.categories[category_key].sort_order = sort_order
         preset.touch()
@@ -847,7 +901,7 @@ class PresetManager:
 
     def reset_category_settings(self, category_key: str) -> bool:
         """
-        Resets all category settings to defaults.
+        Resets all category settings to defaults from DEFAULT_PRESET_CONTENT.
 
         Args:
             category_key: Category name
@@ -862,9 +916,13 @@ class PresetManager:
         if category_key not in preset.categories:
             return True  # Nothing to reset
 
+        # Get default filter_mode from DEFAULT_PRESET_CONTENT
+        from .preset_defaults import get_category_default_filter_mode
+        default_filter_mode = get_category_default_filter_mode(category_key)
+
         # Reset syndata to defaults
         preset.categories[category_key].syndata = SyndataSettings.get_defaults()
-        preset.categories[category_key].filter_mode = "hostlist"
+        preset.categories[category_key].filter_mode = default_filter_mode
         preset.categories[category_key].sort_order = "default"
         preset.touch()
 
@@ -885,7 +943,38 @@ class PresetManager:
             save_preset(preset)
 
         # Then sync to active file (triggers DPI reload via callback)
+        # Note: sync_preset_to_active_file() already invalidates cache
         return self.sync_preset_to_active_file(preset)
+
+    def _create_category_with_defaults(self, category_key: str) -> CategoryConfig:
+        """
+        Creates a new CategoryConfig with defaults from DEFAULT_PRESET_CONTENT.
+
+        If category exists in DEFAULT_PRESET_CONTENT (youtube, discord, etc.),
+        uses its specific settings (syndata, filter_mode).
+        Otherwise, uses fallback defaults.
+
+        Args:
+            category_key: Category name (e.g., "youtube", "discord")
+
+        Returns:
+            CategoryConfig with proper defaults
+        """
+        from .preset_defaults import (
+            get_category_default_syndata,
+            get_category_default_filter_mode
+        )
+
+        # Get defaults from DEFAULT_PRESET_CONTENT
+        syndata_dict = get_category_default_syndata(category_key)
+        syndata = SyndataSettings.from_dict(syndata_dict)
+        filter_mode = get_category_default_filter_mode(category_key)
+
+        return CategoryConfig(
+            name=category_key,
+            syndata=syndata,
+            filter_mode=filter_mode
+        )
 
     # ========================================================================
     # STRATEGY SELECTION OPERATIONS
@@ -931,7 +1020,7 @@ class PresetManager:
 
         # Create category if not exists
         if category_key not in preset.categories:
-            preset.categories[category_key] = CategoryConfig(name=category_key)
+            preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
         preset.categories[category_key].strategy_id = strategy_id
 
@@ -1006,7 +1095,7 @@ class PresetManager:
 
         for cat_key, strategy_id in selections.items():
             if cat_key not in preset.categories:
-                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+                preset.categories[cat_key] = self._create_category_with_defaults(cat_key)
             preset.categories[cat_key].strategy_id = strategy_id
             # Update args from strategy_id
             self._update_category_args_from_strategy(preset, cat_key, strategy_id)
@@ -1036,7 +1125,7 @@ class PresetManager:
 
         for cat_key, default_strategy in defaults.items():
             if cat_key not in preset.categories:
-                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+                preset.categories[cat_key] = self._create_category_with_defaults(cat_key)
             preset.categories[cat_key].strategy_id = default_strategy
             # Update args from strategy_id
             self._update_category_args_from_strategy(preset, cat_key, default_strategy)
@@ -1064,7 +1153,7 @@ class PresetManager:
 
         for cat_key in registry.get_all_category_keys():
             if cat_key not in preset.categories:
-                preset.categories[cat_key] = CategoryConfig(name=cat_key)
+                preset.categories[cat_key] = self._create_category_with_defaults(cat_key)
             preset.categories[cat_key].strategy_id = "none"
             # Clear args when strategy is "none"
             preset.categories[cat_key].tcp_args = ""

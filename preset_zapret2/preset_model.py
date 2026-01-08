@@ -169,7 +169,7 @@ class CategoryConfig:
         if self.tcp_args:
             parts.append(self.tcp_args)
 
-        return " ".join(parts)
+        return "\n".join(parts)
 
     def get_full_udp_args(self) -> str:
         """Возвращает полные UDP аргументы включая syndata/send/out-range
@@ -200,28 +200,28 @@ class CategoryConfig:
         if self.udp_args:
             parts.append(self.udp_args)
 
-        return " ".join(parts)
+        return "\n".join(parts)
 
     def _get_syndata_args(self) -> str:
-        """Генерирует --syndata=blob:...,autottl:... из SyndataSettings"""
+        """Генерирует --lua-desync=syndata:blob=...:ip_autottl=... из SyndataSettings"""
         if not self.syndata.enabled:
             return ""
 
         parts = []
-        parts.append(f"blob:{self.syndata.blob}")
+        parts.append(f"blob={self.syndata.blob}")
 
         if self.syndata.tls_mod != "none":
-            parts.append(f"tls_mod:{self.syndata.tls_mod}")
+            parts.append(f"tls_mod={self.syndata.tls_mod}")
 
+        # ip_autottl формат: -2,3-20 (delta,min-max)
         if self.syndata.autottl_delta != 0:
-            parts.append(f"autottl:{self.syndata.autottl_delta}")
-            parts.append(f"autottl_min:{self.syndata.autottl_min}")
-            parts.append(f"autottl_max:{self.syndata.autottl_max}")
+            autottl_str = f"{self.syndata.autottl_delta},{self.syndata.autottl_min}-{self.syndata.autottl_max}"
+            parts.append(f"ip_autottl={autottl_str}")
 
         if self.syndata.tcp_flags_unset != "none":
-            parts.append(f"tcp_flags_unset:{self.syndata.tcp_flags_unset}")
+            parts.append(f"tcp_flags_unset={self.syndata.tcp_flags_unset}")
 
-        return f"--syndata={','.join(parts)}"
+        return f"--lua-desync=syndata:{':'.join(parts)}"
 
     def _get_out_range_args(self) -> str:
         """Генерирует --out-range=-n8 из SyndataSettings"""
@@ -232,31 +232,31 @@ class CategoryConfig:
         return f"--out-range=-{mode_suffix}{self.syndata.out_range}"
 
     def _get_send_args(self) -> str:
-        """Генерирует --send=repeats:2,ttl:0 из SyndataSettings"""
+        """Генерирует --lua-desync=send:repeats=2:ttl=0 из SyndataSettings"""
         if not self.syndata.send_enabled:
             return ""
 
         parts = []
 
         if self.syndata.send_repeats != 0:
-            parts.append(f"repeats:{self.syndata.send_repeats}")
+            parts.append(f"repeats={self.syndata.send_repeats}")
 
         if self.syndata.send_ip_ttl != 0:
-            parts.append(f"ttl:{self.syndata.send_ip_ttl}")
+            parts.append(f"ttl={self.syndata.send_ip_ttl}")
 
         if self.syndata.send_ip6_ttl != 0:
-            parts.append(f"ttl6:{self.syndata.send_ip6_ttl}")
+            parts.append(f"ttl6={self.syndata.send_ip6_ttl}")
 
         if self.syndata.send_ip_id != "none":
-            parts.append(f"ip_id:{self.syndata.send_ip_id}")
+            parts.append(f"ip_id={self.syndata.send_ip_id}")
 
         if self.syndata.send_badsum:
-            parts.append("badsum:true")
+            parts.append("badsum=true")
 
         if not parts:
             return ""
 
-        return f"--send={','.join(parts)}"
+        return f"--lua-desync=send:{':'.join(parts)}"
 
     def to_dict(self) -> Dict:
         """Converts to dictionary for serialization."""
