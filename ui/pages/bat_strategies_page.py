@@ -310,11 +310,14 @@ class BatStrategiesPage(StrategiesPageBase):
                 else:
                     display_args.append(arg)
 
-            # Формируем однострочную команду
-            cmd_parts = [f'"{full_exe}"'] + display_args
-            single_line_cmd = ' '.join(cmd_parts)
+            # Формируем многострочное отображение (один аргумент на строку)
+            # Первая строка - путь к exe
+            lines = [f'"{full_exe}"']
+            # Каждый аргумент на отдельной строке
+            lines.extend(display_args)
+            multi_line_cmd = '\n'.join(lines)
 
-            self._cmd_preview_text.setPlainText(single_line_cmd)
+            self._cmd_preview_text.setPlainText(multi_line_cmd)
 
         except Exception as e:
             log(f"Ошибка обновления превью команды: {e}", "DEBUG")

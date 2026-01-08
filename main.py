@@ -378,7 +378,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         if hasattr(self, 'ui_manager'):
             return self.ui_manager.force_enable_combos()
         return False
-    
+
     def on_strategy_selected_from_dialog(self, strategy_id: str, strategy_name: str) -> None:
         """Обрабатывает выбор стратегии из диалога."""
         try:
@@ -388,10 +388,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.current_strategy_id = strategy_id
             self.current_strategy_name = strategy_name
             
-            # ✅ УБИРАЕМ АВТОМАТИЧЕСКОЕ СКРЫТИЕ - теперь это контролируется настройкой
-            # Диалог сам решит закрываться или нет в методе accept()
-            
-            # ✅ ДЛЯ DIRECT РЕЖИМА ИСПОЛЬЗУЕМ ПРОСТОЕ НАЗВАНИЕ
+            # ДЛЯ DIRECT РЕЖИМА ИСПОЛЬЗУЕМ ПРОСТОЕ НАЗВАНИЕ
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
@@ -404,15 +401,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                     display_name = "Прямой Z1"
                 self.current_strategy_name = display_name
                 strategy_name = display_name
-                # Для Direct режима selections сохраняются отдельно, не нужно сохранять через set_last_strategy
                 log(f"Установлено простое название для режима {launch_method}: {display_name}", "DEBUG")
             else:
-                # Для BAT режима сохраняем последнюю стратегию (отдельный ключ реестра)
+                # Для BAT режима сохраняем последнюю стратегию
                 from config.reg import set_last_bat_strategy
                 set_last_bat_strategy(strategy_name)
-            
-            # Обновляем метку с текущей стратегией (на страницах стратегий)
-            # current_strategy_label теперь на отдельных страницах, не на главном окне
             
             # Обновляем новые страницы интерфейса
             if hasattr(self, 'update_current_strategy_display'):
@@ -424,36 +417,72 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки Direct режимов
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
-                    # Получаем стратегию из сохранённых настроек
-                    from launcher_common import combine_strategies
-                    from strategy_menu import get_direct_strategy_selections, get_default_selections
+                    
+                    # ✅ ДЛЯ direct_zapret2 - ИСПОЛЬЗУЕМ PRESET ФАЙЛ
+                    if launch_method == "direct_zapret2":
+                        from preset_zapret2 import get_active_preset_path, get_active_preset_name, ensure_default_preset_exists
+
+                        # Создаем файл если не существует (первый запуск)
+                        ensure_default_preset_exists()
+
+                        preset_path = get_active_preset_path()
+                        preset_name = get_active_preset_name() or "Default"
+
+                        # Проверяем что файл не пустой и содержит фильтры
+                        try:
+                            content = preset_path.read_text(encoding='utf-8').strip()
+                            has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                            if not has_filters:
+                                log("Preset файл не содержит активных фильтров", "WARNING")
+                                self.set_status("Выберите хотя бы одну категорию для запуска")
+                                return
+                        except Exception as e:
+                            log(f"Ошибка чтения preset файла: {e}", "ERROR")
+                            self.set_status(f"Ошибка чтения preset: {e}")
+                            return
+
+                        # ✅ ИСПОЛЬЗУЕМ СУЩЕСТВУЮЩИЙ ФАЙЛ БЕЗ ИЗМЕНЕНИЙ!
+                        combined_data = {
+                            'is_preset_file': True,
+                            'name': f"Пресет: {preset_name}",
+                            'preset_path': str(preset_path)
+                        }
+
+                        log(f"Запуск из preset файла: {preset_path}", "INFO")
+                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
+                    
+                    # ✅ ДЛЯ ДРУГИХ РЕЖИМОВ - используем combine_strategies
+                    else:
+                        from launcher_common import combine_strategies
+                        from strategy_menu import get_direct_strategy_selections, get_default_selections
+                            
+                        try:
+                            category_selections = get_direct_strategy_selections()
+                        except:
+                            category_selections = get_default_selections()
                         
-                    try:
-                        category_selections = get_direct_strategy_selections()
-                    except:
-                        category_selections = get_default_selections()
-                    
-                    combined_strategy = combine_strategies(**category_selections)
-                    combined_args = combined_strategy['args']
-                    
-                    combined_data = {
-                        'id': strategy_id,
-                        'name': strategy_name,
-                        'is_combined': True,
-                        'args': combined_args,
-                        'selections': category_selections
-                    }
-                    
-                    log(f"Комбинированная стратегия: {len(combined_args)} символов", "DEBUG")
-                    
-                    self._last_combined_args = combined_args
-                    self._last_category_selections = category_selections
-                    
-                    self.dpi_controller.start_dpi_async(selected_mode=combined_data)
-                    
+                        combined_strategy = combine_strategies(**category_selections)
+                        combined_args = combined_strategy['args']
+                        
+                        combined_data = {
+                            'id': strategy_id,
+                            'name': strategy_name,
+                            'is_combined': True,
+                            'args': combined_args,
+                            'selections': category_selections
+                        }
+                        
+                        log(f"Комбинированная стратегия: {len(combined_args)} символов", "DEBUG")
+                        
+                        self._last_combined_args = combined_args
+                        self._last_category_selections = category_selections
+                        
+                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
+                        
                 else:
-                    self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name))
+                    self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name), launch_method=launch_method)
             else:
+                # BAT режим
                 try:
                     strategies = self.strategy_manager.get_strategies_list()
                     strategy_info = strategies.get(strategy_id, {})
@@ -465,14 +494,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                         }
                         log(f"Не удалось найти информацию о стратегии {strategy_id}, используем базовую", "⚠ WARNING")
                     
-                    self.dpi_controller.start_dpi_async(selected_mode=strategy_info)
+                    self.dpi_controller.start_dpi_async(selected_mode=strategy_info, launch_method=launch_method)
                     
                 except Exception as strategy_error:
                     log(f"Ошибка при получении информации о стратегии: {strategy_error}", "❌ ERROR")
-                    self.dpi_controller.start_dpi_async(selected_mode=strategy_name)
-            
-            # ✅ Перезапуск Discord теперь выполняется в dpi_controller._on_dpi_start_finished()
-            # после успешного запуска DPI (убрано дублирование)
+                    self.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method=launch_method)
                 
         except Exception as e:
             log(f"Ошибка при установке выбранной стратегии: {str(e)}", level="❌ ERROR")

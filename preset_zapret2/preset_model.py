@@ -1,4 +1,4 @@
-# presets/preset_model.py
+# preset_zapret2/preset_model.py
 """
 Data models for preset system.
 
@@ -139,6 +139,124 @@ class CategoryConfig:
     def has_udp(self) -> bool:
         """Returns True if UDP strategy is configured."""
         return bool(self.udp_args.strip())
+
+    def get_full_tcp_args(self) -> str:
+        """Возвращает полные TCP аргументы включая syndata/send/out-range
+
+        Правильный порядок: out-range → send → syndata → strategy
+        """
+        parts = []
+
+        # 1. Out-range (если syndata enabled)
+        if self.syndata.enabled:
+            out_range_arg = self._get_out_range_args()
+            if out_range_arg:
+                parts.append(out_range_arg)
+
+        # 2. Send параметры
+        if self.syndata.send_enabled:
+            send_arg = self._get_send_args()
+            if send_arg:
+                parts.append(send_arg)
+
+        # 3. Syndata параметры
+        if self.syndata.enabled:
+            syndata_arg = self._get_syndata_args()
+            if syndata_arg:
+                parts.append(syndata_arg)
+
+        # 4. Базовые tcp_args (strategy)
+        if self.tcp_args:
+            parts.append(self.tcp_args)
+
+        return " ".join(parts)
+
+    def get_full_udp_args(self) -> str:
+        """Возвращает полные UDP аргументы включая syndata/send/out-range
+
+        Правильный порядок: out-range → send → syndata → strategy
+        """
+        parts = []
+
+        # 1. Out-range (если syndata enabled)
+        if self.syndata.enabled:
+            out_range_arg = self._get_out_range_args()
+            if out_range_arg:
+                parts.append(out_range_arg)
+
+        # 2. Send параметры
+        if self.syndata.send_enabled:
+            send_arg = self._get_send_args()
+            if send_arg:
+                parts.append(send_arg)
+
+        # 3. Syndata параметры
+        if self.syndata.enabled:
+            syndata_arg = self._get_syndata_args()
+            if syndata_arg:
+                parts.append(syndata_arg)
+
+        # 4. Базовые udp_args (strategy)
+        if self.udp_args:
+            parts.append(self.udp_args)
+
+        return " ".join(parts)
+
+    def _get_syndata_args(self) -> str:
+        """Генерирует --syndata=blob:...,autottl:... из SyndataSettings"""
+        if not self.syndata.enabled:
+            return ""
+
+        parts = []
+        parts.append(f"blob:{self.syndata.blob}")
+
+        if self.syndata.tls_mod != "none":
+            parts.append(f"tls_mod:{self.syndata.tls_mod}")
+
+        if self.syndata.autottl_delta != 0:
+            parts.append(f"autottl:{self.syndata.autottl_delta}")
+            parts.append(f"autottl_min:{self.syndata.autottl_min}")
+            parts.append(f"autottl_max:{self.syndata.autottl_max}")
+
+        if self.syndata.tcp_flags_unset != "none":
+            parts.append(f"tcp_flags_unset:{self.syndata.tcp_flags_unset}")
+
+        return f"--syndata={','.join(parts)}"
+
+    def _get_out_range_args(self) -> str:
+        """Генерирует --out-range=-n8 из SyndataSettings"""
+        if not self.syndata.enabled or self.syndata.out_range == 0:
+            return ""
+
+        mode_suffix = "d" if self.syndata.out_range_mode == "d" else "n"
+        return f"--out-range=-{mode_suffix}{self.syndata.out_range}"
+
+    def _get_send_args(self) -> str:
+        """Генерирует --send=repeats:2,ttl:0 из SyndataSettings"""
+        if not self.syndata.send_enabled:
+            return ""
+
+        parts = []
+
+        if self.syndata.send_repeats != 0:
+            parts.append(f"repeats:{self.syndata.send_repeats}")
+
+        if self.syndata.send_ip_ttl != 0:
+            parts.append(f"ttl:{self.syndata.send_ip_ttl}")
+
+        if self.syndata.send_ip6_ttl != 0:
+            parts.append(f"ttl6:{self.syndata.send_ip6_ttl}")
+
+        if self.syndata.send_ip_id != "none":
+            parts.append(f"ip_id:{self.syndata.send_ip_id}")
+
+        if self.syndata.send_badsum:
+            parts.append("badsum:true")
+
+        if not parts:
+            return ""
+
+        return f"--send={','.join(parts)}"
 
     def to_dict(self) -> Dict:
         """Converts to dictionary for serialization."""

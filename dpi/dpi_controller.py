@@ -518,7 +518,7 @@ class DPIController:
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Для Direct режима используем готовый preset-zapret2.txt
                 # Файл уже содержит все аргументы - UI обновляет его через PresetManager
-                from presets import get_active_preset_path, get_active_preset_name
+                from preset_zapret2 import get_active_preset_path, get_active_preset_name
                 import os
 
                 preset_path = get_active_preset_path()

@@ -166,7 +166,7 @@ def load_preset(name: str) -> Optional["Preset"]:
     Returns:
         Preset object or None if not found
     """
-    from .preset_model import Preset, CategoryConfig
+    from .preset_model import Preset, CategoryConfig, SyndataSettings
     from .txt_preset_parser import parse_preset_file, PresetData
 
     preset_path = get_preset_path(name)
@@ -203,6 +203,10 @@ def load_preset(name: str) -> Optional["Preset"]:
                 )
 
             cat = preset.categories[cat_name]
+
+            # Restore syndata from syndata_dict if available
+            if hasattr(block, 'syndata_dict') and block.syndata_dict:
+                cat.syndata = SyndataSettings.from_dict(block.syndata_dict)
 
             # Set args based on protocol
             if block.protocol == "tcp":
@@ -268,6 +272,11 @@ def save_preset(preset: "Preset") -> bool:
     """
     from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
+    # ЗАЩИТА: Cannot save built-in presets (default.txt и другие)
+    if preset.is_builtin:
+        log(f"Cannot save built-in preset '{preset.name}' - it's read-only", "WARNING")
+        return False
+
     preset_path = get_preset_path(preset.name)
 
     try:
@@ -297,7 +306,9 @@ def save_preset(preset: "Preset") -> bool:
                     f"--filter-tcp={cat.tcp_port}",
                     f"--{cat.filter_mode}={filter_file}",
                 ]
-                for line in cat.tcp_args.strip().split('\n'):
+                # Use get_full_tcp_args() to include syndata/send/out-range
+                full_tcp_args = cat.get_full_tcp_args()
+                for line in full_tcp_args.strip().split('\n'):
                     if line.strip():
                         args_lines.append(line.strip())
 
@@ -323,7 +334,9 @@ def save_preset(preset: "Preset") -> bool:
                     f"--filter-udp={cat.udp_port}",
                     f"--{cat.filter_mode}={filter_file}",
                 ]
-                for line in cat.udp_args.strip().split('\n'):
+                # Use get_full_udp_args() to include syndata/send/out-range
+                full_udp_args = cat.get_full_udp_args()
+                for line in full_udp_args.strip().split('\n'):
                     if line.strip():
                         args_lines.append(line.strip())
 

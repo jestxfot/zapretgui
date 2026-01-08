@@ -13,7 +13,7 @@ Supports:
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from log import log
 
@@ -34,6 +34,7 @@ class CategoryBlock:
         port: Port number from filter (e.g., "443")
         args: Full argument string for this block (including filter and strategy args)
         strategy_args: Just the strategy part (--lua-desync=... or --dpi-desync=...)
+        syndata_dict: Parsed syndata/send/out-range parameters (optional)
     """
     category: str
     protocol: str  # "tcp" or "udp"
@@ -42,6 +43,7 @@ class CategoryBlock:
     port: str  # "443"
     args: str  # Full args string for the block
     strategy_args: str = ""  # Just strategy part (--lua-desync=...)
+    syndata_dict: Optional[Dict] = None  # Parsed syndata/send/out-range
 
     def get_key(self) -> str:
         """Returns unique key for this block: category:protocol"""
@@ -185,11 +187,115 @@ def extract_strategy_args(args: str) -> str:
         if not line:
             continue
         # Skip filter and hostlist/ipset lines
-        if line.startswith('--filter-') or line.startswith('--hostlist=') or line.startswith('--ipset='):
+        if line.startswith('--filter-') or \
+           line.startswith('--hostlist=') or \
+           line.startswith('--ipset=') or \
+           line.startswith('--syndata=') or \
+           line.startswith('--send=') or \
+           line.startswith('--out-range='):
             continue
         strategy_lines.append(line)
 
     return '\n'.join(strategy_lines)
+
+
+def extract_syndata_from_args(args: str) -> Dict:
+    """
+    Extracts syndata parameters from --syndata=blob:...,autottl:...
+
+    Args:
+        args: Argument string to parse
+
+    Returns:
+        Dict with syndata parameters (empty if no syndata found)
+    """
+    match = re.search(r'--syndata=([^\s\n]+)', args)
+    if not match:
+        return {}  # No syndata - return empty dict
+
+    syndata_str = match.group(1)
+    parts = syndata_str.split(',')
+
+    result = {'enabled': True}
+
+    for part in parts:
+        if ':' not in part:
+            continue
+        key, value = part.split(':', 1)
+
+        if key == 'blob':
+            result['blob'] = value
+        elif key == 'tls_mod':
+            result['tls_mod'] = value
+        elif key == 'autottl':
+            result['autottl_delta'] = int(value)
+        elif key == 'autottl_min':
+            result['autottl_min'] = int(value)
+        elif key == 'autottl_max':
+            result['autottl_max'] = int(value)
+        elif key == 'tcp_flags_unset':
+            result['tcp_flags_unset'] = value
+
+    return result
+
+
+def extract_out_range_from_args(args: str) -> Dict:
+    """
+    Extracts --out-range=-n8 or --out-range=-d100
+
+    Args:
+        args: Argument string to parse
+
+    Returns:
+        Dict with out_range parameters (empty if not found)
+    """
+    match = re.search(r'--out-range=-([nd])(\d+)', args)
+    if not match:
+        return {}
+
+    mode = match.group(1) or "n"
+    value = int(match.group(2))
+
+    return {
+        'out_range': value,
+        'out_range_mode': mode
+    }
+
+
+def extract_send_from_args(args: str) -> Dict:
+    """
+    Extracts send parameters from --send=repeats:2,ttl:0
+
+    Args:
+        args: Argument string to parse
+
+    Returns:
+        Dict with send parameters (empty if not found)
+    """
+    match = re.search(r'--send=([^\s\n]+)', args)
+    if not match:
+        return {}
+
+    send_str = match.group(1)
+    parts = send_str.split(',')
+
+    result = {'send_enabled': True}
+
+    for part in parts:
+        if ':' in part:
+            key, value = part.split(':', 1)
+            if key == 'repeats':
+                result['send_repeats'] = int(value)
+            elif key == 'ttl':
+                result['send_ip_ttl'] = int(value)
+            elif key == 'ttl6':
+                result['send_ip6_ttl'] = int(value)
+            elif key == 'ip_id':
+                result['send_ip_id'] = value
+        elif part == 'badsum:true':
+            result['send_badsum'] = True
+
+    return result
 
 
 def parse_preset_file(file_path: Path) -> PresetData:
@@ -346,6 +452,12 @@ def parse_preset_content(content: str) -> PresetData:
         protocol, port = extract_protocol_and_port(block_args)
         strategy_args = extract_strategy_args(block_args)
 
+        # Extract syndata/send/out-range parameters
+        syndata_dict = {}
+        syndata_dict.update(extract_syndata_from_args(block_args))
+        syndata_dict.update(extract_out_range_from_args(block_args))
+        syndata_dict.update(extract_send_from_args(block_args))
+
         block = CategoryBlock(
             category=category,
             protocol=protocol,
@@ -353,7 +465,8 @@ def parse_preset_content(content: str) -> PresetData:
             filter_file=filter_file,
             port=port,
             args=block_args,
-            strategy_args=strategy_args
+            strategy_args=strategy_args,
+            syndata_dict=syndata_dict if syndata_dict else None
         )
 
         data.categories.append(block)

@@ -1,4 +1,4 @@
-# ui/pages/strategy_detail_page.py
+# ui/pages/zapret2/strategy_detail_page.py
 """
 Страница детального просмотра стратегий для выбранной категории.
 Открывается при клике на категорию в Zapret2StrategiesPageNew.
@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox
+    QCheckBox, QTextEdit
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
@@ -18,7 +18,7 @@ from ui.pages.dpi_settings_page import Win11ToggleRow
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
 from launcher_common.blobs import get_blobs_info
-from presets import PresetManager, SyndataSettings
+from preset_zapret2 import PresetManager, SyndataSettings
 from log import log
 
 
@@ -344,12 +344,14 @@ class StrategyRow(QFrame):
             args_row.setContentsMargins(26, 0, 0, 0)
             args_row.setSpacing(0)
 
-            self._args_edit = QLineEdit()
-            self._args_edit.setText(" ".join(self._args))
+            # Используем QTextEdit для многострочного отображения (один аргумент на строку)
+            self._args_edit = QTextEdit()
+            self._args_edit.setPlainText("\n".join(self._args))
             self._args_edit.setPlaceholderText("args...")
-            self._args_edit.setFixedHeight(20)
+            self._args_edit.setMinimumHeight(40)
+            self._args_edit.setMaximumHeight(80)
             self._args_edit.setStyleSheet("""
-                QLineEdit {
+                QTextEdit {
                     background: transparent;
                     border: none;
                     color: rgba(255, 255, 255, 0.4);
@@ -357,12 +359,20 @@ class StrategyRow(QFrame):
                     font-size: 10px;
                     font-family: 'Consolas', monospace;
                 }
-                QLineEdit:focus {
+                QTextEdit:focus {
                     background: rgba(255, 255, 255, 0.04);
                     color: rgba(255, 255, 255, 0.7);
                 }
+                QScrollBar:vertical {
+                    width: 4px;
+                    background: transparent;
+                }
+                QScrollBar::handle:vertical {
+                    background: rgba(255,255,255,0.15);
+                    border-radius: 2px;
+                }
             """)
-            self._args_edit.editingFinished.connect(self._on_args_edited)
+            self._args_edit.textChanged.connect(self._on_args_edited)
             args_row.addWidget(self._args_edit, 1)
 
             main_layout.addLayout(args_row)
@@ -378,7 +388,9 @@ class StrategyRow(QFrame):
     def _on_args_edited(self):
         """Аргументы изменены"""
         if self._args_edit:
-            new_args = self._args_edit.text().split()
+            # Получаем текст и разделяем по строкам (один аргумент на строку)
+            text = self._args_edit.toPlainText()
+            new_args = [line.strip() for line in text.split('\n') if line.strip()]
             if new_args != self._args:
                 self._args = new_args
                 self.args_changed.emit(self._strategy_id, new_args)
@@ -395,7 +407,8 @@ class StrategyRow(QFrame):
     def set_args(self, args: list):
         self._args = args or []
         if self._args_edit:
-            self._args_edit.setText(" ".join(self._args))
+            # Отображаем аргументы в многострочном формате (один аргумент на строку)
+            self._args_edit.setPlainText("\n".join(self._args))
 
     def set_selected(self, selected: bool):
         """Устанавливает активную (применённую) стратегию"""

@@ -163,7 +163,7 @@ class InitializationManager:
                 log(f"Используется winws2.exe для режима {launch_method} (Zapret 2)", "INFO")
                 # Ensure default preset exists for direct_zapret2 mode
                 if launch_method == "direct_zapret2":
-                    from presets import ensure_default_preset_exists
+                    from preset_zapret2 import ensure_default_preset_exists
                     ensure_default_preset_exists()
             else:
                 log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")

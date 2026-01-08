@@ -160,7 +160,8 @@ class BatStrategyAdapter(BaseStrategyAdapter):
             parsed = parse_bat_file(file_path)
             if parsed:
                 exe_path, args = parsed
-                metadata['args'] = ' '.join(args) if args else ''
+                # Сохраняем аргументы в многострочном формате (один аргумент на строку)
+                metadata['args'] = '\n'.join(args) if args else ''
 
             return StrategyInfo.from_bat_metadata(metadata)
 

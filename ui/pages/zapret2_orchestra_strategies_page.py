@@ -700,11 +700,14 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                 else:
                     display_args.append(arg)
 
-            # Формируем однострочную команду
-            cmd_parts = [f'"{full_exe}"'] + display_args
-            single_line_cmd = ' '.join(cmd_parts)
+            # Формируем многострочное отображение (один аргумент на строку)
+            # Первая строка - путь к exe
+            lines = [f'"{full_exe}"']
+            # Каждый аргумент на отдельной строке
+            lines.extend(display_args)
+            multi_line_cmd = '\n'.join(lines)
 
-            self._cmd_preview_text.setPlainText(single_line_cmd)
+            self._cmd_preview_text.setPlainText(multi_line_cmd)
 
         except Exception as e:
             log(f"Ошибка обновления превью команды: {e}", "DEBUG")
@@ -1501,7 +1504,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         log(f"Отключаю {len(categories_to_disable)} категорий из-за отключения фильтра {filter_key}", "INFO")
 
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
+            from strategy_menu import save_direct_strategy_selection, combine_strategies
             from strategy_menu.strategies_registry import registry
 
             # Получаем все ключи категорий для определения индексов вкладок
@@ -1513,8 +1516,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                 self.category_selections[category_key] = "none"
                 log(f"  → Отключена категория: {category_key}", "DEBUG")
 
-            # Перегенерируем preset файл
-            regenerate_preset_file()
+            # NOTE: Orchestra режим НЕ использует preset-zapret2.txt, стратегии берутся из реестра
 
             # Обновляем UI вкладок (делаем иконки серыми)
             self._refresh_all_tab_colors()
@@ -1603,7 +1605,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
     def _on_strategy_item_clicked(self, category_key: str, strategy_id: str):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws2"""
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
+            from strategy_menu import save_direct_strategy_selection, combine_strategies
             from launcher_common import calculate_required_filters
 
             # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
@@ -1611,8 +1613,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             self.category_selections[category_key] = strategy_id
             log(f"Выбрана стратегия: {category_key} = {strategy_id}", "INFO")
 
-            # Перегенерируем preset файл сразу после сохранения выбора
-            regenerate_preset_file()
+            # NOTE: Orchestra режим НЕ использует preset-zapret2.txt, стратегии берутся из реестра
 
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
             current_tab_index = self._strategy_widget.currentIndex()
@@ -1755,10 +1756,11 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         """Сбрасывает настройки реестра к значениям по умолчанию"""
         try:
             from config.reg import reg_delete_all_values
-            from strategy_menu import DIRECT_STRATEGY_KEY, invalidate_direct_selections_cache
+            from strategy_menu import _get_current_strategy_key, invalidate_direct_selections_cache
 
             # Удаляем все значения из реестра (стратегии будут браться по умолчанию)
-            reg_delete_all_values(DIRECT_STRATEGY_KEY)
+            strategy_key = _get_current_strategy_key()
+            reg_delete_all_values(strategy_key)
             invalidate_direct_selections_cache()
 
             log("Настройки стратегий очищены из реестра", "INFO")
@@ -1928,10 +1930,10 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
     def _apply_strategy(self):
         """Применяет выбранную стратегию (direct режим)"""
         try:
-            from strategy_menu import combine_strategies, save_direct_strategy_selections, regenerate_preset_file
+            from strategy_menu import combine_strategies, save_direct_strategy_selections
 
             save_direct_strategy_selections(self.category_selections)
-            regenerate_preset_file()
+            # NOTE: Orchestra режим НЕ использует preset-zapret2.txt, стратегии берутся из реестра
             combined = combine_strategies(**self.category_selections)
             self.strategy_selected.emit("combined", "Прямой запуск")
 
@@ -2268,9 +2270,10 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
         for strategy_id, strategy_data in strategies_dict.items():
             try:
-                # Получаем args как строку
+                # Получаем args как строку (многострочный формат)
                 args = strategy_data.get('args', [])
-                args_str = ' '.join(args) if isinstance(args, list) else str(args)
+                # Сохраняем аргументы в многострочном формате (один аргумент на строку)
+                args_str = '\n'.join(args) if isinstance(args, list) else str(args)
 
                 # Создаём StrategyInfo с тем же ID что и ключ в dict
                 info = StrategyInfo(

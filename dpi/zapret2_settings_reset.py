@@ -88,7 +88,7 @@ def reset_category_settings(category_key: str) -> bool:
         True если успешно, False при ошибке
     """
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
 
         manager = PresetManager()
         success = manager.reset_category_settings(category_key)
@@ -117,7 +117,7 @@ def reset_all_categories_settings() -> bool:
         True если все категории успешно сброшены, False при ошибке
     """
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
 
         manager = PresetManager()
         preset = manager.get_active_preset()

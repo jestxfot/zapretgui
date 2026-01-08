@@ -95,8 +95,8 @@ def ensure_default_preset_exists() -> bool:
     Ensures that a default preset exists for direct_zapret2 mode.
 
     Checks if preset-zapret2.txt exists. If not:
-    1. Copies the built-in default.txt template to preset-zapret2.txt
-    2. Also copies to presets/Default.txt for the presets list
+    1. Generates default preset from code constant (no external file dependency)
+    2. Also creates presets/Default.txt for the presets list
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -105,8 +105,8 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    import shutil
     from pathlib import Path
+    from .preset_defaults import DEFAULT_PRESET_CONTENT
 
     active_path = get_active_preset_path()
 
@@ -115,38 +115,74 @@ def ensure_default_preset_exists() -> bool:
         log("Active preset file already exists", "DEBUG")
         return True
 
-    log("Active preset file not found, creating from default template...", "INFO")
+    log("Active preset file not found, creating from code template...", "INFO")
 
     try:
-        # Path to built-in default.txt template
-        default_template = Path(__file__).parent / "default.txt"
-
-        if not default_template.exists():
-            log(f"Default template not found at {default_template}", "ERROR")
-            return False
-
         # Ensure presets directory exists
         presets_dir = get_presets_dir()
         presets_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy to preset-zapret2.txt (active preset)
-        shutil.copy2(default_template, active_path)
-        log(f"Copied default template to {active_path}", "DEBUG")
+        # Write default preset from code constant to preset-zapret2.txt (active preset)
+        active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+        log(f"Created active preset from code template at {active_path}", "DEBUG")
 
-        # Copy to presets/Default.txt (for presets list)
+        # Write to presets/Default.txt (for presets list)
         default_preset_path = presets_dir / "Default.txt"
         if not default_preset_path.exists():
-            shutil.copy2(default_template, default_preset_path)
-            log(f"Copied default template to {default_preset_path}", "DEBUG")
+            default_preset_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+            log(f"Created Default.txt from code template at {default_preset_path}", "DEBUG")
 
         # Set active preset name in registry
         set_active_preset_name("Default")
 
-        log("Default preset created from template successfully", "INFO")
+        log("Default preset created from code template successfully", "INFO")
         return True
 
     except Exception as e:
         log(f"Error creating default preset: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        return False
+
+
+def restore_default_preset() -> bool:
+    """
+    Restores Default.txt preset from the built-in code template.
+
+    This function can be used to:
+    1. Fix a corrupted Default.txt
+    2. Reset Default.txt to factory settings
+    3. Recover from accidental modifications
+
+    Returns:
+        True if restore was successful, False otherwise
+    """
+    from log import log
+    from .preset_defaults import DEFAULT_PRESET_CONTENT
+
+    try:
+        # Ensure presets directory exists
+        presets_dir = get_presets_dir()
+        presets_dir.mkdir(parents=True, exist_ok=True)
+
+        # Path to Default.txt in presets/
+        default_preset_path = presets_dir / "Default.txt"
+
+        # Overwrite from code constant
+        default_preset_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+        log(f"Restored Default.txt from code template at {default_preset_path}", "SUCCESS")
+
+        # If Default is currently active, also update preset-zapret2.txt
+        active_name = get_active_preset_name()
+        if active_name == "Default":
+            active_path = get_active_preset_path()
+            active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+            log(f"Also updated active preset at {active_path}", "SUCCESS")
+
+        return True
+
+    except Exception as e:
+        log(f"Error restoring default preset: {e}", "ERROR")
         import traceback
         log(traceback.format_exc(), "DEBUG")
         return False
@@ -178,6 +214,7 @@ __all__ = [
     "PresetManager",
     # Utility functions
     "ensure_default_preset_exists",
+    "restore_default_preset",
     # Parser
     "PresetData",
     "CategoryBlock",

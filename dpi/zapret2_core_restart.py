@@ -69,7 +69,7 @@ def _has_active_strategies() -> bool:
         True если есть хотя бы один активный фильтр
     """
     try:
-        from presets import get_active_preset_path
+        from preset_zapret2 import get_active_preset_path
 
         preset_path = get_active_preset_path()
         if not preset_path.exists():
@@ -128,7 +128,7 @@ def trigger_dpi_reload(
 
     # 4. Проверяем наличие preset файла с активными фильтрами
     try:
-        from presets import get_active_preset_path
+        from preset_zapret2 import get_active_preset_path
         preset_path = get_active_preset_path()
 
         if not preset_path.exists():

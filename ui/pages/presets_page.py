@@ -473,7 +473,7 @@ class PresetsPage(BasePage):
     def _get_manager(self):
         """Получает или создает PresetManager"""
         if self._manager is None:
-            from presets import PresetManager
+            from preset_zapret2 import PresetManager
             self._manager = PresetManager(
                 on_preset_switched=self._on_preset_switched_callback,
                 on_dpi_reload_needed=self._on_dpi_reload_needed

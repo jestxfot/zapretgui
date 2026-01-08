@@ -463,13 +463,13 @@ class MainWindowUI:
         
         # Сразу переключаемся без ожидания
         self._complete_method_switch(method)
-    
+
     def _complete_method_switch(self, method: str):
         """Завершает переключение метода после остановки процесса"""
         from log import log
         from config import get_winws_exe_for_method, is_zapret2_mode
-
-        # ✅ Очищаем службы WinDivert через Win API
+        
+        # Очищаем службы WinDivert через Win API
         try:
             from utils.service_manager import cleanup_windivert_services
             cleanup_windivert_services()
@@ -477,7 +477,7 @@ class MainWindowUI:
         except Exception as e:
             log(f"Ошибка очистки служб: {e}", "DEBUG")
 
-        # ✅ Обновляем путь к exe в dpi_starter
+        # Обновляем путь к exe в dpi_starter
         if hasattr(self, 'dpi_starter'):
             self.dpi_starter.winws_exe = get_winws_exe_for_method(method)
             if is_zapret2_mode(method):
@@ -485,14 +485,20 @@ class MainWindowUI:
             else:
                 log("Переключение на winws.exe (BAT режим)", "DEBUG")
         
-        # ✅ Помечаем StrategyRunner для пересоздания
+        # Помечаем StrategyRunner для пересоздания
         try:
             from launcher_common import invalidate_strategy_runner
             invalidate_strategy_runner()
         except Exception as e:
             log(f"Ошибка инвалидации StrategyRunner: {e}", "WARNING")
         
-        # ✅ Перезагружаем страницы стратегий для нового режима
+        # ✅ ЕСЛИ режим = direct_zapret2 → ТОЛЬКО создаем файл если не существует
+        if method == "direct_zapret2":
+            from preset_zapret2 import ensure_default_preset_exists
+            ensure_default_preset_exists()
+        # NOTE: Другие режимы (orchestra, zapret1, bat) НЕ используют preset-zapret2.txt
+        
+        # Перезагружаем страницы стратегий для нового режима
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'reload_for_mode_change'):
             self.zapret2_strategies_page.reload_for_mode_change()
         if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'reload_for_mode_change'):
@@ -502,21 +508,21 @@ class MainWindowUI:
         if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'reload_for_mode_change'):
             self.bat_strategies_page.reload_for_mode_change()
         
-        # ✅ Обновляем видимость вкладки "Блобы" в сайдбаре
+        # Обновляем видимость вкладки "Блобы" в сайдбаре
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
             self.side_nav.update_blobs_visibility()
 
-        # ✅ Обновляем видимость вкладок оркестратора (Залоченные/Заблокированные vs Hostlist/IPset/Редактор)
+        # Обновляем видимость вкладок оркестратора
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_orchestra_visibility'):
             self.side_nav.update_orchestra_visibility()
 
-        # ✅ Обновляем видимость вкладки "Пресеты" (только для direct_zapret2)
+        # Обновляем видимость вкладки "Пресеты"
         if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_presets_visibility'):
             self.side_nav.update_presets_visibility()
 
         log(f"✅ Переключение на режим '{method}' завершено", "INFO")
         
-        # ✅ Автоматически запускаем DPI с выбранными стратегиями
+        # Автоматически запускаем DPI с выбранными стратегиями
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
     
@@ -529,39 +535,44 @@ class MainWindowUI:
                 log("DPI контроллер не найден для автозапуска", "WARNING")
                 return
             
-            # Показываем спиннер на странице стратегий
-            if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'show_loading'):
-                self.zapret2_strategies_page.show_loading()
-            
             if method == "orchestra":
-                # Оркестр - автоматическое обучение
-                log(f"🚀 Автозапуск Оркестр после переключения режима", "INFO")
+                # Оркестр
+                log(f"🚀 Автозапуск Оркестр", "INFO")
                 self.dpi_controller.start_dpi_async(selected_mode=None, launch_method="orchestra")
 
-                # Обновляем GUI
-                if hasattr(self, 'current_strategy_name'):
-                    self.current_strategy_name = "Оркестр"
+            elif method == "direct_zapret2":
+                # ✅ ТОЛЬКО ДЛЯ direct_zapret2 используем preset-zapret2.txt!
+                from preset_zapret2 import get_active_preset_path, get_active_preset_name
+                
+                preset_path = get_active_preset_path()
+                preset_name = get_active_preset_name() or "Default"
+                
+                if not preset_path.exists():
+                    log(f"❌ Preset файл не найден: {preset_path}", "ERROR")
+                    return
+                
+                selected_mode = {
+                    'is_preset_file': True,
+                    'name': f"Пресет: {preset_name}",
+                    'preset_path': str(preset_path)
+                }
 
-                # Запускаем мониторинг на странице оркестра
-                if hasattr(self, 'orchestra_page'):
-                    self.orchestra_page.start_monitoring()
+                log(f"🚀 Автозапуск из preset файла: {preset_path}", "INFO")
+                self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
-            elif method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                # Zapret 2 - Direct режим, Оркестратор Zapret 2 или Zapret 1 Direct
+            elif method in ("direct_zapret2_orchestra", "direct_zapret1"):
+                # ✅ ДЛЯ ДРУГИХ РЕЖИМОВ - используем combine_strategies (НЕ preset файл!)
                 from strategy_menu import get_direct_strategy_selections
                 from launcher_common import combine_strategies
 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
 
-                if method == "direct_zapret2":
-                    mode_name = "Прямой запуск"
-                elif method == "direct_zapret2_orchestra":
+                if method == "direct_zapret2_orchestra":
                     mode_name = "Оркестратор Z2"
                 else:
                     mode_name = "Прямой Z1"
 
-                # Формируем данные для запуска
                 selected_mode = {
                     'is_combined': True,
                     'name': mode_name,
@@ -569,21 +580,12 @@ class MainWindowUI:
                     'category_strategies': combined.get('category_strategies', {})
                 }
 
-                log(f"🚀 Автозапуск Zapret 2 ({method}) после переключения режима", "INFO")
+                log(f"🚀 Автозапуск через динамические аргументы ({method})", "INFO")
                 self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
-                # Обновляем GUI
-                if hasattr(self, 'current_strategy_name'):
-                    self.current_strategy_name = "Прямой запуск"
-
-                # Обновляем отображение на странице стратегий
-                if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, '_update_current_strategies_display'):
-                    self.zapret2_strategies_page._update_current_strategies_display()
-
             else:
-                # Zapret 1 - BAT режим (отдельный ключ реестра)
+                # BAT режим
                 from config.reg import get_last_bat_strategy
-
                 last_strategy = get_last_bat_strategy()
 
                 if last_strategy and last_strategy != "Автостарт DPI отключен":

@@ -11,7 +11,7 @@ from config import reg, REGISTRY_PATH
 
 DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
 DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
-direct_zapret2_orchestra_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
+DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
 DIRECT_ZAPRET1_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectZapret1Strategy"
 
 
@@ -49,7 +49,7 @@ def clear_direct_zapret2_orchestra_strategies() -> bool:
         # Устанавливаем все категории в "none"
         for category_key in registry.get_all_category_keys():
             reg_key = _category_to_reg_key(category_key)
-            reg(direct_zapret2_orchestra_STRATEGY_KEY, reg_key, "none")
+            reg(DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY, reg_key, "none")
 
         # Сбрасываем кэш
         invalidate_direct_selections_cache()
@@ -66,7 +66,7 @@ def _get_current_strategy_key() -> str:
     """Возвращает ключ реестра для выборов стратегий в зависимости от метода запуска"""
     method = get_strategy_launch_method()
     if method == "direct_zapret2_orchestra":
-        return direct_zapret2_orchestra_STRATEGY_KEY
+        return DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY
     elif method == "direct_zapret1":
         return DIRECT_ZAPRET1_STRATEGY_KEY
     return DIRECT_STRATEGY_KEY
@@ -772,80 +772,6 @@ def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> boo
     return result
 
 
-def regenerate_preset_file() -> bool:
-    """
-    Перегенерирует preset-zapret2.txt с текущими настройками.
-
-    Используется когда нужно обновить preset файл без перезапуска DPI,
-    например при смене режима фильтрации (hostlist/ipset).
-
-    Returns:
-        True если успешно, False при ошибке
-    """
-    try:
-        from config import PROGRAMDATA_PATH
-        from datetime import datetime
-        import os
-
-        # Получаем текущие выборы
-        selections = get_direct_strategy_selections()
-
-        # Проверяем есть ли активные стратегии
-        has_active = any(v and v != "none" for v in selections.values())
-        if not has_active:
-            log("Нет активных стратегий для генерации preset", "DEBUG")
-            return False
-
-        # Импортируем combine_strategies
-        from launcher_common import combine_strategies
-
-        # Генерируем аргументы
-        combined = combine_strategies(**selections)
-        args_str = combined.get('args', '')
-
-        if not args_str:
-            log("Пустые аргументы после combine_strategies", "WARNING")
-            return False
-
-        # Записываем в файл
-        preset_path = os.path.join(PROGRAMDATA_PATH, "preset-zapret2.txt")
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        with open(preset_path, 'w', encoding='utf-8') as f:
-            f.write(f"# Strategy: Прямой запуск (Запрет 2)\n")
-            f.write(f"# Generated: {timestamp}\n")
-            f.write("\n")
-
-            # Разбиваем args_str на отдельные аргументы
-            # combine_strategies() возвращает командную строку с аргументами через пробел
-            # Используем shlex для правильного парсинга
-            import shlex
-
-            try:
-                args_list = shlex.split(args_str)
-            except Exception as e:
-                log(f"Ошибка парсинга args_str через shlex: {e}", "WARNING")
-                # Фолбек на простой split по пробелам
-                args_list = args_str.split()
-
-            # Записываем каждый аргумент на отдельной строке
-            for arg in args_list:
-                arg = arg.strip()
-                if arg:
-                    f.write(f"{arg}\n")
-
-                    # Добавляем пустую строку после --new для читаемости
-                    if arg == "--new":
-                        f.write("\n")
-
-        log(f"Preset файл перегенерирован: {preset_path}", "INFO")
-        return True
-
-    except Exception as e:
-        log(f"Ошибка перегенерации preset файла: {e}", "ERROR")
-        return False
-
-
 # ==================== ИМПОРТ СТРАТЕГИЙ ====================
 
 from .strategies_registry import (
@@ -1103,9 +1029,6 @@ __all__ = [
     'reset_strategy_runner',
     'invalidate_strategy_runner',
     'get_current_runner',
-
-    # Регенерация preset файла
-    'regenerate_preset_file',
 ]
 
 # Алиасы для совместимости со старым кодом

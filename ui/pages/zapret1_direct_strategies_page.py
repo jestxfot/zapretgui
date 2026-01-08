@@ -545,7 +545,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
     def _on_strategy_item_clicked(self, category_key: str, strategy_id: str):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws"""
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies, regenerate_preset_file
+            from strategy_menu import save_direct_strategy_selection, combine_strategies
             from launcher_common import calculate_required_filters
 
             # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
@@ -558,8 +558,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             strategy_name = registry.get_strategy_name_safe(category_key, strategy_id)
             self.strategy_selected.emit(strategy_id, strategy_name)
 
-            # Перегенерируем preset файл сразу после сохранения выбора
-            regenerate_preset_file()
+            # NOTE: Zapret 1 режим НЕ использует preset-zapret2.txt, стратегии берутся из реестра
 
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
             current_tab_index = self._strategy_widget.currentIndex()
@@ -885,10 +884,11 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
         """Сбрасывает настройки реестра к значениям по умолчанию"""
         try:
             from config.reg import reg_delete_all_values
-            from strategy_menu import DIRECT_STRATEGY_KEY, invalidate_direct_selections_cache
+            from strategy_menu import _get_current_strategy_key, invalidate_direct_selections_cache
 
             # Удаляем все значения из реестра (стратегии будут браться по умолчанию)
-            reg_delete_all_values(DIRECT_STRATEGY_KEY)
+            strategy_key = _get_current_strategy_key()
+            reg_delete_all_values(strategy_key)
             invalidate_direct_selections_cache()
 
             log("Настройки стратегий очищены из реестра", "INFO")

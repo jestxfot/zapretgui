@@ -47,7 +47,10 @@
       "Bash(systemctl:*)",
       "Bash(pkill:*)",
       "Bash(head:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(for f in preset_zapret2/*.py)",
+      "Bash(do python -m py_compile \"$f\")",
+      "Bash(done)"
     ]
   }
 }

@@ -78,7 +78,7 @@ def build_syndata_args(category_key: str) -> str:
         str: например "--lua-desync=syndata:blob=tls7:ip_autottl=-2,3-20" или ""
     """
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
         syndata = preset_manager.get_category_syndata(category_key)
 
@@ -139,7 +139,7 @@ def get_out_range_args(category_key: str) -> str:
     DEFAULT_OUT_RANGE = 8
     DEFAULT_MODE = "n"
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
         syndata = preset_manager.get_category_syndata(category_key)
 
@@ -177,7 +177,7 @@ def build_send_args(category_key: str) -> str:
         str: например "--lua-desync=send:repeats=2:ip_ttl=5:badsum" или ""
     """
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
         syndata = preset_manager.get_category_syndata(category_key)
 
@@ -285,7 +285,7 @@ def get_filter_mode(category_key: str) -> str:
         "hostlist" или "ipset"
     """
     try:
-        from presets import PresetManager
+        from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
         filter_mode = preset_manager.get_category_filter_mode(category_key)
         if filter_mode in ("hostlist", "ipset"):

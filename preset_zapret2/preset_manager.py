@@ -1,4 +1,4 @@
-# presets/preset_manager.py
+# preset_zapret2/preset_manager.py
 """
 High-level preset manager for direct_zapret2 mode.
 
@@ -23,6 +23,7 @@ Usage:
     manager.create_preset_from_current("My Backup")
 """
 
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -138,6 +139,11 @@ class PresetManager:
         Returns:
             True if saved successfully
         """
+        # ЗАЩИТА: Cannot save built-in presets
+        if preset.is_builtin:
+            log(f"Cannot save built-in preset '{preset.name}' - it's read-only", "WARNING")
+            return False
+
         # Validate before saving
         errors = validate_preset(preset)
         if errors:
@@ -593,12 +599,18 @@ class PresetManager:
             # Convert categories
             for cat_name, cat in preset.categories.items():
                 if cat.tcp_enabled and cat.has_tcp():
-                    filter_file = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                    filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                    # Convert to absolute path for winws2.exe
+                    from config import MAIN_DIRECTORY
+                    filter_file = os.path.join(MAIN_DIRECTORY, filter_file_relative)
+
                     args_lines = [
                         f"--filter-tcp={cat.tcp_port}",
                         f"--{cat.filter_mode}={filter_file}",
                     ]
-                    for line in cat.tcp_args.strip().split('\n'):
+                    # Use get_full_tcp_args() to include syndata/send/out-range
+                    full_tcp_args = cat.get_full_tcp_args()
+                    for line in full_tcp_args.strip().split('\n'):
                         if line.strip():
                             args_lines.append(line.strip())
 
@@ -614,12 +626,18 @@ class PresetManager:
                     data.categories.append(block)
 
                 if cat.udp_enabled and cat.has_udp():
-                    filter_file = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                    # For UDP, typically use ipset
+                    filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                    # Convert to absolute path for winws2.exe
+                    filter_file = os.path.join(MAIN_DIRECTORY, filter_file_relative)
+
                     args_lines = [
                         f"--filter-udp={cat.udp_port}",
                         f"--{cat.filter_mode}={filter_file}",
                     ]
-                    for line in cat.udp_args.strip().split('\n'):
+                    # Use get_full_udp_args() to include syndata/send/out-range
+                    full_udp_args = cat.get_full_udp_args()
+                    for line in full_udp_args.strip().split('\n'):
                         if line.strip():
                             args_lines.append(line.strip())
 

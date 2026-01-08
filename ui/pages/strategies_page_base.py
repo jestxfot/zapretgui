@@ -793,7 +793,8 @@ class StrategiesPageBase(QWidget):
         for strategy_id, strategy_data in strategies_dict.items():
             try:
                 args = strategy_data.get('args', [])
-                args_str = ' '.join(args) if isinstance(args, list) else str(args)
+                # Сохраняем аргументы в многострочном формате (один аргумент на строку)
+                args_str = '\n'.join(args) if isinstance(args, list) else str(args)
 
                 info = StrategyInfo(
                     id=strategy_id,
