@@ -32,6 +32,7 @@ from typing import Callable, List, Optional
 from log import log
 
 from .preset_model import CategoryConfig, Preset, SyndataSettings, validate_preset
+from .ports import union_port_specs
 from .preset_storage import (
     delete_preset,
     duplicate_preset,
@@ -503,16 +504,18 @@ class PresetManager:
             return None
 
         try:
-            # Path to built-in default.txt template
-            default_template = Path(__file__).parent / "default.txt"
+            # Create from built-in in-code template (no default.txt dependency).
+            from .preset_defaults import DEFAULT_PRESET_CONTENT
+            from .txt_preset_parser import parse_preset_content, generate_preset_file
 
-            if not default_template.exists():
-                log(f"Default template not found at {default_template}", "ERROR")
-                return None
+            data = parse_preset_content(DEFAULT_PRESET_CONTENT)
+            data.name = name
+            data.active_preset = None
+            data.is_builtin = False
 
-            # Copy template to presets folder with the given name
             dest_path = get_preset_path(name)
-            shutil.copy2(default_template, dest_path)
+            if not generate_preset_file(data, dest_path, atomic=True):
+                return None
 
             log(f"Created preset '{name}' from default template", "INFO")
 
@@ -697,6 +700,9 @@ class PresetManager:
         active_path = get_active_preset_path()
 
         try:
+            # Keep wf-*-out in sync with enabled category port filters.
+            preset.base_args = self._update_wf_out_ports_in_base_args(preset)
+
             # Convert to PresetData
             data = PresetData(
                 name=preset.name,
@@ -796,6 +802,94 @@ class PresetManager:
         except Exception as e:
             log(f"Error syncing to active file: {e}", "ERROR")
             return False
+
+    def _update_wf_out_ports_in_base_args(self, preset: Preset) -> str:
+        """
+        Updates `--wf-tcp-out` / `--wf-udp-out` in base_args based on enabled category filters.
+
+        Union source:
+        - existing `--wf-*-out=` values from base_args (so we don't unexpectedly drop custom ports)
+        - `--filter-tcp=` / `--filter-udp=` values from category base filters
+
+        Normalization:
+        - sort ascending
+        - merge ranges
+        - remove duplicates (including singles covered by ranges)
+        """
+        from .base_filter import build_category_base_filter_lines
+
+        base_args = preset.base_args or ""
+        lines = base_args.splitlines()
+
+        existing_wf_tcp = ""
+        existing_wf_udp = ""
+        for raw in lines:
+            stripped = raw.strip()
+            if stripped.startswith("--wf-tcp-out="):
+                existing_wf_tcp = stripped.split("=", 1)[1].strip()
+            elif stripped.startswith("--wf-udp-out="):
+                existing_wf_udp = stripped.split("=", 1)[1].strip()
+
+        tcp_specs = [existing_wf_tcp] if existing_wf_tcp else []
+        udp_specs = [existing_wf_udp] if existing_wf_udp else []
+
+        for cat_name, cat in preset.categories.items():
+            if cat.tcp_enabled and cat.has_tcp():
+                base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                spec = ""
+                for token in base_filter_lines:
+                    token_s = token.strip()
+                    if token_s.startswith("--filter-tcp="):
+                        spec = token_s.split("=", 1)[1].strip()
+                        break
+                if not spec:
+                    spec = (cat.tcp_port or "").strip()
+                if spec:
+                    tcp_specs.append(spec)
+
+            if cat.udp_enabled and cat.has_udp():
+                base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                spec = ""
+                for token in base_filter_lines:
+                    token_s = token.strip()
+                    if token_s.startswith("--filter-udp="):
+                        spec = token_s.split("=", 1)[1].strip()
+                        break
+                if not spec:
+                    spec = (cat.udp_port or "").strip()
+                if spec:
+                    udp_specs.append(spec)
+
+        new_wf_tcp = union_port_specs(tcp_specs) if tcp_specs else existing_wf_tcp
+        new_wf_udp = union_port_specs(udp_specs) if udp_specs else existing_wf_udp
+
+        def _replace_or_add(prefix: str, value: str) -> None:
+            nonlocal lines
+            if not value:
+                return
+            replaced = False
+            out: list[str] = []
+            for raw in lines:
+                if raw.strip().startswith(prefix):
+                    out.append(f"{prefix}{value}")
+                    replaced = True
+                else:
+                    out.append(raw)
+            if not replaced:
+                # Insert after last lua-init line, otherwise near the top.
+                insert_at = 0
+                for i, raw in enumerate(out):
+                    if raw.strip().startswith("--lua-init="):
+                        insert_at = i + 1
+                out.insert(insert_at, f"{prefix}{value}")
+            lines = out
+
+        if new_wf_tcp:
+            _replace_or_add("--wf-tcp-out=", new_wf_tcp)
+        if new_wf_udp:
+            _replace_or_add("--wf-udp-out=", new_wf_udp)
+
+        return "\n".join(lines).strip()
 
     # ========================================================================
     # CATEGORY SETTINGS OPERATIONS
@@ -985,28 +1079,113 @@ class PresetManager:
         if not preset:
             return False
 
+        # Ensure category exists so UI can reset even if it wasn't enabled before.
         if category_key not in preset.categories:
-            return True  # Nothing to reset
+            preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
-        # Get default filter_mode and syndata from DEFAULT_PRESET_CONTENT
+        cat = preset.categories[category_key]
+
         from .preset_defaults import (
+            get_default_category_settings,
             get_category_default_filter_mode,
-            get_category_default_syndata
+            get_category_default_syndata,
         )
-        default_filter_mode = get_category_default_filter_mode(category_key)
-        default_syndata = get_category_default_syndata(category_key)
+        from .strategy_inference import infer_strategy_id_from_args
 
-        # Reset all settings to defaults
-        preset.categories[category_key].syndata = default_syndata
-        preset.categories[category_key].filter_mode = default_filter_mode
-        preset.categories[category_key].sort_order = "default"
-        # Clear strategy (will not be written to file if no args)
-        preset.categories[category_key].strategy_id = "none"
-        preset.categories[category_key].tcp_args = ""
-        preset.categories[category_key].udp_args = ""
+        default_filter_mode = get_category_default_filter_mode(category_key)
+        default_syndata = SyndataSettings.from_dict(get_category_default_syndata(category_key))
+        default_settings = get_default_category_settings().get(category_key) or {}
+
+        # Reset non-strategy state.
+        cat.syndata = default_syndata
+        cat.filter_mode = default_filter_mode
+        cat.sort_order = "default"
+
+        # Reset args/ports from DEFAULT_PRESET_CONTENT when available, otherwise keep
+        # selection but normalize args from strategy_id.
+        if default_settings:
+            cat.tcp_enabled = bool(default_settings.get("tcp_enabled", False))
+            cat.udp_enabled = bool(default_settings.get("udp_enabled", False))
+            cat.tcp_port = str(default_settings.get("tcp_port") or cat.tcp_port or "443")
+            cat.udp_port = str(default_settings.get("udp_port") or cat.udp_port or "443")
+            cat.tcp_args = str(default_settings.get("tcp_args") or "").strip()
+            cat.udp_args = str(default_settings.get("udp_args") or "").strip()
+
+            # Infer strategy_id for UI highlight, if possible.
+            inferred = "none"
+            if cat.tcp_args:
+                inferred = infer_strategy_id_from_args(category_key=category_key, args=cat.tcp_args, protocol="tcp")
+            if inferred == "none" and cat.udp_args:
+                inferred = infer_strategy_id_from_args(category_key=category_key, args=cat.udp_args, protocol="udp")
+            cat.strategy_id = inferred or "none"
+        else:
+            # Unknown category in template: keep current strategy_id but reset advanced settings.
+            if cat.strategy_id and cat.strategy_id != "none":
+                self._update_category_args_from_strategy(preset, category_key, cat.strategy_id)
+            else:
+                cat.tcp_args = ""
+                cat.udp_args = ""
+                cat.strategy_id = "none"
         preset.touch()
 
         return self._save_and_sync_preset(preset)
+
+    def reset_active_preset_to_default_template(self) -> bool:
+        """
+        Global reset: replace active preset-zapret2.txt content with DEFAULT_PRESET_CONTENT.
+
+        Does not depend on preset_zapret2/default.txt existing on disk.
+        """
+        from .preset_defaults import DEFAULT_PRESET_CONTENT, get_category_default_syndata
+        from .txt_preset_parser import parse_preset_content
+        from .strategy_inference import infer_strategy_id_from_args
+
+        preset_name = get_active_preset_name() or "Current"
+
+        try:
+            data = parse_preset_content(DEFAULT_PRESET_CONTENT)
+
+            # Build Preset model, then reuse sync logic to generate a proper active file
+            # (including absolute list paths and normalized base filters).
+            preset = Preset(name=preset_name, base_args=data.base_args)
+
+            for block in data.categories:
+                cat_name = block.category
+                if cat_name not in preset.categories:
+                    preset.categories[cat_name] = CategoryConfig(
+                        name=cat_name,
+                        filter_mode=block.filter_mode or "hostlist",
+                        syndata=SyndataSettings.from_dict(get_category_default_syndata(cat_name)),
+                    )
+
+                cat = preset.categories[cat_name]
+                cat.filter_mode = block.filter_mode or cat.filter_mode or "hostlist"
+
+                if block.protocol == "tcp":
+                    cat.tcp_enabled = True
+                    cat.tcp_port = block.port
+                    cat.tcp_args = (block.strategy_args or "").strip()
+                elif block.protocol == "udp":
+                    cat.udp_enabled = True
+                    cat.udp_port = block.port
+                    cat.udp_args = (block.strategy_args or "").strip()
+
+                # Prefer explicit overrides from the template block if present.
+                if getattr(block, "syndata_dict", None):
+                    cat.syndata = SyndataSettings.from_dict(block.syndata_dict)  # type: ignore[arg-type]
+
+            for cat_name, cat in preset.categories.items():
+                inferred = "none"
+                if cat.tcp_args:
+                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.tcp_args, protocol="tcp")
+                if inferred == "none" and cat.udp_args:
+                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
+                cat.strategy_id = inferred or "none"
+
+            return self.sync_preset_to_active_file(preset)
+        except Exception as e:
+            log(f"Error resetting active preset to default template: {e}", "ERROR")
+            return False
 
     def _save_and_sync_preset(self, preset: Preset) -> bool:
         """
@@ -1018,6 +1197,9 @@ class PresetManager:
         Returns:
             True if successful
         """
+        # Normalize/update wf-*-out before persisting anywhere.
+        preset.base_args = self._update_wf_out_ports_in_base_args(preset)
+
         # First save to presets folder if it has a name
         if preset.name and preset.name != "Current":
             save_preset(preset)

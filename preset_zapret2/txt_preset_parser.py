@@ -754,15 +754,47 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
                 lines.append(line.strip())
         lines.append("")
 
-    # Category blocks
-    for i, block in enumerate(data.categories):
+    # Category blocks (stable ordering by categories.txt)
+    blocks = list(data.categories)
+    try:
+        from .catalog import load_categories
+
+        categories_info = load_categories()
+
+        def _key(item: tuple[int, CategoryBlock]) -> tuple:
+            idx, block = item
+            info = categories_info.get(block.category) if categories_info else None
+            proto = (block.protocol or "").lower()
+            proto_rank = 0 if proto == "tcp" else (1 if proto == "udp" else 2)
+
+            if info:
+                order = info.get("order")
+                cmd_order = info.get("command_order")
+                try:
+                    order_i = int(order) if order is not None else 9999
+                except Exception:
+                    order_i = 9999
+                try:
+                    cmd_i = int(cmd_order) if cmd_order is not None else order_i
+                except Exception:
+                    cmd_i = order_i
+                return (0, order_i, cmd_i, proto_rank, block.category)
+
+            # Unknown categories: keep original relative order, but after known ones.
+            return (1, 999999, 999999, proto_rank, idx)
+
+        blocks = [b for _, b in sorted(enumerate(blocks), key=_key)]
+    except Exception:
+        pass
+
+    for i, block in enumerate(blocks):
         # Add block args
         for line in block.args.split('\n'):
             if line.strip():
                 lines.append(line.strip())
 
         # Add --new separator (except for last block)
-        if i < len(data.categories) - 1:
+        if i < len(blocks) - 1:
             lines.append("")
             lines.append("--new")
             lines.append("")

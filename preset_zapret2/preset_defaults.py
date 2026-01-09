@@ -13,7 +13,7 @@ The content is copied to:
 - preset-zapret2.txt (when Default is active)
 """
 
-DEFAULT_PRESET_CONTENT = """# Preset: Default
+DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 # ActivePreset: Default
 
 --lua-init=@lua/zapret-lib.lua
@@ -97,7 +97,6 @@ DEFAULT_PRESET_CONTENT = """# Preset: Default
 --ipset=C:\ProgramData\ZapretTwoDev\lists\ipset-youtube.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
 --payload=all
 --lua-desync=fake:repeats=6
 
@@ -113,10 +112,9 @@ DEFAULT_PRESET_CONTENT = """# Preset: Default
 --new
 
 --filter-l7=stun,discord
+--payload=stun,discord_ip_discovery
 --out-range=-n8
 --lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---payload=stun,discord_ip_discovery
 --lua-desync=fake:blob=0x00:repeats=6
 """
 
@@ -183,9 +181,26 @@ def get_default_category_settings() -> dict:
                     "udp_enabled": False,
                     "udp_port": "",
                     "udp_args": "",
+                    # Parsed syndata/send/out-range overrides from DEFAULT_PRESET_CONTENT.
+                    # Keys are compatible with SyndataSettings.from_dict().
+                    "syndata_overrides": {},
                 }
 
             cat_settings = settings[category_name]
+
+            # Merge syndata/send/out-range overrides (if any) from the block.
+            # NOTE: txt_preset_parser extracts these separately from strategy_args,
+            # so we must take them from block.syndata_dict.
+            overrides = getattr(block, "syndata_dict", None) or {}
+            if overrides:
+                # Prefer TCP overrides when both protocols provide values.
+                # For UDP-only categories, UDP overrides are used as-is.
+                if block.protocol == "tcp" or not cat_settings.get("syndata_overrides"):
+                    cat_settings["syndata_overrides"].update(overrides)
+                else:
+                    # Do not overwrite existing keys coming from TCP.
+                    for k, v in overrides.items():
+                        cat_settings["syndata_overrides"].setdefault(k, v)
 
             # Записываем настройки по протоколу
             if block.protocol == "tcp":
@@ -334,30 +349,15 @@ def get_category_default_syndata(category_name: str) -> dict:
     Returns:
         dict: Словарь с syndata параметрами (enabled, blob, autottl_*, send_*, out_range)
     """
+    # Base defaults come from code (UI expectations), then overridden by
+    # any values present in DEFAULT_PRESET_CONTENT (e.g. out-range for discord_voice).
+    from .preset_model import SyndataSettings
+
+    base = SyndataSettings.get_defaults().to_dict()
+
     settings = get_default_category_settings()
+    overrides = (settings.get(category_name) or {}).get("syndata_overrides") or {}
+    if isinstance(overrides, dict) and overrides:
+        base.update(overrides)
 
-    if category_name not in settings:
-        # Fallback: дефолтные настройки
-        return {
-            "enabled": True,
-            "blob": "tls_google",
-            "autottl_delta": -2,
-            "autottl_min": 3,
-            "autottl_max": 20,
-            "send_enabled": True,
-            "send_repeats": 2,
-            "out_range": 8,
-            "out_range_mode": "n",
-        }
-
-    cat_settings = settings[category_name]
-
-    # Объединяем tcp_args и udp_args для парсинга
-    all_args = ""
-    if cat_settings.get("tcp_enabled") and cat_settings.get("tcp_args"):
-        all_args += cat_settings["tcp_args"] + "\n"
-    if cat_settings.get("udp_enabled") and cat_settings.get("udp_args"):
-        all_args += cat_settings["udp_args"]
-
-    # Парсим syndata параметры
-    return parse_syndata_from_args(all_args)
+    return base

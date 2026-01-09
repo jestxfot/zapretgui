@@ -68,6 +68,7 @@ class UnifiedStrategiesList(QWidget):
         self._categories = {}  # {category_key: CategoryInfo}
         self._strategies = {}  # {category_key: {strategy_id: strategy_data}}
         self._selections = {}  # {category_key: strategy_id}
+        self._filter_modes = {}  # {category_key: "hostlist"|"ipset"}
         self._groups = {}  # {group_key: CollapsibleGroup}
         self._items = {}  # {category_key: StrategyRadioItem}
         self._category_to_group = {}  # {category_key: group_key}
@@ -99,7 +100,8 @@ class UnifiedStrategiesList(QWidget):
     def build_list(
         self,
         categories: Dict,
-        selections: Dict[str, str] = None
+        selections: Dict[str, str] = None,
+        filter_modes: Dict[str, str] = None,
     ):
         """
         Строит список категорий один раз.
@@ -114,6 +116,7 @@ class UnifiedStrategiesList(QWidget):
 
         self._categories = categories
         self._selections = selections or {}
+        self._filter_modes = filter_modes or {}
 
         # Группируем категории по command_group
         grouped = {}  # {group_key: [category_key, ...]}
@@ -189,9 +192,9 @@ class UnifiedStrategiesList(QWidget):
         has_ipset = bool(getattr(cat_info, 'base_filter_ipset', ''))
         has_hostlist = bool(getattr(cat_info, 'base_filter_hostlist', ''))
         if has_ipset and has_hostlist:
-            # Get user's selected mode from registry
-            from strategy_menu.command_builder import get_filter_mode
-            list_type = get_filter_mode(cat_key)  # returns "hostlist" or "ipset"
+            list_type = (self._filter_modes.get(cat_key) or "hostlist").strip().lower()
+            if list_type not in ("hostlist", "ipset"):
+                list_type = "hostlist"
         elif has_ipset:
             list_type = 'ipset'
         elif has_hostlist:
@@ -315,6 +318,16 @@ class UnifiedStrategiesList(QWidget):
             item.set_strategy(strategy_id, strategy_name)
 
         self.selections_changed.emit(self._selections)
+
+    def update_filter_mode(self, category_key: str, filter_mode: str):
+        """Updates hostlist/ipset badge for a category (UI-only)."""
+        mode = (filter_mode or "").strip().lower()
+        if mode not in ("hostlist", "ipset"):
+            return
+        self._filter_modes[category_key] = mode
+        item = self._items.get(category_key)
+        if item:
+            item.set_list_type(mode)
 
     def get_selections(self) -> Dict[str, str]:
         """Возвращает текущие выборы"""

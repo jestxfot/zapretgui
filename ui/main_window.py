@@ -329,6 +329,8 @@ class MainWindowUI:
                 self.strategy_detail_page.back_clicked.connect(self._on_strategy_detail_back)
             if hasattr(self.strategy_detail_page, 'strategy_selected'):
                 self.strategy_detail_page.strategy_selected.connect(self._on_strategy_detail_selected)
+            if hasattr(self.strategy_detail_page, 'filter_mode_changed'):
+                self.strategy_detail_page.filter_mode_changed.connect(self._on_strategy_detail_filter_mode_changed)
 
         # Zapret 2 Orchestra сигналы
         if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'strategy_selected'):
@@ -840,6 +842,15 @@ class MainWindowUI:
         # Update the parent StrategiesPage to reflect the selection
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'apply_strategy_selection'):
             self.zapret2_strategies_page.apply_strategy_selection(category_key, strategy_id)
+
+    def _on_strategy_detail_filter_mode_changed(self, category_key: str, filter_mode: str):
+        """Keep main strategies page in sync with Hostlist/IPset toggle."""
+        try:
+            if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'apply_filter_mode_change'):
+                self.zapret2_strategies_page.apply_filter_mode_change(category_key, filter_mode)
+        except Exception as e:
+            from log import log
+            log(f"Ошибка обновления filter_mode из StrategyDetailPage: {e}", "DEBUG")
 
     def init_autostart_page(self, app_instance, bat_folder: str, json_folder: str, strategy_name: str = None):
         """Инициализирует страницу автозапуска с необходимыми параметрами"""

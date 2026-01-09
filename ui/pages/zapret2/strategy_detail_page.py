@@ -604,6 +604,7 @@ class StrategyDetailPage(BasePage):
     """
 
     strategy_selected = pyqtSignal(str, str)  # category_key, strategy_id
+    filter_mode_changed = pyqtSignal(str, str)  # category_key, "hostlist"|"ipset"
     args_changed = pyqtSignal(str, str, list)  # category_key, strategy_id, new_args
     strategy_marked = pyqtSignal(str, str, object)  # category_key, strategy_id, is_working (bool or None)
     back_clicked = pyqtSignal()
@@ -1435,6 +1436,19 @@ class StrategyDetailPage(BasePage):
         syndata_settings = self._load_syndata_settings(category_key)
         self._apply_syndata_settings(syndata_settings)
 
+        # syndata поддерживается только для TCP SYN, для UDP/QUIC скрываем UI
+        protocol_raw = str(getattr(category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw)
+        if is_udp_like:
+            # Force-off without saving (only affects visual state and subsequent saves)
+            self._syndata_toggle.blockSignals(True)
+            self._syndata_toggle.setChecked(False)
+            self._syndata_toggle.blockSignals(False)
+            self._syndata_settings.setVisible(False)
+            self._syndata_frame.setVisible(False)
+        else:
+            self._syndata_frame.setVisible(True)
+
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
     def _clear_strategies(self):
@@ -1530,8 +1544,8 @@ class StrategyDetailPage(BasePage):
             return
 
         if enabled:
-            # Включаем - выбираем стратегию по умолчанию или первую доступную
-            strategy_to_select = self._get_default_strategy()
+            # Включаем - восстанавливаем последнюю стратегию (если была), иначе дефолтную
+            strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
             if strategy_to_select and strategy_to_select != "none":
                 # Снимаем выделение с предыдущей
                 if self._selected_strategy_id in self._strategy_rows:
@@ -1548,6 +1562,9 @@ class StrategyDetailPage(BasePage):
                 log(f"Нет доступных стратегий для {self._category_key}", "WARNING")
                 self._enable_toggle.setChecked(False, block_signals=True)
         else:
+            # Запоминаем стратегию перед выключением, чтобы восстановить при включении
+            if self._selected_strategy_id and self._selected_strategy_id != "none":
+                self._last_enabled_strategy_id = self._selected_strategy_id
             # Выключаем - устанавливаем "none"
             self._selected_strategy_id = "none"
             # Снимаем выделение со всех стратегий
@@ -1592,6 +1609,7 @@ class StrategyDetailPage(BasePage):
 
         # Save via PresetManager (triggers DPI reload automatically)
         self._save_category_filter_mode(self._category_key, new_mode)
+        self.filter_mode_changed.emit(self._category_key, new_mode)
         log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
 
     def _save_category_filter_mode(self, category_key: str, mode: str):
@@ -1796,7 +1814,7 @@ class StrategyDetailPage(BasePage):
         }
 
     def _on_reset_settings_confirmed(self):
-        """Сбрасывает настройки syndata/send/out_range/filter_mode на значения по умолчанию"""
+        """Сбрасывает настройки категории на значения по умолчанию (встроенный шаблон)"""
         if not self._category_key:
             return
 
@@ -1804,15 +1822,38 @@ class StrategyDetailPage(BasePage):
         if self._preset_manager.reset_category_settings(self._category_key):
             log(f"Настройки категории {self._category_key} сброшены", "INFO")
 
-            # 2. Apply defaults to UI
-            default_syndata = SyndataSettings.get_defaults()
-            self._apply_syndata_settings(default_syndata.to_dict())
+            # 2. Reload settings from PresetManager and apply to UI
+            syndata = self._preset_manager.get_category_syndata(self._category_key)
+            self._apply_syndata_settings(syndata.to_dict())
 
-            # 3. Reset filter_mode to default from DEFAULT_PRESET_CONTENT
+            # 3. Reset filter_mode selector to stored default
             if hasattr(self, '_filter_mode_frame') and self._filter_mode_frame.isVisible():
-                from preset_zapret2 import get_category_default_filter_mode
-                default_filter_mode = get_category_default_filter_mode(self._category_key)
-                self._filter_mode_selector.setCurrentMode(default_filter_mode, block_signals=True)
+                current_mode = self._preset_manager.get_category_filter_mode(self._category_key)
+                self._filter_mode_selector.setCurrentMode(current_mode, block_signals=True)
+
+            # 4. Update selected strategy highlight and enable toggle
+            try:
+                current_strategy_id = self._preset_manager.get_strategy_selections().get(self._category_key, "none")
+            except Exception:
+                current_strategy_id = "none"
+
+            # Clear selection visuals
+            for row in self._strategy_rows.values():
+                row.set_selected(False)
+
+            self._selected_strategy_id = current_strategy_id or "none"
+            self._current_strategy_id = current_strategy_id or "none"
+
+            if self._selected_strategy_id != "none" and self._selected_strategy_id in self._strategy_rows:
+                self._strategy_rows[self._selected_strategy_id].set_selected(True)
+                self._enable_toggle.setChecked(True, block_signals=True)
+                # Consider this as "applied"
+                self._stop_loading()
+                self.show_success()
+            else:
+                self._enable_toggle.setChecked(False, block_signals=True)
+                self._stop_loading()
+                self._success_icon.hide()
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""

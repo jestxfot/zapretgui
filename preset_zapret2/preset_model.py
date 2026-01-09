@@ -147,11 +147,10 @@ class CategoryConfig:
         """
         parts = []
 
-        # 1. Out-range (если syndata enabled)
-        if self.syndata.enabled:
-            out_range_arg = self._get_out_range_args()
-            if out_range_arg:
-                parts.append(out_range_arg)
+        # 1. Out-range
+        out_range_arg = self._get_out_range_args()
+        if out_range_arg:
+            parts.append(out_range_arg)
 
         # 2. Send параметры
         if self.syndata.send_enabled:
@@ -172,17 +171,18 @@ class CategoryConfig:
         return "\n".join(parts)
 
     def get_full_udp_args(self) -> str:
-        """Возвращает полные UDP аргументы включая syndata/send/out-range
+        """Возвращает полные UDP аргументы включая send/out-range
 
-        Правильный порядок: out-range → send → syndata → strategy
+        NOTE: syndata применяется только к TCP SYN, для UDP/QUIC не поддерживается.
+
+        Правильный порядок: out-range → send → strategy
         """
         parts = []
 
-        # 1. Out-range (если syndata enabled)
-        if self.syndata.enabled:
-            out_range_arg = self._get_out_range_args()
-            if out_range_arg:
-                parts.append(out_range_arg)
+        # 1. Out-range
+        out_range_arg = self._get_out_range_args()
+        if out_range_arg:
+            parts.append(out_range_arg)
 
         # 2. Send параметры
         if self.syndata.send_enabled:
@@ -190,13 +190,7 @@ class CategoryConfig:
             if send_arg:
                 parts.append(send_arg)
 
-        # 3. Syndata параметры
-        if self.syndata.enabled:
-            syndata_arg = self._get_syndata_args()
-            if syndata_arg:
-                parts.append(syndata_arg)
-
-        # 4. Базовые udp_args (strategy)
+        # 3. Базовые udp_args (strategy)
         if self.udp_args:
             parts.append(self.udp_args)
 
@@ -225,7 +219,7 @@ class CategoryConfig:
 
     def _get_out_range_args(self) -> str:
         """Генерирует --out-range=-n8 из SyndataSettings"""
-        if not self.syndata.enabled or self.syndata.out_range == 0:
+        if self.syndata.out_range == 0:
             return ""
 
         mode_suffix = "d" if self.syndata.out_range_mode == "d" else "n"

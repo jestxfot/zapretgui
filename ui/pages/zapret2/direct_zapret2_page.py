@@ -146,6 +146,10 @@ class Zapret2StrategiesPageNew(BasePage):
             # Загружаем выборы из preset файла
             preset_manager = PresetManager()
             self.category_selections = preset_manager.get_strategy_selections()
+            preset = preset_manager.get_active_preset()
+            filter_modes = {}
+            if preset:
+                filter_modes = {k: v.filter_mode for k, v in preset.categories.items()}
 
             # Карточка с кнопкой Telegram (выделенная, акцентная)
             telegram_card = SettingsCard()
@@ -238,7 +242,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
             # Строим список
             categories = registry.categories
-            self._unified_list.build_list(categories, self.category_selections)
+            self._unified_list.build_list(categories, self.category_selections, filter_modes=filter_modes)
 
             self.content_layout.addWidget(self._unified_list, 1)
 
@@ -288,6 +292,14 @@ class Zapret2StrategiesPageNew(BasePage):
         except Exception as e:
             log(f"Ошибка сохранения выбора: {e}", "ERROR")
 
+    def apply_filter_mode_change(self, category_key: str, filter_mode: str):
+        """Обновляет badge Hostlist/IPset на главной странице без перестроения списка."""
+        try:
+            if self._unified_list:
+                self._unified_list.update_filter_mode(category_key, filter_mode)
+        except Exception as e:
+            log(f"Ошибка обновления filter_mode: {e}", "DEBUG")
+
     def _on_selections_changed(self, selections: dict):
         """Обработчик изменения выборов"""
         self.category_selections = selections
@@ -327,30 +339,23 @@ class Zapret2StrategiesPageNew(BasePage):
             log(f"Ошибка перезагрузки: {e}", "ERROR")
 
     def _reset_to_defaults(self):
-        """Сбрасывает стратегии к значениям по умолчанию - копирует default.txt"""
+        """Сбрасывает preset-zapret2.txt к встроенным настройкам по умолчанию"""
         try:
-            import shutil
-            from pathlib import Path
-            from preset_zapret2.preset_storage import get_active_preset_path, get_preset_path, get_active_preset_name
+            from dpi.zapret2_core_restart import trigger_dpi_reload
+            from preset_zapret2 import PresetManager
 
-            # 1. Найти default.txt
-            default_path = Path(__file__).parent.parent.parent / "preset_zapret2" / "default.txt"
+            preset_manager = PresetManager(
+                on_dpi_reload_needed=lambda: trigger_dpi_reload(
+                    self.parent_app,
+                    reason="preset_reset_to_defaults",
+                )
+            )
 
-            if not default_path.exists():
-                log("default.txt not found", "ERROR")
+            if not preset_manager.reset_active_preset_to_default_template():
+                log("Reset to default template failed", "ERROR")
                 return
 
-            # 2. Скопировать в preset-zapret2.txt (активный)
-            active_path = get_active_preset_path()
-            shutil.copy2(default_path, active_path)
-
-            # 3. Скопировать в presets/{name}.txt
-            preset_name = get_active_preset_name()
-            if preset_name:
-                preset_path = get_preset_path(preset_name)
-                shutil.copy2(default_path, preset_path)
-
-            log("Reset to default.txt", "INFO")
+            log("Reset to built-in default template", "INFO")
 
             # Перезагрузить UI
             self._reload_strategies()
@@ -362,8 +367,14 @@ class Zapret2StrategiesPageNew(BasePage):
         """Выключает все категории - очищает preset.categories"""
         try:
             from preset_zapret2 import PresetManager
+            from dpi.zapret2_core_restart import trigger_dpi_reload
 
-            preset_manager = PresetManager()
+            preset_manager = PresetManager(
+                on_dpi_reload_needed=lambda: trigger_dpi_reload(
+                    self.parent_app,
+                    reason="preset_clear_all",
+                )
+            )
             preset = preset_manager.get_active_preset()
             if not preset:
                 log("No active preset", "WARNING")

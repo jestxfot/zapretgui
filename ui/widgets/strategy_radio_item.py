@@ -69,9 +69,9 @@ class StrategyRadioItem(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(12, 8, 12, 8)
+        self._layout.setSpacing(10)
 
         # Иконка категории (опционально)
         if self._icon_name:
@@ -80,7 +80,7 @@ class StrategyRadioItem(QFrame):
                 icon_label = QLabel()
                 icon_label.setPixmap(icon.pixmap(18, 18))
                 icon_label.setFixedSize(18, 18)
-                layout.addWidget(icon_label)
+                self._layout.addWidget(icon_label)
             except Exception:
                 pass  # Игнорируем ошибки иконок
 
@@ -90,49 +90,67 @@ class StrategyRadioItem(QFrame):
         name_font.setWeight(QFont.Weight.Medium)
         self._name_label.setFont(name_font)
         self._name_label.setStyleSheet("color: #ffffff; background: transparent;")
-        layout.addWidget(self._name_label)
+        self._layout.addWidget(self._name_label)
 
         # Описание (protocol | ports)
         if self._description:
             desc_label = QLabel(self._description)
             desc_label.setFont(QFont("Segoe UI", 9))
             desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); background: transparent;")
-            layout.addWidget(desc_label)
+            self._layout.addWidget(desc_label)
 
         # Badge для hostlist/ipset
+        self._list_badge = None
         if self._list_type:
-            self._list_badge = QLabel(self._list_type)
-            if self._list_type == "hostlist":
-                badge_bg = "#00B900"  # Green like "Рекомендуется"
-            else:  # ipset
-                badge_bg = "#8B5CF6"  # Purple
-            self._list_badge.setStyleSheet(f"""
-                QLabel {{
-                    background: {badge_bg};
-                    color: #ffffff;
-                    border-radius: 8px;
-                    padding: 1px 6px;
-                    font-size: 9px;
-                    font-weight: 600;
-                }}
-            """)
-            layout.addWidget(self._list_badge)
+            self._ensure_list_badge()
 
         # Растяжение
-        layout.addStretch(1)
+        self._layout.addStretch(1)
 
         # Статус точка
         self._status_dot = QLabel()
         self._status_dot.setFont(QFont("Segoe UI", 9))
         self._status_dot.setStyleSheet("color: #888888; background: transparent;")
         self._status_dot.setText("●")
-        layout.addWidget(self._status_dot)
+        self._layout.addWidget(self._status_dot)
 
         # Название стратегии
         self._strategy_label = QLabel("Отключено")
         self._strategy_label.setFont(QFont("Segoe UI", 9))
         self._strategy_label.setStyleSheet("color: #ffffff; background: transparent;")
-        layout.addWidget(self._strategy_label)
+        self._layout.addWidget(self._strategy_label)
+
+    def _ensure_list_badge(self):
+        if self._list_badge is None:
+            self._list_badge = QLabel()
+            # Insert badge before stretch (which is currently at the end of left section).
+            insert_index = max(0, self._layout.count() - 1)
+            self._layout.insertWidget(insert_index, self._list_badge)
+        self._apply_list_badge()
+
+    def _apply_list_badge(self):
+        if not self._list_badge:
+            return
+        if not self._list_type:
+            self._list_badge.hide()
+            return
+
+        self._list_badge.setText(self._list_type)
+        if self._list_type == "hostlist":
+            badge_bg = "#00B900"
+        else:
+            badge_bg = "#8B5CF6"
+        self._list_badge.setStyleSheet(f"""
+            QLabel {{
+                background: {badge_bg};
+                color: #ffffff;
+                border-radius: 8px;
+                padding: 1px 6px;
+                font-size: 9px;
+                font-weight: 600;
+            }}
+        """)
+        self._list_badge.show()
 
     def _apply_style(self):
         """Применяет стили к кнопке"""
@@ -174,6 +192,14 @@ class StrategyRadioItem(QFrame):
             self._status_dot.setStyleSheet("color: #6ccb5f; background: transparent;")
         else:
             self._status_dot.setStyleSheet("color: #888888; background: transparent;")
+
+    def set_list_type(self, list_type: str | None):
+        """Updates the hostlist/ipset badge."""
+        self._list_type = list_type
+        if self._list_type:
+            self._ensure_list_badge()
+        elif self._list_badge:
+            self._apply_list_badge()
 
     def get_strategy_id(self) -> str:
         """Возвращает текущий strategy_id."""
