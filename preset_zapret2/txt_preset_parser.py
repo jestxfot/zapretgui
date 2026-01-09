@@ -186,11 +186,12 @@ def extract_protocol_and_port(args: str) -> Tuple[str, str]:
         Tuple of (protocol, port) - e.g., ("tcp", "443") or ("udp", "443")
     """
     # Check for --filter-tcp=port or --filter-udp=port
-    tcp_match = re.search(r'--filter-tcp=(\d+)', args)
+    # Support single port (443) or multiple ports (80,443)
+    tcp_match = re.search(r'--filter-tcp=([\d,]+)', args)
     if tcp_match:
         return ("tcp", tcp_match.group(1))
 
-    udp_match = re.search(r'--filter-udp=(\d+)', args)
+    udp_match = re.search(r'--filter-udp=([\d,]+)', args)
     if udp_match:
         return ("udp", udp_match.group(1))
 
@@ -216,13 +217,13 @@ def extract_strategy_args(args: str) -> str:
         line = line.strip()
         if not line:
             continue
-        # Skip filter and hostlist/ipset lines
+        # Skip filter, hostlist/ipset, and syndata/send lines
         if line.startswith('--filter-') or \
            line.startswith('--hostlist=') or \
            line.startswith('--ipset=') or \
-           line.startswith('--syndata=') or \
-           line.startswith('--send=') or \
-           line.startswith('--out-range='):
+           line.startswith('--out-range') or \
+           line.startswith('--lua-desync=syndata:') or \
+           line.startswith('--lua-desync=send:'):
             continue
         strategy_lines.append(line)
 
@@ -231,7 +232,7 @@ def extract_strategy_args(args: str) -> str:
 
 def extract_syndata_from_args(args: str) -> Dict:
     """
-    Extracts syndata parameters from --syndata=blob:...,autottl:...
+    Extracts syndata parameters from format: --lua-desync=syndata:blob=value:ip_autottl=-2,3-20
 
     Args:
         args: Argument string to parse
@@ -239,34 +240,38 @@ def extract_syndata_from_args(args: str) -> Dict:
     Returns:
         Dict with syndata parameters (empty if no syndata found)
     """
-    match = re.search(r'--syndata=([^\s\n]+)', args)
-    if not match:
-        return {}  # No syndata - return empty dict
-
-    syndata_str = match.group(1)
-    parts = syndata_str.split(',')
-
     result = {'enabled': True}
 
-    for part in parts:
-        if ':' not in part:
-            continue
-        key, value = part.split(':', 1)
+    # Format: --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+    match = re.search(r'--lua-desync=syndata:([^\s\n]+)', args)
+    if match:
+        syndata_str = match.group(1)
+        # Format: blob=tls_google:ip_autottl=-2,3-20:tls_mod=value
+        parts = syndata_str.split(':')
 
-        if key == 'blob':
-            result['blob'] = value
-        elif key == 'tls_mod':
-            result['tls_mod'] = value
-        elif key == 'autottl':
-            result['autottl_delta'] = int(value)
-        elif key == 'autottl_min':
-            result['autottl_min'] = int(value)
-        elif key == 'autottl_max':
-            result['autottl_max'] = int(value)
-        elif key == 'tcp_flags_unset':
-            result['tcp_flags_unset'] = value
+        for part in parts:
+            if '=' not in part:
+                continue
+            key, value = part.split('=', 1)
 
-    return result
+            if key == 'blob':
+                result['blob'] = value
+            elif key == 'tls_mod':
+                result['tls_mod'] = value
+            elif key == 'ip_autottl':
+                # Format: -2,3-20 (delta,min-max)
+                autottl_match = re.match(r'(-?\d+),(\d+)-(\d+)', value)
+                if autottl_match:
+                    result['autottl_delta'] = int(autottl_match.group(1))
+                    result['autottl_min'] = int(autottl_match.group(2))
+                    result['autottl_max'] = int(autottl_match.group(3))
+            elif key == 'tcp_flags_unset':
+                result['tcp_flags_unset'] = value
+
+        log(f"[PARSE] Extracted syndata: {result}", "DEBUG")
+        return result
+
+    return {}  # No syndata - return empty dict
 
 
 def extract_out_range_from_args(args: str) -> Dict:
@@ -294,7 +299,7 @@ def extract_out_range_from_args(args: str) -> Dict:
 
 def extract_send_from_args(args: str) -> Dict:
     """
-    Extracts send parameters from --send=repeats:2,ttl:0
+    Extracts send parameters from format: --lua-desync=send:repeats=2:ttl=0
 
     Args:
         args: Argument string to parse
@@ -302,18 +307,20 @@ def extract_send_from_args(args: str) -> Dict:
     Returns:
         Dict with send parameters (empty if not found)
     """
-    match = re.search(r'--send=([^\s\n]+)', args)
-    if not match:
-        return {}
-
-    send_str = match.group(1)
-    parts = send_str.split(',')
-
     result = {'send_enabled': True}
 
-    for part in parts:
-        if ':' in part:
-            key, value = part.split(':', 1)
+    # Format: --lua-desync=send:repeats=2:ttl=0
+    match = re.search(r'--lua-desync=send:([^\s\n]+)', args)
+    if match:
+        send_str = match.group(1)
+        # Format: repeats=2:ttl=0:badsum=true
+        parts = send_str.split(':')
+
+        for part in parts:
+            if '=' not in part:
+                continue
+            key, value = part.split('=', 1)
+
             if key == 'repeats':
                 result['send_repeats'] = int(value)
             elif key == 'ttl':
@@ -322,10 +329,13 @@ def extract_send_from_args(args: str) -> Dict:
                 result['send_ip6_ttl'] = int(value)
             elif key == 'ip_id':
                 result['send_ip_id'] = value
-        elif part == 'badsum:true':
-            result['send_badsum'] = True
+            elif key == 'badsum':
+                result['send_badsum'] = value.lower() == 'true'
 
-    return result
+        log(f"[PARSE] Extracted send: {result}", "DEBUG")
+        return result
+
+    return {}  # No send parameters found
 
 
 def parse_preset_file(file_path: Path) -> PresetData:
@@ -466,7 +476,7 @@ def parse_preset_content(content: str) -> PresetData:
             if current_block:
                 blocks_raw.append(current_block)
                 current_block = []
-        elif stripped:
+        elif stripped and not stripped.startswith('#'):  # Ignore comments
             current_block.append(stripped)
 
     # Don't forget last block
@@ -504,7 +514,9 @@ def parse_preset_content(content: str) -> PresetData:
     # Deduplicate in case file already contains duplicates
     data.deduplicate_categories()
 
-    log(f"Parsed preset '{data.name}': {len(data.categories)} category blocks", "DEBUG")
+    log(f"[PARSE] Parsed preset '{data.name}': {len(data.categories)} category blocks", "DEBUG")
+    for i, block in enumerate(data.categories):
+        log(f"[PARSE] Block {i}: {block.category}:{block.protocol}, filter_mode={block.filter_mode}, port={block.port}", "DEBUG")
 
     return data
 

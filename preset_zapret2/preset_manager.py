@@ -184,7 +184,10 @@ class PresetManager:
             current_mtime = self._get_active_file_mtime()
             if current_mtime == self._active_preset_mtime and current_mtime > 0:
                 # Cache is valid
+                log(f"[CACHE] Active preset cache HIT", "DEBUG")
                 return self._active_preset_cache
+
+        log(f"[CACHE] Active preset cache MISS, loading...", "DEBUG")
 
         # Cache miss or invalid - load preset
         name = get_active_preset_name()
@@ -201,6 +204,7 @@ class PresetManager:
         if preset:
             self._active_preset_cache = preset
             self._active_preset_mtime = self._get_active_file_mtime()
+            log(f"[MANAGER] Loaded active preset: {len(preset.categories)} categories", "DEBUG")
 
         return preset
 
@@ -246,9 +250,54 @@ class PresetManager:
                 if block.protocol == "tcp":
                     cat.tcp_args = block.strategy_args
                     cat.tcp_port = block.port
+                    cat.tcp_enabled = True
                 elif block.protocol == "udp":
                     cat.udp_args = block.strategy_args
                     cat.udp_port = block.port
+                    cat.udp_enabled = True
+
+            # ✅ INFERENCE: Determine strategy_id from args for all categories
+            # This is needed because preset files store args but not strategy_id
+            from .strategy_inference import infer_strategy_id_from_args
+            from strategy_menu.strategies_registry import registry
+
+            for cat_name, cat in preset.categories.items():
+                # Try TCP first (most common)
+                if cat.tcp_args and cat.tcp_args.strip():
+                    inferred_id = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.tcp_args,
+                        protocol="tcp"
+                    )
+                    if inferred_id != "none":
+                        cat.strategy_id = inferred_id
+                        log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from tcp_args", "DEBUG")
+                        # ✅ CLEAN: Replace dirty args with clean args from JSON
+                        strategy_data = registry.get_strategy(cat_name, inferred_id)
+                        if strategy_data and "args" in strategy_data:
+                            clean_args = strategy_data["args"]
+                            if clean_args != cat.tcp_args:
+                                log(f"[CLEAN] {cat_name}.tcp_args cleaned: {repr(cat.tcp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
+                                cat.tcp_args = clean_args
+                        continue
+
+                # Try UDP if TCP didn't work
+                if cat.udp_args and cat.udp_args.strip():
+                    inferred_id = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.udp_args,
+                        protocol="udp"
+                    )
+                    if inferred_id != "none":
+                        cat.strategy_id = inferred_id
+                        log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from udp_args", "DEBUG")
+                        # ✅ CLEAN: Replace dirty args with clean args from JSON
+                        strategy_data = registry.get_strategy(cat_name, inferred_id)
+                        if strategy_data and "args" in strategy_data:
+                            clean_args = strategy_data["args"]
+                            if clean_args != cat.udp_args:
+                                log(f"[CLEAN] {cat_name}.udp_args cleaned: {repr(cat.udp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
+                                cat.udp_args = clean_args
 
             return preset
 
@@ -916,14 +965,22 @@ class PresetManager:
         if category_key not in preset.categories:
             return True  # Nothing to reset
 
-        # Get default filter_mode from DEFAULT_PRESET_CONTENT
-        from .preset_defaults import get_category_default_filter_mode
+        # Get default filter_mode and syndata from DEFAULT_PRESET_CONTENT
+        from .preset_defaults import (
+            get_category_default_filter_mode,
+            get_category_default_syndata
+        )
         default_filter_mode = get_category_default_filter_mode(category_key)
+        default_syndata = get_category_default_syndata(category_key)
 
-        # Reset syndata to defaults
-        preset.categories[category_key].syndata = SyndataSettings.get_defaults()
+        # Reset all settings to defaults
+        preset.categories[category_key].syndata = default_syndata
         preset.categories[category_key].filter_mode = default_filter_mode
         preset.categories[category_key].sort_order = "default"
+        # Clear strategy (will not be written to file if no args)
+        preset.categories[category_key].strategy_id = "none"
+        preset.categories[category_key].tcp_args = ""
+        preset.categories[category_key].udp_args = ""
         preset.touch()
 
         return self._save_and_sync_preset(preset)
@@ -1062,16 +1119,26 @@ class PresetManager:
 
         # Get args from registry
         args = registry.get_strategy_args_safe(category_key, strategy_id)
+        log(f"[DEBUG] Strategy args from registry for {category_key}/{strategy_id}: {repr(args)}", "DEBUG")
+
         if args:
+            # Clean args: remove filters to avoid duplication
+            # (filters will be added by sync_preset_to_active_file)
+            from .txt_preset_parser import extract_strategy_args
+            clean_args = extract_strategy_args(args)
+            log(f"[DEBUG] Cleaned args: {repr(clean_args)}", "DEBUG")
+
             # Determine if this is TCP or UDP strategy based on category info
             category_info = registry.get_category_info(category_key)
             if category_info:
                 # Most strategies apply to TCP
                 # UDP categories have special handling
                 if "_udp" in category_key or category_info.strategy_type.endswith("_udp"):
-                    cat.udp_args = args
+                    cat.udp_args = clean_args
+                    log(f"[DEBUG] Updated {category_key}.udp_args = {repr(clean_args)}", "DEBUG")
                 else:
-                    cat.tcp_args = args
+                    cat.tcp_args = clean_args
+                    log(f"[DEBUG] Updated {category_key}.tcp_args = {repr(clean_args)}", "DEBUG")
 
     def set_strategy_selections(
         self,

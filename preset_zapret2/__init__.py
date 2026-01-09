@@ -98,6 +98,13 @@ from .preset_defaults import (
     parse_syndata_from_args,
 )
 
+# Strategy inference (for loading presets)
+from .strategy_inference import (
+    infer_strategy_id_from_args,
+    infer_strategy_ids_batch,
+    normalize_args,
+)
+
 def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
@@ -238,4 +245,8 @@ __all__ = [
     "extract_protocol_and_port",
     "extract_strategy_args",
     "update_category_in_preset",
+    # Strategy inference
+    "infer_strategy_id_from_args",
+    "infer_strategy_ids_batch",
+    "normalize_args",
 ]

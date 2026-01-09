@@ -1,0 +1,199 @@
+# preset_zapret2/strategy_inference.py
+"""
+Strategy ID inference from arguments.
+
+This module provides functions to determine strategy_id from strategy arguments
+when loading presets from files. This is needed because preset files store
+args but not strategy_id, and UI needs to know which strategy is active.
+
+Usage:
+    from preset_zapret2.strategy_inference import infer_strategy_id_from_args
+
+    strategy_id = infer_strategy_id_from_args(
+        category_key="youtube",
+        args="--lua-desync=multisplit:pos=1,midsld",
+        protocol="tcp"
+    )
+"""
+
+from typing import Dict
+from log import log
+
+
+def normalize_args(args: str) -> str:
+    """
+    Normalizes strategy arguments for comparison.
+
+    Normalization rules:
+    - Strips whitespace from each line
+    - Removes empty lines
+    - Sorts lines (order doesn't matter)
+    - Converts to lowercase (for case-insensitive comparison)
+
+    Args:
+        args: Raw strategy arguments (can be multiline)
+
+    Returns:
+        Normalized arguments string
+
+    Example:
+        Input:  "--lua-desync=multisplit:pos=1,midsld\n--lua-desync=disorder:pos=1"
+        Output: "--lua-desync=disorder:pos=1\n--lua-desync=multisplit:pos=1,midsld"
+    """
+    if not args:
+        return ""
+
+    # Split into lines, strip whitespace, remove empty lines
+    lines = [line.strip() for line in args.strip().split('\n') if line.strip()]
+
+    # Sort lines (order doesn't matter for comparison)
+    lines = sorted(lines)
+
+    # Join back and lowercase
+    return '\n'.join(lines).lower()
+
+
+def infer_strategy_id_from_args(
+    category_key: str,
+    args: str,
+    protocol: str = "tcp"
+) -> str:
+    """
+    Infers strategy_id from strategy arguments.
+
+    This function is used when loading presets from files.
+    Preset files contain args but not strategy_id.
+    We need to reverse-lookup the strategy_id by comparing args.
+
+    Algorithm:
+    1. Normalize input args
+    2. Get all strategies for the category
+    3. For each strategy:
+       - Get strategy["args"] (pure args, without base_filter)
+       - Normalize
+       - Compare with input
+    4. Return first match or "none" if not found
+
+    Args:
+        category_key: Category name (e.g., "youtube", "discord")
+        args: Strategy arguments from preset file
+        protocol: Protocol ("tcp" or "udp") - used only for logging
+
+    Returns:
+        strategy_id if found, "none" otherwise
+
+    Edge cases:
+    - Empty args → "none"
+    - Unknown category → "none"
+    - No strategies for category → "none"
+    - No matching strategy → "none" (not an error, just no match)
+
+    Example:
+        >>> infer_strategy_id_from_args(
+        ...     "youtube",
+        ...     "--lua-desync=multisplit:pos=1,midsld",
+        ...     "tcp"
+        ... )
+        "youtube_tcp_split"
+    """
+    from strategy_menu.strategies_registry import registry
+
+    # DEBUG: Log input data
+    log(f"[INFER] Input for {category_key}: args_len={len(args)}", "DEBUG")
+
+    # Normalize input args
+    normalized_input = normalize_args(args)
+
+    # DEBUG: Log normalized input
+    log(f"[INFER] Normalized input: {repr(normalized_input[:100] if normalized_input else '')}", "DEBUG")
+
+    # Empty args = none
+    if not normalized_input:
+        log(f"Empty args for {category_key}.{protocol}, returning 'none'", "DEBUG")
+        return "none"
+
+    # Get category info
+    category_info = registry.get_category_info(category_key)
+    if not category_info:
+        log(f"Category {category_key} not found in registry", "WARNING")
+        return "none"
+
+    # Get all strategies for this category's type
+    strategies = registry.get_category_strategies(category_key)
+    if not strategies:
+        log(f"No strategies found for {category_key} (type: {category_info.strategy_type})", "DEBUG")
+        return "none"
+
+    # DEBUG: Log number of strategies
+    log(f"[INFER] Checking {len(strategies)} strategies for {category_key}", "DEBUG")
+
+    # Search for matching strategy
+    first_checked = False
+    for strategy_id, strategy_data in strategies.items():
+        # IMPORTANT: Use only args from JSON (without base_filter!)
+        # Because CategoryConfig.tcp_args/udp_args store pure args only
+        strategy_args = strategy_data.get("args", "")
+        if not strategy_args:
+            continue
+
+        # Normalize strategy args
+        normalized_strategy = normalize_args(strategy_args)
+
+        # DEBUG: Log first strategy comparison
+        if not first_checked:
+            log(f"[INFER] First strategy '{strategy_id}' normalized: {repr(normalized_strategy[:100])}", "DEBUG")
+            first_checked = True
+
+        # Compare
+        if normalized_strategy == normalized_input:
+            log(f"[INFER] MATCH: {strategy_id}", "DEBUG")
+            log(f"Strategy inferred: {category_key}.{protocol} -> {strategy_id}", "DEBUG")
+            return strategy_id
+
+    # Not found - not an error, just return none
+    # This can happen if user manually edited preset file with custom args
+    log(f"[INFER] No match found for {category_key}", "DEBUG")
+    log(f"⚠️ Could not infer strategy_id for {category_key}.{protocol}", "DEBUG")
+    log(f"   Args: {args[:80]}{'...' if len(args) > 80 else ''}", "DEBUG")
+    return "none"
+
+
+def infer_strategy_ids_batch(
+    categories: Dict[str, Dict[str, str]]
+) -> Dict[str, str]:
+    """
+    Infers strategy_ids for multiple categories at once.
+
+    Useful for bulk operations (e.g., loading entire preset).
+
+    Args:
+        categories: Dict of {category_key: {"tcp_args": "...", "udp_args": "..."}}
+
+    Returns:
+        Dict of {category_key: strategy_id}
+
+    Note:
+        For categories with both TCP and UDP, prefers TCP strategy_id.
+        If TCP is empty or not found, tries UDP.
+    """
+    result = {}
+
+    for cat_key, cat_data in categories.items():
+        tcp_args = cat_data.get("tcp_args", "")
+        udp_args = cat_data.get("udp_args", "")
+
+        # Try TCP first
+        if tcp_args:
+            strategy_id = infer_strategy_id_from_args(cat_key, tcp_args, "tcp")
+            if strategy_id != "none":
+                result[cat_key] = strategy_id
+                continue
+
+        # Try UDP if TCP didn't work
+        if udp_args:
+            strategy_id = infer_strategy_id_from_args(cat_key, udp_args, "udp")
+            result[cat_key] = strategy_id
+        else:
+            result[cat_key] = "none"
+
+    return result
