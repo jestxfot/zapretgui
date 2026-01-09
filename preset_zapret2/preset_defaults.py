@@ -85,7 +85,7 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --blob=hex_00:0x00
 
 --filter-tcp=80,443
---hostlist=C:\ProgramData\ZapretTwoDev\lists\youtube.txt
+--ipset=C:\ProgramData\ZapretTwoDev\lists\ipset-youtube.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
@@ -103,7 +103,7 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist=C:\ProgramData\ZapretTwoDev\lists\discord.txt
+--ipset=C:\ProgramData\ZapretTwoDev\lists\ipset-discord.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
@@ -116,6 +116,16 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=fake:blob=0x00:repeats=6
+
+--new
+
+--filter-tcp=80,443
+--ipset-ip=130.255.77.28
+--out-range=-n20
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=fake:blob=tls14:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:tls_mod=rnd,dupsid,sni=fonts.google.com
+--lua-desync=multidisorder:pos=7,sld+1:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
 """
 
 

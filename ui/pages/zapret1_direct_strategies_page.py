@@ -36,7 +36,34 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
 
     def _load_content(self):
         """Загружает контент для Direct Zapret 1 режима"""
-        self._load_direct_mode()
+        try:
+            from strategy_menu import get_strategy_launch_method
+            mode = get_strategy_launch_method()
+
+            # Если режим не изменился и контент уже загружен - пропускаем
+            if mode == self._current_mode and (self._strategy_widget or self._bat_table):
+                return
+
+            self._current_mode = mode
+            self._clear_content()
+
+            # Эта страница предназначена только для direct_zapret1 режима
+            if mode != "direct_zapret1":
+                log(f"Zapret1DirectStrategiesPage: запрошен режим {mode}, страница рассчитана на direct_zapret1", "WARNING")
+
+            self.stop_watching()
+            self._load_direct_mode()
+
+        except Exception as e:
+            log(f"Ошибка загрузки контента Zapret1DirectStrategiesPage: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+
+            self._clear_content()
+            error_label = QLabel(f"❌ Ошибка загрузки: {e}")
+            error_label.setStyleSheet("color: #ff6b6b; font-size: 13px;")
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.content_layout.addWidget(error_label)
 
     def _load_direct_mode(self):
         """Загружает интерфейс для direct режима (Zapret 1)"""

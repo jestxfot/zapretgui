@@ -590,7 +590,7 @@ class SideNavBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.buttons = []
-        self.current_index = 0
+        self.current_section: SectionName | None = None
         self._is_pinned = True  # По умолчанию закреплено
         self._is_collapsed = False
         self._is_hovering = False
@@ -703,86 +703,42 @@ class SideNavBar(QWidget):
         #          "collapsible" = секция со сворачиваемыми подпунктами,
         #          "collapsible_header" = текстовый заголовок со сворачиванием подпунктов
         self.sections = [
-            ("fa5s.home", "Главная", False),           # HOME
-            ("fa5s.play-circle", "Управление", False), # CONTROL
-            ("fa5s.cog", "Стратегии", "collapsible"),  # STRATEGIES - сворачиваемая секция (меняется на "Оркестратор" в режиме оркестратора)
-            ("fa5s.sliders-h", "Сортировка", True),    # STRATEGY_SORT - подпункт (сортировка и фильтры стратегий)
-            ("fa5s.file-code", "Конфиг", True),        # PRESET_CONFIG - подпункт (редактор preset-zapret2.txt)
-            ("fa5s.list", "Hostlist", True),           # HOSTLIST - подпункт
-            ("fa5s.server", "IPset", True),            # IPSET - подпункт
-            ("fa5s.cube", "Блобы", True),              # BLOBS - подпункт (управление блобами для Zapret 2)
-            ("fa5s.edit", "Редактор", True),           # EDITOR - подпункт (редактор стратегий)
-            ("fa5s.lock", "Залоченные", True),         # ORCHESTRA_LOCKED - подпункт (оркестратор: залоченные стратегии)
-            ("fa5s.ban", "Заблокированные", True),     # ORCHESTRA_BLOCKED - подпункт (оркестратор: чёрный список)
-            ("mdi.chart-bar", "Рейтинги", True),       # ORCHESTRA_RATINGS - подпункт (оркестратор: история стратегий с рейтингами)
-            ("fa5s.cogs", "Настройки DPI", True),      # DPI_SETTINGS - подпункт (всегда внизу группы)
-            ("mdi.folder-cog", "Пресеты", True),      # PRESETS - подпункт (управление пресетами, только direct_zapret2)
-            (None, "Мои списки", "collapsible_header"),# MY_LISTS_HEADER - текстовый заголовок со сворачиванием подпунктов
-            ("fa5s.ban", "Исключения", True),          # NETROGAT - подпункт (netrogat.txt) - скрывается в режиме оркестратора
-            ("fa5s.shield-alt", "Белый список", True), # ORCHESTRA_WHITELIST - подпункт (whitelist оркестратора) - только в режиме оркестратора
-            ("fa5s.plus-circle", "Мои hostlist", True),  # CUSTOM_HOSTLIST - подпункт (other2.txt) - скрывается в режиме оркестратора
-            ("fa5s.network-wired", "Мои ipset", True),    # CUSTOM_IPSET - подпункт (my-ipset.txt) - скрывается в режиме оркестратора
-            ("fa5s.rocket", "Автозапуск", False),      # AUTOSTART
-            ("fa5s.network-wired", "Сеть", False),     # NETWORK
-            ("fa5s.wifi", "Диагностика", "collapsible"),  # DIAGNOSTICS - сворачиваемая секция
-            ("fa5s.search", "DNS подмена", True),      # DNS_CHECK - подпункт диагностики
-            ("fa5s.globe", "Hosts", False),            # HOSTS - разблокировка сервисов
-            ("fa5s.shield-alt", "BlockCheck", False),  # BLOCKCHECK
-            ("fa5s.palette", "Оформление", False),     # APPEARANCE
-            ("fa5s.star", "Донат", False),             # PREMIUM
-            ("fa5s.file-alt", "Логи", False),          # LOGS
-            ("fa5s.sync-alt", "Обновления", False),    # SERVERS - серверы обновлений
-            ("fa5s.info-circle", "О программе", False),# ABOUT
+            (SectionName.HOME, "fa5s.home", "Главная", False),
+            (SectionName.CONTROL, "fa5s.play-circle", "Управление", False),
+            (SectionName.STRATEGIES, "fa5s.cog", "Стратегии", "collapsible"),
+            (SectionName.STRATEGY_SORT, "fa5s.sliders-h", "Сортировка", True),
+            (SectionName.PRESET_CONFIG, "fa5s.file-code", "Конфиг", True),
+            (SectionName.HOSTLIST, "fa5s.list", "Hostlist", True),
+            (SectionName.IPSET, "fa5s.server", "IPset", True),
+            (SectionName.BLOBS, "fa5s.cube", "Блобы", True),
+            (SectionName.EDITOR, "fa5s.edit", "Редактор", True),
+            (SectionName.ORCHESTRA_LOCKED, "fa5s.lock", "Залоченные", True),
+            (SectionName.ORCHESTRA_BLOCKED, "fa5s.ban", "Заблокированные", True),
+            (SectionName.ORCHESTRA_RATINGS, "mdi.chart-bar", "Рейтинги", True),
+            (SectionName.DPI_SETTINGS, "fa5s.cogs", "Настройки DPI", True),
+            (SectionName.PRESETS, "mdi.folder-cog", "Пресеты", True),
+            (SectionName.MY_LISTS_HEADER, None, "Мои списки", "collapsible_header"),
+            (SectionName.NETROGAT, "fa5s.ban", "Исключения", True),
+            (SectionName.ORCHESTRA_WHITELIST, "fa5s.shield-alt", "Белый список", True),
+            (SectionName.CUSTOM_HOSTLIST, "fa5s.plus-circle", "Мои hostlist", True),
+            (SectionName.CUSTOM_IPSET, "fa5s.network-wired", "Мои ipset", True),
+            (SectionName.AUTOSTART, "fa5s.rocket", "Автозапуск", False),
+            (SectionName.NETWORK, "fa5s.network-wired", "Сеть", False),
+            (SectionName.DIAGNOSTICS, "fa5s.wifi", "Диагностика", "collapsible"),
+            (SectionName.DNS_CHECK, "fa5s.search", "DNS подмена", True),
+            (SectionName.HOSTS, "fa5s.globe", "Hosts", False),
+            (SectionName.BLOCKCHECK, "fa5s.shield-alt", "BlockCheck", False),
+            (SectionName.APPEARANCE, "fa5s.palette", "Оформление", False),
+            (SectionName.PREMIUM, "fa5s.star", "Донат", False),
+            (SectionName.LOGS, "fa5s.file-alt", "Логи", False),
+            (SectionName.SERVERS, "fa5s.sync-alt", "Обновления", False),
+            (SectionName.ABOUT, "fa5s.info-circle", "О программе", False),
         ]
 
-        # Маппинг индекса секции -> PageName (используя SECTION_TO_PAGE)
-        self._section_to_page: dict[int, PageName | None] = {}  # Заполняется ниже через SECTION_TO_PAGE
+        self._section_widgets: dict[SectionName, QWidget] = {}
         self._header_labels = []  # Заголовки секций/групп для скрытия при сворачивании
         self._sub_buttons = []  # Подпункты для скрытия при сворачивании сайдбара
         self._blobs_button = None  # Ссылка на кнопку "Блобы" для управления видимостью
-
-        # Маппинг SectionName -> индекс в self.sections для быстрого доступа
-        # Это нужно для обратной совместимости пока мы не уберём все числовые индексы
-        self._section_name_to_index: dict[SectionName, int] = {
-            SectionName.HOME: 0,
-            SectionName.CONTROL: 1,
-            SectionName.STRATEGIES: 2,
-            SectionName.STRATEGY_SORT: 3,
-            SectionName.PRESET_CONFIG: 4,
-            SectionName.HOSTLIST: 5,
-            SectionName.IPSET: 6,
-            SectionName.BLOBS: 7,
-            SectionName.EDITOR: 8,
-            SectionName.ORCHESTRA_LOCKED: 9,
-            SectionName.ORCHESTRA_BLOCKED: 10,
-            SectionName.ORCHESTRA_RATINGS: 11,
-            SectionName.DPI_SETTINGS: 12,
-            SectionName.PRESETS: 13,
-            SectionName.MY_LISTS_HEADER: 14,
-            SectionName.NETROGAT: 15,
-            SectionName.ORCHESTRA_WHITELIST: 16,
-            SectionName.CUSTOM_HOSTLIST: 17,
-            SectionName.CUSTOM_IPSET: 18,
-            SectionName.AUTOSTART: 19,
-            SectionName.NETWORK: 20,
-            SectionName.DIAGNOSTICS: 21,
-            SectionName.DNS_CHECK: 22,
-            SectionName.HOSTS: 23,
-            SectionName.BLOCKCHECK: 24,
-            SectionName.APPEARANCE: 25,
-            SectionName.PREMIUM: 26,
-            SectionName.LOGS: 27,
-            SectionName.SERVERS: 28,
-            SectionName.ABOUT: 29,
-        }
-
-        # Обратный маппинг: числовой индекс i -> SectionName
-        self._index_to_section_name: dict[int, SectionName] = {
-            v: k for k, v in self._section_name_to_index.items()
-        }
-
-        # Ссылка на секцию "Стратегии" (используется в нескольких местах)
-        self._strategies_section = SectionName.STRATEGIES
 
         # Кнопки для переключения режима оркестратора
         self._strategies_button = None       # Кнопка "Стратегии" / "Оркестратор"
@@ -802,47 +758,42 @@ class SideNavBar(QWidget):
         self._presets_button = None          # Кнопка "Пресеты"
 
         # Группы подпунктов для сворачивания
-        self._collapsible_groups = {}  # parent_index -> [sub_button_widgets]
-        current_collapsible_parent = None
+        self._collapsible_groups: dict[SectionName, list[QWidget]] = {}
+        current_collapsible_parent: SectionName | None = None
 
-        for i, (icon, text, is_sub) in enumerate(self.sections):
-            # Получаем SectionName и PageName для этой секции
-            section_name = self._index_to_section_name.get(i)
-            page_name = SECTION_TO_PAGE.get(section_name) if section_name else None
+        for section_name, icon, text, is_sub in self.sections:
+            page_name = SECTION_TO_PAGE.get(section_name)
 
             if is_sub == "collapsible":
                 # Сворачиваемая секция с подпунктами
                 btn = CollapsibleNavButton(icon, text, self)
                 btn.setMinimumHeight(36)
-                btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
-                btn.toggled.connect(lambda expanded, idx=i: self._on_group_toggled(idx, expanded))
+                btn.clicked.connect(lambda checked, sn=section_name: self._on_button_clicked(sn))
+                btn.toggled.connect(lambda expanded, sn=section_name: self._on_group_toggled(sn, expanded))
                 self.buttons.append(btn)
                 nav_layout.addWidget(btn)
-                self._section_to_page[i] = page_name  # PageName или None
-                current_collapsible_parent = i
-                self._collapsible_groups[i] = []
-                # Сохраняем ссылку на кнопку "Стратегии"
-                if i == self._section_name_to_index[self._strategies_section]:
+                self._section_widgets[section_name] = btn
+                current_collapsible_parent = section_name
+                self._collapsible_groups[section_name] = []
+                if section_name == SectionName.STRATEGIES:
                     self._strategies_button = btn
             elif is_sub == "collapsible_header":
                 header = CollapsibleHeader(text, self)
                 nav_layout.addWidget(header)
                 self.buttons.append(header)
-                self._section_to_page[i] = None  # Заголовки не имеют страниц
+                self._section_widgets[section_name] = header
                 # Отдельная группа для этого заголовка
-                current_collapsible_parent = i
-                self._collapsible_groups[i] = []
-                header.toggled.connect(lambda expanded, idx=i: self._on_group_toggled(idx, expanded))
+                current_collapsible_parent = section_name
+                self._collapsible_groups[section_name] = []
+                header.toggled.connect(lambda expanded, sn=section_name: self._on_group_toggled(sn, expanded))
                 self._header_labels.append(header)
             elif is_sub:
                 btn = SubNavButton(icon, text, self)
                 btn.setMinimumHeight(28)
-                btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
+                btn.clicked.connect(lambda checked, sn=section_name: self._on_button_clicked(sn))
                 self.buttons.append(btn)
                 nav_layout.addWidget(btn)
-
-                # Используем PageName из SECTION_TO_PAGE (включая оркестратор секции)
-                self._section_to_page[i] = page_name
+                self._section_widgets[section_name] = btn
 
                 self._sub_buttons.append(btn)  # Сохраняем для скрытия при сворачивании сайдбара
                 # Добавляем в группу текущего родителя
@@ -850,57 +801,56 @@ class SideNavBar(QWidget):
                     self._collapsible_groups[current_collapsible_parent].append(btn)
 
                 # Сохраняем ссылки на кнопки для управления видимостью
-                # Используем _section_name_to_index для сравнения SectionName с числовым i
-                _idx = self._section_name_to_index
-                if i == _idx[SectionName.STRATEGY_SORT]:
+                if section_name == SectionName.STRATEGY_SORT:
                     self._strategy_sort_button = btn
-                elif i == _idx[SectionName.PRESET_CONFIG]:
+                elif section_name == SectionName.PRESET_CONFIG:
                     self._preset_config_button = btn
-                elif i == _idx[SectionName.BLOBS]:
+                elif section_name == SectionName.BLOBS:
                     self._blobs_button = btn
-                elif i == _idx[SectionName.HOSTLIST]:
+                elif section_name == SectionName.HOSTLIST:
                     self._hostlist_button = btn
-                elif i == _idx[SectionName.IPSET]:
+                elif section_name == SectionName.IPSET:
                     self._ipset_button = btn
-                elif i == _idx[SectionName.EDITOR]:
+                elif section_name == SectionName.EDITOR:
                     self._editor_button = btn
-                elif i == _idx[SectionName.ORCHESTRA_LOCKED]:
+                elif section_name == SectionName.ORCHESTRA_LOCKED:
                     self._orchestra_locked_button = btn
-                elif i == _idx[SectionName.ORCHESTRA_BLOCKED]:
+                elif section_name == SectionName.ORCHESTRA_BLOCKED:
                     self._orchestra_blocked_button = btn
-                elif i == _idx[SectionName.ORCHESTRA_RATINGS]:
+                elif section_name == SectionName.ORCHESTRA_RATINGS:
                     self._orchestra_ratings_button = btn
-                elif i == _idx[SectionName.DPI_SETTINGS]:
+                elif section_name == SectionName.DPI_SETTINGS:
                     self._dpi_settings_button = btn
-                elif i == _idx[SectionName.NETROGAT]:
+                elif section_name == SectionName.NETROGAT:
                     self._netrogat_button = btn
-                elif i == _idx[SectionName.ORCHESTRA_WHITELIST]:
+                elif section_name == SectionName.ORCHESTRA_WHITELIST:
                     self._whitelist_button = btn
-                elif i == _idx[SectionName.CUSTOM_HOSTLIST]:
+                elif section_name == SectionName.CUSTOM_HOSTLIST:
                     self._custom_hostlist_button = btn
-                elif i == _idx[SectionName.CUSTOM_IPSET]:
+                elif section_name == SectionName.CUSTOM_IPSET:
                     self._custom_ipset_button = btn
-                elif i == _idx[SectionName.PRESETS]:
+                elif section_name == SectionName.PRESETS:
                     self._presets_button = btn
             else:
                 btn = NavButton(icon, text, self)
                 btn.setMinimumHeight(36)
-                btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
+                btn.clicked.connect(lambda checked, sn=section_name: self._on_button_clicked(sn))
                 self.buttons.append(btn)
                 nav_layout.addWidget(btn)
-                self._section_to_page[i] = page_name  # PageName или None
+                self._section_widgets[section_name] = btn
                 current_collapsible_parent = None  # Сбрасываем родителя
 
         # Выбираем кнопку HOME
-        home_idx = self._section_name_to_index.get(SectionName.HOME, 0)
-        if self.buttons and home_idx < len(self.buttons):
-            self.buttons[home_idx].set_selected(True)
+        self.current_section = SectionName.HOME
+        home_btn = self._section_widgets.get(SectionName.HOME)
+        if home_btn is not None and hasattr(home_btn, "set_selected"):
+            home_btn.set_selected(True)
         
         # Загружаем состояния сворачивания групп из реестра
         self._load_collapsible_state()
 
         # Обновляем видимость вкладок в зависимости от режима
-        self.update_blobs_visibility()
+        self.update_strategies_submenu_visibility()
         self.update_orchestra_visibility()
         self.update_presets_visibility()
 
@@ -1018,11 +968,7 @@ class SideNavBar(QWidget):
 
         self._loading_state = True
         for section_name, reg_value_name in self._collapsible_registry_keys.items():
-            # Получаем числовой индекс из SectionName
-            idx = self._section_name_to_index.get(section_name)
-            if idx is None:
-                continue
-            btn = self.buttons[idx] if 0 <= idx < len(self.buttons) else None
+            btn = self._section_widgets.get(section_name)
             if not isinstance(btn, (CollapsibleNavButton, CollapsibleHeader)):
                 continue
             try:
@@ -1035,21 +981,14 @@ class SideNavBar(QWidget):
             btn.set_expanded(expanded)
         self._loading_state = False
 
-    def _save_collapsible_state(self, parent_idx: int, expanded: bool):
+    def _save_collapsible_state(self, section_name: SectionName, expanded: bool):
         """Сохраняет в реестр состояние свернутой группы
 
         Args:
-            parent_idx: числовой индекс секции в self.buttons
+            section_name: имя collapsible-секции
             expanded: состояние развёрнутости
         """
-        # Находим SectionName по числовому индексу
-        section_name = None
-        for sn, idx in self._section_name_to_index.items():
-            if idx == parent_idx:
-                section_name = sn
-                break
-
-        if section_name is None or section_name not in self._collapsible_registry_keys:
+        if section_name not in self._collapsible_registry_keys:
             return
 
         try:
@@ -1230,43 +1169,40 @@ class SideNavBar(QWidget):
             self._collapse_timer.start(250)
         super().leaveEvent(event)
 
-    def _on_group_toggled(self, parent_index: int, expanded: bool):
+    def _on_group_toggled(self, parent_section: SectionName, expanded: bool):
         """Переключает видимость элементов группы (подпункты и заголовки)"""
-        if parent_index in self._collapsible_groups:
-            for widget in self._collapsible_groups[parent_index]:
+        if parent_section in self._collapsible_groups:
+            for widget in self._collapsible_groups[parent_section]:
                 widget.setVisible(expanded)
         # Сохраняем состояние, если это не загрузка
         if not getattr(self, "_loading_state", False):
-            self._save_collapsible_state(parent_index, expanded)
+            self._save_collapsible_state(parent_section, expanded)
         
-    def _on_button_clicked(self, index: int):
-        # Пропускаем заголовки (None) и тот же индекс
-        if self.buttons[index] is None or index == self.current_index:
+    def _on_button_clicked(self, section: SectionName):
+        if section == self.current_section:
             return
-            
-        # Снимаем выделение со старой кнопки (если она не None)
-        if self.buttons[self.current_index] is not None:
-            self.buttons[self.current_index].set_selected(False)
-        
-        # Выделяем новую
-        self.current_index = index
-        self.buttons[index].set_selected(True)
+
+        old_btn = self._section_widgets.get(self.current_section) if self.current_section else None
+        if old_btn is not None and hasattr(old_btn, "set_selected"):
+            old_btn.set_selected(False)
+
+        new_btn = self._section_widgets.get(section)
+        if new_btn is None or not hasattr(new_btn, "set_selected"):
+            if old_btn is not None and hasattr(old_btn, "set_selected"):
+                old_btn.set_selected(True)
+            return
+
+        self.current_section = section
+        new_btn.set_selected(True)
         
         # Эмитим сигнал с PageName (не числовым индексом!)
-        page_name = self._section_to_page.get(index)
+        page_name = SECTION_TO_PAGE.get(section)
         # Always emit - main_window handles None for collapsible groups dynamically
         self.section_changed.emit(page_name)
-        
-    def set_section(self, index: int):
-        """Программно устанавливает раздел по индексу кнопки"""
-        if 0 <= index < len(self.buttons):
-            self._on_button_clicked(index)
 
     def set_section_by_name(self, section: SectionName):
         """Программно устанавливает раздел по SectionName"""
-        idx = self._section_name_to_index.get(section)
-        if idx is not None:
-            self._on_button_clicked(idx)
+        self._on_button_clicked(section)
 
     def set_page(self, page_name: PageName):
         """Программно устанавливает раздел по PageName
@@ -1286,8 +1222,11 @@ class SideNavBar(QWidget):
                 self.set_section_by_name(section)
                 return
     
-    def update_blobs_visibility(self):
-        """Обновляет видимость вкладок 'Блобы', 'Конфиг' и 'Сортировка' в зависимости от режима запуска"""
+    def update_strategies_submenu_visibility(self):
+        """Обновляет видимость подпунктов в группе 'Стратегии' по режиму запуска.
+
+        Управляет: 'Блобы', 'Конфиг', 'Сортировка'.
+        """
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
@@ -1303,7 +1242,7 @@ class SideNavBar(QWidget):
                 self._strategy_sort_button.setVisible(show_sorting)
         except Exception as e:
             from log import log
-            log(f"Ошибка проверки режима для блобов/конфига/сортировки: {e}", "DEBUG")
+            log(f"Ошибка проверки режима для подпунктов 'Стратегии' (блобы/конфиг/сортировка): {e}", "DEBUG")
             # По умолчанию показываем
             if self._blobs_button:
                 self._blobs_button.setVisible(True)
@@ -1311,6 +1250,10 @@ class SideNavBar(QWidget):
                 self._preset_config_button.setVisible(True)
             if self._strategy_sort_button:
                 self._strategy_sort_button.setVisible(True)
+
+    def update_blobs_visibility(self):
+        """Совместимость: раньше функция называлась update_blobs_visibility()."""
+        self.update_strategies_submenu_visibility()
 
     def update_orchestra_visibility(self):
         """
@@ -1340,7 +1283,7 @@ class SideNavBar(QWidget):
 
         # Скрываем/показываем Сортировка, Конфиг - только для ПОЛНОГО оркестратора
         # direct_zapret2_orchestra сохраняет эти кнопки видимыми
-        # В остальных режимах (не orchestra*) видимость управляется update_blobs_visibility().
+        # В остальных режимах (не orchestra*) видимость управляется update_strategies_submenu_visibility().
         if is_orchestra:
             if self._strategy_sort_button:
                 self._strategy_sort_button.setVisible(not is_full_orchestra)

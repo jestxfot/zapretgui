@@ -162,9 +162,17 @@ class DPIStartWorker(QObject):
                     return False
                 
                 # ✅ Проверка наличия WinDivert фильтров (без них winws не запустится)
-                has_filters = any(f in args_str for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                if self.launch_method == "direct_zapret1":
+                    # Zapret 1 (winws.exe) использует синтаксис --wf-tcp= / --wf-udp=
+                    has_filters = any(f in args_str for f in ['--wf-tcp=', '--wf-udp='])
+                else:
+                    # Zapret 2 (winws2.exe) использует --wf-tcp-out= / --wf-udp-out= / --wf-raw-part=
+                    has_filters = any(f in args_str for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
                 if not has_filters:
-                    log("Нет активных WinDivert фильтров (--wf-tcp-out, --wf-udp-out, --wf-raw-part)", "❌ ERROR")
+                    if self.launch_method == "direct_zapret1":
+                        log("Нет активных WinDivert фильтров (--wf-tcp=, --wf-udp=)", "❌ ERROR")
+                    else:
+                        log("Нет активных WinDivert фильтров (--wf-tcp-out, --wf-udp-out, --wf-raw-part)", "❌ ERROR")
                     self.progress.emit("⚠️ Выберите хотя бы одну категорию для запуска")
                     return False
                 
@@ -516,13 +524,23 @@ class DPIController:
         # ✅ ИСПРАВЛЕНИЕ: Если стратегия не выбрана - используем готовый preset файл
         elif selected_mode is None or selected_mode == 'default':
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                # Для Direct режима используем готовый preset-zapret2.txt
-                # Файл уже содержит все аргументы - UI обновляет его через PresetManager
-                from preset_zapret2 import get_active_preset_path, get_active_preset_name
-                import os
+                # Для Direct режимов используем готовый preset файл.
+                # direct_zapret2: управляется PresetManager (active preset)
+                # direct_zapret2_orchestra/direct_zapret1: один файл в MAIN_DIRECTORY
+                from pathlib import Path
+                from config import MAIN_DIRECTORY
 
-                preset_path = get_active_preset_path()
-                preset_name = get_active_preset_name() or "Default"
+                preset_name = "Default"
+                if launch_method == "direct_zapret2":
+                    from preset_zapret2 import get_active_preset_path, get_active_preset_name
+                    preset_path = get_active_preset_path()
+                    preset_name = get_active_preset_name() or "Default"
+                elif launch_method == "direct_zapret2_orchestra":
+                    preset_path = Path(MAIN_DIRECTORY) / "preset-zapret2-orchestra.txt"
+                    preset_name = "Orchestra"
+                else:  # direct_zapret1
+                    preset_path = Path(MAIN_DIRECTORY) / "preset-zapret1.txt"
+                    preset_name = "Zapret 1"
 
                 if not preset_path.exists():
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
@@ -535,7 +553,12 @@ class DPIController:
                 try:
                     content = preset_path.read_text(encoding='utf-8').strip()
                     # Проверяем наличие WinDivert фильтров
-                    has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                    if launch_method == "direct_zapret1":
+                        # Zapret 1 (winws.exe) использует синтаксис --wf-tcp= / --wf-udp=
+                        has_filters = any(f in content for f in ['--wf-tcp=', '--wf-udp='])
+                    else:
+                        # Zapret 2 (winws2.exe) использует --wf-tcp-out= / --wf-udp-out= / --wf-raw-part=
+                        has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
                     if not has_filters:
                         log("Preset файл не содержит активных фильтров", "WARNING")
                         self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")

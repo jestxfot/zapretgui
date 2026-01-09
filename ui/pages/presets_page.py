@@ -567,7 +567,7 @@ class PresetsPage(BasePage):
         header.addStretch(1)
 
         self._action_close_btn = QPushButton()
-        self._action_close_btn.setIcon(qta.icon("fa5s.times", color="rgba(255,255,255,0.85)"))
+        self._action_close_btn.setIcon(qta.icon("fa5s.times", color="#ffffff"))
         self._action_close_btn.setIconSize(QSize(12, 12))
         self._action_close_btn.setFixedSize(28, 28)
         self._action_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -576,6 +576,7 @@ class PresetsPage(BasePage):
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
                 border-radius: 6px;
+                color: rgba(255, 255, 255, 0.85);
             }
             QPushButton:hover { background: rgba(255, 255, 255, 0.10); }
             QPushButton:pressed { background: rgba(255, 255, 255, 0.14); }

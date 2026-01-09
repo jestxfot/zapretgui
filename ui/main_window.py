@@ -510,8 +510,11 @@ class MainWindowUI:
         if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'reload_for_mode_change'):
             self.bat_strategies_page.reload_for_mode_change()
         
-        # Обновляем видимость вкладки "Блобы" в сайдбаре
-        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
+        # Обновляем видимость подпунктов в группе "Стратегии" в сайдбаре
+        if hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_strategies_submenu_visibility'):
+            self.side_nav.update_strategies_submenu_visibility()
+        elif hasattr(self, 'side_nav') and hasattr(self.side_nav, 'update_blobs_visibility'):
+            # обратная совместимость
             self.side_nav.update_blobs_visibility()
 
         # Обновляем видимость вкладок оркестратора
