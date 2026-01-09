@@ -21,6 +21,8 @@ from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QSize
 from PyQt6.QtGui import QIcon, QPixmap
 import qtawesome as qta
 
+from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+
 from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
 from config import REGISTRY_PATH_GUI
@@ -187,6 +189,7 @@ class StrategySearchBar(QWidget):
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Поиск по названию, описанию, аргументам...")
         self._search_input.setClearButtonEnabled(True)
+        set_line_edit_clear_button_icon(self._search_input)
         self._search_input.setMinimumWidth(280)
         self._search_input.setFixedHeight(36)
         self._search_input.setToolTip("Введите текст для поиска стратегий")

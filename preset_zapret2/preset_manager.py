@@ -185,10 +185,7 @@ class PresetManager:
             current_mtime = self._get_active_file_mtime()
             if current_mtime == self._active_preset_mtime and current_mtime > 0:
                 # Cache is valid
-                log(f"[CACHE] Active preset cache HIT", "DEBUG")
                 return self._active_preset_cache
-
-        log(f"[CACHE] Active preset cache MISS, loading...", "DEBUG")
 
         # Source of truth for active state is preset-zapret2.txt.
         # Important: built-in presets (e.g. Default) are read-only in presets/,
@@ -206,7 +203,6 @@ class PresetManager:
         if preset:
             self._active_preset_cache = preset
             self._active_preset_mtime = self._get_active_file_mtime()
-            log(f"[MANAGER] Loaded active preset: {len(preset.categories)} categories", "DEBUG")
 
         return preset
 
@@ -302,7 +298,6 @@ class PresetManager:
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
-                        log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from tcp_args", "DEBUG")
                         continue
 
                 # Try UDP if TCP didn't work
@@ -314,7 +309,6 @@ class PresetManager:
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
-                        log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from udp_args", "DEBUG")
 
             return preset
 

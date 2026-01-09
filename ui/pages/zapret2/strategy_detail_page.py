@@ -19,6 +19,7 @@ from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
 from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
+from ui.zapret2_strategy_marks import DirectZapret2MarksStore
 from log import log
 
 
@@ -266,7 +267,7 @@ class StrategyRow(QFrame):
     clicked = pyqtSignal()  # Клик по строке (выбор активной)
     favorite_toggled = pyqtSignal(str, bool)  # (strategy_id, is_favorite)
     args_changed = pyqtSignal(str, list)  # (strategy_id, new_args)
-    marked_working = pyqtSignal(str, object)  # (strategy_id, is_working)
+    marked_working = pyqtSignal(str, object)  # (strategy_id, is_working) where is_working is bool|None
 
     def __init__(self, strategy_id: str, name: str, args: list = None, parent=None):
         super().__init__(parent)
@@ -489,6 +490,10 @@ class StrategyRow(QFrame):
         else:
             self._working_label.hide()
 
+    def set_working_state(self, is_working):
+        self._is_working = is_working
+        self._update_working_indicator()
+
     def contextMenuEvent(self, event):
         """Контекстное меню для пометки стратегии как рабочей/нерабочей"""
         if self._strategy_id == "none":
@@ -515,24 +520,17 @@ class StrategyRow(QFrame):
         mark_working = menu.addAction("✓ Пометить как рабочую")
         mark_not_working = menu.addAction("✗ Пометить как нерабочую")
 
-        clear_mark = None
-        if self._is_working is not None:
-            menu.addSeparator()
-            clear_mark = menu.addAction("Снять пометку")
-
         action = menu.exec(event.globalPos())
 
         if action == mark_working:
-            self._is_working = True
-            self.marked_working.emit(self._strategy_id, True)
+            new_state = None if self._is_working is True else True
+            self._is_working = new_state
+            self.marked_working.emit(self._strategy_id, new_state)
             self._update_working_indicator()
         elif action == mark_not_working:
-            self._is_working = False
-            self.marked_working.emit(self._strategy_id, False)
-            self._update_working_indicator()
-        elif clear_mark is not None and action == clear_mark:
-            self._is_working = None
-            self.marked_working.emit(self._strategy_id, None)
+            new_state = None if self._is_working is False else False
+            self._is_working = new_state
+            self.marked_working.emit(self._strategy_id, new_state)
             self._update_working_indicator()
 
 
@@ -606,7 +604,7 @@ class StrategyDetailPage(BasePage):
     strategy_selected = pyqtSignal(str, str)  # category_key, strategy_id
     filter_mode_changed = pyqtSignal(str, str)  # category_key, "hostlist"|"ipset"
     args_changed = pyqtSignal(str, str, list)  # category_key, strategy_id, new_args
-    strategy_marked = pyqtSignal(str, str, object)  # category_key, strategy_id, is_working (bool or None)
+    strategy_marked = pyqtSignal(str, str, object)  # category_key, strategy_id, is_working (bool|None)
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -631,6 +629,7 @@ class StrategyDetailPage(BasePage):
         self._preset_manager = PresetManager(
             on_dpi_reload_needed=self._on_dpi_reload_needed
         )
+        self._marks_store = DirectZapret2MarksStore.default()
 
         self._build_content()
 
@@ -1517,6 +1516,10 @@ class StrategyDetailPage(BasePage):
         self._strategies_layout.insertWidget(self._strategies_layout.count() - 1, row)
         self._strategy_rows[strategy_id] = row
 
+        # Apply persisted working/notworking mark (if any)
+        if self._category_key and strategy_id != "none":
+            row.set_working_state(self._marks_store.get_mark(self._category_key, strategy_id))
+
     def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool):
         """Обработчик переключения избранного"""
         if is_favorite and strategy_id in self._strategy_rows:
@@ -1529,6 +1532,13 @@ class StrategyDetailPage(BasePage):
     def _on_strategy_marked(self, strategy_id: str, is_working):
         """Обработчик пометки стратегии как рабочей/нерабочей"""
         if self._category_key:
+            # Persist marks for direct_zapret2 mode (two-state)
+            try:
+                if strategy_id and strategy_id != "none":
+                    self._marks_store.set_mark(self._category_key, strategy_id, is_working)
+            except Exception as e:
+                log(f"Ошибка сохранения пометки стратегии: {e}", "WARNING")
+
             self.strategy_marked.emit(self._category_key, strategy_id, is_working)
             if is_working is True:
                 status = 'working'

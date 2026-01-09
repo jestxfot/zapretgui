@@ -1290,14 +1290,17 @@ class SideNavBar(QWidget):
         """Обновляет видимость вкладок 'Блобы', 'Конфиг' и 'Сортировка' в зависимости от режима запуска"""
         try:
             from strategy_menu import get_strategy_launch_method
-            # Блобы, Конфиг и Сортировка доступны для direct, direct_zapret2_orchestra и direct_zapret1 режимов
-            is_direct = get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
+            method = get_strategy_launch_method()
+            # Блобы и Конфиг доступны для direct_zapret2, direct_zapret2_orchestra и direct_zapret1 режимов
+            is_direct = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
+            # Сортировка скрыта в direct_zapret2 (preset-based), но доступна в других direct-режимах
+            show_sorting = method in ("direct_zapret2_orchestra", "direct_zapret1")
             if self._blobs_button:
                 self._blobs_button.setVisible(is_direct)
             if self._preset_config_button:
                 self._preset_config_button.setVisible(is_direct)
             if self._strategy_sort_button:
-                self._strategy_sort_button.setVisible(is_direct)
+                self._strategy_sort_button.setVisible(show_sorting)
         except Exception as e:
             from log import log
             log(f"Ошибка проверки режима для блобов/конфига/сортировки: {e}", "DEBUG")
@@ -1337,10 +1340,12 @@ class SideNavBar(QWidget):
 
         # Скрываем/показываем Сортировка, Конфиг - только для ПОЛНОГО оркестратора
         # direct_zapret2_orchestra сохраняет эти кнопки видимыми
-        if self._strategy_sort_button:
-            self._strategy_sort_button.setVisible(not is_full_orchestra)
-        if self._preset_config_button:
-            self._preset_config_button.setVisible(not is_full_orchestra)
+        # В остальных режимах (не orchestra*) видимость управляется update_blobs_visibility().
+        if is_orchestra:
+            if self._strategy_sort_button:
+                self._strategy_sort_button.setVisible(not is_full_orchestra)
+            if self._preset_config_button:
+                self._preset_config_button.setVisible(not is_full_orchestra)
         # Hostlist, IPset, Редактор - скрываем для любого режима оркестратора
         if self._hostlist_button:
             self._hostlist_button.setVisible(not is_orchestra)

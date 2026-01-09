@@ -14,6 +14,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
+from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 from log import log
 from orchestra.blocked_strategies_manager import ASKEY_ALL
 
@@ -326,6 +327,7 @@ class OrchestraBlockedPage(BasePage):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Поиск по доменам...")
         self.search_input.setClearButtonEnabled(True)
+        set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
         self.search_input.setStyleSheet("""
             QLineEdit {

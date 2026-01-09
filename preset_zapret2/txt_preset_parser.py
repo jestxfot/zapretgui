@@ -442,7 +442,6 @@ def extract_syndata_from_args(args: str) -> Dict:
             elif key == 'tcp_flags_unset':
                 result['tcp_flags_unset'] = value
 
-        log(f"[PARSE] Extracted syndata: {result}", "DEBUG")
         return result
 
     return {}  # No syndata - return empty dict
@@ -506,7 +505,6 @@ def extract_send_from_args(args: str) -> Dict:
             elif key == 'badsum':
                 result['send_badsum'] = value.lower() == 'true'
 
-        log(f"[PARSE] Extracted send: {result}", "DEBUG")
         return result
 
     return {}  # No send parameters found
@@ -717,10 +715,6 @@ def parse_preset_content(content: str) -> PresetData:
 
     # Deduplicate in case file already contains duplicates
     data.deduplicate_categories()
-
-    log(f"[PARSE] Parsed preset '{data.name}': {len(data.categories)} category blocks", "DEBUG")
-    for i, block in enumerate(data.categories):
-        log(f"[PARSE] Block {i}: {block.category}:{block.protocol}, filter_mode={block.filter_mode}, port={block.port}", "DEBUG")
 
     return data
 

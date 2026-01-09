@@ -17,7 +17,6 @@ Usage:
 """
 
 from typing import Dict, Optional
-from log import log
 
 
 def normalize_args(args: str) -> str:
@@ -118,18 +117,11 @@ def infer_strategy_id_from_args(
         ... )
         "youtube_tcp_split"
     """
-    # DEBUG: Log input data
-    log(f"[INFER] Input for {category_key}: args_len={len(args)}", "DEBUG")
-
     # Normalize input args
     normalized_input = normalize_args(args)
 
-    # DEBUG: Log normalized input
-    log(f"[INFER] Normalized input: {repr(normalized_input[:100] if normalized_input else '')}", "DEBUG")
-
     # Empty args = none
     if not normalized_input:
-        log(f"Empty args for {category_key}.{protocol}, returning 'none'", "DEBUG")
         return "none"
 
     strategy_type = _get_strategy_type_for_category(category_key) or ("udp" if protocol == "udp" else "tcp")
@@ -140,14 +132,9 @@ def infer_strategy_id_from_args(
         strategies = {}
 
     if not strategies:
-        log(f"No strategies found for {category_key} (type: {strategy_type})", "DEBUG")
         return "none"
 
-    # DEBUG: Log number of strategies
-    log(f"[INFER] Checking {len(strategies)} strategies for {category_key}", "DEBUG")
-
     # Search for matching strategy
-    first_checked = False
     for strategy_id, strategy_data in strategies.items():
         strategy_args = strategy_data.get("args", "")
         if not strategy_args:
@@ -156,22 +143,10 @@ def infer_strategy_id_from_args(
         # Normalize strategy args
         normalized_strategy = normalize_args(strategy_args)
 
-        # DEBUG: Log first strategy comparison
-        if not first_checked:
-            log(f"[INFER] First strategy '{strategy_id}' normalized: {repr(normalized_strategy[:100])}", "DEBUG")
-            first_checked = True
-
         # Compare
         if normalized_strategy == normalized_input:
-            log(f"[INFER] MATCH: {strategy_id}", "DEBUG")
-            log(f"Strategy inferred: {category_key}.{protocol} -> {strategy_id}", "DEBUG")
             return strategy_id
 
-    # Not found - not an error, just return none
-    # This can happen if user manually edited preset file with custom args
-    log(f"[INFER] No match found for {category_key}", "DEBUG")
-    log(f"⚠️ Could not infer strategy_id for {category_key}.{protocol}", "DEBUG")
-    log(f"   Args: {args[:80]}{'...' if len(args) > 80 else ''}", "DEBUG")
     return "none"
 
 

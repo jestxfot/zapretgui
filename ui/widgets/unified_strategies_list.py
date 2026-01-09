@@ -186,6 +186,9 @@ class UnifiedStrategiesList(QWidget):
 
         # Получаем tooltip
         tooltip = getattr(cat_info, 'tooltip', '') or ""
+        # categories.txt may contain literal "\n" sequences; decode them for Qt tooltips
+        if isinstance(tooltip, str) and "\\n" in tooltip:
+            tooltip = tooltip.replace("\\n", "\n")
 
         # Determine list_type based on user's SELECTED filter mode (not availability)
         # 'ipset' if user selected ipset, 'hostlist' if user selected hostlist, None if neither available

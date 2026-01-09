@@ -10,6 +10,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
+from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 from log import log
 
 
@@ -33,6 +34,7 @@ class OrchestraRatingsPage(BasePage):
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("Поиск по домену...")
         self.filter_input.setClearButtonEnabled(True)
+        set_line_edit_clear_button_icon(self.filter_input)
         self.filter_input.textChanged.connect(self._apply_filter)
         self.filter_input.setStyleSheet("""
             QLineEdit {
