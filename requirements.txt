@@ -12,6 +12,7 @@ pywin32
 # Network and HTTP
 requests
 urllib3
+PySocks
 
 # System and Process Management
 psutil
@@ -35,6 +36,7 @@ psutil
 # ════════════════════════════════════════════════════════════
 requests
 urllib3
+PySocks
 
 # ════════════════════════════════════════════════════════════
 # Build Tools (для build_release_gui.py)

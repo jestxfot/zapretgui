@@ -113,6 +113,7 @@ class Zapret2StrategiesPageNew(BasePage):
         self.category_selections = {}
         self._unified_list = None
         self._built = False
+        self._build_scheduled = False
 
         # Совместимость со старым кодом
         self.content_layout = self.layout
@@ -134,12 +135,17 @@ class Zapret2StrategiesPageNew(BasePage):
     def showEvent(self, event):
         """При показе страницы загружаем контент"""
         super().showEvent(event)
-        if not self._built:
+        if not self._built and not self._build_scheduled:
+            self._build_scheduled = True
             QTimer.singleShot(0, self._build_content)
 
     def _build_content(self):
         """Строит содержимое страницы"""
         try:
+            self._build_scheduled = False
+            if self._built:
+                return
+
             from strategy_menu.strategies_registry import registry
             from preset_zapret2 import PresetManager
 
@@ -250,6 +256,7 @@ class Zapret2StrategiesPageNew(BasePage):
             log("Zapret2StrategiesPageNew построена", "INFO")
 
         except Exception as e:
+            self._build_scheduled = False
             log(f"Ошибка построения Zapret2StrategiesPageNew: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
@@ -323,6 +330,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
             # Перестраиваем UI
             self._built = False
+            self._build_scheduled = False
 
             # Удаляем старые виджеты (кроме заголовков)
             while self.content_layout.count() > 2:  # title + subtitle

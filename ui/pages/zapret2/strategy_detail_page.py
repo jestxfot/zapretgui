@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
     QCheckBox, QPlainTextEdit
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontMetrics
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
@@ -19,7 +19,7 @@ from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
 from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
-from ui.zapret2_strategy_marks import DirectZapret2MarksStore
+from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
 from log import log
 
 
@@ -261,6 +261,59 @@ class ClickableLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class ArgsPreview(QLabel):
+    """Превью args на 2-3 строки (лёгкий QLabel вместо QTextEdit на каждой строке)."""
+
+    def __init__(self, max_lines: int = 3, parent=None):
+        super().__init__(parent)
+        self._max_lines = max(1, int(max_lines or 1))
+        self._full_text = ""
+
+        self.setWordWrap(True)
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                color: rgba(255, 255, 255, 0.45);
+                padding: 0 4px;
+                font-size: 9px;
+                font-family: 'Consolas', monospace;
+            }
+        """)
+        self._sync_height()
+
+    def set_full_text(self, text: str):
+        self._full_text = text or ""
+        self.setToolTip((self._full_text or "").replace("\n", "<br>"))
+        self.setText(self._wrap_friendly(self._full_text))
+
+    def full_text(self) -> str:
+        return self._full_text
+
+    def _sync_height(self):
+        metrics = QFontMetrics(self.font())
+        line_h = metrics.lineSpacing()
+        # +2 чтобы не резало нижние пиксели глифов на некоторых шрифтах/рендерах.
+        self.setMaximumHeight((line_h * self._max_lines) + 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # QLabel сам переформатирует переносы по ширине; высоту держим постоянной.
+
+    @staticmethod
+    def _wrap_friendly(text: str) -> str:
+        if not text:
+            return ""
+        # Добавляем точки переноса внутри "длинных слов" аргументов.
+        zws = "\u200b"
+        return (
+            text.replace(":", f":{zws}")
+            .replace(",", f",{zws}")
+            .replace("=", f"={zws}")
+        )
+
+
 class StrategyRow(QFrame):
     """Строка выбора стратегии с избранным"""
 
@@ -290,7 +343,7 @@ class StrategyRow(QFrame):
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 6, 12, 6)
+        main_layout.setContentsMargins(10, 4, 10, 4)
         main_layout.setSpacing(0)
 
         # Таймер для анимации загрузки
@@ -299,11 +352,11 @@ class StrategyRow(QFrame):
         # Верхняя строка: звезда + название + индикатор
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(10)
+        top_row.setSpacing(8)
 
         # Звезда избранного (отдельная от выбора)
         self._star_btn = QPushButton()
-        self._star_btn.setFixedSize(20, 20)
+        self._star_btn.setFixedSize(18, 18)
         self._star_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._star_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
         self._star_btn.clicked.connect(self._on_star_clicked)
@@ -316,7 +369,7 @@ class StrategyRow(QFrame):
             QLabel {
                 background: transparent;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 12px;
                 font-family: 'Segoe UI', sans-serif;
             }
         """)
@@ -342,39 +395,25 @@ class StrategyRow(QFrame):
         self._args_view = None
         if self._strategy_id != "none":
             args_row = QHBoxLayout()
-            args_row.setContentsMargins(26, 0, 0, 0)
+            args_row.setContentsMargins(22, 0, 0, 0)
             args_row.setSpacing(0)
 
-            self._args_view = QPlainTextEdit()
-            self._args_view.setReadOnly(True)
-            self._args_view.setUndoRedoEnabled(False)
-            self._args_view.setPlainText("\n".join(self._args))
-            self._args_view.setMinimumHeight(40)
-            self._args_view.setMaximumHeight(80)
-            self._args_view.setStyleSheet("""
-                QPlainTextEdit {
-                    background: transparent;
-                    border: none;
-                    color: rgba(255, 255, 255, 0.4);
-                    padding: 0 4px;
-                    font-size: 10px;
-                    font-family: 'Consolas', monospace;
-                }
-                QPlainTextEdit:focus {
-                    background: rgba(255, 255, 255, 0.04);
-                    color: rgba(255, 255, 255, 0.7);
-                }
-                QScrollBar:vertical {
-                    width: 4px;
-                    background: transparent;
-                }
-                QScrollBar::handle:vertical {
-                    background: rgba(255,255,255,0.15);
-                    border-radius: 2px;
-                }
-            """)
+            self._args_view = ArgsPreview(max_lines=3)
+            self._args_view.set_full_text(self._format_args_multiline(self._args))
             args_row.addWidget(self._args_view, 1)
             main_layout.addLayout(args_row)
+
+    @staticmethod
+    def _format_args_multiline(args: list) -> str:
+        parts: list[str] = []
+        for part in (args or []):
+            if part is None:
+                continue
+            text = str(part).strip()
+            if not text:
+                continue
+            parts.append(text)
+        return "\n".join(parts)
 
     def _on_star_clicked(self):
         """Переключает избранное"""
@@ -395,7 +434,10 @@ class StrategyRow(QFrame):
         self._args = args or []
         # UI редактора аргументов вынесен на уровень страницы (см. StrategyDetailPage)
         if self._args_view:
-            self._args_view.setPlainText("\n".join(self._args))
+            if isinstance(self._args_view, ArgsPreview):
+                self._args_view.set_full_text(self._format_args_multiline(self._args))
+            else:
+                self._args_view.setPlainText("\n".join(self._args))
 
     def set_selected(self, selected: bool):
         """Устанавливает активную (применённую) стратегию"""
@@ -439,7 +481,7 @@ class StrategyRow(QFrame):
         icon = self._get_star_icon(active=self._favorite)
         if icon is not None:
             self._star_btn.setIcon(icon)
-        self._star_btn.setIconSize(QSize(16, 16))
+        self._star_btn.setIconSize(QSize(14, 14))
 
     @staticmethod
     def _get_star_icon(active: bool):
@@ -637,6 +679,8 @@ class StrategyDetailPage(BasePage):
             on_dpi_reload_needed=self._on_dpi_reload_needed
         )
         self._marks_store = DirectZapret2MarksStore.default()
+        self._favorites_store = DirectZapret2FavoritesStore.default()
+        self._favorite_strategy_ids = set()
 
         self._build_content()
 
@@ -1483,12 +1527,53 @@ class StrategyDetailPage(BasePage):
 
         # Контейнер для списка стратегий (напрямую в layout, без лишней scroll area)
         # BasePage уже является QScrollArea
-        self._strategies_layout = QVBoxLayout()
-        self._strategies_layout.setContentsMargins(0, 0, 0, 0)
-        self._strategies_layout.setSpacing(4)
-        self._strategies_layout.addStretch()
+        self._strategies_container = QWidget()
+        self._strategies_container.setStyleSheet("background: transparent;")
+        self._strategies_container_layout = QVBoxLayout(self._strategies_container)
+        self._strategies_container_layout.setContentsMargins(0, 0, 0, 0)
+        self._strategies_container_layout.setSpacing(6)
 
-        self.layout.addLayout(self._strategies_layout, 1)
+        self._favorites_header = QLabel("")
+        self._favorites_header.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.65);
+                font-size: 11px;
+                font-weight: 600;
+                background: transparent;
+                padding: 6px 0 2px 0;
+            }
+        """)
+        self._favorites_header.hide()
+        self._strategies_container_layout.addWidget(self._favorites_header)
+
+        self._favorites_list = QWidget()
+        self._favorites_list.setStyleSheet("background: transparent;")
+        self._favorites_layout = QVBoxLayout(self._favorites_list)
+        self._favorites_layout.setContentsMargins(0, 0, 0, 0)
+        self._favorites_layout.setSpacing(2)
+        self._favorites_list.hide()
+        self._strategies_container_layout.addWidget(self._favorites_list)
+
+        self._favorites_separator = QFrame()
+        self._favorites_separator.setFrameShape(QFrame.Shape.HLine)
+        self._favorites_separator.setStyleSheet("""
+            QFrame {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                max-height: 1px;
+            }
+        """)
+        self._favorites_separator.hide()
+        self._strategies_container_layout.addWidget(self._favorites_separator)
+
+        self._regular_list = QWidget()
+        self._regular_list.setStyleSheet("background: transparent;")
+        self._regular_layout = QVBoxLayout(self._regular_list)
+        self._regular_layout.setContentsMargins(0, 0, 0, 0)
+        self._regular_layout.setSpacing(2)
+        self._strategies_container_layout.addWidget(self._regular_list)
+
+        self.layout.addWidget(self._strategies_container, 1)
 
     def show_category(self, category_key: str, category_info, current_strategy_id: str):
         """
@@ -1504,6 +1589,10 @@ class StrategyDetailPage(BasePage):
         self._category_info = category_info
         self._current_strategy_id = current_strategy_id or "none"
         self._selected_strategy_id = self._current_strategy_id
+        try:
+            self._favorite_strategy_ids = self._favorites_store.get_favorites(category_key)
+        except Exception:
+            self._favorite_strategy_ids = set()
 
         # Обновляем заголовок (только название категории в breadcrumb)
         self._title.setText(category_info.full_name)
@@ -1520,6 +1609,10 @@ class StrategyDetailPage(BasePage):
             # Загружаем новые
             self._load_strategies()
         else:
+            # Обновляем избранное для новой категории и перестраиваем секции
+            for sid, row in self._strategy_rows.items():
+                row.set_favorite(sid in self._favorite_strategy_ids)
+            self._reflow_strategy_rows()
             # Обновляем отметки working/not working для новой категории
             self._refresh_working_marks_for_category()
 
@@ -1558,6 +1651,8 @@ class StrategyDetailPage(BasePage):
         # Применяем сохранённую сортировку (если не default)
         if self._sort_mode != "default":
             self._apply_sort()
+        else:
+            self._reflow_strategy_rows()
 
         # Загружаем syndata настройки для категории
         syndata_settings = self._load_syndata_settings(category_key)
@@ -1609,6 +1704,8 @@ class StrategyDetailPage(BasePage):
         self._loaded_strategy_type = None
         self._default_strategy_order = []
         self._strategies_loaded_fully = False
+        self._favorite_strategy_ids = set()
+        self._update_favorites_section_visibility()
 
     def _load_strategies(self):
         """Загружает стратегии для текущей категории"""
@@ -1666,6 +1763,9 @@ class StrategyDetailPage(BasePage):
             self._pending_strategies_index = 0
             self._strategies_load_generation += 1
             gen = self._strategies_load_generation
+            total = len(self._pending_strategies_items)
+            # "default" порядок UI должен совпадать с фактическим порядком загрузки
+            self._default_strategy_order = [sid for sid, _ in self._pending_strategies_items]
 
             if self._strategies_load_timer:
                 try:
@@ -1675,6 +1775,14 @@ class StrategyDetailPage(BasePage):
                     pass
                 self._strategies_load_timer = None
 
+            # Для небольших списков создаём всё за один проход: меньше "пересборок" и быстрее.
+            if total <= 80:
+                self._strategies_load_chunk_size = max(1, total)
+                self._load_strategies_batch(gen)
+                return
+
+            # Для больших списков добавляем порциями, чтобы UI не фризило.
+            self._strategies_load_chunk_size = 25
             self._strategies_load_timer = QTimer(self)
             self._strategies_load_timer.timeout.connect(lambda: self._load_strategies_batch(gen))
             self._strategies_load_timer.start(0)
@@ -1694,7 +1802,9 @@ class StrategyDetailPage(BasePage):
                 self._strategies_load_timer.stop()
             return
 
-        chunk_size = 10
+        chunk_size = int(getattr(self, "_strategies_load_chunk_size", 10) or 10)
+        if chunk_size <= 0:
+            chunk_size = 10
         start = self._pending_strategies_index
         end = min(start + chunk_size, len(self._pending_strategies_items))
 
@@ -1749,9 +1859,11 @@ class StrategyDetailPage(BasePage):
         row.clicked.connect(lambda sid=strategy_id: self._on_row_clicked(sid))
         row.favorite_toggled.connect(lambda sid, fav: self._on_favorite_toggled(sid, fav))
         row.marked_working.connect(lambda sid, is_working: self._on_strategy_marked(sid, is_working))
-        # Вставляем перед stretch
-        self._strategies_layout.insertWidget(self._strategies_layout.count() - 1, row)
         self._strategy_rows[strategy_id] = row
+        row.set_favorite(strategy_id in self._favorite_strategy_ids)
+        self._place_row_widget(row)
+        if self._sort_mode != "default":
+            self._reflow_strategy_rows()
 
         # Apply persisted working/notworking mark (if any)
         if self._category_key and strategy_id != "none":
@@ -1770,12 +1882,87 @@ class StrategyDetailPage(BasePage):
 
     def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool):
         """Обработчик переключения избранного"""
-        if is_favorite and strategy_id in self._strategy_rows:
-            # Перемещаем избранную стратегию наверх
-            row = self._strategy_rows[strategy_id]
-            self._strategies_layout.removeWidget(row)
-            self._strategies_layout.insertWidget(0, row)
+        if not self._category_key:
+            return
+        if not strategy_id or strategy_id == "none":
+            # "Отключено" не делаем избранным
+            row = self._strategy_rows.get(strategy_id)
+            if row:
+                row.set_favorite(False)
+            return
+
+        try:
+            self._favorites_store.set_favorite(self._category_key, strategy_id, bool(is_favorite))
+            if is_favorite:
+                self._favorite_strategy_ids.add(strategy_id)
+            else:
+                self._favorite_strategy_ids.discard(strategy_id)
+        except Exception as e:
+            log(f"Favorite persist failed: {e}", "WARNING")
+            row = self._strategy_rows.get(strategy_id)
+            if row:
+                row.set_favorite(not bool(is_favorite))
+            return
+
+        self._reflow_strategy_rows()
         log(f"Favorite toggled: {strategy_id} = {is_favorite}", "DEBUG")
+
+    def _update_favorites_section_visibility(self):
+        count = len(self._favorite_strategy_ids or set())
+        show = count > 0
+        if show:
+            self._favorites_header.setText(f"★ Избранные ({count})")
+        self._favorites_header.setVisible(show)
+        self._favorites_list.setVisible(show)
+        self._favorites_separator.setVisible(show)
+
+    def _take_all_widgets(self, layout: QVBoxLayout) -> list[QWidget]:
+        widgets: list[QWidget] = []
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                widgets.append(w)
+        return widgets
+
+    def _place_row_widget(self, row: "StrategyRow"):
+        if row.is_favorite():
+            self._favorites_layout.addWidget(row)
+        else:
+            self._regular_layout.addWidget(row)
+        self._update_favorites_section_visibility()
+
+    def _reflow_strategy_rows(self):
+        """Перестраивает порядок строк с секцией избранных сверху."""
+        if not self._strategy_rows:
+            self._update_favorites_section_visibility()
+            return
+
+        fav_ids = set(self._favorite_strategy_ids or set())
+        # Вызов может прийти во время lazy-load, когда часть строк ещё не создана.
+        existing_ids = list(self._strategy_rows.keys())
+
+        if self._sort_mode == "name_asc":
+            existing_ids.sort(key=lambda sid: (self._strategy_rows[sid]._name or "").lower())
+        elif self._sort_mode == "name_desc":
+            existing_ids.sort(key=lambda sid: (self._strategy_rows[sid]._name or "").lower(), reverse=True)
+        else:
+            order_index = {sid: i for i, sid in enumerate(self._default_strategy_order or [])}
+            existing_ids.sort(key=lambda sid: order_index.get(sid, 10**9))
+
+        fav_order = [sid for sid in existing_ids if sid in fav_ids]
+        reg_order = [sid for sid in existing_ids if sid not in fav_ids]
+
+        # Вытаскиваем все виджеты и переукладываем по порядку
+        self._take_all_widgets(self._favorites_layout)
+        self._take_all_widgets(self._regular_layout)
+
+        for sid in fav_order:
+            self._favorites_layout.addWidget(self._strategy_rows[sid])
+        for sid in reg_order:
+            self._regular_layout.addWidget(self._strategy_rows[sid])
+
+        self._update_favorites_section_visibility()
 
     def _on_strategy_marked(self, strategy_id: str, is_working):
         """Обработчик пометки стратегии как рабочей/нерабочей"""
@@ -2437,19 +2624,4 @@ class StrategyDetailPage(BasePage):
         """Применяет текущую сортировку"""
         if not self._strategy_rows:
             return
-
-        # Получаем список строк
-        rows = list(self._strategy_rows.values())
-
-        if self._sort_mode == "name_asc":
-            rows.sort(key=lambda r: r._name.lower())
-        elif self._sort_mode == "name_desc":
-            rows.sort(key=lambda r: r._name.lower(), reverse=True)
-        # default - оставляем как есть (порядок загрузки)
-        else:
-            return
-
-        # Переупорядочиваем виджеты
-        for i, row in enumerate(rows):
-            self._strategies_layout.removeWidget(row)
-            self._strategies_layout.insertWidget(i, row)
+        self._reflow_strategy_rows()

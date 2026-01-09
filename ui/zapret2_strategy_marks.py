@@ -105,3 +105,58 @@ class DirectZapret2MarksStore:
 
         self.work_path.write_text(_format_marks_lines(self._work), encoding="utf-8")
         self.notwork_path.write_text(_format_marks_lines(self._notwork), encoding="utf-8")
+
+
+@dataclass
+class DirectZapret2FavoritesStore:
+    """
+    Favorites for strategies.
+
+    Stored as a plain text file:
+    - favorites.txt
+    Each line: <category_key>\\t<strategy_id>
+    """
+
+    favorites_path: Path
+    _favorites: Optional[Set[MarkKey]] = None
+
+    @classmethod
+    def default(cls) -> "DirectZapret2FavoritesStore":
+        base = _get_direct_zapret2_dir()
+        return cls(favorites_path=base / "favorites.txt")
+
+    def _ensure_loaded(self) -> None:
+        if self._favorites is not None:
+            return
+        self._favorites = set()
+        if self.favorites_path.exists():
+            self._favorites = _parse_marks_lines(
+                self.favorites_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            )
+
+    def get_favorites(self, category_key: str) -> Set[str]:
+        self._ensure_loaded()
+        cat = (category_key or "").strip()
+        if not cat:
+            return set()
+        return {sid for c, sid in self._favorites if c == cat}
+
+    def is_favorite(self, category_key: str, strategy_id: str) -> bool:
+        self._ensure_loaded()
+        return (category_key, strategy_id) in self._favorites
+
+    def set_favorite(self, category_key: str, strategy_id: str, favorite: bool) -> None:
+        self._ensure_loaded()
+        key = ((category_key or "").strip(), (strategy_id or "").strip())
+        if not key[0] or not key[1]:
+            return
+        if favorite:
+            self._favorites.add(key)
+        else:
+            self._favorites.discard(key)
+        self._save()
+
+    def _save(self) -> None:
+        base = self.favorites_path.parent
+        base.mkdir(parents=True, exist_ok=True)
+        self.favorites_path.write_text(_format_marks_lines(self._favorites), encoding="utf-8")

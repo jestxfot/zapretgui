@@ -62,6 +62,33 @@ class ConnectionTestWorker(QObject):
             logging.info(message)
             self.update_signal.emit(message)
 
+    def check_telegram_bot_api(self):
+        """Проверяет доступность Telegram Bot API (api.telegram.org) для отправки логов."""
+        if self.is_stop_requested():
+            return
+
+        self.log_message("")
+        self.log_message("=" * 40)
+        self.log_message("🤖 ПРОВЕРКА TELEGRAM BOT API")
+        self.log_message("=" * 40)
+
+        try:
+            from tgram.tg_log_bot import check_bot_connection_detailed
+
+            ok, err = check_bot_connection_detailed()
+            if ok:
+                self.log_message("✅ Telegram Bot API доступен (getMe OK)")
+                return
+
+            details = (err or "Неизвестная ошибка").strip()
+            self.log_message(f"❌ Telegram Bot API недоступен: {details}")
+            if "proxy" in details.lower() or "прокси" in details.lower() or "http_proxy" in details.lower():
+                self.log_message("💡 Похоже, включён прокси. Проверьте HTTP_PROXY/HTTPS_PROXY или установите PySocks.")
+            else:
+                self.log_message("💡 Если Telegram-клиент работает, а Bot API нет — возможна блокировка api.telegram.org (DPI/фаервол).")
+        except Exception as e:
+            self.log_message(f"❌ Ошибка проверки Telegram Bot API: {e}")
+
     def check_dns_poisoning(self):
         """Проверяет DNS подмену провайдером"""
         if self.is_stop_requested():
@@ -1046,6 +1073,9 @@ class ConnectionTestWorker(QObject):
                 if not self.is_stop_requested():
                     self.log_message("\n" + "="*30 + "\n")
                     self.check_youtube()
+                if not self.is_stop_requested():
+                    self.log_message("\n" + "="*30 + "\n")
+                    self.check_telegram_bot_api()
             
             if self.is_stop_requested():
                 self.log_message("⚠️ Тестирование остановлено пользователем")
