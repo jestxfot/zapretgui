@@ -5,7 +5,8 @@ The GUI stores the active preset as a winws2 config-like text file where each
 category block starts with a "base filter" (ports/L7 + hostlist/ipset/etc).
 
 This module builds these base filter lines from `categories.txt` (loaded via
-`preset_zapret2.catalog`) and converts list filenames to absolute paths.
+`preset_zapret2.catalog`) and normalizes list filenames to paths that winws2
+can resolve from the app working directory (typically `lists/...`).
 """
 
 from __future__ import annotations
@@ -22,21 +23,38 @@ def _is_windows_abs(path: str) -> bool:
     return bool(re.match(r"^[A-Za-z]:[\\\\/]", path)) or path.startswith("\\\\")
 
 
-def _absolutize_lists_value(value: str, main_directory: str, lists_folder: str) -> str:
+def _normalize_lists_value(value: str, main_directory: str, lists_folder: str) -> str:
     value = value.strip().strip('"').strip("'")
     if value.startswith("@"):
         value = value[1:]
 
-    # Already absolute (Windows) or POSIX absolute.
+    # Already absolute (Windows) or POSIX absolute: keep if outside the app,
+    # but relativize if it's inside MAIN_DIRECTORY / lists.
     if _is_windows_abs(value) or os.path.isabs(value):
-        return os.path.normpath(value)
+        try:
+            rel_lists = PureWindowsPath(value).relative_to(PureWindowsPath(lists_folder))
+        except Exception:
+            rel_lists = None
+
+        if rel_lists is not None:
+            return f"lists/{rel_lists.as_posix()}"
+
+        try:
+            rel_main = PureWindowsPath(value).relative_to(PureWindowsPath(main_directory))
+        except Exception:
+            rel_main = None
+
+        if rel_main is not None:
+            return rel_main.as_posix()
+
+        return str(PureWindowsPath(os.path.normpath(value)))
 
     # If the value already contains folders (lists/..., json/... etc), keep relative structure.
     if "/" in value or "\\" in value:
-        return os.path.normpath(os.path.join(main_directory, value))
+        return PureWindowsPath(value).as_posix()
 
     # Bare filename -> assume lists/ folder.
-    return os.path.normpath(os.path.join(lists_folder, value))
+    return f"lists/{value}"
 
 
 def _split_tokens(s: str) -> List[str]:
@@ -79,7 +97,7 @@ def build_category_base_filter_lines(category_key: str, filter_mode: str) -> Lis
     """
     Builds base filter lines (one arg per line) for writing to preset-zapret2.txt.
 
-    Converts list filenames in --hostlist/--ipset/--*-exclude to absolute paths.
+    Normalizes list filenames in --hostlist/--ipset/--*-exclude to `lists/...`.
     """
     template = get_category_base_filter_template(category_key, filter_mode)
     if not template:
@@ -103,14 +121,10 @@ def build_category_base_filter_lines(category_key: str, filter_mode: str) -> Lis
             continue
 
         if key_l in ("--hostlist", "--ipset", "--hostlist-exclude", "--ipset-exclude"):
-            abs_value = _absolutize_lists_value(value, main_directory, lists_folder)
-            # Ensure Windows-style basename parsing doesn't break normalization in other parts.
-            # Keep original drive casing, but normalize separators.
-            abs_value = str(PureWindowsPath(abs_value))
-            lines.append(f"{key}={abs_value}")
+            norm_value = _normalize_lists_value(value, main_directory, lists_folder)
+            lines.append(f"{key}={norm_value}")
             continue
 
         lines.append(token)
 
     return lines
-

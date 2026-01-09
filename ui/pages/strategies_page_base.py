@@ -471,6 +471,13 @@ class StrategiesPageBase(QWidget):
 
     def _clear_content(self):
         """Очищает контент"""
+        # Важно: перед удалением вкладок нужно остановить фоновые QThread,
+        # иначе Qt может упасть с "QThread: Destroyed while thread is still running".
+        try:
+            self._stop_category_tab_loader_threads()
+        except Exception as e:
+            log(f"Ошибка остановки loader-потоков вкладок: {e}", "DEBUG")
+
         # Сохраняем current_widget (не удаляем при очистке)
         if hasattr(self, 'current_widget') and self.current_widget:
             self.content_layout.removeWidget(self.current_widget)
@@ -492,6 +499,34 @@ class StrategiesPageBase(QWidget):
         self._all_direct_strategies = {}
         self._all_direct_favorites = {}
         self._all_direct_selections = {}
+
+    def _stop_category_tab_loader_threads(self) -> None:
+        """Останавливает QThread, созданные для асинхронной загрузки вкладок категорий."""
+        tab_container = getattr(self, "_strategy_widget", None)
+        if tab_container is None:
+            return
+
+        count_fn = getattr(tab_container, "count", None)
+        widget_fn = getattr(tab_container, "widget", None)
+        if not callable(count_fn) or not callable(widget_fn):
+            return
+
+        for i in range(count_fn()):
+            tab_widget = widget_fn(i)
+            if tab_widget is None:
+                continue
+
+            loader_thread = getattr(tab_widget, "_loader_thread", None)
+            if isinstance(loader_thread, QThread) and loader_thread.isRunning():
+                loader_thread.quit()
+                if not loader_thread.wait(1500):
+                    loader_thread.terminate()
+                    loader_thread.wait(500)
+
+            if hasattr(tab_widget, "_loader"):
+                tab_widget._loader = None
+            if hasattr(tab_widget, "_loader_thread"):
+                tab_widget._loader_thread = None
 
     def _load_content(self):
         """Загружает контент - ДОЛЖЕН БЫТЬ ПЕРЕОПРЕДЕЛЕН В НАСЛЕДНИКАХ"""

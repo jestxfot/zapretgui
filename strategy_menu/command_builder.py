@@ -70,7 +70,7 @@ def extract_payload(args: str) -> tuple[str, str]:
 
 # ===================== SYNDATA =====================
 
-def build_syndata_args(category_key: str) -> str:
+def build_syndata_args(category_key: str, protocol: str = "tcp") -> str:
     """
     Собирает --lua-desync=syndata:... из настроек активного пресета.
 
@@ -78,9 +78,13 @@ def build_syndata_args(category_key: str) -> str:
         str: например "--lua-desync=syndata:blob=tls7:ip_autottl=-2,3-20" или ""
     """
     try:
+        proto = (protocol or "").strip().lower()
+        if proto in ("udp", "quic", "l7", "raw"):
+            return ""
+
         from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
-        syndata = preset_manager.get_category_syndata(category_key)
+        syndata = preset_manager.get_category_syndata(category_key, protocol="tcp")
 
         if not syndata.enabled:
             return ""
@@ -116,7 +120,7 @@ def build_syndata_args(category_key: str) -> str:
         return ""
 
 
-def get_out_range_args(category_key: str) -> str:
+def get_out_range_args(category_key: str, protocol: str = "tcp") -> str:
     """
     Возвращает --out-range=-{mode}{value} (всегда, дефолт -n8).
 
@@ -141,7 +145,7 @@ def get_out_range_args(category_key: str) -> str:
     try:
         from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
-        syndata = preset_manager.get_category_syndata(category_key)
+        syndata = preset_manager.get_category_syndata(category_key, protocol=protocol)
 
         out_range = syndata.out_range
         if out_range is None or out_range == 0:
@@ -161,7 +165,7 @@ def get_out_range_args(category_key: str) -> str:
         return f"--out-range=-{DEFAULT_MODE}{DEFAULT_OUT_RANGE}"
 
 
-def build_send_args(category_key: str) -> str:
+def build_send_args(category_key: str, protocol: str = "tcp") -> str:
     """
     Собирает --lua-desync=send:... из настроек активного пресета.
 
@@ -177,9 +181,13 @@ def build_send_args(category_key: str) -> str:
         str: например "--lua-desync=send:repeats=2:ip_ttl=5:badsum" или ""
     """
     try:
+        proto = (protocol or "").strip().lower()
+        if proto in ("udp", "quic", "l7", "raw"):
+            return ""
+
         from preset_zapret2 import PresetManager
         preset_manager = PresetManager()
-        syndata = preset_manager.get_category_syndata(category_key)
+        syndata = preset_manager.get_category_syndata(category_key, protocol="tcp")
 
         # Проверяем, включен ли send
         if not syndata.send_enabled:

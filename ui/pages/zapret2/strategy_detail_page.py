@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QTextEdit
+    QCheckBox, QPlainTextEdit
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
@@ -262,11 +262,10 @@ class ClickableLabel(QLabel):
 
 
 class StrategyRow(QFrame):
-    """Строка выбора стратегии с избранным и редактируемыми аргументами"""
+    """Строка выбора стратегии с избранным"""
 
     clicked = pyqtSignal()  # Клик по строке (выбор активной)
     favorite_toggled = pyqtSignal(str, bool)  # (strategy_id, is_favorite)
-    args_changed = pyqtSignal(str, list)  # (strategy_id, new_args)
     marked_working = pyqtSignal(str, object)  # (strategy_id, is_working) where is_working is bool|None
 
     def __init__(self, strategy_id: str, name: str, args: list = None, parent=None):
@@ -339,20 +338,21 @@ class StrategyRow(QFrame):
 
         main_layout.addLayout(top_row)
 
-        # Нижняя строка: аргументы (только для не-none)
+        # Нижняя строка: args (видимые, но не редактируемые)
+        self._args_view = None
         if self._strategy_id != "none":
             args_row = QHBoxLayout()
             args_row.setContentsMargins(26, 0, 0, 0)
             args_row.setSpacing(0)
 
-            # Используем QTextEdit для многострочного отображения (один аргумент на строку)
-            self._args_edit = QTextEdit()
-            self._args_edit.setPlainText("\n".join(self._args))
-            self._args_edit.setPlaceholderText("args...")
-            self._args_edit.setMinimumHeight(40)
-            self._args_edit.setMaximumHeight(80)
-            self._args_edit.setStyleSheet("""
-                QTextEdit {
+            self._args_view = QPlainTextEdit()
+            self._args_view.setReadOnly(True)
+            self._args_view.setUndoRedoEnabled(False)
+            self._args_view.setPlainText("\n".join(self._args))
+            self._args_view.setMinimumHeight(40)
+            self._args_view.setMaximumHeight(80)
+            self._args_view.setStyleSheet("""
+                QPlainTextEdit {
                     background: transparent;
                     border: none;
                     color: rgba(255, 255, 255, 0.4);
@@ -360,7 +360,7 @@ class StrategyRow(QFrame):
                     font-size: 10px;
                     font-family: 'Consolas', monospace;
                 }
-                QTextEdit:focus {
+                QPlainTextEdit:focus {
                     background: rgba(255, 255, 255, 0.04);
                     color: rgba(255, 255, 255, 0.7);
                 }
@@ -373,12 +373,8 @@ class StrategyRow(QFrame):
                     border-radius: 2px;
                 }
             """)
-            self._args_edit.textChanged.connect(self._on_args_edited)
-            args_row.addWidget(self._args_edit, 1)
-
+            args_row.addWidget(self._args_view, 1)
             main_layout.addLayout(args_row)
-        else:
-            self._args_edit = None
 
     def _on_star_clicked(self):
         """Переключает избранное"""
@@ -386,30 +382,20 @@ class StrategyRow(QFrame):
         self._update_star_icon()
         self.favorite_toggled.emit(self._strategy_id, self._favorite)
 
-    def _on_args_edited(self):
-        """Аргументы изменены"""
-        if self._args_edit:
-            # Получаем текст и разделяем по строкам (один аргумент на строку)
-            text = self._args_edit.toPlainText()
-            new_args = [line.strip() for line in text.split('\n') if line.strip()]
-            if new_args != self._args:
-                self._args = new_args
-                self.args_changed.emit(self._strategy_id, new_args)
-
     def mousePressEvent(self, event):
         """Клик по строке - выбор активной стратегии"""
         if event.button() == Qt.MouseButton.LeftButton:
             # Не обрабатываем если клик по звезде или полю ввода
             child = self.childAt(event.pos())
-            if child not in (self._star_btn, self._args_edit):
+            if child not in (self._star_btn, self._args_view):
                 self.clicked.emit()
         super().mousePressEvent(event)
 
     def set_args(self, args: list):
         self._args = args or []
-        if self._args_edit:
-            # Отображаем аргументы в многострочном формате (один аргумент на строку)
-            self._args_edit.setPlainText("\n".join(self._args))
+        # UI редактора аргументов вынесен на уровень страницы (см. StrategyDetailPage)
+        if self._args_view:
+            self._args_view.setPlainText("\n".join(self._args))
 
     def set_selected(self, selected: bool):
         """Устанавливает активную (применённую) стратегию"""
@@ -450,11 +436,25 @@ class StrategyRow(QFrame):
 
     def _update_star_icon(self):
         """Звезда зависит от избранного, не от выбора"""
-        if self._favorite:
-            self._star_btn.setIcon(qta.icon('fa5s.star', color='#ffd700'))
-        else:
-            self._star_btn.setIcon(qta.icon('mdi.star-outline', color='#ffffff'))
+        icon = self._get_star_icon(active=self._favorite)
+        if icon is not None:
+            self._star_btn.setIcon(icon)
         self._star_btn.setIconSize(QSize(16, 16))
+
+    @staticmethod
+    def _get_star_icon(active: bool):
+        """Lazy-cache qtawesome icons to avoid per-row icon construction cost."""
+        try:
+            cache = getattr(StrategyRow, "_STAR_ICON_CACHE", None)
+            if cache is None:
+                cache = {
+                    True: qta.icon("fa5s.star", color="#ffd700"),
+                    False: qta.icon("mdi.star-outline", color="#ffffff"),
+                }
+                setattr(StrategyRow, "_STAR_ICON_CACHE", cache)
+            return cache[bool(active)]
+        except Exception:
+            return None
 
     def set_loading(self, loading: bool):
         """Показывает/скрывает индикатор загрузки"""
@@ -624,6 +624,13 @@ class StrategyDetailPage(BasePage):
         self._waiting_for_process_start = False  # Флаг ожидания запуска DPI
         self._process_monitor_connected = False  # Флаг подключения к process_monitor
         self._fallback_timer = None  # Таймер защиты от бесконечного спиннера
+        self._strategies_load_timer = None
+        self._strategies_load_generation = 0
+        self._pending_strategies_items = []
+        self._pending_strategies_index = 0
+        self._loaded_strategy_type = None
+        self._default_strategy_order = []
+        self._strategies_loaded_fully = False
 
         # PresetManager for category settings storage
         self._preset_manager = PresetManager(
@@ -1300,7 +1307,7 @@ class StrategyDetailPage(BasePage):
         search_layout.setContentsMargins(0, 0, 0, 8)
 
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Поиск стратегий...")
+        self._search_input.setPlaceholderText("Поиск по args...")
         self._search_input.setFixedHeight(36)
         self._search_input.setStyleSheet("""
             QLineEdit {
@@ -1340,7 +1347,114 @@ class StrategyDetailPage(BasePage):
         self._sort_btn.clicked.connect(self._show_sort_menu)
         search_layout.addWidget(self._sort_btn)
 
+        # Кнопка редактирования args (лениво, отдельная панель)
+        self._edit_args_btn = QPushButton()
+        self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color='#999999'))
+        self._edit_args_btn.setFixedSize(36, 36)
+        self._edit_args_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._edit_args_btn.setToolTip("Аргументы стратегии (по выбранной категории)")
+        self._edit_args_btn.setEnabled(False)
+        self._edit_args_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.05);
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            QPushButton:disabled {
+                background: rgba(255, 255, 255, 0.02);
+            }
+        """)
+        self._edit_args_btn.clicked.connect(self._toggle_args_editor)
+        search_layout.addWidget(self._edit_args_btn)
+
         self.layout.addLayout(search_layout)
+
+        # Панель редактирования args (создаём один редактор на страницу вместо QTextEdit на каждой строке)
+        self._args_editor_dirty = False
+        self._args_editor_frame = QFrame()
+        self._args_editor_frame.setVisible(False)
+        self._args_editor_frame.setStyleSheet("""
+            QFrame {
+                background: rgba(255, 255, 255, 0.03);
+                border: none;
+                border-radius: 8px;
+            }
+        """)
+        args_editor_layout = QVBoxLayout(self._args_editor_frame)
+        args_editor_layout.setContentsMargins(12, 10, 12, 10)
+        args_editor_layout.setSpacing(8)
+
+        args_header = QHBoxLayout()
+        args_header.setContentsMargins(0, 0, 0, 0)
+        args_header.setSpacing(8)
+        args_title = QLabel("Аргументы стратегии (один аргумент на строку)")
+        args_title.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px; background: transparent;")
+        args_header.addWidget(args_title)
+        args_header.addStretch()
+
+        self._args_apply_btn = QPushButton("Сохранить")
+        self._args_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._args_apply_btn.setEnabled(False)
+        self._args_apply_btn.clicked.connect(self._apply_args_editor)
+        self._args_apply_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(96, 205, 255, 0.18);
+                border: 1px solid rgba(96, 205, 255, 0.35);
+                border-radius: 6px;
+                color: #60cdff;
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: rgba(96, 205, 255, 0.25); }
+            QPushButton:disabled { background: rgba(255,255,255,0.04); border: none; color: rgba(255,255,255,0.35); }
+        """)
+        args_header.addWidget(self._args_apply_btn)
+
+        self._args_cancel_btn = QPushButton("Скрыть")
+        self._args_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._args_cancel_btn.clicked.connect(self._hide_args_editor)
+        self._args_cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.05);
+                border: none;
+                border-radius: 6px;
+                color: rgba(255,255,255,0.8);
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.08); }
+        """)
+        args_header.addWidget(self._args_cancel_btn)
+
+        args_editor_layout.addLayout(args_header)
+
+        self._args_editor = QPlainTextEdit()
+        self._args_editor.setPlaceholderText("Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1")
+        self._args_editor.setMinimumHeight(80)
+        self._args_editor.setMaximumHeight(160)
+        self._args_editor.setStyleSheet("""
+            QPlainTextEdit {
+                background: rgba(0, 0, 0, 0.12);
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 6px;
+                color: rgba(255, 255, 255, 0.9);
+                padding: 8px;
+                font-size: 11px;
+                font-family: 'Consolas', monospace;
+            }
+            QPlainTextEdit:focus {
+                border: 1px solid rgba(96, 205, 255, 0.35);
+            }
+        """)
+        self._args_editor.textChanged.connect(self._on_args_editor_changed)
+        args_editor_layout.addWidget(self._args_editor)
+
+        self.layout.addWidget(self._args_editor_frame)
 
         # Фильтры по типу стратегии
         filters_layout = QHBoxLayout()
@@ -1395,11 +1509,25 @@ class StrategyDetailPage(BasePage):
         self._title.setText(category_info.full_name)
         self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
 
-        # Очищаем старые стратегии
-        self._clear_strategies()
+        # Для категорий одного strategy_type (особенно tcp) список стратегий одинаковый,
+        # поэтому не пересобираем виджеты каждый раз: это ускоряет повторные переходы.
+        new_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
+        reuse_list = bool(self._strategy_rows) and self._loaded_strategy_type == new_strategy_type
 
-        # Загружаем новые
-        self._load_strategies()
+        if not reuse_list:
+            # Очищаем старые стратегии
+            self._clear_strategies()
+            # Загружаем новые
+            self._load_strategies()
+        else:
+            # Обновляем отметки working/not working для новой категории
+            self._refresh_working_marks_for_category()
+
+            # Обновляем выделение текущей стратегии (если строка уже загружена)
+            for row in self._strategy_rows.values():
+                row.set_selected(False)
+            if self._current_strategy_id in self._strategy_rows:
+                self._strategy_rows[self._current_strategy_id].set_selected(True)
 
         # Обновляем состояние toggle включения
         is_enabled = self._current_strategy_id != "none"
@@ -1437,24 +1565,50 @@ class StrategyDetailPage(BasePage):
 
         # syndata поддерживается только для TCP SYN, для UDP/QUIC скрываем UI
         protocol_raw = str(getattr(category_info, "protocol", "") or "").upper()
-        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw)
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
         if is_udp_like:
             # Force-off without saving (only affects visual state and subsequent saves)
+            # UDP/QUIC: remove send (same limitation as syndata)
+            self._send_toggle.blockSignals(True)
+            self._send_toggle.setChecked(False)
+            self._send_toggle.blockSignals(False)
+            self._send_settings.setVisible(False)
+            self._send_frame.setVisible(False)
+
             self._syndata_toggle.blockSignals(True)
             self._syndata_toggle.setChecked(False)
             self._syndata_toggle.blockSignals(False)
             self._syndata_settings.setVisible(False)
             self._syndata_frame.setVisible(False)
         else:
+            self._send_frame.setVisible(True)
             self._syndata_frame.setVisible(True)
+
+        # Args editor availability depends on whether category is enabled (strategy != none)
+        self._refresh_args_editor_state()
 
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
     def _clear_strategies(self):
         """Очищает список стратегий"""
+        # Останавливаем ленивую загрузку если она идёт
+        self._strategies_load_generation += 1
+        if self._strategies_load_timer:
+            try:
+                self._strategies_load_timer.stop()
+                self._strategies_load_timer.deleteLater()
+            except Exception:
+                pass
+            self._strategies_load_timer = None
+        self._pending_strategies_items = []
+        self._pending_strategies_index = 0
+
         for row in self._strategy_rows.values():
             row.deleteLater()
         self._strategy_rows.clear()
+        self._loaded_strategy_type = None
+        self._default_strategy_order = []
+        self._strategies_loaded_fully = False
 
     def _load_strategies(self):
         """Загружает стратегии для текущей категории"""
@@ -1473,6 +1627,10 @@ class StrategyDetailPage(BasePage):
             strategies = registry.get_category_strategies(self._category_key)
             log(f"StrategyDetailPage: загружено {len(strategies)} стратегий для {self._category_key}", "DEBUG")
 
+            self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
+            self._default_strategy_order = list(strategies.keys())
+            self._strategies_loaded_fully = False
+
             if not strategies:
                 # Пробуем перезагрузить реестр
                 log(f"Стратегии пусты, пробуем перезагрузить реестр...", "WARNING")
@@ -1487,30 +1645,109 @@ class StrategyDetailPage(BasePage):
                     log(f"Builtin директория: {builtin_dir}", "WARNING")
                     log(f"strategy_type для загрузки: {category_info.strategy_type}", "WARNING")
 
-            for sid, data in strategies.items():
-                name = data.get('name', sid)
-                args = data.get('args', [])
-                if isinstance(args, str):
-                    args = args.split()
-                self._add_strategy_row(sid, name, args)
+            # Лениво добавляем строки порциями, чтобы не фризить UI
+            items = list(strategies.items())
 
-            log(f"StrategyDetailPage: добавлено {len(self._strategy_rows)} строк стратегий", "DEBUG")
+            # Приоритет: текущая стратегия и дефолтная, чтобы пользователь видел "своё" раньше
+            try:
+                from strategy_menu.strategies_registry import registry as _r
+                default_id = _r.get_default_selections().get(self._category_key)
+            except Exception:
+                default_id = None
 
-            # Выбираем текущую стратегию
-            if self._current_strategy_id in self._strategy_rows:
-                self._strategy_rows[self._current_strategy_id].set_selected(True)
+            priority = []
+            seen = set()
+            for pid in (self._current_strategy_id, default_id):
+                if pid and pid in strategies and pid not in seen:
+                    priority.append((pid, strategies[pid]))
+                    seen.add(pid)
+            rest = [(sid, data) for sid, data in items if sid not in seen]
+            self._pending_strategies_items = priority + rest
+            self._pending_strategies_index = 0
+            self._strategies_load_generation += 1
+            gen = self._strategies_load_generation
+
+            if self._strategies_load_timer:
+                try:
+                    self._strategies_load_timer.stop()
+                    self._strategies_load_timer.deleteLater()
+                except Exception:
+                    pass
+                self._strategies_load_timer = None
+
+            self._strategies_load_timer = QTimer(self)
+            self._strategies_load_timer.timeout.connect(lambda: self._load_strategies_batch(gen))
+            self._strategies_load_timer.start(0)
 
         except Exception as e:
             import traceback
             log(f"Ошибка загрузки стратегий: {e}", "ERROR")
             log(f"Traceback: {traceback.format_exc()}", "ERROR")
 
+    def _load_strategies_batch(self, gen: int):
+        """Добавляет строки стратегий порциями, чтобы UI оставался отзывчивым."""
+        if gen != self._strategies_load_generation:
+            return
+
+        if not self._pending_strategies_items:
+            if self._strategies_load_timer:
+                self._strategies_load_timer.stop()
+            return
+
+        chunk_size = 10
+        start = self._pending_strategies_index
+        end = min(start + chunk_size, len(self._pending_strategies_items))
+
+        try:
+            self.setUpdatesEnabled(False)
+
+            for i in range(start, end):
+                sid, data = self._pending_strategies_items[i]
+                name = (data or {}).get("name", sid)
+                args = (data or {}).get("args", [])
+                if isinstance(args, str):
+                    args = args.split()
+                self._add_strategy_row(sid, name, args)
+
+                if sid == self._current_strategy_id and sid in self._strategy_rows:
+                    self._strategy_rows[sid].set_selected(True)
+
+        finally:
+            try:
+                self.setUpdatesEnabled(True)
+            except Exception:
+                pass
+
+        self._pending_strategies_index = end
+
+        # Применяем текущие фильтры/поиск к уже добавленным строкам (если они реально активны)
+        try:
+            search_active = bool(self._search_input and self._search_input.text().strip())
+        except Exception:
+            search_active = False
+        if search_active or self._active_filters:
+            self._apply_filters()
+
+        if end >= len(self._pending_strategies_items):
+            # Done
+            if self._strategies_load_timer:
+                self._strategies_load_timer.stop()
+                self._strategies_load_timer.deleteLater()
+                self._strategies_load_timer = None
+
+            log(f"StrategyDetailPage: добавлено {len(self._strategy_rows)} строк стратегий", "DEBUG")
+            self._strategies_loaded_fully = True
+            self._refresh_working_marks_for_category()
+
+            # Sort after all rows are present (important for lazy load)
+            if self._sort_mode != "default":
+                self._apply_sort()
+
     def _add_strategy_row(self, strategy_id: str, name: str, args: list = None):
         """Добавляет строку стратегии в список"""
         row = StrategyRow(strategy_id, name, args)
         row.clicked.connect(lambda sid=strategy_id: self._on_row_clicked(sid))
         row.favorite_toggled.connect(lambda sid, fav: self._on_favorite_toggled(sid, fav))
-        row.args_changed.connect(lambda sid, new_args: self._on_args_changed(sid, new_args))
         row.marked_working.connect(lambda sid, is_working: self._on_strategy_marked(sid, is_working))
         # Вставляем перед stretch
         self._strategies_layout.insertWidget(self._strategies_layout.count() - 1, row)
@@ -1519,6 +1756,17 @@ class StrategyDetailPage(BasePage):
         # Apply persisted working/notworking mark (if any)
         if self._category_key and strategy_id != "none":
             row.set_working_state(self._marks_store.get_mark(self._category_key, strategy_id))
+
+    def _refresh_working_marks_for_category(self):
+        if not self._category_key:
+            return
+        for strategy_id, row in self._strategy_rows.items():
+            if strategy_id == "none":
+                continue
+            try:
+                row.set_working_state(self._marks_store.get_mark(self._category_key, strategy_id))
+            except Exception:
+                pass
 
     def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool):
         """Обработчик переключения избранного"""
@@ -1571,6 +1819,7 @@ class StrategyDetailPage(BasePage):
             else:
                 log(f"Нет доступных стратегий для {self._category_key}", "WARNING")
                 self._enable_toggle.setChecked(False, block_signals=True)
+            self._refresh_args_editor_state()
         else:
             # Запоминаем стратегию перед выключением, чтобы восстановить при включении
             if self._selected_strategy_id and self._selected_strategy_id != "none":
@@ -1585,6 +1834,7 @@ class StrategyDetailPage(BasePage):
             self._success_icon.hide()
             self.strategy_selected.emit(self._category_key, "none")
             log(f"Категория {self._category_key} отключена", "INFO")
+            self._refresh_args_editor_state()
 
     def _get_default_strategy(self) -> str:
         """Возвращает стратегию по умолчанию для текущей категории"""
@@ -1736,13 +1986,19 @@ class StrategyDetailPage(BasePage):
 
         # Save with sync=True - ConfigFileWatcher will trigger hot-reload automatically
         # when it detects the preset file change
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
         self._preset_manager.update_category_syndata(
-            self._category_key, syndata, save_and_sync=True
+            self._category_key, syndata, protocol=protocol_key, save_and_sync=True
         )
 
     def _load_syndata_settings(self, category_key: str) -> dict:
         """Загружает syndata настройки для категории из PresetManager"""
-        syndata = self._preset_manager.get_category_syndata(category_key)
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
+        syndata = self._preset_manager.get_category_syndata(category_key, protocol=protocol_key)
         return syndata.to_dict()
 
     def _apply_syndata_settings(self, settings: dict):
@@ -1833,7 +2089,10 @@ class StrategyDetailPage(BasePage):
             log(f"Настройки категории {self._category_key} сброшены", "INFO")
 
             # 2. Reload settings from PresetManager and apply to UI
-            syndata = self._preset_manager.get_category_syndata(self._category_key)
+            protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+            is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+            protocol_key = "udp" if is_udp_like else "tcp"
+            syndata = self._preset_manager.get_category_syndata(self._category_key, protocol=protocol_key)
             self._apply_syndata_settings(syndata.to_dict())
 
             # 3. Reset filter_mode selector to stored default
@@ -1867,6 +2126,8 @@ class StrategyDetailPage(BasePage):
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
+        prev_strategy_id = self._selected_strategy_id
+
         # Снимаем выделение с предыдущей
         if self._selected_strategy_id in self._strategy_rows:
             self._strategy_rows[self._selected_strategy_id].set_selected(False)
@@ -1874,6 +2135,10 @@ class StrategyDetailPage(BasePage):
         if strategy_id in self._strategy_rows:
             self._strategy_rows[strategy_id].set_selected(True)
         self._selected_strategy_id = strategy_id
+
+        # При смене стратегии закрываем редактор args (чтобы не редактировать "не то")
+        if prev_strategy_id != strategy_id:
+            self._hide_args_editor(clear_text=False)
 
         # Синхронизируем toggle
         if strategy_id != "none":
@@ -1883,6 +2148,8 @@ class StrategyDetailPage(BasePage):
         else:
             self._stop_loading()
             self._success_icon.hide()
+
+        self._refresh_args_editor_state()
 
         # Применяем стратегию (но остаёмся на странице)
         if self._category_key:
@@ -1978,6 +2245,123 @@ class StrategyDetailPage(BasePage):
             self.args_changed.emit(self._category_key, strategy_id, args)
             log(f"Args changed: {self._category_key}/{strategy_id} = {args}", "DEBUG")
 
+    def _is_udp_like_category(self) -> bool:
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        return ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+
+    def _refresh_args_editor_state(self):
+        enabled = bool(self._category_key) and (self._selected_strategy_id or "none") != "none"
+        try:
+            if hasattr(self, "_edit_args_btn"):
+                self._edit_args_btn.setEnabled(enabled)
+        except Exception:
+            pass
+
+        if not enabled:
+            self._hide_args_editor(clear_text=True)
+
+    def _toggle_args_editor(self):
+        if not hasattr(self, "_args_editor_frame"):
+            return
+
+        if not self._args_editor_frame.isVisible():
+            # При открытии всегда подтягиваем актуальные args из preset (категория/протокол)
+            self._load_args_into_editor()
+            self._args_editor_frame.setVisible(True)
+        else:
+            self._hide_args_editor(clear_text=False)
+
+    def _hide_args_editor(self, clear_text: bool = False):
+        if hasattr(self, "_args_editor_frame"):
+            self._args_editor_frame.setVisible(False)
+        if hasattr(self, "_args_apply_btn"):
+            self._args_apply_btn.setEnabled(False)
+        self._args_editor_dirty = False
+
+        if clear_text and hasattr(self, "_args_editor") and self._args_editor:
+            try:
+                self._args_editor.blockSignals(True)
+                self._args_editor.setPlainText("")
+            finally:
+                self._args_editor.blockSignals(False)
+
+    def _load_args_into_editor(self):
+        if not (self._category_key and hasattr(self, "_args_editor") and self._args_editor):
+            return
+
+        if (self._selected_strategy_id or "none") == "none":
+            self._hide_args_editor(clear_text=True)
+            return
+
+        text = ""
+        try:
+            preset = self._preset_manager.get_active_preset()
+            cat = preset.categories.get(self._category_key) if preset else None
+            if cat:
+                text = cat.udp_args if self._is_udp_like_category() else cat.tcp_args
+        except Exception as e:
+            log(f"Args editor: failed to load preset args: {e}", "DEBUG")
+
+        try:
+            self._args_editor.blockSignals(True)
+            self._args_editor.setPlainText((text or "").strip())
+        finally:
+            self._args_editor.blockSignals(False)
+
+        self._args_editor_dirty = False
+        if hasattr(self, "_args_apply_btn"):
+            self._args_apply_btn.setEnabled(False)
+
+    def _on_args_editor_changed(self):
+        if not hasattr(self, "_args_editor"):
+            return
+        self._args_editor_dirty = True
+        if hasattr(self, "_args_apply_btn"):
+            self._args_apply_btn.setEnabled((self._selected_strategy_id or "none") != "none")
+
+    def _apply_args_editor(self):
+        if not self._category_key:
+            return
+        if (self._selected_strategy_id or "none") == "none":
+            return
+        if not hasattr(self, "_args_editor") or not self._args_editor:
+            return
+
+        raw = self._args_editor.toPlainText()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        normalized = "\n".join(lines)
+
+        try:
+            preset = self._preset_manager.get_active_preset()
+            if not preset:
+                return
+
+            if self._category_key not in preset.categories:
+                # Fallback: category should exist after selecting a strategy, but be defensive
+                preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
+
+            cat = preset.categories[self._category_key]
+
+            if self._is_udp_like_category():
+                cat.udp_args = normalized
+            else:
+                cat.tcp_args = normalized
+
+            preset.touch()
+            self._preset_manager._save_and_sync_preset(preset)
+
+            self._args_editor_dirty = False
+            if hasattr(self, "_args_apply_btn"):
+                self._args_apply_btn.setEnabled(False)
+
+            # UI feedback: mimic "apply" spinner behavior
+            self.show_loading()
+
+            self._on_args_changed(self._selected_strategy_id, lines)
+
+        except Exception as e:
+            log(f"Args editor: failed to save args: {e}", "ERROR")
+
     def _on_search_changed(self, text: str):
         """Фильтрует стратегии по поисковому запросу"""
         self._apply_filters()
@@ -1997,22 +2381,15 @@ class StrategyDetailPage(BasePage):
         for strategy_id, row in self._strategy_rows.items():
             visible = True
 
-            # Фильтр по поиску
+            # Фильтр по поиску (только по args)
             if search_text:
-                name_match = search_text in row._name.lower()
-                args_match = False
-                if row._args:
-                    args_text = " ".join(row._args).lower()
-                    args_match = search_text in args_text
-                visible = name_match or args_match
+                args_text = " ".join(row._args).lower() if row._args else ""
+                visible = search_text in args_text
 
             # Фильтр по технике (если есть активные фильтры)
             if visible and self._active_filters:
-                # Проверяем и аргументы и название стратегии
                 args_text = " ".join(row._args).lower() if row._args else ""
-                name_text = row._name.lower()
-                combined_text = f"{name_text} {args_text}"
-                has_technique = any(t in combined_text for t in self._active_filters)
+                has_technique = any(t in args_text for t in self._active_filters)
                 visible = has_technique
 
             row.setVisible(visible)

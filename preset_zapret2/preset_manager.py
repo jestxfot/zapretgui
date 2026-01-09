@@ -266,9 +266,16 @@ class PresetManager:
 
                 cat = preset.categories[cat_name]
 
-                # Restore syndata/send/out-range from parsed dict (if present)
+                # Restore per-protocol advanced settings from parsed dict (if present).
                 if getattr(block, "syndata_dict", None):
-                    cat.syndata = SyndataSettings.from_dict(block.syndata_dict)  # type: ignore[arg-type]
+                    if block.protocol == "tcp":
+                        base = cat.syndata_tcp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_tcp = SyndataSettings.from_dict(base)
+                    elif block.protocol == "udp":
+                        base = cat.syndata_udp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_udp = SyndataSettings.from_dict(base)
 
                 if block.protocol == "tcp":
                     cat.tcp_args = block.strategy_args
@@ -506,6 +513,13 @@ class PresetManager:
             data.name = name
             data.active_preset = None
             data.is_builtin = False
+            # generate_preset_content() preserves raw_header when present, so it must be updated
+            # when we create a new preset from the Default template.
+            now = datetime.now().isoformat()
+            data.raw_header = f"""# Preset: {name}
+# Created: {now}
+# Modified: {now}
+# Description: """
 
             dest_path = get_preset_path(name)
             if not generate_preset_file(data, dest_path, atomic=True):
@@ -755,7 +769,7 @@ class PresetManager:
                         if cat.filter_mode in ("hostlist", "ipset"):
                             args_lines.append(f"--{cat.filter_mode}={filter_file}")
 
-                    # Use get_full_udp_args() to include syndata/send/out-range
+                    # Use get_full_udp_args() to include out-range (UDP has no syndata/send)
                     full_udp_args = cat.get_full_udp_args()
                     for line in full_udp_args.strip().split('\n'):
                         if line.strip():
@@ -889,31 +903,40 @@ class PresetManager:
     # CATEGORY SETTINGS OPERATIONS
     # ========================================================================
 
-    def get_category_syndata(self, category_key: str) -> SyndataSettings:
+    @staticmethod
+    def _normalize_syndata_protocol(protocol: str) -> str:
+        proto = (protocol or "").strip().lower()
+        if proto in ("udp", "quic", "l7", "raw"):
+            return "udp"
+        return "tcp"
+
+    def get_category_syndata(self, category_key: str, protocol: str = "tcp") -> SyndataSettings:
         """
         Gets syndata settings for a category from active preset.
 
         Args:
             category_key: Category name (e.g., "youtube", "discord")
+            protocol: "tcp" or "udp" (udp also covers QUIC/L7)
 
         Returns:
             SyndataSettings for the category (defaults if not found)
         """
         preset = self.get_active_preset()
         if not preset:
-            return SyndataSettings.get_defaults()
+            return SyndataSettings.get_defaults() if self._normalize_syndata_protocol(protocol) == "tcp" else SyndataSettings.get_defaults_udp()
 
         category = preset.categories.get(category_key)
         if not category:
-            return SyndataSettings.get_defaults()
+            return SyndataSettings.get_defaults() if self._normalize_syndata_protocol(protocol) == "tcp" else SyndataSettings.get_defaults_udp()
 
-        return category.syndata
+        return category.syndata_tcp if self._normalize_syndata_protocol(protocol) == "tcp" else category.syndata_udp
 
     def update_category_syndata(
         self,
         category_key: str,
         syndata: SyndataSettings,
-        save_and_sync: bool = True
+        save_and_sync: bool = True,
+        protocol: str = "tcp",
     ) -> bool:
         """
         Updates syndata settings for a category.
@@ -922,6 +945,7 @@ class PresetManager:
             category_key: Category name
             syndata: New syndata settings
             save_and_sync: If True, save preset and sync to active file
+            protocol: "tcp" or "udp" (udp also covers QUIC/L7)
 
         Returns:
             True if successful
@@ -935,7 +959,13 @@ class PresetManager:
         if category_key not in preset.categories:
             preset.categories[category_key] = self._create_category_with_defaults(category_key)
 
-        preset.categories[category_key].syndata = syndata
+        protocol_key = self._normalize_syndata_protocol(protocol)
+        if protocol_key == "udp":
+            syndata.enabled = False
+            syndata.send_enabled = False
+            preset.categories[category_key].syndata_udp = syndata
+        else:
+            preset.categories[category_key].syndata_tcp = syndata
         preset.touch()
 
         if save_and_sync:
@@ -1087,11 +1117,11 @@ class PresetManager:
         from .strategy_inference import infer_strategy_id_from_args
 
         default_filter_mode = get_category_default_filter_mode(category_key)
-        default_syndata = SyndataSettings.from_dict(get_category_default_syndata(category_key))
         default_settings = get_default_category_settings().get(category_key) or {}
 
         # Reset non-strategy state.
-        cat.syndata = default_syndata
+        cat.syndata_tcp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="tcp"))
+        cat.syndata_udp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="udp"))
         cat.filter_mode = default_filter_mode
         cat.sort_order = "default"
 
@@ -1149,7 +1179,8 @@ class PresetManager:
                     preset.categories[cat_name] = CategoryConfig(
                         name=cat_name,
                         filter_mode=block.filter_mode or "hostlist",
-                        syndata=SyndataSettings.from_dict(get_category_default_syndata(cat_name)),
+                        syndata_tcp=SyndataSettings.from_dict(get_category_default_syndata(cat_name, protocol="tcp")),
+                        syndata_udp=SyndataSettings.from_dict(get_category_default_syndata(cat_name, protocol="udp")),
                     )
 
                 cat = preset.categories[cat_name]
@@ -1166,7 +1197,14 @@ class PresetManager:
 
                 # Prefer explicit overrides from the template block if present.
                 if getattr(block, "syndata_dict", None):
-                    cat.syndata = SyndataSettings.from_dict(block.syndata_dict)  # type: ignore[arg-type]
+                    if block.protocol == "tcp":
+                        base = cat.syndata_tcp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_tcp = SyndataSettings.from_dict(base)
+                    elif block.protocol == "udp":
+                        base = cat.syndata_udp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_udp = SyndataSettings.from_dict(base)
 
             for cat_name, cat in preset.categories.items():
                 inferred = "none"
@@ -1222,13 +1260,14 @@ class PresetManager:
         )
 
         # Get defaults from DEFAULT_PRESET_CONTENT
-        syndata_dict = get_category_default_syndata(category_key)
-        syndata = SyndataSettings.from_dict(syndata_dict)
+        syndata_tcp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="tcp"))
+        syndata_udp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="udp"))
         filter_mode = get_category_default_filter_mode(category_key)
 
         return CategoryConfig(
             name=category_key,
-            syndata=syndata,
+            syndata_tcp=syndata_tcp,
+            syndata_udp=syndata_udp,
             filter_mode=filter_mode
         )
 
@@ -1325,11 +1364,13 @@ class PresetManager:
 
         if args:
             protocol = (category_info.get("protocol") or "").upper()
-            is_udp = "UDP" in protocol or "QUIC" in protocol
+            is_udp = any(t in protocol for t in ("UDP", "QUIC", "L7", "RAW"))
             if is_udp:
                 cat.udp_args = args
+                cat.tcp_args = ""
             else:
                 cat.tcp_args = args
+                cat.udp_args = ""
 
     def set_strategy_selections(
         self,

@@ -447,6 +447,38 @@ class StrategyRunnerV1:
             self.current_strategy_args = None
             return False
 
+    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+        """
+        Starts strategy directly from an existing preset file.
+
+        Used by DPI controller when selected_mode is {'is_preset_file': True, ...}.
+        """
+        if not os.path.exists(preset_path):
+            log(f"Preset file not found: {preset_path}", "ERROR")
+            return False
+
+        try:
+            with open(preset_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            args: List[str] = []
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                args.append(line)
+
+            if not args:
+                log(f"Preset file is empty or has no valid arguments: {preset_path}", "ERROR")
+                return False
+
+            log(f"Starting from preset file: {preset_path} ({len(args)} args)", "INFO")
+            return self.start_strategy_custom(args, strategy_name)
+
+        except Exception as e:
+            log(f"Error reading preset file: {e}", "ERROR")
+            return False
+
     def stop(self) -> bool:
         """Stops running process"""
         try:

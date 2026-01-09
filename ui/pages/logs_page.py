@@ -838,13 +838,25 @@ class LogsPage(BasePage):
                     f"Следующая отправка возможна через {remaining} мин.")
                 return
 
-            # Проверяем настройки бота
-            from tgram.tg_log_bot import check_bot_connection
+            # Проверяем доступность бота/Telegram API и показываем реальную причину
+            from tgram.tg_log_bot import get_bot_connection_info
 
-            if not check_bot_connection():
-                QMessageBox.warning(self, "Бот не настроен",
-                    "Бот для отправки логов не настроен или недоступен.\n\n"
-                    "Для настройки обратитесь к разработчику.")
+            bot_ok, bot_error, bot_kind = get_bot_connection_info()
+            if not bot_ok:
+                details = (bot_error or "Неизвестная ошибка").strip()
+                if len(details) > 250:
+                    details = details[:250] + "…"
+                title = "Бот не настроен" if bot_kind == "config" else "Telegram недоступен"
+                hint = (
+                    "Проверьте настройки бота или обратитесь к разработчику."
+                    if bot_kind == "config"
+                    else "Если Telegram заблокирован — включите VPN/DPI bypass и повторите."
+                )
+                QMessageBox.warning(self, title,
+                    "Не удалось подключиться к боту для отправки логов.\n\n"
+                    f"Причина: {details}\n\n"
+                    f"{hint}"
+                )
                 return
 
             # Получаем данные из формы

@@ -110,6 +110,12 @@ def _safe_api_call(method: str, *, data=None, files=None) -> tuple[Optional[dict
 
             # Другие HTTP ошибки
             status_code = e.response.status_code if e.response else "неизвестен"
+            if status_code == 401:
+                _set_flood_cooldown()
+                return None, "Неверный токен бота (HTTP 401)"
+            if status_code == 403:
+                _set_flood_cooldown()
+                return None, "Доступ запрещён (HTTP 403)"
             _set_flood_cooldown()
             return None, f"Ошибка HTTP {status_code}"
 
@@ -128,6 +134,9 @@ def _safe_api_call(method: str, *, data=None, files=None) -> tuple[Optional[dict
 
         except Exception as e:
             error_str = str(e).lower()
+            if "missing dependencies for socks support" in error_str:
+                _set_flood_cooldown()
+                return None, "Обнаружен SOCKS-прокси, но не установлена поддержка SOCKS (PySocks)"
             # Проверяем признаки блокировки
             if "connection" in error_str and ("refused" in error_str or "reset" in error_str or "timeout" in error_str):
                 _set_flood_cooldown()
@@ -207,11 +216,54 @@ def check_bot_connection() -> bool:
     Проверяет доступность бота для логов (тихий режим).
     """
     try:
-        token = _get_bot_token()
-        if not token:
-            return False
-
-        result, _ = _safe_api_call("getMe")
-        return result is not None and result.get("ok", False)
+        ok, _ = check_bot_connection_detailed()
+        return ok
     except Exception:
         return False
+
+
+def check_bot_connection_detailed() -> tuple[bool, str]:
+    """
+    Проверяет доступность бота для логов и возвращает человекочитаемую причину ошибки.
+
+    Returns:
+        (ok, error_message) - error_message пустая строка при ok=True.
+    """
+    token = _get_bot_token()
+    if not token:
+        return False, "Токен бота не найден (ошибка конфигурации)"
+
+    result, error_msg = _safe_api_call("getMe")
+    if result is not None and result.get("ok", False):
+        return True, ""
+
+    if error_msg:
+        return False, error_msg
+
+    if result is not None and not result.get("ok", True):
+        api_error = result.get("description", "Неизвестная ошибка API")
+        return False, f"Telegram API: {api_error}"
+
+    return False, "Не удалось подключиться к Telegram API"
+
+
+def get_bot_connection_info() -> tuple[bool, str, str]:
+    """
+    Расширенная проверка доступности бота.
+
+    Returns:
+        (ok, error_message, kind)
+        kind ∈ {"config", "network", "unknown"}
+    """
+    ok, error_msg = check_bot_connection_detailed()
+    if ok:
+        return True, "", "unknown"
+
+    msg = (error_msg or "").lower()
+    if any(key in msg for key in ("токен", "конфигурац", "http 401", "http 403")):
+        return False, error_msg, "config"
+
+    if any(key in msg for key in ("telegram", "vpn", "dpi", "timeout", "время ожидания", "нет подключения", "ошибка сети", "http")):
+        return False, error_msg, "network"
+
+    return False, error_msg, "unknown"

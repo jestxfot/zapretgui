@@ -187,6 +187,114 @@ def extract_category_from_args(args: str) -> Tuple[str, str, str]:
     return (category.lower(), filter_mode, filter_path)
 
 
+_WINDOWS_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)")
+
+
+def _is_windows_abs(path: str) -> bool:
+    return bool(_WINDOWS_ABS_RE.match(path))
+
+
+def _normalize_path_value_for_preset(
+    value: str,
+    *,
+    main_directory: str,
+    folder_root: str,
+    default_subdir: str,
+) -> str:
+    """
+    Normalizes known file path values for winws2 preset files.
+
+    Goal: keep preset portable by storing paths relative to app working dir
+    (e.g. `lists/...`, `bin/...`) when the path points inside the app folder.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return value
+
+    at_prefix = "@" if raw.startswith("@") else ""
+    if at_prefix:
+        raw = raw[1:]
+
+    raw = raw.strip().strip('"').strip("'")
+    if not raw:
+        return value
+
+    # Absolute: try to relativize to folder_root or MAIN_DIRECTORY.
+    if _is_windows_abs(raw) or Path(raw).is_absolute():
+        try:
+            rel_folder = PureWindowsPath(raw).relative_to(PureWindowsPath(folder_root))
+        except Exception:
+            rel_folder = None
+
+        if rel_folder is not None:
+            return f"{at_prefix}{default_subdir}/{rel_folder.as_posix()}"
+
+        try:
+            rel_main = PureWindowsPath(raw).relative_to(PureWindowsPath(main_directory))
+        except Exception:
+            rel_main = None
+
+        if rel_main is not None:
+            return f"{at_prefix}{rel_main.as_posix()}"
+
+        return f"{at_prefix}{str(PureWindowsPath(raw))}"
+
+    # Relative with explicit folders: normalize separators to `/`.
+    if "/" in raw or "\\" in raw:
+        return f"{at_prefix}{PureWindowsPath(raw).as_posix()}"
+
+    # Bare filename -> assume default_subdir/.
+    return f"{at_prefix}{default_subdir}/{raw}"
+
+
+def _normalize_known_path_line(line: str) -> str:
+    """
+    Normalizes specific known args that contain file paths.
+
+    This is intentionally conservative: only rewrites options where a value is
+    expected to be a file path.
+    """
+    try:
+        from config import MAIN_DIRECTORY, LISTS_FOLDER, BIN_FOLDER
+
+        main_directory = MAIN_DIRECTORY
+        lists_folder = LISTS_FOLDER
+        bin_folder = BIN_FOLDER
+    except Exception:
+        return line
+
+    key, sep, value = line.partition("=")
+    if not sep:
+        return line
+
+    key_l = key.strip().lower()
+
+    if key_l in ("--hostlist", "--ipset", "--hostlist-exclude", "--ipset-exclude"):
+        norm_value = _normalize_path_value_for_preset(
+            value,
+            main_directory=main_directory,
+            folder_root=lists_folder,
+            default_subdir="lists",
+        )
+        return f"{key.strip()}={norm_value}"
+
+    if key_l in (
+        "--dpi-desync-fake-syndata",
+        "--dpi-desync-fake-tls",
+        "--dpi-desync-fake-quic",
+        "--dpi-desync-split-seqovl-pattern",
+    ):
+        norm_value = _normalize_path_value_for_preset(
+            value,
+            main_directory=main_directory,
+            folder_root=bin_folder,
+            default_subdir="bin",
+        )
+        return f"{key.strip()}={norm_value}"
+
+    return line
+
+
 def _normalize_ports(value: str) -> str:
     tokens = [t.strip() for t in value.split(',') if t.strip()]
     normalized = []
@@ -365,10 +473,20 @@ def extract_protocol_and_port(args: str) -> Tuple[str, str]:
     if udp_match:
         return ("udp", udp_match.group(1))
 
+    # L7 filters (treated as UDP-like in the preset system)
+    l7_match = re.search(r'--filter-l7=([^\s\n]+)', args)
+    if l7_match:
+        return ("udp", l7_match.group(1))
+
     return ("tcp", "443")  # Default
 
 
-def extract_strategy_args(args: str) -> str:
+def extract_strategy_args(
+    args: str,
+    *,
+    category_key: Optional[str] = None,
+    filter_mode: Optional[str] = None,
+) -> str:
     """
     Extracts just the strategy arguments from block args.
 
@@ -380,12 +498,38 @@ def extract_strategy_args(args: str) -> str:
     Returns:
         Strategy arguments only (e.g., "--lua-desync=multisplit:pos=1,midsld")
     """
+    base_filter_tokens: Set[str] = set()
+    try:
+        category_key_n = (category_key or "").strip().lower()
+        if category_key_n and category_key_n != "unknown":
+            filters = _load_category_filters()
+            variants = filters.get(category_key_n) if filters else None
+            if variants:
+                want = (filter_mode or "").strip().lower()
+                # Prefer exact mode match; fallback to any variant for this category.
+                for mode, token_set in variants:
+                    if want and mode == want:
+                        base_filter_tokens = set(token_set)
+                        break
+                if not base_filter_tokens:
+                    base_filter_tokens = set(variants[0][1])
+    except Exception:
+        base_filter_tokens = set()
+
     lines = args.strip().split('\n')
     strategy_lines = []
 
     for line in lines:
         line = line.strip()
         if not line:
+            continue
+        # Skip lines that are part of the category base_filter (important for L7 payload filters),
+        # otherwise they accumulate on each preset sync.
+        try:
+            token = _normalize_filter_token(line)
+        except Exception:
+            token = ""
+        if base_filter_tokens and token and token in base_filter_tokens:
             continue
         # Skip filter, hostlist/ipset, and syndata/send lines
         if line.startswith('--filter-') or \
@@ -622,7 +766,7 @@ def parse_preset_content(content: str) -> PresetData:
     first_filter_idx = None
     for i, line in enumerate(remaining_lines):
         stripped = line.strip()
-        if stripped.startswith('--filter-tcp') or stripped.startswith('--filter-udp'):
+        if stripped.startswith('--filter-tcp') or stripped.startswith('--filter-udp') or stripped.startswith('--filter-l7'):
             first_filter_idx = i
             break
 
@@ -669,36 +813,44 @@ def parse_preset_content(content: str) -> PresetData:
         if not filter_mode:
             filter_mode = "hostlist"
         protocol, port = extract_protocol_and_port(block_args)
-        strategy_args = extract_strategy_args(block_args)
-
-        # Extract syndata/send/out-range parameters
-        syndata_dict = {}
-        syndata_dict.update(extract_syndata_from_args(block_args))
-        syndata_dict.update(extract_out_range_from_args(block_args))
-        syndata_dict.update(extract_send_from_args(block_args))
-
-        # Clean up: if autottl is already present in a separate syndata line,
-        # strip redundant `:ip_autottl=...` fragments from strategy lines.
-        if syndata_dict.get("autottl_delta") is not None and \
-           syndata_dict.get("autottl_min") is not None and \
-           syndata_dict.get("autottl_max") is not None and strategy_args:
-            autottl_str = f"{syndata_dict['autottl_delta']},{syndata_dict['autottl_min']}-{syndata_dict['autottl_max']}"
-            # Only strip exact matches to avoid breaking strategies that intentionally differ.
-            strategy_args = re.sub(rf":ip_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
-            strategy_args = re.sub(rf":ip6_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+        # Exclude base_filter tokens (including --payload for L7 categories) from strategy_args,
+        # otherwise they accumulate on each sync and blow up the preset file.
+        strategy_args = extract_strategy_args(
+            block_args,
+            category_key=(inferred_category if inferred_category != "unknown" else category),
+            filter_mode=(inferred_mode or filter_mode),
+        )
 
         has_port_filter = bool(re.search(r'--filter-(tcp|udp)=', block_args))
         if inferred_category != "unknown" and not has_port_filter:
             cat_info = _load_category_info().get(inferred_category)
             if cat_info:
                 proto_raw = str(cat_info.get("protocol", "")).upper()
-                if "UDP" in proto_raw or "QUIC" in proto_raw:
+                if "UDP" in proto_raw or "QUIC" in proto_raw or "L7" in proto_raw:
                     protocol = "udp"
                 elif proto_raw:
                     protocol = "tcp"
                 ports_raw = cat_info.get("ports")
                 if ports_raw:
                     port = str(ports_raw).strip()
+
+        # Extract syndata/send/out-range parameters.
+        # NOTE: syndata/send are TCP-only (SYN-based). For UDP/QUIC we intentionally ignore them.
+        syndata_dict = {}
+        syndata_dict.update(extract_out_range_from_args(block_args))
+        if protocol == "tcp":
+            syndata_dict.update(extract_syndata_from_args(block_args))
+            syndata_dict.update(extract_send_from_args(block_args))
+
+            # Clean up: if autottl is already present in a separate syndata line,
+            # strip redundant `:ip_autottl=...` fragments from strategy lines.
+            if syndata_dict.get("autottl_delta") is not None and \
+               syndata_dict.get("autottl_min") is not None and \
+               syndata_dict.get("autottl_max") is not None and strategy_args:
+                autottl_str = f"{syndata_dict['autottl_delta']},{syndata_dict['autottl_min']}-{syndata_dict['autottl_max']}"
+                # Only strip exact matches to avoid breaking strategies that intentionally differ.
+                strategy_args = re.sub(rf":ip_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+                strategy_args = re.sub(rf":ip6_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
 
         block = CategoryBlock(
             category=category,
@@ -734,18 +886,25 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
 
     # Header
     if include_header:
-        lines.append(f"# Preset: {data.name}")
-        if data.active_preset:
-            lines.append(f"# ActivePreset: {data.active_preset}")
-        if data.is_builtin:
-            lines.append("# Builtin: true")
-        lines.append("")
+        if isinstance(getattr(data, "raw_header", None), str) and data.raw_header.strip():
+            # If caller provided a raw header, preserve it as-is.
+            # This is important for Created/Modified/Description metadata which some writers embed.
+            lines.extend(data.raw_header.rstrip("\n").splitlines())
+            if not lines or lines[-1].strip():
+                lines.append("")
+        else:
+            lines.append(f"# Preset: {data.name}")
+            if data.active_preset:
+                lines.append(f"# ActivePreset: {data.active_preset}")
+            if data.is_builtin:
+                lines.append("# Builtin: true")
+            lines.append("")
 
     # Base args
     if data.base_args:
         for line in data.base_args.split('\n'):
             if line.strip():
-                lines.append(line.strip())
+                lines.append(_normalize_known_path_line(line.strip()))
         lines.append("")
 
     # Category blocks (stable ordering by categories.txt)
@@ -785,7 +944,7 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
         # Add block args
         for line in block.args.split('\n'):
             if line.strip():
-                lines.append(line.strip())
+                lines.append(_normalize_known_path_line(line.strip()))
 
         # Add --new separator (except for last block)
         if i < len(blocks) - 1:
@@ -831,10 +990,8 @@ def generate_preset_file(data: PresetData, output_path: Path, atomic: bool = Tru
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     f.write(content)
 
-                # Atomic rename (on Windows, need to remove target first)
-                if output_path.exists():
-                    output_path.unlink()
-                os.rename(temp_path, output_path)
+                # Atomic replace: safe even if target exists.
+                os.replace(temp_path, output_path)
 
             except Exception:
                 # Cleanup temp file on error
@@ -882,26 +1039,36 @@ def update_category_in_preset(
             log(f"Category {category}:{protocol} not found in preset", "WARNING")
             return False
 
-        # Rebuild block args with new strategy
-        new_args_lines = []
+        # Preserve everything in the block, only replace "strategy" lines.
+        # This avoids silently dropping advanced lines like:
+        # --out-range, --lua-desync=send, --lua-desync=syndata, --payload, etc.
+        existing_lines = [ln.strip() for ln in (block.args or "").splitlines() if ln.strip()]
 
-        # Keep filter line
-        if protocol == "tcp":
-            new_args_lines.append(f"--filter-tcp={block.port}")
-        else:
-            new_args_lines.append(f"--filter-udp={block.port}")
+        old_strategy = extract_strategy_args(
+            block.args or "",
+            category_key=block.category,
+            filter_mode=block.filter_mode,
+        )
+        old_strategy_lines = [ln.strip() for ln in old_strategy.splitlines() if ln.strip()]
+        old_set = set(old_strategy_lines)
 
-        # Keep hostlist/ipset line
-        if block.filter_mode and block.filter_file:
-            new_args_lines.append(f"--{block.filter_mode}={block.filter_file}")
+        new_lines = [ln.strip() for ln in (new_strategy_args or "").splitlines() if ln.strip()]
 
-        # Add new strategy args
-        for line in new_strategy_args.strip().split('\n'):
-            if line.strip():
-                new_args_lines.append(line.strip())
+        insert_at = None
+        for i, ln in enumerate(existing_lines):
+            if ln in old_set:
+                insert_at = i
+                break
 
-        block.args = '\n'.join(new_args_lines)
-        block.strategy_args = new_strategy_args.strip()
+        kept_lines = [ln for ln in existing_lines if ln not in old_set]
+
+        if insert_at is None:
+            insert_at = len(kept_lines)
+
+        updated_lines = kept_lines[:insert_at] + new_lines + kept_lines[insert_at:]
+
+        block.args = "\n".join(updated_lines)
+        block.strategy_args = "\n".join(new_lines).strip()
 
         # Write back
         return generate_preset_file(data, file_path)

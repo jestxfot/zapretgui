@@ -7,6 +7,7 @@ import ctypes
 from ctypes import wintypes
 from typing import Optional, List
 import time
+from .winapi_service_types import SERVICE_STATUS
 
 # Безопасный импорт log
 try:
@@ -41,22 +42,17 @@ OpenService.restype = wintypes.HANDLE
 CloseServiceHandle = advapi32.CloseServiceHandle
 
 
-class SERVICE_STATUS(ctypes.Structure):
-    _fields_ = [
-        ("dwServiceType", wintypes.DWORD),
-        ("dwCurrentState", wintypes.DWORD),
-        ("dwControlsAccepted", wintypes.DWORD),
-        ("dwWin32ExitCode", wintypes.DWORD),
-        ("dwServiceSpecificExitCode", wintypes.DWORD),
-        ("dwCheckPoint", wintypes.DWORD),
-        ("dwWaitHint", wintypes.DWORD),
-    ]
-
-
-# Правильно определяем типы для ControlService
+# ВАЖНО: `ControlService`/`QueryServiceStatus` — это функции из одного общего `advapi32` на процесс.
+# Если в разных местах объявлять разные `SERVICE_STATUS` и выставлять `argtypes` через POINTER(...),
+# ctypes начнёт падать из-за несовместимых типов. Используем единый `SERVICE_STATUS` из
+# `utils.winapi_service_types`.
 ControlService = advapi32.ControlService
 ControlService.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(SERVICE_STATUS)]
 ControlService.restype = wintypes.BOOL
+
+QueryServiceStatus = advapi32.QueryServiceStatus
+QueryServiceStatus.argtypes = [wintypes.HANDLE, ctypes.POINTER(SERVICE_STATUS)]
+QueryServiceStatus.restype = wintypes.BOOL
 
 DeleteService = advapi32.DeleteService
 DeleteService.argtypes = [wintypes.HANDLE]

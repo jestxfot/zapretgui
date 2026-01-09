@@ -387,10 +387,19 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if strategy_id == "DIRECT_MODE" or launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                if launch_method == "direct_zapret2":
-                    display_name = "Прямой запуск"
-                elif launch_method == "direct_zapret2_orchestra":
+            if launch_method == "direct_zapret2":
+                # direct_zapret2 is preset-based; do not show a phantom single-strategy name.
+                try:
+                    from preset_zapret2 import get_active_preset_name
+                    preset_name = get_active_preset_name() or "Default"
+                    display_name = f"Пресет: {preset_name}"
+                except Exception:
+                    display_name = "Пресет"
+                self.current_strategy_name = display_name
+                strategy_name = display_name
+                log(f"Установлено имя пресета для direct_zapret2: {display_name}", "DEBUG")
+            elif strategy_id == "DIRECT_MODE" or launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
+                if launch_method == "direct_zapret2_orchestra":
                     display_name = "Оркестратор Z2"
                 else:
                     display_name = "Прямой Z1"

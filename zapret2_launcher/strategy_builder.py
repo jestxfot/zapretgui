@@ -420,6 +420,8 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         # Get full arguments via registry (base_filter + technique)
         args = registry.get_strategy_args_safe(category_key, strategy_id)
         if args:
+            category_info = registry.get_category_info(category_key)
+
             # ==================== SYNDATA/SEND INJECTION ====================
             # Apply syndata and send settings from UI (if enabled for this category)
             #
@@ -429,9 +431,13 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
             #   --filter-tcp=80,443 --hostlist=youtube.txt --out-range=-n8 --lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls7 --lua-desync=multisplit:pos=1,midsld
             #   ├─ base_filter ─────────────────────────┤├─ out_range ─┤├─ send ────────────────────┤├─ syndata ─────────────────┤├─ strategy ──────────────────────────┤
             #
-            out_range_args = get_out_range_args(category_key)
-            send_args = build_send_args(category_key)
-            syndata_args = build_syndata_args(category_key)
+            proto_raw = str(getattr(category_info, "protocol", "") or "").upper()
+            is_udp_like = ("UDP" in proto_raw) or ("QUIC" in proto_raw) or ("L7" in proto_raw)
+            protocol_key = "udp" if is_udp_like else "tcp"
+
+            out_range_args = get_out_range_args(category_key, protocol=protocol_key)
+            send_args = build_send_args(category_key, protocol=protocol_key)
+            syndata_args = build_syndata_args(category_key, protocol=protocol_key)
 
             # Если есть что вставить - разделяем args на base_filter и strategy части
             if syndata_args or out_range_args or send_args:
@@ -465,7 +471,6 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
 
                 args = " ".join(result_parts)
 
-            category_info = registry.get_category_info(category_key)
             active_categories.append((category_key, args, category_info))
 
             # Add to description

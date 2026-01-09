@@ -991,13 +991,11 @@ class AutostartPage(BasePage):
             log("Папка стратегий не настроена", "ERROR")
             return
         
-        # Для BAT режима используем сохранённую стратегию (отдельный ключ реестра)
-        bat_strategy_name = self.strategy_name
-        if bat_strategy_name in ("Прямой запуск (Запрет 2)", None, "") or "Прямой запуск" in (bat_strategy_name or ""):
-            bat_strategy_name = get_last_bat_strategy()
-            if not bat_strategy_name:
-                log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
-                return
+        # Для BAT режима используем сохранённую BAT-стратегию (отдельный ключ реестра).
+        bat_strategy_name = get_last_bat_strategy()
+        if not bat_strategy_name:
+            log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
+            return
         
         ok = setup_autostart_for_strategy(
             selected_mode=bat_strategy_name,
@@ -1013,7 +1011,7 @@ class AutostartPage(BasePage):
     def _setup_bat_service(self):
         """Служба для BAT режима"""
         from autostart.autostart_service import setup_service_for_strategy
-        from config import get_last_strategy
+        from config.reg import get_last_bat_strategy
         
         # Инициализируем папки если не установлены
         self._ensure_folders_initialized()
@@ -1022,13 +1020,11 @@ class AutostartPage(BasePage):
             log("Папка стратегий не настроена", "ERROR")
             return
         
-        # Для BAT режима используем сохранённую стратегию (отдельный ключ реестра)
-        bat_strategy_name = self.strategy_name
-        if bat_strategy_name in ("Прямой запуск (Запрет 2)", None, "") or "Прямой запуск" in (bat_strategy_name or ""):
-            bat_strategy_name = get_last_bat_strategy()
-            if not bat_strategy_name:
-                log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
-                return
+        # Для BAT режима используем сохранённую BAT-стратегию (отдельный ключ реестра).
+        bat_strategy_name = get_last_bat_strategy()
+        if not bat_strategy_name:
+            log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
+            return
         
         ok = setup_service_for_strategy(
             selected_mode=bat_strategy_name,

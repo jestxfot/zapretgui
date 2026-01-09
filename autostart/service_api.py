@@ -8,6 +8,7 @@ from ctypes import wintypes
 from typing import Optional, Tuple
 from log import log
 from utils import get_system_exe
+from utils.winapi_service_types import SERVICE_STATUS
 
 # ============================================================================
 # Константы Windows API
@@ -47,22 +48,6 @@ SERVICE_RUNNING = 0x00000004
 
 # Service config info levels
 SERVICE_CONFIG_DESCRIPTION = 1
-
-# ============================================================================
-# Структуры Windows API
-# ============================================================================
-
-class SERVICE_STATUS(ctypes.Structure):
-    _fields_ = [
-        ("dwServiceType", wintypes.DWORD),
-        ("dwCurrentState", wintypes.DWORD),
-        ("dwControlsAccepted", wintypes.DWORD),
-        ("dwWin32ExitCode", wintypes.DWORD),
-        ("dwServiceSpecificExitCode", wintypes.DWORD),
-        ("dwCheckPoint", wintypes.DWORD),
-        ("dwWaitHint", wintypes.DWORD),
-    ]
-
 
 class SERVICE_DESCRIPTION(ctypes.Structure):
     _fields_ = [

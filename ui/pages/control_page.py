@@ -2,7 +2,7 @@
 """Страница управления - запуск/остановка DPI"""
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -201,6 +201,8 @@ class ControlPage(BasePage):
                 font-weight: 500;
             }
         """)
+        self.strategy_label.setWordWrap(True)
+        self.strategy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         strategy_text_layout.addWidget(self.strategy_label)
         
         self.strategy_desc = QLabel("Выберите стратегию в разделе «Стратегии»")
@@ -317,6 +319,36 @@ class ControlPage(BasePage):
             
     def update_strategy(self, name: str):
         """Обновляет отображение текущей стратегии"""
+        # Direct modes: show summary of active categories (top-2 + +N ещё).
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            method = get_strategy_launch_method()
+            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                from strategy_menu import get_direct_strategy_selections
+                from strategy_menu.strategies_registry import registry
+
+                selections = get_direct_strategy_selections() or {}
+                active_names: list[str] = []
+                for cat_key in registry.get_all_category_keys_by_command_order():
+                    sid = selections.get(cat_key, "none") or "none"
+                    if sid == "none":
+                        continue
+                    info = registry.get_category_info(cat_key)
+                    active_names.append(getattr(info, "full_name", None) or cat_key)
+
+                if not active_names:
+                    name = "Не выбрана"
+                    self.strategy_label.setToolTip("")
+                else:
+                    if len(active_names) <= 2:
+                        name = " • ".join(active_names)
+                    else:
+                        name = " • ".join(active_names[:2]) + f" +{len(active_names) - 2} ещё"
+                    self.strategy_label.setToolTip("\n".join(active_names))
+        except Exception:
+            pass
+
         if name and name != "Автостарт DPI отключен":
             self.strategy_label.setText(name)
             self.strategy_desc.setText("Активная стратегия обхода")

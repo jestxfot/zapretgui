@@ -19,7 +19,6 @@ from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from connection_test import ConnectionTestWorker, LogSendWorker
 from config import LOGS_FOLDER, APP_VERSION
-from tgram.tg_log_bot import check_bot_connection
 from tgram.tg_log_delta import get_client_id
 
 
@@ -396,8 +395,9 @@ class ConnectionTestPage(BasePage):
             return
 
         try:
-            bot_connected = check_bot_connection()
-            error_msg = None if bot_connected else "Не удалось подключиться к Telegram боту"
+            from tgram.tg_log_bot import get_bot_connection_info
+            bot_connected, bot_error, _bot_kind = get_bot_connection_info()
+            error_msg = None if bot_connected else (bot_error or "Не удалось подключиться к Telegram API")
         except Exception as exc:  # pragma: no cover - сеть/бот
             bot_connected = False
             error_msg = str(exc)

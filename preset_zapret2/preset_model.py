@@ -83,6 +83,16 @@ class SyndataSettings:
         """Returns default settings instance."""
         return cls()
 
+    @classmethod
+    def get_defaults_udp(cls) -> "SyndataSettings":
+        """
+        Defaults for UDP/QUIC/L7 categories.
+
+        NOTE: syndata/send are TCP-only (SYN-based) and must be disabled for UDP.
+        out_range is still used for UDP.
+        """
+        return cls(enabled=False, send_enabled=False)
+
 
 @dataclass
 class CategoryConfig:
@@ -115,7 +125,8 @@ class CategoryConfig:
     filter_mode: str = "hostlist"  # "hostlist" or "ipset"
     tcp_port: str = "443"
     udp_port: str = "443"
-    syndata: SyndataSettings = field(default_factory=SyndataSettings)
+    syndata_tcp: SyndataSettings = field(default_factory=SyndataSettings)
+    syndata_udp: SyndataSettings = field(default_factory=SyndataSettings.get_defaults_udp)
     sort_order: str = "default"  # "default", "name_asc", "name_desc"
 
     def get_hostlist_file(self) -> str:
@@ -148,19 +159,19 @@ class CategoryConfig:
         parts = []
 
         # 1. Out-range
-        out_range_arg = self._get_out_range_args()
+        out_range_arg = self._get_out_range_args(self.syndata_tcp)
         if out_range_arg:
             parts.append(out_range_arg)
 
         # 2. Send параметры
-        if self.syndata.send_enabled:
-            send_arg = self._get_send_args()
+        if self.syndata_tcp.send_enabled:
+            send_arg = self._get_send_args(self.syndata_tcp)
             if send_arg:
                 parts.append(send_arg)
 
         # 3. Syndata параметры
-        if self.syndata.enabled:
-            syndata_arg = self._get_syndata_args()
+        if self.syndata_tcp.enabled:
+            syndata_arg = self._get_syndata_args(self.syndata_tcp)
             if syndata_arg:
                 parts.append(syndata_arg)
 
@@ -171,80 +182,74 @@ class CategoryConfig:
         return "\n".join(parts)
 
     def get_full_udp_args(self) -> str:
-        """Возвращает полные UDP аргументы включая send/out-range
+        """Возвращает полные UDP аргументы включая out-range
 
-        NOTE: syndata применяется только к TCP SYN, для UDP/QUIC не поддерживается.
+        NOTE: syndata/send применяются только к TCP SYN, для UDP/QUIC не поддерживаются.
 
-        Правильный порядок: out-range → send → strategy
+        Правильный порядок: out-range → strategy
         """
         parts = []
 
         # 1. Out-range
-        out_range_arg = self._get_out_range_args()
+        out_range_arg = self._get_out_range_args(self.syndata_udp)
         if out_range_arg:
             parts.append(out_range_arg)
 
-        # 2. Send параметры
-        if self.syndata.send_enabled:
-            send_arg = self._get_send_args()
-            if send_arg:
-                parts.append(send_arg)
-
-        # 3. Базовые udp_args (strategy)
+        # 2. Базовые udp_args (strategy)
         if self.udp_args:
             parts.append(self.udp_args)
 
         return "\n".join(parts)
 
-    def _get_syndata_args(self) -> str:
+    def _get_syndata_args(self, settings: SyndataSettings) -> str:
         """Генерирует --lua-desync=syndata:blob=...:ip_autottl=... из SyndataSettings"""
-        if not self.syndata.enabled:
+        if not settings.enabled:
             return ""
 
         parts = []
-        parts.append(f"blob={self.syndata.blob}")
+        parts.append(f"blob={settings.blob}")
 
-        if self.syndata.tls_mod != "none":
-            parts.append(f"tls_mod={self.syndata.tls_mod}")
+        if settings.tls_mod != "none":
+            parts.append(f"tls_mod={settings.tls_mod}")
 
         # ip_autottl формат: -2,3-20 (delta,min-max)
-        if self.syndata.autottl_delta != 0:
-            autottl_str = f"{self.syndata.autottl_delta},{self.syndata.autottl_min}-{self.syndata.autottl_max}"
+        if settings.autottl_delta != 0:
+            autottl_str = f"{settings.autottl_delta},{settings.autottl_min}-{settings.autottl_max}"
             parts.append(f"ip_autottl={autottl_str}")
 
-        if self.syndata.tcp_flags_unset != "none":
-            parts.append(f"tcp_flags_unset={self.syndata.tcp_flags_unset}")
+        if settings.tcp_flags_unset != "none":
+            parts.append(f"tcp_flags_unset={settings.tcp_flags_unset}")
 
         return f"--lua-desync=syndata:{':'.join(parts)}"
 
-    def _get_out_range_args(self) -> str:
+    def _get_out_range_args(self, settings: SyndataSettings) -> str:
         """Генерирует --out-range=-n8 из SyndataSettings"""
-        if self.syndata.out_range == 0:
+        if settings.out_range == 0:
             return ""
 
-        mode_suffix = "d" if self.syndata.out_range_mode == "d" else "n"
-        return f"--out-range=-{mode_suffix}{self.syndata.out_range}"
+        mode_suffix = "d" if settings.out_range_mode == "d" else "n"
+        return f"--out-range=-{mode_suffix}{settings.out_range}"
 
-    def _get_send_args(self) -> str:
+    def _get_send_args(self, settings: SyndataSettings) -> str:
         """Генерирует --lua-desync=send:repeats=2:ttl=0 из SyndataSettings"""
-        if not self.syndata.send_enabled:
+        if not settings.send_enabled:
             return ""
 
         parts = []
 
-        if self.syndata.send_repeats != 0:
-            parts.append(f"repeats={self.syndata.send_repeats}")
+        if settings.send_repeats != 0:
+            parts.append(f"repeats={settings.send_repeats}")
 
-        if self.syndata.send_ip_ttl != 0:
-            parts.append(f"ttl={self.syndata.send_ip_ttl}")
+        if settings.send_ip_ttl != 0:
+            parts.append(f"ttl={settings.send_ip_ttl}")
 
-        if self.syndata.send_ip6_ttl != 0:
-            parts.append(f"ttl6={self.syndata.send_ip6_ttl}")
+        if settings.send_ip6_ttl != 0:
+            parts.append(f"ttl6={settings.send_ip6_ttl}")
 
-        if self.syndata.send_ip_id != "none":
-            parts.append(f"ip_id={self.syndata.send_ip_id}")
+        if settings.send_ip_id != "none":
+            parts.append(f"ip_id={settings.send_ip_id}")
 
-        if self.syndata.send_badsum:
+        if settings.send_badsum:
             parts.append("badsum=true")
 
         if not parts:
@@ -264,16 +269,25 @@ class CategoryConfig:
             "filter_mode": self.filter_mode,
             "tcp_port": self.tcp_port,
             "udp_port": self.udp_port,
-            "syndata": self.syndata.to_dict(),
+            # Per-protocol advanced settings
+            "syndata_tcp": self.syndata_tcp.to_dict(),
+            "syndata_udp": self.syndata_udp.to_dict(),
             "sort_order": self.sort_order,
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "CategoryConfig":
         """Creates CategoryConfig from dictionary."""
-        # Parse syndata if present
-        syndata_data = data.get("syndata", {})
-        syndata = SyndataSettings.from_dict(syndata_data) if syndata_data else SyndataSettings()
+        # Backward compatibility:
+        # - older versions stored a single "syndata" dict (TCP-only in practice)
+        syndata_tcp_data = data.get("syndata_tcp") or data.get("syndata") or {}
+        syndata_tcp = SyndataSettings.from_dict(syndata_tcp_data) if syndata_tcp_data else SyndataSettings.get_defaults()
+
+        syndata_udp_data = data.get("syndata_udp") or {}
+        udp_base = SyndataSettings.get_defaults_udp().to_dict()
+        if isinstance(syndata_udp_data, dict) and syndata_udp_data:
+            udp_base.update(syndata_udp_data)
+        syndata_udp = SyndataSettings.from_dict(udp_base)
 
         return cls(
             name=data.get("name", "unknown"),
@@ -285,7 +299,8 @@ class CategoryConfig:
             filter_mode=data.get("filter_mode", "hostlist"),
             tcp_port=data.get("tcp_port", "443"),
             udp_port=data.get("udp_port", "443"),
-            syndata=syndata,
+            syndata_tcp=syndata_tcp,
+            syndata_udp=syndata_udp,
             sort_order=data.get("sort_order", "default"),
         )
 

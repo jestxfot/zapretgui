@@ -95,7 +95,7 @@ def get_default_category_settings(category_key: str = None) -> dict:
             return DEFAULT_CATEGORY_SETTINGS.copy()
 
         # Парсим syndata настройки из DEFAULT_PRESET_CONTENT
-        syndata_settings = get_category_default_syndata(category_key)
+        syndata_settings = get_category_default_syndata(category_key, protocol="tcp")
 
         log(f"Используем настройки из DEFAULT_PRESET_CONTENT для {category_key}", "DEBUG")
         return syndata_settings

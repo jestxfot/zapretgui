@@ -227,27 +227,9 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             
     def _clear_content(self):
         """Очищает контент"""
-        # Сохраняем current_widget (не удаляем при очистке)
-        if hasattr(self, 'current_widget') and self.current_widget:
-            self.content_layout.removeWidget(self.current_widget)
-            self.current_widget.setParent(None)
-
-        # Удаляем все виджеты из content_layout
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        self._strategy_widget = None
-        self._bat_table = None
-        self.loading_label = None
-        self.search_bar = None
-        self._all_bat_strategies = []
-        self._all_bat_strategies_dict = {}
-        # Очищаем кэш Direct режима
-        self._all_direct_strategies = {}
-        self._all_direct_favorites = {}
-        self._all_direct_selections = {}
+        # Используем базовую реализацию (в ней также есть защита от падения Qt
+        # при удалении активных QThread загрузчиков вкладок).
+        super()._clear_content()
 
     def _load_content(self):
         """Загружает контент для режима Orchestra"""
@@ -1119,6 +1101,12 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
+
+        # Не загружаем контент пока страница скрыта (иначе она начнёт грузить стратегии
+        # для "чужого" режима и будет спамить предупреждения/ошибки).
+        # При следующем показе страницы showEvent сам вызовет _load_content().
+        if not self.isVisible():
+            return
 
         # Загружаем с небольшой задержкой для плавности UI
         QTimer.singleShot(100, self._load_content)

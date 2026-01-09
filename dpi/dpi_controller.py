@@ -97,10 +97,39 @@ class DPIStartWorker(QObject):
                 self.progress.emit("DPI успешно запущен")
                 self.finished.emit(True, "")
             else:
-                # Не показываем ошибку на splash screen — ProcessMonitor обновит UI
-                # когда процесс запустится или упадёт
-                self.progress.emit("Ожидание запуска DPI...")
-                self.finished.emit(True, "")  # Не блокируем splash screen ошибкой
+                # В некоторых ситуациях старт "не был даже начат" (например, args пустые).
+                # Тогда нельзя эмитить success=True, иначе дальше появится ложная ошибка
+                # "процесс не найден после старта".
+                fatal_reason = ""
+                try:
+                    mode_param = self.selected_mode
+                    if isinstance(mode_param, dict) and self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                        if mode_param.get("is_preset_file"):
+                            preset_path = (mode_param.get("preset_path") or "").strip()
+                            if not preset_path:
+                                fatal_reason = "❌ Ошибка: не указан путь к preset файлу"
+                        elif mode_param.get("is_combined"):
+                            args_str = (mode_param.get("args") or "").strip()
+                            if not args_str:
+                                fatal_reason = "⚠️ Выберите хотя бы одну категорию для запуска"
+                            else:
+                                if self.launch_method == "direct_zapret1":
+                                    has_filters = any(f in args_str for f in ["--wf-tcp=", "--wf-udp="])
+                                else:
+                                    has_filters = any(f in args_str for f in ["--wf-tcp-out", "--wf-udp-out", "--wf-raw-part"])
+                                if not has_filters:
+                                    fatal_reason = "⚠️ Выберите хотя бы одну категорию для запуска"
+                except Exception:
+                    fatal_reason = ""
+
+                if fatal_reason:
+                    self.progress.emit(fatal_reason)
+                    self.finished.emit(False, fatal_reason)
+                else:
+                    # Не показываем ошибку на splash screen — ProcessMonitor обновит UI
+                    # когда процесс запустится или упадёт
+                    self.progress.emit("Ожидание запуска DPI...")
+                    self.finished.emit(True, "")  # Не блокируем splash screen ошибкой
                 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение

@@ -572,11 +572,6 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
     def _on_strategy_item_clicked(self, category_key: str, strategy_id: str):
         """Обработчик клика по стратегии - сразу применяет и перезапускает winws"""
         try:
-            from strategy_menu import save_direct_strategy_selection, combine_strategies
-            from launcher_common import calculate_required_filters
-
-            # Сохраняем выбор в реестр (для Direct режима selections сохраняются отдельно)
-            save_direct_strategy_selection(category_key, strategy_id)
             self.category_selections[category_key] = strategy_id
             log(f"Выбрана стратегия: {category_key} = {strategy_id}", "INFO")
 
@@ -585,14 +580,24 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             strategy_name = registry.get_strategy_name_safe(category_key, strategy_id)
             self.strategy_selected.emit(strategy_id, strategy_name)
 
-            # NOTE: Zapret 1 режим НЕ использует preset-zapret2.txt, стратегии берутся из реестра
+            # NOTE: Zapret 1 режим НЕ использует preset-zapret2.txt, источник состояния — preset-zapret1.txt
+            # Пишем preset СНАЧАЛА, чтобы UI сразу видел актуальный выбор (без ожидания асинхронного старта).
+            preset_path = None
+            try:
+                from zapret1_launcher.preset_selections import write_preset_zapret1_from_selections
+                from strategy_menu import invalidate_direct_selections_cache
+
+                preset_path = write_preset_zapret1_from_selections(self.category_selections)
+                invalidate_direct_selections_cache()
+            except Exception as e:
+                log(f"Не удалось записать preset-zapret1.txt перед запуском: {e}", "WARNING")
 
             # Обновляем цвет иконки вкладки (серая если none, цветная если активна)
             current_tab_index = self._strategy_widget.currentIndex()
             is_inactive = (strategy_id == "none" or not strategy_id)
             self._strategy_widget.update_tab_icon_color(current_tab_index, is_inactive=is_inactive)
 
-            # Обновляем отображение текущих стратегий (читаем из реестра)
+            # Обновляем отображение текущих стратегий (читаем из preset-zapret1.txt)
             self._update_current_strategies_display()
 
             # Обновляем отображение фильтров на странице DPI Settings
@@ -615,22 +620,20 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             # Показываем спиннер загрузки
             self.show_loading()
 
-            # Создаём комбинированную стратегию
-            combined = combine_strategies(**self.category_selections)
-
-            # Создаем объект для запуска Direct режима (Zapret 1)
-            combined_data = {
-                'id': 'DIRECT_MODE',
-                'name': 'Прямой запуск (Zapret 1)',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': self.category_selections.copy()
-            }
-
             # Перезапускаем winws.exe с новыми настройками
             app = self.parent_app
             if hasattr(app, 'dpi_controller') and app.dpi_controller:
-                app.dpi_controller.start_dpi_async(selected_mode=combined_data)
+                if preset_path is None:
+                    from zapret1_launcher.preset_selections import get_preset_zapret1_path
+                    preset_path = get_preset_zapret1_path()
+
+                preset_data = {
+                    'is_preset_file': True,
+                    'name': 'Прямой запуск (Zapret 1)',
+                    'preset_path': str(preset_path),
+                }
+
+                app.dpi_controller.start_dpi_async(selected_mode=preset_data, launch_method="direct_zapret1")
                 log(f"Применена стратегия: {category_key} = {strategy_id}", "DEBUG")
 
                 # Обновляем UI
@@ -878,13 +881,19 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
     def _clear_all(self):
         """Сбрасывает все стратегии в 'none' и останавливает DPI"""
         try:
-            from strategy_menu import save_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
+            from zapret1_launcher.preset_selections import get_preset_zapret1_path
 
             # Устанавливаем все стратегии в "none"
             none_selections = {key: "none" for key in registry.get_all_category_keys()}
-            save_direct_strategy_selections(none_selections)
             self.category_selections = none_selections
+
+            # Обновляем preset-zapret1.txt (делаем пустым, чтобы GUI тоже видел "none")
+            try:
+                preset_path = get_preset_zapret1_path()
+                preset_path.write_text("# Strategy: Disabled\n", encoding="utf-8")
+            except Exception:
+                pass
 
             # Обновляем отображение фильтров (теперь все должны быть выключены)
             self._update_dpi_filters_display()
@@ -908,44 +917,28 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             log(f"Ошибка выключения стратегий: {e}", "ERROR")
 
     def _reset_to_defaults(self):
-        """Сбрасывает настройки реестра к значениям по умолчанию"""
+        """Сбрасывает стратегии к значениям по умолчанию (через preset-zapret1.txt)"""
         try:
-            from config.reg import reg_delete_all_values
-            from strategy_menu import _get_current_strategy_key, invalidate_direct_selections_cache
+            from strategy_menu.strategies_registry import registry
+            from strategy_menu import invalidate_direct_selections_cache
+            from zapret1_launcher.preset_selections import write_preset_zapret1_from_selections
 
-            # Удаляем все значения из реестра (стратегии будут браться по умолчанию)
-            strategy_key = _get_current_strategy_key()
-            reg_delete_all_values(strategy_key)
+            defaults = registry.get_default_selections()
+            self.category_selections = defaults
             invalidate_direct_selections_cache()
+            preset_path = write_preset_zapret1_from_selections(self.category_selections)
 
-            log("Настройки стратегий очищены из реестра", "INFO")
-
-            # Перезагружаем интерфейс (теперь загрузятся значения по умолчанию)
-            self._reload_strategies()
-
-            # Перезапускаем DPI с настройками по умолчанию
             app = self.parent_app
             if hasattr(app, 'dpi_controller') and app.dpi_controller:
-                from strategy_menu import get_direct_strategy_selections, combine_strategies
+                preset_data = {
+                    'is_preset_file': True,
+                    'name': 'Прямой запуск (Zapret 1)',
+                    'preset_path': str(preset_path),
+                }
+                app.dpi_controller.start_dpi_async(selected_mode=preset_data, launch_method="direct_zapret1")
+                log("DPI перезапущен с настройками по умолчанию", "INFO")
 
-                # Загружаем настройки по умолчанию
-                self.category_selections = get_direct_strategy_selections()
-
-                # Проверяем, есть ли активные стратегии
-                if self._has_any_active_strategy(self.category_selections):
-                    combined = combine_strategies(**self.category_selections)
-                    combined_data = {
-                        'id': 'DIRECT_MODE',
-                        'name': 'Прямой запуск (Zapret 1)',
-                        'is_combined': True,
-                        'args': combined['args'],
-                        'selections': self.category_selections.copy()
-                    }
-                    app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-                    log("DPI перезапущен с настройками по умолчанию", "INFO")
-                else:
-                    app.dpi_controller.stop_dpi_async()
-                    log("DPI остановлен (нет активных стратегий по умолчанию)", "INFO")
+            self._reload_strategies()
 
         except Exception as e:
             log(f"Ошибка сброса к значениям по умолчанию: {e}", "ERROR")
@@ -974,6 +967,12 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
         self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
+
+        # Не загружаем контент пока страница скрыта (иначе она начнёт грузить стратегии
+        # для "чужого" режима и будет спамить предупреждения/ошибки).
+        # При следующем показе страницы showEvent сам вызовет _load_content().
+        if not self.isVisible():
+            return
 
         # Загружаем с небольшой задержкой для плавности UI
         QTimer.singleShot(100, self._load_content)

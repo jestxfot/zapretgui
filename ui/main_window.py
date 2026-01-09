@@ -530,6 +530,56 @@ class MainWindowUI:
         # Автоматически запускаем DPI с выбранными стратегиями
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
+
+        # UX: если пользователь меняет метод — логично показать страницу стратегий для этого метода.
+        # Ограничиваемся случаями, когда пользователь уже находится в "стратегийной" зоне UI
+        # (страницы стратегий/деталей/настроек DPI).
+        try:
+            self._redirect_to_strategies_page_for_method(method)
+        except Exception as e:
+            log(f"Ошибка UX-редиректа на страницу стратегий: {e}", "DEBUG")
+
+    def _redirect_to_strategies_page_for_method(self, method: str) -> None:
+        """Переводит на соответствующую страницу стратегий для текущего метода запуска."""
+        from ui.page_names import PageName, SectionName
+
+        current = None
+        try:
+            current = self.pages_stack.currentWidget() if hasattr(self, "pages_stack") else None
+        except Exception:
+            current = None
+
+        strategies_context_pages = set()
+        for attr in (
+            "dpi_settings_page",
+            "zapret2_strategies_page",
+            "zapret2_orchestra_strategies_page",
+            "zapret1_strategies_page",
+            "bat_strategies_page",
+            "strategy_detail_page",
+            "strategy_sort_page",
+        ):
+            page = getattr(self, attr, None)
+            if page is not None:
+                strategies_context_pages.add(page)
+
+        if current is not None and current not in strategies_context_pages:
+            return
+
+        if method == "orchestra":
+            target_page = PageName.ORCHESTRA
+        elif method == "direct_zapret2_orchestra":
+            target_page = PageName.ZAPRET2_ORCHESTRA
+        elif method == "direct_zapret2":
+            target_page = PageName.ZAPRET2_DIRECT
+        elif method == "direct_zapret1":
+            target_page = PageName.ZAPRET1_DIRECT
+        else:  # bat
+            target_page = PageName.BAT_STRATEGIES
+
+        self.show_page(target_page)
+        if hasattr(self, "side_nav"):
+            self.side_nav.set_section_by_name(SectionName.STRATEGIES)
     
     def _auto_start_after_method_switch(self, method: str):
         """Автоматически запускает DPI после переключения метода"""
@@ -707,8 +757,38 @@ class MainWindowUI:
             self.side_nav.setMinimumWidth(0)
             self.side_nav.setMaximumWidth(16777215)  # QWIDGETSIZE_MAX
             
+    def _get_direct_strategy_summary(self, max_items: int = 2) -> str:
+        """Возвращает 'топ-N категорий + +M ещё' для direct_* режимов."""
+        try:
+            from strategy_menu import get_direct_strategy_selections
+            from strategy_menu.strategies_registry import registry
+
+            selections = get_direct_strategy_selections() or {}
+            active_names: list[str] = []
+            for cat_key in registry.get_all_category_keys_by_command_order():
+                sid = selections.get(cat_key, "none") or "none"
+                if sid == "none":
+                    continue
+                info = registry.get_category_info(cat_key)
+                active_names.append(getattr(info, "full_name", None) or cat_key)
+
+            if not active_names:
+                return "Не выбрана"
+            if len(active_names) <= max_items:
+                return " • ".join(active_names)
+            return " • ".join(active_names[:max_items]) + f" +{len(active_names) - max_items} ещё"
+        except Exception:
+            return "Прямой запуск"
+
     def update_current_strategy_display(self, strategy_name: str):
         """Обновляет отображение текущей стратегии"""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                strategy_name = self._get_direct_strategy_summary()
+        except Exception:
+            pass
+
         self.control_page.update_strategy(strategy_name)
 
         # Обновляем на активных страницах стратегий (если метод есть)
@@ -781,6 +861,35 @@ class MainWindowUI:
     def _on_strategy_selected_from_page(self, strategy_id: str, strategy_name: str):
         """Обработчик выбора стратегии из новой страницы"""
         from log import log
+        try:
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+        except Exception:
+            launch_method = "bat"
+
+        sender = None
+        try:
+            sender = self.sender()
+        except Exception:
+            sender = None
+
+        # direct_zapret2: Zapret2StrategiesPageNew emits (category_key, strategy_id).
+        # Do NOT treat it as a single global "strategy", otherwise UI shows a phantom name.
+        if launch_method == "direct_zapret2" and sender is getattr(self, "zapret2_strategies_page", None):
+            category_key = strategy_id
+            category_strategy_id = strategy_name
+            log(f"Direct Zapret2 selection: {category_key} = {category_strategy_id}", "DEBUG")
+
+            display_name = self._get_direct_strategy_summary()
+
+            self.update_current_strategy_display(display_name)
+            if hasattr(self, "parent_app"):
+                try:
+                    self.parent_app.current_strategy_name = display_name
+                except Exception:
+                    pass
+            return
+
         log(f"Стратегия выбрана из страницы: {strategy_id} - {strategy_name}", "INFO")
 
         # Обновляем отображение

@@ -427,21 +427,27 @@ class AppMenuBar(QMenuBar):
                 f"Следующая отправка возможна через {remaining} мин.")
             return
 
-        # Проверяем настройки бота
-        from tgram.tg_log_bot import check_bot_connection
-        
-        if not check_bot_connection():
+        # Проверяем доступность бота/Telegram API и показываем реальную причину
+        from tgram.tg_log_bot import get_bot_connection_info
+
+        bot_ok, bot_error, bot_kind = get_bot_connection_info()
+        if not bot_ok:
+            details = (bot_error or "Неизвестная ошибка").strip()
+            if len(details) > 250:
+                details = details[:250] + "…"
             msg_box = QMessageBox(self._pw)
-            msg_box.setWindowTitle("Бот не настроен")
+            msg_box.setWindowTitle("Бот не настроен" if bot_kind == "config" else "Telegram недоступен")
             msg_box.setIcon(QMessageBox.Icon.Warning)
+            hint = (
+                "Проверьте настройки бота или обратитесь к разработчику."
+                if bot_kind == "config"
+                else "Если Telegram заблокирован — включите VPN/DPI bypass и повторите.\n"
+                     "Если ошибка повторяется — обратитесь к разработчику."
+            )
             msg_box.setText(
-                "Бот для отправки логов не настроен или недоступен.\n\n"
-                "Для настройки:\n"
-                "1. Создайте бота через @BotFather в Telegram\n"
-                "2. Получите токен бота\n"
-                "3. Создайте канал/чат для логов\n"
-                "4. Добавьте бота в канал как администратора\n"
-                "5. Обновите настройки в файле tg_log_bot.py"
+                "Не удалось подключиться к боту для отправки логов.\n\n"
+                f"Причина: {details}\n\n"
+                f"{hint}"
             )
             msg_box.exec()
             return

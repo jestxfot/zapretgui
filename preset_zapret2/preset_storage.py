@@ -189,7 +189,7 @@ def load_preset(name: str) -> Optional["Preset"]:
         )
 
         # Parse metadata from raw_header
-        preset.created, preset.modified = _parse_timestamps_from_header(data.raw_header)
+        preset.created, preset.modified, preset.description = _parse_metadata_from_header(data.raw_header)
 
         # Convert category blocks to CategoryConfig
         for block in data.categories:
@@ -204,9 +204,16 @@ def load_preset(name: str) -> Optional["Preset"]:
 
             cat = preset.categories[cat_name]
 
-            # Restore syndata from syndata_dict if available
+            # Restore per-protocol advanced settings from syndata_dict (if available).
             if hasattr(block, 'syndata_dict') and block.syndata_dict:
-                cat.syndata = SyndataSettings.from_dict(block.syndata_dict)
+                if block.protocol == "tcp":
+                    base = cat.syndata_tcp.to_dict()
+                    base.update(block.syndata_dict)
+                    cat.syndata_tcp = SyndataSettings.from_dict(base)
+                elif block.protocol == "udp":
+                    base = cat.syndata_udp.to_dict()
+                    base.update(block.syndata_dict)
+                    cat.syndata_udp = SyndataSettings.from_dict(base)
 
             # Set args based on protocol
             if block.protocol == "tcp":
@@ -263,32 +270,41 @@ def load_preset(name: str) -> Optional["Preset"]:
         return None
 
 
-def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
+def _parse_metadata_from_header(header: str) -> Tuple[str, str, str]:
     """
-    Parses created/modified timestamps from header comments.
+    Parses created/modified/description metadata from header comments.
 
     Args:
         header: Raw header string
 
     Returns:
-        Tuple of (created, modified) ISO timestamps
+        Tuple of (created, modified, description)
     """
     import re
 
     created = datetime.now().isoformat()
     modified = datetime.now().isoformat()
+    description = ""
 
-    for line in header.split('\n'):
-        # Match # Created: 2026-01-08T12:00:00
+    for line in (header or "").split('\n'):
         created_match = re.match(r'#\s*Created:\s*(.+)', line, re.IGNORECASE)
         if created_match:
             created = created_match.group(1).strip()
 
-        # Match # Modified: 2026-01-08T14:30:00
         modified_match = re.match(r'#\s*Modified:\s*(.+)', line, re.IGNORECASE)
         if modified_match:
             modified = modified_match.group(1).strip()
 
+        desc_match = re.match(r'#\s*Description:\s*(.*)', line, re.IGNORECASE)
+        if desc_match:
+            description = desc_match.group(1).strip()
+
+    return created, modified, description
+
+
+def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
+    """Backward-compatible helper returning (created, modified) only."""
+    created, modified, _desc = _parse_metadata_from_header(header)
     return created, modified
 
 
@@ -373,7 +389,7 @@ def save_preset(preset: "Preset") -> bool:
                     args_lines = [f"--filter-udp={cat.udp_port}"]
                     if cat.filter_mode in ("hostlist", "ipset"):
                         args_lines.append(f"--{cat.filter_mode}={filter_file}")
-                # Use get_full_udp_args() to include syndata/send/out-range
+                # Use get_full_udp_args() to include out-range (UDP has no syndata/send)
                 full_udp_args = cat.get_full_udp_args()
                 for line in full_udp_args.strip().split('\n'):
                     if line.strip():
