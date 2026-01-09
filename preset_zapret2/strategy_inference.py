@@ -16,7 +16,7 @@ Usage:
     )
 """
 
-from typing import Dict
+from typing import Dict, Optional
 from log import log
 
 
@@ -43,14 +43,36 @@ def normalize_args(args: str) -> str:
     if not args:
         return ""
 
-    # Split into lines, strip whitespace, remove empty lines
-    lines = [line.strip() for line in args.strip().split('\n') if line.strip()]
+    # Keep `--new` separators (some strategies are multi-block).
+    blocks: list[list[str]] = [[]]
+    for raw in args.strip().split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line == "--new":
+            blocks.append([])
+            continue
+        blocks[-1].append(line)
 
-    # Sort lines (order doesn't matter for comparison)
-    lines = sorted(lines)
+    # Sort lines inside each block (order inside block should not matter for matching)
+    normalized_blocks = []
+    for block in blocks:
+        if not block:
+            continue
+        normalized_blocks.append("\n".join(sorted(block)).lower())
 
-    # Join back and lowercase
-    return '\n'.join(lines).lower()
+    return "\n--new\n".join(normalized_blocks)
+
+
+def _get_strategy_type_for_category(category_key: str) -> Optional[str]:
+    try:
+        from .catalog import load_categories
+        categories = load_categories()
+        info = categories.get(category_key) or {}
+        st = (info.get("strategy_type") or "").strip()
+        return st or None
+    except Exception:
+        return None
 
 
 def infer_strategy_id_from_args(
@@ -96,8 +118,6 @@ def infer_strategy_id_from_args(
         ... )
         "youtube_tcp_split"
     """
-    from strategy_menu.strategies_registry import registry
-
     # DEBUG: Log input data
     log(f"[INFER] Input for {category_key}: args_len={len(args)}", "DEBUG")
 
@@ -112,16 +132,15 @@ def infer_strategy_id_from_args(
         log(f"Empty args for {category_key}.{protocol}, returning 'none'", "DEBUG")
         return "none"
 
-    # Get category info
-    category_info = registry.get_category_info(category_key)
-    if not category_info:
-        log(f"Category {category_key} not found in registry", "WARNING")
-        return "none"
+    strategy_type = _get_strategy_type_for_category(category_key) or ("udp" if protocol == "udp" else "tcp")
+    try:
+        from .catalog import load_strategies
+        strategies = load_strategies(strategy_type)
+    except Exception:
+        strategies = {}
 
-    # Get all strategies for this category's type
-    strategies = registry.get_category_strategies(category_key)
     if not strategies:
-        log(f"No strategies found for {category_key} (type: {category_info.strategy_type})", "DEBUG")
+        log(f"No strategies found for {category_key} (type: {strategy_type})", "DEBUG")
         return "none"
 
     # DEBUG: Log number of strategies
@@ -130,8 +149,6 @@ def infer_strategy_id_from_args(
     # Search for matching strategy
     first_checked = False
     for strategy_id, strategy_data in strategies.items():
-        # IMPORTANT: Use only args from JSON (without base_filter!)
-        # Because CategoryConfig.tcp_args/udp_args store pure args only
         strategy_args = strategy_data.get("args", "")
         if not strategy_args:
             continue

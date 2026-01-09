@@ -189,16 +189,17 @@ class PresetManager:
 
         log(f"[CACHE] Active preset cache MISS, loading...", "DEBUG")
 
-        # Cache miss or invalid - load preset
-        name = get_active_preset_name()
-        preset = None
-
-        if name and preset_exists(name):
-            preset = load_preset(name)
+        # Source of truth for active state is preset-zapret2.txt.
+        # Important: built-in presets (e.g. Default) are read-only in presets/,
+        # but user changes are applied to preset-zapret2.txt, so loading from
+        # presets/ would return stale data.
+        preset = self._load_from_active_file()
 
         if not preset:
-            # Fallback: parse preset-zapret2.txt directly
-            preset = self._load_from_active_file()
+            # Fallback: load from presets/ folder if active file is missing/corrupted
+            name = get_active_preset_name()
+            if name and preset_exists(name):
+                preset = load_preset(name)
 
         # Update cache
         if preset:
@@ -233,8 +234,29 @@ class PresetManager:
             if name == "Unnamed":
                 name = "Current"
 
+            # Determine built-in flag:
+            # - active file may lose "# Builtin:" header after edits (sync rewrites header),
+            #   so also protect well-known built-ins by name and by the presets/ marker.
+            is_builtin = bool(data.is_builtin) or (name.strip().lower() == "default")
+            try:
+                active_registry_name = get_active_preset_name()
+                if active_registry_name and preset_exists(active_registry_name):
+                    # Lightweight header check to avoid loading full preset model.
+                    preset_path = get_preset_path(active_registry_name)
+                    if preset_path.exists():
+                        head = preset_path.read_text(encoding="utf-8", errors="replace")[:4096]
+                        for raw in head.splitlines():
+                            line = raw.strip().lower()
+                            if line.startswith("# builtin:"):
+                                val = line.split(":", 1)[1].strip() if ":" in line else ""
+                                if val in ("true", "yes", "1"):
+                                    is_builtin = True
+                                break
+            except Exception:
+                pass
+
             # Convert to Preset
-            preset = Preset(name=name, base_args=data.base_args)
+            preset = Preset(name=name, base_args=data.base_args, is_builtin=is_builtin)
 
             for block in data.categories:
                 cat_name = block.category
@@ -247,19 +269,27 @@ class PresetManager:
 
                 cat = preset.categories[cat_name]
 
+                # Restore syndata/send/out-range from parsed dict (if present)
+                if getattr(block, "syndata_dict", None):
+                    cat.syndata = SyndataSettings.from_dict(block.syndata_dict)  # type: ignore[arg-type]
+
                 if block.protocol == "tcp":
                     cat.tcp_args = block.strategy_args
                     cat.tcp_port = block.port
                     cat.tcp_enabled = True
+                    # TCP filter_mode has priority over UDP
+                    cat.filter_mode = block.filter_mode
                 elif block.protocol == "udp":
                     cat.udp_args = block.strategy_args
                     cat.udp_port = block.port
                     cat.udp_enabled = True
+                    # UDP sets filter_mode only if TCP didn't set it
+                    if not cat.filter_mode:
+                        cat.filter_mode = block.filter_mode
 
             # ✅ INFERENCE: Determine strategy_id from args for all categories
             # This is needed because preset files store args but not strategy_id
             from .strategy_inference import infer_strategy_id_from_args
-            from strategy_menu.strategies_registry import registry
 
             for cat_name, cat in preset.categories.items():
                 # Try TCP first (most common)
@@ -272,13 +302,6 @@ class PresetManager:
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
                         log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from tcp_args", "DEBUG")
-                        # ✅ CLEAN: Replace dirty args with clean args from JSON
-                        strategy_data = registry.get_strategy(cat_name, inferred_id)
-                        if strategy_data and "args" in strategy_data:
-                            clean_args = strategy_data["args"]
-                            if clean_args != cat.tcp_args:
-                                log(f"[CLEAN] {cat_name}.tcp_args cleaned: {repr(cat.tcp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
-                                cat.tcp_args = clean_args
                         continue
 
                 # Try UDP if TCP didn't work
@@ -291,13 +314,6 @@ class PresetManager:
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
                         log(f"[INFER] {cat_name}: inferred strategy_id={inferred_id} from udp_args", "DEBUG")
-                        # ✅ CLEAN: Replace dirty args with clean args from JSON
-                        strategy_data = registry.get_strategy(cat_name, inferred_id)
-                        if strategy_data and "args" in strategy_data:
-                            clean_args = strategy_data["args"]
-                            if clean_args != cat.udp_args:
-                                log(f"[CLEAN] {cat_name}.udp_args cleaned: {repr(cat.udp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
-                                cat.udp_args = clean_args
 
             return preset
 
@@ -696,15 +712,19 @@ class PresetManager:
             # Convert categories
             for cat_name, cat in preset.categories.items():
                 if cat.tcp_enabled and cat.has_tcp():
-                    filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                    # Convert to absolute path for winws2.exe and normalize slashes
-                    from config import MAIN_DIRECTORY
-                    filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
+                    from .base_filter import build_category_base_filter_lines
+                    base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
 
-                    args_lines = [
-                        f"--filter-tcp={cat.tcp_port}",
-                        f"--{cat.filter_mode}={filter_file}",
-                    ]
+                    # Fallback: keep old behavior only if base_filter is missing.
+                    args_lines = list(base_filter_lines)
+                    if not args_lines:
+                        filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                        from config import MAIN_DIRECTORY
+                        filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
+                        args_lines = [f"--filter-tcp={cat.tcp_port}"]
+                        if cat.filter_mode in ("hostlist", "ipset"):
+                            args_lines.append(f"--{cat.filter_mode}={filter_file}")
+
                     # Use get_full_tcp_args() to include syndata/send/out-range
                     full_tcp_args = cat.get_full_tcp_args()
                     for line in full_tcp_args.strip().split('\n'):
@@ -714,8 +734,8 @@ class PresetManager:
                     block = CategoryBlock(
                         category=cat_name,
                         protocol="tcp",
-                        filter_mode=cat.filter_mode,
-                        filter_file=filter_file,
+                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                        filter_file="",
                         port=cat.tcp_port,
                         args='\n'.join(args_lines),
                         strategy_args=cat.tcp_args,
@@ -723,15 +743,18 @@ class PresetManager:
                     data.categories.append(block)
 
                 if cat.udp_enabled and cat.has_udp():
-                    # For UDP, typically use ipset
-                    filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                    # Convert to absolute path for winws2.exe and normalize slashes
-                    filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
+                    from .base_filter import build_category_base_filter_lines
+                    base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
 
-                    args_lines = [
-                        f"--filter-udp={cat.udp_port}",
-                        f"--{cat.filter_mode}={filter_file}",
-                    ]
+                    args_lines = list(base_filter_lines)
+                    if not args_lines:
+                        filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                        from config import MAIN_DIRECTORY
+                        filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
+                        args_lines = [f"--filter-udp={cat.udp_port}"]
+                        if cat.filter_mode in ("hostlist", "ipset"):
+                            args_lines.append(f"--{cat.filter_mode}={filter_file}")
+
                     # Use get_full_udp_args() to include syndata/send/out-range
                     full_udp_args = cat.get_full_udp_args()
                     for line in full_udp_args.strip().split('\n'):
@@ -741,8 +764,8 @@ class PresetManager:
                     block = CategoryBlock(
                         category=cat_name,
                         protocol="udp",
-                        filter_mode=cat.filter_mode,
-                        filter_file=filter_file,
+                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                        filter_file="",
                         port=cat.udp_port,
                         args='\n'.join(args_lines),
                         strategy_args=cat.udp_args,
@@ -1105,8 +1128,6 @@ class PresetManager:
             category_key: Category name
             strategy_id: Strategy ID
         """
-        from strategy_menu.strategies_registry import registry
-
         cat = preset.categories.get(category_key)
         if not cat:
             return
@@ -1117,28 +1138,22 @@ class PresetManager:
             cat.udp_args = ""
             return
 
-        # Get args from registry
-        args = registry.get_strategy_args_safe(category_key, strategy_id)
-        log(f"[DEBUG] Strategy args from registry for {category_key}/{strategy_id}: {repr(args)}", "DEBUG")
+        from .catalog import load_categories, load_strategies
+
+        categories = load_categories()
+        category_info = categories.get(category_key) or {}
+        strategy_type = (category_info.get("strategy_type") or "tcp").strip() or "tcp"
+
+        strategies = load_strategies(strategy_type)
+        args = (strategies.get(strategy_id) or {}).get("args", "") or ""
 
         if args:
-            # Clean args: remove filters to avoid duplication
-            # (filters will be added by sync_preset_to_active_file)
-            from .txt_preset_parser import extract_strategy_args
-            clean_args = extract_strategy_args(args)
-            log(f"[DEBUG] Cleaned args: {repr(clean_args)}", "DEBUG")
-
-            # Determine if this is TCP or UDP strategy based on category info
-            category_info = registry.get_category_info(category_key)
-            if category_info:
-                # Most strategies apply to TCP
-                # UDP categories have special handling
-                if "_udp" in category_key or category_info.strategy_type.endswith("_udp"):
-                    cat.udp_args = clean_args
-                    log(f"[DEBUG] Updated {category_key}.udp_args = {repr(clean_args)}", "DEBUG")
-                else:
-                    cat.tcp_args = clean_args
-                    log(f"[DEBUG] Updated {category_key}.tcp_args = {repr(clean_args)}", "DEBUG")
+            protocol = (category_info.get("protocol") or "").upper()
+            is_udp = "UDP" in protocol or "QUIC" in protocol
+            if is_udp:
+                cat.udp_args = args
+            else:
+                cat.tcp_args = args
 
     def set_strategy_selections(
         self,
@@ -1176,19 +1191,23 @@ class PresetManager:
 
     def reset_strategy_selections_to_defaults(self, save_and_sync: bool = True) -> bool:
         """
-        Resets all strategy selections to defaults from registry.
+        Resets all strategy selections to defaults from categories.txt.
 
         Returns:
             True if successful
         """
-        from strategy_menu.strategies_registry import registry
+        from .catalog import load_categories
 
         preset = self.get_active_preset()
         if not preset:
             log(f"Cannot reset strategies: no active preset", "WARNING")
             return False
 
-        defaults = registry.get_default_selections()
+        categories = load_categories()
+        defaults = {
+            key: (info.get("default_strategy") or "none")
+            for key, info in categories.items()
+        }
 
         for cat_key, default_strategy in defaults.items():
             if cat_key not in preset.categories:
@@ -1211,14 +1230,14 @@ class PresetManager:
         Returns:
             True if successful
         """
-        from strategy_menu.strategies_registry import registry
+        from .catalog import load_categories
 
         preset = self.get_active_preset()
         if not preset:
             log(f"Cannot clear strategies: no active preset", "WARNING")
             return False
 
-        for cat_key in registry.get_all_category_keys():
+        for cat_key in load_categories().keys():
             if cat_key not in preset.categories:
                 preset.categories[cat_key] = self._create_category_with_defaults(cat_key)
             preset.categories[cat_key].strategy_id = "none"

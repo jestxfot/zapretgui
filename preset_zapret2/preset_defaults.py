@@ -14,21 +14,17 @@ The content is copied to:
 """
 
 DEFAULT_PRESET_CONTENT = """# Preset: Default
-# Builtin: true
+# ActivePreset: Default
 
-# Base args (общие параметры для всех категорий)
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
-
 --wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
 --wf-udp-out=80,443
-
 --wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
 --wf-raw-part=@windivert.filter/windivert_part.stun.txt
 --wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
-
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin
 --blob=tls2:@bin/tls_clienthello_2.bin
@@ -88,32 +84,39 @@ DEFAULT_PRESET_CONTENT = """# Preset: Default
 --blob=hex_0f0f0f0f:0x0F0F0F0F
 --blob=hex_00:0x00
 
-# Category: youtube (TCP)
 --filter-tcp=80,443
---hostlist=lists/youtube.txt
+--hostlist=C:\ProgramData\ZapretTwoDev\lists\youtube.txt
+--out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
 --lua-desync=multidisorder_legacy:pos=1,midsld
+
 --new
 
-# Category: YouTube QUIC
 --filter-udp=443
---ipset=lists/ipset-youtube.txt
---lua-desync=multidisorder_legacy:pos=1,midsld
+--ipset=C:\ProgramData\ZapretTwoDev\lists\ipset-youtube.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--payload=all
+--lua-desync=fake:repeats=6
+
 --new
 
-# Category: discord (TCP)
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist=lists/discord.txt
+--hostlist=C:\ProgramData\ZapretTwoDev\lists\discord.txt
+--out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
 --lua-desync=multidisorder_legacy:pos=1,midsld
+
 --new
 
-# Category: discord_voice (UDP/STUN)
 --filter-l7=stun,discord
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
 --payload=stun,discord_ip_discovery
---out-range=-d10
 --lua-desync=fake:blob=0x00:repeats=6
 """
 

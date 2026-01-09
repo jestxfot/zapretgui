@@ -230,7 +230,6 @@ def load_preset(name: str) -> Optional["Preset"]:
         # ✅ INFERENCE: Determine strategy_id from args for all categories
         # This is needed because preset files store args but not strategy_id
         from .strategy_inference import infer_strategy_id_from_args
-        from strategy_menu.strategies_registry import registry
 
         for cat_name, cat in preset.categories.items():
             # Try TCP first (most common)
@@ -242,13 +241,6 @@ def load_preset(name: str) -> Optional["Preset"]:
                 )
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id
-                    # ✅ CLEAN: Replace dirty args with clean args from JSON
-                    strategy_data = registry.get_strategy(cat_name, inferred_id)
-                    if strategy_data and "args" in strategy_data:
-                        clean_args = strategy_data["args"]
-                        if clean_args != cat.tcp_args:
-                            log(f"[CLEAN] {cat_name}.tcp_args cleaned: {repr(cat.tcp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
-                            cat.tcp_args = clean_args
                     continue
 
             # Try UDP if TCP didn't work or is empty
@@ -260,13 +252,6 @@ def load_preset(name: str) -> Optional["Preset"]:
                 )
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id
-                    # ✅ CLEAN: Replace dirty args with clean args from JSON
-                    strategy_data = registry.get_strategy(cat_name, inferred_id)
-                    if strategy_data and "args" in strategy_data:
-                        clean_args = strategy_data["args"]
-                        if clean_args != cat.udp_args:
-                            log(f"[CLEAN] {cat_name}.udp_args cleaned: {repr(cat.udp_args[:60])} → {repr(clean_args[:60])}", "DEBUG")
-                            cat.udp_args = clean_args
 
         log(f"[LOAD] Loaded preset '{name}': {len(preset.categories)} categories", "DEBUG")
         for cat_name, cat in preset.categories.items():
@@ -346,15 +331,16 @@ def save_preset(preset: "Preset") -> bool:
         for cat_name, cat in preset.categories.items():
             # TCP block
             if cat.tcp_enabled and cat.has_tcp():
-                filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                # Convert to absolute path for winws2.exe and normalize slashes
-                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
+                from .base_filter import build_category_base_filter_lines
+                base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
 
-                # Build full args
-                args_lines = [
-                    f"--filter-tcp={cat.tcp_port}",
-                    f"--{cat.filter_mode}={filter_file}",
-                ]
+                args_lines = list(base_filter_lines)
+                if not args_lines:
+                    filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                    filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
+                    args_lines = [f"--filter-tcp={cat.tcp_port}"]
+                    if cat.filter_mode in ("hostlist", "ipset"):
+                        args_lines.append(f"--{cat.filter_mode}={filter_file}")
                 # Use get_full_tcp_args() to include syndata/send/out-range
                 full_tcp_args = cat.get_full_tcp_args()
                 # DEBUG: Log what we're saving
@@ -367,8 +353,8 @@ def save_preset(preset: "Preset") -> bool:
                 block = CategoryBlock(
                     category=cat_name,
                     protocol="tcp",
-                    filter_mode=cat.filter_mode,
-                    filter_file=filter_file,
+                    filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                    filter_file="",
                     port=cat.tcp_port,
                     args='\n'.join(args_lines),
                     strategy_args=cat.tcp_args,
@@ -377,15 +363,16 @@ def save_preset(preset: "Preset") -> bool:
 
             # UDP block
             if cat.udp_enabled and cat.has_udp():
-                # For UDP, typically use ipset
-                filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                # Convert to absolute path for winws2.exe and normalize slashes
-                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
+                from .base_filter import build_category_base_filter_lines
+                base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
 
-                args_lines = [
-                    f"--filter-udp={cat.udp_port}",
-                    f"--{cat.filter_mode}={filter_file}",
-                ]
+                args_lines = list(base_filter_lines)
+                if not args_lines:
+                    filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                    filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
+                    args_lines = [f"--filter-udp={cat.udp_port}"]
+                    if cat.filter_mode in ("hostlist", "ipset"):
+                        args_lines.append(f"--{cat.filter_mode}={filter_file}")
                 # Use get_full_udp_args() to include syndata/send/out-range
                 full_udp_args = cat.get_full_udp_args()
                 for line in full_udp_args.strip().split('\n'):
@@ -395,8 +382,8 @@ def save_preset(preset: "Preset") -> bool:
                 block = CategoryBlock(
                     category=cat_name,
                     protocol="udp",
-                    filter_mode=cat.filter_mode,
-                    filter_file=filter_file,
+                    filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                    filter_file="",
                     port=cat.udp_port,
                     args='\n'.join(args_lines),
                     strategy_args=cat.udp_args,

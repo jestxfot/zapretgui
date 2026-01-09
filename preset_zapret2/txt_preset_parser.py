@@ -12,10 +12,13 @@ Supports:
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path, PureWindowsPath
+from typing import Dict, List, Optional, Tuple, Set
 
 from log import log
+
+_CATEGORY_FILTER_CACHE: Optional[Dict[str, List[Tuple[str, Set[str]]]]] = None
+_CATEGORY_INFO_CACHE: Optional[Dict[str, Dict]] = None
 
 
 @dataclass
@@ -145,13 +148,22 @@ def extract_category_from_args(args: str) -> Tuple[str, str, str]:
     # Extract just the filename part for category detection
     match = re.search(r'--(hostlist|ipset)=([^\s]+)', args)
     if not match:
+        # Fallback to domain or IP filters without file paths
+        domains_match = re.search(r'--hostlist-domains=([^\s]+)', args)
+        if domains_match:
+            return ("unknown", "hostlist", domains_match.group(1))
+        ipset_ip_match = re.search(r'--ipset-ip=([^\s]+)', args)
+        if ipset_ip_match:
+            return ("unknown", "ipset", ipset_ip_match.group(1))
         return ("unknown", "", "")
 
     filter_mode = match.group(1)  # "hostlist" or "ipset"
     filter_path = match.group(2)  # full path or just filename
 
     # Get just the filename (remove path)
-    filter_file = Path(filter_path).name
+    # Path() on non-Windows does not treat backslashes as separators,
+    # so we must handle Windows paths explicitly.
+    filter_file = PureWindowsPath(filter_path).name
 
     # Extract category from filename (remove extension and common suffixes)
     # youtube.txt -> youtube
@@ -175,6 +187,164 @@ def extract_category_from_args(args: str) -> Tuple[str, str, str]:
     return (category.lower(), filter_mode, filter_path)
 
 
+def _normalize_ports(value: str) -> str:
+    tokens = [t.strip() for t in value.split(',') if t.strip()]
+    normalized = []
+    for token in tokens:
+        if token == "*":
+            normalized.append("*")
+            continue
+        if "-" in token:
+            start, end = token.split("-", 1)
+            if start.isdigit() and end.isdigit():
+                normalized.append(f"{int(start)}-{int(end)}")
+                continue
+        if token.isdigit():
+            normalized.append(str(int(token)))
+            continue
+        normalized.append(token)
+
+    def _sort_key(item: str) -> tuple:
+        if item == "*":
+            return (2, 0, 0, item)
+        if "-" in item:
+            start, end = item.split("-", 1)
+            if start.isdigit() and end.isdigit():
+                return (1, int(start), int(end), item)
+        if item.isdigit():
+            return (0, int(item), 0, item)
+        return (3, 0, 0, item)
+
+    normalized.sort(key=_sort_key)
+    return ",".join(normalized)
+
+
+def _normalize_csv(value: str) -> str:
+    parts = [p.strip().lower() for p in value.split(",") if p.strip()]
+    parts.sort()
+    return ",".join(parts)
+
+
+def _normalize_filter_token(token: str) -> str:
+    token = token.strip()
+    if not token.startswith("--"):
+        return ""
+
+    key, sep, value = token.partition("=")
+    key = key.lower()
+    value = value.strip().strip('"').strip("'")
+    if value.startswith("@"):
+        value = value[1:]
+
+    if key in ("--filter-tcp", "--filter-udp"):
+        if not sep:
+            return key
+        return f"{key}={_normalize_ports(value)}"
+    if key == "--filter-l7":
+        if not sep:
+            return key
+        return f"{key}={_normalize_csv(value)}"
+    if key in ("--hostlist", "--ipset", "--hostlist-exclude", "--ipset-exclude"):
+        if not sep:
+            return key
+        return f"{key}={PureWindowsPath(value).name}"
+    if key in ("--hostlist-domains", "--ipset-ip", "--payload"):
+        if not sep:
+            return key
+        return f"{key}={_normalize_csv(value)}"
+
+    return ""
+
+
+def _extract_filter_tokens(args: str) -> List[str]:
+    tokens = []
+    for raw in re.split(r"\s+", args.strip()):
+        if not raw:
+            continue
+        normalized = _normalize_filter_token(raw)
+        if normalized:
+            tokens.append(normalized)
+    return tokens
+
+
+def _load_category_filters() -> Dict[str, List[Tuple[str, Set[str]]]]:
+    global _CATEGORY_FILTER_CACHE
+    if _CATEGORY_FILTER_CACHE is not None:
+        return _CATEGORY_FILTER_CACHE
+
+    try:
+        from .catalog import load_categories
+        categories = load_categories()
+    except Exception as e:
+        log(f"Category filters unavailable: {e}", "DEBUG")
+        categories = {}
+
+    filters: Dict[str, List[Tuple[str, Set[str]]]] = {}
+    for key, data in categories.items():
+        variants: List[Tuple[str, set[str]]] = []
+        for mode_key, mode_name in (
+            ("base_filter", "base"),
+            ("base_filter_ipset", "ipset"),
+            ("base_filter_hostlist", "hostlist"),
+        ):
+            raw = data.get(mode_key)
+            if not raw:
+                continue
+            token_set = set(_extract_filter_tokens(raw))
+            if token_set:
+                variants.append((mode_name, token_set))
+        if variants:
+            filters[key] = variants
+
+    _CATEGORY_FILTER_CACHE = filters
+    return _CATEGORY_FILTER_CACHE
+
+
+def _load_category_info() -> Dict[str, Dict]:
+    global _CATEGORY_INFO_CACHE
+    if _CATEGORY_INFO_CACHE is not None:
+        return _CATEGORY_INFO_CACHE
+
+    try:
+        from .catalog import load_categories
+        _CATEGORY_INFO_CACHE = load_categories()
+    except Exception as e:
+        log(f"Category info unavailable: {e}", "DEBUG")
+        _CATEGORY_INFO_CACHE = {}
+
+    return _CATEGORY_INFO_CACHE
+
+
+def infer_category_key_from_args(args: str) -> Tuple[str, Optional[str]]:
+    tokens = set(_extract_filter_tokens(args))
+    if not tokens:
+        return ("unknown", None)
+
+    filters = _load_category_filters()
+    if not filters:
+        return ("unknown", None)
+
+    mode_priority = {"ipset": 2, "hostlist": 1, "base": 0}
+    matches = []
+    for key in sorted(filters.keys()):
+        for mode, base_tokens in filters[key]:
+            if base_tokens and base_tokens.issubset(tokens):
+                matches.append((len(base_tokens), mode_priority.get(mode, -1), key, mode))
+
+    if not matches:
+        return ("unknown", None)
+
+    matches.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    best_score, best_priority, best_key, best_mode = matches[0]
+
+    if len(matches) > 1:
+        second = matches[1]
+        if second[0] == best_score and second[1] == best_priority and second[2] != best_key:
+            log(f"Ambiguous category match for filters: {best_key} vs {second[2]}", "DEBUG")
+
+    return (best_key, best_mode)
+
+
 def extract_protocol_and_port(args: str) -> Tuple[str, str]:
     """
     Extracts protocol and port from filter args.
@@ -187,11 +357,11 @@ def extract_protocol_and_port(args: str) -> Tuple[str, str]:
     """
     # Check for --filter-tcp=port or --filter-udp=port
     # Support single port (443) or multiple ports (80,443)
-    tcp_match = re.search(r'--filter-tcp=([\d,]+)', args)
+    tcp_match = re.search(r'--filter-tcp=([\d,\-\*]+)', args)
     if tcp_match:
         return ("tcp", tcp_match.group(1))
 
-    udp_match = re.search(r'--filter-udp=([\d,]+)', args)
+    udp_match = re.search(r'--filter-udp=([\d,\-\*]+)', args)
     if udp_match:
         return ("udp", udp_match.group(1))
 
@@ -220,7 +390,11 @@ def extract_strategy_args(args: str) -> str:
         # Skip filter, hostlist/ipset, and syndata/send lines
         if line.startswith('--filter-') or \
            line.startswith('--hostlist=') or \
+           line.startswith('--hostlist-domains=') or \
+           line.startswith('--hostlist-exclude=') or \
            line.startswith('--ipset=') or \
+           line.startswith('--ipset-exclude=') or \
+           line.startswith('--ipset-ip=') or \
            line.startswith('--out-range') or \
            line.startswith('--lua-desync=syndata:') or \
            line.startswith('--lua-desync=send:'):
@@ -489,6 +663,13 @@ def parse_preset_content(content: str) -> PresetData:
 
         # Extract category info
         category, filter_mode, filter_file = extract_category_from_args(block_args)
+        inferred_category, inferred_mode = infer_category_key_from_args(block_args)
+        if inferred_category != "unknown":
+            category = inferred_category
+            if not filter_mode and inferred_mode in ("ipset", "hostlist"):
+                filter_mode = inferred_mode
+        if not filter_mode:
+            filter_mode = "hostlist"
         protocol, port = extract_protocol_and_port(block_args)
         strategy_args = extract_strategy_args(block_args)
 
@@ -497,6 +678,29 @@ def parse_preset_content(content: str) -> PresetData:
         syndata_dict.update(extract_syndata_from_args(block_args))
         syndata_dict.update(extract_out_range_from_args(block_args))
         syndata_dict.update(extract_send_from_args(block_args))
+
+        # Clean up: if autottl is already present in a separate syndata line,
+        # strip redundant `:ip_autottl=...` fragments from strategy lines.
+        if syndata_dict.get("autottl_delta") is not None and \
+           syndata_dict.get("autottl_min") is not None and \
+           syndata_dict.get("autottl_max") is not None and strategy_args:
+            autottl_str = f"{syndata_dict['autottl_delta']},{syndata_dict['autottl_min']}-{syndata_dict['autottl_max']}"
+            # Only strip exact matches to avoid breaking strategies that intentionally differ.
+            strategy_args = re.sub(rf":ip_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+            strategy_args = re.sub(rf":ip6_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+
+        has_port_filter = bool(re.search(r'--filter-(tcp|udp)=', block_args))
+        if inferred_category != "unknown" and not has_port_filter:
+            cat_info = _load_category_info().get(inferred_category)
+            if cat_info:
+                proto_raw = str(cat_info.get("protocol", "")).upper()
+                if "UDP" in proto_raw or "QUIC" in proto_raw:
+                    protocol = "udp"
+                elif proto_raw:
+                    protocol = "tcp"
+                ports_raw = cat_info.get("ports")
+                if ports_raw:
+                    port = str(ports_raw).strip()
 
         block = CategoryBlock(
             category=category,
