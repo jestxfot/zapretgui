@@ -26,7 +26,12 @@ except ImportError:
     GITHUB_CONFIG = {"enabled": False}
     GITHUB_AVAILABLE = False
 
-from .config import TELEGRAM_API_HASH, TELEGRAM_API_ID
+# Telegram config is optional and typically not committed (may contain secrets).
+try:
+    from .config import TELEGRAM_API_HASH, TELEGRAM_API_ID
+except ImportError:
+    TELEGRAM_API_ID = None
+    TELEGRAM_API_HASH = None
 
 # Экспортируем функции
 __all__ = [
