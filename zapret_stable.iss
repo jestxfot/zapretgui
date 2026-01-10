@@ -106,6 +106,7 @@ Type: filesandordirs; Name: "{commonappdata}\Zapret"
 Type: files; Name: "{commondesktop}\{#AppName}.lnk"
 
 [UninstallDelete]
+Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 
 [Run]
@@ -290,9 +291,31 @@ begin
 end;
 
 function GetInstallDir(Param: string): string;
+var
+  Candidate: string;
+  I: Integer;
+  Ok: Boolean;
 begin
-  // Всегда используем новый путь
-  Result := ExpandConstant('{commonappdata}\{#DataFolder}');
+  // По умолчанию ставим в Roaming\AppData (если путь "безопасный" по нашим правилам),
+  // иначе откатываемся на ProgramData чтобы не ломать установку.
+  Candidate := ExpandConstant('{userappdata}\{#DataFolder}');
+  Ok := True;
+
+  for I := 1 to Length(Candidate) do
+  begin
+    if not (((Candidate[I] >= 'A') and (Candidate[I] <= 'Z')) or
+            ((Candidate[I] >= 'a') and (Candidate[I] <= 'z')) or
+            (Candidate[I] = '\') or (Candidate[I] = ':')) then
+    begin
+      Ok := False;
+      Break;
+    end;
+  end;
+
+  if Ok then
+    Result := Candidate
+  else
+    Result := ExpandConstant('{commonappdata}\{#DataFolder}');
 end;
 
 function IsAsciiLetter(C: Char): Boolean;
