@@ -252,8 +252,15 @@ class PresetManager:
             except Exception:
                 pass
 
-            # Convert to Preset
-            preset = Preset(name=name, base_args=data.base_args, is_builtin=is_builtin)
+            # Convert to Preset.
+            # NOTE: --debug is a global runtime option; keep it in preset-zapret2.txt,
+            # but don't persist it inside the preset model to avoid leaking it into
+            # presets/ files.
+            preset = Preset(
+                name=name,
+                base_args=self._strip_debug_from_base_args(data.base_args),
+                is_builtin=is_builtin,
+            )
 
             for block in data.categories:
                 cat_name = block.category
@@ -322,6 +329,78 @@ class PresetManager:
         except Exception as e:
             log(f"Error loading from active file: {e}", "ERROR")
             return None
+
+    @staticmethod
+    def _strip_debug_from_base_args(base_args: str) -> str:
+        """ hookup to prevent persisting runtime --debug in preset model """
+        try:
+            lines = (base_args or "").splitlines()
+            kept: list[str] = []
+            for raw in lines:
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                if stripped.lower().startswith("--debug"):
+                    continue
+                kept.append(stripped)
+            return "\n".join(kept).strip()
+        except Exception:
+            return (base_args or "").strip()
+
+    def _maybe_inject_debug_into_base_args(self, base_args: str) -> str:
+        """
+        Injects or removes a `--debug=@...` line in base_args based on the global setting.
+
+        The setting is stored in HKCU\\{REGISTRY_PATH}\\DirectMethod:
+        - DebugLogEnabled (DWORD)
+        - DebugLogFile (REG_SZ, relative path like "logs/zapret_winws2_debug_....log")
+        """
+        import winreg
+        from datetime import datetime
+        from config import REGISTRY_PATH
+
+        cleaned = self._strip_debug_from_base_args(base_args)
+
+        enabled = False
+        debug_file = ""
+        try:
+            direct_path = rf"{REGISTRY_PATH}\DirectMethod"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
+                value, _ = winreg.QueryValueEx(key, "DebugLogEnabled")
+                enabled = bool(value)
+                try:
+                    debug_file, _ = winreg.QueryValueEx(key, "DebugLogFile")
+                except Exception:
+                    debug_file = ""
+        except Exception:
+            enabled = False
+
+        if not enabled:
+            return cleaned
+
+        if not debug_file:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = f"logs/zapret_winws2_debug_{timestamp}.log"
+            try:
+                direct_path = rf"{REGISTRY_PATH}\DirectMethod"
+                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
+                    winreg.SetValueEx(key, "DebugLogFile", 0, winreg.REG_SZ, debug_file)
+            except Exception:
+                pass
+
+        debug_file_norm = str(debug_file).replace("\\", "/").lstrip("@").lstrip("/")
+        debug_line = f"--debug=@{debug_file_norm}"
+
+        lines = cleaned.splitlines() if cleaned else []
+
+        # Insert after last --lua-init line (if present), otherwise at the top.
+        insert_at = 0
+        for i, raw in enumerate(lines):
+            if raw.strip().startswith("--lua-init="):
+                insert_at = i + 1
+
+        lines.insert(insert_at, debug_line)
+        return "\n".join(lines).strip()
 
     def _get_active_file_mtime(self) -> float:
         """
@@ -715,7 +794,7 @@ class PresetManager:
             data = PresetData(
                 name=preset.name,
                 active_preset=preset.name,
-                base_args=preset.base_args,
+                base_args=self._maybe_inject_debug_into_base_args(preset.base_args),
             )
 
             # Build header

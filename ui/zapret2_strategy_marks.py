@@ -43,6 +43,77 @@ def _format_marks_lines(keys: Set[MarkKey]) -> str:
     parts = [f"{cat}\t{sid}" for cat, sid in sorted(keys, key=lambda x: (x[0].lower(), x[1].lower()))]
     return ("\n".join(parts) + "\n") if parts else ""
 
+def _try_load_registry_ratings() -> tuple[Set[MarkKey], Set[MarkKey]]:
+    """
+    Best-effort import of legacy ratings stored in registry via strategy_menu.
+
+    Returns:
+        (work_keys, notwork_keys)
+    """
+    try:
+        from strategy_menu import get_all_strategy_ratings  # type: ignore
+    except Exception:
+        return set(), set()
+
+    try:
+        raw = get_all_strategy_ratings()
+    except Exception:
+        return set(), set()
+
+    work: Set[MarkKey] = set()
+    notwork: Set[MarkKey] = set()
+    if not isinstance(raw, dict):
+        return work, notwork
+
+    for cat, per_cat in raw.items():
+        if not isinstance(cat, str) or not isinstance(per_cat, dict):
+            continue
+        for sid, rating in per_cat.items():
+            if not isinstance(sid, str):
+                continue
+            if rating == "working":
+                work.add((cat, sid))
+            elif rating == "broken":
+                notwork.add((cat, sid))
+
+    notwork.difference_update(work)
+    return work, notwork
+
+
+def _try_load_registry_favorites() -> Set[MarkKey]:
+    """
+    Best-effort import of legacy favorites stored in registry via strategy_menu.
+
+    Returns:
+        Set[(category_key, strategy_id)]
+    """
+    try:
+        from strategy_menu import get_favorite_strategies  # type: ignore
+    except Exception:
+        return set()
+
+    try:
+        raw = get_favorite_strategies()
+    except Exception:
+        return set()
+
+    out: Set[MarkKey] = set()
+    if not isinstance(raw, dict):
+        return out
+
+    for cat, sids in raw.items():
+        if not isinstance(cat, str):
+            continue
+        if not isinstance(sids, (list, tuple, set)):
+            continue
+        for sid in sids:
+            if not isinstance(sid, str):
+                continue
+            sid = sid.strip()
+            if sid:
+                out.add((cat, sid))
+    return out
+
 
 @dataclass
 class DirectZapret2MarksStore:
@@ -71,10 +142,22 @@ class DirectZapret2MarksStore:
         self._work = set()
         self._notwork = set()
 
-        if self.work_path.exists():
+        work_exists = self.work_path.exists()
+        notwork_exists = self.notwork_path.exists()
+
+        if work_exists:
             self._work = _parse_marks_lines(self.work_path.read_text(encoding="utf-8", errors="ignore").splitlines())
-        if self.notwork_path.exists():
+        if notwork_exists:
             self._notwork = _parse_marks_lines(self.notwork_path.read_text(encoding="utf-8", errors="ignore").splitlines())
+
+        # First-run migration from legacy registry ratings -> AppData files.
+        # Only when files are missing, to avoid "resurrecting" cleared marks.
+        if (not work_exists and not notwork_exists) and (not self._work and not self._notwork):
+            work, notwork = _try_load_registry_ratings()
+            if work or notwork:
+                self._work = set(work)
+                self._notwork = set(notwork)
+                self._save()
 
         # Enforce exclusivity (prefer work if duplicates exist)
         self._notwork.difference_update(self._work)
@@ -133,6 +216,13 @@ class DirectZapret2FavoritesStore:
             self._favorites = _parse_marks_lines(
                 self.favorites_path.read_text(encoding="utf-8", errors="ignore").splitlines()
             )
+            return
+
+        # First-run migration from legacy registry favorites -> AppData file.
+        migrated = _try_load_registry_favorites()
+        if migrated:
+            self._favorites = set(migrated)
+            self._save()
 
     def get_favorites(self, category_key: str) -> Set[str]:
         self._ensure_loaded()

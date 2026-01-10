@@ -17,6 +17,8 @@ from ui.pages.base_page import BasePage
 from ui.pages.dpi_settings_page import Win11ToggleRow
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.win11_spinner import Win11Spinner
+from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
+from strategy_menu.args_preview_dialog import ArgsPreviewDialog
 from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
 from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
@@ -660,7 +662,7 @@ class StrategyDetailPage(BasePage):
         self._category_info = None
         self._current_strategy_id = "none"
         self._selected_strategy_id = "none"
-        self._strategy_rows = {}
+        self._strategies_tree = None
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._active_filters = set()  # Активные фильтры по технике
         self._waiting_for_process_start = False  # Флаг ожидания запуска DPI
@@ -681,6 +683,8 @@ class StrategyDetailPage(BasePage):
         self._marks_store = DirectZapret2MarksStore.default()
         self._favorites_store = DirectZapret2FavoritesStore.default()
         self._favorite_strategy_ids = set()
+        self._preview_dialog = None
+        self._strategies_data_by_id = {}
 
         self._build_content()
 
@@ -1525,55 +1529,15 @@ class StrategyDetailPage(BasePage):
 
         self.layout.addLayout(filters_layout)
 
-        # Контейнер для списка стратегий (напрямую в layout, без лишней scroll area)
-        # BasePage уже является QScrollArea
-        self._strategies_container = QWidget()
-        self._strategies_container.setStyleSheet("background: transparent;")
-        self._strategies_container_layout = QVBoxLayout(self._strategies_container)
-        self._strategies_container_layout.setContentsMargins(0, 0, 0, 0)
-        self._strategies_container_layout.setSpacing(6)
-
-        self._favorites_header = QLabel("")
-        self._favorites_header.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.65);
-                font-size: 11px;
-                font-weight: 600;
-                background: transparent;
-                padding: 6px 0 2px 0;
-            }
-        """)
-        self._favorites_header.hide()
-        self._strategies_container_layout.addWidget(self._favorites_header)
-
-        self._favorites_list = QWidget()
-        self._favorites_list.setStyleSheet("background: transparent;")
-        self._favorites_layout = QVBoxLayout(self._favorites_list)
-        self._favorites_layout.setContentsMargins(0, 0, 0, 0)
-        self._favorites_layout.setSpacing(2)
-        self._favorites_list.hide()
-        self._strategies_container_layout.addWidget(self._favorites_list)
-
-        self._favorites_separator = QFrame()
-        self._favorites_separator.setFrameShape(QFrame.Shape.HLine)
-        self._favorites_separator.setStyleSheet("""
-            QFrame {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                max-height: 1px;
-            }
-        """)
-        self._favorites_separator.hide()
-        self._strategies_container_layout.addWidget(self._favorites_separator)
-
-        self._regular_list = QWidget()
-        self._regular_list.setStyleSheet("background: transparent;")
-        self._regular_layout = QVBoxLayout(self._regular_list)
-        self._regular_layout.setContentsMargins(0, 0, 0, 0)
-        self._regular_layout.setSpacing(2)
-        self._strategies_container_layout.addWidget(self._regular_list)
-
-        self.layout.addWidget(self._strategies_container, 1)
+        # Лёгкий список стратегий: item-based, без сотен QWidget в layout
+        self._strategies_tree = DirectZapret2StrategiesTree(self)
+        # Скроллится вся BasePage, дерево растёт по высоте
+        self._strategies_tree.setProperty("noDrag", True)
+        self._strategies_tree.strategy_clicked.connect(self._on_row_clicked)
+        self._strategies_tree.favorite_toggled.connect(self._on_favorite_toggled)
+        self._strategies_tree.working_mark_requested.connect(self._on_tree_working_mark_requested)
+        self._strategies_tree.preview_requested.connect(self._on_tree_preview_requested)
+        self.layout.addWidget(self._strategies_tree, 1)
 
     def show_category(self, category_key: str, category_info, current_strategy_id: str):
         """
@@ -1589,6 +1553,7 @@ class StrategyDetailPage(BasePage):
         self._category_info = category_info
         self._current_strategy_id = current_strategy_id or "none"
         self._selected_strategy_id = self._current_strategy_id
+        self._close_preview_dialog()
         try:
             self._favorite_strategy_ids = self._favorites_store.get_favorites(category_key)
         except Exception:
@@ -1601,7 +1566,7 @@ class StrategyDetailPage(BasePage):
         # Для категорий одного strategy_type (особенно tcp) список стратегий одинаковый,
         # поэтому не пересобираем виджеты каждый раз: это ускоряет повторные переходы.
         new_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
-        reuse_list = bool(self._strategy_rows) and self._loaded_strategy_type == new_strategy_type
+        reuse_list = bool(self._strategies_tree and self._strategies_tree.has_rows()) and self._loaded_strategy_type == new_strategy_type
 
         if not reuse_list:
             # Очищаем старые стратегии
@@ -1609,18 +1574,24 @@ class StrategyDetailPage(BasePage):
             # Загружаем новые
             self._load_strategies()
         else:
-            # Обновляем избранное для новой категории и перестраиваем секции
-            for sid, row in self._strategy_rows.items():
-                row.set_favorite(sid in self._favorite_strategy_ids)
-            self._reflow_strategy_rows()
+            # Обновляем избранное для новой категории
+            for sid in (self._strategies_tree.get_strategy_ids() if self._strategies_tree else []):
+                want_fav = sid in self._favorite_strategy_ids
+                self._strategies_tree.set_favorite_state(sid, want_fav)
+
             # Обновляем отметки working/not working для новой категории
             self._refresh_working_marks_for_category()
 
-            # Обновляем выделение текущей стратегии (если строка уже загружена)
-            for row in self._strategy_rows.values():
-                row.set_selected(False)
-            if self._current_strategy_id in self._strategy_rows:
-                self._strategy_rows[self._current_strategy_id].set_selected(True)
+            # Обновляем выделение текущей стратегии
+            if self._strategies_tree:
+                if self._strategies_tree.has_strategy(self._current_strategy_id):
+                    self._strategies_tree.set_selected_strategy(self._current_strategy_id)
+                elif self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+                else:
+                    self._strategies_tree.clearSelection()
+            # Список не пересобирали: можно сразу прокрутить страницу к текущей стратегии
+            QTimer.singleShot(0, self._scroll_to_current_strategy)
 
         # Обновляем состояние toggle включения
         is_enabled = self._current_strategy_id != "none"
@@ -1649,10 +1620,8 @@ class StrategyDetailPage(BasePage):
             chip.reset()
 
         # Применяем сохранённую сортировку (если не default)
-        if self._sort_mode != "default":
-            self._apply_sort()
-        else:
-            self._reflow_strategy_rows()
+        self._apply_sort()
+        self._apply_filters()
 
         # Загружаем syndata настройки для категории
         syndata_settings = self._load_syndata_settings(category_key)
@@ -1684,6 +1653,32 @@ class StrategyDetailPage(BasePage):
 
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
+    def _scroll_to_current_strategy(self) -> None:
+        """Прокручивает страницу к текущей стратегии (не меняя порядок списка)."""
+        if not self._strategies_tree:
+            return
+
+        sid = self._current_strategy_id or "none"
+        if sid == "none":
+            try:
+                bar = self.verticalScrollBar()
+                bar.setValue(bar.minimum())
+            except Exception:
+                pass
+            return
+
+        rect = self._strategies_tree.get_strategy_item_rect(sid)
+        if rect is None:
+            return
+
+        try:
+            vp = self._strategies_tree.viewport()
+            center = vp.mapTo(self.content, rect.center())
+            # ymargin: немного контекста вокруг строки
+            self.ensureVisible(center.x(), center.y(), 0, 64)
+        except Exception:
+            pass
+
     def _clear_strategies(self):
         """Очищает список стратегий"""
         # Останавливаем ленивую загрузку если она идёт
@@ -1698,14 +1693,12 @@ class StrategyDetailPage(BasePage):
         self._pending_strategies_items = []
         self._pending_strategies_index = 0
 
-        for row in self._strategy_rows.values():
-            row.deleteLater()
-        self._strategy_rows.clear()
+        if self._strategies_tree:
+            self._strategies_tree.clear_strategies()
+        self._strategies_data_by_id = {}
         self._loaded_strategy_type = None
         self._default_strategy_order = []
         self._strategies_loaded_fully = False
-        self._favorite_strategy_ids = set()
-        self._update_favorites_section_visibility()
 
     def _load_strategies(self):
         """Загружает стратегии для текущей категории"""
@@ -1723,6 +1716,7 @@ class StrategyDetailPage(BasePage):
             # Получаем стратегии для категории
             strategies = registry.get_category_strategies(self._category_key)
             log(f"StrategyDetailPage: загружено {len(strategies)} стратегий для {self._category_key}", "DEBUG")
+            self._strategies_data_by_id = dict(strategies or {})
 
             self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
             self._default_strategy_order = list(strategies.keys())
@@ -1745,21 +1739,9 @@ class StrategyDetailPage(BasePage):
             # Лениво добавляем строки порциями, чтобы не фризить UI
             items = list(strategies.items())
 
-            # Приоритет: текущая стратегия и дефолтная, чтобы пользователь видел "своё" раньше
-            try:
-                from strategy_menu.strategies_registry import registry as _r
-                default_id = _r.get_default_selections().get(self._category_key)
-            except Exception:
-                default_id = None
-
-            priority = []
-            seen = set()
-            for pid in (self._current_strategy_id, default_id):
-                if pid and pid in strategies and pid not in seen:
-                    priority.append((pid, strategies[pid]))
-                    seen.add(pid)
-            rest = [(sid, data) for sid, data in items if sid not in seen]
-            self._pending_strategies_items = priority + rest
+            # "default" порядок UI должен совпадать с порядком в источнике (tcp.txt и т.п.).
+            # Текущую/дефолтную стратегию НЕ поднимаем.
+            self._pending_strategies_items = items
             self._pending_strategies_index = 0
             self._strategies_load_generation += 1
             gen = self._strategies_load_generation
@@ -1809,7 +1791,10 @@ class StrategyDetailPage(BasePage):
         end = min(start + chunk_size, len(self._pending_strategies_items))
 
         try:
-            self.setUpdatesEnabled(False)
+            if self._strategies_tree:
+                self._strategies_tree.setUpdatesEnabled(False)
+            else:
+                self.setUpdatesEnabled(False)
 
             for i in range(start, end):
                 sid, data = self._pending_strategies_items[i]
@@ -1819,12 +1804,15 @@ class StrategyDetailPage(BasePage):
                     args = args.split()
                 self._add_strategy_row(sid, name, args)
 
-                if sid == self._current_strategy_id and sid in self._strategy_rows:
-                    self._strategy_rows[sid].set_selected(True)
+                if sid == self._current_strategy_id and self._strategies_tree:
+                    self._strategies_tree.set_selected_strategy(sid)
 
         finally:
             try:
-                self.setUpdatesEnabled(True)
+                if self._strategies_tree:
+                    self._strategies_tree.setUpdatesEnabled(True)
+                else:
+                    self.setUpdatesEnabled(True)
             except Exception:
                 pass
 
@@ -1845,50 +1833,183 @@ class StrategyDetailPage(BasePage):
                 self._strategies_load_timer.deleteLater()
                 self._strategies_load_timer = None
 
-            log(f"StrategyDetailPage: добавлено {len(self._strategy_rows)} строк стратегий", "DEBUG")
+            added = len(self._strategies_tree.get_strategy_ids()) if self._strategies_tree else 0
+            log(f"StrategyDetailPage: добавлено {added} строк стратегий", "DEBUG")
             self._strategies_loaded_fully = True
             self._refresh_working_marks_for_category()
 
             # Sort after all rows are present (important for lazy load)
-            if self._sort_mode != "default":
-                self._apply_sort()
+            self._apply_sort()
+            # Restore active selection highlight after any sorting/filtering
+            if self._strategies_tree:
+                if self._strategies_tree.has_strategy(self._current_strategy_id):
+                    self._strategies_tree.set_selected_strategy(self._current_strategy_id)
+                elif self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+            # После построения списка прокручиваем страницу к текущей стратегии
+            QTimer.singleShot(0, self._scroll_to_current_strategy)
 
     def _add_strategy_row(self, strategy_id: str, name: str, args: list = None):
         """Добавляет строку стратегии в список"""
-        row = StrategyRow(strategy_id, name, args)
-        row.clicked.connect(lambda sid=strategy_id: self._on_row_clicked(sid))
-        row.favorite_toggled.connect(lambda sid, fav: self._on_favorite_toggled(sid, fav))
-        row.marked_working.connect(lambda sid, is_working: self._on_strategy_marked(sid, is_working))
-        self._strategy_rows[strategy_id] = row
-        row.set_favorite(strategy_id in self._favorite_strategy_ids)
-        self._place_row_widget(row)
-        if self._sort_mode != "default":
-            self._reflow_strategy_rows()
+        if not self._strategies_tree:
+            return
 
-        # Apply persisted working/notworking mark (if any)
+        args_list = []
+        for a in (args or []):
+            if a is None:
+                continue
+            text = str(a).strip()
+            if not text:
+                continue
+            args_list.append(text)
+
+        is_favorite = (strategy_id != "none") and (strategy_id in self._favorite_strategy_ids)
+        is_working = None
         if self._category_key and strategy_id != "none":
-            row.set_working_state(self._marks_store.get_mark(self._category_key, strategy_id))
+            try:
+                is_working = self._marks_store.get_mark(self._category_key, strategy_id)
+            except Exception:
+                is_working = None
+
+        self._strategies_tree.add_strategy(
+            StrategyTreeRow(
+                strategy_id=strategy_id,
+                name=name,
+                args=args_list,
+                is_favorite=is_favorite,
+                is_working=is_working,
+            )
+        )
+
+    def _get_preview_strategy_data(self, strategy_id: str) -> dict:
+        data = dict(self._strategies_data_by_id.get(strategy_id, {}) or {})
+        if "name" not in data:
+            data["name"] = strategy_id
+
+        args = data.get("args", [])
+        if isinstance(args, str):
+            args_text = args
+        elif isinstance(args, (list, tuple)):
+            args_text = "\n".join([str(a) for a in args if a is not None]).strip()
+        else:
+            args_text = ""
+        data["args"] = args_text
+        return data
+
+    def _get_preview_rating(self, strategy_id: str, category_key: str):
+        if not (category_key and strategy_id and strategy_id != "none"):
+            return None
+        try:
+            mark = self._marks_store.get_mark(category_key, strategy_id)
+        except Exception:
+            return None
+        if mark is True:
+            return "working"
+        if mark is False:
+            return "broken"
+        return None
+
+    def _toggle_preview_rating(self, strategy_id: str, rating: str, category_key: str):
+        if not (category_key and strategy_id and strategy_id != "none"):
+            return None
+        current = None
+        try:
+            current = self._marks_store.get_mark(category_key, strategy_id)
+        except Exception:
+            current = None
+
+        if rating == "working":
+            new_state = None if current is True else True
+        elif rating == "broken":
+            new_state = None if current is False else False
+        else:
+            new_state = None
+
+        try:
+            self._marks_store.set_mark(category_key, strategy_id, new_state)
+        except Exception as e:
+            log(f"Ошибка сохранения пометки стратегии (preview): {e}", "WARNING")
+            return self._get_preview_rating(strategy_id, category_key)
+
+        if self._strategies_tree:
+            self._strategies_tree.set_working_state(strategy_id, new_state)
+
+        if new_state is True:
+            return "working"
+        if new_state is False:
+            return "broken"
+        return None
+
+    def _close_preview_dialog(self):
+        if self._preview_dialog is None:
+            return
+        try:
+            self._preview_dialog.close_dialog()
+        except Exception:
+            try:
+                self._preview_dialog.close()
+            except Exception:
+                pass
+        self._preview_dialog = None
+
+    def _on_tree_preview_requested(self, strategy_id: str, global_pos):
+        if not (self._category_key and strategy_id and strategy_id != "none"):
+            return
+
+        data = self._get_preview_strategy_data(strategy_id)
+
+        try:
+            if self._preview_dialog is None:
+                self._preview_dialog = ArgsPreviewDialog(self)
+                self._preview_dialog.closed.connect(lambda: setattr(self, "_preview_dialog", None))
+            else:
+                try:
+                    if self._preview_dialog.isVisible():
+                        pass
+                except RuntimeError:
+                    self._preview_dialog = ArgsPreviewDialog(self)
+                    self._preview_dialog.closed.connect(lambda: setattr(self, "_preview_dialog", None))
+
+            self._preview_dialog.set_strategy_data(
+                data,
+                strategy_id=strategy_id,
+                source_widget=self,
+                category_key=self._category_key,
+                rating_getter=self._get_preview_rating,
+                rating_toggler=self._toggle_preview_rating,
+            )
+
+            pos = global_pos
+            try:
+                # QPointF -> QPoint
+                pos = global_pos.toPoint()
+            except Exception:
+                pass
+            self._preview_dialog.show_animated(pos)
+
+        except Exception as e:
+            log(f"Preview dialog failed: {e}", "DEBUG")
 
     def _refresh_working_marks_for_category(self):
-        if not self._category_key:
+        if not (self._category_key and self._strategies_tree):
             return
-        for strategy_id, row in self._strategy_rows.items():
+        for strategy_id in self._strategies_tree.get_strategy_ids():
             if strategy_id == "none":
                 continue
             try:
-                row.set_working_state(self._marks_store.get_mark(self._category_key, strategy_id))
+                self._strategies_tree.set_working_state(
+                    strategy_id, self._marks_store.get_mark(self._category_key, strategy_id)
+                )
             except Exception:
                 pass
 
     def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool):
         """Обработчик переключения избранного"""
-        if not self._category_key:
+        if not (self._category_key and self._strategies_tree):
             return
         if not strategy_id or strategy_id == "none":
             # "Отключено" не делаем избранным
-            row = self._strategy_rows.get(strategy_id)
-            if row:
-                row.set_favorite(False)
+            self._strategies_tree.set_favorite_state("none", False)
             return
 
         try:
@@ -1899,70 +2020,19 @@ class StrategyDetailPage(BasePage):
                 self._favorite_strategy_ids.discard(strategy_id)
         except Exception as e:
             log(f"Favorite persist failed: {e}", "WARNING")
-            row = self._strategy_rows.get(strategy_id)
-            if row:
-                row.set_favorite(not bool(is_favorite))
+            # Откатываем UI, дерево уже успело оптимистично обновиться
+            self._strategies_tree.set_favorite_state(strategy_id, not bool(is_favorite))
             return
 
-        self._reflow_strategy_rows()
         log(f"Favorite toggled: {strategy_id} = {is_favorite}", "DEBUG")
 
-    def _update_favorites_section_visibility(self):
-        count = len(self._favorite_strategy_ids or set())
-        show = count > 0
-        if show:
-            self._favorites_header.setText(f"★ Избранные ({count})")
-        self._favorites_header.setVisible(show)
-        self._favorites_list.setVisible(show)
-        self._favorites_separator.setVisible(show)
-
-    def _take_all_widgets(self, layout: QVBoxLayout) -> list[QWidget]:
-        widgets: list[QWidget] = []
-        while layout.count():
-            item = layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                widgets.append(w)
-        return widgets
-
-    def _place_row_widget(self, row: "StrategyRow"):
-        if row.is_favorite():
-            self._favorites_layout.addWidget(row)
-        else:
-            self._regular_layout.addWidget(row)
-        self._update_favorites_section_visibility()
-
-    def _reflow_strategy_rows(self):
-        """Перестраивает порядок строк с секцией избранных сверху."""
-        if not self._strategy_rows:
-            self._update_favorites_section_visibility()
+    def _on_tree_working_mark_requested(self, strategy_id: str, is_working):
+        """Запрос из UI (ПКМ) на пометку стратегии."""
+        if not (self._category_key and strategy_id and strategy_id != "none"):
             return
-
-        fav_ids = set(self._favorite_strategy_ids or set())
-        # Вызов может прийти во время lazy-load, когда часть строк ещё не создана.
-        existing_ids = list(self._strategy_rows.keys())
-
-        if self._sort_mode == "name_asc":
-            existing_ids.sort(key=lambda sid: (self._strategy_rows[sid]._name or "").lower())
-        elif self._sort_mode == "name_desc":
-            existing_ids.sort(key=lambda sid: (self._strategy_rows[sid]._name or "").lower(), reverse=True)
-        else:
-            order_index = {sid: i for i, sid in enumerate(self._default_strategy_order or [])}
-            existing_ids.sort(key=lambda sid: order_index.get(sid, 10**9))
-
-        fav_order = [sid for sid in existing_ids if sid in fav_ids]
-        reg_order = [sid for sid in existing_ids if sid not in fav_ids]
-
-        # Вытаскиваем все виджеты и переукладываем по порядку
-        self._take_all_widgets(self._favorites_layout)
-        self._take_all_widgets(self._regular_layout)
-
-        for sid in fav_order:
-            self._favorites_layout.addWidget(self._strategy_rows[sid])
-        for sid in reg_order:
-            self._regular_layout.addWidget(self._strategy_rows[sid])
-
-        self._update_favorites_section_visibility()
+        self._on_strategy_marked(strategy_id, is_working)
+        if self._strategies_tree:
+            self._strategies_tree.set_working_state(strategy_id, is_working)
 
     def _on_strategy_marked(self, strategy_id: str, is_working):
         """Обработчик пометки стратегии как рабочей/нерабочей"""
@@ -1992,13 +2062,9 @@ class StrategyDetailPage(BasePage):
             # Включаем - восстанавливаем последнюю стратегию (если была), иначе дефолтную
             strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
             if strategy_to_select and strategy_to_select != "none":
-                # Снимаем выделение с предыдущей
-                if self._selected_strategy_id in self._strategy_rows:
-                    self._strategy_rows[self._selected_strategy_id].set_selected(False)
-                # Выделяем новую
-                if strategy_to_select in self._strategy_rows:
-                    self._strategy_rows[strategy_to_select].set_selected(True)
                 self._selected_strategy_id = strategy_to_select
+                if self._strategies_tree:
+                    self._strategies_tree.set_selected_strategy(strategy_to_select)
                 # Показываем анимацию загрузки
                 self.show_loading()
                 self.strategy_selected.emit(self._category_key, strategy_to_select)
@@ -2013,9 +2079,11 @@ class StrategyDetailPage(BasePage):
                 self._last_enabled_strategy_id = self._selected_strategy_id
             # Выключаем - устанавливаем "none"
             self._selected_strategy_id = "none"
-            # Снимаем выделение со всех стратегий
-            for row in self._strategy_rows.values():
-                row.set_selected(False)
+            if self._strategies_tree:
+                if self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+                else:
+                    self._strategies_tree.clearSelection()
             # Скрываем галочку
             self._stop_loading()
             self._success_icon.hide()
@@ -2032,20 +2100,20 @@ class StrategyDetailPage(BasePage):
             defaults = registry.get_default_selections()
             if self._category_key in defaults:
                 default_id = defaults[self._category_key]
-                if default_id and default_id != "none" and default_id in self._strategy_rows:
+                if default_id and default_id != "none" and (default_id in (self._default_strategy_order or [])):
                     return default_id
 
             # Иначе берём первую стратегию из списка (не none)
-            for sid in self._strategy_rows.keys():
-                if sid != "none":
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
                     return sid
 
             return "none"
         except Exception as e:
             log(f"Ошибка получения стратегии по умолчанию: {e}", "DEBUG")
             # Fallback - первая не-none стратегия
-            for sid in self._strategy_rows.keys():
-                if sid != "none":
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
                     return sid
             return "none"
 
@@ -2293,15 +2361,18 @@ class StrategyDetailPage(BasePage):
             except Exception:
                 current_strategy_id = "none"
 
-            # Clear selection visuals
-            for row in self._strategy_rows.values():
-                row.set_selected(False)
-
             self._selected_strategy_id = current_strategy_id or "none"
             self._current_strategy_id = current_strategy_id or "none"
 
-            if self._selected_strategy_id != "none" and self._selected_strategy_id in self._strategy_rows:
-                self._strategy_rows[self._selected_strategy_id].set_selected(True)
+            if self._strategies_tree:
+                if self._selected_strategy_id != "none":
+                    self._strategies_tree.set_selected_strategy(self._selected_strategy_id)
+                elif self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+                else:
+                    self._strategies_tree.clearSelection()
+
+            if self._selected_strategy_id != "none":
                 self._enable_toggle.setChecked(True, block_signals=True)
                 # Consider this as "applied"
                 self._stop_loading()
@@ -2315,13 +2386,9 @@ class StrategyDetailPage(BasePage):
         """Обработчик клика по строке стратегии - выбор активной"""
         prev_strategy_id = self._selected_strategy_id
 
-        # Снимаем выделение с предыдущей
-        if self._selected_strategy_id in self._strategy_rows:
-            self._strategy_rows[self._selected_strategy_id].set_selected(False)
-        # Выделяем новую
-        if strategy_id in self._strategy_rows:
-            self._strategy_rows[strategy_id].set_selected(True)
         self._selected_strategy_id = strategy_id
+        if self._strategies_tree:
+            self._strategies_tree.set_selected_strategy(strategy_id)
 
         # При смене стратегии закрываем редактор args (чтобы не редактировать "не то")
         if prev_strategy_id != strategy_id:
@@ -2563,23 +2630,14 @@ class StrategyDetailPage(BasePage):
 
     def _apply_filters(self):
         """Применяет фильтры по технике к списку стратегий"""
-        search_text = self._search_input.text().lower().strip() if self._search_input else ""
-
-        for strategy_id, row in self._strategy_rows.items():
-            visible = True
-
-            # Фильтр по поиску (только по args)
-            if search_text:
-                args_text = " ".join(row._args).lower() if row._args else ""
-                visible = search_text in args_text
-
-            # Фильтр по технике (если есть активные фильтры)
-            if visible and self._active_filters:
-                args_text = " ".join(row._args).lower() if row._args else ""
-                has_technique = any(t in args_text for t in self._active_filters)
-                visible = has_technique
-
-            row.setVisible(visible)
+        if not self._strategies_tree:
+            return
+        search_text = self._search_input.text() if self._search_input else ""
+        self._strategies_tree.apply_filter(search_text, self._active_filters)
+        # Filtering/hiding can drop visual selection; restore for the active strategy if visible.
+        sid = self._selected_strategy_id or self._current_strategy_id or "none"
+        if sid and self._strategies_tree.has_strategy(sid) and self._strategies_tree.is_strategy_visible(sid):
+            self._strategies_tree.set_selected_strategy(sid)
 
     def _show_sort_menu(self):
         """Показывает меню сортировки"""
@@ -2622,6 +2680,11 @@ class StrategyDetailPage(BasePage):
 
     def _apply_sort(self):
         """Применяет текущую сортировку"""
-        if not self._strategy_rows:
+        if not self._strategies_tree:
             return
-        self._reflow_strategy_rows()
+        self._strategies_tree.set_sort_mode(self._sort_mode)
+        self._strategies_tree.apply_sort()
+        # Sorting (takeChildren/addChild) may reset selection in Qt; restore it.
+        sid = self._selected_strategy_id or self._current_strategy_id or "none"
+        if sid and self._strategies_tree.has_strategy(sid):
+            self._strategies_tree.set_selected_strategy(sid)

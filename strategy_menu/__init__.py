@@ -663,9 +663,36 @@ def set_debug_log_enabled(enabled: bool) -> bool:
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
             winreg.SetValueEx(key, "DebugLogEnabled", 0, winreg.REG_DWORD, int(enabled))
+            if enabled:
+                try:
+                    winreg.QueryValueEx(key, "DebugLogFile")
+                except Exception:
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    winreg.SetValueEx(
+                        key,
+                        "DebugLogFile",
+                        0,
+                        winreg.REG_SZ,
+                        f"logs/zapret_winws2_debug_{timestamp}.log",
+                    )
+            else:
+                try:
+                    winreg.DeleteValue(key, "DebugLogFile")
+                except Exception:
+                    pass
             return True
     except:
         return False
+
+def get_debug_log_file() -> str:
+    """Получает относительный путь к debug лог-файлу winws2 (без @)."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
+            value, _ = winreg.QueryValueEx(key, "DebugLogFile")
+            return str(value or "")
+    except Exception:
+        return ""
 
 
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
@@ -1117,6 +1144,7 @@ __all__ = [
 
     # Debug log настройки
     'get_debug_log_enabled',
+    'get_debug_log_file',
     'set_debug_log_enabled',
     
     # Выборы стратегий

@@ -225,6 +225,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
             if self.running_process.poll() is None:
                 log(f"Hot-reload successful (PID: {self.running_process.pid})", "SUCCESS")
+                self.current_strategy_args = [f"@{self._preset_file_path}"]
                 return True
             else:
                 exit_code = self.running_process.returncode
@@ -238,11 +239,13 @@ class StrategyRunnerV2(StrategyRunnerBase):
                     pass
 
                 self.running_process = None
+                self.current_strategy_args = None
                 return False
 
         except Exception as e:
             log(f"Error starting from preset: {e}", "ERROR")
             self.running_process = None
+            self.current_strategy_args = None
             return False
 
     def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:

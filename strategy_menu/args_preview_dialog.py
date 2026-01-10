@@ -35,7 +35,64 @@ class ArgsPreviewDialog(QDialog):
         
         self.init_ui()
         self.setWindowOpacity(0.0)
-        
+
+    def wheelEvent(self, event):
+        """
+        Do not block page scrolling when the preview is under the cursor.
+
+        If the wheel is over the args text area and it can scroll, keep default
+        behavior. Otherwise, forward scrolling to the source_widget (usually a
+        QScrollArea page), so users can keep scrolling the strategies list/page
+        while the preview is visible.
+        """
+        try:
+            pos = event.position().toPoint()
+            child = self.childAt(pos)
+        except Exception:
+            child = None
+
+        # Allow scrolling inside args_text if there is room to scroll.
+        try:
+            if child and (child is self.args_text or self.args_text.isAncestorOf(child)):
+                sb = self.args_text.verticalScrollBar()
+                dy = event.angleDelta().y()
+                if (dy > 0 and sb.value() > sb.minimum()) or (dy < 0 and sb.value() < sb.maximum()):
+                    return super().wheelEvent(event)
+        except Exception:
+            pass
+
+        src = getattr(self, "source_widget", None)
+        if src is None:
+            event.ignore()
+            return
+
+        try:
+            sb = src.verticalScrollBar()
+        except Exception:
+            event.ignore()
+            return
+
+        try:
+            steps = int(event.angleDelta().y() / 120)
+        except Exception:
+            steps = 0
+
+        if steps:
+            delta = steps * max(10, int(sb.singleStep() or 10)) * 3
+        else:
+            # Smooth scrolling devices
+            try:
+                delta = int(event.pixelDelta().y() or 0)
+            except Exception:
+                delta = 0
+
+        if delta:
+            sb.setValue(sb.value() - delta)
+            event.accept()
+            return
+
+        event.ignore()
+
     def init_ui(self):
         """Инициализация компактного интерфейса"""
         main_layout = QVBoxLayout(self)
@@ -237,11 +294,21 @@ class ArgsPreviewDialog(QDialog):
         painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
         painter.drawPath(path)
         
-    def set_strategy_data(self, strategy_data, strategy_id=None, source_widget=None, category_key=None):
+    def set_strategy_data(
+        self,
+        strategy_data,
+        strategy_id=None,
+        source_widget=None,
+        category_key=None,
+        rating_getter=None,
+        rating_toggler=None,
+    ):
         """Устанавливает данные стратегии"""
         self.current_strategy_id = strategy_id
         self.current_category_key = category_key
         self.source_widget = source_widget
+        self._rating_getter = rating_getter
+        self._rating_toggler = rating_toggler
         
         # Заголовок
         name = strategy_data.get('name', strategy_id or 'Стратегия')
@@ -348,9 +415,16 @@ class ArgsPreviewDialog(QDialog):
             self.broken_button.setStyleSheet(self._get_rating_button_style(False, 'broken'))
             return
 
-        from strategy_menu import get_strategy_rating
         category_key = getattr(self, 'current_category_key', None)
-        current_rating = get_strategy_rating(self.current_strategy_id, category_key)
+        current_rating = None
+        if getattr(self, "_rating_getter", None):
+            try:
+                current_rating = self._rating_getter(self.current_strategy_id, category_key)
+            except Exception:
+                current_rating = None
+        else:
+            from strategy_menu import get_strategy_rating
+            current_rating = get_strategy_rating(self.current_strategy_id, category_key)
 
         self.working_button.setStyleSheet(self._get_rating_button_style(current_rating == 'working', 'working'))
         self.broken_button.setStyleSheet(self._get_rating_button_style(current_rating == 'broken', 'broken'))
@@ -360,9 +434,16 @@ class ArgsPreviewDialog(QDialog):
         if not hasattr(self, 'current_strategy_id') or not self.current_strategy_id:
             return
 
-        from strategy_menu import toggle_strategy_rating
         category_key = getattr(self, 'current_category_key', None)
-        new_rating = toggle_strategy_rating(self.current_strategy_id, rating, category_key)
+        new_rating = None
+        if getattr(self, "_rating_toggler", None):
+            try:
+                new_rating = self._rating_toggler(self.current_strategy_id, rating, category_key)
+            except Exception:
+                new_rating = None
+        else:
+            from strategy_menu import toggle_strategy_rating
+            new_rating = toggle_strategy_rating(self.current_strategy_id, rating, category_key)
         self._update_rating_buttons()
         # Уведомляем об изменении рейтинга
         self.rating_changed.emit(self.current_strategy_id, new_rating or "")
@@ -464,7 +545,7 @@ class StrategyPreviewManager:
             except Exception as e:
                 log(f"Ошибка в callback рейтинга: {e}", "ERROR")
 
-    def show_preview(self, widget, strategy_id, strategy_data, category_key=None):
+    def show_preview(self, widget, strategy_id, strategy_data, category_key=None, rating_getter=None, rating_toggler=None):
         # Проверяем что старый диалог ещё существует и не удалён Qt
         try:
             if self.preview_dialog is not None:
@@ -482,7 +563,14 @@ class StrategyPreviewManager:
         self.preview_dialog = ArgsPreviewDialog(widget)
         self.preview_dialog.closed.connect(self._on_preview_closed)
         self.preview_dialog.rating_changed.connect(self._on_rating_changed)
-        self.preview_dialog.set_strategy_data(strategy_data, strategy_id, source_widget=widget, category_key=category_key)
+        self.preview_dialog.set_strategy_data(
+            strategy_data,
+            strategy_id,
+            source_widget=widget,
+            category_key=category_key,
+            rating_getter=rating_getter,
+            rating_toggler=rating_toggler,
+        )
 
         cursor_pos = widget.mapToGlobal(widget.rect().center())
 

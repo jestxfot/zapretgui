@@ -1326,6 +1326,23 @@ class DpiSettingsPage(BasePage):
     def _on_filter_changed(self, setter_func, value):
         """Обработчик изменения фильтра"""
         setter_func(value)
+
+        # Для direct_zapret2 физически пишем --debug в preset-zapret2.txt,
+        # чтобы winws2 получал его из @file (а не только из CLI).
+        try:
+            if getattr(setter_func, "__name__", "") == "set_debug_log_enabled":
+                from strategy_menu import get_strategy_launch_method
+                if get_strategy_launch_method() == "direct_zapret2":
+                    from preset_zapret2 import PresetManager, ensure_default_preset_exists
+
+                    ensure_default_preset_exists()
+                    manager = PresetManager()
+                    preset = manager.get_active_preset()
+                    if preset:
+                        manager.sync_preset_to_active_file(preset)
+        except Exception as e:
+            log(f"Ошибка обновления preset-zapret2.txt для --debug: {e}", "DEBUG")
+
         self.filters_changed.emit()
         
     def _update_filters_visibility(self):
