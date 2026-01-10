@@ -45,14 +45,9 @@ def main() -> int:
     parser.add_argument("--channel", choices=["stable", "test"])
     parser.add_argument("--version")
     parser.add_argument(
-        "--iscc",
-        default=os.environ.get("INNO_ISCC", r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
-        help="Path to ISCC.exe (Inno Setup compiler)",
-    )
-    parser.add_argument(
-        "--iss",
-        default="zapret_universal.iss",
-        help="Which .iss to compile (default: zapret_universal.iss)",
+        "--out",
+        default="artifact",
+        help="Output directory (will contain zapret.exe)",
     )
     args = parser.parse_args()
 
@@ -74,37 +69,18 @@ def main() -> int:
     if "--channel" in sys.argv or "--version" in sys.argv:
         write_build_info(args.channel, args.version)
 
-    # 2) Build GUI executable via Nuitka (onedir). Output copied to ../zapret/Zapret
-    run_nuitka(args.channel, args.version, root, python_exe, run_func=lambda c, **_: run(list(c)))
-
-    source_path = root.parent / "zapret"
-    project_path = root
-
-    iss_path = root / args.iss
-    if not iss_path.exists():
-        raise FileNotFoundError(f"{iss_path} not found")
-
-    iscc_path = Path(args.iscc)
-    if not iscc_path.exists():
-        raise FileNotFoundError(f"ISCC.exe not found at {iscc_path}")
-
-    # 3) Compile Inno Setup installer
-    run(
-        [
-            str(iscc_path),
-            str(iss_path),
-            f"/DCHANNEL={args.channel}",
-            f"/DVERSION={args.version}",
-            f"/DSOURCEPATH={source_path}",
-            f"/DPROJECTPATH={project_path}",
-        ],
-        cwd=root,
+    # 2) Build GUI executable via Nuitka (onedir). Output copied to ./<out>/
+    out_dir = (root / args.out).resolve()
+    produced = run_nuitka(
+        args.channel,
+        args.version,
+        root,
+        python_exe,
+        run_func=lambda c, **_: run(list(c)),
+        target_dir=out_dir,
     )
-
-    produced = root / ("Zapret2Setup_TEST.exe" if args.channel == "test" else "Zapret2Setup.exe")
     if not produced.exists():
-        # Some .iss set OutputBaseFilename to temp name; fail with a clear message.
-        raise FileNotFoundError(f"Installer not found at {produced}")
+        raise FileNotFoundError(f"zapret.exe not found at {produced}")
 
     print(f"OK: {produced}")
     return 0

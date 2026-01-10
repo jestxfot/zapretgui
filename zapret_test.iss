@@ -36,6 +36,19 @@
   #define IconFile "Zapret2.ico"
 #endif
 
+; Иконка установщика: ожидаем в {#SOURCEPATH}\ico\{#IconFile},
+; но делаем fallback, чтобы сборка не падала на чистом окружении.
+#define _ICON_FROM_SOURCE AddBackslash(SOURCEPATH) + "ico\\" + IconFile
+#define _ICON_FROM_PROJECT AddBackslash(PROJECTPATH) + IconFile
+#define _ICON_FALLBACK AddBackslash(PROJECTPATH) + "zapret.ico"
+#if FileExists(_ICON_FROM_SOURCE)
+  #define SetupIconResolved _ICON_FROM_SOURCE
+#elif FileExists(_ICON_FROM_PROJECT)
+  #define SetupIconResolved _ICON_FROM_PROJECT
+#else
+  #define SetupIconResolved _ICON_FALLBACK
+#endif
+
 [Setup]
 AppName={#AppName}
 AppVersion={#VERSION}
@@ -49,11 +62,11 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#PROJECTPATH}
-OutputBaseFilename=Zapret2Setup_test_1768065701_tmp
+OutputBaseFilename=Zapret2Setup_test_1768072155_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ Иконка установщика (используем абсолютный путь)
-SetupIconFile={#SOURCEPATH}\ico\{#IconFile}
+SetupIconFile={#SetupIconResolved}
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes

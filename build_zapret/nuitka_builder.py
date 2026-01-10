@@ -115,8 +115,16 @@ def check_and_install_nuitka(python_exe: str, run_func: Any, log_queue: Optional
         return False, python_exe
 
 
-def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str, 
-               run_func: Any, log_queue: Optional[Any] = None) -> None:
+def run_nuitka(
+    channel: str,
+    version: str,
+    root_path: Path,
+    python_exe: str,
+    run_func: Any,
+    log_queue: Optional[Any] = None,
+    *,
+    target_dir: Optional[Path] = None,
+) -> Path:
     """
     Запускает Nuitka для сборки exe
     
@@ -148,10 +156,11 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             log_queue.put(f"⚠ Иконка не найдена: {icon_path}")
         icon_path = None
     
-    # Папка для итогового portable-выхода (onedir) + Inno Setup
-    # Inno Setup (*.iss) ожидает файлы в "{#SourcePath}\\Zapret\\*"
-    target_dir = root_path.parent / "zapret" / "Zapret"
-    target_dir.mkdir(exist_ok=True)
+    if target_dir is None:
+        # Папка для итогового portable-выхода (onedir) + Inno Setup
+        # Inno Setup (*.iss) ожидает файлы в "{#SourcePath}\\Zapret\\*"
+        target_dir = root_path.parent / "zapret" / "Zapret"
+    target_dir.mkdir(parents=True, exist_ok=True)
     
     try:
         def module_source_exists(module_name: str) -> bool:
@@ -161,7 +170,7 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
         # Базовые параметры Nuitka
         nuitka_args = [
             python_exe, "-m", "nuitka",
-            "--standalone",
+            "--onefile",
             "--remove-output",
             "--windows-console-mode=disable",
             "--assume-yes-for-downloads",
@@ -395,41 +404,25 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             
             raise Exception(f"Ошибка компиляции Nuitka (код {return_code}). Смотрите лог выше.")
         
-        # Ищем dist-папку (standalone/onedir)
-        dist_candidates = [p for p in root_path.glob("*.dist") if p.is_dir()]
+        # --onefile: ожидаем итоговый exe рядом с исходниками.
+        built_exe = root_path / "zapret.exe"
+        if not built_exe.exists():
+            # Fallback: pick the most recent zapret*.exe in root_path
+            candidates = list(root_path.glob("zapret*.exe"))
+            built_exe = max(candidates, key=lambda p: p.stat().st_mtime) if candidates else built_exe
+        if not built_exe.exists():
+            raise FileNotFoundError(f"Nuitka не создал {root_path / 'zapret.exe'}")
 
-        preferred = None
-        for name in ("zapret.dist", "main.dist"):
-            p = root_path / name
-            if p.is_dir():
-                preferred = p
-                break
+        produced = target_dir / "zapret.exe"
+        if produced.exists():
+            produced.unlink()
+        shutil.copy2(built_exe, produced)
 
-        dist_dir = preferred or (max(dist_candidates, key=lambda p: p.stat().st_mtime) if dist_candidates else None)
-        if dist_dir is None:
-            raise FileNotFoundError("Nuitka не создал папку *.dist (ожидается standalone/onedir)")
-
-        exe_in_dist = dist_dir / "zapret.exe"
-        if not exe_in_dist.exists():
-            raise FileNotFoundError(f"Nuitka не создал {exe_in_dist}")
-
-        # Копируем содержимое dist в ../zapret (portable-папка для Inno Setup)
-        for src in dist_dir.iterdir():
-            dst = target_dir / src.name
-            if dst.exists():
-                if dst.is_dir():
-                    shutil.rmtree(dst, ignore_errors=True)
-                else:
-                    dst.unlink()
-            if src.is_dir():
-                shutil.copytree(src, dst)
-            else:
-                shutil.copy2(src, dst)
-
-        size_mb = exe_in_dist.stat().st_size / (1024 * 1024)
+        size_mb = produced.stat().st_size / (1024 * 1024)
         if log_queue:
-            log_queue.put(f"✔ Создан onedir: {dist_dir.name} (zapret.exe {size_mb:.1f} MB)")
+            log_queue.put(f"✔ Создан onefile: {built_exe.name} ({size_mb:.1f} MB)")
             log_queue.put(f"✔ Скопировано в {target_dir}")
+        return produced
         
     except subprocess.CalledProcessError as e:
         raise Exception(f"Ошибка компиляции Nuitka (код {e.returncode}). Смотрите лог выше.")
@@ -451,6 +444,11 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
                 shutil.rmtree(dist_dir, ignore_errors=True)
                 if log_queue:
                     log_queue.put(f"✔ Удалена временная папка: {dist_dir.name}")
+
+        # Onefile output exe may be produced in root_path; remove it to keep workspace clean.
+        maybe_exe = root_path / "zapret.exe"
+        if maybe_exe.exists():
+            maybe_exe.unlink()
 
 
 def check_nuitka_available() -> bool:

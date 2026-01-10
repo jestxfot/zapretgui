@@ -13,6 +13,25 @@ from queue import Queue
 import time
 
 
+def ensure_inno_ico_dir(source_path: Path, project_root: Path, log_queue: Queue | None = None) -> None:
+    """
+    Inno Setup ожидает иконки в `{#SOURCEPATH}\\ico\\...` (см. *.iss).
+    Гарантируем папку и копируем туда *.ico из корня проекта.
+    """
+    ico_dir = source_path / "ico"
+    ico_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for ico in project_root.glob("*.ico"):
+        try:
+            shutil.copy2(ico, ico_dir / ico.name)
+            copied += 1
+        except Exception:
+            pass
+
+    if log_queue is not None:
+        log_queue.put(f"🖼️ Иконки: {ico_dir} (скопировано: {copied})")
+
 # ════════════════════════════════════════════════════════════════
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ МОДУЛЕЙ СБОРКИ
 # ════════════════════════════════════════════════════════════════
@@ -1027,6 +1046,7 @@ class BuildReleaseGUI:
         """Запуск Inno Setup с временным именем"""
         
         project_root = Path("H:/Privacy/zapretgui")
+        source_root = Path("H:/Privacy/zapret")
         universal_iss = project_root / "zapret_universal.iss"
         target_iss = project_root / f"zapret_{channel}.iss"
         
@@ -1038,6 +1058,7 @@ class BuildReleaseGUI:
         final_file = project_root / f"{final_name}.exe"
         
         self.log_queue.put(f"📦 Сборка во временный файл: {temp_name}.exe")
+        ensure_inno_ico_dir(source_path=source_root, project_root=project_root, log_queue=self.log_queue)
         
         if not universal_iss.exists():
             raise FileNotFoundError(f"ISS не найден: {universal_iss}")
