@@ -11,9 +11,13 @@
   #define VERSION "16.1.0.0"
 #endif
 
-; ✅ АБСОЛЮТНЫЕ ПУТИ
-#define SourcePath "H:\Privacy\zapret"
-#define ProjectPath "H:\Privacy\zapretgui"
+; Пути можно переопределять из CI: ISCC.exe /DSOURCEPATH=... /DPROJECTPATH=...
+#ifndef SOURCEPATH
+  #define SOURCEPATH "H:\Privacy\zapret"
+#endif
+#ifndef PROJECTPATH
+  #define PROJECTPATH "H:\Privacy\zapretgui"
+#endif
 
 ; ✅ Настройки в зависимости от канала
 #if CHANNEL == "test"
@@ -44,12 +48,12 @@ PrivilegesRequired=admin
 DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
-OutputDir={#ProjectPath}
+OutputDir={#PROJECTPATH}
 OutputBaseFilename=Zapret2Setup_test_1768065701_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ Иконка установщика (используем абсолютный путь)
-SetupIconFile={#SourcePath}\ico\{#IconFile}
+SetupIconFile={#SOURCEPATH}\ico\{#IconFile}
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
@@ -61,28 +65,28 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 [Files]
 ; ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЕ ПУТИ
 ; ✅ ИЗМЕНЕНО: Копируем всю папку dist\Zapret (режим --onedir PyInstaller)
-Source: "{#SourcePath}\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
+Source: "{#SOURCEPATH}\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
 
 ; Копируем папки
-Source: "{#SourcePath}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ Копируем lists, но исключаем пользовательские файлы (other2.txt, my-ipset.txt, netrogat.txt)
-Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ other2.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские домены при обновлении)
-Source: "{#SourcePath}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 ; ✅ my-ipset.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
-Source: "{#SourcePath}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 ; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
-Source: "{#SourcePath}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
-Source: "{#SourcePath}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ Копируем themes (фоновые изображения для тем), исключаем .exe файлы
-Source: "{#SourcePath}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"

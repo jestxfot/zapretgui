@@ -1,0 +1,74 @@
+name: build-installer-nuitka
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: stable or test
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - test
+      version:
+        description: App version (e.g. 20.3.8.21)
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read build info (push builds)
+        if: ${{ github.event_name == 'push' }}
+        id: buildinfo
+        shell: pwsh
+        run: |
+          python -c "from config.build_info import CHANNEL, APP_VERSION; print(f'channel={CHANNEL}'); print(f'version={APP_VERSION}')" >> $env:GITHUB_OUTPUT
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Build (Nuitka + Inno Setup)
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $channel = "${{ steps.buildinfo.outputs.channel }}"
+            $version = "${{ steps.buildinfo.outputs.version }}"
+          } else {
+            $channel = "${{ inputs.channel }}"
+            $version = "${{ inputs.version }}"
+          }
+          if ($channel -eq "test") {
+            "ARTIFACT_NAME=Zapret2Setup_TEST" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "ARTIFACT_PATH=Zapret2Setup_TEST.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            "ARTIFACT_NAME=Zapret2Setup" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "ARTIFACT_PATH=Zapret2Setup.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          python build_zapret/ci_build.py --channel $channel --version $version --iss zapret_universal.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_PATH }}

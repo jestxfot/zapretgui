@@ -148,21 +148,20 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             log_queue.put(f"⚠ Иконка не найдена: {icon_path}")
         icon_path = None
     
-    # Выходной файл
-    output_path = root_path / "zapret.exe"
-    
-    # Удаляем старый exe если есть
-    if output_path.exists():
-        output_path.unlink()
-        if log_queue:
-            log_queue.put("✔ Удален старый zapret.exe")
+    # Папка для итогового portable-выхода (onedir) + Inno Setup
+    # Inno Setup (*.iss) ожидает файлы в "{#SourcePath}\\Zapret\\*"
+    target_dir = root_path.parent / "zapret" / "Zapret"
+    target_dir.mkdir(exist_ok=True)
     
     try:
+        def module_source_exists(module_name: str) -> bool:
+            rel = Path(*module_name.split("."))
+            return (root_path / f"{rel}.py").exists() or (root_path / rel / "__init__.py").exists()
+
         # Базовые параметры Nuitka
         nuitka_args = [
             python_exe, "-m", "nuitka",
             "--standalone",
-            "--onefile", 
             "--remove-output",
             "--windows-console-mode=disable",
             "--assume-yes-for-downloads",
@@ -200,31 +199,13 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             "--include-package=strategy_menu",
             "--include-package=tgram",
             "--include-package=ui",
+            "--include-package=ui.dialogs",
             "--include-package=ui.pages",  # ✅ Явно включаем подпакет pages
             "--include-package=updater",
             "--include-package=utils",
             
             # ============= ЯВНЫЕ ВКЛЮЧЕНИЯ UI МОДУЛЕЙ =============
             # (Nuitka иногда пропускает модули в пакетах)
-            "--include-module=ui.splash_screen",
-            "--include-module=ui.main_window",
-            "--include-module=ui.theme",
-            "--include-module=ui.theme_subscription_manager",
-            "--include-module=ui.sidebar",
-            "--include-module=ui.custom_titlebar",
-            "--include-module=ui.help_dialog",
-            "--include-module=ui.acrylic",
-            "--include-module=ui.fluent_icons",
-            "--include-module=ui.pages.home_page",
-            "--include-module=ui.pages.control_page",
-            "--include-module=ui.pages.strategies_page",
-            "--include-module=ui.pages.zapret1_strategies_page",
-            "--include-module=ui.pages.direct_zapret2_strategies_page",
-            "--include-module=ui.pages.network_page",
-            "--include-module=ui.pages.autostart_page",
-            "--include-module=ui.pages.appearance_page",
-            "--include-module=ui.pages.about_page",
-            "--include-module=ui.pages.base_page",
             
             # ============= ЯВНЫЕ ВКЛЮЧЕНИЯ LOG МОДУЛЕЙ =============
             "--include-module=log.log",
@@ -287,6 +268,37 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             # Главный файл
             "main.py"
         ]
+
+        ui_modules_to_include = [
+            "ui.splash_screen",
+            "ui.main_window",
+            "ui.theme",
+            "ui.theme_subscription_manager",
+            "ui.sidebar",
+            "ui.custom_titlebar",
+            "ui.acrylic",
+            "ui.fluent_icons",
+            "ui.dialogs.add_category_dialog",
+            "ui.pages.home_page",
+            "ui.pages.control_page",
+            "ui.pages.strategies_page",
+            "ui.pages.zapret1_strategies_page",
+            "ui.pages.direct_zapret2_strategies_page",
+            "ui.pages.network_page",
+            "ui.pages.autostart_page",
+            "ui.pages.appearance_page",
+            "ui.pages.about_page",
+            "ui.pages.base_page",
+        ]
+
+        for module in ui_modules_to_include:
+            if module_source_exists(module):
+                nuitka_args.insert(-1, f"--include-module={module}")
+                if log_queue:
+                    log_queue.put(f"✔ Включен модуль: {module}")
+            else:
+                if log_queue:
+                    log_queue.put(f"⚠ Модуль {module} не найден в исходниках, пропускаем")
         
         # Добавляем иконку если найдена
         if icon_path:
@@ -383,26 +395,41 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
             
             raise Exception(f"Ошибка компиляции Nuitka (код {return_code}). Смотрите лог выше.")
         
-        # Проверяем что exe создан
-        if not output_path.exists():
-            raise FileNotFoundError(f"Nuitka не создал {output_path}")
-            
-        # Получаем размер файла
-        size_mb = output_path.stat().st_size / (1024 * 1024)
+        # Ищем dist-папку (standalone/onedir)
+        dist_candidates = [p for p in root_path.glob("*.dist") if p.is_dir()]
+
+        preferred = None
+        for name in ("zapret.dist", "main.dist"):
+            p = root_path / name
+            if p.is_dir():
+                preferred = p
+                break
+
+        dist_dir = preferred or (max(dist_candidates, key=lambda p: p.stat().st_mtime) if dist_candidates else None)
+        if dist_dir is None:
+            raise FileNotFoundError("Nuitka не создал папку *.dist (ожидается standalone/onedir)")
+
+        exe_in_dist = dist_dir / "zapret.exe"
+        if not exe_in_dist.exists():
+            raise FileNotFoundError(f"Nuitka не создал {exe_in_dist}")
+
+        # Копируем содержимое dist в ../zapret (portable-папка для Inno Setup)
+        for src in dist_dir.iterdir():
+            dst = target_dir / src.name
+            if dst.exists():
+                if dst.is_dir():
+                    shutil.rmtree(dst, ignore_errors=True)
+                else:
+                    dst.unlink()
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+        size_mb = exe_in_dist.stat().st_size / (1024 * 1024)
         if log_queue:
-            log_queue.put(f"✔ Создан zapret.exe ({size_mb:.1f} MB)")
-        
-        # Перемещаем в нужную папку для Inno Setup
-        target_dir = root_path.parent / "zapret"
-        target_dir.mkdir(exist_ok=True)
-        
-        target_exe = target_dir / "zapret.exe"
-        if target_exe.exists():
-            target_exe.unlink()
-            
-        shutil.move(str(output_path), str(target_exe))
-        if log_queue:
-            log_queue.put(f"✔ Перемещен в {target_exe}")
+            log_queue.put(f"✔ Создан onedir: {dist_dir.name} (zapret.exe {size_mb:.1f} MB)")
+            log_queue.put(f"✔ Скопировано в {target_dir}")
         
     except subprocess.CalledProcessError as e:
         raise Exception(f"Ошибка компиляции Nuitka (код {e.returncode}). Смотрите лог выше.")
@@ -413,14 +440,17 @@ def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str,
         if version_file and version_file.exists():
             version_file.unlink()
         
-        # Удаляем папки сборки
-        cleanup_dirs = ["zapret.build", "zapret.dist", "zapret.onefile-build"]
-        for dir_name in cleanup_dirs:
-            build_dir = root_path / dir_name
-            if build_dir.exists():
+        # Удаляем папки сборки (оставляем только ../zapret)
+        for build_dir in root_path.glob("*.build"):
+            if build_dir.is_dir():
                 shutil.rmtree(build_dir, ignore_errors=True)
                 if log_queue:
-                    log_queue.put(f"✔ Удалена временная папка: {dir_name}")
+                    log_queue.put(f"✔ Удалена временная папка: {build_dir.name}")
+        for dist_dir in root_path.glob("*.dist"):
+            if dist_dir.is_dir():
+                shutil.rmtree(dist_dir, ignore_errors=True)
+                if log_queue:
+                    log_queue.put(f"✔ Удалена временная папка: {dist_dir.name}")
 
 
 def check_nuitka_available() -> bool:

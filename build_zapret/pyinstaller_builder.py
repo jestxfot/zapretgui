@@ -112,19 +112,20 @@ a = Analysis(
     pathex=[r'{root_path}'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
     {datas_line},  # ✅ Включаем сертификат и другие data файлы
-    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
-        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
-        'ui',
-        'ui.splash_screen',
-        'ui.main_window', 
-        'ui.theme',
-        'ui.theme_subscription_manager',
-        'ui.sidebar',
-        'ui.custom_titlebar',
-        'ui.help_dialog',
-        'ui.acrylic',
-        'ui.fluent_icons',
-        'ui.pages',
+	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
+	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+	        'ui',
+	        'ui.splash_screen',
+	        'ui.main_window', 
+	        'ui.theme',
+	        'ui.theme_subscription_manager',
+	        'ui.sidebar',
+	        'ui.custom_titlebar',
+	        'ui.dialogs',
+	        'ui.dialogs.add_category_dialog',
+	        'ui.acrylic',
+	        'ui.fluent_icons',
+	        'ui.pages',
         'ui.pages.home_page',
         'ui.pages.control_page',
         'ui.pages.strategies_page',
