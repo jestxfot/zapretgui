@@ -13,6 +13,8 @@ The content is copied to:
 - preset-zapret2.txt (when Default is active)
 """
 
+from typing import Optional
+
 DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 # ActivePreset: Default
 
@@ -20,6 +22,8 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --lua-init=@lua/zapret-antidpi.lua
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
+--ipcache-lifetime=8400
+--ipcache-hostname=1 
 --wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
 --wf-udp-out=80,443
 --wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
@@ -134,6 +138,206 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:tls_mod=rnd,dupsid,sni=fonts.google.com
 --lua-desync=multidisorder:pos=7,sld+1:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
 """
+
+GAMING_PRESET_CONTENT = r"""# Preset: Gaming
+# ActivePreset: Gaming
+
+--lua-init=@lua/zapret-lib.lua
+--lua-init=@lua/zapret-antidpi.lua
+--lua-init=@lua/zapret-auto.lua
+--lua-init=@lua/custom_funcs.lua
+--ipcache-lifetime=8400
+--ipcache-hostname=1 
+--wf-tcp-out=80,444-65535
+--wf-udp-out=80,444-65535
+--wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
+--wf-raw-part=@windivert.filter/windivert_part.stun.txt
+--wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
+--blob=tls_google:@bin/tls_clienthello_www_google_com.bin
+--blob=tls1:@bin/tls_clienthello_1.bin
+--blob=tls2:@bin/tls_clienthello_2.bin
+--blob=tls2n:@bin/tls_clienthello_2n.bin
+--blob=tls3:@bin/tls_clienthello_3.bin
+--blob=tls4:@bin/tls_clienthello_4.bin
+--blob=tls5:@bin/tls_clienthello_5.bin
+--blob=tls6:@bin/tls_clienthello_6.bin
+--blob=tls7:@bin/tls_clienthello_7.bin
+--blob=tls8:@bin/tls_clienthello_8.bin
+--blob=tls9:@bin/tls_clienthello_9.bin
+--blob=tls10:@bin/tls_clienthello_10.bin
+--blob=tls11:@bin/tls_clienthello_11.bin
+--blob=tls12:@bin/tls_clienthello_12.bin
+--blob=tls13:@bin/tls_clienthello_13.bin
+--blob=tls14:@bin/tls_clienthello_14.bin
+--blob=tls17:@bin/tls_clienthello_17.bin
+--blob=tls18:@bin/tls_clienthello_18.bin
+--blob=tls_sber:@bin/tls_clienthello_sberbank_ru.bin
+--blob=tls_vk:@bin/tls_clienthello_vk_com.bin
+--blob=tls_vk_kyber:@bin/tls_clienthello_vk_com_kyber.bin
+--blob=tls_deepseek:@bin/tls_clienthello_chat_deepseek_com.bin
+--blob=tls_max:@bin/tls_clienthello_max_ru.bin
+--blob=tls_iana:@bin/tls_clienthello_iana_org.bin
+--blob=tls_4pda:@bin/tls_clienthello_4pda_to.bin
+--blob=tls_gosuslugi:@bin/tls_clienthello_gosuslugi_ru.bin
+--blob=syndata3:@bin/tls_clienthello_3.bin
+--blob=syn_packet:@bin/syn_packet.bin
+--blob=dtls_w3:@bin/dtls_clienthello_w3_org.bin
+--blob=quic_google:@bin/quic_initial_www_google_com.bin
+--blob=quic_vk:@bin/quic_initial_vk_com.bin
+--blob=quic1:@bin/quic_1.bin
+--blob=quic2:@bin/quic_2.bin
+--blob=quic3:@bin/quic_3.bin
+--blob=quic4:@bin/quic_4.bin
+--blob=quic5:@bin/quic_5.bin
+--blob=quic6:@bin/quic_6.bin
+--blob=quic7:@bin/quic_7.bin
+--blob=quic_test:@bin/quic_test_00.bin
+--blob=fake_tls:@bin/fake_tls_1.bin
+--blob=fake_tls_1:@bin/fake_tls_1.bin
+--blob=fake_tls_2:@bin/fake_tls_2.bin
+--blob=fake_tls_3:@bin/fake_tls_3.bin
+--blob=fake_tls_4:@bin/fake_tls_4.bin
+--blob=fake_tls_5:@bin/fake_tls_5.bin
+--blob=fake_tls_6:@bin/fake_tls_6.bin
+--blob=fake_tls_7:@bin/fake_tls_7.bin
+--blob=fake_tls_8:@bin/fake_tls_8.bin
+--blob=fake_quic:@bin/fake_quic.bin
+--blob=fake_quic_1:@bin/fake_quic_1.bin
+--blob=fake_quic_2:@bin/fake_quic_2.bin
+--blob=fake_quic_3:@bin/fake_quic_3.bin
+--blob=fake_default_udp:0x00000000000000000000000000000000
+--blob=http_req:@bin/http_iana_org.bin
+--blob=hex_0e0e0f0e:0x0E0E0F0E
+--blob=hex_0f0e0e0f:0x0F0E0E0F
+--blob=hex_0f0f0f0f:0x0F0F0F0F
+--blob=hex_00:0x00
+
+--filter-tcp=80,443
+--ipset=lists/ipset-youtube.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multidisorder_legacy:pos=1,midsld
+
+--new
+
+--filter-udp=443
+--ipset=lists/ipset-youtube.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:repeats=6:blob=fake_default_quic
+
+--new
+
+--filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--ipset=lists/ipset-discord.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multidisorder_legacy:pos=1,midsld
+
+--new
+
+--filter-l7=stun,discord
+--payload=stun,discord_ip_discovery
+--out-range=-n8
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+
+--new
+
+--filter-tcp=80,443
+--ipset=lists/ipset-telegram.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=pass
+
+--new
+
+--filter-tcp=80,443
+--ipset-ip=130.255.77.28
+--out-range=-n20
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=fake:blob=tls14:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:tls_mod=rnd,dupsid,sni=fonts.google.com
+--lua-desync=multidisorder:pos=7,sld+1:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/roblox.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=fake:blob=tls_google:tcp_ts=1:repeats=8:payload=tls_client_hello
+--lua-desync=multisplit:pos=1:seqovl=681:seqovl_pattern=tls_google:payload=tls_client_hello
+
+--new
+
+--filter-udp=443,49152-65535
+--ipset=lists/ipset-roblox.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/russia-youtube-rtmps.txt
+--ipset=lists/ipset-all.txt
+--ipset=lists/ipset-base.txt
+--ipset=lists/ipset-discord.txt
+--ipset-exclude=lists/ipset-dns.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+
+--new
+
+--filter-udp=*
+--ipset=lists/ipset-all.txt
+--ipset=lists/ipset-base.txt
+--ipset=lists/cloudflare-ipset.txt
+--ipset=lists/ipset-cloudflare1.txt
+--ipset=lists/ipset-cloudflare.txt
+--ipset-exclude=lists/ipset-dns.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+"""
+
+
+BUILTIN_PRESET_TEMPLATES: dict[str, str] = {
+    "Default": DEFAULT_PRESET_CONTENT,
+    "Gaming": GAMING_PRESET_CONTENT,
+}
+
+_BUILTIN_PRESET_TEMPLATE_BY_KEY: dict[str, str] = {
+    canonical.lower(): content for canonical, content in BUILTIN_PRESET_TEMPLATES.items()
+}
+
+_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY: dict[str, str] = {
+    canonical.lower(): canonical for canonical in BUILTIN_PRESET_TEMPLATES.keys()
+}
+
+
+def get_builtin_preset_content(name: str) -> Optional[str]:
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    return _BUILTIN_PRESET_TEMPLATE_BY_KEY.get(key)
+
+
+def get_builtin_preset_canonical_name(name: str) -> Optional[str]:
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    return _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY.get(key)
+
+
+def is_builtin_preset_name(name: str) -> bool:
+    return get_builtin_preset_canonical_name(name) is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -341,24 +341,6 @@ def set_base_args_selection(selection: str) -> bool:
         log(f"Ошибка сохранения базовых аргументов: {e}", "❌ ERROR")
         return False
 
-def get_allzone_hostlist_enabled() -> bool:
-    """Получает состояние замены other.txt на allzone.txt"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "AllzoneHostlistEnabled")
-            return bool(value)
-    except:
-        return False
-
-def set_allzone_hostlist_enabled(enabled: bool) -> bool:
-    """Сохраняет состояние замены other.txt на allzone.txt"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "AllzoneHostlistEnabled", 0, winreg.REG_DWORD, int(enabled))
-            return True
-    except:
-        return False
-
 def get_wssize_enabled() -> bool:
     """Получает настройку включения --wssize"""
     try:
@@ -376,43 +358,6 @@ def set_wssize_enabled(enabled: bool) -> bool:
             return True
     except:
         return False
-
-def get_remove_hostlists_enabled() -> bool:
-    """Получает состояние 'применить ко всем сайтам'"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "RemoveHostlistsEnabled")
-            return bool(value)
-    except:
-        return False
-
-def set_remove_hostlists_enabled(enabled: bool) -> bool:
-    """Сохраняет 'применить ко всем сайтам'"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "RemoveHostlistsEnabled", 0, winreg.REG_DWORD, int(enabled))
-            return True
-    except:
-        return False
-
-def get_remove_ipsets_enabled() -> bool:
-    """Получает состояние 'применить ко всем IP'"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "RemoveIpsetsEnabled")
-            return bool(value)
-    except:
-        return False
-
-def set_remove_ipsets_enabled(enabled: bool) -> bool:
-    """Сохраняет 'применить ко всем IP'"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "RemoveIpsetsEnabled", 0, winreg.REG_DWORD, int(enabled))
-            return True
-    except:
-        return False
-
 
 # ==================== НАСТРОЙКИ ФИЛЬТРОВ WINDIVERT ====================
 
@@ -1133,14 +1078,8 @@ __all__ = [
     # Настройки прямого режима
     'get_base_args_selection',
     'set_base_args_selection',
-    'get_allzone_hostlist_enabled',
-    'set_allzone_hostlist_enabled',
     'get_wssize_enabled',
     'set_wssize_enabled',
-    'get_remove_hostlists_enabled',
-    'set_remove_hostlists_enabled',
-    'get_remove_ipsets_enabled',
-    'set_remove_ipsets_enabled',
 
     # Debug log настройки
     'get_debug_log_enabled',

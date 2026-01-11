@@ -383,10 +383,6 @@ class MainWindowUI:
         # Подключаем обновление PresetConfigPage при смене метода запуска
         self.dpi_settings_page.launch_method_changed.connect(self.preset_config_page.refresh_for_current_mode)
 
-        # Подключаем отключение фильтров -> отключение категорий (для всех страниц стратегий)
-        if hasattr(self.zapret2_strategies_page, 'disable_categories_for_filter'):
-            self.dpi_settings_page.filter_disabled.connect(self.zapret2_strategies_page.disable_categories_for_filter)
-
         # Подключаем сигналы от OrchestraPage
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)

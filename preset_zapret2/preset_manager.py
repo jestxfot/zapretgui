@@ -32,7 +32,7 @@ from typing import Callable, List, Optional
 from log import log
 
 from .preset_model import CategoryConfig, Preset, SyndataSettings, validate_preset
-from .ports import union_port_specs
+from .ports import subtract_port_specs, union_port_specs
 from .preset_storage import (
     delete_preset,
     duplicate_preset,
@@ -234,7 +234,8 @@ class PresetManager:
             # Determine built-in flag:
             # - active file may lose "# Builtin:" header after edits (sync rewrites header),
             #   so also protect well-known built-ins by name and by the presets/ marker.
-            is_builtin = bool(data.is_builtin) or (name.strip().lower() == "default")
+            from .preset_defaults import is_builtin_preset_name
+            is_builtin = bool(data.is_builtin) or is_builtin_preset_name(name)
             try:
                 active_registry_name = get_active_preset_name()
                 if active_registry_name and preset_exists(active_registry_name):
@@ -894,9 +895,15 @@ class PresetManager:
         """
         Updates `--wf-tcp-out` / `--wf-udp-out` in base_args based on enabled category filters.
 
-        Union source:
-        - existing `--wf-*-out=` values from base_args (so we don't unexpectedly drop custom ports)
-        - `--filter-tcp=` / `--filter-udp=` values from category base filters
+        Behavior:
+        - Treats existing `--wf-*-out=` as a base (user-controlled) port list.
+        - Adds/removes extra ports required by enabled category `--filter-tcp/--filter-udp`.
+        - Prevents stale ports from accumulating when categories are disabled.
+
+        Implementation detail:
+        - Remembers the previously auto-added "extra" ports in base_args via a comment line:
+          `# AutoWFOutExtra: tcp=... udp=...`
+          On the next sync we subtract that extra from the current `--wf-*-out` to recover base ports.
 
         Normalization:
         - sort ascending
@@ -908,17 +915,71 @@ class PresetManager:
         base_args = preset.base_args or ""
         lines = base_args.splitlines()
 
+        marker_prefix = "# AutoWFOutExtra:"
+        marker_prefix_l = marker_prefix.lower()
+
         existing_wf_tcp = ""
         existing_wf_udp = ""
+        prev_extra_tcp = ""
+        prev_extra_udp = ""
+        marker_present = False
+        keep_empty_marker = False
         for raw in lines:
             stripped = raw.strip()
             if stripped.startswith("--wf-tcp-out="):
                 existing_wf_tcp = stripped.split("=", 1)[1].strip()
             elif stripped.startswith("--wf-udp-out="):
                 existing_wf_udp = stripped.split("=", 1)[1].strip()
+            elif stripped.lower().startswith(marker_prefix_l):
+                marker_present = True
+                payload = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+                for token in payload.split():
+                    k, _, v = token.partition("=")
+                    k_l = k.strip().lower()
+                    if k_l == "tcp":
+                        prev_extra_tcp = v.strip()
+                    elif k_l == "udp":
+                        prev_extra_udp = v.strip()
 
-        tcp_specs = [existing_wf_tcp] if existing_wf_tcp else []
-        udp_specs = [existing_wf_udp] if existing_wf_udp else []
+        # One-time cleanup for the built-in "Default" preset:
+        # before this fix we used to permanently merge category ports into `--wf-*-out`,
+        # so disabling a category could leave stale ports behind.
+        # Here we reset the base wf ports to the template values (if available).
+        if not marker_present and (preset.name or "").strip().lower() == "default":
+            try:
+                from .preset_defaults import DEFAULT_PRESET_CONTENT
+
+                template_tcp = ""
+                template_udp = ""
+                for raw in DEFAULT_PRESET_CONTENT.splitlines():
+                    s = raw.strip()
+                    if s.startswith("--wf-tcp-out="):
+                        template_tcp = s.split("=", 1)[1].strip()
+                    elif s.startswith("--wf-udp-out="):
+                        template_udp = s.split("=", 1)[1].strip()
+                    if template_tcp and template_udp:
+                        break
+
+                if template_tcp:
+                    existing_wf_tcp = template_tcp
+                if template_udp:
+                    existing_wf_udp = template_udp
+                # Keep an empty marker line to avoid re-running this migration on every save/sync.
+                keep_empty_marker = True
+            except Exception:
+                pass
+
+        # Recover base ports by subtracting the previously auto-added extra.
+        base_wf_tcp = subtract_port_specs(existing_wf_tcp, prev_extra_tcp) if prev_extra_tcp else (existing_wf_tcp or "")
+        base_wf_udp = subtract_port_specs(existing_wf_udp, prev_extra_udp) if prev_extra_udp else (existing_wf_udp or "")
+
+        if base_wf_tcp:
+            base_wf_tcp = union_port_specs([base_wf_tcp])
+        if base_wf_udp:
+            base_wf_udp = union_port_specs([base_wf_udp])
+
+        tcp_specs: list[str] = []
+        udp_specs: list[str] = []
 
         for cat_name, cat in preset.categories.items():
             if cat.tcp_enabled and cat.has_tcp():
@@ -947,8 +1008,14 @@ class PresetManager:
                 if spec:
                     udp_specs.append(spec)
 
-        new_wf_tcp = union_port_specs(tcp_specs) if tcp_specs else existing_wf_tcp
-        new_wf_udp = union_port_specs(udp_specs) if udp_specs else existing_wf_udp
+        cats_wf_tcp = union_port_specs(tcp_specs) if tcp_specs else ""
+        cats_wf_udp = union_port_specs(udp_specs) if udp_specs else ""
+
+        new_extra_tcp = subtract_port_specs(cats_wf_tcp, base_wf_tcp) if cats_wf_tcp else ""
+        new_extra_udp = subtract_port_specs(cats_wf_udp, base_wf_udp) if cats_wf_udp else ""
+
+        new_wf_tcp = union_port_specs([base_wf_tcp, new_extra_tcp]) if (base_wf_tcp or new_extra_tcp) else ""
+        new_wf_udp = union_port_specs([base_wf_udp, new_extra_udp]) if (base_wf_udp or new_extra_udp) else ""
 
         def _replace_or_add(prefix: str, value: str) -> None:
             nonlocal lines
@@ -971,10 +1038,51 @@ class PresetManager:
                 out.insert(insert_at, f"{prefix}{value}")
             lines = out
 
+        def _set_marker(extra_tcp: str, extra_udp: str, keep_empty: bool = False) -> None:
+            nonlocal lines
+            parts: list[str] = []
+            if extra_tcp:
+                parts.append(f"tcp={extra_tcp}")
+            if extra_udp:
+                parts.append(f"udp={extra_udp}")
+            if parts:
+                marker_line = f"{marker_prefix} {' '.join(parts)}".rstrip()
+            elif keep_empty:
+                marker_line = marker_prefix
+            else:
+                marker_line = ""
+
+            out: list[str] = []
+            replaced = False
+            for raw in lines:
+                if raw.strip().lower().startswith(marker_prefix_l):
+                    replaced = True
+                    if marker_line:
+                        out.append(marker_line)
+                else:
+                    out.append(raw)
+
+            if not replaced and marker_line:
+                # Insert after wf lines if present, otherwise after lua-init.
+                insert_at = 0
+                for i, raw in enumerate(out):
+                    s = raw.strip()
+                    if s.startswith("--wf-"):
+                        insert_at = i + 1
+                    elif s.startswith("--lua-init=") and insert_at == 0:
+                        insert_at = i + 1
+                out.insert(insert_at, marker_line)
+
+            lines = out
+
         if new_wf_tcp:
             _replace_or_add("--wf-tcp-out=", new_wf_tcp)
         if new_wf_udp:
             _replace_or_add("--wf-udp-out=", new_wf_udp)
+
+        # Keep marker only if it is needed to remove extra ports later.
+        keep_empty_final = marker_present or keep_empty_marker
+        _set_marker(new_extra_tcp, new_extra_udp, keep_empty=keep_empty_final)
 
         return "\n".join(lines).strip()
 
@@ -1235,18 +1343,28 @@ class PresetManager:
 
     def reset_active_preset_to_default_template(self) -> bool:
         """
-        Global reset: replace active preset-zapret2.txt content with DEFAULT_PRESET_CONTENT.
+        Global reset: replace active preset-zapret2.txt content with a built-in template.
 
         Does not depend on preset_zapret2/default.txt existing on disk.
         """
-        from .preset_defaults import DEFAULT_PRESET_CONTENT, get_category_default_syndata
+        from .preset_defaults import (
+            DEFAULT_PRESET_CONTENT,
+            get_builtin_preset_content,
+            is_builtin_preset_name,
+        )
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
 
         preset_name = get_active_preset_name() or "Current"
 
         try:
-            data = parse_preset_content(DEFAULT_PRESET_CONTENT)
+            template_content = DEFAULT_PRESET_CONTENT
+            if is_builtin_preset_name(preset_name):
+                builtin_template = get_builtin_preset_content(preset_name)
+                if builtin_template is not None:
+                    template_content = builtin_template
+
+            data = parse_preset_content(template_content)
 
             # Build Preset model, then reuse sync logic to generate a proper active file
             # (including absolute list paths and normalized base filters).
@@ -1258,8 +1376,8 @@ class PresetManager:
                     preset.categories[cat_name] = CategoryConfig(
                         name=cat_name,
                         filter_mode=block.filter_mode or "hostlist",
-                        syndata_tcp=SyndataSettings.from_dict(get_category_default_syndata(cat_name, protocol="tcp")),
-                        syndata_udp=SyndataSettings.from_dict(get_category_default_syndata(cat_name, protocol="udp")),
+                        syndata_tcp=SyndataSettings.get_defaults(),
+                        syndata_udp=SyndataSettings.get_defaults_udp(),
                     )
 
                 cat = preset.categories[cat_name]
@@ -1295,7 +1413,7 @@ class PresetManager:
 
             return self.sync_preset_to_active_file(preset)
         except Exception as e:
-            log(f"Error resetting active preset to default template: {e}", "ERROR")
+            log(f"Error resetting active preset to built-in template: {e}", "ERROR")
             return False
 
     def _save_and_sync_preset(self, preset: Preset) -> bool:

@@ -2271,8 +2271,8 @@ class StrategyDetailPage(BasePage):
         self._send_ip_id_combo.blockSignals(True)
         self._send_badsum_check.blockSignals(True)
 
-        self._syndata_toggle.setChecked(settings.get("enabled", True))
-        self._syndata_settings.setVisible(settings.get("enabled", True))
+        self._syndata_toggle.setChecked(settings.get("enabled", False))
+        self._syndata_settings.setVisible(settings.get("enabled", False))
 
         blob_value = settings.get("blob", "none")
         blob_index = self._blob_combo.findText(blob_value)
@@ -2300,8 +2300,8 @@ class StrategyDetailPage(BasePage):
             self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
 
         # Применяем Send настройки
-        self._send_toggle.setChecked(settings.get("send_enabled", True))
-        self._send_settings.setVisible(settings.get("send_enabled", True))
+        self._send_toggle.setChecked(settings.get("send_enabled", False))
+        self._send_settings.setVisible(settings.get("send_enabled", False))
         self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
         self._send_ip_ttl_selector.setValue(settings.get("send_ip_ttl", 0), block_signals=True)
         self._send_ip6_ttl_selector.setValue(settings.get("send_ip6_ttl", 0), block_signals=True)

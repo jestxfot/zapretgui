@@ -62,7 +62,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#PROJECTPATH}
-OutputBaseFilename=Zapret2Setup_test_1768072155_tmp
+OutputBaseFilename=Zapret2Setup_test_1768084488_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ Иконка установщика (используем абсолютный путь)
@@ -306,39 +306,22 @@ end;
 function GetInstallDir(Param: string): string;
 var
   Candidate: string;
-  I: Integer;
-  Ok: Boolean;
 begin
-  // По умолчанию ставим в Roaming\AppData (если путь "безопасный" по нашим правилам),
-  // иначе откатываемся на ProgramData чтобы не ломать установку.
+  // По умолчанию ставим в Roaming\AppData.
+  // Пробелы в пути запрещаем (часть .bat/команд может ломаться без кавычек),
+  // поэтому для профилей с пробелами откатываемся на ProgramData.
   Candidate := ExpandConstant('{userappdata}\{#DataFolder}');
-  Ok := True;
-
-  for I := 1 to Length(Candidate) do
-  begin
-    if not (((Candidate[I] >= 'A') and (Candidate[I] <= 'Z')) or
-            ((Candidate[I] >= 'a') and (Candidate[I] <= 'z')) or
-            (Candidate[I] = '\') or (Candidate[I] = ':')) then
-    begin
-      Ok := False;
-      Break;
-    end;
-  end;
-
-  if Ok then
+  if Pos(' ', Candidate) = 0 then
     Result := Candidate
   else
     Result := ExpandConstant('{commonappdata}\{#DataFolder}');
 end;
 
-function IsAsciiLetter(C: Char): Boolean;
-begin
-  Result := (C >= 'A') and (C <= 'Z') or (C >= 'a') and (C <= 'z');
-end;
-
 function IsAllowedChar(C: Char): Boolean;
 begin
-  Result := IsAsciiLetter(C) or (C = '\') or (C = ':');
+  // Разрешаем цифры и любые Unicode-буквы (включая русские),
+  // но запрещаем пробелы в пути.
+  Result := (C <> ' ');
 end;
 
 function CheckDirName(const Dir: string): Boolean;
@@ -361,9 +344,8 @@ begin
   begin
     if not CheckDirName(WizardDirValue) then
     begin
-      MsgBox('Путь к папке установки может содержать только латинские буквы ' +
-             'и символы "\" и ":". ' + #13#10 +
-             'Без пробелов, цифр и специальных символов.',
+      MsgBox('Путь к папке установки не должен содержать пробелов.' + #13#10 +
+             'Цифры и русские буквы разрешены.',
              mbError, MB_OK);
       Result := False;
     end;

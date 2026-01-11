@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QLineEdit,
@@ -331,6 +331,15 @@ class _RevealFrame(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("revealFrame")
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setFrameShadow(QFrame.Shadow.Plain)
+        self.setStyleSheet("""
+            QFrame#revealFrame {
+                background: transparent;
+                border: none;
+            }
+        """)
         self.setMaximumHeight(0)
         self.setVisible(False)
         self._anim = QPropertyAnimation(self, b"maximumHeight", self)
@@ -464,9 +473,25 @@ class PresetsPage(BasePage):
 
         self._preset_cards = []  # Список карточек для обновления
         self._manager = None     # Lazy init
+        self._file_watcher: Optional[QFileSystemWatcher] = None
+        self._watcher_active = False
+        self._watcher_reload_timer = QTimer(self)
+        self._watcher_reload_timer.setSingleShot(True)
+        self._watcher_reload_timer.timeout.connect(self._reload_presets_from_watcher)
 
         self._build_ui()
         self._load_presets()
+
+    def showEvent(self, event):
+        """При открытии страницы включаем мониторинг папки пресетов."""
+        super().showEvent(event)
+        self._start_watching_presets()
+        self._load_presets()
+
+    def hideEvent(self, event):
+        """При скрытии страницы отключаем мониторинг (экономия ресурсов)."""
+        self._stop_watching_presets()
+        super().hideEvent(event)
 
     def _get_manager(self):
         """Получает или создает PresetManager"""
@@ -477,6 +502,105 @@ class PresetsPage(BasePage):
                 on_dpi_reload_needed=self._on_dpi_reload_needed
             )
         return self._manager
+
+    def _start_watching_presets(self):
+        """Запускает мониторинг папки presets/ и .txt файлов внутри."""
+        try:
+            if self._watcher_active:
+                return
+
+            from preset_zapret2 import get_presets_dir
+            presets_dir = get_presets_dir()
+            presets_dir.mkdir(parents=True, exist_ok=True)
+
+            if not self._file_watcher:
+                self._file_watcher = QFileSystemWatcher(self)
+                self._file_watcher.directoryChanged.connect(self._on_presets_dir_changed)
+                self._file_watcher.fileChanged.connect(self._on_preset_file_changed)
+
+            dir_path = str(presets_dir)
+            if dir_path not in self._file_watcher.directories():
+                self._file_watcher.addPath(dir_path)
+
+            self._watcher_active = True
+            self._update_watched_preset_files()
+
+        except Exception as e:
+            log(f"Ошибка запуска мониторинга пресетов: {e}", "DEBUG")
+
+    def _stop_watching_presets(self):
+        """Останавливает мониторинг папки presets/."""
+        try:
+            if not self._watcher_active:
+                return
+
+            if self._file_watcher:
+                directories = self._file_watcher.directories()
+                files = self._file_watcher.files()
+                if directories:
+                    self._file_watcher.removePaths(directories)
+                if files:
+                    self._file_watcher.removePaths(files)
+
+            self._watcher_active = False
+
+        except Exception as e:
+            log(f"Ошибка остановки мониторинга пресетов: {e}", "DEBUG")
+
+    def _update_watched_preset_files(self):
+        """Обновляет список отслеживаемых .txt файлов."""
+        try:
+            if not self._watcher_active or not self._file_watcher:
+                return
+
+            from preset_zapret2 import get_presets_dir
+            presets_dir = get_presets_dir()
+            if not presets_dir.exists():
+                return
+
+            current_files = self._file_watcher.files()
+            if current_files:
+                self._file_watcher.removePaths(current_files)
+
+            preset_files = [str(p) for p in presets_dir.glob("*.txt") if p.is_file()]
+            if preset_files:
+                self._file_watcher.addPaths(preset_files)
+
+        except Exception as e:
+            log(f"Ошибка обновления мониторинга пресетов: {e}", "DEBUG")
+
+    def _on_presets_dir_changed(self, path: str):
+        """Изменения в папке presets/ (создание/удаление/переименование)."""
+        try:
+            log(f"Обнаружены изменения в папке пресетов: {path}", "DEBUG")
+            self._update_watched_preset_files()
+            self._schedule_presets_reload()
+        except Exception as e:
+            log(f"Ошибка обработки изменений папки пресетов: {e}", "DEBUG")
+
+    def _on_preset_file_changed(self, path: str):
+        """Изменение содержимого пресета."""
+        try:
+            log(f"Обнаружены изменения в пресете: {Path(path).name}", "DEBUG")
+            self._schedule_presets_reload()
+        except Exception as e:
+            log(f"Ошибка обработки изменений пресета: {e}", "DEBUG")
+
+    def _schedule_presets_reload(self, delay_ms: int = 500):
+        """Дебаунс: пересобираем UI списка пресетов после серии изменений."""
+        try:
+            self._watcher_reload_timer.stop()
+            self._watcher_reload_timer.start(delay_ms)
+        except Exception as e:
+            log(f"Ошибка планирования обновления пресетов: {e}", "DEBUG")
+
+    def _reload_presets_from_watcher(self):
+        """Перезагружает список пресетов после файловых изменений."""
+        if not self.isVisible():
+            return
+        self._load_presets()
+        # После atomic-write некоторые пути отваливаются из watcher → пересобрать.
+        self._update_watched_preset_files()
 
     def _build_ui(self):
         """Строит UI страницы"""

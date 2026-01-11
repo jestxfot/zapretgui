@@ -553,7 +553,6 @@ class DpiSettingsPage(BasePage):
 
     launch_method_changed = pyqtSignal(str)
     filters_changed = pyqtSignal()  # Сигнал при изменении фильтров
-    filter_disabled = pyqtSignal(str, list)  # Сигнал при отключении фильтра: (filter_key, categories_to_disable)
     
     def __init__(self, parent=None):
         super().__init__("Настройки DPI", "Параметры обхода блокировок", parent)
@@ -724,88 +723,6 @@ class DpiSettingsPage(BasePage):
         self.layout.addWidget(method_card)
         
         # ═══════════════════════════════════════════════════════════════════════
-        # ФИЛЬТРЫ ПЕРЕХВАТА ТРАФИКА
-        # ═══════════════════════════════════════════════════════════════════════
-        self.filters_card = SettingsCard("ФИЛЬТРЫ ПЕРЕХВАТА ТРАФИКА")
-        filters_layout = QVBoxLayout()
-        filters_layout.setSpacing(6)
-
-        # Информационное сообщение
-        auto_info = QLabel("Настройки применяются автоматически при выборе сайтов во вкладке «Стратегия»")
-        auto_info.setStyleSheet("color: #888888; font-size: 11px; padding: 4px 0 8px 0;")
-        auto_info.setWordWrap(True)
-        filters_layout.addWidget(auto_info)
-
-        # ─────────────────────────────────────────────────────────────────────
-        # TCP ПОРТЫ (HTTP/HTTPS)
-        # ─────────────────────────────────────────────────────────────────────
-        tcp_section = QLabel("TCP порты (HTTP/HTTPS)")
-        tcp_section.setStyleSheet("color: #4CAF50; font-size: 12px; font-weight: 600; padding-top: 8px;")
-        filters_layout.addWidget(tcp_section)
-        
-        self.tcp_80_toggle = Win11ToggleRow(
-            "fa5s.globe", "Port 80 (HTTP)", 
-            "Перехват HTTP трафика", "#4CAF50")
-        filters_layout.addWidget(self.tcp_80_toggle)
-        
-        self.tcp_443_toggle = Win11ToggleRow(
-            "fa5s.lock", "Port 443 (HTTPS/TLS)",
-            "Перехват HTTPS трафика", "#4CAF50")
-        filters_layout.addWidget(self.tcp_443_toggle)
-
-        self.tcp_warp_toggle = Win11ToggleRow(
-            "fa5s.cloud", "Ports 443, 853 (WARP)",
-            "Cloudflare WARP VPN", "#F48120")
-        filters_layout.addWidget(self.tcp_warp_toggle)
-
-        self.tcp_all_ports_toggle = Win11ToggleRow(
-            "fa5s.bolt", "Ports 444-65535 (game filter)",
-            "⚠ Высокая нагрузка на CPU", "#ff9800")
-        filters_layout.addWidget(self.tcp_all_ports_toggle)
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # UDP ПОРТЫ (нагружает CPU)
-        # ─────────────────────────────────────────────────────────────────────
-        udp_section = QLabel("UDP порты (нагружает CPU)")
-        udp_section.setStyleSheet("color: #ff9800; font-size: 12px; font-weight: 600; padding-top: 16px;")
-        filters_layout.addWidget(udp_section)
-        
-        self.udp_443_toggle = Win11ToggleRow(
-            "fa5s.fire", "Port 443 (QUIC)", 
-            "YouTube QUIC и HTTP/3", "#ff9800")
-        filters_layout.addWidget(self.udp_443_toggle)
-        
-        self.udp_all_ports_toggle = Win11ToggleRow(
-            "fa5s.bolt", "Ports 444-65535 (game filter)", 
-            "⚠ Очень высокая нагрузка", "#f44336")
-        filters_layout.addWidget(self.udp_all_ports_toggle)
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # RAW-PART ФИЛЬТРЫ (экономят CPU)
-        # ─────────────────────────────────────────────────────────────────────
-        raw_section = QLabel("Raw-part фильтры (экономят CPU)")
-        raw_section.setStyleSheet("color: #2196F3; font-size: 12px; font-weight: 600; padding-top: 16px;")
-        filters_layout.addWidget(raw_section)
-        
-        self.raw_discord_toggle = Win11ToggleRow(
-            "mdi.discord", "Discord Media", 
-            "Голосовые каналы Discord", "#7289da")
-        filters_layout.addWidget(self.raw_discord_toggle)
-        
-        self.raw_stun_toggle = Win11ToggleRow(
-            "fa5s.phone", "STUN (голосовые звонки)", 
-            "Discord, Telegram звонки", "#00bcd4")
-        filters_layout.addWidget(self.raw_stun_toggle)
-        
-        self.raw_wireguard_toggle = Win11ToggleRow(
-            "fa5s.shield-alt", "WireGuard (VPN)", 
-            "Обход блокировки VPN", "#e91e63")
-        filters_layout.addWidget(self.raw_wireguard_toggle)
-        
-        self.filters_card.add_layout(filters_layout)
-        self.layout.addWidget(self.filters_card)
-        
-        # ═══════════════════════════════════════════════════════════════════════
         # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ
         # ═══════════════════════════════════════════════════════════════════════
         self.advanced_card = SettingsCard("ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
@@ -822,24 +739,6 @@ class DpiSettingsPage(BasePage):
             "fa5s.ruler-horizontal", "Включить --wssize", 
             "Добавляет параметр размера окна TCP", "#9c27b0")
         advanced_layout.addWidget(self.wssize_toggle)
-        
-        # Allzone hostlist
-        self.allzone_toggle = Win11ToggleRow(
-            "fa5s.list-alt", "Использовать allzone.txt", 
-            "Заменяет other.txt на расширенный список", "#ff5722")
-        advanced_layout.addWidget(self.allzone_toggle)
-        
-        # Применить ко всем сайтам
-        self.remove_hostlists_toggle = Win11ToggleRow(
-            "fa5s.globe-americas", "Применить ко всем сайтам", 
-            "Убирает привязку к хост-листам", "#2196F3")
-        advanced_layout.addWidget(self.remove_hostlists_toggle)
-        
-        # Применить ко всем IP
-        self.remove_ipsets_toggle = Win11ToggleRow(
-            "fa5s.network-wired", "Применить ко всем IP", 
-            "Убирает привязку к IP-спискам", "#009688")
-        advanced_layout.addWidget(self.remove_ipsets_toggle)
         
         # Debug лог
         self.debug_log_toggle = Win11ToggleRow(
@@ -1212,51 +1111,17 @@ class DpiSettingsPage(BasePage):
         try:
             from strategy_menu import (
                 get_wssize_enabled, set_wssize_enabled,
-                get_allzone_hostlist_enabled, set_allzone_hostlist_enabled,
-                get_remove_hostlists_enabled, set_remove_hostlists_enabled,
-                get_remove_ipsets_enabled, set_remove_ipsets_enabled,
                 get_debug_log_enabled, set_debug_log_enabled
             )
-
-            # ═══════════════════════════════════════════════════════════════════════
-            # ФИЛЬТРЫ ПОРТОВ — пользователь может ОТКЛЮЧИТЬ для отключения категорий
-            # ═══════════════════════════════════════════════════════════════════════
-            # Начальное состояние — всё выключено (обновится при выборе категорий)
-            self.tcp_80_toggle.setChecked(False, block_signals=True)
-            self.tcp_443_toggle.setChecked(False, block_signals=True)
-            self.tcp_warp_toggle.setChecked(False, block_signals=True)
-            self.tcp_all_ports_toggle.setChecked(False, block_signals=True)
-            self.udp_443_toggle.setChecked(False, block_signals=True)
-            self.udp_all_ports_toggle.setChecked(False, block_signals=True)
-            self.raw_discord_toggle.setChecked(False, block_signals=True)
-            self.raw_stun_toggle.setChecked(False, block_signals=True)
-            self.raw_wireguard_toggle.setChecked(False, block_signals=True)
-
-            # Подключаем сигналы для обработки ручного отключения фильтров
-            self.tcp_80_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_80', v))
-            self.tcp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_443', v))
-            self.tcp_warp_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_warp', v))
-            self.tcp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('tcp_all_ports', v))
-            self.udp_443_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_443', v))
-            self.udp_all_ports_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('udp_all_ports', v))
-            self.raw_discord_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_discord', v))
-            self.raw_stun_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_stun', v))
-            self.raw_wireguard_toggle.toggled.connect(lambda v: self._on_port_filter_toggled('raw_wireguard', v))
 
             # ═══════════════════════════════════════════════════════════════════════
             # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ — остаются активными
             # ═══════════════════════════════════════════════════════════════════════
             self.wssize_toggle.setChecked(get_wssize_enabled(), block_signals=True)
-            self.allzone_toggle.setChecked(get_allzone_hostlist_enabled(), block_signals=True)
-            self.remove_hostlists_toggle.setChecked(get_remove_hostlists_enabled(), block_signals=True)
-            self.remove_ipsets_toggle.setChecked(get_remove_ipsets_enabled(), block_signals=True)
             self.debug_log_toggle.setChecked(get_debug_log_enabled(), block_signals=True)
 
             # Подключаем сигналы только для дополнительных настроек
             self.wssize_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wssize_enabled, v))
-            self.allzone_toggle.toggled.connect(lambda v: self._on_filter_changed(set_allzone_hostlist_enabled, v))
-            self.remove_hostlists_toggle.toggled.connect(lambda v: self._on_filter_changed(set_remove_hostlists_enabled, v))
-            self.remove_ipsets_toggle.toggled.connect(lambda v: self._on_filter_changed(set_remove_ipsets_enabled, v))
             self.debug_log_toggle.toggled.connect(lambda v: self._on_filter_changed(set_debug_log_enabled, v))
 
         except Exception as e:
@@ -1264,64 +1129,13 @@ class DpiSettingsPage(BasePage):
             import traceback
             log(traceback.format_exc(), "DEBUG")
 
-    def _on_port_filter_toggled(self, filter_key: str, enabled: bool):
-        """
-        Обработчик переключения фильтра портов.
-
-        Когда пользователь ОТКЛЮЧАЕТ фильтр, автоматически отключаются
-        все категории, которые требуют этот фильтр.
-        """
-        if enabled:
-            # Включение фильтра — ничего не делаем, категории сами определят
-            log(f"Фильтр {filter_key} включён вручную", "DEBUG")
-            return
-
-        # Отключение фильтра — нужно отключить зависимые категории
-        log(f"Фильтр {filter_key} отключён вручную, определяю зависимые категории...", "INFO")
-
-        try:
-            from launcher_common.port_filters import get_categories_to_disable_on_filter_off
-            from strategy_menu import get_direct_strategy_selections
-
-            # Получаем текущие выборы
-            current_selections = get_direct_strategy_selections()
-
-            # Определяем какие категории нужно отключить
-            categories_to_disable = get_categories_to_disable_on_filter_off(filter_key, current_selections)
-
-            if categories_to_disable:
-                log(f"Отключаю категории: {', '.join(categories_to_disable)}", "INFO")
-                self.filter_disabled.emit(filter_key, categories_to_disable)
-            else:
-                log(f"Нет активных категорий для отключения", "DEBUG")
-
-        except Exception as e:
-            log(f"Ошибка определения категорий для отключения: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-
     def update_filter_display(self, filters: dict):
         """
-        Обновляет отображение фильтров на основе автоматически определённых значений.
-
-        Вызывается из strategies_page при изменении выбранных категорий.
-
-        Args:
-            filters: dict с ключами tcp_80, tcp_443, tcp_all_ports, udp_443, udp_all_ports,
-                     raw_discord, raw_stun, raw_wireguard
+        Совместимость: раньше показывало «Фильтры перехвата трафика» в GUI.
+        Теперь блок удалён, метод оставлен как no-op для старых вызовов.
         """
-        try:
-            self.tcp_80_toggle.setChecked(filters.get('tcp_80', False), block_signals=True)
-            self.tcp_443_toggle.setChecked(filters.get('tcp_443', False), block_signals=True)
-            self.tcp_warp_toggle.setChecked(filters.get('tcp_warp', False), block_signals=True)
-            self.tcp_all_ports_toggle.setChecked(filters.get('tcp_all_ports', False), block_signals=True)
-            self.udp_443_toggle.setChecked(filters.get('udp_443', False), block_signals=True)
-            self.udp_all_ports_toggle.setChecked(filters.get('udp_all_ports', False), block_signals=True)
-            self.raw_discord_toggle.setChecked(filters.get('raw_discord', False), block_signals=True)
-            self.raw_stun_toggle.setChecked(filters.get('raw_stun', False), block_signals=True)
-            self.raw_wireguard_toggle.setChecked(filters.get('raw_wireguard', False), block_signals=True)
-        except Exception as e:
-            log(f"Ошибка обновления отображения фильтров: {e}", "WARNING")
+        _ = filters
+        return
                 
     def _on_filter_changed(self, setter_func, value):
         """Обработчик изменения фильтра"""
@@ -1356,8 +1170,6 @@ class DpiSettingsPage(BasePage):
             is_orchestra_mode = method in ("orchestra", "direct_zapret2_orchestra")
             is_zapret_mode = method in ("direct_zapret2", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
-            # Показываем фильтры для direct, direct_zapret2_orchestra и direct_zapret1
-            self.filters_card.setVisible(is_direct_mode)
             self.advanced_card.setVisible(is_direct_mode)
 
             # Discord restart только для Zapret 1/2 (без оркестратора)

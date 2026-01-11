@@ -1,1 +1,1 @@
-Задай вопросы прежде чем что-то изменить интерактивно, предполагая несколькьо возможных вариантов.
+Ask questions before changing anything interactively, considering several possible options!

@@ -105,6 +105,37 @@ from .strategy_inference import (
     normalize_args,
 )
 
+def ensure_builtin_presets_exist() -> bool:
+    """
+    Ensures that all built-in presets exist in presets/.
+
+    Built-ins are stored as in-code templates (no external file dependency).
+
+    Returns:
+        True if presets exist or were created successfully.
+    """
+    from log import log
+    from .preset_defaults import BUILTIN_PRESET_TEMPLATES
+
+    try:
+        presets_dir = get_presets_dir()
+        presets_dir.mkdir(parents=True, exist_ok=True)
+
+        for preset_name, content in BUILTIN_PRESET_TEMPLATES.items():
+            preset_path = presets_dir / f"{preset_name}.txt"
+            if not preset_path.exists():
+                preset_path.write_text(content, encoding="utf-8")
+                log(f"Created {preset_name}.txt from code template at {preset_path}", "DEBUG")
+
+        return True
+
+    except Exception as e:
+        log(f"Error ensuring built-in presets: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        return False
+
+
 def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
@@ -120,10 +151,12 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from pathlib import Path
     from .preset_defaults import DEFAULT_PRESET_CONTENT
 
     active_path = get_active_preset_path()
+
+    # Ensure built-in presets exist for presets list (even if active file exists).
+    ensure_builtin_presets_exist()
 
     # Check if active preset file already exists
     if active_path.exists():
@@ -133,19 +166,9 @@ def ensure_default_preset_exists() -> bool:
     log("Active preset file not found, creating from code template...", "INFO")
 
     try:
-        # Ensure presets directory exists
-        presets_dir = get_presets_dir()
-        presets_dir.mkdir(parents=True, exist_ok=True)
-
         # Write default preset from code constant to preset-zapret2.txt (active preset)
         active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
         log(f"Created active preset from code template at {active_path}", "DEBUG")
-
-        # Write to presets/Default.txt (for presets list)
-        default_preset_path = presets_dir / "Default.txt"
-        if not default_preset_path.exists():
-            default_preset_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
-            log(f"Created Default.txt from code template at {default_preset_path}", "DEBUG")
 
         # Set active preset name in registry
         set_active_preset_name("Default")
@@ -155,6 +178,50 @@ def ensure_default_preset_exists() -> bool:
 
     except Exception as e:
         log(f"Error creating default preset: {e}", "ERROR")
+        import traceback
+        log(traceback.format_exc(), "DEBUG")
+        return False
+
+
+def restore_builtin_preset(preset_name: str) -> bool:
+    """
+    Restores a built-in preset from the in-code template.
+
+    Returns:
+        True if restore was successful, False otherwise
+    """
+    from log import log
+    from .preset_defaults import get_builtin_preset_content, get_builtin_preset_canonical_name
+
+    try:
+        canonical = get_builtin_preset_canonical_name(preset_name)
+        content = get_builtin_preset_content(preset_name)
+        if not canonical or content is None:
+            log(f"Unknown built-in preset '{preset_name}'", "ERROR")
+            return False
+
+        # Ensure presets directory exists
+        presets_dir = get_presets_dir()
+        presets_dir.mkdir(parents=True, exist_ok=True)
+
+        # Path to {Preset}.txt in presets/
+        builtin_preset_path = presets_dir / f"{canonical}.txt"
+
+        # Overwrite from code constant
+        builtin_preset_path.write_text(content, encoding="utf-8")
+        log(f"Restored {canonical}.txt from code template at {builtin_preset_path}", "SUCCESS")
+
+        # If this preset is currently active, also update preset-zapret2.txt
+        active_name = (get_active_preset_name() or "").strip()
+        if active_name and active_name.lower() == canonical.lower():
+            active_path = get_active_preset_path()
+            active_path.write_text(content, encoding="utf-8")
+            log(f"Also updated active preset at {active_path}", "SUCCESS")
+
+        return True
+
+    except Exception as e:
+        log(f"Error restoring built-in preset '{preset_name}': {e}", "ERROR")
         import traceback
         log(traceback.format_exc(), "DEBUG")
         return False
@@ -172,35 +239,17 @@ def restore_default_preset() -> bool:
     Returns:
         True if restore was successful, False otherwise
     """
-    from log import log
-    from .preset_defaults import DEFAULT_PRESET_CONTENT
+    return restore_builtin_preset("Default")
 
-    try:
-        # Ensure presets directory exists
-        presets_dir = get_presets_dir()
-        presets_dir.mkdir(parents=True, exist_ok=True)
 
-        # Path to Default.txt in presets/
-        default_preset_path = presets_dir / "Default.txt"
+def restore_gaming_preset() -> bool:
+    """
+    Restores Gaming.txt preset from the built-in code template.
 
-        # Overwrite from code constant
-        default_preset_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
-        log(f"Restored Default.txt from code template at {default_preset_path}", "SUCCESS")
-
-        # If Default is currently active, also update preset-zapret2.txt
-        active_name = get_active_preset_name()
-        if active_name == "Default":
-            active_path = get_active_preset_path()
-            active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
-            log(f"Also updated active preset at {active_path}", "SUCCESS")
-
-        return True
-
-    except Exception as e:
-        log(f"Error restoring default preset: {e}", "ERROR")
-        import traceback
-        log(traceback.format_exc(), "DEBUG")
-        return False
+    Returns:
+        True if restore was successful, False otherwise
+    """
+    return restore_builtin_preset("Gaming")
 
 
 __all__ = [
@@ -228,8 +277,11 @@ __all__ = [
     # Manager
     "PresetManager",
     # Utility functions
+    "ensure_builtin_presets_exist",
     "ensure_default_preset_exists",
+    "restore_builtin_preset",
     "restore_default_preset",
+    "restore_gaming_preset",
     "get_default_category_settings",
     "get_category_default_filter_mode",
     "get_category_default_syndata",

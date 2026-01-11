@@ -180,8 +180,9 @@ def load_preset(name: str) -> Optional["Preset"]:
         data: PresetData = parse_preset_file(preset_path)
 
         # Convert to Preset model
-        # Force is_builtin=True for "Default" preset (built-in protection)
-        is_builtin = data.is_builtin or name.lower() == "default"
+        # Force is_builtin=True for built-in presets by well-known name.
+        from .preset_defaults import is_builtin_preset_name
+        is_builtin = bool(data.is_builtin) or is_builtin_preset_name(name)
         preset = Preset(
             name=data.name if data.name != "Unnamed" else name,
             base_args=data.base_args,

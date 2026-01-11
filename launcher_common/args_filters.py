@@ -6,149 +6,6 @@ import os
 from log import log
 
 
-def apply_remove_hostlists(args: list) -> list:
-    """
-    Удаляет все упоминания hostlist из аргументов (применить ко ВСЕМ САЙТАМ)
-
-    Убирает:
-    - --hostlist=...
-    - --hostlist-domains=...
-    - --hostlist-exclude=...
-
-    Оставляет только --filter и --dpi-desync (и другие аргументы)
-
-    Args:
-        args: Список аргументов командной строки
-
-    Returns:
-        Модифицированный список аргументов без hostlist
-    """
-    from strategy_menu import get_remove_hostlists_enabled
-
-    if not get_remove_hostlists_enabled():
-        return args
-
-    # Префиксы для удаления
-    remove_prefixes = [
-        "--hostlist=",
-        "--hostlist-domains=",
-        "--hostlist-exclude="
-    ]
-
-    new_args = []
-    removed_count = 0
-
-    for arg in args:
-        # Проверяем, начинается ли аргумент с одного из префиксов для удаления
-        should_remove = False
-        for prefix in remove_prefixes:
-            if arg.startswith(prefix):
-                should_remove = True
-                removed_count += 1
-                log(f"Удален аргумент hostlist: {arg}", "DEBUG")
-                break
-
-        if not should_remove:
-            new_args.append(arg)
-
-    if removed_count > 0:
-        log(f"✅ Применен фильтр 'ко всем сайтам': удалено {removed_count} аргументов hostlist", "SUCCESS")
-
-    return new_args
-
-
-def apply_remove_ipsets(args: list) -> list:
-    """
-    Удаляет все упоминания ipset из аргументов (применить ко ВСЕМ IP-АДРЕСАМ)
-
-    Убирает:
-    - --ipset=...
-    - --ipset-ip=...
-    - --ipset-exclude=...
-
-    Оставляет только --filter и --dpi-desync (и другие аргументы)
-
-    Args:
-        args: Список аргументов командной строки
-
-    Returns:
-        Модифицированный список аргументов без ipset
-    """
-    from strategy_menu import get_remove_ipsets_enabled
-
-    if not get_remove_ipsets_enabled():
-        return args
-
-    # Префиксы для удаления
-    remove_prefixes = [
-        "--ipset=",
-        "--ipset-ip=",
-        "--ipset-exclude="
-    ]
-
-    new_args = []
-    removed_count = 0
-
-    for arg in args:
-        # Проверяем, начинается ли аргумент с одного из префиксов для удаления
-        should_remove = False
-        for prefix in remove_prefixes:
-            if arg.startswith(prefix):
-                should_remove = True
-                removed_count += 1
-                log(f"Удален аргумент ipset: {arg}", "DEBUG")
-                break
-
-        if not should_remove:
-            new_args.append(arg)
-
-    if removed_count > 0:
-        log(f"✅ Применен фильтр 'ко всем IP-адресам': удалено {removed_count} аргументов ipset", "SUCCESS")
-
-    return new_args
-
-
-def apply_allzone_replacement(args: list) -> list:
-    """
-    Заменяет other.txt на allzone.txt в хостлистах если включено в настройках
-
-    Args:
-        args: Список аргументов командной строки
-
-    Returns:
-        Модифицированный список аргументов с замененными хостлистами
-    """
-    from strategy_menu import get_allzone_hostlist_enabled
-
-    # Если замена выключена, возвращаем аргументы без изменений
-    if not get_allzone_hostlist_enabled():
-        return args
-
-    new_args = []
-    replacements_count = 0
-
-    for arg in args:
-        if arg.startswith("--hostlist="):
-            hostlist_value = arg.split("=", 1)[1]
-
-            # Проверяем, содержит ли путь other.txt
-            if "other.txt" in hostlist_value:
-                # Заменяем other.txt на allzone.txt
-                new_value = hostlist_value.replace("other.txt", "allzone.txt")
-                new_args.append(f"--hostlist={new_value}")
-                replacements_count += 1
-                log(f"Заменен хостлист: other.txt → allzone.txt", "DEBUG")
-            else:
-                new_args.append(arg)
-        else:
-            new_args.append(arg)
-
-    if replacements_count > 0:
-        log(f"✅ Выполнена замена other.txt на allzone.txt ({replacements_count} замен)", "SUCCESS")
-
-    return new_args
-
-
 def _has_port_443(ports_part: str) -> bool:
     """
     Проверяет, содержит ли строка с портами порт 443
@@ -312,11 +169,7 @@ def apply_all_filters(args: list, lists_dir: str) -> list:
 
     ПОРЯДОК ВАЖЕН:
     0. Сначала создаём недостающие файлы hostlist/ipset
-    1. Затем удаляем hostlist (если включено "ко всем сайтам")
-    2. Затем удаляем ipset (если включено "ко всем IP-адресам")
-    3. Затем заменяем other.txt на allzone.txt (если включено)
-    4. Затем применяем Game Filter (расширение портов)
-    5. В конце применяем wssize параметры
+    1. В конце применяем wssize параметры
 
     Args:
         args: Исходный список аргументов
@@ -328,16 +181,7 @@ def apply_all_filters(args: list, lists_dir: str) -> list:
     # 0. Создаём недостающие файлы списков (ПЕРВЫМ!)
     args = ensure_list_files_exist(args, lists_dir)
 
-    # 1. Удаляем все hostlist (если включено)
-    args = apply_remove_hostlists(args)
-
-    # 2. Удаляем все ipset (если включено)
-    args = apply_remove_ipsets(args)
-
-    # 3. Заменяем other.txt на allzone.txt (если включено)
-    args = apply_allzone_replacement(args)
-
-    # 5. Применяем wssize параметры (если включено)
+    # 1. Применяем wssize параметры (если включено)
     args = apply_wssize_parameter(args)
 
     return args

@@ -556,13 +556,15 @@ def extract_syndata_from_args(args: str) -> Dict:
         args: Argument string to parse
 
     Returns:
-        Dict with syndata parameters (empty if no syndata found)
+        Dict with syndata parameters. If the `--lua-desync=syndata:` line is absent,
+        returns `{"enabled": False}`.
     """
-    result = {'enabled': True}
+    result = {'enabled': False}
 
     # Format: --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
     match = re.search(r'--lua-desync=syndata:([^\s\n]+)', args)
     if match:
+        result['enabled'] = True
         syndata_str = match.group(1)
         # Format: blob=tls_google:ip_autottl=-2,3-20:tls_mod=value
         parts = syndata_str.split(':')
@@ -588,7 +590,7 @@ def extract_syndata_from_args(args: str) -> Dict:
 
         return result
 
-    return {}  # No syndata - return empty dict
+    return result
 
 
 def extract_out_range_from_args(args: str) -> Dict:
@@ -622,13 +624,15 @@ def extract_send_from_args(args: str) -> Dict:
         args: Argument string to parse
 
     Returns:
-        Dict with send parameters (empty if not found)
+        Dict with send parameters. If the `--lua-desync=send:` line is absent,
+        returns `{"send_enabled": False}`.
     """
-    result = {'send_enabled': True}
+    result = {'send_enabled': False}
 
     # Format: --lua-desync=send:repeats=2:ttl=0
     match = re.search(r'--lua-desync=send:([^\s\n]+)', args)
     if match:
+        result['send_enabled'] = True
         send_str = match.group(1)
         # Format: repeats=2:ttl=0:badsum=true
         parts = send_str.split(':')
@@ -651,7 +655,7 @@ def extract_send_from_args(args: str) -> Dict:
 
         return result
 
-    return {}  # No send parameters found
+    return result
 
 
 def parse_preset_file(file_path: Path) -> PresetData:

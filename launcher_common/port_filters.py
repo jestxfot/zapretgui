@@ -152,10 +152,16 @@ def get_filter_for_category(category_info) -> Set[str]:
         required_filters.add('raw_wireguard')
         return required_filters
 
+    # === HTTP80 категории ===
+    if strategy_type == "http80":
+        required_filters.add('tcp_80')
+        return required_filters
+
     # === WARP категории (TCP 443, 853) ===
     is_warp = "warp" in category_key.lower() or strategy_type == "warp"
     if is_warp and "TCP" in protocol:
         required_filters.add('tcp_warp')
+        required_filters.add('tcp_443')
         return required_filters
 
     # === Определяем протокол ===
@@ -256,30 +262,6 @@ def build_category_to_filters_map() -> Dict[str, Set[str]]:
             category_map[category_key] = set()
 
     return category_map
-
-
-def get_categories_to_disable_on_filter_off(filter_key: str, current_selections: dict) -> List[str]:
-    """
-    Возвращает список категорий, которые нужно отключить при выключении фильтра.
-
-    Возвращает только те категории, которые сейчас активны (не "none").
-
-    Args:
-        filter_key: Ключ фильтра который отключается
-        current_selections: Текущие выборы категорий {category_key: strategy_id}
-
-    Returns:
-        List[str] - список категорий для отключения
-    """
-    categories_for_filter = get_categories_for_filter(filter_key)
-    categories_to_disable = []
-
-    for category_key in categories_for_filter:
-        strategy_id = current_selections.get(category_key, "none")
-        if strategy_id and strategy_id != "none":
-            categories_to_disable.append(category_key)
-
-    return categories_to_disable
 
 
 def log_filter_category_map():

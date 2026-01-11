@@ -61,56 +61,13 @@ def _apply_settings(args: str) -> str:
     Применяет все пользовательские настройки к командной строке.
 
     Обрабатывает:
-    - Удаление --hostlist (применить ко всем сайтам)
-    - Удаление --ipset (применить ко всем IP)
     - Добавление --wssize 1:6
-    - Замена other.txt на allzone.txt
     """
     from strategy_menu import (
-        get_remove_hostlists_enabled,
-        get_remove_ipsets_enabled,
         get_wssize_enabled,
-        get_allzone_hostlist_enabled
     )
 
     result = args
-
-    # ==================== ЗАМЕНА ALLZONE ====================
-    # Делаем ДО удаления hostlist, чтобы замена сработала
-    if get_allzone_hostlist_enabled():
-        result = result.replace("--hostlist=other.txt", "--hostlist=allzone.txt")
-        result = result.replace("--hostlist=other2.txt", "--hostlist=allzone.txt")
-        log("Применена замена other.txt -> allzone.txt", "DEBUG")
-
-    # ==================== УДАЛЕНИЕ HOSTLIST ====================
-    if get_remove_hostlists_enabled():
-        # Удаляем все варианты hostlist
-        patterns = [
-            r'--hostlist-domains=[^\s]+',
-            r'--hostlist-exclude=[^\s]+',
-            r'--hostlist=[^\s]+',
-        ]
-        for pattern in patterns:
-            result = re.sub(pattern, '', result)
-
-        # Очищаем лишние пробелы
-        result = _clean_spaces(result)
-        log("Удалены все --hostlist параметры", "DEBUG")
-
-    # ==================== УДАЛЕНИЕ IPSET ====================
-    if get_remove_ipsets_enabled():
-        # Удаляем все варианты ipset
-        patterns = [
-            r'--ipset-ip=[^\s]+',
-            r'--ipset-exclude=[^\s]+',
-            r'--ipset=[^\s]+',
-        ]
-        for pattern in patterns:
-            result = re.sub(pattern, '', result)
-
-        # Очищаем лишние пробелы
-        result = _clean_spaces(result)
-        log("Удалены все --ipset параметры", "DEBUG")
 
     # ==================== ДОБАВЛЕНИЕ WSSIZE ====================
     if get_wssize_enabled():
@@ -136,7 +93,7 @@ def _apply_settings(args: str) -> str:
     # ==================== ФИНАЛЬНАЯ ОЧИСТКА ====================
     result = _clean_spaces(result)
 
-    # Удаляем пустые --new (если после удаления hostlist/ipset остались)
+    # Удаляем пустые --new (если вдруг после модификаций остались)
     result = re.sub(r'--new\s+--new', '--new', result)
     result = re.sub(r'\s+--new\s*$', '', result)  # Trailing --new
     result = re.sub(r'^--new\s+', '', result)  # Leading --new

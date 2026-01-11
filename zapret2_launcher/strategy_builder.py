@@ -139,54 +139,13 @@ def _apply_settings(args: str) -> str:
     Applies all user settings to the command line.
 
     Handles:
-    - --hostlist removal (apply to all sites)
-    - --ipset removal (apply to all IPs)
     - Adding --wssize 1:6
-    - Replacing other.txt with allzone.txt
     """
     from strategy_menu import (
-        get_remove_hostlists_enabled,
-        get_remove_ipsets_enabled,
         get_wssize_enabled,
-        get_allzone_hostlist_enabled
     )
 
     result = args
-
-    # ==================== ALLZONE REPLACEMENT ====================
-    # Do this BEFORE removing hostlist so replacement works
-    if get_allzone_hostlist_enabled():
-        result = result.replace("--hostlist=other.txt", "--hostlist=allzone.txt")
-        result = result.replace("--hostlist=other2.txt", "--hostlist=allzone.txt")
-        log("[V2] Applied replacement other.txt -> allzone.txt", "DEBUG")
-
-    # ==================== HOSTLIST REMOVAL ====================
-    if get_remove_hostlists_enabled():
-        # Remove all hostlist variants
-        patterns = [
-            r'--hostlist-domains=[^\s]+',
-            r'--hostlist-exclude=[^\s]+',
-            r'--hostlist=[^\s]+',
-        ]
-        for pattern in patterns:
-            result = re.sub(pattern, '', result)
-
-        result = _clean_spaces(result)
-        log("[V2] Removed all --hostlist parameters", "DEBUG")
-
-    # ==================== IPSET REMOVAL ====================
-    if get_remove_ipsets_enabled():
-        # Remove all ipset variants
-        patterns = [
-            r'--ipset-ip=[^\s]+',
-            r'--ipset-exclude=[^\s]+',
-            r'--ipset=[^\s]+',
-        ]
-        for pattern in patterns:
-            result = re.sub(pattern, '', result)
-
-        result = _clean_spaces(result)
-        log("[V2] Removed all --ipset parameters", "DEBUG")
 
     # ==================== WSSIZE ADDITION ====================
     if get_wssize_enabled():
@@ -211,7 +170,7 @@ def _apply_settings(args: str) -> str:
     # ==================== FINAL CLEANUP ====================
     result = _clean_spaces(result)
 
-    # Remove empty --new (if left after hostlist/ipset removal)
+    # Remove empty --new (if left after other modifications)
     result = re.sub(r'--new\s+--new', '--new', result)
     result = re.sub(r'\s+--new\s*$', '', result)  # Trailing --new
     result = re.sub(r'^--new\s+', '', result)  # Leading --new
@@ -347,10 +306,7 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
     Applies all settings from UI:
     - Base arguments (windivert)
     - Debug log (if enabled)
-    - Hostlist removal (if enabled)
-    - Ipset removal (if enabled)
     - Wssize addition (if enabled)
-    - other.txt -> allzone.txt replacement (if enabled)
     """
 
     # Determine category selections source

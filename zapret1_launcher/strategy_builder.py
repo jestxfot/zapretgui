@@ -209,10 +209,7 @@ def combine_strategies_v1(**kwargs) -> dict:
     Applies all settings from UI:
     - Base arguments (windivert)
     - Debug log (if enabled)
-    - Hostlist removal (if enabled)
-    - Ipset removal (if enabled)
     - Wssize addition (if enabled)
-    - other.txt -> allzone.txt replacement (if enabled)
     """
 
     # Determine category selections source

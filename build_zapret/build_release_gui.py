@@ -1083,6 +1083,8 @@ class BuildReleaseGUI:
             str(iscc_path),
             f'/DCHANNEL={channel}',  # ✅ Строковый канал: "stable" или "test"
             f'/DVERSION={version}',
+            f'/DSOURCEPATH={source_root}',
+            f'/DPROJECTPATH={project_root}',
             str(target_iss)
         ]
 

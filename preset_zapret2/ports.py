@@ -131,3 +131,58 @@ def union_port_specs(values: Iterable[str]) -> str:
     merged = merge_intervals(intervals)
     return format_port_spec(PortSpec(wildcard=False, intervals=tuple(merged)))
 
+
+def subtract_port_specs(value: str, remove: str) -> str:
+    """
+    Subtracts one port spec from another and returns a normalized spec.
+
+    Examples:
+    - subtract_port_specs("80,443", "443") -> "80"
+    - subtract_port_specs("1-10", "5-6") -> "1-4,7-10"
+    - subtract_port_specs("*", "1-65534") -> "65535"
+
+    Returns empty string if nothing remains.
+    """
+    if not value:
+        return ""
+    if not remove:
+        return union_port_specs([value])
+
+    left = parse_port_spec(str(value))
+    right = parse_port_spec(str(remove))
+
+    if right.wildcard:
+        return ""
+
+    left_intervals = [(1, 65535)] if left.wildcard else list(left.intervals)
+    right_intervals = list(right.intervals)
+
+    if not left_intervals:
+        return ""
+    if not right_intervals:
+        return format_port_spec(left)
+
+    result: List[Tuple[int, int]] = []
+    j = 0
+    for start, end in left_intervals:
+        cur = start
+        while j < len(right_intervals) and right_intervals[j][1] < cur:
+            j += 1
+
+        k = j
+        while k < len(right_intervals) and right_intervals[k][0] <= end:
+            r_start, r_end = right_intervals[k]
+            if r_start > cur:
+                result.append((cur, min(end, r_start - 1)))
+            cur = max(cur, r_end + 1)
+            if cur > end:
+                break
+            k += 1
+
+        if cur <= end:
+            result.append((cur, end))
+
+    merged = merge_intervals(result)
+    if not merged:
+        return ""
+    return format_port_spec(PortSpec(wildcard=False, intervals=tuple(merged)))
