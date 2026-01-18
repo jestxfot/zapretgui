@@ -1350,6 +1350,7 @@ class PresetManager:
         from .preset_defaults import (
             DEFAULT_PRESET_CONTENT,
             get_builtin_preset_content,
+            get_builtin_base_from_copy_name,
             is_builtin_preset_name,
         )
         from .txt_preset_parser import parse_preset_content
@@ -1363,12 +1364,22 @@ class PresetManager:
                 builtin_template = get_builtin_preset_content(preset_name)
                 if builtin_template is not None:
                     template_content = builtin_template
+            else:
+                base = get_builtin_base_from_copy_name(preset_name)
+                if base:
+                    builtin_template = get_builtin_preset_content(base)
+                    if builtin_template is not None:
+                        template_content = builtin_template
 
             data = parse_preset_content(template_content)
 
             # Build Preset model, then reuse sync logic to generate a proper active file
             # (including absolute list paths and normalized base filters).
             preset = Preset(name=preset_name, base_args=data.base_args)
+            existing = load_preset(preset_name) if preset_exists(preset_name) else None
+            if existing and not existing.is_builtin:
+                preset.created = existing.created
+                preset.description = existing.description
 
             for block in data.categories:
                 cat_name = block.category
@@ -1411,6 +1422,12 @@ class PresetManager:
                     inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
                 cat.strategy_id = inferred or "none"
 
+            # Persist reset into the preset file when active preset is a normal (non-built-in) preset.
+            if preset.name and preset.name != "Current" and preset_exists(preset.name):
+                existing2 = load_preset(preset.name)
+                if existing2 and not existing2.is_builtin:
+                    save_preset(preset)
+
             return self.sync_preset_to_active_file(preset)
         except Exception as e:
             log(f"Error resetting active preset to built-in template: {e}", "ERROR")
@@ -1429,13 +1446,40 @@ class PresetManager:
         # Normalize/update wf-*-out before persisting anywhere.
         preset.base_args = self._update_wf_out_ports_in_base_args(preset)
 
-        # First save to presets folder if it has a name
-        if preset.name and preset.name != "Current":
-            save_preset(preset)
+        preset_to_sync = preset
+
+        # Built-in presets are templates: persist user edits as a normal preset copy
+        # and switch active preset name to that copy.
+        if preset.is_builtin and preset.name and preset.name != "Current":
+            try:
+                from .preset_defaults import get_builtin_copy_name
+                copy_name = get_builtin_copy_name(preset.name) or f"{preset.name} (копия)"
+
+                existing = load_preset(copy_name) if preset_exists(copy_name) else None
+                copy_preset = Preset(
+                    name=copy_name,
+                    base_args=preset.base_args,
+                    categories=preset.categories,
+                    description=(existing.description if existing else f"Копия встроенного пресета {preset.name}"),
+                    created=(existing.created if existing else datetime.now().isoformat()),
+                    modified=datetime.now().isoformat(),
+                    is_builtin=False,
+                )
+
+                set_active_preset_name(copy_name)
+                preset_to_sync = copy_preset
+
+                log(f"Created/updated copy preset '{copy_name}' from built-in '{preset.name}'", "INFO")
+            except Exception as e:
+                log(f"Failed to materialize built-in copy preset: {e}", "WARNING")
+
+        # First save to presets folder if it has a name (normal presets only).
+        if preset_to_sync.name and preset_to_sync.name != "Current" and not preset_to_sync.is_builtin:
+            save_preset(preset_to_sync)
 
         # Then sync to active file (triggers DPI reload via callback)
         # Note: sync_preset_to_active_file() already invalidates cache
-        return self.sync_preset_to_active_file(preset)
+        return self.sync_preset_to_active_file(preset_to_sync)
 
     def _create_category_with_defaults(self, category_key: str) -> CategoryConfig:
         """

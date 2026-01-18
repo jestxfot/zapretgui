@@ -321,6 +321,8 @@ _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY: dict[str, str] = {
     canonical.lower(): canonical for canonical in BUILTIN_PRESET_TEMPLATES.keys()
 }
 
+BUILTIN_COPY_SUFFIX = " (копия)"
+
 
 def get_builtin_preset_content(name: str) -> Optional[str]:
     key = (name or "").strip().lower()
@@ -338,6 +340,21 @@ def get_builtin_preset_canonical_name(name: str) -> Optional[str]:
 
 def is_builtin_preset_name(name: str) -> bool:
     return get_builtin_preset_canonical_name(name) is not None
+
+
+def get_builtin_copy_name(builtin_name: str) -> Optional[str]:
+    canonical = get_builtin_preset_canonical_name(builtin_name)
+    if not canonical:
+        return None
+    return f"{canonical}{BUILTIN_COPY_SUFFIX}"
+
+
+def get_builtin_base_from_copy_name(name: str) -> Optional[str]:
+    raw = (name or "").strip()
+    if not raw or not raw.endswith(BUILTIN_COPY_SUFFIX):
+        return None
+    base = raw[: -len(BUILTIN_COPY_SUFFIX)].strip()
+    return get_builtin_preset_canonical_name(base)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

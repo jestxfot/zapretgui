@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QGraphicsDropShadowEffect, QApplication)
 from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, 
                           pyqtSignal, QRectF)
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen, QCursor
 
 from log import log
 
@@ -20,12 +20,13 @@ class ArgsPreviewDialog(QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._pinned = False
+        self._hover_follow = False
+        self._mouse_offset = None
+        self._mouse_timer = QTimer(self)
+        self._mouse_timer.timeout.connect(self._follow_cursor)
         
-        self.setWindowFlags(
-            Qt.WindowType.Popup |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
-        )
+        self.setWindowFlags(self._popup_flags())
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(False)
         
@@ -35,6 +36,137 @@ class ArgsPreviewDialog(QDialog):
         
         self.init_ui()
         self.setWindowOpacity(0.0)
+
+    @staticmethod
+    def _popup_flags():
+        return (
+            Qt.WindowType.Popup
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+
+    @staticmethod
+    def _pinned_flags():
+        # Tool window: does not auto-close on focus-out like Popup does.
+        return (
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+
+    @staticmethod
+    def _tooltip_flags():
+        return (
+            Qt.WindowType.ToolTip
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+
+    def set_hover_follow(self, enabled: bool, offset=None) -> None:
+        """
+        Hover-preview mode: show as a tooltip and follow the cursor.
+
+        This prevents Qt.Popup auto-closing on click (which makes the preview
+        "disappear" while selecting strategies).
+        """
+        enabled = bool(enabled)
+        if bool(getattr(self, "_hover_follow", False)) == enabled:
+            return
+        self._hover_follow = enabled
+        self._mouse_offset = offset
+
+        if enabled:
+            # Tooltip should not steal focus.
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        else:
+            try:
+                self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+            except Exception:
+                pass
+
+        self._apply_window_flags()
+
+        if enabled and not self._pinned:
+            self._mouse_timer.start(16)  # ~60 FPS
+        else:
+            self._mouse_timer.stop()
+
+    def _apply_window_flags(self) -> None:
+        was_visible = False
+        try:
+            was_visible = self.isVisible()
+        except Exception:
+            was_visible = False
+        try:
+            pos = self.pos()
+        except Exception:
+            pos = None
+        try:
+            opacity = float(self.windowOpacity())
+        except Exception:
+            opacity = 1.0
+
+        try:
+            if self._pinned:
+                flags = self._pinned_flags()
+            elif self._hover_follow:
+                flags = self._tooltip_flags()
+            else:
+                flags = self._popup_flags()
+
+            self.setWindowFlags(flags)
+            self.setModal(False)
+            if was_visible:
+                self.show()
+                if pos is not None:
+                    self.move(pos)
+                self.setWindowOpacity(opacity)
+        except Exception:
+            pass
+
+    def set_pinned(self, pinned: bool) -> None:
+        pinned = bool(pinned)
+        if bool(getattr(self, "_pinned", False)) == pinned:
+            return
+        self._pinned = pinned
+        if pinned:
+            self._mouse_timer.stop()
+        elif self._hover_follow:
+            self._mouse_timer.start(16)
+        self._apply_window_flags()
+
+    def _follow_cursor(self):
+        if self._pinned or (not self._hover_follow) or (not self.isVisible()):
+            self._mouse_timer.stop()
+            return
+        self._position_near_cursor(QCursor.pos())
+
+    def _position_near_cursor(self, cursor_pos):
+        try:
+            from PyQt6.QtCore import QPoint
+            offset = self._mouse_offset if self._mouse_offset is not None else QPoint(18, 18)
+            target_pos = cursor_pos + offset
+        except Exception:
+            target_pos = cursor_pos
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_rect = screen.availableGeometry()
+            try:
+                if target_pos.x() + self.width() > screen_rect.right():
+                    target_pos.setX(cursor_pos.x() - self.width() - 10)
+                if target_pos.y() + self.height() > screen_rect.bottom():
+                    target_pos.setY(cursor_pos.y() - self.height() - 10)
+                if target_pos.x() < screen_rect.left():
+                    target_pos.setX(screen_rect.left() + 5)
+                if target_pos.y() < screen_rect.top():
+                    target_pos.setY(screen_rect.top() + 5)
+            except Exception:
+                pass
+        try:
+            self.move(target_pos)
+        except Exception:
+            pass
 
     def wheelEvent(self, event):
         """
@@ -483,7 +615,10 @@ class ArgsPreviewDialog(QDialog):
         """)
     
     def show_animated(self, pos=None):
-        if pos:
+        if self._hover_follow and not self._pinned:
+            self._position_near_cursor(QCursor.pos())
+            self._mouse_timer.start(16)
+        elif pos:
             self.move(pos)
         self.show()
         self.opacity_animation.setStartValue(0.0)
@@ -494,6 +629,7 @@ class ArgsPreviewDialog(QDialog):
         self.hide_animated()
     
     def hide_animated(self):
+        self._mouse_timer.stop()
         self.opacity_animation.setStartValue(1.0)
         self.opacity_animation.setEndValue(0.0)
         self.opacity_animation.finished.connect(self._on_hide_finished)

@@ -295,6 +295,11 @@ class MainWindowUI:
         self.start_btn = self.home_page.start_btn
         self.stop_btn = self.home_page.stop_btn
 
+        # Текущая стратегия (старый код ожидает QLabel на self.current_strategy_label).
+        # В новом UI это label на странице управления.
+        if hasattr(self.control_page, "strategy_label"):
+            self.current_strategy_label = self.control_page.strategy_label
+
         # Кнопки управления
         self.test_connection_btn = self.home_page.test_btn
         self.open_folder_btn = self.home_page.folder_btn

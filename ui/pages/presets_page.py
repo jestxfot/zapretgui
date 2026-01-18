@@ -172,7 +172,7 @@ class PresetCard(QFrame):
 
         # Бейдж "Встроенный"
         if self._is_builtin:
-            builtin_badge = QLabel("Встроенный")
+            builtin_badge = QLabel("Официальный")
             builtin_badge.setStyleSheet("""
                 QLabel {
                     color: rgba(255, 255, 255, 0.7);
@@ -183,7 +183,34 @@ class PresetCard(QFrame):
                     border-radius: 4px;
                 }
             """)
+            builtin_badge.setToolTip(
+                "Официальный пресет-шаблон (только чтение).\n"
+                "Любые изменения будут сохранены в виде копии, оригинал не меняется."
+            )
             top_row.addWidget(builtin_badge)
+
+        # Бейдж "Редактируемый" (пользовательская версия шаблона)
+        try:
+            from preset_zapret2.preset_defaults import get_builtin_base_from_copy_name
+            if get_builtin_base_from_copy_name(name):
+                copy_badge = QLabel("Редактируемый")
+                copy_badge.setStyleSheet("""
+                    QLabel {
+                        color: rgba(255, 255, 255, 0.8);
+                        background-color: rgba(74, 222, 128, 0.14);
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 3px 8px;
+                        border-radius: 4px;
+                    }
+                """)
+                copy_badge.setToolTip(
+                    "Пользовательская версия шаблона.\n"
+                    "Её можно менять, переименовывать, экспортировать и удалять."
+                )
+                top_row.addWidget(copy_badge)
+        except Exception:
+            pass
 
         main_layout.addLayout(top_row)
 
@@ -555,14 +582,14 @@ class PresetsPage(BasePage):
 
             from preset_zapret2 import get_presets_dir
             presets_dir = get_presets_dir()
-            if not presets_dir.exists():
-                return
 
             current_files = self._file_watcher.files()
             if current_files:
                 self._file_watcher.removePaths(current_files)
 
-            preset_files = [str(p) for p in presets_dir.glob("*.txt") if p.is_file()]
+            preset_files = []
+            if presets_dir.exists():
+                preset_files.extend([str(p) for p in presets_dir.glob("*.txt") if p.is_file()])
             if preset_files:
                 self._file_watcher.addPaths(preset_files)
 
@@ -642,6 +669,37 @@ class PresetsPage(BasePage):
 
         self.active_card.add_layout(active_layout)
         self.add_widget(self.active_card)
+
+        self.add_spacing(12)
+
+        # Короткая подсказка как работают официальные пресеты/копии
+        info_card = SettingsCard("Как это работает")
+        info_card.setStyleSheet("""
+            QFrame#settingsCard {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: none;
+                border-radius: 8px;
+            }
+            QFrame#settingsCard:hover {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: none;
+            }
+        """)
+        info_layout = QHBoxLayout()
+        info_layout.setSpacing(12)
+        info_icon = QLabel()
+        info_icon.setPixmap(qta.icon("fa5s.info-circle", color="rgba(255, 255, 255, 0.7)").pixmap(16, 16))
+        info_layout.addWidget(info_icon)
+        info_text = QLabel(
+            "Официальные пресеты — это шаблоны (их нельзя изменить). "
+            "Если вы меняете настройки, автоматически создаётся редактируемая копия "
+            "в виде отдельного пресета «(копия)»."
+        )
+        info_text.setStyleSheet("color: rgba(255, 255, 255, 0.65); font-size: 12px;")
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text, 1)
+        info_card.add_layout(info_layout)
+        self.add_widget(info_card)
 
         self.add_spacing(12)
 
@@ -802,15 +860,25 @@ class PresetsPage(BasePage):
         self._action_reveal_layout.addWidget(self._action_card)
         self.add_widget(self._action_reveal)
 
-        # Секция "Все пресеты"
-        self.add_section_title("Все пресеты")
+        # Секция "Шаблоны"
+        self.add_section_title("Шаблоны")
 
-        # Контейнер для карточек пресетов
+        self.official_container = QWidget()
+        self.official_layout = QVBoxLayout(self.official_container)
+        self.official_layout.setContentsMargins(0, 0, 0, 0)
+        self.official_layout.setSpacing(8)
+        self.add_widget(self.official_container)
+
+        self.add_spacing(12)
+
+        # Секция "Пользовательские"
+        self.add_section_title("Пользовательские")
+
+        # Контейнер для карточек пользовательских пресетов
         self.presets_container = QWidget()
         self.presets_layout = QVBoxLayout(self.presets_container)
         self.presets_layout.setContentsMargins(0, 0, 0, 0)
         self.presets_layout.setSpacing(8)
-
         self.add_widget(self.presets_container)
 
         self.add_spacing(16)
@@ -1019,10 +1087,24 @@ class PresetsPage(BasePage):
                 card.deleteLater()
             self._preset_cards.clear()
 
-            # Создаем карточки для каждого пресета
+            # Очищаем контейнеры (на случай если были empty label'ы)
+            def _clear_layout(layout):
+                while layout.count():
+                    item = layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+
+            _clear_layout(self.official_layout)
+            _clear_layout(self.presets_layout)
+
+            # Создаем карточки и раскладываем по секциям
+            official_items = []
+            user_items = []
+
             for name in preset_names:
                 preset = manager.load_preset(name)
                 if preset:
+                    target = official_items if preset.is_builtin else user_items
                     card = PresetCard(
                         name=name,
                         description=preset.description,
@@ -1039,12 +1121,19 @@ class PresetsPage(BasePage):
                     card.delete_clicked.connect(self._on_delete_preset)
                     card.export_clicked.connect(self._on_export_preset)
 
-                    self.presets_layout.addWidget(card)
+                    target.append(card)
                     self._preset_cards.append(card)
 
-            # Если нет пресетов - показываем подсказку
-            if not preset_names:
-                empty_label = QLabel("Нет сохранённых пресетов. Создайте первый!")
+            # Порядок: официальные (сверху) и пользовательские (ниже)
+            for card in official_items:
+                self.official_layout.addWidget(card)
+
+            for card in user_items:
+                self.presets_layout.addWidget(card)
+
+            # Если нет пользовательских пресетов - показываем подсказку
+            if not user_items:
+                empty_label = QLabel("Нет пользовательских пресетов. Создайте новый или сделайте копию официального.")
                 empty_label.setStyleSheet("""
                     QLabel {
                         color: rgba(255, 255, 255, 0.5);

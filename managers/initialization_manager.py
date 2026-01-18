@@ -137,6 +137,7 @@ class InitializationManager:
         try:
             from strategy_menu import get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
+            from strategy_menu import get_strategy_launch_method
 
             # Прогреваем кэш отсортированных ключей
             registry.get_all_category_keys_sorted()
@@ -145,6 +146,29 @@ class InitializationManager:
             get_direct_strategy_selections()
 
             log("Кэш стратегий прогрет", "DEBUG")
+
+            # ✅ Важно для direct_zapret2: обновить отображение текущей стратегии на старте.
+            # Иначе на главной/управлении может остаться "Не выбрана" до первого клика в стратегиях.
+            try:
+                method = get_strategy_launch_method()
+
+                # Убедимся, что preset-zapret2.txt существует до расчёта summary.
+                if method == "direct_zapret2":
+                    from preset_zapret2 import ensure_default_preset_exists
+                    ensure_default_preset_exists()
+
+                if method == "bat":
+                    from config.reg import get_last_bat_strategy
+                    initial_name = get_last_bat_strategy() or "Не выбрана"
+                elif method == "orchestra":
+                    initial_name = getattr(self.app, "current_strategy_name", None) or "Оркестр"
+                else:
+                    initial_name = getattr(self.app, "current_strategy_name", None) or "Прямой запуск"
+
+                if hasattr(self.app, "update_current_strategy_display"):
+                    self.app.update_current_strategy_display(initial_name)
+            except Exception as e:
+                log(f"Ошибка обновления текущей стратегии на старте: {e}", "DEBUG")
 
         except Exception as e:
             log(f"Ошибка прогрева кэша стратегий: {e}", "WARNING")

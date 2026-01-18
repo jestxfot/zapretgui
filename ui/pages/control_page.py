@@ -1,6 +1,8 @@
 # ui/pages/control_page.py
 """Страница управления - запуск/остановка DPI"""
 
+import os
+
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy
 import qtawesome as qta
@@ -101,6 +103,7 @@ class ControlPage(BasePage):
         super().__init__("Управление", "Запуск и остановка обхода блокировок", parent)
         
         self._build_ui()
+        self._update_stop_winws_button_text()
         
     def _build_ui(self):
         # Статус работы
@@ -156,7 +159,7 @@ class ControlPage(BasePage):
         self.start_btn = BigActionButton("Запустить Zapret", "fa5s.play", accent=True)
         buttons_layout.addWidget(self.start_btn)
         
-        # Кнопка остановки только winws.exe
+        # Кнопка остановки только winws.exe / winws2.exe (в зависимости от режима)
         self.stop_winws_btn = StopButton("Остановить только winws.exe", "fa5s.stop")
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
@@ -263,6 +266,19 @@ class ControlPage(BasePage):
         """)
         self.loading_label.setVisible(False)
         self.add_widget(self.loading_label)
+
+    def _update_stop_winws_button_text(self):
+        """Обновляет подпись кнопки остановки (winws.exe vs winws2.exe) по текущему режиму."""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            from config import get_winws_exe_for_method
+
+            method = get_strategy_launch_method()
+            exe_name = os.path.basename(get_winws_exe_for_method(method)) or "winws.exe"
+            self.stop_winws_btn.setText(f"Остановить только {exe_name}")
+        except Exception:
+            # Fallback на старую подпись (не ломаем UI из-за циклических импортов/ошибок реестра)
+            self.stop_winws_btn.setText("Остановить только winws.exe")
         
     def set_loading(self, loading: bool, text: str = ""):
         """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
@@ -306,6 +322,7 @@ class ControlPage(BasePage):
             self.status_dot.set_color('#6ccb5f')
             self.status_dot.start_pulse()
             self.start_btn.setVisible(False)
+            self._update_stop_winws_button_text()
             self.stop_winws_btn.setVisible(True)
             self.stop_and_exit_btn.setVisible(True)
         else:
@@ -319,6 +336,7 @@ class ControlPage(BasePage):
             
     def update_strategy(self, name: str):
         """Обновляет отображение текущей стратегии"""
+        self._update_stop_winws_button_text()
         # Direct modes: show summary of active categories (top-2 + +N ещё).
         try:
             from strategy_menu import get_strategy_launch_method

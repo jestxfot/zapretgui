@@ -127,12 +127,116 @@ def ensure_builtin_presets_exist() -> bool:
                 preset_path.write_text(content, encoding="utf-8")
                 log(f"Created {preset_name}.txt from code template at {preset_path}", "DEBUG")
 
+        migrate_builtin_overrides_to_visible_copies()
         return True
 
     except Exception as e:
         log(f"Error ensuring built-in presets: {e}", "ERROR")
         import traceback
         log(traceback.format_exc(), "DEBUG")
+        return False
+
+
+def migrate_builtin_overrides_to_visible_copies() -> bool:
+    """
+    Migrates legacy built-in overrides to visible user presets.
+
+    Old behavior stored user edits of built-in presets (Default/Gaming) under
+    `presets/_builtin_overrides/*.txt`. New UX stores them as normal presets
+    (e.g. `Default (копия).txt`) so users clearly work with a copy, not the original.
+
+    Returns:
+        True if migration succeeded (or nothing to migrate), False on fatal error.
+    """
+    from log import log
+    from .preset_defaults import BUILTIN_PRESET_TEMPLATES, get_builtin_copy_name
+    from .preset_storage import get_builtin_override_path, get_preset_path, get_active_preset_path
+
+    try:
+        active_name = (get_active_preset_name() or "").strip()
+        active_path = get_active_preset_path()
+
+        for builtin_name in BUILTIN_PRESET_TEMPLATES.keys():
+            override_path = get_builtin_override_path(builtin_name)
+            if not override_path.exists():
+                continue
+
+            copy_name = get_builtin_copy_name(builtin_name)
+            if not copy_name:
+                continue
+
+            dest_path = get_preset_path(copy_name)
+            try:
+                content = override_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                content = ""
+
+            lines = content.splitlines()
+            out: list[str] = []
+            saw_preset = False
+            saw_active = False
+            for raw in lines:
+                stripped = raw.strip()
+                if stripped.lower().startswith("# preset:"):
+                    out.append(f"# Preset: {copy_name}")
+                    saw_preset = True
+                    continue
+                if stripped.lower().startswith("# activepreset:"):
+                    out.append(f"# ActivePreset: {copy_name}")
+                    saw_active = True
+                    continue
+                out.append(raw)
+
+            if not saw_preset:
+                out.insert(0, f"# Preset: {copy_name}")
+            if not saw_active:
+                insert_idx = 1 if out and out[0].strip().lower().startswith("# preset:") else 0
+                out.insert(insert_idx, f"# ActivePreset: {copy_name}")
+
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            dest_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+            try:
+                override_path.unlink()
+            except Exception:
+                pass
+
+            log(f"Migrated built-in override '{builtin_name}' -> '{copy_name}'", "INFO")
+
+            # If this built-in was active, switch active name to the visible copy
+            # and update the active file header markers.
+            if active_name and active_name.lower() == builtin_name.lower():
+                set_active_preset_name(copy_name)
+                if active_path.exists():
+                    try:
+                        active_content = active_path.read_text(encoding="utf-8", errors="replace")
+                        a_lines = active_content.splitlines()
+                        a_out: list[str] = []
+                        a_saw_preset = False
+                        a_saw_active = False
+                        for raw in a_lines:
+                            stripped = raw.strip()
+                            if stripped.lower().startswith("# preset:"):
+                                a_out.append(f"# Preset: {copy_name}")
+                                a_saw_preset = True
+                                continue
+                            if stripped.lower().startswith("# activepreset:"):
+                                a_out.append(f"# ActivePreset: {copy_name}")
+                                a_saw_active = True
+                                continue
+                            a_out.append(raw)
+                        if not a_saw_preset:
+                            a_out.insert(0, f"# Preset: {copy_name}")
+                        if not a_saw_active:
+                            insert_idx = 1 if a_out and a_out[0].strip().lower().startswith("# preset:") else 0
+                            a_out.insert(insert_idx, f"# ActivePreset: {copy_name}")
+                        active_path.write_text("\n".join(a_out) + "\n", encoding="utf-8")
+                    except Exception:
+                        pass
+
+        return True
+    except Exception as e:
+        log(f"Error migrating built-in overrides: {e}", "DEBUG")
         return False
 
 

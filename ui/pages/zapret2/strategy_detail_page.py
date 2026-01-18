@@ -263,6 +263,54 @@ class ClickableLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class ElidedLabel(QLabel):
+    """QLabel, который автоматически обрезает текст с троеточием по ширине."""
+
+    def __init__(self, text: str = "", parent=None):
+        # Do not rely on QLabel text layout: setting text can trigger relayout/resize loops.
+        # We paint the elided text ourselves in paintEvent for stability.
+        super().__init__("", parent)
+        self._full_text = text or ""
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        super().setText("")  # keep QLabel's own text empty; we paint manually
+        self.set_full_text(self._full_text)
+
+    def set_full_text(self, text: str) -> None:
+        self._full_text = text or ""
+        self.update()
+
+    def full_text(self) -> str:
+        return self._full_text
+
+    def paintEvent(self, event):  # noqa: N802 (Qt override)
+        # Let QLabel paint its background/style (with empty text), then draw elided text.
+        super().paintEvent(event)
+        text = self._full_text or ""
+        if not text:
+            return
+
+        try:
+            r = self.contentsRect()
+            w = max(0, int(r.width()))
+            if w <= 0:
+                return
+
+            metrics = QFontMetrics(self.font())
+            elided = metrics.elidedText(text, Qt.TextElideMode.ElideRight, w)
+
+            from PyQt6.QtGui import QPainter
+
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            p.setFont(self.font())
+            p.setPen(self.palette().color(self.foregroundRole()))
+            align = self.alignment() or (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            p.drawText(r, int(align), elided)
+        except Exception:
+            return
+
+
 class ArgsPreview(QLabel):
     """Превью args на 2-3 строки (лёгкий QLabel вместо QTextEdit на каждой строке)."""
 
@@ -657,6 +705,22 @@ class StrategyDetailPage(BasePage):
             subtitle="",
             parent=parent
         )
+        # BasePage uses `SetMaximumSize` to clamp the content widget to its layout's
+        # sizeHint. With dynamic/lazy-loaded content (like strategies list), this can
+        # leave the scroll range "stuck" and cut off the bottom. For this page, keep
+        # the default constraint so height can grow freely.
+        try:
+            self.layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetDefaultConstraint)
+        except Exception:
+            pass
+        # Reset the content widget maximum size too: `SetMaximumSize` may have already
+        # applied a maxHeight during BasePage init, and switching the layout constraint
+        # afterwards does not always clear that clamp.
+        try:
+            if hasattr(self, "content") and self.content is not None:
+                self.content.setMaximumSize(16777215, 16777215)
+        except Exception:
+            pass
         self.parent_app = parent
         self._category_key = None
         self._category_info = None
@@ -668,6 +732,7 @@ class StrategyDetailPage(BasePage):
         self._waiting_for_process_start = False  # Флаг ожидания запуска DPI
         self._process_monitor_connected = False  # Флаг подключения к process_monitor
         self._fallback_timer = None  # Таймер защиты от бесконечного спиннера
+        self._apply_feedback_timer = None  # Быстрый таймер: убрать спиннер после apply
         self._strategies_load_timer = None
         self._strategies_load_generation = 0
         self._pending_strategies_items = []
@@ -684,12 +749,33 @@ class StrategyDetailPage(BasePage):
         self._favorites_store = DirectZapret2FavoritesStore.default()
         self._favorite_strategy_ids = set()
         self._preview_dialog = None
+        self._preview_pinned = False
         self._strategies_data_by_id = {}
 
         self._build_content()
 
         # Подключаемся к process_monitor для отслеживания статуса DPI
         self._connect_process_monitor()
+
+    def _refresh_scroll_range(self) -> None:
+        # Ensure QScrollArea recomputes range after dynamic content growth.
+        try:
+            if self.layout is not None:
+                self.layout.invalidate()
+                self.layout.activate()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "content") and self.content is not None:
+                self.content.updateGeometry()
+                self.content.adjustSize()
+        except Exception:
+            pass
+        try:
+            self.updateGeometry()
+            self.viewport().update()
+        except Exception:
+            pass
 
     def _on_dpi_reload_needed(self):
         """Callback for PresetManager when DPI reload is needed."""
@@ -777,7 +863,15 @@ class StrategyDetailPage(BasePage):
         self._subtitle.setFont(QFont("Segoe UI", 11))
         self._subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.5); background: transparent;")
         subtitle_row.addWidget(self._subtitle)
-        subtitle_row.addStretch()
+
+        # Выбранная стратегия (мелким шрифтом, справа от портов)
+        self._subtitle_strategy = ElidedLabel("")
+        self._subtitle_strategy.setFont(QFont("Segoe UI", 11))
+        self._subtitle_strategy.setStyleSheet(
+            "color: rgba(255, 255, 255, 0.5); background: transparent; padding-left: 10px;"
+        )
+        self._subtitle_strategy.hide()
+        subtitle_row.addWidget(self._subtitle_strategy, 1)
 
         header_layout.addLayout(subtitle_row)
 
@@ -1531,13 +1625,38 @@ class StrategyDetailPage(BasePage):
 
         # Лёгкий список стратегий: item-based, без сотен QWidget в layout
         self._strategies_tree = DirectZapret2StrategiesTree(self)
-        # Скроллится вся BasePage, дерево растёт по высоте
+        # Внутренний скролл у дерева (надёжнее, чем растягивать страницу по высоте)
         self._strategies_tree.setProperty("noDrag", True)
         self._strategies_tree.strategy_clicked.connect(self._on_row_clicked)
         self._strategies_tree.favorite_toggled.connect(self._on_favorite_toggled)
         self._strategies_tree.working_mark_requested.connect(self._on_tree_working_mark_requested)
         self._strategies_tree.preview_requested.connect(self._on_tree_preview_requested)
+        self._strategies_tree.preview_pinned_requested.connect(self._on_tree_preview_pinned_requested)
+        self._strategies_tree.preview_hide_requested.connect(self._on_tree_preview_hide_requested)
         self.layout.addWidget(self._strategies_tree, 1)
+
+    def _update_selected_strategy_header(self, strategy_id: str) -> None:
+        """Обновляет подзаголовок: показывает выбранную стратегию рядом с портами."""
+        sid = (strategy_id or "none").strip()
+        if sid == "none":
+            try:
+                self._subtitle_strategy.hide()
+            except Exception:
+                pass
+            return
+
+        try:
+            data = dict(self._strategies_data_by_id.get(sid, {}) or {})
+        except Exception:
+            data = {}
+        name = str(data.get("name") or sid).strip() or sid
+
+        try:
+            self._subtitle_strategy.set_full_text(name)
+            self._subtitle_strategy.setToolTip(f"{name}\nID: {sid}")
+            self._subtitle_strategy.show()
+        except Exception:
+            pass
 
     def show_category(self, category_key: str, category_info, current_strategy_id: str):
         """
@@ -1553,7 +1672,7 @@ class StrategyDetailPage(BasePage):
         self._category_info = category_info
         self._current_strategy_id = current_strategy_id or "none"
         self._selected_strategy_id = self._current_strategy_id
-        self._close_preview_dialog()
+        self._close_preview_dialog(force=True)
         try:
             self._favorite_strategy_ids = self._favorites_store.get_favorites(category_key)
         except Exception:
@@ -1562,6 +1681,7 @@ class StrategyDetailPage(BasePage):
         # Обновляем заголовок (только название категории в breadcrumb)
         self._title.setText(category_info.full_name)
         self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
+        self._update_selected_strategy_header(self._selected_strategy_id)
 
         # Для категорий одного strategy_type (особенно tcp) список стратегий одинаковый,
         # поэтому не пересобираем виджеты каждый раз: это ускоряет повторные переходы.
@@ -1717,6 +1837,7 @@ class StrategyDetailPage(BasePage):
             strategies = registry.get_category_strategies(self._category_key)
             log(f"StrategyDetailPage: загружено {len(strategies)} стратегий для {self._category_key}", "DEBUG")
             self._strategies_data_by_id = dict(strategies or {})
+            self._update_selected_strategy_header(self._selected_strategy_id)
 
             self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
             self._default_strategy_order = list(strategies.keys())
@@ -1846,6 +1967,7 @@ class StrategyDetailPage(BasePage):
                     self._strategies_tree.set_selected_strategy(self._current_strategy_id)
                 elif self._strategies_tree.has_strategy("none"):
                     self._strategies_tree.set_selected_strategy("none")
+            self._refresh_scroll_range()
             # После построения списка прокручиваем страницу к текущей стратегии
             QTimer.singleShot(0, self._scroll_to_current_strategy)
 
@@ -1940,8 +2062,10 @@ class StrategyDetailPage(BasePage):
             return "broken"
         return None
 
-    def _close_preview_dialog(self):
+    def _close_preview_dialog(self, force: bool = False):
         if self._preview_dialog is None:
+            return
+        if (not force) and self._preview_pinned:
             return
         try:
             self._preview_dialog.close_dialog()
@@ -1951,8 +2075,13 @@ class StrategyDetailPage(BasePage):
             except Exception:
                 pass
         self._preview_dialog = None
+        self._preview_pinned = False
 
-    def _on_tree_preview_requested(self, strategy_id: str, global_pos):
+    def _on_preview_closed(self) -> None:
+        self._preview_dialog = None
+        self._preview_pinned = False
+
+    def _show_preview_dialog(self, strategy_id: str, global_pos, pinned: bool) -> None:
         if not (self._category_key and strategy_id and strategy_id != "none"):
             return
 
@@ -1961,14 +2090,25 @@ class StrategyDetailPage(BasePage):
         try:
             if self._preview_dialog is None:
                 self._preview_dialog = ArgsPreviewDialog(self)
-                self._preview_dialog.closed.connect(lambda: setattr(self, "_preview_dialog", None))
+                self._preview_dialog.closed.connect(self._on_preview_closed)
             else:
                 try:
                     if self._preview_dialog.isVisible():
                         pass
                 except RuntimeError:
                     self._preview_dialog = ArgsPreviewDialog(self)
-                    self._preview_dialog.closed.connect(lambda: setattr(self, "_preview_dialog", None))
+                    self._preview_dialog.closed.connect(self._on_preview_closed)
+
+            try:
+                self._preview_dialog.set_pinned(bool(pinned))
+            except Exception:
+                pass
+            try:
+                # Hover: follow cursor + do not auto-close on click. Pinned: static tool window.
+                self._preview_dialog.set_hover_follow((not pinned), offset=None)
+            except Exception:
+                pass
+            self._preview_pinned = bool(pinned)
 
             self._preview_dialog.set_strategy_data(
                 data,
@@ -1989,6 +2129,20 @@ class StrategyDetailPage(BasePage):
 
         except Exception as e:
             log(f"Preview dialog failed: {e}", "DEBUG")
+
+    def _on_tree_preview_requested(self, strategy_id: str, global_pos):
+        # Hover preview: do not override a pinned window.
+        if self._preview_pinned:
+            return
+        self._show_preview_dialog(strategy_id, global_pos, pinned=False)
+
+    def _on_tree_preview_pinned_requested(self, strategy_id: str, global_pos):
+        # Right click pins the window (Tool window, does not auto-close on focus out).
+        self._show_preview_dialog(strategy_id, global_pos, pinned=True)
+
+    def _on_tree_preview_hide_requested(self) -> None:
+        # Hide hover preview when cursor leaves the list; keep pinned window.
+        self._close_preview_dialog(force=False)
 
     def _refresh_working_marks_for_category(self):
         if not (self._category_key and self._strategies_tree):
@@ -2065,6 +2219,7 @@ class StrategyDetailPage(BasePage):
                 self._selected_strategy_id = strategy_to_select
                 if self._strategies_tree:
                     self._strategies_tree.set_selected_strategy(strategy_to_select)
+                self._update_selected_strategy_header(self._selected_strategy_id)
                 # Показываем анимацию загрузки
                 self.show_loading()
                 self.strategy_selected.emit(self._category_key, strategy_to_select)
@@ -2084,6 +2239,7 @@ class StrategyDetailPage(BasePage):
                     self._strategies_tree.set_selected_strategy("none")
                 else:
                     self._strategies_tree.clearSelection()
+            self._update_selected_strategy_header(self._selected_strategy_id)
             # Скрываем галочку
             self._stop_loading()
             self._success_icon.hide()
@@ -2381,6 +2537,7 @@ class StrategyDetailPage(BasePage):
                 self._enable_toggle.setChecked(False, block_signals=True)
                 self._stop_loading()
                 self._success_icon.hide()
+            self._update_selected_strategy_header(self._selected_strategy_id)
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
@@ -2389,6 +2546,7 @@ class StrategyDetailPage(BasePage):
         self._selected_strategy_id = strategy_id
         if self._strategies_tree:
             self._strategies_tree.set_selected_strategy(strategy_id)
+        self._update_selected_strategy_header(self._selected_strategy_id)
 
         # При смене стратегии закрываем редактор args (чтобы не редактировать "не то")
         if prev_strategy_id != strategy_id:
@@ -2425,6 +2583,9 @@ class StrategyDetailPage(BasePage):
         # Убедимся, что мы подключены к process_monitor
         if not self._process_monitor_connected:
             self._connect_process_monitor()
+        # В direct_zapret2 режимах "apply" часто не меняет состояние процесса (hot-reload),
+        # поэтому даём быстрый таймаут, чтобы UI не зависал на спиннере.
+        self._start_apply_feedback_timer()
         # Запускаем fallback таймер на случай если сигнал не придет
         self._start_fallback_timer()
 
@@ -2432,7 +2593,34 @@ class StrategyDetailPage(BasePage):
         """Останавливает анимацию загрузки"""
         self._spinner.stop()
         self._waiting_for_process_start = False  # Больше не ждём
+        self._stop_apply_feedback_timer()
         self._stop_fallback_timer()
+
+    def _start_apply_feedback_timer(self, timeout_ms: int = 1500):
+        """Быстрый таймер, который завершает спиннер после apply/hot-reload."""
+        self._stop_apply_feedback_timer()
+        self._apply_feedback_timer = QTimer(self)
+        self._apply_feedback_timer.setSingleShot(True)
+        self._apply_feedback_timer.timeout.connect(self._on_apply_feedback_timeout)
+        self._apply_feedback_timer.start(timeout_ms)
+
+    def _stop_apply_feedback_timer(self):
+        if self._apply_feedback_timer:
+            self._apply_feedback_timer.stop()
+            self._apply_feedback_timer = None
+
+    def _on_apply_feedback_timeout(self):
+        """
+        В direct_zapret2 изменения часто применяются без смены процесса (winws2 остаётся запущен),
+        поэтому ориентируемся на включенность категории, а не на processStatusChanged.
+        """
+        if not self._waiting_for_process_start:
+            return
+        if (self._selected_strategy_id or "none") != "none":
+            self.show_success()
+        else:
+            self._stop_loading()
+            self._success_icon.hide()
 
     def _start_fallback_timer(self):
         """Запускает fallback таймер для защиты от бесконечного спиннера"""
@@ -2485,11 +2673,6 @@ class StrategyDetailPage(BasePage):
                 # DPI запустился и мы ждали этого - показываем галочку
                 log("StrategyDetailPage: DPI запущен, показываем галочку", "DEBUG")
                 self.show_success()
-            elif not is_running:
-                # DPI остановлен - скрываем галочку и спиннер
-                self._stop_loading()
-                self._success_icon.hide()
-                log("StrategyDetailPage: DPI остановлен, скрываем индикаторы", "DEBUG")
         except Exception as e:
             log(f"StrategyDetailPage._on_process_status_changed error: {e}", "DEBUG")
 

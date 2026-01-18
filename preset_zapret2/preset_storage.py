@@ -57,6 +57,98 @@ def get_presets_dir() -> Path:
     return presets_dir
 
 
+def get_builtin_overrides_dir() -> Path:
+    """
+    Returns path to built-in presets overrides directory.
+
+    Built-in presets (Default/Gaming/...) are stored as in-code templates and are read-only.
+    User changes to a built-in preset are persisted as an override file here.
+
+    Returns:
+        Path to {PROGRAMDATA_PATH}/presets/_builtin_overrides/
+    """
+    overrides_dir = get_presets_dir() / "_builtin_overrides"
+    overrides_dir.mkdir(parents=True, exist_ok=True)
+    return overrides_dir
+
+
+def get_builtin_override_path(name: str) -> Path:
+    """
+    Returns path to a built-in preset override file.
+
+    Args:
+        name: Built-in preset name
+
+    Returns:
+        Path to presets/_builtin_overrides/{name}.txt
+    """
+    safe_name = _sanitize_filename(name)
+    return get_builtin_overrides_dir() / f"{safe_name}.txt"
+
+
+def builtin_override_exists(name: str) -> bool:
+    """Checks if a built-in preset override exists."""
+    try:
+        return get_builtin_override_path(name).exists()
+    except Exception:
+        return False
+
+
+def delete_builtin_override(name: str) -> bool:
+    """Deletes a built-in preset override file (if present)."""
+    try:
+        path = get_builtin_override_path(name)
+        if path.exists():
+            path.unlink()
+        return True
+    except Exception as e:
+        log(f"Error deleting built-in override for '{name}': {e}", "DEBUG")
+        return False
+
+
+def save_builtin_override_from_path(name: str, src_path: Path) -> bool:
+    """
+    Saves built-in preset override by copying a source preset file.
+
+    Uses atomic write (temp file + replace) for safety.
+    """
+    try:
+        src_path = Path(src_path)
+        if not src_path.exists():
+            return False
+
+        dest_path = get_builtin_override_path(name)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f"{dest_path.stem}_",
+            suffix=".tmp",
+            dir=str(dest_path.parent),
+        )
+        os.close(fd)
+        tmp_path = Path(tmp_name)
+
+        try:
+            shutil.copy2(src_path, tmp_path)
+            os.replace(str(tmp_path), str(dest_path))
+            return True
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
+
+    except Exception as e:
+        log(f"Error saving built-in override for '{name}': {e}", "DEBUG")
+        return False
+
+
+def save_builtin_override_from_active(name: str) -> bool:
+    """Saves built-in preset override from the current active preset file."""
+    return save_builtin_override_from_path(name, get_active_preset_path())
+
+
 def get_preset_path(name: str) -> Path:
     """
     Returns path to a specific preset file.

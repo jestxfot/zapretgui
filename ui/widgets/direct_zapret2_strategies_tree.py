@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
     QStyle,
     QStyleOptionViewItem,
     QTreeWidget,
@@ -47,6 +48,8 @@ class DirectZapret2StrategiesTree(QTreeWidget):
     favorite_toggled = pyqtSignal(str, bool)
     working_mark_requested = pyqtSignal(str, object)  # bool|None
     preview_requested = pyqtSignal(str, object)  # strategy_id, global_pos(QPoint)
+    preview_pinned_requested = pyqtSignal(str, object)  # strategy_id, global_pos(QPoint)
+    preview_hide_requested = pyqtSignal()
 
     _ROLE_STRATEGY_ID = int(Qt.ItemDataRole.UserRole) + 1
     _ROLE_ARGS_TEXT = int(Qt.ItemDataRole.UserRole) + 2
@@ -57,6 +60,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._hover_delay_ms = 180
         self.setColumnCount(2)
         self.setHeaderHidden(True)
         self.setRootIsDecorated(False)
@@ -70,12 +74,15 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self.setMouseTracking(True)
         self.setIconSize(QSize(14, 14))
 
-        # Let the outer page (BasePage) scroll; this widget grows by height.
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Use internal scrolling (more reliable than growing-by-height inside BasePage/QScrollArea).
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         from PyQt6.QtWidgets import QSizePolicy
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Avoid a huge sizeHint based on all rows; we want a stable viewport + internal scrollbar.
+        self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
+        # Larger viewport: strategy lists are long, so give the tree more room by default.
+        self.setMinimumHeight(1000)
 
         header = self.header()
         header.setSectionResizeMode(0, header.ResizeMode.Fixed)
@@ -83,7 +90,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._star_col_w = 45
         self.setColumnWidth(0, self._star_col_w)
 
-        self._row_height = 36
+        self._row_height = 28
         self._section_height = 26
 
         self.setStyleSheet("""
@@ -96,7 +103,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             }
             QTreeWidget::item {
                 padding: 4px 8px;
-                min-height: 34px;
+                min-height: 28px;
                 color: rgba(255, 255, 255, 0.9);
                 border-radius: 6px;
             }
@@ -119,6 +126,10 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._hover_timer.timeout.connect(self._emit_hover_preview)
         self._hover_strategy_id: Optional[str] = None
         self._hover_global_pos: Optional[QPoint] = None
+
+        self._geom_timer = QTimer(self)
+        self._geom_timer.setSingleShot(True)
+        self._geom_timer.timeout.connect(self._propagate_geometry_change)
 
         self._fav_root = self._add_section("★ Избранные")
         self._all_root = self._add_section("Все стратегии")
@@ -552,51 +563,40 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self.expandItem(self._all_root)
 
     def _update_height_to_contents(self) -> None:
-        # NOTE: This widget doesn't scroll by itself (wheel ignored; scrollbars hidden).
-        # It must grow in height to fit all visible rows so the *outer* page scroll works.
-        total_height = 24  # padding/border safety
-        frame = int(getattr(self, "frameWidth", lambda: 0)() or 0)
-        total_height += frame * 2
+        # Internal scrollbar mode: keep a stable viewport height.
+        # Still request a layout/paint update after bulk changes.
+        try:
+            self.updateGeometry()
+            self.viewport().update()
+        except Exception:
+            pass
 
-        def item_h(it: QTreeWidgetItem) -> int:
-            try:
-                # Size hint can differ per column (e.g. star vs name+icon).
-                # Take the maximum to avoid underestimating total height and clipping the last rows.
-                best = 0
-                for col in range(self.columnCount()):
-                    idx = self.indexFromItem(it, col)
-                    if not idx.isValid():
-                        continue
-                    h = int(self.sizeHintForIndex(idx).height())
-                    if h > best:
-                        best = h
-                return best if best > 0 else self._row_height
-            except Exception:
-                return self._row_height
+    def _schedule_geometry_update(self) -> None:
+        # Coalesce multiple updates during batch loads (e.g. lazy strategy load).
+        if self._geom_timer.isActive():
+            return
+        self._geom_timer.start(0)
 
-        for root in (self._fav_root, self._all_root):
-            if root.isHidden():
-                continue
-            total_height += max(self._section_height, item_h(root))
-            for i in range(root.childCount()):
-                child = root.child(i)
-                if child.isHidden():
-                    continue
-                total_height += max(self._row_height, item_h(child))
-
-        # Extra safety margin for DPI scaling / style paddings.
-        total_height += 12
-        total_height = max(total_height, self._section_height + self._row_height + 24)
-        self.setFixedHeight(total_height)
-        self.updateGeometry()
+    def _propagate_geometry_change(self) -> None:
+        try:
+            self.updateGeometry()
+        except Exception:
+            pass
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.setColumnWidth(0, self._star_col_w)
 
-    def wheelEvent(self, event):
-        # Do not scroll this widget: let the parent QScrollArea handle the wheel.
-        event.ignore()
+    def wheelEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """
+        Always consume wheel events so the parent page (QScrollArea/BasePage)
+        does not scroll when the cursor is over the strategies list.
+        """
+        super().wheelEvent(event)
+        try:
+            event.accept()
+        except Exception:
+            pass
 
     def _apply_star(self, item: QTreeWidgetItem, is_favorite: bool, allow: bool) -> None:
         if not allow:
@@ -642,6 +642,13 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
     def viewportEvent(self, event):
         et = event.type()
+        if et == QEvent.Type.Wheel:
+            handled = super().viewportEvent(event)
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
         if et in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
             pos = getattr(event, "position", lambda: None)()
             if pos is None:
@@ -657,7 +664,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
                     self._hover_strategy_id = sid
                     gp = getattr(event, "globalPosition", lambda: None)()
                     self._hover_global_pos = gp.toPoint() if gp is not None else self.viewport().mapToGlobal(p)
-                    self._hover_timer.start(600)
+                    self._hover_timer.start(self._hover_delay_ms)
             else:
                 self._cancel_hover_preview()
             return super().viewportEvent(event)
@@ -669,9 +676,15 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         return super().viewportEvent(event)
 
     def _cancel_hover_preview(self) -> None:
+        had = bool(self._hover_strategy_id)
         self._hover_timer.stop()
         self._hover_strategy_id = None
         self._hover_global_pos = None
+        if had:
+            try:
+                self.preview_hide_requested.emit()
+            except Exception:
+                pass
 
     def _emit_hover_preview(self) -> None:
         sid = self._hover_strategy_id
@@ -751,4 +764,4 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             return
 
         # ПКМ: показать интерактивное окно (как в direct_zapret1), а не контекстное меню.
-        self.preview_requested.emit(str(strategy_id), event.globalPos())
+        self.preview_pinned_requested.emit(str(strategy_id), event.globalPos())

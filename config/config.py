@@ -270,6 +270,12 @@ def get_window_position():
             x = winreg.QueryValueEx(key, "WindowX")[0]
             y = winreg.QueryValueEx(key, "WindowY")[0]
             winreg.CloseKey(key)
+            # Values are stored as DWORD. Decode signed 32-bit so multi-monitor
+            # setups (negative coordinates) work correctly.
+            if isinstance(x, int) and x >= 0x80000000:
+                x -= 0x100000000
+            if isinstance(y, int) and y >= 0x80000000:
+                y -= 0x100000000
             return (x, y)
         except FileNotFoundError:
             winreg.CloseKey(key)
@@ -284,9 +290,16 @@ def set_window_position(x, y):
         import winreg
         from log import log
 
+        # REG_DWORD is unsigned; store signed 32-bit coordinates as two's complement.
+        def _to_dword_signed(v):
+            try:
+                return int(v) & 0xFFFFFFFF
+            except Exception:
+                return 0
+
         key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
-        winreg.SetValueEx(key, "WindowX", 0, winreg.REG_DWORD, int(x))
-        winreg.SetValueEx(key, "WindowY", 0, winreg.REG_DWORD, int(y))
+        winreg.SetValueEx(key, "WindowX", 0, winreg.REG_DWORD, _to_dword_signed(x))
+        winreg.SetValueEx(key, "WindowY", 0, winreg.REG_DWORD, _to_dword_signed(y))
         winreg.CloseKey(key)
         log(f"Позиция окна сохранена: ({x}, {y})", "DEBUG")
         return True
