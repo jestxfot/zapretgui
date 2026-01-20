@@ -126,12 +126,10 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                 log(f"Ошибка загрузки выборов из реестра: {e}, используем значения по умолчанию", "WARNING")
                 self.category_selections = get_default_selections()
 
-            # Создаём панель с вкладками категорий (с кнопкой добавления)
-            self._strategy_widget = CategoriesTabPanel(show_add_button=True)
+            # Создаём панель с вкладками категорий
+            self._strategy_widget = CategoriesTabPanel()
             self._strategy_widget._tab_category_keys = []
             self._strategy_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            self._strategy_widget.add_category_clicked.connect(self._show_add_category_dialog)
-            self._strategy_widget.edit_category_clicked.connect(self._show_edit_category_dialog)
 
             # Получаем данные из реестра
             tab_tooltips = registry.get_tab_tooltips_dict()
@@ -184,9 +182,6 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                 self._strategy_widget.setCurrentIndex(0)
                 self._strategy_widget.blockSignals(False)
                 self._load_category_tab(0)
-
-            # Добавляем кнопку "+" в конец списка категорий
-            self._strategy_widget.add_add_button()
 
             # Обновляем отображение
             self._update_current_strategies_display()
@@ -731,111 +726,6 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             log(f"Ошибка обновления отображения: {e}", "ERROR")
 
     # ==================== Диалоги категорий ====================
-
-    def _show_add_category_dialog(self):
-        """Показывает диалог добавления категории"""
-        try:
-            from ui.dialogs.add_category_dialog import AddCategoryDialog
-
-            dialog = AddCategoryDialog(self)
-            dialog.category_added.connect(self._on_category_added)
-            dialog.category_updated.connect(self._on_category_updated)
-            dialog.category_deleted.connect(self._on_category_deleted)
-            dialog.exec()
-
-        except Exception as e:
-            log(f"Ошибка открытия диалога добавления категории: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-
-    def _show_edit_category_dialog(self, category_key: str):
-        """Показывает диалог редактирования категории"""
-        try:
-            from ui.dialogs.add_category_dialog import AddCategoryDialog
-            from strategy_menu.strategies_registry import registry
-
-            # Получаем данные категории
-            category_info = registry.get_category_info(category_key)
-            if not category_info:
-                log(f"Категория '{category_key}' не найдена", "WARNING")
-                return
-
-            # Преобразуем CategoryInfo в словарь
-            category_data = {
-                'key': category_info.key,
-                'full_name': category_info.full_name,
-                'description': category_info.description,
-                'tooltip': category_info.tooltip,
-                'color': category_info.color,
-                'default_strategy': category_info.default_strategy,
-                'ports': category_info.ports,
-                'protocol': getattr(category_info, 'protocol', 'TCP'),
-                'order': category_info.order,
-                'command_order': category_info.command_order,
-                'needs_new_separator': category_info.needs_new_separator,
-                'command_group': category_info.command_group,
-                'icon_name': category_info.icon_name,
-                'icon_color': category_info.icon_color,
-                'base_filter': category_info.base_filter,
-                'strategy_type': category_info.strategy_type,
-                'requires_all_ports': getattr(category_info, 'requires_all_ports', False),
-                'strip_payload': getattr(category_info, 'strip_payload', False)
-            }
-
-            dialog = AddCategoryDialog(self, category_data=category_data)
-            dialog.category_updated.connect(self._on_category_updated)
-            dialog.category_deleted.connect(self._on_category_deleted)
-            dialog.exec()
-
-        except Exception as e:
-            log(f"Ошибка открытия диалога редактирования категории: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-
-    def _on_category_added(self, category_data: dict):
-        """Обработчик добавления новой категории"""
-        try:
-            from strategy_menu.strategies_registry import reload_categories
-
-            # Перезагружаем категории
-            reload_categories()
-            log(f"Категории перезагружены после добавления '{category_data.get('key')}'", "INFO")
-
-            # Перезагружаем страницу
-            self._reload_strategies()
-
-        except Exception as e:
-            log(f"Ошибка после добавления категории: {e}", "ERROR")
-
-    def _on_category_updated(self, category_data: dict):
-        """Обработчик обновления категории"""
-        try:
-            from strategy_menu.strategies_registry import reload_categories
-
-            # Перезагружаем категории
-            reload_categories()
-            log(f"Категории перезагружены после обновления '{category_data.get('key')}'", "INFO")
-
-            # Перезагружаем страницу
-            self._reload_strategies()
-
-        except Exception as e:
-            log(f"Ошибка после обновления категории: {e}", "ERROR")
-
-    def _on_category_deleted(self, category_key: str):
-        """Обработчик удаления категории"""
-        try:
-            from strategy_menu.strategies_registry import reload_categories
-
-            # Перезагружаем категории
-            reload_categories()
-            log(f"Категории перезагружены после удаления '{category_key}'", "INFO")
-
-            # Перезагружаем страницу
-            self._reload_strategies()
-
-        except Exception as e:
-            log(f"Ошибка после удаления категории: {e}", "ERROR")
 
     # ==================== Действия с страницей ====================
 

@@ -18,7 +18,7 @@ from ui.pages import (
     ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
     Zapret2StrategiesPageNew, StrategyDetailPage,
-    Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage
+    Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage, MyCategoriesPage
 )
 
 import qtawesome as qta
@@ -136,6 +136,10 @@ class MainWindowUI:
         self.preset_config_page = PresetConfigPage(self)
         self.pages_stack.addWidget(self.preset_config_page)
 
+        # Мои категории (общий файл для direct режимов)
+        self.my_categories_page = MyCategoriesPage(self)
+        self.pages_stack.addWidget(self.my_categories_page)
+
         # Hostlist
         self.hostlist_page = HostlistPage(self)
         self.pages_stack.addWidget(self.hostlist_page)
@@ -249,6 +253,7 @@ class MainWindowUI:
             PageName.BAT_STRATEGIES: self.bat_strategies_page,
             PageName.STRATEGY_SORT: self.strategy_sort_page,
             PageName.PRESET_CONFIG: self.preset_config_page,
+            PageName.MY_CATEGORIES: self.my_categories_page,
             PageName.HOSTLIST: self.hostlist_page,
             PageName.IPSET: self.ipset_page,
             PageName.BLOBS: self.blobs_page,

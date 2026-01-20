@@ -35,6 +35,7 @@ from .orchestra_whitelist_page import OrchestraWhitelistPage
 from .orchestra_ratings_page import OrchestraRatingsPage
 from .preset_config_page import PresetConfigPage
 from .presets_page import PresetsPage
+from .my_categories_page import MyCategoriesPage
 
 __all__ = [
     'HomePage',
@@ -72,5 +73,6 @@ __all__ = [
     'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
     'PresetConfigPage',  # Страница редактора preset-zapret2.txt
     'PresetsPage',  # Страница управления пресетами (только direct_zapret2)
+    'MyCategoriesPage',  # Страница управления пользовательскими категориями
 ]
 

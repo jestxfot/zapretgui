@@ -8,6 +8,7 @@ class ProcessMonitorThread(QThread):
     Шлёт сигнал когда состояние (запущен/остановлен) изменилось.
     """
     processStatusChanged = pyqtSignal(bool)          # True / False
+    processDetailsChanged = pyqtSignal(dict)         # {"winws.exe": [pid, ...], "winws2.exe": [pid, ...]}
     checkingStarted = pyqtSignal()                   # Начало проверки
     checkingFinished = pyqtSignal()                  # Конец проверки
 
@@ -22,27 +23,42 @@ class ProcessMonitorThread(QThread):
         self.interval_ms   = interval_ms
         self._running      = True
         self._cur_state: bool | None = None
+        self._cur_details: dict[str, list[int]] | None = None
         
         # Кэш имен процессов для быстрого поиска
         self._target_names = frozenset(['winws.exe', 'winws2.exe'])
+
+    def _check_processes_fast(self) -> dict[str, list[int]]:
+        """
+        ⚡ Быстрая проверка через psutil (~1-10ms)
+        Возвращает PID'ы найденных процессов winws.exe/winws2.exe.
+        """
+        details: dict[str, list[int]] = {}
+        try:
+            for proc in psutil.process_iter(['name', 'pid']):
+                try:
+                    proc_name_raw = proc.info.get('name')
+                    if not proc_name_raw:
+                        continue
+                    proc_name = str(proc_name_raw).lower()
+                    if proc_name in self._target_names:
+                        pid = proc.info.get('pid')
+                        if isinstance(pid, int):
+                            details.setdefault(proc_name, []).append(pid)
+                        else:
+                            details.setdefault(proc_name, [])
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            return details
+        except Exception:
+            return {}
 
     def _check_process_fast(self) -> bool:
         """
         ⚡ Быстрая проверка через psutil (~1-10ms)
         Не блокирует GUI!
         """
-        try:
-            for proc in psutil.process_iter(['name']):
-                try:
-                    proc_name = proc.info['name']
-                    if proc_name and proc_name.lower() in self._target_names:
-                        return True
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    continue
-            return False
-        except Exception:
-            # Fallback на метод из dpi_starter если psutil сломался
-            return self.dpi_starter.check_process_running_fast(silent=True)
+        return bool(self._check_processes_fast())
 
     # ------------------------- ОСНОВНОЙ ЦИКЛ --------------------------
     def run(self):
@@ -55,10 +71,16 @@ class ProcessMonitorThread(QThread):
                 self.checkingStarted.emit()
                 
                 # ⚡ Используем быструю проверку через psutil
-                is_running = self._check_process_fast()
+                details = self._check_processes_fast()
+                is_running = bool(details)
                 
                 # 🔄 Сигнализируем об окончании проверки
                 self.checkingFinished.emit()
+
+                # Если детали изменились — отдаём сигнал в GUI (важно: PID может поменяться без смены bool)
+                if details != self._cur_details:
+                    self._cur_details = details
+                    self.processDetailsChanged.emit(details)
 
                 # Если состояние изменилось — отдаём сигнал в GUI
                 if is_running != self._cur_state:

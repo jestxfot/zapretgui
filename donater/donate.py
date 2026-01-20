@@ -14,8 +14,22 @@ DEVICE_ID_VALUE = "DeviceID"
 KEY_VALUE = "ActivationKey"
 LAST_CHECK_VALUE = "LastCheck"
 
-API_BASE_URL = "http://84.54.30.233:6666/api"
+#
+# API server validates subscription locally (on bot server) and talks to remote keys storage itself.
+# The Windows client should point to the bot server API host, not to the keys storage host.
+#
+# You can override the URL via registry:
+#   HKCU\\<REGISTRY_PATH_GUI>\\ApiBaseUrl
+#
+# Default points to the bot server (where subscriptions are stored locally).
+API_BASE_URL = "http://31.192.111.158:6666/api"
 REQUEST_TIMEOUT = 10
+
+API_BASE_URL_REGISTRY_VALUE = "ApiBaseUrl"
+FALLBACK_API_BASE_URLS = [
+    API_BASE_URL,
+    "http://84.54.30.233:6666/api",
+]
 
 # ============== DATA CLASSES ==============
 
@@ -128,6 +142,30 @@ class RegistryManager:
         except:
             return None
 
+    @staticmethod
+    def get_api_base_url() -> Optional[str]:
+        """Get API base URL override from registry."""
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
+                value, _ = winreg.QueryValueEx(key, API_BASE_URL_REGISTRY_VALUE)
+                value = (value or "").strip()
+                return value or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def set_api_base_url(base_url: str) -> bool:
+        """Persist API base URL to registry (best-effort)."""
+        try:
+            base_url = (base_url or "").strip()
+            if not base_url:
+                return False
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
+                winreg.SetValueEx(key, API_BASE_URL_REGISTRY_VALUE, 0, winreg.REG_SZ, base_url)
+            return True
+        except Exception:
+            return False
+
 
 # ============== API CLIENT ==============
 
@@ -135,13 +173,18 @@ class APIClient:
     """Клиент для API сервера"""
     
     def __init__(self, base_url: str = API_BASE_URL):
-        self.base_url = base_url
+        override = RegistryManager.get_api_base_url()
+        self.base_urls = []
+        if override:
+            self.base_urls.append(override)
+        self.base_urls.extend([u for u in FALLBACK_API_BASE_URLS if u and u not in self.base_urls])
+        self.base_url = self.base_urls[0] if self.base_urls else base_url
         self.device_id = RegistryManager.get_device_id()
         logger.info(f"Device ID: {self.device_id[:8]}...")
     
-    def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
+    def _request_once(self, base_url: str, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
         """Выполнить HTTP запрос"""
-        url = f"{self.base_url}/{endpoint}"
+        url = f"{base_url}/{endpoint}"
         
         try:
             if method == "POST":
@@ -156,25 +199,75 @@ class APIClient:
                 result = None
             
             if response.status_code == 200:
+                if isinstance(result, dict):
+                    result["_http_status"] = response.status_code
+                    result["_api_base_url"] = base_url
                 return result
             else:
                 logger.error(f"HTTP {response.status_code}: {endpoint}")
                 # Возвращаем результат с ошибкой если он есть
                 if result:
+                    if isinstance(result, dict):
+                        result["_http_status"] = response.status_code
+                        result["_api_base_url"] = base_url
                     return result
-                return {'success': False, 'error': f'Ошибка сервера: {response.status_code}'}
+                return {'success': False, 'error': f'Ошибка сервера: {response.status_code}', '_http_status': response.status_code, '_api_base_url': base_url}
                 
         except requests.exceptions.ConnectionError:
             logger.error(f"Connection error: {url}")
-            return {'success': False, 'error': 'Нет подключения к серверу'}
+            return {'success': False, 'error': 'Нет подключения к серверу', '_http_status': None, '_api_base_url': base_url}
         except requests.exceptions.Timeout:
             logger.error(f"Timeout: {url}")
-            return {'success': False, 'error': 'Превышено время ожидания'}
+            return {'success': False, 'error': 'Превышено время ожидания', '_http_status': None, '_api_base_url': base_url}
         except Exception as e:
             logger.error(f"Request error: {e}")
-            return {'success': False, 'error': f'Ошибка запроса: {e}'}
+            return {'success': False, 'error': f'Ошибка запроса: {e}', '_http_status': None, '_api_base_url': base_url}
         
         return None
+
+    def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
+        """
+        Request with fallback URLs.
+
+        If we hit a host that doesn't have local subscriptions, it often returns 403 with
+        'У вас нет активной подписки' even for valid users. In that case try the next host.
+        """
+        last = None
+        for base_url in (self.base_urls or [self.base_url]):
+            resp = self._request_once(base_url, endpoint, method, data)
+            last = resp
+            if not isinstance(resp, dict):
+                continue
+            http_status = resp.get("_http_status")
+            is_success = resp.get("success") is True
+
+            # Prefer a working host if possible.
+            if is_success:
+                self.base_url = base_url
+                RegistryManager.set_api_base_url(base_url)
+                return resp
+
+            # Network errors / timeouts: try next host.
+            if http_status is None:
+                continue
+
+            # Server errors: try next host.
+            try:
+                if int(http_status) >= 500:
+                    continue
+            except Exception:
+                pass
+
+            err = (resp.get("error") or "").lower()
+            if http_status == 403 and ("нет активной подписки" in err or "no active subscription" in err):
+                continue
+
+            # success or other error: stick to this base_url
+            self.base_url = base_url
+            RegistryManager.set_api_base_url(base_url)
+            return resp
+
+        return last
     
     def test_connection(self) -> Tuple[bool, str]:
         """Проверка соединения"""

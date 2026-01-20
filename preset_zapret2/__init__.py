@@ -83,6 +83,7 @@ from .txt_preset_parser import (
     extract_category_from_args,
     extract_protocol_and_port,
     extract_strategy_args,
+    invalidate_category_inference_cache,
     generate_preset_content,
     generate_preset_file,
     parse_preset_content,

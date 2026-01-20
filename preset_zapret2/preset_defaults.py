@@ -89,11 +89,9 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --blob=hex_00:0x00
 
 --filter-tcp=80,443
---ipset=lists/ipset-youtube.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multidisorder_legacy:pos=1,midsld
+--hostlist=lists/youtube.txt
+--out-range=-d8
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 
@@ -105,19 +103,38 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 
 --new
 
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=443
+--hostlist-domains=updates.discord.com
+--out-range=-d10
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---ipset=lists/ipset-discord.txt
+--hostlist=lists/discord.txt
+--out-range=-d10
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--hostlist-domains=discord.media
 --out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multidisorder_legacy:pos=1,midsld
+--lua-desync=multisplit
 
 --new
 
 --filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
 --out-range=-n8
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=fake_default_udp
 
 --new
 
@@ -132,11 +149,18 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 
 --filter-tcp=80,443
 --ipset-ip=130.255.77.28
---out-range=-n20
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=fake:blob=tls14:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:tls_mod=rnd,dupsid,sni=fonts.google.com
---lua-desync=multidisorder:pos=7,sld+1:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--out-range=-d9
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=443
+--hostlist-exclude=lists/netrogat.txt
+--hostlist=lists/other.txt
+--hostlist=lists/other2.txt
+--hostlist=lists/russia-blacklist.txt
+--out-range=-d10
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 """
 
 GAMING_PRESET_CONTENT = r"""# Preset: Gaming
@@ -213,11 +237,9 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 --blob=hex_00:0x00
 
 --filter-tcp=80,443
---ipset=lists/ipset-youtube.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multidisorder_legacy:pos=1,midsld
+--hostlist=lists/youtube.txt
+--out-range=-d8
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 
@@ -229,19 +251,38 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 
 --new
 
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=443
+--hostlist-domains=updates.discord.com
+--out-range=-d10
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---ipset=lists/ipset-discord.txt
+--hostlist=lists/discord.txt
+--out-range=-d10
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--hostlist-domains=discord.media
 --out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multidisorder_legacy:pos=1,midsld
+--lua-desync=multisplit
 
 --new
 
 --filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
 --out-range=-n8
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=fake_default_udp
 
 --new
 
@@ -256,11 +297,8 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 
 --filter-tcp=80,443
 --ipset-ip=130.255.77.28
---out-range=-n20
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=fake:blob=tls14:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:tls_mod=rnd,dupsid,sni=fonts.google.com
---lua-desync=multidisorder:pos=7,sld+1:tcp_ack=-66000:tcp_ts_up:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--out-range=-d9
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 
@@ -279,6 +317,16 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 --out-range=-n8
 --payload=all
 --lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+
+--new
+
+--filter-tcp=443
+--hostlist-exclude=lists/netrogat.txt
+--hostlist=lists/other.txt
+--hostlist=lists/other2.txt
+--hostlist=lists/russia-blacklist.txt
+--out-range=-d10
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 

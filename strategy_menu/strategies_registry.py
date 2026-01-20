@@ -2,12 +2,13 @@
 Централизованный реестр всех стратегий и категорий.
 Управляет импортом, метаданными и предоставляет единый интерфейс.
 
-Стратегии и категории загружаются из JSON файлов:
-- {INDEXJSON_FOLDER}/strategies/builtin/*.json - встроенные стратегии и категории
-- {INDEXJSON_FOLDER}/strategies/user/*.json - пользовательские стратегии и категории
+Стратегии загружаются из TXT (INI-подобный формат) в:
+- {INDEXJSON_FOLDER}/strategies/builtin/*.txt - встроенные стратегии/категории
+- {INDEXJSON_FOLDER}/strategies/user/*.txt - пользовательские стратегии (если используются)
 
-Категории (вкладки сервисов) теперь загружаются из categories.json,
-что позволяет пользователям добавлять свои сервисы без редактирования кода.
+Категории (base_filter*) берутся из:
+- builtin/categories.txt (в папке установки/индекса)
+- один общий пользовательский файл вне папки установки (чтобы обновления не затирали)
 """
 
 from typing import Dict, Tuple, List, Optional, Any
@@ -226,7 +227,11 @@ def _get_categories() -> Dict[str, CategoryInfo]:
         _categories_loaded = True
         
         if not _categories_cache:
-            log("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить категории из JSON! Проверьте файл strategies/builtin/categories.json", "ERROR")
+            log(
+                "КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить категории! "
+                "Проверьте файл strategies/builtin/categories.txt",
+                "ERROR",
+            )
     
     return _categories_cache
 

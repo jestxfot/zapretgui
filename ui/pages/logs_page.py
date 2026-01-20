@@ -177,6 +177,9 @@ class LogsPage(BasePage):
         self._winws_status_timer = QTimer(self)
         self._winws_status_timer.timeout.connect(self._update_winws_status)
 
+        self._logs_tab_initialized = False
+        self._send_tab_initialized = False
+
         self._build_ui()
         
     def _build_ui(self):
@@ -247,28 +250,34 @@ class LogsPage(BasePage):
         self.stacked_widget = QStackedWidget()
 
         # Страница 1: Логи
-        logs_page = QWidget()
-        logs_layout = QVBoxLayout(logs_page)
+        self._logs_page = QWidget()
+        logs_layout = QVBoxLayout(self._logs_page)
         logs_layout.setContentsMargins(0, 0, 0, 0)
         logs_layout.setSpacing(16)
 
         self._build_logs_tab(logs_layout)
 
-        # Страница 2: Отправка
-        send_page = QWidget()
-        send_layout = QVBoxLayout(send_page)
+        # Страница 2: Отправка (лениво создаётся при первом переходе)
+        self._send_page = QWidget()
+        send_layout = QVBoxLayout(self._send_page)
         send_layout.setContentsMargins(0, 0, 0, 0)
         send_layout.setSpacing(16)
+        self._send_layout = send_layout
 
-        self._build_send_tab(send_layout)
-
-        self.stacked_widget.addWidget(logs_page)
-        self.stacked_widget.addWidget(send_page)
+        self.stacked_widget.addWidget(self._logs_page)
+        self.stacked_widget.addWidget(self._send_page)
 
         self.add_widget(self.stacked_widget)
 
     def _switch_tab(self, index: int):
         """Переключает между табами"""
+        if index == 1 and not self._send_tab_initialized:
+            self._send_tab_initialized = True
+            try:
+                self._build_send_tab(self._send_layout)
+            except Exception as e:
+                log(f"Ошибка построения вкладки отправки: {e}", "ERROR")
+
         self.stacked_widget.setCurrentIndex(index)
 
         if index == 0:
@@ -618,10 +627,10 @@ class LogsPage(BasePage):
 
         # Счётчик ошибок
         self._errors_count = 0
-
-        # Инициализация
-        self._refresh_logs_list()
-        self._update_stats()
+        try:
+            self.stats_label.setText("📊 Загрузка...")
+        except Exception:
+            pass
 
     def _build_send_tab(self, parent_layout):
         """Строит вкладку отправки лога"""
@@ -1062,6 +1071,11 @@ class LogsPage(BasePage):
     def showEvent(self, event):
         """При показе страницы запускаем мониторинг"""
         super().showEvent(event)
+        if not self._logs_tab_initialized:
+            self._logs_tab_initialized = True
+            # Делаем тяжелые операции после первого показа страницы, чтобы UI не "подвисал" при переходе.
+            QTimer.singleShot(0, lambda: self._refresh_logs_list(run_cleanup=False))
+            QTimer.singleShot(0, self._update_stats)
         self._start_tail_worker()
         self._start_winws_output_worker()
         # Таймер для проверки статуса каждые 2 секунды
@@ -1074,7 +1088,7 @@ class LogsPage(BasePage):
         self._stop_winws_output_worker()
         self._winws_status_timer.stop()
         
-    def _refresh_logs_list(self):
+    def _refresh_logs_list(self, *, run_cleanup: bool = True):
         """Обновляет список доступных лог-файлов"""
         # Запускаем анимацию вращения
         self.refresh_btn.setIcon(self._refresh_icon_spinning)
@@ -1084,12 +1098,13 @@ class LogsPage(BasePage):
         self.log_combo.clear()
         
         try:
-            # Очищаем старые логи перед обновлением списка
-            deleted, errors, total = cleanup_old_logs(LOGS_FOLDER, MAX_LOG_FILES)
-            if deleted > 0:
-                log(f"🗑️ Удалено старых логов: {deleted} из {total}", "INFO")
-            if errors:
-                log(f"⚠️ Ошибки при удалении логов: {errors[:3]}", "DEBUG")
+            if run_cleanup:
+                # Очищаем старые логи перед обновлением списка
+                deleted, errors, total = cleanup_old_logs(LOGS_FOLDER, MAX_LOG_FILES)
+                if deleted > 0:
+                    log(f"🗑️ Удалено старых логов: {deleted} из {total}", "INFO")
+                if errors:
+                    log(f"⚠️ Ошибки при удалении логов: {errors[:3]}", "DEBUG")
             
             # Получаем оба формата логов
             log_files = []
@@ -1140,22 +1155,25 @@ class LogsPage(BasePage):
     def _start_tail_worker(self):
         """Запускает worker для чтения лога"""
         self._stop_tail_worker()
-        
+
         if not self.current_log_file or not os.path.exists(self.current_log_file):
             return
-            
+
         self.log_text.clear()
         self.info_label.setText(f"📄 {os.path.basename(self.current_log_file)}")
-        
+
         try:
             self._thread = QThread(self)
-            self._worker = LogTailWorker(self.current_log_file)
+            # Initial history: limit to recent tail to keep the page snappy on huge logs.
+            self._worker = LogTailWorker(self.current_log_file, initial_chunk_chars=65536, initial_max_bytes=1024 * 1024)
             self._worker.moveToThread(self._thread)
-            
+
             self._thread.started.connect(self._worker.run)
             self._worker.new_lines.connect(self._append_text)
             self._worker.finished.connect(self._thread.quit)
-            
+            self._worker.finished.connect(self._worker.deleteLater)
+            self._thread.finished.connect(self._thread.deleteLater)
+
             self._thread.start()
         except Exception as e:
             log(f"Ошибка запуска log tail worker: {e}", "ERROR")
@@ -1295,25 +1313,45 @@ class LogsPage(BasePage):
 
     def _append_text(self, text: str):
         """Добавляет текст в лог"""
-        # Разбиваем на строки (может прийти несколько строк сразу)
-        lines = text.split('\n')
-        
-        for line in lines:
-            clean_line = line.rstrip()
-            if not clean_line:
-                continue
-                
-            # Добавляем в основной лог
-            self.log_text.append(clean_line)
-            
-            # Проверяем на ошибки — добавляем ТОЛЬКО эту строку
-            # Но исключаем ложные срабатывания
-            if self._error_pattern.search(clean_line) and not self._exclude_pattern.search(clean_line):
-                self._add_error(clean_line)
-        
-        # Автопрокрутка вниз
-        scrollbar = self.log_text.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        if not text:
+            return
+
+        # Быстро вставляем текст одним куском (append по строкам сильно тормозит на больших логах).
+        try:
+            scrollbar = self.log_text.verticalScrollBar()
+            was_at_bottom = scrollbar.value() >= (scrollbar.maximum() - 2)
+        except Exception:
+            was_at_bottom = True
+
+        try:
+            self.log_text.setUpdatesEnabled(False)
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            cursor.insertText(text)
+            self.log_text.setTextCursor(cursor)
+        finally:
+            try:
+                self.log_text.setUpdatesEnabled(True)
+            except Exception:
+                pass
+
+        # Проверяем на ошибки только по новым строкам
+        try:
+            for line in text.splitlines():
+                clean_line = (line or "").rstrip()
+                if not clean_line:
+                    continue
+                if self._error_pattern.search(clean_line) and not self._exclude_pattern.search(clean_line):
+                    self._add_error(clean_line)
+        except Exception:
+            pass
+
+        if was_at_bottom:
+            try:
+                scrollbar = self.log_text.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
+            except Exception:
+                pass
         
     def _copy_log(self):
         """Копирует содержимое лога в буфер"""

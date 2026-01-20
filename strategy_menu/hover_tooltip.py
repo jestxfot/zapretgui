@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, 
                           QPoint, QRectF, pyqtProperty)
 from PyQt6.QtGui import (QColor, QPainter, QPainterPath, QBrush, 
-                         QPen, QLinearGradient)
+                         QPen, QLinearGradient, QCursor)
 
 
 class FloatingSpinner(QWidget):
@@ -307,10 +307,26 @@ class TooltipManager:
             cls._instance._pending_data = None
         return cls._instance
     
-    def show_tooltip(self, pos: QPoint, strategy_info: dict, strategy_id: str, delay: int = 400):
+    def show_tooltip(
+        self,
+        pos: QPoint,
+        strategy_info: dict,
+        strategy_id: str,
+        delay: int = 400,
+        source_widget: QWidget | None = None,
+    ):
         """Показывает tooltip с задержкой"""
+        # Если открыто интерактивное окно предпросмотра по ПКМ, hover-tooltip не нужен.
+        try:
+            app = QApplication.instance()
+            if app and bool(app.property("zapretgui_args_preview_open")):
+                self.hide_immediately()
+                return
+        except Exception:
+            pass
+
         self._hide_timer.stop()
-        self._pending_data = (pos, strategy_info, strategy_id)
+        self._pending_data = (pos, strategy_info, strategy_id, source_widget)
         
         try:
             self._show_timer.timeout.disconnect()
@@ -324,7 +340,26 @@ class TooltipManager:
         if not self._pending_data:
             return
         
-        pos, strategy_info, strategy_id = self._pending_data
+        pos, strategy_info, strategy_id, source_widget = self._pending_data
+
+        # Guard against delayed show after the source widget/page is hidden.
+        try:
+            if source_widget is not None:
+                if (not source_widget.isVisible()) or (not source_widget.window().isVisible()):
+                    self._pending_data = None
+                    return
+        except Exception:
+            pass
+
+        # Show only when the cursor is actually inside the source widget (or its children).
+        try:
+            if source_widget is not None:
+                w = QApplication.widgetAt(QCursor.pos())
+                if (w is None) or (w is not source_widget and (not source_widget.isAncestorOf(w))):
+                    self._pending_data = None
+                    return
+        except Exception:
+            pass
         
         if not self._tooltip:
             self._tooltip = StrategyHoverTooltip()

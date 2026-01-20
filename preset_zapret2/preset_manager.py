@@ -1495,6 +1495,7 @@ class PresetManager:
         Returns:
             CategoryConfig with proper defaults
         """
+        category_key = str(category_key or "").strip().lower()
         from .preset_defaults import (
             get_category_default_syndata,
             get_category_default_filter_mode
@@ -1549,6 +1550,7 @@ class PresetManager:
         Returns:
             True if successful
         """
+        category_key = str(category_key or "").strip().lower()
         preset = self.get_active_preset()
         if not preset:
             log(f"Cannot set strategy: no active preset", "WARNING")
@@ -1633,7 +1635,10 @@ class PresetManager:
             log(f"Cannot set strategies: no active preset", "WARNING")
             return False
 
-        for cat_key, strategy_id in selections.items():
+        for cat_key, strategy_id in (selections or {}).items():
+            cat_key = str(cat_key or "").strip().lower()
+            if not cat_key:
+                continue
             if cat_key not in preset.categories:
                 preset.categories[cat_key] = self._create_category_with_defaults(cat_key)
             preset.categories[cat_key].strategy_id = strategy_id

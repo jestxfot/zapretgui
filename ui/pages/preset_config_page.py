@@ -11,13 +11,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
-import psutil
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from config import MAIN_DIRECTORY
 from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
 from strategy_menu import get_strategy_launch_method
 from log import log
+from utils.process_status import format_expected_process_status
 
 
 class PresetConfigPage(BasePage):
@@ -27,7 +27,7 @@ class PresetConfigPage(BasePage):
         # Сначала определяем путь к файлу, чтобы использовать в subtitle
         self._preset_path, self._preset_display_name = self._get_current_preset_path()
 
-        super().__init__("Конфиг запуска", f"Редактор {self._preset_display_name}", parent)
+        super().__init__("Активный пресет", f"Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла — {self._preset_display_name}", parent)
 
         self._is_loading = False
         self._save_timer = QTimer(self)
@@ -35,16 +35,21 @@ class PresetConfigPage(BasePage):
         self._save_timer.timeout.connect(self._save_file)
 
         self._last_mtime = 0  # Для отслеживания изменений файла
+        self._file_status = ""
+        self._process_status = "⏳ Проверка..."
+        self._process_monitor_connected = False
 
         self._build_ui()
         self._setup_shortcuts()
         self._load_file()
 
-        # Таймер для проверки статуса winws.exe/winws2.exe и изменений файла
-        self._status_timer = QTimer(self)
-        self._status_timer.timeout.connect(self._on_timer_tick)
-        self._status_timer.start(1000)  # Каждую секунду
-        self._update_winws_status()  # Начальная проверка
+        # Таймер только для проверки изменений файла (без проверки процесса в GUI-потоке)
+        self._tick_timer = QTimer(self)
+        self._tick_timer.timeout.connect(self._on_timer_tick)
+
+        # Подписываемся на глобальный монитор процессов (асинхронно, без фризов UI)
+        self._connect_process_monitor()
+        self._sync_process_status_from_cache()
 
     def _get_current_preset_path(self) -> tuple[str, str]:
         """Returns (preset_path, display_name) based on current mode"""
@@ -79,6 +84,8 @@ class PresetConfigPage(BasePage):
             self._preset_display_name = new_display
             self._load_file()
             self._update_title_label()
+        # В любом случае обновляем ожидаемый процесс под новый режим
+        self._sync_process_status_from_cache()
 
     def _update_title_label(self):
         """Update subtitle to show which file is being edited"""
@@ -281,29 +288,53 @@ class PresetConfigPage(BasePage):
         self._file_status = text
         self._refresh_status_label()
 
-    def _update_winws_status(self):
-        """Проверяет статус winws.exe/winws2.exe и обновляет статус-бар"""
-        # Определяем какой процесс искать в зависимости от режима
+    def _expected_process_name(self) -> str:
         method = get_strategy_launch_method()
-        if method in ZAPRET2_MODES or method == "direct_zapret2_orchestra":
-            expected_process = "winws2.exe"
-        else:
-            expected_process = "winws.exe"
+        return "winws2.exe" if method in ZAPRET2_MODES else "winws.exe"
 
+    def _connect_process_monitor(self) -> None:
+        if self._process_monitor_connected:
+            return
         try:
-            for proc in psutil.process_iter(['name', 'pid']):
-                try:
-                    proc_name = proc.info['name']
-                    if proc_name and proc_name.lower() in ('winws.exe', 'winws2.exe'):
-                        pid = proc.info['pid']
-                        self._process_status = f"✅ {proc_name} (PID: {pid})"
-                        self._refresh_status_label()
-                        return
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    continue
-            self._process_status = f"⚫ {expected_process} не запущен"
+            app = getattr(self, "parent_app", None)
+            monitor = getattr(app, "process_monitor", None) if app else None
+            if monitor is None:
+                return
+            if hasattr(monitor, "processDetailsChanged"):
+                monitor.processDetailsChanged.connect(self._on_process_details_changed)
+            elif hasattr(monitor, "processStatusChanged"):
+                monitor.processStatusChanged.connect(self._on_process_running_changed)
+            self._process_monitor_connected = True
+        except Exception as e:
+            log(f"PresetConfigPage: ошибка подключения к process_monitor: {e}", "DEBUG")
+
+    def _sync_process_status_from_cache(self) -> None:
+        """Быстро синхронизирует статус из кэша (без psutil в UI-потоке)."""
+        try:
+            app = getattr(self, "parent_app", None)
+            details = getattr(app, "process_details", None) if app else None
+            expected = self._expected_process_name()
+            self._process_status = format_expected_process_status(expected, details)
+            self._refresh_status_label()
         except Exception as e:
             self._process_status = f"❓ Ошибка: {e}"
+            self._refresh_status_label()
+
+    def _on_process_details_changed(self, details: dict) -> None:
+        try:
+            expected = self._expected_process_name()
+            self._process_status = format_expected_process_status(expected, details)
+            self._refresh_status_label()
+        except Exception as e:
+            log(f"PresetConfigPage._on_process_details_changed error: {e}", "DEBUG")
+
+    def _on_process_running_changed(self, is_running: bool) -> None:
+        """Fallback, если доступен только bool-сигнал."""
+        expected = self._expected_process_name()
+        if is_running:
+            self._process_status = f"✅ {expected} (запущен)"
+        else:
+            self._process_status = f"⚫ {expected} не запущен"
         self._refresh_status_label()
 
     def _refresh_status_label(self):
@@ -313,8 +344,7 @@ class PresetConfigPage(BasePage):
         self.status_label.setText(f"{file_status}  •  {process_status}")
 
     def _on_timer_tick(self):
-        """Обработчик таймера - проверяет статус процесса и изменения файла"""
-        self._update_winws_status()
+        """Обработчик таймера - проверяет изменения файла"""
         self._check_file_changed()
 
     def _check_file_changed(self):
@@ -331,3 +361,16 @@ class PresetConfigPage(BasePage):
             self._last_mtime = current_mtime
         except Exception:
             pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._connect_process_monitor()
+        if not self._tick_timer.isActive():
+            self._tick_timer.start(1000)
+        self._sync_process_status_from_cache()
+        self._check_file_changed()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if self._tick_timer.isActive():
+            self._tick_timer.stop()

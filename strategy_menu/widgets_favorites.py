@@ -197,7 +197,7 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
             from .hover_tooltip import tooltip_manager
             
             pos = self.mapToGlobal(QPoint(self.width() + 10, 0))
-            tooltip_manager.show_tooltip(pos, self.strategy_data, self.strategy_id, delay=600)
+            tooltip_manager.show_tooltip(pos, self.strategy_data, self.strategy_id, delay=600, source_widget=self)
         except Exception:
             pass
         super().enterEvent(event)

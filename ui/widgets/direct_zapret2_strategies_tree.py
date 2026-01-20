@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import time
 from typing import Dict, Iterable, Optional, Set
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSize, QTimer, QPoint, QRect
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QIcon, QPainter, QPainterPath, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QIcon, QPainter, QPainterPath, QPixmap, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractScrollArea,
@@ -126,6 +127,9 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._hover_timer.timeout.connect(self._emit_hover_preview)
         self._hover_strategy_id: Optional[str] = None
         self._hover_global_pos: Optional[QPoint] = None
+        self._hover_delay_ms = 180
+        self._hover_emit_last_ts = 0.0
+        self._hover_emit_throttle_s = 0.06  # avoid flooding updates while fast scrolling
 
         self._geom_timer = QTimer(self)
         self._geom_timer.setSingleShot(True)
@@ -135,6 +139,75 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._all_root = self._add_section("Все стратегии")
 
         self.itemClicked.connect(self._on_item_clicked)
+
+    def _sync_hover_from_cursor(self, *, immediate: bool) -> None:
+        """
+        Keep hover preview in sync even when the list scrolls under a stationary cursor.
+
+        Qt often won't emit MouseMove when users scroll with the wheel/scrollbar,
+        so we re-check what's under the cursor after scroll changes.
+        """
+        try:
+            gp = QCursor.pos()
+            vp_pos = self.viewport().mapFromGlobal(gp)
+        except Exception:
+            return
+
+        # When RMB preview is open, disable all hover previews.
+        try:
+            app = QApplication.instance()
+            if app and bool(app.property("zapretgui_args_preview_open")):
+                self._cancel_hover_preview()
+                return
+        except Exception:
+            pass
+
+        # Show hover preview ONLY when cursor is actually over our viewport.
+        try:
+            w = QApplication.widgetAt(gp)
+            if (w is None) or (w is not self.viewport() and (not self.viewport().isAncestorOf(w))):
+                self._cancel_hover_preview()
+                return
+        except Exception:
+            pass
+
+        try:
+            if not self.viewport().rect().contains(vp_pos):
+                self._cancel_hover_preview()
+                return
+        except Exception:
+            pass
+
+        item = self.itemAt(vp_pos)
+        sid = None
+        if item:
+            sid = item.data(0, self._ROLE_STRATEGY_ID)
+        sid = str(sid) if sid else None
+
+        if not sid or sid == "none":
+            self._cancel_hover_preview()
+            return
+
+        # Update hover target + position
+        changed = (sid != self._hover_strategy_id)
+        self._hover_strategy_id = sid
+        self._hover_global_pos = gp
+
+        if immediate:
+            # Immediate refresh when scrolling: show correct strategy without waiting.
+            now = time.monotonic()
+            if changed or (now - self._hover_emit_last_ts) >= self._hover_emit_throttle_s:
+                self._hover_emit_last_ts = now
+                try:
+                    self.preview_requested.emit(sid, gp)
+                except Exception:
+                    pass
+            else:
+                # Too frequent: schedule a delayed emit.
+                self._hover_timer.start(self._hover_delay_ms)
+        else:
+            if changed:
+                self._hover_timer.start(self._hover_delay_ms)
 
     def drawRow(self, painter, options: QStyleOptionViewItem, index) -> None:  # noqa: N802 (Qt override)
         """
@@ -593,8 +666,22 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         does not scroll when the cursor is over the strategies list.
         """
         super().wheelEvent(event)
+        # QAbstractItemView may scroll contents without moving the cursor,
+        # so update hover target right away.
+        try:
+            self._sync_hover_from_cursor(immediate=True)
+        except Exception:
+            pass
         try:
             event.accept()
+        except Exception:
+            pass
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802 (Qt override)
+        super().scrollContentsBy(dx, dy)
+        try:
+            if dx or dy:
+                self._sync_hover_from_cursor(immediate=True)
         except Exception:
             pass
 
@@ -638,6 +725,22 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             self.favorite_toggled.emit(strategy_id, new_state)
             return
 
+        # Click should immediately sync the preview to the clicked strategy.
+        # This avoids "stale" hover previews when users scroll/click quickly.
+        try:
+            self._hover_timer.stop()
+        except Exception:
+            pass
+        try:
+            sid = str(strategy_id)
+            gp = QCursor.pos()
+            self._hover_strategy_id = sid
+            self._hover_global_pos = gp
+            self._hover_emit_last_ts = time.monotonic()
+            self.preview_requested.emit(sid, gp)
+        except Exception:
+            pass
+
         self.strategy_clicked.emit(strategy_id)
 
     def viewportEvent(self, event):
@@ -650,23 +753,19 @@ class DirectZapret2StrategiesTree(QTreeWidget):
                 pass
             return True
         if et in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
-            pos = getattr(event, "position", lambda: None)()
-            if pos is None:
-                return super().viewportEvent(event)
-            p = pos.toPoint()
-            item = self.itemAt(p)
-            sid = None
-            if item:
-                sid = item.data(0, self._ROLE_STRATEGY_ID)
-            sid = str(sid) if sid else None
-            if sid and sid != "none":
-                if sid != self._hover_strategy_id:
-                    self._hover_strategy_id = sid
-                    gp = getattr(event, "globalPosition", lambda: None)()
-                    self._hover_global_pos = gp.toPoint() if gp is not None else self.viewport().mapToGlobal(p)
-                    self._hover_timer.start(self._hover_delay_ms)
-            else:
-                self._cancel_hover_preview()
+            # When RMB preview is open, disable all hover previews to avoid conflicts.
+            try:
+                app = QApplication.instance()
+                if app and bool(app.property("zapretgui_args_preview_open")):
+                    self._cancel_hover_preview()
+                    return super().viewportEvent(event)
+            except Exception:
+                pass
+            # Use cursor-based sync to keep behavior consistent with scroll updates.
+            try:
+                self._sync_hover_from_cursor(immediate=False)
+            except Exception:
+                pass
             return super().viewportEvent(event)
 
         if et in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
@@ -690,11 +789,45 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         sid = self._hover_strategy_id
         if not sid:
             return
+
+        # When RMB preview is open, disable all hover previews.
+        try:
+            app = QApplication.instance()
+            if app and bool(app.property("zapretgui_args_preview_open")):
+                self._cancel_hover_preview()
+                return
+        except Exception:
+            pass
+
+        # Validate that the cursor is still over the same item.
+        try:
+            gp = QCursor.pos()
+            # Only show while cursor is inside the strategies list viewport.
+            w = QApplication.widgetAt(gp)
+            if (w is None) or (w is not self.viewport() and (not self.viewport().isAncestorOf(w))):
+                self._cancel_hover_preview()
+                return
+            vp_pos = self.viewport().mapFromGlobal(gp)
+            if not self.viewport().rect().contains(vp_pos):
+                self._cancel_hover_preview()
+                return
+            item = self.itemAt(vp_pos)
+            current = item.data(0, self._ROLE_STRATEGY_ID) if item else None
+            current = str(current) if current else None
+            if current and current != sid:
+                self._sync_hover_from_cursor(immediate=False)
+                return
+        except Exception:
+            pass
+
         item = self._rows.get(sid)
         if not item or item.isHidden():
             return
         pos = self._hover_global_pos or self.mapToGlobal(self.rect().center())
-        self.preview_requested.emit(sid, pos)
+        try:
+            self.preview_requested.emit(sid, pos)
+        except Exception:
+            pass
 
     def _show_args_dialog(self, item: QTreeWidgetItem) -> None:
         full = str(item.data(0, self._ROLE_ARGS_FULL) or "").strip()
@@ -755,6 +888,14 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         dlg.exec()
 
     def contextMenuEvent(self, event):
+        # If RMB preview is already open, first RMB closes it (consumed globally),
+        # so do not open another preview on the same click.
+        try:
+            app = QApplication.instance()
+            if app and bool(app.property("zapretgui_args_preview_open")):
+                return
+        except Exception:
+            pass
         self._cancel_hover_preview()
         item = self.itemAt(event.pos())
         if not item:
@@ -765,3 +906,11 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
         # ПКМ: показать интерактивное окно (как в direct_zapret1), а не контекстное меню.
         self.preview_pinned_requested.emit(str(strategy_id), event.globalPos())
+
+    def hideEvent(self, event):  # noqa: N802 (Qt override)
+        # When the page/window is hidden, ensure we never show a delayed hover preview.
+        try:
+            self._cancel_hover_preview()
+        except Exception:
+            pass
+        return super().hideEvent(event)

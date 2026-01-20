@@ -707,7 +707,8 @@ class SideNavBar(QWidget):
             (SectionName.CONTROL, "fa5s.play-circle", "Управление", False),
             (SectionName.STRATEGIES, "fa5s.cog", "Стратегии", "collapsible"),
             (SectionName.STRATEGY_SORT, "fa5s.sliders-h", "Сортировка", True),
-            (SectionName.PRESET_CONFIG, "fa5s.file-code", "Конфиг", True),
+            (SectionName.PRESET_CONFIG, "fa5s.file-code", "Активный пресет", True),
+            (SectionName.PRESETS, "mdi.folder-cog", "Пресеты", True),
             (SectionName.HOSTLIST, "fa5s.list", "Hostlist", True),
             (SectionName.IPSET, "fa5s.server", "IPset", True),
             (SectionName.BLOBS, "fa5s.cube", "Блобы", True),
@@ -716,8 +717,8 @@ class SideNavBar(QWidget):
             (SectionName.ORCHESTRA_BLOCKED, "fa5s.ban", "Заблокированные", True),
             (SectionName.ORCHESTRA_RATINGS, "mdi.chart-bar", "Рейтинги", True),
             (SectionName.DPI_SETTINGS, "fa5s.cogs", "Настройки DPI", True),
-            (SectionName.PRESETS, "mdi.folder-cog", "Пресеты", True),
-            (SectionName.MY_LISTS_HEADER, None, "Мои списки", "collapsible_header"),
+            (SectionName.MY_LISTS_HEADER, None, "Пользовательские сайты", "collapsible_header"),
+            (SectionName.MY_CATEGORIES, "fa5s.folder-plus", "Мои категории", True),
             (SectionName.NETROGAT, "fa5s.ban", "Исключения", True),
             (SectionName.ORCHESTRA_WHITELIST, "fa5s.shield-alt", "Белый список", True),
             (SectionName.CUSTOM_HOSTLIST, "fa5s.plus-circle", "Мои hostlist", True),
@@ -743,7 +744,8 @@ class SideNavBar(QWidget):
         # Кнопки для переключения режима оркестратора
         self._strategies_button = None       # Кнопка "Стратегии" / "Оркестратор"
         self._strategy_sort_button = None    # Кнопка "Сортировка"
-        self._preset_config_button = None    # Кнопка "Конфиг"
+        self._preset_config_button = None    # Кнопка "Активный пресет"
+        self._my_categories_button = None    # Кнопка "Мои категории"
         self._hostlist_button = None
         self._ipset_button = None
         self._editor_button = None
@@ -805,6 +807,8 @@ class SideNavBar(QWidget):
                     self._strategy_sort_button = btn
                 elif section_name == SectionName.PRESET_CONFIG:
                     self._preset_config_button = btn
+                elif section_name == SectionName.MY_CATEGORIES:
+                    self._my_categories_button = btn
                 elif section_name == SectionName.BLOBS:
                     self._blobs_button = btn
                 elif section_name == SectionName.HOSTLIST:
@@ -1171,12 +1175,144 @@ class SideNavBar(QWidget):
 
     def _on_group_toggled(self, parent_section: SectionName, expanded: bool):
         """Переключает видимость элементов группы (подпункты и заголовки)"""
-        if parent_section in self._collapsible_groups:
-            for widget in self._collapsible_groups[parent_section]:
-                widget.setVisible(expanded)
+        self._apply_group_visibility(parent_section)
         # Сохраняем состояние, если это не загрузка
         if not getattr(self, "_loading_state", False):
             self._save_collapsible_state(parent_section, expanded)
+
+    def _refresh_nav_layout(self) -> None:
+        """Форсирует перерасчёт layout для sidebar после массовых setVisible()."""
+        try:
+            lay = self.nav_container.layout()
+            if lay is not None:
+                lay.invalidate()
+                lay.activate()
+        except Exception:
+            pass
+        try:
+            self.nav_container.updateGeometry()
+            self.nav_container.adjustSize()
+        except Exception:
+            pass
+        try:
+            self.scroll_area.viewport().update()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _prop_mode_visible_name() -> str:
+        return "_mode_visible"
+
+    def _set_mode_visible(self, widget: QWidget | None, visible: bool) -> None:
+        if widget is None:
+            return
+        try:
+            widget.setProperty(self._prop_mode_visible_name(), bool(visible))
+        except Exception:
+            pass
+
+    def _get_mode_visible(self, widget: QWidget | None) -> bool:
+        if widget is None:
+            return False
+        try:
+            v = widget.property(self._prop_mode_visible_name())
+        except Exception:
+            v = None
+        # If unset, default to visible.
+        if v is None:
+            return True
+        return bool(v)
+
+    def _is_group_expanded(self, parent_section: SectionName) -> bool:
+        btn = self._section_widgets.get(parent_section)
+        if btn is None:
+            return True
+        try:
+            attr = getattr(btn, "is_expanded", None)
+            if attr is None:
+                return True
+            # Support both @property and method-style implementations.
+            if callable(attr):
+                return bool(attr())
+            return bool(attr)
+        except Exception:
+            return True
+        return True
+
+    def _apply_group_visibility(self, parent_section: SectionName) -> None:
+        """
+        Applies effective visibility for all widgets in a collapsible group.
+
+        Effective = group_expanded AND mode_visible AND (not sidebar_collapsed for sub-buttons).
+        """
+        if parent_section not in self._collapsible_groups:
+            return
+
+        expanded = self._is_group_expanded(parent_section)
+        for widget in self._collapsible_groups[parent_section]:
+            try:
+                if self._is_collapsed and widget in self._sub_buttons:
+                    widget.setVisible(False)
+                    continue
+                widget.setVisible(bool(expanded and self._get_mode_visible(widget)))
+            except Exception:
+                pass
+
+        self._refresh_nav_layout()
+
+    def _apply_all_groups_visibility(self) -> None:
+        for parent_section in list(self._collapsible_groups.keys()):
+            self._apply_group_visibility(parent_section)
+
+    def _update_mode_dependent_visibility(self) -> None:
+        """Единая точка: пересчитать видимость вкладок по текущему режиму запуска."""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            method = get_strategy_launch_method()
+        except Exception:
+            method = ""
+
+        is_direct = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
+        is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
+        is_full_orchestra = method == "orchestra"
+
+        show_sorting = method in ("direct_zapret2_orchestra", "direct_zapret1")
+        show_config = is_direct
+        show_my_categories = is_direct
+        show_blobs = is_direct
+        if is_orchestra:
+            # In orchestra modes, sorting/config are hidden only for full orchestra.
+            show_sorting = not is_full_orchestra
+            show_config = not is_full_orchestra
+            show_my_categories = not is_full_orchestra
+
+        # "Стратегии" sub-items
+        self._set_mode_visible(self._blobs_button, show_blobs)
+        self._set_mode_visible(self._preset_config_button, show_config)
+        self._set_mode_visible(self._my_categories_button, show_my_categories)
+        self._set_mode_visible(self._strategy_sort_button, show_sorting)
+
+        # Hostlist/IPset/Editor hidden for orchestra modes
+        self._set_mode_visible(self._hostlist_button, not is_orchestra)
+        self._set_mode_visible(self._ipset_button, not is_orchestra)
+        self._set_mode_visible(self._editor_button, not is_orchestra)
+
+        # Orchestra-specific tabs
+        self._set_mode_visible(self._orchestra_locked_button, is_orchestra)
+        self._set_mode_visible(self._orchestra_blocked_button, is_orchestra)
+        self._set_mode_visible(self._orchestra_ratings_button, is_orchestra)
+
+        # Presets available only in direct_zapret2
+        self._set_mode_visible(self._presets_button, method == "direct_zapret2")
+
+        # My lists group
+        self._set_mode_visible(self._netrogat_button, not is_orchestra)
+        self._set_mode_visible(self._whitelist_button, is_orchestra)
+        self._set_mode_visible(self._custom_hostlist_button, not is_orchestra)
+        self._set_mode_visible(self._custom_ipset_button, not is_orchestra)
+
+        # Re-apply group visibility (respects collapsed/expanded state).
+        self._apply_all_groups_visibility()
         
     def _on_button_clicked(self, section: SectionName):
         if section == self.current_section:
@@ -1227,29 +1363,7 @@ class SideNavBar(QWidget):
 
         Управляет: 'Блобы', 'Конфиг', 'Сортировка'.
         """
-        try:
-            from strategy_menu import get_strategy_launch_method
-            method = get_strategy_launch_method()
-            # Блобы и Конфиг доступны для direct_zapret2, direct_zapret2_orchestra и direct_zapret1 режимов
-            is_direct = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
-            # Сортировка скрыта в direct_zapret2 (preset-based), но доступна в других direct-режимах
-            show_sorting = method in ("direct_zapret2_orchestra", "direct_zapret1")
-            if self._blobs_button:
-                self._blobs_button.setVisible(is_direct)
-            if self._preset_config_button:
-                self._preset_config_button.setVisible(is_direct)
-            if self._strategy_sort_button:
-                self._strategy_sort_button.setVisible(show_sorting)
-        except Exception as e:
-            from log import log
-            log(f"Ошибка проверки режима для подпунктов 'Стратегии' (блобы/конфиг/сортировка): {e}", "DEBUG")
-            # По умолчанию показываем
-            if self._blobs_button:
-                self._blobs_button.setVisible(True)
-            if self._preset_config_button:
-                self._preset_config_button.setVisible(True)
-            if self._strategy_sort_button:
-                self._strategy_sort_button.setVisible(True)
+        self._update_mode_dependent_visibility()
 
     def update_blobs_visibility(self):
         """Совместимость: раньше функция называлась update_blobs_visibility()."""
@@ -1271,39 +1385,14 @@ class SideNavBar(QWidget):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
-            # is_orchestra - любой режим с оркестратором (для показа вкладок Залоченные/Заблокированные)
             is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
-            # is_full_orchestra - только полный оркестратор (автообучение), скрывает Конфиг/Сортировка
-            is_full_orchestra = method == "orchestra"
-        except Exception as e:
-            from log import log
-            log(f"Ошибка проверки режима оркестратора: {e}", "DEBUG")
+        except Exception:
+            method = ""
             is_orchestra = False
-            is_full_orchestra = False
+        is_full_orchestra = method == "orchestra"
 
-        # Скрываем/показываем Сортировка, Конфиг - только для ПОЛНОГО оркестратора
-        # direct_zapret2_orchestra сохраняет эти кнопки видимыми
-        # В остальных режимах (не orchestra*) видимость управляется update_strategies_submenu_visibility().
-        if is_orchestra:
-            if self._strategy_sort_button:
-                self._strategy_sort_button.setVisible(not is_full_orchestra)
-            if self._preset_config_button:
-                self._preset_config_button.setVisible(not is_full_orchestra)
-        # Hostlist, IPset, Редактор - скрываем для любого режима оркестратора
-        if self._hostlist_button:
-            self._hostlist_button.setVisible(not is_orchestra)
-        if self._ipset_button:
-            self._ipset_button.setVisible(not is_orchestra)
-        if self._editor_button:
-            self._editor_button.setVisible(not is_orchestra)
-
-        # Показываем/скрываем Залоченные, Заблокированные, Рейтинги
-        if self._orchestra_locked_button:
-            self._orchestra_locked_button.setVisible(is_orchestra)
-        if self._orchestra_blocked_button:
-            self._orchestra_blocked_button.setVisible(is_orchestra)
-        if self._orchestra_ratings_button:
-            self._orchestra_ratings_button.setVisible(is_orchestra)
+        # Keep the old side-effects (title/icon), but centralize visibility rules.
+        self._update_mode_dependent_visibility()
 
         # Меняем название и иконку секции "Стратегии" / "Оркестратор"
         if self._strategies_button:
@@ -1319,35 +1408,14 @@ class SideNavBar(QWidget):
             self._strategies_button._update_style()
 
         # В группе "Мои списки":
-        # - Исключения (netrogat) - скрываем в режиме оркестратора
-        # - Белый список - показываем только в режиме оркестратора
-        # - Мои hostlist / Мои ipset - скрываем в режиме оркестратора
-        if self._netrogat_button:
-            self._netrogat_button.setVisible(not is_orchestra)
-        if self._whitelist_button:
-            self._whitelist_button.setVisible(is_orchestra)
-        if self._custom_hostlist_button:
-            self._custom_hostlist_button.setVisible(not is_orchestra)
-        if self._custom_ipset_button:
-            self._custom_ipset_button.setVisible(not is_orchestra)
+        # (visibility rules handled by _update_mode_dependent_visibility)
 
     def update_presets_visibility(self):
         """
         Обновляет видимость вкладки 'Пресеты'.
         Пресеты доступны ТОЛЬКО в режиме direct_zapret2.
         """
-        try:
-            from strategy_menu import get_strategy_launch_method
-            method = get_strategy_launch_method()
-            is_direct_zapret2 = method == "direct_zapret2"
-            if self._presets_button:
-                self._presets_button.setVisible(is_direct_zapret2)
-        except Exception as e:
-            from log import log
-            log(f"Ошибка проверки режима для пресетов: {e}", "DEBUG")
-            # По умолчанию скрываем
-            if self._presets_button:
-                self._presets_button.setVisible(False)
+        self._update_mode_dependent_visibility()
 
 
 class SettingsCard(QFrame):

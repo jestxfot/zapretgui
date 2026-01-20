@@ -44,16 +44,11 @@ class CategoriesTabPanel(QWidget):
     """Панель категорий с вертикальными вкладками слева и контентом справа"""
     
     currentChanged = pyqtSignal(int)
-    add_category_clicked = pyqtSignal()  # Сигнал при нажатии на кнопку добавления
-    edit_category_clicked = pyqtSignal(str)  # Сигнал при редактировании (category_key)
     
-    def __init__(self, parent=None, show_add_button=False):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._tab_category_keys = []
         self._tab_icons = {}  # {index: (icon_name, icon_color)}
-        self._show_add_button = show_add_button
-        self._last_selected_index = 0
-        self._add_button_added = False
         self._build_ui()
         
     def _build_ui(self):
@@ -102,10 +97,6 @@ class CategoriesTabPanel(QWidget):
         self.list_widget.currentRowChanged.connect(self._on_tab_changed)
         # Запрещаем перетаскивание окна при взаимодействии со списком
         self.list_widget.setProperty("noDrag", True)
-        
-        # Включаем контекстное меню
-        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.list_widget.customContextMenuRequested.connect(self._show_context_menu)
         
         self.list_widget.setStyleSheet("""
             QListWidget {
@@ -173,22 +164,6 @@ class CategoriesTabPanel(QWidget):
     
     def _on_tab_changed(self, index):
         """Обработчик смены вкладки"""
-        # Проверяем, не кликнули ли на кнопку добавления (последний элемент)
-        if self._show_add_button and index == self.list_widget.count() - 1:
-            item = self.list_widget.item(index)
-            if item and item.data(Qt.ItemDataRole.UserRole) == "add_button":
-                # Снимаем выделение с кнопки добавления
-                self.list_widget.blockSignals(True)
-                if self._last_selected_index >= 0:
-                    self.list_widget.setCurrentRow(self._last_selected_index)
-                self.list_widget.blockSignals(False)
-                # Эмитим сигнал добавления
-                self.add_category_clicked.emit()
-                return
-
-        # Сохраняем последний выбранный индекс (не кнопка добавления)
-        self._last_selected_index = index
-        
         if 0 <= index < self.stack_widget.count():
             self.stack_widget.setCurrentIndex(index)
             self.currentChanged.emit(index)
@@ -262,8 +237,6 @@ class CategoriesTabPanel(QWidget):
                 widget.deleteLater()
         self._tab_category_keys = []
         self._tab_icons = {}
-        self._add_button_added = False
-        self._last_selected_index = 0
     
     def count(self):
         """Возвращает количество вкладок"""
@@ -287,76 +260,6 @@ class CategoriesTabPanel(QWidget):
         """Блокирует/разблокирует сигналы"""
         super().blockSignals(block)
         self.list_widget.blockSignals(block)
-        
-    def add_add_button(self):
-        """Добавляет кнопку '+' в конец списка (как элемент списка)"""
-        if not self._show_add_button or self._add_button_added:
-            return
-            
-        # Создаём элемент списка для кнопки добавления
-        add_item = QListWidgetItem("Добавить")
-        add_item.setFont(QFont("Segoe UI", 9))
-        add_item.setIcon(qta.icon('fa5s.plus', color='#888888'))
-        add_item.setToolTip("Добавить свою категорию")
-        add_item.setData(Qt.ItemDataRole.UserRole, "add_button")  # Маркер что это кнопка
-        
-        self.list_widget.addItem(add_item)
-        self._add_button_added = True
-    
-    def _show_context_menu(self, pos: QPoint):
-        """Показывает контекстное меню для вкладки"""
-        item = self.list_widget.itemAt(pos)
-        if not item:
-            return
-        
-        # Проверяем что это не кнопка добавления
-        if item.data(Qt.ItemDataRole.UserRole) == "add_button":
-            return
-        
-        # Получаем индекс элемента
-        index = self.list_widget.row(item)
-        if index < 0 or index >= len(self._tab_category_keys):
-            return
-        
-        category_key = self._tab_category_keys[index]
-        if not category_key:
-            return
-        
-        # Проверяем что это пользовательская категория
-        try:
-            from strategy_menu.strategies_registry import registry
-            cat_info = registry.get_category_info(category_key)
-            if not cat_info or cat_info.command_group != "user":
-                return  # Показываем меню только для пользовательских категорий
-        except Exception as e:
-            log(f"Ошибка проверки категории: {e}", "DEBUG")
-            return
-        
-        # Создаём контекстное меню
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-                color: white;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background: rgba(96, 205, 255, 0.3);
-            }
-        """)
-        
-        edit_action = menu.addAction(qta.icon('fa5s.edit', color='white'), "  Редактировать")
-        
-        action = menu.exec(QCursor.pos())
-        
-        if action == edit_action:
-            self.edit_category_clicked.emit(category_key)
     
     # Свойства для совместимости
     @property

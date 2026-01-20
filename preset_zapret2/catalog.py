@@ -59,7 +59,7 @@ def get_catalog_paths() -> Optional[CatalogPaths]:
     for index_dir in _candidate_indexjson_dirs():
         index_dir = Path(index_dir)
         builtin_dir = index_dir / "strategies" / "builtin"
-        if (builtin_dir / "categories.txt").exists():
+        if builtin_dir.exists() and any(builtin_dir.glob("*.txt")):
             user_dir = index_dir / "strategies" / "user"
             _CACHED_PATHS = CatalogPaths(
                 indexjson_dir=index_dir,
@@ -93,6 +93,9 @@ def load_categories() -> Dict[str, Dict]:
         if not file_path.exists():
             return {}
         text = _read_text(file_path)
+        return _load_one_text(text)
+
+    def _load_one_text(text: str) -> Dict[str, Dict]:
         categories: Dict[str, Dict] = {}
         current_key: Optional[str] = None
         current: Dict[str, object] = {}
@@ -104,7 +107,9 @@ def load_categories() -> Dict[str, Dict]:
             if line.startswith("[") and line.endswith("]"):
                 if current_key:
                     categories[current_key] = dict(current)
-                current_key = line[1:-1].strip()
+                # Keep category keys normalized (lower-case) to match preset parsing,
+                # which infers category keys in lower-case from filter tokens/filenames.
+                current_key = line[1:-1].strip().lower()
                 current = {"key": current_key}
                 continue
             if "=" not in line or current_key is None:
@@ -129,16 +134,35 @@ def load_categories() -> Dict[str, Dict]:
         return categories
 
     builtin = _load_one(paths.builtin_dir / "categories.txt")
-    user = _load_one(paths.user_dir / "categories.txt")
+    if not builtin:
+        try:
+            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
+            builtin = _load_one_text(DEFAULT_CATEGORIES_TXT)
+        except Exception:
+            builtin = {}
     merged = dict(builtin)
+
+    # User categories are stored outside the install folder (updates may overwrite it).
+    def _user_categories_file() -> Path:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "zapret" / "user_categories.txt"
+        return Path.home() / ".config" / "zapret" / "user_categories.txt"
+
+    user = _load_one(_user_categories_file())
     for key, data in user.items():
         if key in merged:
-            merged[key].update(data)
-        else:
-            merged[key] = data
+            # Do NOT allow overriding built-in categories.
+            continue
+        merged[key] = data
 
     _CACHED_CATEGORIES = merged
     return _CACHED_CATEGORIES
+
+
+def invalidate_categories_cache() -> None:
+    global _CACHED_CATEGORIES
+    _CACHED_CATEGORIES = None
 
 
 def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> Dict[str, Dict]:
@@ -219,4 +243,3 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
 
     _CACHED_STRATEGIES[cache_key] = merged
     return merged
-

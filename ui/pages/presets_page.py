@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QLineEdit,
@@ -135,7 +136,7 @@ class PresetCard(QFrame):
 
         # Иконка (звезда для активного, папка для остальных)
         icon_name = "fa5s.star" if self._is_active else "fa5s.file-alt"
-        icon_color = "#60cdff" if self._is_active else "rgba(255, 255, 255, 0.6)"
+        icon_color = QColor("#60cdff") if self._is_active else QColor(255, 255, 255, 160)
         self.icon_label = QLabel()
         self.icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(20, 20))
         self.icon_label.setFixedSize(24, 24)
@@ -496,7 +497,7 @@ class PresetsPage(BasePage):
     preset_deleted = pyqtSignal(str)    # При удалении
 
     def __init__(self, parent=None):
-        super().__init__("Пресеты настроек", "Сохраняйте и переключайте наборы настроек DPI", parent)
+        super().__init__("Управление пресетами", "Здесь Вы можете сохранять, переключать, экспортировать и импортировать пресеты (наборы настроек Zapret). Любой из пресетов добавляются в файл preset_zapret2.txt, который по умолчанию являются активным пресетом (содержимое файла просто заменяется целиком). Изменить это нельзя.", parent)
 
         self._preset_cards = []  # Список карточек для обновления
         self._manager = None     # Lazy init
@@ -688,7 +689,7 @@ class PresetsPage(BasePage):
         info_layout = QHBoxLayout()
         info_layout.setSpacing(12)
         info_icon = QLabel()
-        info_icon.setPixmap(qta.icon("fa5s.info-circle", color="rgba(255, 255, 255, 0.7)").pixmap(16, 16))
+        info_icon.setPixmap(qta.icon("fa5s.info-circle", color=QColor(255, 255, 255, 180)).pixmap(16, 16))
         info_layout.addWidget(info_icon)
         info_text = QLabel(
             "Официальные пресеты — это шаблоны (их нельзя изменить). "

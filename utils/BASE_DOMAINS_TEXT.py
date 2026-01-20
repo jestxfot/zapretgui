@@ -187,4 +187,5 @@ rgpub.io
 #chess
 chess.com
 zapret.vercel.app
+zapret.wiki
 """

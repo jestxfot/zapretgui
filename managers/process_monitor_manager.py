@@ -10,6 +10,7 @@ class ProcessMonitorManager(QObject):
         self.app = app_instance
         self.process_monitor = None
         self._is_running = False
+        self._process_details: dict[str, list[int]] = {}
 
     def initialize_process_monitor(self):
         """Инициализирует поток мониторинга процесса"""
@@ -18,14 +19,25 @@ class ProcessMonitorManager(QObject):
         
         from config.process_monitor import ProcessMonitorThread
         
-        self.process_monitor = ProcessMonitorThread(self.app.dpi_starter)
+        # Обновляем статус достаточно часто, но без блокировки UI (в отдельном потоке)
+        self.process_monitor = ProcessMonitorThread(self.app.dpi_starter, interval_ms=1000)
         self.app.process_monitor = self.process_monitor  # Сохраняем ссылку в app
         
         # Подключаем сигнал изменения статуса
         self.process_monitor.processStatusChanged.connect(self.on_process_status_changed)
+        if hasattr(self.process_monitor, "processDetailsChanged"):
+            self.process_monitor.processDetailsChanged.connect(self.on_process_details_changed)
         self.process_monitor.start()
         
         log("Process Monitor инициализирован", "INFO")
+
+    def on_process_details_changed(self, details: dict):
+        """Получает детали процессов (PID) от мониторинга и кэширует для UI"""
+        try:
+            self._process_details = details or {}
+            self.app.process_details = self._process_details
+        except Exception as e:
+            log(f"Ошибка в on_process_details_changed: {e}", level="❌ ERROR")
 
     def on_process_status_changed(self, is_running):
         """Обрабатывает сигнал изменения статуса процесса"""

@@ -89,7 +89,8 @@ class StrategyTableWidget(QWidget):
                                 global_pos,
                                 self.strategies_data[strategy_id],
                                 strategy_id,
-                                delay=500
+                                delay=500,
+                                source_widget=self.table.viewport(),
                             )
                 else:
                     if self._last_hover_row != -1:

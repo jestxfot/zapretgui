@@ -14,81 +14,9 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets import UnifiedStrategiesList
 from log import log
-
-
-class ResetActionButton(QPushButton):
-    """Кнопка сброса с двойным подтверждением"""
-
-    reset_confirmed = pyqtSignal()
-
-    def __init__(self, text: str = "Сбросить", confirm_text: str = "Подтвердить?", parent=None):
-        super().__init__(text, parent)
-        self._default_text = text
-        self._confirm_text = confirm_text
-        self._pending = False
-
-        self.setFixedHeight(32)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_style()
-
-        # Таймер сброса состояния
-        self._reset_timer = QTimer(self)
-        self._reset_timer.setSingleShot(True)
-        self._reset_timer.timeout.connect(self._reset_state)
-
-    def _update_style(self):
-        """Обновляет стили кнопки"""
-        if self._pending:
-            bg = "rgba(74, 222, 128, 0.25)"
-            text_color = "#4ade80"
-            border = "1px solid rgba(74, 222, 128, 0.5)"
-        else:
-            bg = "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
-            border = "none"
-
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 4px;
-                color: {text_color};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
-            }}
-        """)
-
-    def _reset_state(self):
-        """Сбрасывает состояние кнопки"""
-        self._pending = False
-        self.setText(self._default_text)
-        self._update_style()
-
-    def mousePressEvent(self, event):
-        """Обработка клика"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self._pending:
-                # Второй клик - подтверждение
-                self._reset_timer.stop()
-                self._pending = False
-                self.setText("Done")
-                self._update_style()
-                self.reset_confirmed.emit()
-                QTimer.singleShot(1500, self._reset_state)
-            else:
-                # Первый клик - переход в режим подтверждения
-                self._pending = True
-                self.setText(self._confirm_text)
-                self._update_style()
-                self._reset_timer.start(3000)
-        super().mousePressEvent(event)
-
 
 class Zapret2StrategiesPageNew(BasePage):
     """

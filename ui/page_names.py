@@ -33,6 +33,7 @@ class PageName(Enum):
     STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     STRATEGY_SORT = auto()           # Сортировка стратегий
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
+    MY_CATEGORIES = auto()           # Мои категории (общий файл)
     HOSTLIST = auto()                # Hostlist
     IPSET = auto()                   # IPset
     BLOBS = auto()                   # Блобы
@@ -83,6 +84,7 @@ class SectionName(Enum):
     STRATEGIES = auto()              # Заголовок группы (collapsible)
     STRATEGY_SORT = auto()           # - Сортировка
     PRESET_CONFIG = auto()           # - Конфиг
+    MY_CATEGORIES = auto()           # - Мои категории
     HOSTLIST = auto()                # - Hostlist
     IPSET = auto()                   # - IPset
     BLOBS = auto()                   # - Блобы
@@ -126,6 +128,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.STRATEGIES: None,  # Collapsible группа, целевая страница определяется по методу запуска
     SectionName.STRATEGY_SORT: PageName.STRATEGY_SORT,
     SectionName.PRESET_CONFIG: PageName.PRESET_CONFIG,
+    SectionName.MY_CATEGORIES: PageName.MY_CATEGORIES,
     SectionName.HOSTLIST: PageName.HOSTLIST,
     SectionName.IPSET: PageName.IPSET,
     SectionName.BLOBS: PageName.BLOBS,
@@ -167,6 +170,7 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     SectionName.STRATEGIES: [
         SectionName.STRATEGY_SORT,
         SectionName.PRESET_CONFIG,
+        SectionName.MY_CATEGORIES,
         SectionName.HOSTLIST,
         SectionName.IPSET,
         SectionName.BLOBS,

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from log import log
 from config import INDEXJSON_FOLDER
+from strategy_menu.user_categories_store import get_user_categories_file_path
 
 # Путь к папке со стратегиями - используем INDEXJSON_FOLDER из конфига
 # Структура: {INDEXJSON_FOLDER}/strategies/builtin/ и {INDEXJSON_FOLDER}/strategies/user/
@@ -50,22 +51,30 @@ def _has_categories_file(directory: Path) -> bool:
     return (directory / "categories.txt").exists() or (directory / "categories.json").exists()
 
 
+def _has_any_strategy_files(directory: Path) -> bool:
+    """Проверяет, что директория похожа на strategies/* (есть txt/json файлы)."""
+    try:
+        return any(directory.glob("*.txt")) or any(directory.glob("*.json"))
+    except Exception:
+        return False
+
+
 def _get_builtin_dir() -> Path:
     """Возвращает путь к builtin директории (с fallback)"""
     global_builtin = STRATEGIES_DIR / "builtin"
     local_builtin = _LOCAL_STRATEGIES_DIR / "builtin"
     dev_builtin = _DEV_ZAPRET_DIR / "builtin"
 
-    # 1. Если глобальная папка существует и содержит categories.txt/.json - используем её
-    if global_builtin.exists() and _has_categories_file(global_builtin):
+    # 1. Если глобальная папка существует и содержит стратегии - используем её
+    if global_builtin.exists() and _has_any_strategy_files(global_builtin):
         return global_builtin
 
     # 2. Проверяем соседнюю папку zapret (для разработки из IDE)
-    if dev_builtin.exists() and _has_categories_file(dev_builtin):
+    if dev_builtin.exists() and _has_any_strategy_files(dev_builtin):
         return dev_builtin
 
     # 3. Проверяем локальную папку strategy_menu/strategies/builtin
-    if local_builtin.exists() and _has_categories_file(local_builtin):
+    if local_builtin.exists() and _has_any_strategy_files(local_builtin):
         return local_builtin
 
     # Возвращаем глобальную по умолчанию
@@ -676,47 +685,8 @@ def load_strategies_as_dict(category: str, strategy_set: str = None) -> Dict[str
 
 # ==================== ЗАГРУЗКА КАТЕГОРИЙ ====================
 
-def load_categories_txt(filepath: Path) -> Optional[Dict]:
-    """
-    Загружает категории из TXT файла в INI-подобном формате.
-
-    Формат:
-        # Categories configuration
-        version = 1.0
-        description = Описание
-
-        [category_key]
-        full_name = Название категории
-        description = Описание
-        tooltip = Подсказка с \n для переносов строк
-        color = #ff6666
-        default_strategy = strategy_id
-        ports = 80, 443
-        protocol = TCP
-        order = 1
-        command_order = 3
-        needs_new_separator = true
-        command_group = youtube
-        icon_name = fa5b.youtube
-        icon_color = #FF0000
-        base_filter = --filter-tcp=80,443 --ipset=ipset-youtube.txt
-        strategy_type = tcp
-        strip_payload = true
-        requires_all_ports = true
-
-        [another_category]
-        ...
-
-    Returns:
-        Dict в формате {'version': '...', 'description': '...', 'categories': [...]} или None при ошибке
-    """
+def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional[Dict]:
     try:
-        if not filepath.exists():
-            return None
-
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         categories = []
         current_category = None
         file_version = '1.0'
@@ -740,10 +710,13 @@ def load_categories_txt(filepath: Path) -> Optional[Dict]:
                     categories.append(current_category)
 
                 # Начинаем новую
-                category_key = line[1:-1].strip()
+                # Normalize keys to lower-case so categories match preset parsing logic
+                # (preset blocks infer category keys in lower-case from filter tokens/filenames).
+                raw_key = line[1:-1].strip()
+                category_key = raw_key.lower()
                 current_category = {
                     'key': category_key,
-                    'full_name': category_key,  # По умолчанию имя = key
+                    'full_name': raw_key or category_key,  # По умолчанию имя = исходный key
                 }
                 continue
 
@@ -812,16 +785,68 @@ def load_categories_txt(filepath: Path) -> Optional[Dict]:
         if current_category is not None:
             categories.append(current_category)
 
-        log(f"Загружено {len(categories)} категорий из TXT: {filepath.name}", "DEBUG")
+        log(f"Загружено {len(categories)} категорий из TXT: {source_name}", "DEBUG")
         return {
             'version': file_version,
             'description': file_description,
             'categories': categories
         }
+    except Exception as e:
+        log(f"Ошибка парсинга TXT категорий ({source_name}): {e}", "ERROR")
+        return None
+
+
+def load_categories_txt(filepath: Path) -> Optional[Dict]:
+    """
+    Загружает категории из TXT файла в INI-подобном формате.
+
+    Формат:
+        # Categories configuration
+        version = 1.0
+        description = Описание
+
+        [category_key]
+        full_name = Название категории
+        description = Описание
+        tooltip = Подсказка с \n для переносов строк
+        color = #ff6666
+        default_strategy = strategy_id
+        ports = 80, 443
+        protocol = TCP
+        order = 1
+        command_order = 3
+        needs_new_separator = true
+        command_group = youtube
+        icon_name = fa5b.youtube
+        icon_color = #FF0000
+        base_filter = --filter-tcp=80,443 --ipset=ipset-youtube.txt
+        strategy_type = tcp
+        strip_payload = true
+        requires_all_ports = true
+
+        [another_category]
+        ...
+
+    Returns:
+        Dict в формате {'version': '...', 'description': '...', 'categories': [...]} или None при ошибке
+    """
+    try:
+        if not filepath.exists():
+            return None
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        return _parse_categories_txt_content(content, source_name=filepath.name)
 
     except Exception as e:
         log(f"Ошибка чтения TXT категорий {filepath}: {e}", "ERROR")
         return None
+
+
+def load_categories_txt_text(text: str, *, source_name: str = "<embedded>") -> Optional[Dict]:
+    """Парсит категории из TXT-строки в том же формате, что и `load_categories_txt()`."""
+    return _parse_categories_txt_content(text, source_name=source_name)
 
 
 def load_categories() -> Dict[str, Dict]:
@@ -830,7 +855,7 @@ def load_categories() -> Dict[str, Dict]:
 
     Порядок загрузки:
     1. builtin/categories.txt (или .json как fallback) - встроенные категории
-    2. user/categories.txt (или .json как fallback) - пользовательские категории (добавляются к builtin)
+    2. один общий user_categories.txt вне папки установки - пользовательские категории (добавляются к builtin)
 
     Returns:
         Словарь {category_key: category_data}
@@ -845,10 +870,36 @@ def load_categories() -> Dict[str, Dict]:
     builtin_json = builtin_dir / "categories.json"
 
     builtin_data = None
+    builtin_needs_repair = False
     if builtin_txt.exists():
         builtin_data = load_categories_txt(builtin_txt)
+        if not builtin_data:
+            builtin_needs_repair = True
     elif builtin_json.exists():
         builtin_data = load_json_file(builtin_json)
+        if not builtin_data:
+            builtin_needs_repair = True
+    else:
+        builtin_needs_repair = True
+
+    if not (builtin_data and 'categories' in builtin_data):
+        # Fallback: встроенная копия категорий (в коде), чтобы пережить удаление/поломку файла.
+        try:
+            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
+
+            builtin_data = load_categories_txt_text(DEFAULT_CATEGORIES_TXT, source_name="builtin_categories_txt.py")
+            if builtin_data and 'categories' in builtin_data:
+                log("Файл categories.txt отсутствует/повреждён: использую встроенный fallback категорий", "WARNING")
+
+                if builtin_needs_repair:
+                    try:
+                        builtin_txt.parent.mkdir(parents=True, exist_ok=True)
+                        builtin_txt.write_text(DEFAULT_CATEGORIES_TXT, encoding="utf-8")
+                        log(f"Восстановлен файл категорий: {builtin_txt}", "INFO")
+                    except Exception as e:
+                        log(f"Не удалось восстановить файл категорий {builtin_txt}: {e}", "WARNING")
+        except Exception as e:
+            log(f"Не удалось загрузить встроенный fallback категорий: {e}", "ERROR")
 
     if builtin_data and 'categories' in builtin_data:
         for cat in builtin_data['categories']:
@@ -860,16 +911,12 @@ def load_categories() -> Dict[str, Dict]:
     else:
         log(f"Не найден файл категорий в {builtin_dir}", "WARNING")
 
-    # Загружаем user категории (добавляются/перезаписывают builtin)
-    user_dir = _get_user_dir()
-    user_txt = user_dir / "categories.txt"
-    user_json = user_dir / "categories.json"
-
+    # Загружаем user категории (добавляются к builtin, НЕ перезаписывают builtin).
+    # Храним вне папки установки (pyinstaller/обновления могут затереть файлы).
+    user_txt = get_user_categories_file_path()
     user_data = None
     if user_txt.exists():
         user_data = load_categories_txt(user_txt)
-    elif user_json.exists():
-        user_data = load_json_file(user_json)
 
     if user_data and 'categories' in user_data:
         user_count = 0
@@ -877,9 +924,13 @@ def load_categories() -> Dict[str, Dict]:
             key = cat.get('key')
             if key:
                 cat['_source'] = 'user'
-                # Если категория уже есть - мержим настройки
+                # If user forgot/typoed command_group, default to "user" so it shows
+                # under the "Пользовательские" group in the GUI.
+                if 'command_group' not in cat or not str(cat.get('command_group') or '').strip():
+                    cat['command_group'] = 'user'
                 if key in categories:
-                    categories[key].update(cat)
+                    # User is not allowed to override built-in categories.
+                    log(f"Пользовательская категория '{key}' конфликтует с системной и будет проигнорирована", "WARNING")
                 else:
                     categories[key] = cat
                 user_count += 1
@@ -887,71 +938,3 @@ def load_categories() -> Dict[str, Dict]:
             log(f"Загружено {user_count} пользовательских категорий", "DEBUG")
 
     return categories
-
-
-def save_user_category(category: Dict) -> tuple[bool, str]:
-    """
-    Сохраняет пользовательскую категорию.
-    
-    Args:
-        category: Словарь с данными категории (обязательно поле 'key')
-        
-    Returns:
-        (success, error_message)
-    """
-    key = category.get('key')
-    if not key:
-        return False, "Отсутствует key категории"
-    
-    if not category.get('full_name'):
-        return False, "Отсутствует full_name категории"
-    
-    ensure_directories()
-    user_file = _get_user_dir() / "categories.json"
-    
-    # Загружаем существующие user категории
-    user_data = load_json_file(user_file) or {'categories': [], 'version': '1.0'}
-    
-    # Ищем существующую категорию с таким же key
-    existing_idx = None
-    for i, c in enumerate(user_data['categories']):
-        if c.get('key') == key:
-            existing_idx = i
-            break
-    
-    if existing_idx is not None:
-        user_data['categories'][existing_idx] = category
-    else:
-        user_data['categories'].append(category)
-    
-    if save_json_file(user_file, user_data):
-        log(f"Сохранена пользовательская категория '{key}'", "INFO")
-        return True, ""
-    else:
-        return False, "Ошибка записи файла"
-
-
-def delete_user_category(key: str) -> tuple[bool, str]:
-    """
-    Удаляет пользовательскую категорию.
-    
-    Returns:
-        (success, error_message)
-    """
-    user_file = _get_user_dir() / "categories.json"
-    user_data = load_json_file(user_file)
-    
-    if not user_data or 'categories' not in user_data:
-        return False, "Файл пользовательских категорий не найден"
-    
-    original_len = len(user_data['categories'])
-    user_data['categories'] = [c for c in user_data['categories'] if c.get('key') != key]
-    
-    if len(user_data['categories']) == original_len:
-        return False, f"Категория '{key}' не найдена"
-    
-    if save_json_file(user_file, user_data):
-        log(f"Удалена пользовательская категория '{key}'", "INFO")
-        return True, ""
-    else:
-        return False, "Ошибка записи файла"

@@ -21,6 +21,20 @@ _CATEGORY_FILTER_CACHE: Optional[Dict[str, List[Tuple[str, Set[str]]]]] = None
 _CATEGORY_INFO_CACHE: Optional[Dict[str, Dict]] = None
 
 
+def invalidate_category_inference_cache() -> None:
+    """
+    Invalidates internal caches used for category inference.
+
+    Important for user categories: blocks that use `--hostlist-domains=...` or
+    `--ipset-ip=...` can't be mapped to a category via filename, so we rely on
+    matching against categories base filters. If categories change at runtime,
+    this cache must be cleared to avoid falling back to `category=unknown`.
+    """
+    global _CATEGORY_FILTER_CACHE, _CATEGORY_INFO_CACHE
+    _CATEGORY_FILTER_CACHE = None
+    _CATEGORY_INFO_CACHE = None
+
+
 @dataclass
 class CategoryBlock:
     """
@@ -375,9 +389,9 @@ def _extract_filter_tokens(args: str) -> List[str]:
     return tokens
 
 
-def _load_category_filters() -> Dict[str, List[Tuple[str, Set[str]]]]:
+def _load_category_filters(*, force_reload: bool = False) -> Dict[str, List[Tuple[str, Set[str]]]]:
     global _CATEGORY_FILTER_CACHE
-    if _CATEGORY_FILTER_CACHE is not None:
+    if not force_reload and _CATEGORY_FILTER_CACHE is not None:
         return _CATEGORY_FILTER_CACHE
 
     try:
@@ -408,9 +422,9 @@ def _load_category_filters() -> Dict[str, List[Tuple[str, Set[str]]]]:
     return _CATEGORY_FILTER_CACHE
 
 
-def _load_category_info() -> Dict[str, Dict]:
+def _load_category_info(*, force_reload: bool = False) -> Dict[str, Dict]:
     global _CATEGORY_INFO_CACHE
-    if _CATEGORY_INFO_CACHE is not None:
+    if not force_reload and _CATEGORY_INFO_CACHE is not None:
         return _CATEGORY_INFO_CACHE
 
     try:
@@ -428,27 +442,61 @@ def infer_category_key_from_args(args: str) -> Tuple[str, Optional[str]]:
     if not tokens:
         return ("unknown", None)
 
-    filters = _load_category_filters()
+    # Domain/IP based blocks can't be categorized by filename, so if categories
+    # were changed during runtime (user_categories.txt), stale caches would
+    # incorrectly return "unknown". Prefer a fresh view for these blocks.
+    needs_fresh = any(
+        t.startswith("--hostlist-domains=") or t.startswith("--ipset-ip=")
+        for t in tokens
+    )
+
+    filters = _load_category_filters(force_reload=needs_fresh)
     if not filters:
         return ("unknown", None)
 
     mode_priority = {"ipset": 2, "hostlist": 1, "base": 0}
+    user_key_re = re.compile(r"^user_category_(\d+)$")
+
+    def _user_rank(key: str) -> tuple[int, int]:
+        """
+        Prefer user_category_N when matching is ambiguous.
+        This prevents user categories from being mis-detected as built-ins when they share the same filter tokens.
+        """
+        m = user_key_re.fullmatch(str(key or "").strip().lower())
+        if not m:
+            return (1, 10**9)
+        try:
+            return (0, int(m.group(1)))
+        except Exception:
+            return (0, 10**9)
+
     matches = []
     for key in sorted(filters.keys()):
         for mode, base_tokens in filters[key]:
             if base_tokens and base_tokens.issubset(tokens):
-                matches.append((len(base_tokens), mode_priority.get(mode, -1), key, mode))
+                matches.append((len(base_tokens), mode_priority.get(mode, -1), _user_rank(key), key, mode))
 
     if not matches:
-        return ("unknown", None)
+        # One more retry: categories may have changed without cache invalidation
+        # (e.g., user added/edited a user category).
+        if not needs_fresh:
+            invalidate_category_inference_cache()
+            filters = _load_category_filters(force_reload=True)
+            if filters:
+                for key in sorted(filters.keys()):
+                    for mode, base_tokens in filters[key]:
+                        if base_tokens and base_tokens.issubset(tokens):
+                            matches.append((len(base_tokens), mode_priority.get(mode, -1), key, mode))
+        if not matches:
+            return ("unknown", None)
 
-    matches.sort(key=lambda item: (-item[0], -item[1], item[2]))
-    best_score, best_priority, best_key, best_mode = matches[0]
+    matches.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
+    best_score, best_priority, best_user_rank, best_key, best_mode = matches[0]
 
     if len(matches) > 1:
         second = matches[1]
-        if second[0] == best_score and second[1] == best_priority and second[2] != best_key:
-            log(f"Ambiguous category match for filters: {best_key} vs {second[2]}", "DEBUG")
+        if second[0] == best_score and second[1] == best_priority and second[3] != best_key:
+            log(f"Ambiguous category match for filters: {best_key} vs {second[3]}", "DEBUG")
 
     return (best_key, best_mode)
 
@@ -924,6 +972,19 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
             proto = (block.protocol or "").lower()
             proto_rank = 0 if proto == "tcp" else (1 if proto == "udp" else 2)
 
+            # Custom user categories must come first in the preset to have priority.
+            # The GUI generates keys as `user_category_N`.
+            try:
+                m = re.fullmatch(r"user_category_(\d+)", str(block.category or "").strip().lower())
+            except Exception:
+                m = None
+            if m:
+                try:
+                    user_idx = int(m.group(1))
+                except Exception:
+                    user_idx = 10**9
+                return (0, user_idx, proto_rank, block.category, idx)
+
             if info:
                 order = info.get("order")
                 cmd_order = info.get("command_order")
@@ -935,10 +996,10 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
                     cmd_i = int(cmd_order) if cmd_order is not None else order_i
                 except Exception:
                     cmd_i = order_i
-                return (0, order_i, cmd_i, proto_rank, block.category)
+                return (1, order_i, cmd_i, proto_rank, block.category)
 
             # Unknown categories: keep original relative order, but after known ones.
-            return (1, 999999, 999999, proto_rank, idx)
+            return (2, 999999, 999999, proto_rank, idx)
 
         blocks = [b for _, b in sorted(enumerate(blocks), key=_key)]
     except Exception:

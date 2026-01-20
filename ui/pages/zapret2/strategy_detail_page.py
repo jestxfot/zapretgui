@@ -4,11 +4,11 @@
 Открывается при клике на категорию в Zapret2StrategiesPageNew.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit
+    QCheckBox, QPlainTextEdit, QSizePolicy
 )
 from PyQt6.QtGui import QFont, QFontMetrics
 import qtawesome as qta
@@ -750,12 +750,45 @@ class StrategyDetailPage(BasePage):
         self._favorite_strategy_ids = set()
         self._preview_dialog = None
         self._preview_pinned = False
+        self._main_window = None
         self._strategies_data_by_id = {}
 
         self._build_content()
 
+        # Close hover/pinned preview when the main window hides/deactivates (e.g. tray).
+        QTimer.singleShot(0, self._install_main_window_event_filter)
+
         # Подключаемся к process_monitor для отслеживания статуса DPI
         self._connect_process_monitor()
+
+    def _install_main_window_event_filter(self) -> None:
+        try:
+            w = self.window()
+        except Exception:
+            w = None
+        if not w or w is self._main_window:
+            return
+        self._main_window = w
+        try:
+            w.installEventFilter(self)
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
+        try:
+            if obj is self._main_window and event is not None:
+                et = event.type()
+                if et in (
+                    QEvent.Type.Hide,
+                    QEvent.Type.Close,
+                    QEvent.Type.WindowDeactivate,
+                    QEvent.Type.WindowStateChange,
+                ):
+                    # Always close: prevents "stuck on top of all windows" previews.
+                    self._close_preview_dialog(force=True)
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
 
     def _refresh_scroll_range(self) -> None:
         # Ensure QScrollArea recomputes range after dynamic content growth.
@@ -878,10 +911,29 @@ class StrategyDetailPage(BasePage):
         self.layout.addWidget(header)
 
         # ═══════════════════════════════════════════════════════════════
-        # ТУЛБАР НАСТРОЕК КАТЕГОРИИ
+        # ВКЛЮЧЕНИЕ КАТЕГОРИИ + НАСТРОЙКИ
+        # ═══════════════════════════════════════════════════════════════
+        self._settings_host = QWidget()
+        self._settings_host.setStyleSheet("background: transparent;")
+        settings_host_layout = QVBoxLayout(self._settings_host)
+        settings_host_layout.setContentsMargins(0, 0, 0, 0)
+        settings_host_layout.setSpacing(6)
+
+        # Toggle включения/выключения категории (без фоновой карточки)
+        self._enable_toggle = Win11ToggleRow(
+            "fa5s.power-off", "Включить обход",
+            "Активировать DPI-обход для этой категории", "#4CAF50"
+        )
+        self._enable_toggle.toggled.connect(self._on_enable_toggled)
+        settings_host_layout.addWidget(self._enable_toggle)
+
+        # ═══════════════════════════════════════════════════════════════
+        # ТУЛБАР НАСТРОЕК КАТЕГОРИИ (фоновой блок)
         # ═══════════════════════════════════════════════════════════════
         self._toolbar_frame = QFrame()
         self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
+        self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._toolbar_frame.setVisible(False)
         self._toolbar_frame.setStyleSheet("""
             QFrame {
                 background: rgba(255, 255, 255, 0.03);
@@ -892,14 +944,6 @@ class StrategyDetailPage(BasePage):
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(6)
-
-        # Toggle включения/выключения категории
-        self._enable_toggle = Win11ToggleRow(
-            "fa5s.power-off", "Включить обход",
-            "Активировать DPI-обход для этой категории", "#4CAF50"
-        )
-        self._enable_toggle.toggled.connect(self._on_enable_toggled)
-        toolbar_layout.addWidget(self._enable_toggle)
 
         # NEW: Режим фильтрации row
         self._filter_mode_frame = QFrame()
@@ -1362,10 +1406,10 @@ class StrategyDetailPage(BasePage):
         delta_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         delta_label.setFixedWidth(30)
         self._autottl_delta_selector = TTLButtonSelector(
-            values=[-1, -2, -3, -4, -5, -6, -7, -8, -9],
-            labels=["-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
+            values=[0, -1, -2, -3, -4, -5, -6, -7, -8, -9],
+            labels=["OFF", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
         )
-        self._autottl_delta_selector.setToolTip("Delta: смещение от измеренного TTL")
+        self._autottl_delta_selector.setToolTip("Delta: смещение от измеренного TTL (OFF = убрать ip_autottl)")
         self._autottl_delta_selector.value_changed.connect(self._save_syndata_settings)
         delta_row.addWidget(delta_label)
         delta_row.addWidget(self._autottl_delta_selector)
@@ -1429,8 +1473,11 @@ class StrategyDetailPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         # RESET SETTINGS BUTTON
         # ═══════════════════════════════════════════════════════════════
-        reset_row = QHBoxLayout()
+        self._reset_row_widget = QWidget()
+        self._reset_row_widget.setStyleSheet("background: transparent;")
+        reset_row = QHBoxLayout(self._reset_row_widget)
         reset_row.setContentsMargins(0, 8, 0, 0)
+        reset_row.setSpacing(0)
         reset_row.addStretch()
 
         self._reset_settings_btn = ResetActionButton(
@@ -1440,13 +1487,25 @@ class StrategyDetailPage(BasePage):
         self._reset_settings_btn.reset_confirmed.connect(self._on_reset_settings_confirmed)
         reset_row.addWidget(self._reset_settings_btn)
 
-        toolbar_layout.addLayout(reset_row)
+        toolbar_layout.addWidget(self._reset_row_widget)
 
-        self.layout.addWidget(self._toolbar_frame)
+        settings_host_layout.addWidget(self._toolbar_frame)
+        self.layout.addWidget(self._settings_host)
+
+        # All strategy controls are hidden when the category is disabled.
+        self._strategies_block = QWidget()
+        self._strategies_block.setStyleSheet("background: transparent;")
+        self._strategies_block.setVisible(False)
+        strategies_layout = QVBoxLayout(self._strategies_block)
+        strategies_layout.setContentsMargins(0, 0, 0, 0)
+        strategies_layout.setSpacing(0)
 
         # Поиск по стратегиям
-        search_layout = QHBoxLayout()
+        self._search_bar_widget = QWidget()
+        self._search_bar_widget.setStyleSheet("background: transparent;")
+        search_layout = QHBoxLayout(self._search_bar_widget)
         search_layout.setContentsMargins(0, 0, 0, 8)
+        search_layout.setSpacing(0)
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Поиск по args...")
@@ -1512,7 +1571,7 @@ class StrategyDetailPage(BasePage):
         self._edit_args_btn.clicked.connect(self._toggle_args_editor)
         search_layout.addWidget(self._edit_args_btn)
 
-        self.layout.addLayout(search_layout)
+        strategies_layout.addWidget(self._search_bar_widget)
 
         # Панель редактирования args (создаём один редактор на страницу вместо QTextEdit на каждой строке)
         self._args_editor_dirty = False
@@ -1596,10 +1655,12 @@ class StrategyDetailPage(BasePage):
         self._args_editor.textChanged.connect(self._on_args_editor_changed)
         args_editor_layout.addWidget(self._args_editor)
 
-        self.layout.addWidget(self._args_editor_frame)
+        strategies_layout.addWidget(self._args_editor_frame)
 
         # Фильтры по типу стратегии
-        filters_layout = QHBoxLayout()
+        self._filters_bar_widget = QWidget()
+        self._filters_bar_widget.setStyleSheet("background: transparent;")
+        filters_layout = QHBoxLayout(self._filters_bar_widget)
         filters_layout.setContentsMargins(0, 0, 0, 8)
         filters_layout.setSpacing(6)
 
@@ -1621,7 +1682,7 @@ class StrategyDetailPage(BasePage):
 
         filters_layout.addStretch()
 
-        self.layout.addLayout(filters_layout)
+        strategies_layout.addWidget(self._filters_bar_widget)
 
         # Лёгкий список стратегий: item-based, без сотен QWidget в layout
         self._strategies_tree = DirectZapret2StrategiesTree(self)
@@ -1633,7 +1694,9 @@ class StrategyDetailPage(BasePage):
         self._strategies_tree.preview_requested.connect(self._on_tree_preview_requested)
         self._strategies_tree.preview_pinned_requested.connect(self._on_tree_preview_pinned_requested)
         self._strategies_tree.preview_hide_requested.connect(self._on_tree_preview_hide_requested)
-        self.layout.addWidget(self._strategies_tree, 1)
+        strategies_layout.addWidget(self._strategies_tree, 1)
+
+        self.layout.addWidget(self._strategies_block, 1)
 
     def _update_selected_strategy_header(self, strategy_id: str) -> None:
         """Обновляет подзаголовок: показывает выбранную стратегию рядом с портами."""
@@ -1770,6 +1833,7 @@ class StrategyDetailPage(BasePage):
 
         # Args editor availability depends on whether category is enabled (strategy != none)
         self._refresh_args_editor_state()
+        self._set_category_enabled_ui(is_enabled)
 
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
@@ -2089,14 +2153,16 @@ class StrategyDetailPage(BasePage):
 
         try:
             if self._preview_dialog is None:
-                self._preview_dialog = ArgsPreviewDialog(self)
+                parent_win = self._main_window or self.window() or self
+                self._preview_dialog = ArgsPreviewDialog(parent_win)
                 self._preview_dialog.closed.connect(self._on_preview_closed)
             else:
                 try:
                     if self._preview_dialog.isVisible():
                         pass
                 except RuntimeError:
-                    self._preview_dialog = ArgsPreviewDialog(self)
+                    parent_win = self._main_window or self.window() or self
+                    self._preview_dialog = ArgsPreviewDialog(parent_win)
                     self._preview_dialog.closed.connect(self._on_preview_closed)
 
             try:
@@ -2113,7 +2179,7 @@ class StrategyDetailPage(BasePage):
             self._preview_dialog.set_strategy_data(
                 data,
                 strategy_id=strategy_id,
-                source_widget=self,
+                source_widget=(self._strategies_tree.viewport() if self._strategies_tree else self),
                 category_key=self._category_key,
                 rating_getter=self._get_preview_rating,
                 rating_toggler=self._toggle_preview_rating,
@@ -2220,6 +2286,7 @@ class StrategyDetailPage(BasePage):
                 if self._strategies_tree:
                     self._strategies_tree.set_selected_strategy(strategy_to_select)
                 self._update_selected_strategy_header(self._selected_strategy_id)
+                self._set_category_enabled_ui(True)
                 # Показываем анимацию загрузки
                 self.show_loading()
                 self.strategy_selected.emit(self._category_key, strategy_to_select)
@@ -2227,6 +2294,7 @@ class StrategyDetailPage(BasePage):
             else:
                 log(f"Нет доступных стратегий для {self._category_key}", "WARNING")
                 self._enable_toggle.setChecked(False, block_signals=True)
+                self._set_category_enabled_ui(False)
             self._refresh_args_editor_state()
         else:
             # Запоминаем стратегию перед выключением, чтобы восстановить при включении
@@ -2246,6 +2314,7 @@ class StrategyDetailPage(BasePage):
             self.strategy_selected.emit(self._category_key, "none")
             log(f"Категория {self._category_key} отключена", "INFO")
             self._refresh_args_editor_state()
+            self._set_category_enabled_ui(False)
 
     def _get_default_strategy(self) -> str:
         """Возвращает стратегию по умолчанию для текущей категории"""
@@ -2538,6 +2607,8 @@ class StrategyDetailPage(BasePage):
                 self._stop_loading()
                 self._success_icon.hide()
             self._update_selected_strategy_header(self._selected_strategy_id)
+            self._refresh_args_editor_state()
+            self._set_category_enabled_ui((self._selected_strategy_id or "none") != "none")
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
@@ -2562,6 +2633,7 @@ class StrategyDetailPage(BasePage):
             self._success_icon.hide()
 
         self._refresh_args_editor_state()
+        self._set_category_enabled_ui((strategy_id or "none") != "none")
 
         # Применяем стратегию (но остаёмся на странице)
         if self._category_key:
@@ -2685,6 +2757,35 @@ class StrategyDetailPage(BasePage):
     def _is_udp_like_category(self) -> bool:
         protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
         return ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+
+    def _set_category_enabled_ui(self, enabled: bool) -> None:
+        """Hides all settings/strategy UI when the category is disabled."""
+        want = bool(enabled)
+        try:
+            if hasattr(self, "_toolbar_frame") and self._toolbar_frame is not None:
+                self._toolbar_frame.setVisible(want)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_strategies_block") and self._strategies_block is not None:
+                self._strategies_block.setVisible(want)
+                # Prevent hidden stretch items from consuming vertical space and pushing UI around.
+                if hasattr(self, "layout") and self.layout is not None:
+                    self.layout.setStretchFactor(self._strategies_block, 1 if want else 0)
+                if want:
+                    self._strategies_block.setMaximumHeight(16777215)
+                else:
+                    self._strategies_block.setMaximumHeight(0)
+        except Exception:
+            pass
+
+        if not want:
+            # Ensure the args editor doesn't remain open (even though it becomes hidden).
+            self._hide_args_editor(clear_text=True)
+        try:
+            self._refresh_scroll_range()
+        except Exception:
+            pass
 
     def _refresh_args_editor_state(self):
         enabled = bool(self._category_key) and (self._selected_strategy_id or "none") != "none"

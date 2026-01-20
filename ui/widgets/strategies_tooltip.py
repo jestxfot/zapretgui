@@ -313,6 +313,14 @@ class StrategiesTooltipManager:
             strategies: список кортежей (icon_name, icon_color, category_name, strategy_name)
             follow: следовать за мышкой
         """
+        # If interactive RMB preview is open, avoid showing hover tooltips at all.
+        try:
+            app = QApplication.instance()
+            if app and bool(app.property("zapretgui_args_preview_open")):
+                self.hide_immediately()
+                return
+        except Exception:
+            pass
         self._hide_timer.stop()
         
         if not self._tooltip:

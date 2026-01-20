@@ -1,16 +1,122 @@
 # build_zapret/build_release_gui.py
 
 from __future__ import annotations
-import ctypes, json, os, re, shutil, subprocess, sys, tempfile, textwrap, urllib.request
+
+import os
+import sys
+import sysconfig
 from pathlib import Path
+import re
+
+
+def _is_free_threaded_python() -> bool:
+    """
+    True если интерпретатор собран как free-threaded (PEP 703 / "t"-build).
+
+    В таких сборках некоторые C-расширения/GUI-биндинги могут падать при запуске
+    без GIL (как в отчёте пользователя). Поэтому для GUI сборщика безопаснее
+    принудительно включать GIL через `-X gil=1`.
+    """
+    # 1) Самый надёжный признак, если доступен в sysconfig.
+    try:
+        if bool(sysconfig.get_config_var("Py_GIL_DISABLED")):
+            return True
+    except Exception:
+        pass
+
+    # 2) На Windows `sysconfig` может не отдавать переменную; тогда смотрим на имя exe.
+    try:
+        exe = Path(sys.executable).name.lower()
+        if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?t\.exe", exe):
+            return True
+        if exe.endswith("t.exe") and exe.startswith("python"):
+            return True
+    except Exception:
+        pass
+
+    # 3) В free-threaded сборках есть internal API для проверки GIL.
+    return callable(getattr(sys, "_is_gil_enabled", None))
+
+
+def _is_gil_enabled() -> bool:
+    """
+    Пытаемся определить, включён ли GIL в текущем процессе.
+    Для обычных Python всегда True.
+    """
+    if not _is_free_threaded_python():
+        return True
+
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    if callable(is_gil_enabled):
+        try:
+            return bool(is_gil_enabled())
+        except Exception:
+            pass
+
+    # Фоллбек (на случай отсутствия API): доверяем явным настройкам запуска.
+    if os.environ.get("PYTHON_GIL") in {"1", "true", "TRUE", "yes", "YES"}:
+        return True
+    if getattr(sys, "_xoptions", {}).get("gil") is not None:
+        return True
+    if os.environ.get("ZAPRETGUI_GIL_REEXEC_DONE") == "1":
+        return True
+    return False
+
+
+def _maybe_reexec_with_gil_enabled() -> None:
+    """
+    Если запустили free-threaded Python без GIL, перезапускаем этот же скрипт с `-X gil=1`
+    до импорта tkinter и других потенциально проблемных модулей.
+
+    Отключить поведение можно, задав `ZAPRETGUI_SKIP_GIL_REEXEC=1`.
+    """
+    if os.environ.get("ZAPRETGUI_SKIP_GIL_REEXEC") == "1":
+        return
+
+    if sys.platform != "win32":
+        return
+
+    if not _is_free_threaded_python():
+        return
+
+    # Защита от бесконечного перезапуска.
+    if os.environ.get("ZAPRETGUI_GIL_REEXEC_DONE") == "1":
+        return
+
+    if _is_gil_enabled():
+        return
+
+    os.environ["ZAPRETGUI_GIL_REEXEC_DONE"] = "1"
+    os.environ.setdefault("PYTHON_GIL", "1")
+
+    try:
+        os.execv(sys.executable, [sys.executable, "-X", "gil=1", *sys.argv])
+    except Exception:
+        # Если re-exec невозможен — продолжаем как есть (лучше дать шанс,
+        # чем падать здесь). Ошибка воспроизведётся и будет видна пользователю.
+        return
+
+
+_maybe_reexec_with_gil_enabled()
+
+import ctypes
+import json
+import re
+import shutil
+import subprocess
+import tempfile
+import textwrap
+import urllib.request
 from datetime import date
-from typing import Sequence, Any, Optional
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
-import threading
-from keyboard_manager import KeyboardManager
 from queue import Queue
+from typing import Any, Optional, Sequence
+
+import threading
 import time
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+
+from keyboard_manager import KeyboardManager
 
 
 def ensure_inno_ico_dir(source_path: Path, project_root: Path, log_queue: Queue | None = None) -> None:

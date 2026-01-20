@@ -6,10 +6,145 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QTextEdit, QPushButton, QWidget,
                             QGraphicsDropShadowEffect, QApplication)
 from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, 
-                          pyqtSignal, QRectF)
+                          pyqtSignal, QRectF, QObject, QEvent)
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen, QCursor
 
 from log import log
+
+
+class _ArgsPreviewRightClickCloser(QObject):
+    """
+    App-wide right-click closer for ArgsPreviewDialog opened via RMB.
+
+    Requirement:
+    - If a preview window is open (opened via RMB), RMB anywhere closes it.
+    - The same RMB should NOT open another preview (consume the event).
+    """
+
+    _APP_PROP = "zapretgui_args_preview_open"
+
+    def __init__(self):
+        super().__init__()
+        self._dialogs = []
+        self._installed = False
+
+    def _ensure_installed(self) -> None:
+        if self._installed:
+            return
+        app = QApplication.instance()
+        if not app:
+            return
+        try:
+            app.installEventFilter(self)
+            self._installed = True
+        except Exception:
+            self._installed = False
+
+    def _set_app_flag(self) -> None:
+        app = QApplication.instance()
+        if not app:
+            return
+        has_open = False
+        for dlg in list(self._dialogs):
+            try:
+                if dlg and dlg.isVisible() and (not getattr(dlg, "_hover_follow", False)):
+                    has_open = True
+                    break
+            except RuntimeError:
+                continue
+            except Exception:
+                continue
+        try:
+            app.setProperty(self._APP_PROP, bool(has_open))
+        except Exception:
+            pass
+
+    def register(self, dialog: "ArgsPreviewDialog") -> None:
+        if not dialog:
+            return
+        self._ensure_installed()
+        if dialog not in self._dialogs:
+            self._dialogs.append(dialog)
+
+        # Hide/cancel hover-tooltip immediately when RMB preview opens.
+        try:
+            from .hover_tooltip import tooltip_manager
+            tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+
+        self._set_app_flag()
+
+    def unregister(self, dialog: "ArgsPreviewDialog") -> None:
+        if not dialog:
+            return
+        try:
+            if dialog in self._dialogs:
+                self._dialogs.remove(dialog)
+        except Exception:
+            pass
+        self._set_app_flag()
+
+    def _close_topmost(self) -> bool:
+        """
+        Close the most recently registered visible interactive preview.
+
+        Returns True if something was closed.
+        """
+        for dlg in reversed(list(self._dialogs)):
+            try:
+                if (not dlg) or (not dlg.isVisible()):
+                    continue
+                if getattr(dlg, "_hover_follow", False):
+                    continue
+                dlg.close_dialog()
+                return True
+            except RuntimeError:
+                # C++ object deleted; ignore.
+                continue
+            except Exception:
+                continue
+        return False
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
+        try:
+            et = event.type()
+        except Exception:
+            return False
+
+        # Global ESC: close interactive RMB preview even without focus in the dialog.
+        # Note: works while the app receives key events (i.e. is the active app).
+        if et in (QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride):
+            try:
+                if event.key() == Qt.Key.Key_Escape:
+                    if self._close_topmost():
+                        try:
+                            event.accept()
+                        except Exception:
+                            pass
+                        return True
+            except Exception:
+                pass
+            return False
+
+        if et == QEvent.Type.ContextMenu:
+            if self._close_topmost():
+                return True
+            return False
+
+        if et == QEvent.Type.MouseButtonPress:
+            try:
+                if event.button() == Qt.MouseButton.RightButton:
+                    if self._close_topmost():
+                        return True
+            except Exception:
+                pass
+            return False
+
+        return False
+
+
+_args_preview_rmb_closer = _ArgsPreviewRightClickCloser()
 
 
 class ArgsPreviewDialog(QDialog):
@@ -37,6 +172,19 @@ class ArgsPreviewDialog(QDialog):
         self.init_ui()
         self.setWindowOpacity(0.0)
 
+    def _sync_rmb_close_behavior(self) -> None:
+        """
+        Enable RMB-anywhere-to-close only for interactive preview (RMB-opened),
+        not for hover-follow tooltip mode.
+        """
+        try:
+            if self.isVisible() and (not self._hover_follow):
+                _args_preview_rmb_closer.register(self)
+            else:
+                _args_preview_rmb_closer.unregister(self)
+        except Exception:
+            pass
+
     @staticmethod
     def _popup_flags():
         return (
@@ -47,11 +195,10 @@ class ArgsPreviewDialog(QDialog):
 
     @staticmethod
     def _pinned_flags():
-        # Tool window: does not auto-close on focus-out like Popup does.
+        # Tool window: stays above the app, but should NOT be topmost system-wide.
         return (
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
         )
 
     @staticmethod
@@ -59,7 +206,6 @@ class ArgsPreviewDialog(QDialog):
         return (
             Qt.WindowType.ToolTip
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
         )
 
     def set_hover_follow(self, enabled: bool, offset=None) -> None:
@@ -90,6 +236,7 @@ class ArgsPreviewDialog(QDialog):
             self._mouse_timer.start(16)  # ~60 FPS
         else:
             self._mouse_timer.stop()
+        self._sync_rmb_close_behavior()
 
     def _apply_window_flags(self) -> None:
         was_visible = False
@@ -121,6 +268,7 @@ class ArgsPreviewDialog(QDialog):
                 if pos is not None:
                     self.move(pos)
                 self.setWindowOpacity(opacity)
+            self._sync_rmb_close_behavior()
         except Exception:
             pass
 
@@ -134,11 +282,25 @@ class ArgsPreviewDialog(QDialog):
         elif self._hover_follow:
             self._mouse_timer.start(16)
         self._apply_window_flags()
+        self._sync_rmb_close_behavior()
 
     def _follow_cursor(self):
         if self._pinned or (not self._hover_follow) or (not self.isVisible()):
             self._mouse_timer.stop()
             return
+        # Keep hover-preview strictly within its source widget (strategies list).
+        try:
+            sw = getattr(self, "source_widget", None)
+            if sw is not None:
+                if (not sw.isVisible()) or (not sw.window().isVisible()):
+                    self.close_dialog()
+                    return
+                w = QApplication.widgetAt(QCursor.pos())
+                if (w is None) or (w is not sw and (not sw.isAncestorOf(w))):
+                    self.close_dialog()
+                    return
+        except Exception:
+            pass
         self._position_near_cursor(QCursor.pos())
 
     def _position_near_cursor(self, cursor_pos):
@@ -621,6 +783,7 @@ class ArgsPreviewDialog(QDialog):
         elif pos:
             self.move(pos)
         self.show()
+        self._sync_rmb_close_behavior()
         self.opacity_animation.setStartValue(0.0)
         self.opacity_animation.setEndValue(1.0)
         self.opacity_animation.start()
@@ -632,6 +795,10 @@ class ArgsPreviewDialog(QDialog):
         self._mouse_timer.stop()
         self.opacity_animation.setStartValue(1.0)
         self.opacity_animation.setEndValue(0.0)
+        try:
+            self.opacity_animation.finished.disconnect(self._on_hide_finished)
+        except Exception:
+            pass
         self.opacity_animation.finished.connect(self._on_hide_finished)
         self.opacity_animation.start()
     
@@ -639,6 +806,10 @@ class ArgsPreviewDialog(QDialog):
         try:
             self.opacity_animation.finished.disconnect(self._on_hide_finished)
         except:
+            pass
+        try:
+            _args_preview_rmb_closer.unregister(self)
+        except Exception:
             pass
         self.hide()
         self.closed.emit()
@@ -648,6 +819,13 @@ class ArgsPreviewDialog(QDialog):
             self.close_dialog()
         else:
             super().keyPressEvent(event)
+
+    def closeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            _args_preview_rmb_closer.unregister(self)
+        except Exception:
+            pass
+        return super().closeEvent(event)
 
 
 class StrategyPreviewManager:

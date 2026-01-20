@@ -252,7 +252,7 @@ class ResetActionButton(QPushButton):
                 # Второй клик - подтверждение
                 self._reset_timer.stop()
                 self._pending = False
-                self.setText("Completed")
+                self.setText("Готово")
                 self._update_icon()
                 self._update_style()
                 self.reset_confirmed.emit()
@@ -329,7 +329,7 @@ class StrategiesPageBase(QWidget):
         self.main_layout.setSpacing(12)
 
         # Заголовок страницы (фиксированный, не прокручивается)
-        self.title_label = QLabel("Стратегии DPI")
+        self.title_label = QLabel("Выбор активных стратегий (и их настройка) Zapret 2")
         self.title_label.setStyleSheet("""
             QLabel {
                 color: #ffffff;
@@ -342,7 +342,7 @@ class StrategiesPageBase(QWidget):
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
-        self.subtitle_label = QLabel("Выберите стратегию обхода блокировок для разных типов трафика")
+        self.subtitle_label = QLabel("Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.")
         self.subtitle_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);
