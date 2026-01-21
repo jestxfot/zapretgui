@@ -126,7 +126,7 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: 1
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
 --lua-desync=fake:blob=tls7:tcp_ack=-66000:tcp_ts_up:tls_mod=rnd
---lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 

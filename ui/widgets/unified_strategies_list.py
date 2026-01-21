@@ -324,11 +324,36 @@ class UnifiedStrategiesList(QWidget):
 
     def update_filter_mode(self, category_key: str, filter_mode: str):
         """Updates hostlist/ipset badge for a category (UI-only)."""
+        cat_info = self._categories.get(category_key)
+        item = self._items.get(category_key)
+
+        has_ipset = bool(getattr(cat_info, "base_filter_ipset", "")) if cat_info else False
+        has_hostlist = bool(getattr(cat_info, "base_filter_hostlist", "")) if cat_info else False
+
+        # If category doesn't support list-mode toggle, ensure badge is cleared.
+        if not (has_ipset or has_hostlist):
+            self._filter_modes.pop(category_key, None)
+            if item:
+                item.set_list_type(None)
+            return
+
+        # If only one mode exists, show that fixed badge (consistent with build_list()).
+        if has_ipset and not has_hostlist:
+            self._filter_modes[category_key] = "ipset"
+            if item:
+                item.set_list_type("ipset")
+            return
+        if has_hostlist and not has_ipset:
+            self._filter_modes[category_key] = "hostlist"
+            if item:
+                item.set_list_type("hostlist")
+            return
+
+        # Both available: use the selected mode (fallback to hostlist).
         mode = (filter_mode or "").strip().lower()
         if mode not in ("hostlist", "ipset"):
-            return
+            mode = "hostlist"
         self._filter_modes[category_key] = mode
-        item = self._items.get(category_key)
         if item:
             item.set_list_type(mode)
 

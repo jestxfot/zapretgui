@@ -434,6 +434,10 @@ def _load_strategy_file(directory: Path, basename: str) -> Optional[Dict]:
     if txt_file.exists():
         return load_txt_file(txt_file)
 
+    json_file = directory / f"{basename}.json"
+    if json_file.exists():
+        return load_json_file(json_file)
+
     return None
 
 
@@ -539,34 +543,46 @@ def save_user_strategy(category: str, strategy: Dict) -> tuple[bool, str]:
         return False, error
     
     ensure_directories()
-    user_file = _get_user_dir() / f"{category}.json"
-    
-    # Загружаем существующие user стратегии
-    user_data = load_json_file(user_file) or {'strategies': []}
-    
-    # Ищем существующую стратегию с таким же id
-    strategy_id = strategy['id']
-    existing_idx = None
-    for i, s in enumerate(user_data['strategies']):
-        if s.get('id') == strategy_id:
-            existing_idx = i
-            break
-    
+    user_dir = _get_user_dir()
+    user_txt = user_dir / f"{category}.txt"
+    user_json = user_dir / f"{category}.json"
+
     # Помечаем как пользовательскую
-    strategy['user_created'] = True
-    
-    if existing_idx is not None:
-        # Обновляем существующую
-        user_data['strategies'][existing_idx] = strategy
-    else:
-        # Добавляем новую
-        user_data['strategies'].append(strategy)
-    
-    if save_json_file(user_file, user_data):
-        log(f"Сохранена пользовательская стратегия '{strategy_id}' в {category}", "INFO")
-        return True, ""
-    else:
+    strategy_id = strategy["id"]
+    strategy["user_created"] = True
+
+    # Если есть TXT-файл (старый формат) — продолжаем работать с ним, иначе JSON.
+    if user_txt.exists():
+        user_data = load_txt_file(user_txt) or {"strategies": []}
+        strategies_list = user_data.get("strategies", [])
+
+        existing_idx = next((i for i, s in enumerate(strategies_list) if s.get("id") == strategy_id), None)
+        if existing_idx is not None:
+            strategies_list[existing_idx] = strategy
+        else:
+            strategies_list.append(strategy)
+
+        user_data["strategies"] = strategies_list
+        if save_txt_file(user_txt, user_data):
+            log(f"Сохранена пользовательская стратегия '{strategy_id}' в {category} (TXT)", "INFO")
+            return True, ""
         return False, "Ошибка записи файла"
+
+    user_data = load_json_file(user_json) or {"strategies": []}
+    strategies_list = user_data.get("strategies", [])
+
+    existing_idx = next((i for i, s in enumerate(strategies_list) if s.get("id") == strategy_id), None)
+    if existing_idx is not None:
+        strategies_list[existing_idx] = strategy
+    else:
+        strategies_list.append(strategy)
+
+    user_data["strategies"] = strategies_list
+    if save_json_file(user_json, user_data):
+        log(f"Сохранена пользовательская стратегия '{strategy_id}' в {category} (JSON)", "INFO")
+        return True, ""
+
+    return False, "Ошибка записи файла"
 
 
 def delete_user_strategy(category: str, strategy_id: str) -> tuple[bool, str]:
@@ -576,24 +592,41 @@ def delete_user_strategy(category: str, strategy_id: str) -> tuple[bool, str]:
     Returns:
         (success, error_message)
     """
-    user_file = _get_user_dir() / f"{category}.json"
-    user_data = load_json_file(user_file)
-    
-    if not user_data or 'strategies' not in user_data:
-        return False, "Файл пользовательских стратегий не найден"
-    
-    # Ищем и удаляем
-    original_len = len(user_data['strategies'])
-    user_data['strategies'] = [s for s in user_data['strategies'] if s.get('id') != strategy_id]
-    
-    if len(user_data['strategies']) == original_len:
-        return False, f"Стратегия '{strategy_id}' не найдена"
-    
-    if save_json_file(user_file, user_data):
-        log(f"Удалена пользовательская стратегия '{strategy_id}' из {category}", "INFO")
-        return True, ""
-    else:
+    user_dir = _get_user_dir()
+    user_txt = user_dir / f"{category}.txt"
+    user_json = user_dir / f"{category}.json"
+
+    if user_txt.exists():
+        user_data = load_txt_file(user_txt)
+        if not user_data or "strategies" not in user_data:
+            return False, "Файл пользовательских стратегий не найден"
+
+        original_len = len(user_data["strategies"])
+        user_data["strategies"] = [s for s in user_data["strategies"] if s.get("id") != strategy_id]
+
+        if len(user_data["strategies"]) == original_len:
+            return False, f"Стратегия '{strategy_id}' не найдена"
+
+        if save_txt_file(user_txt, user_data):
+            log(f"Удалена пользовательская стратегия '{strategy_id}' из {category} (TXT)", "INFO")
+            return True, ""
         return False, "Ошибка записи файла"
+
+    user_data = load_json_file(user_json)
+    if not user_data or "strategies" not in user_data:
+        return False, "Файл пользовательских стратегий не найден"
+
+    original_len = len(user_data["strategies"])
+    user_data["strategies"] = [s for s in user_data["strategies"] if s.get("id") != strategy_id]
+
+    if len(user_data["strategies"]) == original_len:
+        return False, f"Стратегия '{strategy_id}' не найдена"
+
+    if save_json_file(user_json, user_data):
+        log(f"Удалена пользовательская стратегия '{strategy_id}' из {category} (JSON)", "INFO")
+        return True, ""
+
+    return False, "Ошибка записи файла"
 
 
 def get_all_categories() -> List[str]:

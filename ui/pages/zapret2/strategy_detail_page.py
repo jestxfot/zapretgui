@@ -2097,6 +2097,43 @@ class StrategyDetailPage(BasePage):
 
         log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
+    def refresh_from_preset_switch(self):
+        """
+        Асинхронно перечитывает активный пресет и обновляет текущую категорию (если открыта).
+        Вызывается из MainWindow после активации пресета.
+        """
+        try:
+            QTimer.singleShot(0, self._apply_preset_refresh)
+        except Exception:
+            try:
+                self._apply_preset_refresh()
+            except Exception:
+                pass
+
+    def _apply_preset_refresh(self):
+        if not self._category_key:
+            return
+
+        try:
+            from strategy_menu.strategies_registry import registry
+            category_info = registry.get_category_info(self._category_key) or self._category_info
+        except Exception:
+            category_info = self._category_info
+
+        if not category_info:
+            return
+
+        try:
+            selections = self._preset_manager.get_strategy_selections() or {}
+            current_strategy_id = selections.get(self._category_key, "none") or "none"
+        except Exception:
+            current_strategy_id = "none"
+
+        try:
+            self.show_category(self._category_key, category_info, current_strategy_id)
+        except Exception:
+            return
+
     def _scroll_to_current_strategy(self) -> None:
         """Прокручивает страницу к текущей стратегии (не меняя порядок списка)."""
         if not self._strategies_tree:

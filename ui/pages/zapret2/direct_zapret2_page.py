@@ -33,8 +33,8 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            title="Стратегии DPI",
-            subtitle="Выберите стратегии обхода блокировок для разных типов трафика",
+            title="Сменить стратегию для обхода блокировок",
+            subtitle="Здесь Вы можете изменить стратегию для каждой категории.\nВсего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). Последовательность сама определяется программой,\nВы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню.\nКаждая стратегия всего лишь набор аргументов, то есть техник (дурения или же фуллинга) для того чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство.\nЧтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент.",
             parent=parent
         )
         self.parent_app = parent
@@ -281,6 +281,42 @@ class Zapret2StrategiesPageNew(BasePage):
 
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
+
+    def refresh_from_preset_switch(self):
+        """
+        Перечитывает активный пресет и обновляет UI списка (без перестроения).
+        Вызывается асинхронно из MainWindow после активации пресета.
+        """
+        try:
+            from preset_zapret2 import PresetManager
+            from strategy_menu.strategies_registry import registry
+
+            preset_manager = PresetManager()
+            self.category_selections = preset_manager.get_strategy_selections() or {}
+
+            preset = preset_manager.get_active_preset()
+            filter_modes = {}
+            if preset:
+                try:
+                    filter_modes = {k: v.filter_mode for k, v in (preset.categories or {}).items()}
+                except Exception:
+                    filter_modes = {}
+
+            if self._unified_list:
+                self._unified_list.set_selections(self.category_selections)
+
+                # Sync badges for ALL categories so stale/invalid badges disappear.
+                for cat_key in (getattr(registry, "categories", {}) or {}).keys():
+                    try:
+                        self._unified_list.update_filter_mode(cat_key, (filter_modes or {}).get(cat_key))
+                    except Exception:
+                        continue
+
+            # Совместимость: обновить счетчик активных
+            self._update_current_strategies_display()
+
+        except Exception as e:
+            log(f"Ошибка refresh_from_preset_switch: {e}", "DEBUG")
 
     def _reset_to_defaults(self):
         """Сбрасывает preset-zapret2.txt к встроенным настройкам по умолчанию"""

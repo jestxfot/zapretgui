@@ -74,7 +74,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.main_layout.setSpacing(12)
 
         # Заголовок страницы (фиксированный, не прокручивается)
-        self.title_label = QLabel("Стратегии DPI")
+        self.title_label = QLabel("Сменить стратегию для обхода блокировок (Zapret 2)")
         self.title_label.setStyleSheet("""
             QLabel {
                 color: #ffffff;
@@ -87,7 +87,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
-        self.subtitle_label = QLabel("Выберите стратегию обхода блокировок для разных типов трафика")
+        self.subtitle_label = QLabel("Здесь для каждой категории Вы можете выбрать свою стратегию для обхода блокировок. Существует несколько фаз (фейки, мультинарезка, нарезка в обратном порядке и т.д.), которые можно совмещать друг с другом. Дополнительные настройки (отправка syn пакета с фейковыми данными черед SYN-ACK + send настройка количества отправка этих пакетов) настраивается сверху дополнительно. Эти опции можно включать и выключать и комбинировать как угодно. Порядок фуллинга (дурилок) важен, но он определяется автоматически программой.")
         self.subtitle_label.setStyleSheet("""
             QLabel {
                 color: rgba(255, 255, 255, 0.6);

@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
+from ui.sidebar import ActionButton, SettingsCard
 from log import log
 
 
@@ -632,6 +632,42 @@ class PresetsPage(BasePage):
 
     def _build_ui(self):
         """Строит UI страницы"""
+
+        # Быстрый доступ к посту с актуальными конфигами
+        configs_card = SettingsCard()
+        configs_card.setStyleSheet("""
+            QFrame#settingsCard {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: none;
+                border-radius: 8px;
+            }
+            QFrame#settingsCard:hover {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: none;
+            }
+        """)
+        configs_layout = QHBoxLayout()
+        configs_layout.setSpacing(12)
+
+        configs_icon = QLabel()
+        configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
+        configs_layout.addWidget(configs_icon)
+
+        configs_title = QLabel("Вы можете обмениваться категориями друг с другом\nв нашей существующей группе по конфигам (это обычные txt файлы)")
+        configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
+        configs_layout.addWidget(configs_title)
+
+        configs_layout.addStretch(1)
+
+        get_configs_btn = ActionButton("Получить конфиги", "fa5s.external-link-alt", accent=True)
+        get_configs_btn.setFixedHeight(36)
+        get_configs_btn.clicked.connect(self._open_new_configs_post)
+        configs_layout.addWidget(get_configs_btn)
+
+        configs_card.add_layout(configs_layout)
+        self.add_widget(configs_card)
+
+        self.add_spacing(12)
 
         # Карточка с активным пресетом
         self.active_card = SettingsCard("Активный пресет")
@@ -1315,3 +1351,12 @@ class PresetsPage(BasePage):
     def refresh(self):
         """Обновляет список пресетов"""
         self._load_presets()
+
+    def _open_new_configs_post(self):
+        """Открывает Telegram пост с актуальными конфигами."""
+        try:
+            from config.telegram_links import open_telegram_link
+            open_telegram_link("zaprethelp", post=66952)
+        except Exception as e:
+            log(f"Ошибка открытия Telegram: {e}", "ERROR")
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")

@@ -429,6 +429,49 @@ class MainWindowUI:
                 log("DPI запущен - выполняем перезапуск после смены пресета", "INFO")
                 self.dpi_controller.restart_dpi_async()
 
+        # Асинхронно обновляем UI страниц, завязанных на preset-zapret2.txt
+        self._schedule_refresh_after_preset_switch()
+
+    def _schedule_refresh_after_preset_switch(self):
+        """Обновляет страницы, которые читают настройки из активного пресета."""
+        try:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._refresh_pages_after_preset_switch)
+        except Exception:
+            # If Qt timer is unavailable, fallback to direct call.
+            try:
+                self._refresh_pages_after_preset_switch()
+            except Exception:
+                pass
+
+    def _refresh_pages_after_preset_switch(self):
+        """Перечитывает preset и обновляет зависимые страницы (без блокировки UI)."""
+        from log import log
+
+        # Стратегии (direct_zapret2) — обновить выборы/бейджи без перестроения реестра
+        try:
+            page = getattr(self, "zapret2_strategies_page", None)
+            if page and hasattr(page, "refresh_from_preset_switch"):
+                page.refresh_from_preset_switch()
+        except Exception as e:
+            log(f"Ошибка обновления zapret2_strategies_page после смены пресета: {e}", "DEBUG")
+
+        # Детальная страница категории — если открыта, перечитать настройки/выбор из пресета
+        try:
+            detail = getattr(self, "strategy_detail_page", None)
+            if detail and hasattr(detail, "refresh_from_preset_switch"):
+                detail.refresh_from_preset_switch()
+        except Exception as e:
+            log(f"Ошибка обновления strategy_detail_page после смены пресета: {e}", "DEBUG")
+
+        # Обновить краткое отображение "текущих стратегий" (если используется direct_zapret2)
+        try:
+            display_name = self._get_direct_strategy_summary()
+            if display_name:
+                self.update_current_strategy_display(display_name)
+        except Exception as e:
+            log(f"Ошибка обновления display стратегии после смены пресета: {e}", "DEBUG")
+
     def _on_clear_learned_requested(self):
         """Обработчик очистки данных обучения"""
         from log import log
@@ -795,9 +838,11 @@ class MainWindowUI:
 
     def update_current_strategy_display(self, strategy_name: str):
         """Обновляет отображение текущей стратегии"""
+        launch_method = None
         try:
             from strategy_menu import get_strategy_launch_method
-            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            launch_method = get_strategy_launch_method()
+            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 strategy_name = self._get_direct_strategy_summary()
         except Exception:
             pass
@@ -810,11 +855,16 @@ class MainWindowUI:
             if page and hasattr(page, 'update_current_strategy'):
                 page.update_current_strategy(strategy_name)
 
-        # Для главной страницы обрезаем длинное название
+        # Для главной страницы: в режиме оркестратора не показываем список доменов/стратегий.
+        if launch_method in ("orchestra", "direct_zapret2_orchestra"):
+            self.home_page.strategy_card.set_value("Режим оркестратор", "Автообучение")
+            return
+
+        # Обычный режим: обрезаем длинное название
         display_name = strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
         if hasattr(self.home_page, '_truncate_strategy_name'):
             display_name = self.home_page._truncate_strategy_name(display_name)
-        self.home_page.strategy_card.set_value(display_name)
+        self.home_page.strategy_card.set_value(display_name, "Активная стратегия")
         
     def update_autostart_display(self, enabled: bool, strategy_name: str = None):
         """Обновляет отображение статуса автозапуска"""
