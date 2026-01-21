@@ -58,6 +58,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
     _ROLE_IS_FAVORITE = int(Qt.ItemDataRole.UserRole) + 3
     _ROLE_IS_WORKING = int(Qt.ItemDataRole.UserRole) + 4
     _ROLE_INSERT_INDEX = int(Qt.ItemDataRole.UserRole) + 5
+    _ROLE_PHASE_KEYS = int(Qt.ItemDataRole.UserRole) + 7
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -136,9 +137,33 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._geom_timer.timeout.connect(self._propagate_geometry_change)
 
         self._fav_root = self._add_section("★ Избранные")
-        self._all_root = self._add_section("Все стратегии")
+        self._all_root_default_title = "Все стратегии"
+        self._all_root = self._add_section(self._all_root_default_title)
 
         self.itemClicked.connect(self._on_item_clicked)
+
+    def set_all_strategies_phase(self, phase_key: Optional[str]) -> None:
+        """
+        Updates the "Все стратегии" section title to reflect the currently active phase.
+
+        Examples:
+          None -> "Все стратегии"
+          "fake" -> "Все стратегии (fake)"
+        """
+        try:
+            key = (phase_key or "").strip().lower()
+        except Exception:
+            key = ""
+
+        title = self._all_root_default_title
+        if key:
+            title = f"{title} ({key})"
+
+        try:
+            if self._all_root.text(0) != title:
+                self._all_root.setText(0, title)
+        except Exception:
+            pass
 
     def _sync_hover_from_cursor(self, *, immediate: bool) -> None:
         """
@@ -353,6 +378,70 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             return "fake"
         return None
 
+    @staticmethod
+    def _map_desync_value_to_phase_key(val: str) -> Optional[str]:
+        """
+        Maps raw --lua-desync/--dpi-desync values to a stable phase key.
+
+        Phase keys are used for the multi-phase TCP UI (FAKE + MULTISPLIT + ...).
+        """
+        v = (val or "").strip().lower()
+        if not v:
+            return None
+
+        # Dedicated fake phase (pure fake only)
+        if v == "fake":
+            return "fake"
+
+        # "pass" is a no-op. Keep it in the main phase so users can enable a
+        # category for send/syndata/out-range without selecting other techniques.
+        if v == "pass":
+            return "multisplit"
+
+        # "Embedded fake" techniques belong to the main phase tabs
+        if v in ("multisplit", "fakedsplit", "hostfakesplit"):
+            return "multisplit"
+        if v in ("multidisorder", "fakeddisorder"):
+            return "multidisorder"
+        if v == "multidisorder_legacy":
+            return "multidisorder_legacy"
+        if v == "tcpseg":
+            return "tcpseg"
+        if v == "oob":
+            return "oob"
+
+        return "other"
+
+    @classmethod
+    def _infer_phase_keys(cls, strategy_id: str, args_full_text: str) -> list[str]:
+        """
+        Best-effort phase keys for filtering (multi-phase TCP UI).
+
+        Unlike `_infer_techniques()` (icon-only), this keeps more granular
+        phase buckets and avoids substring collisions like `fake` vs `fakedsplit`.
+        """
+        sid = (strategy_id or "").strip().lower()
+        txt = (args_full_text or "").strip().lower()
+
+        # Special pseudo rows (not real strategies).
+        if sid.startswith("__phase_fake_disabled__"):
+            return ["fake"]
+
+        out: list[str] = []
+        for val in re.findall(r"--(?:lua-desync|dpi-desync)=([a-z0-9_-]+)", txt):
+            key = cls._map_desync_value_to_phase_key(val)
+            if key and key not in out:
+                out.append(key)
+
+        # Fallback by id when no desync marker was found
+        if not out:
+            for key in ("fake", "multisplit", "multidisorder", "multidisorder_legacy", "tcpseg", "oob"):
+                if key in sid:
+                    out.append(key)
+                    break
+
+        return out or ["other"]
+
     @classmethod
     def _infer_techniques(cls, strategy_id: str, args_text_lower: str) -> list[str]:
         """
@@ -488,10 +577,12 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         item.setData(0, self._ROLE_STRATEGY_ID, row.strategy_id)
         args_joined = self._args_preview_text(row.args)
         item.setData(0, self._ROLE_ARGS_TEXT, args_joined.lower())
-        item.setData(0, self._ROLE_ARGS_FULL, "\n".join(row.args))
+        args_full = "\n".join(row.args)
+        item.setData(0, self._ROLE_ARGS_FULL, args_full)
         item.setData(0, self._ROLE_IS_FAVORITE, bool(row.is_favorite))
         item.setData(0, self._ROLE_IS_WORKING, row.is_working)
         item.setData(0, self._ROLE_INSERT_INDEX, self._insert_counter)
+        item.setData(0, self._ROLE_PHASE_KEYS, self._infer_phase_keys(row.strategy_id, args_full))
         self._insert_counter += 1
 
         item.setText(1, row.name)
@@ -519,6 +610,16 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             self.clearSelection()
             self.setCurrentItem(item)
             item.setSelected(True)
+        self.viewport().update()
+
+    def clear_active_strategy(self) -> None:
+        """Clears the highlighted (active) strategy row without removing items."""
+        self._active_strategy_id = "none"
+        try:
+            self.clearSelection()
+            self.setCurrentItem(None)
+        except Exception:
+            pass
         self.viewport().update()
 
     def get_strategy_ids(self) -> list[str]:
@@ -572,6 +673,38 @@ class DirectZapret2StrategiesTree(QTreeWidget):
                 visible = (search in args_text) or (search in (item.text(1) or "").lower())
             if visible and tech:
                 visible = any(t in args_text for t in tech)
+            item.setHidden(not visible)
+
+        self._refresh_sections_visibility()
+        self._update_height_to_contents()
+        if selected_id and self.has_strategy(selected_id) and not self._rows[selected_id].isHidden():
+            self.set_selected_strategy(selected_id)
+
+    def apply_phase_filter(self, search_text: str, phase_key: Optional[str]) -> None:
+        """
+        Filters rows by a phase key (exact match), optionally combined with search.
+
+        This is used by the multi-phase TCP UI. It intentionally avoids substring
+        matching so `fake` does not match `fakedsplit`, etc.
+        """
+        search = (search_text or "").strip().lower()
+        phase = (phase_key or "").strip().lower()
+
+        selected_id = self._active_strategy_id or self._get_selected_strategy_id()
+
+        for sid, item in self._rows.items():
+            visible = True
+            args_text = str(item.data(0, self._ROLE_ARGS_TEXT) or "")
+            if search:
+                visible = (search in args_text) or (search in (item.text(1) or "").lower())
+
+            if visible and phase:
+                keys = item.data(0, self._ROLE_PHASE_KEYS) or []
+                try:
+                    visible = phase in set(str(k).lower() for k in keys)
+                except Exception:
+                    visible = False
+
             item.setHidden(not visible)
 
         self._refresh_sections_visibility()

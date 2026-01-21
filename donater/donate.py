@@ -247,6 +247,13 @@ class APIClient:
                 RegistryManager.set_api_base_url(base_url)
                 return resp
 
+            err = (resp.get("error") or "").lower()
+
+            # If the host doesn't have local subscriptions/keys, it might answer with a "no subscription"
+            # error even when another host would validate successfully. Retry on the next host.
+            if "нет активной подписки" in err or "no active subscription" in err:
+                continue
+
             # Network errors / timeouts: try next host.
             if http_status is None:
                 continue
@@ -258,13 +265,15 @@ class APIClient:
             except Exception:
                 pass
 
-            err = (resp.get("error") or "").lower()
-            if http_status == 403 and ("нет активной подписки" in err or "no active subscription" in err):
+            # Endpoint not found / method not allowed on this host: try next host.
+            if http_status in (404, 405):
+                continue
+
+            # Rate limited: try next host.
+            if http_status == 429:
                 continue
 
             # success or other error: stick to this base_url
-            self.base_url = base_url
-            RegistryManager.set_api_base_url(base_url)
             return resp
 
         return last

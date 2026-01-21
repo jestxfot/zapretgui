@@ -35,6 +35,74 @@ def invalidate_category_inference_cache() -> None:
     _CATEGORY_INFO_CACHE = None
 
 
+_PLACEHOLDER_HOSTLIST_FILES = {"unknown.txt"}
+_PLACEHOLDER_IPSET_FILES = {"ipset-unknown.txt"}
+
+
+def _normalize_category_key(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _uses_placeholder_unknown_list_file(block: "CategoryBlock") -> bool:
+    """
+    Returns True if a block references placeholder list files:
+      - --hostlist=.../unknown.txt
+      - --ipset=.../ipset-unknown.txt
+    """
+    try:
+        for raw in (block.args or "").splitlines():
+            line = raw.strip()
+            if not line.startswith("--") or "=" not in line:
+                continue
+
+            key, _sep, value = line.partition("=")
+            key_l = key.strip().lower()
+            if key_l not in ("--hostlist", "--ipset"):
+                continue
+
+            value = value.strip().strip('"').strip("'")
+            if value.startswith("@"):
+                value = value[1:]
+
+            filename = PureWindowsPath(value).name.lower()
+            if key_l == "--hostlist" and filename in _PLACEHOLDER_HOSTLIST_FILES:
+                return True
+            if key_l == "--ipset" and filename in _PLACEHOLDER_IPSET_FILES:
+                return True
+    except Exception:
+        return False
+
+    return False
+
+
+def _drop_placeholder_unknown_categories(blocks: List["CategoryBlock"]) -> List["CategoryBlock"]:
+    """
+    Drops whole categories that reference placeholder list files.
+
+    If a category has both TCP and UDP blocks, and at least one block references
+    a placeholder file, all blocks for that category are removed.
+    """
+    drop_keys = {
+        _normalize_category_key(b.category)
+        for b in (blocks or [])
+        if _uses_placeholder_unknown_list_file(b)
+    }
+    drop_keys.discard("")
+    if not drop_keys:
+        return blocks
+
+    kept = [b for b in (blocks or []) if _normalize_category_key(b.category) not in drop_keys]
+    try:
+        log(
+            "Removed category blocks with placeholder list files: "
+            + ", ".join(sorted(drop_keys)),
+            "WARNING",
+        )
+    except Exception:
+        pass
+    return kept
+
+
 @dataclass
 class CategoryBlock:
     """
@@ -616,6 +684,7 @@ def extract_syndata_from_args(args: str) -> Dict:
         syndata_str = match.group(1)
         # Format: blob=tls_google:ip_autottl=-2,3-20:tls_mod=value
         parts = syndata_str.split(':')
+        saw_autottl = False
 
         for part in parts:
             if '=' not in part:
@@ -627,6 +696,7 @@ def extract_syndata_from_args(args: str) -> Dict:
             elif key == 'tls_mod':
                 result['tls_mod'] = value
             elif key == 'ip_autottl':
+                saw_autottl = True
                 # Format: -2,3-20 (delta,min-max)
                 autottl_match = re.match(r'(-?\d+),(\d+)-(\d+)', value)
                 if autottl_match:
@@ -635,6 +705,12 @@ def extract_syndata_from_args(args: str) -> Dict:
                     result['autottl_max'] = int(autottl_match.group(3))
             elif key == 'tcp_flags_unset':
                 result['tcp_flags_unset'] = value
+
+        # OFF is represented by omitting `ip_autottl` from the syndata line
+        # (see CategoryConfig._get_syndata_args). Preserve that as delta=0 so UI
+        # does not snap back to defaults after active-file reload.
+        if not saw_autottl:
+            result['autottl_delta'] = 0
 
         return result
 
@@ -960,7 +1036,7 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
         lines.append("")
 
     # Category blocks (stable ordering by categories.txt)
-    blocks = list(data.categories)
+    blocks = _drop_placeholder_unknown_categories(list(data.categories))
     try:
         from .catalog import load_categories
 

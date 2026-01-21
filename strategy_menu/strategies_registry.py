@@ -426,6 +426,8 @@ class StrategiesRegistry:
         """Получить имя стратегии"""
         if strategy_id == "none":
             return "⛔ Отключено"
+        if strategy_id == "custom":
+            return "Свой набор"
         
         category_info = self.get_category_info(category_key)
         if not category_info:

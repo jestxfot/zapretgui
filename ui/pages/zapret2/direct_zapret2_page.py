@@ -203,6 +203,14 @@ class Zapret2StrategiesPageNew(BasePage):
             from dpi.zapret2_core_restart import trigger_dpi_reload
             from preset_zapret2 import PresetManager
 
+            # Multi-phase TCP UI persists args directly (strategy_detail_page.py).
+            # Avoid clobbering preset args by re-applying a non-existent single strategy.
+            if (strategy_id or "").strip().lower() == "custom":
+                self.category_selections[category_key] = "custom"
+                if self._unified_list:
+                    self._unified_list.update_selection(category_key, "custom")
+                return
+
             # Сохраняем в preset файл
             preset_manager = PresetManager(
                 on_dpi_reload_needed=lambda: trigger_dpi_reload(

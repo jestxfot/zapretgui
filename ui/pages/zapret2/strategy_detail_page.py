@@ -4,11 +4,14 @@
 Открывается при клике на категорию в Zapret2StrategiesPageNew.
 """
 
+import re
+import json
+
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit, QSizePolicy
+    QCheckBox, QPlainTextEdit, QSizePolicy, QButtonGroup
 )
 from PyQt6.QtGui import QFont, QFontMetrics
 import qtawesome as qta
@@ -23,6 +26,81 @@ from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
 from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
 from log import log
+
+
+TCP_PHASE_TAB_ORDER: list[tuple[str, str]] = [
+    ("fake", "FAKE"),
+    ("multisplit", "MULTISPLIT"),
+    ("multidisorder", "MULTIDISORDER"),
+    ("multidisorder_legacy", "LEGACY"),
+    ("tcpseg", "TCPSEG"),
+    ("oob", "OOB"),
+]
+
+TCP_PHASE_COMMAND_ORDER: list[str] = [
+    "fake",
+    "multisplit",
+    "multidisorder",
+    "multidisorder_legacy",
+    "tcpseg",
+    "oob",
+]
+
+TCP_EMBEDDED_FAKE_TECHNIQUES: set[str] = {
+    "fakedsplit",
+    "fakeddisorder",
+    "hostfakesplit",
+}
+
+TCP_FAKE_DISABLED_STRATEGY_ID = "__phase_fake_disabled__"
+CUSTOM_STRATEGY_ID = "custom"
+
+
+def _extract_desync_technique_from_arg(line: str) -> str | None:
+    """
+    Extracts desync function name from a single arg line.
+
+    Examples:
+      --lua-desync=fake:blob=tls_google -> "fake"
+      --lua-desync=pass -> "pass"
+      --dpi-desync=multisplit -> "multisplit"
+    """
+    s = (line or "").strip()
+    m = re.match(r"^--(?:lua-desync|dpi-desync)=([a-zA-Z0-9_-]+)", s)
+    if not m:
+        return None
+    return m.group(1).strip().lower() or None
+
+
+def _map_desync_technique_to_tcp_phase(technique: str) -> str | None:
+    t = (technique or "").strip().lower()
+    if not t:
+        return None
+    # "pass" is a no-op, but keeping it in the main phase ensures
+    # categories can still be enabled for send/syndata/out-range-only setups.
+    if t == "pass":
+        return "multisplit"
+    if t == "fake":
+        return "fake"
+    if t in ("multisplit", "fakedsplit", "hostfakesplit"):
+        return "multisplit"
+    if t in ("multidisorder", "fakeddisorder"):
+        return "multidisorder"
+    if t == "multidisorder_legacy":
+        return "multidisorder_legacy"
+    if t == "tcpseg":
+        return "tcpseg"
+    if t == "oob":
+        return "oob"
+    return None
+
+
+def _normalize_args_text(text: str) -> str:
+    """Normalizes args text for exact matching (keeps line order)."""
+    if not text:
+        return ""
+    lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+    return "\n".join(lines).strip()
 
 
 class FilterModeSelector(QWidget):
@@ -631,42 +709,71 @@ class FilterChip(QPushButton):
 
     toggled_filter = pyqtSignal(str, bool)  # (technique, is_active)
 
-    def __init__(self, text: str, technique: str, parent=None):
+    def __init__(
+        self,
+        text: str,
+        technique: str,
+        parent=None,
+        *,
+        selected_radius: int | None = None,
+        selected_style: str = "active",
+    ):
         super().__init__(text, parent)
         self._technique = technique
-        self._active = False
+        self._active_marker = False
+        self._base_radius = 14
+        self._selected_radius = int(selected_radius) if selected_radius is not None else self._base_radius
+        self._selected_style = str(selected_style or "active").strip().lower() or "active"
         self.setCheckable(True)
         self.setFixedHeight(28)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._update_style()
-        self.clicked.connect(self._on_clicked)
+        # Use `toggled` instead of `clicked` so programmatic state changes
+        # (e.g. exclusive tab groups) keep visuals in sync.
+        self.toggled.connect(self._on_toggled)
 
-    def _on_clicked(self):
-        self._active = self.isChecked()
+    def set_active_marker(self, active: bool) -> None:
+        """Marks chip as 'active' (blue) even when it's not checked."""
+        want = bool(active)
+        if want == bool(self._active_marker):
+            return
+        self._active_marker = want
         self._update_style()
-        self.toggled_filter.emit(self._technique, self._active)
+
+    def _on_toggled(self, checked: bool):
+        self._update_style()
+        self.toggled_filter.emit(self._technique, bool(checked))
 
     def _update_style(self):
-        if self._active:
-            self.setStyleSheet('''
-                QPushButton {
-                    background: rgba(96, 205, 255, 0.2);
-                    border: 1px solid rgba(96, 205, 255, 0.5);
-                    border-radius: 14px;
-                    color: #60cdff;
-                    padding: 0 12px;
-                    font-size: 12px;
-                }
-                QPushButton:hover {
-                    background: rgba(96, 205, 255, 0.3);
-                }
-            ''')
-        else:
+        is_selected = bool(self.isChecked())
+        radius = self._selected_radius if is_selected else self._base_radius
+
+        # "neutral" style is used for phase tabs:
+        # - the *selected* (currently viewed) tab should NOT change color; only shape changes
+        # - phases that "contribute args" are marked via `_active_marker` (blue), selected or not
+        if self._selected_style == "neutral":
+            if bool(self._active_marker):
+                self.setStyleSheet('''
+                    QPushButton {
+                        background: rgba(96, 205, 255, 0.2);
+                        border: 1px solid rgba(96, 205, 255, 0.5);
+                        border-radius: %dpx;
+                        color: #60cdff;
+                        padding: 0 12px;
+                        font-size: 12px;
+                    }
+                    QPushButton:hover {
+                        background: rgba(96, 205, 255, 0.3);
+                    }
+                ''' % radius)
+                return
+
+            # Same visuals as "inactive", but with a different radius when selected.
             self.setStyleSheet('''
                 QPushButton {
                     background: rgba(255, 255, 255, 0.05);
                     border: none;
-                    border-radius: 14px;
+                    border-radius: %dpx;
                     color: rgba(255, 255, 255, 0.7);
                     padding: 0 12px;
                     font-size: 12px;
@@ -674,10 +781,40 @@ class FilterChip(QPushButton):
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.1);
                 }
-            ''')
+            ''' % radius)
+            return
+
+        if is_selected or bool(self._active_marker):
+            self.setStyleSheet('''
+                QPushButton {
+                    background: rgba(96, 205, 255, 0.2);
+                    border: 1px solid rgba(96, 205, 255, 0.5);
+                    border-radius: %dpx;
+                    color: #60cdff;
+                    padding: 0 12px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background: rgba(96, 205, 255, 0.3);
+                }
+            ''' % radius)
+        else:
+            self.setStyleSheet('''
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.05);
+                    border: none;
+                    border-radius: %dpx;
+                    color: rgba(255, 255, 255, 0.7);
+                    padding: 0 12px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            ''' % radius)
 
     def reset(self):
-        self._active = False
+        self._active_marker = False
         self.setChecked(False)
         self._update_style()
 
@@ -729,6 +866,16 @@ class StrategyDetailPage(BasePage):
         self._strategies_tree = None
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._active_filters = set()  # Активные фильтры по технике
+        # TCP multi-phase UI state (direct_zapret2, tcp.txt + tcp_fake.txt)
+        self._tcp_phase_mode = False
+        self._phase_chips = {}
+        self._phase_chip_group = None
+        self._active_phase_key = None
+        self._last_active_phase_key_by_category: dict[str, str] = {}
+        self._tcp_phase_selected_ids: dict[str, str] = {}  # phase_key -> strategy_id
+        self._tcp_phase_custom_args: dict[str, str] = {}  # phase_key -> raw args chunk (if no matching strategy)
+        self._tcp_hide_fake_phase = False
+        self._tcp_last_enabled_args_by_category: dict[str, str] = {}
         self._waiting_for_process_start = False  # Флаг ожидания запуска DPI
         self._process_monitor_connected = False  # Флаг подключения к process_monitor
         self._fallback_timer = None  # Таймер защиты от бесконечного спиннера
@@ -1684,6 +1831,28 @@ class StrategyDetailPage(BasePage):
 
         strategies_layout.addWidget(self._filters_bar_widget)
 
+        # TCP multi-phase "tabs" (shown only for tcp categories in direct_zapret2)
+        self._phases_bar_widget = QWidget()
+        self._phases_bar_widget.setStyleSheet("background: transparent;")
+        self._phases_bar_widget.setVisible(False)
+        phases_layout = QHBoxLayout(self._phases_bar_widget)
+        phases_layout.setContentsMargins(0, 0, 0, 8)
+        phases_layout.setSpacing(6)
+
+        self._phase_chips = {}
+        self._phase_chip_group = QButtonGroup(self)
+        self._phase_chip_group.setExclusive(True)
+
+        for phase_key, label in TCP_PHASE_TAB_ORDER:
+            chip = FilterChip(label, phase_key, selected_radius=8, selected_style="neutral")
+            chip.toggled_filter.connect(self._on_phase_tab_toggled)
+            self._phase_chips[phase_key] = chip
+            self._phase_chip_group.addButton(chip)
+            phases_layout.addWidget(chip)
+
+        phases_layout.addStretch()
+        strategies_layout.addWidget(self._phases_bar_widget)
+
         # Лёгкий список стратегий: item-based, без сотен QWidget в layout
         self._strategies_tree = DirectZapret2StrategiesTree(self)
         # Внутренний скролл у дерева (надёжнее, чем растягивать страницу по высоте)
@@ -1701,6 +1870,53 @@ class StrategyDetailPage(BasePage):
     def _update_selected_strategy_header(self, strategy_id: str) -> None:
         """Обновляет подзаголовок: показывает выбранную стратегию рядом с портами."""
         sid = (strategy_id or "none").strip()
+
+        # TCP multi-phase summary (fake + multi*)
+        if self._tcp_phase_mode:
+            if sid == "none":
+                try:
+                    self._subtitle_strategy.hide()
+                except Exception:
+                    pass
+                return
+
+            parts: list[str] = []
+            for phase in TCP_PHASE_COMMAND_ORDER:
+                if phase == "fake" and self._tcp_hide_fake_phase:
+                    continue
+                psid = (self._tcp_phase_selected_ids.get(phase) or "").strip()
+                if not psid:
+                    continue
+                if phase == "fake" and psid == TCP_FAKE_DISABLED_STRATEGY_ID:
+                    continue
+
+                if psid == CUSTOM_STRATEGY_ID:
+                    name = CUSTOM_STRATEGY_ID
+                else:
+                    try:
+                        data = dict(self._strategies_data_by_id.get(psid, {}) or {})
+                    except Exception:
+                        data = {}
+                    name = str(data.get("name") or psid).strip() or psid
+
+                parts.append(f"{phase}={name}")
+
+            text = "; ".join(parts).strip()
+            if not text:
+                try:
+                    self._subtitle_strategy.hide()
+                except Exception:
+                    pass
+                return
+
+            try:
+                self._subtitle_strategy.set_full_text(text)
+                self._subtitle_strategy.setToolTip(text)
+                self._subtitle_strategy.show()
+            except Exception:
+                pass
+            return
+
         if sid == "none":
             try:
                 self._subtitle_strategy.hide()
@@ -1746,9 +1962,32 @@ class StrategyDetailPage(BasePage):
         self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
         self._update_selected_strategy_header(self._selected_strategy_id)
 
+        # Determine whether to use the TCP multi-phase UI:
+        # - only for TCP strategies (tcp.txt)
+        # - only for direct_zapret2 standard set (no orchestra/zapret1)
+        new_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp").strip().lower()
+        is_udp_like_now = self._is_udp_like_category()
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            strategy_set = get_current_strategy_set()
+        except Exception:
+            strategy_set = None
+        want_tcp_phase_mode = (new_strategy_type == "tcp") and (not is_udp_like_now) and (strategy_set is None)
+
+        self._tcp_phase_mode = bool(want_tcp_phase_mode)
+        try:
+            if hasattr(self, "_filters_bar_widget") and self._filters_bar_widget is not None:
+                self._filters_bar_widget.setVisible(not self._tcp_phase_mode)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_phases_bar_widget") and self._phases_bar_widget is not None:
+                self._phases_bar_widget.setVisible(self._tcp_phase_mode)
+        except Exception:
+            pass
+
         # Для категорий одного strategy_type (особенно tcp) список стратегий одинаковый,
         # поэтому не пересобираем виджеты каждый раз: это ускоряет повторные переходы.
-        new_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
         reuse_list = bool(self._strategies_tree and self._strategies_tree.has_rows()) and self._loaded_strategy_type == new_strategy_type
 
         if not reuse_list:
@@ -1801,6 +2040,27 @@ class StrategyDetailPage(BasePage):
         self._active_filters.clear()
         for chip in self._filter_chips.values():
             chip.reset()
+
+        # TCP multi-phase state
+        if self._tcp_phase_mode:
+            self._load_tcp_phase_state_from_preset()
+            self._apply_tcp_phase_tabs_visibility()
+            preferred = None
+            try:
+                preferred = (self._last_active_phase_key_by_category or {}).get(category_key)
+            except Exception:
+                preferred = None
+            if not preferred:
+                preferred = self._load_category_last_tcp_phase_tab(category_key)
+                if preferred:
+                    try:
+                        self._last_active_phase_key_by_category[category_key] = preferred
+                    except Exception:
+                        pass
+            if preferred:
+                self._set_active_phase_chip(preferred)
+            else:
+                self._select_default_tcp_phase_tab()
 
         # Применяем сохранённую сортировку (если не default)
         self._apply_sort()
@@ -1900,10 +2160,25 @@ class StrategyDetailPage(BasePage):
             # Получаем стратегии для категории
             strategies = registry.get_category_strategies(self._category_key)
             log(f"StrategyDetailPage: загружено {len(strategies)} стратегий для {self._category_key}", "DEBUG")
+
+            # TCP multi-phase: load additional pure-fake strategies from tcp_fake.txt
+            if self._tcp_phase_mode:
+                try:
+                    from strategy_menu.strategy_loader import load_strategies_as_dict
+                    fake_strategies = load_strategies_as_dict("tcp_fake")
+                except Exception:
+                    fake_strategies = {}
+
+                combined = {}
+                # Preserve source ordering: tcp_fake.txt first, then tcp.txt
+                combined.update(fake_strategies or {})
+                combined.update(strategies or {})
+                strategies = combined
+
             self._strategies_data_by_id = dict(strategies or {})
             self._update_selected_strategy_header(self._selected_strategy_id)
 
-            self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp")
+            self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp").strip().lower()
             self._default_strategy_order = list(strategies.keys())
             self._strategies_loaded_fully = False
 
@@ -1989,8 +2264,9 @@ class StrategyDetailPage(BasePage):
                     args = args.split()
                 self._add_strategy_row(sid, name, args)
 
-                if sid == self._current_strategy_id and self._strategies_tree:
-                    self._strategies_tree.set_selected_strategy(sid)
+                if not self._tcp_phase_mode:
+                    if sid == self._current_strategy_id and self._strategies_tree:
+                        self._strategies_tree.set_selected_strategy(sid)
 
         finally:
             try:
@@ -2008,7 +2284,7 @@ class StrategyDetailPage(BasePage):
             search_active = bool(self._search_input and self._search_input.text().strip())
         except Exception:
             search_active = False
-        if search_active or self._active_filters:
+        if search_active or self._active_filters or self._tcp_phase_mode:
             self._apply_filters()
 
         if end >= len(self._pending_strategies_items):
@@ -2027,13 +2303,19 @@ class StrategyDetailPage(BasePage):
             self._apply_sort()
             # Restore active selection highlight after any sorting/filtering
             if self._strategies_tree:
-                if self._strategies_tree.has_strategy(self._current_strategy_id):
-                    self._strategies_tree.set_selected_strategy(self._current_strategy_id)
-                elif self._strategies_tree.has_strategy("none"):
-                    self._strategies_tree.set_selected_strategy("none")
+                if self._tcp_phase_mode:
+                    self._sync_tree_selection_to_active_phase()
+                else:
+                    if self._strategies_tree.has_strategy(self._current_strategy_id):
+                        self._strategies_tree.set_selected_strategy(self._current_strategy_id)
+                    elif self._strategies_tree.has_strategy("none"):
+                        self._strategies_tree.set_selected_strategy("none")
             self._refresh_scroll_range()
             # После построения списка прокручиваем страницу к текущей стратегии
-            QTimer.singleShot(0, self._scroll_to_current_strategy)
+            if self._tcp_phase_mode:
+                QTimer.singleShot(0, self._sync_tree_selection_to_active_phase)
+            else:
+                QTimer.singleShot(0, self._scroll_to_current_strategy)
 
     def _add_strategy_row(self, strategy_id: str, name: str, args: list = None):
         """Добавляет строку стратегии в список"""
@@ -2278,6 +2560,47 @@ class StrategyDetailPage(BasePage):
         if not self._category_key:
             return
 
+        # TCP multi-phase: restore last enabled args when toggling back on.
+        if self._tcp_phase_mode and enabled:
+            try:
+                last_args = (self._tcp_last_enabled_args_by_category.get(self._category_key) or "").strip()
+            except Exception:
+                last_args = ""
+
+            if last_args:
+                try:
+                    preset = self._preset_manager.get_active_preset()
+                    if not preset:
+                        return
+                    if self._category_key not in preset.categories:
+                        preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
+
+                    cat = preset.categories[self._category_key]
+                    cat.tcp_args = last_args
+                    cat.strategy_id = self._infer_strategy_id_from_args_exact(last_args)
+                    preset.touch()
+                    self._preset_manager._save_and_sync_preset(preset)
+
+                    self._selected_strategy_id = cat.strategy_id or "none"
+                    self._current_strategy_id = cat.strategy_id or "none"
+
+                    self._set_category_enabled_ui(True)
+                    self._update_selected_strategy_header(self._selected_strategy_id)
+                    self._refresh_args_editor_state()
+
+                    # Rebuild phase state + tabs selection
+                    self._load_tcp_phase_state_from_preset()
+                    self._apply_tcp_phase_tabs_visibility()
+                    self._select_default_tcp_phase_tab()
+                    self._apply_filters()
+
+                    self.show_loading()
+                    self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
+                    log(f"Категория {self._category_key} включена (restore phase chain)", "INFO")
+                    return
+                except Exception as e:
+                    log(f"TCP phase restore failed: {e}", "WARNING")
+
         if enabled:
             # Включаем - восстанавливаем последнюю стратегию (если была), иначе дефолтную
             strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
@@ -2300,6 +2623,14 @@ class StrategyDetailPage(BasePage):
             # Запоминаем стратегию перед выключением, чтобы восстановить при включении
             if self._selected_strategy_id and self._selected_strategy_id != "none":
                 self._last_enabled_strategy_id = self._selected_strategy_id
+            # TCP multi-phase: also store full args chain (required for restore)
+            if self._tcp_phase_mode:
+                try:
+                    cur_args = self._get_category_strategy_args_text().strip()
+                    if cur_args:
+                        self._tcp_last_enabled_args_by_category[self._category_key] = cur_args
+                except Exception:
+                    pass
             # Выключаем - устанавливаем "none"
             self._selected_strategy_id = "none"
             if self._strategies_tree:
@@ -2374,6 +2705,69 @@ class StrategyDetailPage(BasePage):
     def _load_category_sort(self, category_key: str) -> str:
         """Загружает порядок сортировки для категории из PresetManager"""
         return self._preset_manager.get_category_sort_order(category_key)
+
+    # ======================================================================
+    # TCP PHASE TAB PERSISTENCE (UI-only)
+    # ======================================================================
+
+    _REG_TCP_PHASE_TABS_BY_CATEGORY = "TcpPhaseTabByCategory"
+
+    def _load_category_last_tcp_phase_tab(self, category_key: str) -> str | None:
+        """Loads the last selected TCP phase tab for a category (persisted in registry)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return None
+
+        key = str(category_key or "").strip().lower()
+        if not key:
+            return None
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            if not raw:
+                return None
+            data = json.loads(raw) if isinstance(raw, str) else {}
+            phase = str((data or {}).get(key) or "").strip().lower()
+            if phase and phase in (self._phase_chips or {}):
+                return phase
+        except Exception:
+            return None
+
+        return None
+
+    def _save_category_last_tcp_phase_tab(self, category_key: str, phase_key: str) -> None:
+        """Saves the last selected TCP phase tab for a category (best-effort)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return
+
+        cat_key = str(category_key or "").strip().lower()
+        phase = str(phase_key or "").strip().lower()
+        if not cat_key or not phase:
+            return
+
+        # Validate phase key early to avoid persisting garbage.
+        if self._tcp_phase_mode and phase not in (self._phase_chips or {}):
+            return
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            data = {}
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    data = json.loads(raw) or {}
+                except Exception:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            data[cat_key] = phase
+            reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY, json.dumps(data, ensure_ascii=False))
+        except Exception:
+            return
 
     # ═══════════════════════════════════════════════════════════════
     # OUT RANGE METHODS
@@ -2589,13 +2983,19 @@ class StrategyDetailPage(BasePage):
             self._selected_strategy_id = current_strategy_id or "none"
             self._current_strategy_id = current_strategy_id or "none"
 
-            if self._strategies_tree:
-                if self._selected_strategy_id != "none":
-                    self._strategies_tree.set_selected_strategy(self._selected_strategy_id)
-                elif self._strategies_tree.has_strategy("none"):
-                    self._strategies_tree.set_selected_strategy("none")
-                else:
-                    self._strategies_tree.clearSelection()
+            if self._tcp_phase_mode:
+                self._load_tcp_phase_state_from_preset()
+                self._apply_tcp_phase_tabs_visibility()
+                self._select_default_tcp_phase_tab()
+                self._apply_filters()
+            else:
+                if self._strategies_tree:
+                    if self._selected_strategy_id != "none":
+                        self._strategies_tree.set_selected_strategy(self._selected_strategy_id)
+                    elif self._strategies_tree.has_strategy("none"):
+                        self._strategies_tree.set_selected_strategy("none")
+                    else:
+                        self._strategies_tree.clearSelection()
 
             if self._selected_strategy_id != "none":
                 self._enable_toggle.setChecked(True, block_signals=True)
@@ -2612,6 +3012,10 @@ class StrategyDetailPage(BasePage):
 
     def _on_row_clicked(self, strategy_id: str):
         """Обработчик клика по строке стратегии - выбор активной"""
+        if self._tcp_phase_mode:
+            self._on_tcp_phase_row_clicked(strategy_id)
+            return
+
         prev_strategy_id = self._selected_strategy_id
 
         self._selected_strategy_id = strategy_id
@@ -2757,6 +3161,422 @@ class StrategyDetailPage(BasePage):
     def _is_udp_like_category(self) -> bool:
         protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
         return ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+
+    # ======================================================================
+    # TCP MULTI-PHASE (direct_zapret2)
+    # ======================================================================
+
+    def _get_category_strategy_args_text(self) -> str:
+        """Returns the stored strategy args (tcp_args/udp_args) for the current category."""
+        if not self._category_key:
+            return ""
+        try:
+            preset = self._preset_manager.get_active_preset()
+            cat = preset.categories.get(self._category_key) if preset else None
+            if not cat:
+                return ""
+            return cat.udp_args if self._is_udp_like_category() else cat.tcp_args
+        except Exception:
+            return ""
+
+    def _get_strategy_args_text_by_id(self, strategy_id: str) -> str:
+        data = dict(self._strategies_data_by_id.get(strategy_id, {}) or {})
+        args = data.get("args", "")
+        if isinstance(args, (list, tuple)):
+            args = "\n".join([str(a) for a in args if a is not None])
+        return _normalize_args_text(str(args or ""))
+
+    def _infer_strategy_id_from_args_exact(self, args_text: str) -> str:
+        """
+        Best-effort exact match against loaded strategies.
+
+        Returns:
+            - matching strategy_id if found
+            - "custom" if args are non-empty but don't match a single known strategy
+            - "none" if args are empty
+        """
+        normalized = _normalize_args_text(args_text)
+        if not normalized:
+            return "none"
+
+        for sid, data in (self._strategies_data_by_id or {}).items():
+            if not sid or sid in ("none", TCP_FAKE_DISABLED_STRATEGY_ID):
+                continue
+            args_val = (data or {}).get("args") if isinstance(data, dict) else ""
+            if isinstance(args_val, (list, tuple)):
+                args_val = "\n".join([str(a) for a in args_val if a is not None])
+            candidate = _normalize_args_text(str(args_val or ""))
+            if candidate and candidate == normalized:
+                return sid
+
+        return CUSTOM_STRATEGY_ID
+
+    def _extract_desync_techniques_from_args(self, args_text: str) -> list[str]:
+        out: list[str] = []
+        for raw in (args_text or "").splitlines():
+            line = raw.strip()
+            if not line or not line.startswith("--"):
+                continue
+            tech = _extract_desync_technique_from_arg(line)
+            if tech:
+                out.append(tech)
+        return out
+
+    def _infer_tcp_phase_key_for_strategy_args(self, args_text: str) -> str | None:
+        """
+        Returns a single phase key if all desync lines belong to the same phase.
+        Otherwise returns None (multi-phase/unknown).
+        """
+        phase_keys: set[str] = set()
+        for tech in self._extract_desync_techniques_from_args(args_text):
+            phase = _map_desync_technique_to_tcp_phase(tech)
+            if phase:
+                phase_keys.add(phase)
+        if len(phase_keys) == 1:
+            return next(iter(phase_keys))
+        return None
+
+    def _is_tcp_phase_active_for_ui(self, phase_key: str) -> bool:
+        """
+        Phase is considered "active" when it contributes something to the args chain.
+
+        - fake=disabled is NOT active
+        - custom is active only if it has non-empty args chunk
+        """
+        key = str(phase_key or "").strip().lower()
+        if not key:
+            return False
+
+        sid = (self._tcp_phase_selected_ids.get(key) or "").strip()
+        if not sid or sid == "none":
+            return False
+
+        if key == "fake" and sid == TCP_FAKE_DISABLED_STRATEGY_ID:
+            return False
+
+        if sid == CUSTOM_STRATEGY_ID:
+            chunk = _normalize_args_text(self._tcp_phase_custom_args.get(key, ""))
+            return bool(chunk)
+
+        return True
+
+    def _update_tcp_phase_chip_markers(self) -> None:
+        """Highlights all active phases with blue (even when not currently selected)."""
+        if not self._tcp_phase_mode:
+            return
+
+        try:
+            chips = dict(self._phase_chips or {})
+        except Exception:
+            chips = {}
+
+        for key, chip in chips.items():
+            try:
+                chip.set_active_marker(self._is_tcp_phase_active_for_ui(key))
+            except Exception:
+                pass
+
+    def _load_tcp_phase_state_from_preset(self) -> None:
+        """Parses current tcp_args into phase selections (best-effort)."""
+        self._tcp_phase_selected_ids = {}
+        self._tcp_phase_custom_args = {}
+        self._tcp_hide_fake_phase = False
+
+        if not (self._tcp_phase_mode and self._category_key):
+            return
+
+        args_text = self._get_category_strategy_args_text()
+        args_norm = _normalize_args_text(args_text)
+        if not args_norm:
+            # Default: fake disabled, no other phases selected.
+            self._tcp_phase_selected_ids["fake"] = TCP_FAKE_DISABLED_STRATEGY_ID
+            self._update_selected_strategy_header(self._selected_strategy_id)
+            self._update_tcp_phase_chip_markers()
+            return
+
+        # Split current args into phase chunks (keep line order).
+        phase_lines: dict[str, list[str]] = {k: [] for k in TCP_PHASE_COMMAND_ORDER}
+        for raw in args_norm.splitlines():
+            line = raw.strip()
+            if not line or line == "--new":
+                continue
+            tech = _extract_desync_technique_from_arg(line)
+            if not tech:
+                continue
+            if tech in TCP_EMBEDDED_FAKE_TECHNIQUES:
+                self._tcp_hide_fake_phase = True
+            phase = _map_desync_technique_to_tcp_phase(tech)
+            if not phase:
+                continue
+            phase_lines.setdefault(phase, []).append(line)
+
+        phase_chunks = {k: _normalize_args_text("\n".join(v)) for k, v in phase_lines.items() if v}
+
+        # Build reverse lookup: (phase_key, normalized_args) -> strategy_id
+        lookup: dict[str, dict[str, str]] = {k: {} for k in TCP_PHASE_COMMAND_ORDER}
+        for sid, data in (self._strategies_data_by_id or {}).items():
+            if not sid or sid == TCP_FAKE_DISABLED_STRATEGY_ID:
+                continue
+            args_val = (data or {}).get("args") if isinstance(data, dict) else ""
+            if isinstance(args_val, (list, tuple)):
+                args_val = "\n".join([str(a) for a in args_val if a is not None])
+            s_args = _normalize_args_text(str(args_val or ""))
+            if not s_args:
+                continue
+            phase_key = self._infer_tcp_phase_key_for_strategy_args(s_args)
+            if not phase_key:
+                continue
+            # Keep first occurrence if duplicates exist.
+            if s_args not in lookup.get(phase_key, {}):
+                lookup.setdefault(phase_key, {})[s_args] = sid
+
+        # Fake defaults to disabled if there is no explicit fake chunk.
+        if "fake" not in phase_chunks:
+            self._tcp_phase_selected_ids["fake"] = TCP_FAKE_DISABLED_STRATEGY_ID
+
+        for phase_key, chunk in phase_chunks.items():
+            if phase_key not in TCP_PHASE_COMMAND_ORDER:
+                continue
+            found = lookup.get(phase_key, {}).get(chunk)
+            if found:
+                self._tcp_phase_selected_ids[phase_key] = found
+            else:
+                self._tcp_phase_selected_ids[phase_key] = CUSTOM_STRATEGY_ID
+                self._tcp_phase_custom_args[phase_key] = chunk
+
+        self._update_selected_strategy_header(self._selected_strategy_id)
+        self._update_tcp_phase_chip_markers()
+
+    def _apply_tcp_phase_tabs_visibility(self) -> None:
+        """Shows/hides the FAKE phase tab depending on selected main techniques."""
+        if not self._tcp_phase_mode:
+            return
+
+        hide_fake = bool(self._tcp_hide_fake_phase)
+        try:
+            fake_chip = self._phase_chips.get("fake")
+            if fake_chip:
+                fake_chip.setVisible(not hide_fake)
+        except Exception:
+            pass
+
+        if hide_fake and (self._active_phase_key or "") == "fake":
+            self._set_active_phase_chip("multisplit")
+
+    def _set_active_phase_chip(self, phase_key: str) -> None:
+        """Selects a phase chip (tab) programmatically without firing user side effects twice."""
+        key = str(phase_key or "").strip().lower()
+        if not (self._tcp_phase_mode and key and key in self._phase_chips):
+            return
+
+        # If the chip is hidden, fall back to multisplit.
+        try:
+            chip = self._phase_chips.get(key)
+            if chip and not chip.isVisible():
+                key = "multisplit"
+        except Exception:
+            key = "multisplit"
+
+        # Block all signals while switching.
+        try:
+            for c in self._phase_chips.values():
+                c.blockSignals(True)
+            for k, c in self._phase_chips.items():
+                c.setChecked(k == key)
+                try:
+                    c._update_style()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        finally:
+            for c in self._phase_chips.values():
+                try:
+                    c.blockSignals(False)
+                except Exception:
+                    pass
+
+        self._active_phase_key = key
+
+    def _select_default_tcp_phase_tab(self) -> None:
+        """Chooses the initial active tab for TCP phase UI."""
+        if not self._tcp_phase_mode:
+            return
+
+        # Prefer a main phase that is currently selected.
+        preferred = None
+        for k in ("multisplit", "multidisorder", "multidisorder_legacy", "tcpseg", "oob"):
+            sid = (self._tcp_phase_selected_ids.get(k) or "").strip()
+            if sid:
+                preferred = k
+                break
+
+        if not preferred:
+            preferred = "multisplit"
+
+        if self._tcp_hide_fake_phase and preferred == "fake":
+            preferred = "multisplit"
+
+        self._set_active_phase_chip(preferred)
+
+    def _strategy_has_embedded_fake(self, strategy_id: str) -> bool:
+        """True if strategy uses a built-in fake technique (fakedsplit/fakeddisorder/hostfakesplit)."""
+        if not strategy_id:
+            return False
+        args_text = self._get_strategy_args_text_by_id(strategy_id)
+        for tech in self._extract_desync_techniques_from_args(args_text):
+            if tech in TCP_EMBEDDED_FAKE_TECHNIQUES:
+                return True
+        return False
+
+    def _build_tcp_args_from_phase_state(self) -> str:
+        """Builds the ordered chain of --lua-desync lines for tcp_args."""
+        if not self._tcp_phase_mode:
+            return ""
+
+        out_lines: list[str] = []
+        for phase in TCP_PHASE_COMMAND_ORDER:
+            if phase == "fake" and self._tcp_hide_fake_phase:
+                continue
+
+            sid = (self._tcp_phase_selected_ids.get(phase) or "").strip()
+            if not sid:
+                continue
+
+            if phase == "fake" and sid == TCP_FAKE_DISABLED_STRATEGY_ID:
+                continue
+
+            if sid == CUSTOM_STRATEGY_ID:
+                chunk = _normalize_args_text(self._tcp_phase_custom_args.get(phase, ""))
+            else:
+                chunk = self._get_strategy_args_text_by_id(sid)
+
+            if not chunk:
+                continue
+
+            for raw in chunk.splitlines():
+                line = raw.strip()
+                if line:
+                    out_lines.append(line)
+
+        return "\n".join(out_lines).strip()
+
+    def _save_tcp_phase_state_to_preset(self, *, show_loading: bool = True) -> None:
+        """Persists current phase state into preset tcp_args and emits selection update."""
+        if not (self._tcp_phase_mode and self._category_key):
+            return
+
+        new_args = self._build_tcp_args_from_phase_state()
+
+        try:
+            preset = self._preset_manager.get_active_preset()
+            if not preset:
+                return
+
+            if self._category_key not in preset.categories:
+                preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
+
+            cat = preset.categories[self._category_key]
+            cat.tcp_args = new_args
+            cat.strategy_id = self._infer_strategy_id_from_args_exact(new_args)
+            preset.touch()
+            self._preset_manager._save_and_sync_preset(preset)
+
+            # Update local state for enable toggle / UI.
+            self._selected_strategy_id = cat.strategy_id or "none"
+            self._current_strategy_id = cat.strategy_id or "none"
+            self._enable_toggle.setChecked(self._selected_strategy_id != "none", block_signals=True)
+            self._set_category_enabled_ui(self._selected_strategy_id != "none")
+            self._refresh_args_editor_state()
+
+            # UI feedback
+            if show_loading and self._selected_strategy_id != "none":
+                self.show_loading()
+            elif self._selected_strategy_id == "none":
+                self._stop_loading()
+                self._success_icon.hide()
+
+            self._update_selected_strategy_header(self._selected_strategy_id)
+            self._update_tcp_phase_chip_markers()
+
+            # Notify main page (strategy id is "custom" for multi-phase)
+            self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
+
+        except Exception as e:
+            log(f"TCP phase save failed: {e}", "ERROR")
+
+    def _on_tcp_phase_row_clicked(self, strategy_id: str) -> None:
+        """TCP multi-phase: applies selection for the currently active phase."""
+        if not (self._tcp_phase_mode and self._category_key and self._strategies_tree):
+            return
+
+        phase = (self._active_phase_key or "").strip().lower()
+        if not phase:
+            return
+
+        sid = str(strategy_id or "").strip()
+        if not sid:
+            return
+
+        # Clicking a hidden/filtered row should not happen, but be defensive.
+        try:
+            if not self._strategies_tree.is_strategy_visible(sid):
+                return
+        except Exception:
+            pass
+
+        # Fake phase: clicking the same strategy again toggles it off.
+        if phase == "fake":
+            current = (self._tcp_phase_selected_ids.get("fake") or "").strip()
+            if current and current == sid:
+                # Same click toggles fake off (no separate "disabled" row).
+                self._tcp_phase_selected_ids["fake"] = TCP_FAKE_DISABLED_STRATEGY_ID
+                self._tcp_phase_custom_args.pop("fake", None)
+                try:
+                    self._strategies_tree.clear_active_strategy()
+                except Exception:
+                    pass
+            else:
+                self._tcp_phase_selected_ids["fake"] = sid
+                self._tcp_phase_custom_args.pop("fake", None)
+                self._strategies_tree.set_selected_strategy(sid)
+
+            self._save_tcp_phase_state_to_preset(show_loading=True)
+            return
+
+        # Other phases: toggle off when clicking the currently selected strategy.
+        current = (self._tcp_phase_selected_ids.get(phase) or "").strip()
+        if current == sid:
+            self._tcp_phase_selected_ids.pop(phase, None)
+            self._tcp_phase_custom_args.pop(phase, None)
+            try:
+                self._strategies_tree.clear_active_strategy()
+            except Exception:
+                pass
+        else:
+            self._tcp_phase_selected_ids[phase] = sid
+            self._tcp_phase_custom_args.pop(phase, None)
+            self._strategies_tree.set_selected_strategy(sid)
+
+        # Embedded-fake techniques remove the FAKE phase tab and suppress separate --lua-desync=fake.
+        hide_fake = any(
+            self._strategy_has_embedded_fake(sel_id)
+            for k, sel_id in self._tcp_phase_selected_ids.items()
+            if k != "fake" and sel_id and sel_id not in (CUSTOM_STRATEGY_ID, TCP_FAKE_DISABLED_STRATEGY_ID)
+        )
+        if not hide_fake:
+            # Also detect embedded-fake inside custom chunks.
+            for k, chunk in (self._tcp_phase_custom_args or {}).items():
+                if k == "fake":
+                    continue
+                for tech in self._extract_desync_techniques_from_args(chunk):
+                    if tech in TCP_EMBEDDED_FAKE_TECHNIQUES:
+                        hide_fake = True
+                        break
+                if hide_fake:
+                    break
+        self._tcp_hide_fake_phase = hide_fake
+        self._apply_tcp_phase_tabs_visibility()
+
+        self._save_tcp_phase_state_to_preset(show_loading=True)
 
     def _set_category_enabled_ui(self, enabled: bool) -> None:
         """Hides all settings/strategy UI when the category is disabled."""
@@ -2912,16 +3732,92 @@ class StrategyDetailPage(BasePage):
             self._active_filters.discard(technique)
         self._apply_filters()
 
+    def _on_phase_tab_toggled(self, phase_key: str, active: bool) -> None:
+        """TCP multi-phase: handler for phase "tab" selection."""
+        if not self._tcp_phase_mode:
+            return
+
+        key = str(phase_key or "").strip().lower()
+        if not key:
+            return
+
+        if active:
+            self._active_phase_key = key
+            try:
+                if self._category_key:
+                    self._last_active_phase_key_by_category[self._category_key] = key
+                    self._save_category_last_tcp_phase_tab(self._category_key, key)
+            except Exception:
+                pass
+            self._apply_filters()
+            self._sync_tree_selection_to_active_phase()
+            return
+
+        # Keep one tab active: if the current tab gets unchecked and no other is checked,
+        # restore it back.
+        if key == (self._active_phase_key or ""):
+            any_checked = any(bool(chip.isChecked()) for chip in self._phase_chips.values())
+            if not any_checked and key in self._phase_chips:
+                try:
+                    chip = self._phase_chips[key]
+                    chip.blockSignals(True)
+                    chip.setChecked(True)
+                    try:
+                        chip._update_style()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                finally:
+                    try:
+                        chip.blockSignals(False)
+                    except Exception:
+                        pass
+
     def _apply_filters(self):
         """Применяет фильтры по технике к списку стратегий"""
         if not self._strategies_tree:
             return
         search_text = self._search_input.text() if self._search_input else ""
+        if self._tcp_phase_mode:
+            try:
+                self._strategies_tree.set_all_strategies_phase(self._active_phase_key)
+            except Exception:
+                pass
+            self._strategies_tree.apply_phase_filter(search_text, self._active_phase_key)
+            self._sync_tree_selection_to_active_phase()
+            return
+
+        try:
+            self._strategies_tree.set_all_strategies_phase(None)
+        except Exception:
+            pass
         self._strategies_tree.apply_filter(search_text, self._active_filters)
         # Filtering/hiding can drop visual selection; restore for the active strategy if visible.
         sid = self._selected_strategy_id or self._current_strategy_id or "none"
         if sid and self._strategies_tree.has_strategy(sid) and self._strategies_tree.is_strategy_visible(sid):
             self._strategies_tree.set_selected_strategy(sid)
+
+    def _sync_tree_selection_to_active_phase(self) -> None:
+        """TCP multi-phase: restores highlighted row for the currently active phase."""
+        if not (self._tcp_phase_mode and self._strategies_tree):
+            return
+
+        phase = (self._active_phase_key or "").strip().lower()
+        if not phase:
+            try:
+                self._strategies_tree.clear_active_strategy()
+            except Exception:
+                pass
+            return
+
+        sid = (self._tcp_phase_selected_ids.get(phase) or "").strip()
+        if sid and sid != CUSTOM_STRATEGY_ID and self._strategies_tree.has_strategy(sid) and self._strategies_tree.is_strategy_visible(sid):
+            self._strategies_tree.set_selected_strategy(sid)
+            return
+
+        try:
+            self._strategies_tree.clear_active_strategy()
+        except Exception:
+            pass
 
     def _show_sort_menu(self):
         """Показывает меню сортировки"""

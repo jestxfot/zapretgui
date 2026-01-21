@@ -15,15 +15,18 @@ The content is copied to:
 
 from typing import Optional
 
-DEFAULT_PRESET_CONTENT = r"""# Preset: Default
-# ActivePreset: Default
+DEFAULT_PRESET_CONTENT = r"""# Preset: 1
+# ActivePreset: 1
+# Modified: 2026-01-21T17:52:34.648239
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
+--lua-init=@lua/custom_diag.lua
+--ctrack-disable=0
 --ipcache-lifetime=8400
---ipcache-hostname=1 
+--ipcache-hostname=1
 --wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
 --wf-udp-out=80,443
 --wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
@@ -91,7 +94,7 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --filter-tcp=80,443
 --hostlist=lists/youtube.txt
 --out-range=-d8
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
 
 --new
 
@@ -113,21 +116,26 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --filter-tcp=443
 --hostlist-domains=updates.discord.com
 --out-range=-d10
---lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
---out-range=-d10
---lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+--out-range=-n10
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=fake:blob=tls7:tcp_ack=-66000:tcp_ts_up:tls_mod=rnd
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist-domains=discord.media
---out-range=-n8
---lua-desync=multisplit
+--out-range=-d8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
+--lua-desync=multisplit:pos=1:repeats=10:tcp_ack=-66000:tcp_ts_up:ip_ttl=4:ip6_ttl=4
 
 --new
 
@@ -135,15 +143,6 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --payload=stun,discord_ip_discovery
 --out-range=-n8
 --lua-desync=fake:blob=fake_default_udp
-
---new
-
---filter-tcp=80,443
---ipset=lists/ipset-telegram.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=pass
 
 --new
 
@@ -161,6 +160,14 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: Default
 --hostlist=lists/russia-blacklist.txt
 --out-range=-d10
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=80,443
+--ipset=lists/ipset-tankix.txt
+--out-range=-n8
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=multidisorder:pos=host+1
 """
 
 GAMING_PRESET_CONTENT = r"""# Preset: Gaming

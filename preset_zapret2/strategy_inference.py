@@ -147,7 +147,8 @@ def infer_strategy_id_from_args(
         if normalized_strategy == normalized_input:
             return strategy_id
 
-    return "none"
+    # Non-empty args that don't match any known strategy: keep category enabled in UI.
+    return "custom"
 
 
 def infer_strategy_ids_batch(

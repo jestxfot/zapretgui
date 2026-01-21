@@ -581,6 +581,24 @@ class DPIController:
                 # Проверяем что файл не пустой
                 try:
                     content = preset_path.read_text(encoding='utf-8').strip()
+
+                    # 🧹 Sanitize placeholder categories that reference non-existent stub lists.
+                    # If preset contains `lists/unknown.txt` or `lists/ipset-unknown.txt`,
+                    # drop that whole category to prevent winws2 from exiting immediately.
+                    if launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
+                        content_l = content.lower()
+                        if ("unknown.txt" in content_l) or ("ipset-unknown.txt" in content_l):
+                            try:
+                                from preset_zapret2.txt_preset_parser import (
+                                    parse_preset_file,
+                                    generate_preset_file,
+                                )
+
+                                data = parse_preset_file(preset_path)
+                                if generate_preset_file(data, preset_path, atomic=True):
+                                    content = preset_path.read_text(encoding="utf-8").strip()
+                            except Exception as e:
+                                log(f"Ошибка очистки preset файла от unknown.txt: {e}", "DEBUG")
                     # Проверяем наличие WinDivert фильтров
                     if launch_method == "direct_zapret1":
                         # Zapret 1 (winws.exe) использует синтаксис --wf-tcp= / --wf-udp=

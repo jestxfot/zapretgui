@@ -96,6 +96,13 @@ class MainWindowUI:
         
         # Подключаем сигналы
         self._connect_page_signals()
+
+        # Session memory: remember last opened direct_zapret2 category detail page.
+        # (Used to restore context when re-opening the Strategies section.)
+        if not hasattr(self, "_direct_zapret2_last_opened_category_key"):
+            self._direct_zapret2_last_opened_category_key = None  # type: ignore[attr-defined]
+        if not hasattr(self, "_direct_zapret2_restore_detail_on_open"):
+            self._direct_zapret2_restore_detail_on_open = False  # type: ignore[attr-defined]
         
     def _create_pages(self):
         """Создает все страницы контента"""
@@ -928,6 +935,13 @@ class MainWindowUI:
             # Navigate to detail page
             self.show_page(PageName.STRATEGY_DETAIL)
 
+            # Remember last opened category (session-only) for easier restore.
+            try:
+                self._direct_zapret2_last_opened_category_key = category_key
+                self._direct_zapret2_restore_detail_on_open = True
+            except Exception:
+                pass
+
             log(f"Opened category detail: {category_key}", "DEBUG")
 
         except Exception as e:
@@ -1010,7 +1024,38 @@ class MainWindowUI:
             elif method == "direct_zapret2_orchestra":
                 target_page = PageName.ZAPRET2_ORCHESTRA  # Оркестратор Zapret 2 - отдельная страница
             elif method == "direct_zapret2":
-                target_page = PageName.ZAPRET2_DIRECT
+                # Restore last opened category detail (session memory) to avoid losing context.
+                last_key = None
+                want_restore = False
+                try:
+                    last_key = getattr(self, "_direct_zapret2_last_opened_category_key", None)
+                    want_restore = bool(getattr(self, "_direct_zapret2_restore_detail_on_open", False))
+                except Exception:
+                    last_key = None
+                    want_restore = False
+
+                if want_restore and last_key:
+                    try:
+                        from strategy_menu.strategies_registry import registry
+                        category_info = registry.get_category_info(last_key)
+                        if category_info and hasattr(self, "strategy_detail_page") and hasattr(self.strategy_detail_page, "show_category"):
+                            # Get current selection from preset (source of truth).
+                            try:
+                                from preset_zapret2 import PresetManager
+                                preset_manager = PresetManager()
+                                selections = preset_manager.get_strategy_selections() or {}
+                                current_strategy_id = selections.get(last_key, "none")
+                            except Exception:
+                                current_strategy_id = "none"
+
+                            self.strategy_detail_page.show_category(last_key, category_info, current_strategy_id)
+                            target_page = PageName.STRATEGY_DETAIL
+                        else:
+                            target_page = PageName.ZAPRET2_DIRECT
+                    except Exception:
+                        target_page = PageName.ZAPRET2_DIRECT
+                else:
+                    target_page = PageName.ZAPRET2_DIRECT
             elif method == "direct_zapret1":
                 target_page = PageName.ZAPRET1_DIRECT
             else:  # bat
