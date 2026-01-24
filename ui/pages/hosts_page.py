@@ -2,6 +2,7 @@
 """Страница управления Hosts файлом - разблокировка сервисов"""
 
 import os
+import re
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -14,10 +15,87 @@ from ui.sidebar import SettingsCard
 from log import log
 from utils import get_system32_path
 
+
+FLUENT_COMBO_STYLE = """
+QComboBox {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 6px;
+    color: #ffffff;
+    padding: 6px 28px 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+}
+QComboBox:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+QComboBox:focus {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid #60cdff;
+}
+QComboBox:on {
+    background: rgba(96, 205, 255, 0.12);
+    border: 1px solid rgba(96, 205, 255, 0.35);
+}
+QComboBox::drop-down {
+    border: none;
+    width: 26px;
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid rgba(255, 255, 255, 0.65);
+    margin-right: 10px;
+}
+QComboBox::down-arrow:on {
+    border-top-color: #60cdff;
+}
+QComboBox QAbstractItemView,
+QComboBox QListView {
+    background-color: #373737;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+QComboBox QAbstractItemView::item,
+QComboBox QListView::item {
+    background: transparent;
+    color: #ffffff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    min-height: 24px;
+}
+QComboBox QAbstractItemView::item:hover,
+QComboBox QListView::item:hover {
+    background: rgba(255, 255, 255, 0.10);
+}
+QComboBox QAbstractItemView::item:selected,
+QComboBox QListView::item:selected {
+    background: rgba(96, 205, 255, 0.20);
+    color: #ffffff;
+}
+"""
+
+_DNS_PROFILE_IP_SUFFIX = re.compile(r"\s*\(\s*(?:\d{1,3}\.){3}\d{1,3}\s*\)\s*$")
+
+
+def _format_dns_profile_label(profile_name: str) -> str:
+    label = (profile_name or "").strip()
+    if not label:
+        return ""
+    return _DNS_PROFILE_IP_SUFFIX.sub("", label).strip()
+
 # Импортируем сервисы и домены
 try:
     from hosts.proxy_domains import (
         QUICK_SERVICES,
+        get_dns_profiles,
         get_all_services,
         get_service_has_geohide_ips,
         get_service_available_dns_profiles,
@@ -27,6 +105,7 @@ try:
     )
 except ImportError:
     QUICK_SERVICES = []
+    def get_dns_profiles(): return []
     def get_all_services(): return []
     def get_service_has_geohide_ips(s): return False
     def get_service_available_dns_profiles(s): return []
@@ -375,7 +454,70 @@ class HostsPage(BasePage):
         
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
-        
+
+    def _configure_fluent_combo(self, combo: QComboBox) -> None:
+        combo.setStyleSheet(FLUENT_COMBO_STYLE)
+        combo.setFixedHeight(32)
+        combo.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _get_dns_profile_families(self) -> tuple[str | None, list[str]]:
+        profiles = list(get_dns_profiles() or [])
+
+        zapret = next((p for p in profiles if "zapret" in (p or "").strip().lower()), None)
+
+        def is_direct(profile_name: str) -> bool:
+            s = (profile_name or "").strip().lower()
+            return (
+                "без прокси" in s
+                or "из файла" in s
+                or "no proxy" in s
+                or "direct" in s
+            )
+
+        direct = next((p for p in profiles if is_direct(p)), None)
+        geohide_candidates = [p for p in profiles if p and p != zapret and p != direct]
+        return zapret, geohide_candidates
+
+    def _bulk_apply_dns_profile(self, service_names: list[str], profile_name: str) -> None:
+        if self._applying:
+            return
+
+        changed = False
+        for service_name in service_names:
+            combo = self.service_combos.get(service_name)
+            if not combo:
+                continue
+
+            available = list(get_service_available_dns_profiles(service_name) or [])
+
+            target_profile = profile_name if profile_name in available else ""
+            target_idx = combo.findData(target_profile) if target_profile else 0
+            if target_idx < 0:
+                target_idx = 0
+
+            if combo.currentIndex() != target_idx:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(target_idx)
+                combo.blockSignals(False)
+                changed = True
+
+            if not target_profile:
+                if service_name in self._service_dns_selection:
+                    self._service_dns_selection.pop(service_name, None)
+                    changed = True
+            else:
+                if self._service_dns_selection.get(service_name) != target_profile:
+                    self._service_dns_selection[service_name] = target_profile
+                    changed = True
+
+            self._update_profile_row_visual(service_name)
+
+        if not changed:
+            return
+
+        save_user_hosts_selection(self._service_dns_selection)
+        self._apply_current_selection()
+	        
     def _build_services_selectors(self):
         OFF_LABEL = "Откл."
 
@@ -403,6 +545,7 @@ class HostsPage(BasePage):
                     "claude",
                     "copilot",
                     "grok",
+                    "manus",
                 )
             )
 
@@ -425,7 +568,54 @@ class HostsPage(BasePage):
                 if not names:
                     return
 
-                card = SettingsCard(title)
+                card = SettingsCard()
+
+                header = QHBoxLayout()
+                header.setContentsMargins(0, 0, 0, 0)
+                header.setSpacing(10)
+
+                title_label = QLabel(title)
+                title_label.setStyleSheet(
+                    """
+                    QLabel {
+                        color: #ffffff;
+                        font-size: 14px;
+                        font-weight: 600;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }
+                    """
+                )
+                header.addWidget(title_label, 1, Qt.AlignmentFlag.AlignVCenter)
+
+                group_combo = QComboBox()
+                self._configure_fluent_combo(group_combo)
+                group_combo.setMinimumWidth(180)
+                group_combo.addItem("Для категории…", None)
+                zapret_profile, geohide_profiles = self._get_dns_profile_families()
+                if zapret_profile:
+                    group_combo.addItem(
+                        f"Все → {_format_dns_profile_label(zapret_profile)}",
+                        zapret_profile,
+                    )
+                for p in geohide_profiles:
+                    group_combo.addItem(
+                        f"GeoHide → {_format_dns_profile_label(p)}",
+                        p,
+                    )
+
+                def on_group_combo_changed(_index: int, c=group_combo, n=tuple(names)) -> None:
+                    profile_name = c.currentData()
+                    if isinstance(profile_name, str) and profile_name.strip():
+                        self._bulk_apply_dns_profile(list(n), profile_name.strip())
+                    c.blockSignals(True)
+                    c.setCurrentIndex(0)
+                    c.blockSignals(False)
+
+                group_combo.currentIndexChanged.connect(on_group_combo_changed)
+                header.addWidget(group_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                card.add_layout(header)
+
                 for service_name in names:
                     row = QHBoxLayout()
                     row.setContentsMargins(0, 0, 0, 0)
@@ -442,22 +632,26 @@ class HostsPage(BasePage):
                     row.addWidget(name_label, 1, Qt.AlignmentFlag.AlignVCenter)
 
                     combo = QComboBox()
-                    combo.setFixedHeight(28)
-                    combo.setCursor(Qt.CursorShape.PointingHandCursor)
+                    self._configure_fluent_combo(combo)
+                    combo.setMinimumWidth(220)
 
                     # Откл. + доступные профили
                     available = get_service_available_dns_profiles(service_name) or []
-                    combo.addItem(OFF_LABEL)
+                    combo.addItem(OFF_LABEL, None)
                     for profile_name in available:
-                        combo.addItem(profile_name)
+                        combo.addItem(_format_dns_profile_label(profile_name), profile_name)
 
                     saved = (self._service_dns_selection or {}).get(service_name, "")
-                    if saved in available:
-                        combo.setCurrentText(saved)
+                    saved_idx = combo.findData(saved)
+                    if saved_idx >= 0:
+                        combo.setCurrentIndex(saved_idx)
                     else:
-                        combo.setCurrentText(OFF_LABEL)
+                        combo.setCurrentIndex(0)
+                        self._service_dns_selection.pop(service_name, None)
 
-                    combo.currentTextChanged.connect(lambda text, s=service_name: self._on_profile_changed(s, text))
+                    combo.currentIndexChanged.connect(
+                        lambda _idx, s=service_name, c=combo: self._on_profile_changed(s, c.currentData())
+                    )
                     row.addWidget(combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
                     card.add_layout(row)
@@ -566,7 +760,7 @@ class HostsPage(BasePage):
     # ОБРАБОТЧИКИ
     # ═══════════════════════════════════════════════════════════════
     
-    def _on_profile_changed(self, service_name: str, selected_text: str):
+    def _on_profile_changed(self, service_name: str, selected_profile: object):
         if getattr(self, "_building_services_ui", False):
             self._update_profile_row_visual(service_name)
             return
@@ -574,10 +768,11 @@ class HostsPage(BasePage):
             self._update_profile_row_visual(service_name)
             return
 
-        if selected_text == "Откл.":
+        profile_name = selected_profile.strip() if isinstance(selected_profile, str) else ""
+        if not profile_name:
             self._service_dns_selection.pop(service_name, None)
         else:
-            self._service_dns_selection[service_name] = selected_text
+            self._service_dns_selection[service_name] = profile_name
 
         save_user_hosts_selection(self._service_dns_selection)
         self._update_profile_row_visual(service_name)
@@ -599,7 +794,11 @@ class HostsPage(BasePage):
             if n == service_name:
                 icon_name = i_name
                 break
-        icon_label.setPixmap(qta.icon(icon_name or "fa5s.globe", color=color).pixmap(18, 18))
+        try:
+            icon = qta.icon(icon_name or "fa5s.globe", color=color)
+        except Exception:
+            icon = qta.icon("fa5s.globe", color=color)
+        icon_label.setPixmap(icon.pixmap(18, 18))
 
     def _apply_current_selection(self):
         if self._applying:

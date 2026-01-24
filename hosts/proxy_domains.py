@@ -434,11 +434,12 @@ QUICK_SERVICES = [
     ("fa5s.brain", "Claude", "#cc9b7a"),
     ("fa5b.microsoft", "Copilot", "#00bcf2"),
     ("fa5b.twitter", "Grok", "#1da1f2"),
+    ("fa5s.robot", "Manus", "#7c3aed"),
     # Соцсети
     ("fa5b.instagram", "Instagram", "#e4405f"),
     ("fa5b.facebook-f", "Facebook", "#1877f2"),
     ("mdi.at", "Threads", "#ffffff"),
-    ("mdi.music-note", "TikTok", "#ff0050"),
+    ("fa5b.tiktok", "TikTok", "#ff0050"),
     # Медиа и развлечения
     ("fa5b.spotify", "Spotify", "#1db954"),
     ("fa5s.film", "Netflix", "#e50914"),
@@ -458,7 +459,6 @@ QUICK_SERVICES = [
     ("fa5s.magnet", "RuTracker", "#3498db"),
     ("fa5s.magnet", "Rutor", "#e74c3c"),
     # Другое
-    ("fa5s.robot", "Manus", "#7c3aed"),
     ("fa5s.images", "Pixabay", "#00ab6c"),
     ("fa5s.box-open", "Другое", "#6c757d"),
 ]
