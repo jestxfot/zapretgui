@@ -368,7 +368,7 @@ class OrchestraPage(BasePage):
 
         # Кнопка сброса фильтра
         clear_filter_btn = QPushButton()
-        clear_filter_btn.setIcon(qta.icon("mdi.close", color="rgba(255,255,255,0.6)"))
+        clear_filter_btn.setIcon(qta.icon("mdi.close", color="#999999"))
         clear_filter_btn.setToolTip("Сбросить фильтр")
         clear_filter_btn.setFixedSize(28, 28)
         clear_filter_btn.setStyleSheet("""

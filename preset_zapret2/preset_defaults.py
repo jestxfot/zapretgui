@@ -24,6 +24,7 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: 1
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
 --lua-init=@lua/custom_diag.lua
+--lua-init=@lua/zapret-multishake.lua
 --ctrack-disable=0
 --ipcache-lifetime=8400
 --ipcache-hostname=1
@@ -116,26 +117,21 @@ DEFAULT_PRESET_CONTENT = r"""# Preset: 1
 --filter-tcp=443
 --hostlist-domains=updates.discord.com
 --out-range=-d10
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
---out-range=-n10
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=fake:blob=tls7:tcp_ack=-66000:tcp_ts_up:tls_mod=rnd
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--out-range=-d10
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist-domains=discord.media
---out-range=-d8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multisplit:pos=1:repeats=10:tcp_ack=-66000:tcp_ts_up:ip_ttl=4:ip6_ttl=4
+--out-range=-d10
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
@@ -177,8 +173,11 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 --lua-init=@lua/zapret-antidpi.lua
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
+--lua-init=@lua/custom_diag.lua
+--lua-init=@lua/zapret-multishake.lua
+--ctrack-disable=0
 --ipcache-lifetime=8400
---ipcache-hostname=1 
+--ipcache-hostname=1
 --wf-tcp-out=80,444-65535
 --wf-udp-out=80,444-65535
 --wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
@@ -268,21 +267,21 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 --filter-tcp=443
 --hostlist-domains=updates.discord.com
 --out-range=-d10
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
 --out-range=-d10
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist-domains=discord.media
---out-range=-n8
---lua-desync=multisplit
+--out-range=-d10
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 

@@ -816,7 +816,7 @@ class ChangelogCard(QFrame):
             QPushButton { background: transparent; border: none; border-radius: 4px; }
             QPushButton:hover { background: rgba(255, 255, 255, 0.1); }
         """)
-        close_icon = qta.icon('fa5s.times', color='rgba(255,255,255,0.5)')
+        close_icon = qta.icon('fa5s.times', color='#808080')
         self.close_btn.setIcon(close_icon)
         header.addWidget(self.close_btn)
         

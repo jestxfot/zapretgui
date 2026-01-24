@@ -251,7 +251,7 @@ class AdapterCard(SettingsCard):
         if self.checkbox.isChecked():
             self.check_icon.setPixmap(qta.icon('mdi.checkbox-marked', color='#4fc3f7').pixmap(18, 18))
         else:
-            self.check_icon.setPixmap(qta.icon('mdi.checkbox-blank-outline', color='rgba(255, 255, 255, 0.3)').pixmap(18, 18))
+            self.check_icon.setPixmap(qta.icon('mdi.checkbox-blank-outline', color='#4d4d4d').pixmap(18, 18))
 
 
 class NetworkPage(BasePage):

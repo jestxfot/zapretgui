@@ -63,7 +63,7 @@ class BlockedDomainRow(QFrame):
         # Иконка замка для дефолтных
         if is_default:
             lock_icon = QLabel()
-            lock_icon.setPixmap(qta.icon("mdi.lock", color="rgba(255,255,255,0.4)").pixmap(14, 14))
+            lock_icon.setPixmap(qta.icon("mdi.lock", color="#666666").pixmap(14, 14))
             lock_icon.setToolTip("Системная блокировка (нельзя изменить)")
             lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)

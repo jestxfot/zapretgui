@@ -12,7 +12,7 @@ a = Analysis(
     ['main.py'],
     pathex=[r'H:\Privacy\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[(r'H:\Privacy\zapretgui\build_zapret\zapret_certificate.cer', '.')],  # ✅ Включаем сертификат и другие data файлы
+    datas=[(r'H:\Privacy\zapretgui\build_zapret\zapret_certificate.cer', r'.'), (r'H:\Privacy\zapret\json\hosts.ini', r'json')],  # ✅ Включаем сертификат и другие data файлы
 	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
 	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
 	        'ui',

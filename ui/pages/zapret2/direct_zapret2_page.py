@@ -7,9 +7,8 @@
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QSizePolicy, QMessageBox
+    QFrame, QPushButton, QSizePolicy
 )
-from PyQt6.QtGui import QFont
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
@@ -151,11 +150,6 @@ class Zapret2StrategiesPageNew(BasePage):
             collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
             collapse_btn.clicked.connect(self._collapse_all)
             actions_layout.addWidget(collapse_btn)
-
-            # Кнопка сброса
-            self._reset_btn = ResetActionButton("Сбросить", confirm_text="По умолчанию?")
-            self._reset_btn.reset_confirmed.connect(self._reset_to_defaults)
-            actions_layout.addWidget(self._reset_btn)
 
             # Кнопка выключить все
             self._clear_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
@@ -317,31 +311,6 @@ class Zapret2StrategiesPageNew(BasePage):
 
         except Exception as e:
             log(f"Ошибка refresh_from_preset_switch: {e}", "DEBUG")
-
-    def _reset_to_defaults(self):
-        """Сбрасывает preset-zapret2.txt к встроенным настройкам по умолчанию"""
-        try:
-            from dpi.zapret2_core_restart import trigger_dpi_reload
-            from preset_zapret2 import PresetManager
-
-            preset_manager = PresetManager(
-                on_dpi_reload_needed=lambda: trigger_dpi_reload(
-                    self.parent_app,
-                    reason="preset_reset_to_defaults",
-                )
-            )
-
-            if not preset_manager.reset_active_preset_to_default_template():
-                log("Reset to default template failed", "ERROR")
-                return
-
-            log("Reset to built-in default template", "INFO")
-
-            # Перезагрузить UI
-            self._reload_strategies()
-
-        except Exception as e:
-            log(f"Ошибка сброса стратегий: {e}", "ERROR")
 
     def _clear_all(self):
         """Выключает все категории - очищает preset.categories"""

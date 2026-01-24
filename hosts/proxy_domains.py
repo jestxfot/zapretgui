@@ -1,468 +1,424 @@
-# hosts/proxy_domains.py
-# Домены разбиты по сервисам для удобного быстрого выбора
+from __future__ import annotations
 
-# ═══════════════════════════════════════════════════════════════
-# СЕРВИСЫ - каждый сервис содержит список своих доменов с IP
-# ═══════════════════════════════════════════════════════════════
+import os
+import configparser
+from dataclasses import dataclass
+from pathlib import Path
 
-SERVICES = {
-    "Discord TCP": {
-        "discord.com": "23.227.38.74",
-        "gateway.discord.gg": "23.227.38.74",
-        "updates.discord.com": "23.227.38.74",
-        "cdn.discordapp.com": "23.227.38.74",
-        "status.discord.com": "23.227.38.74",
-        "cdn.prod.website-files.com": "23.227.38.74",
-    },
-    "YouTube TCP": {
-        "www.youtube.com": "142.250.117.93",
-    },
-    "GitHub TCP": {
-        "github.com": "140.82.114.3",
-        "github.githubassets.com": "185.199.110.154",
-        "camo.githubassets.com": "185.199.110.133",
-    },
-    "Discord Voice": {
-        "finland10000.discord.media": "104.25.158.178",
-        "finland10001.discord.media": "104.25.158.178",
-        "finland10002.discord.media": "104.25.158.178",
-        "finland10003.discord.media": "104.25.158.178",
-        "finland10004.discord.media": "104.25.158.178",
-        "finland10005.discord.media": "104.25.158.178",
-        "finland10006.discord.media": "104.25.158.178",
-        "finland10007.discord.media": "104.25.158.178",
-        "finland10008.discord.media": "104.25.158.178",
-        "finland10009.discord.media": "104.25.158.178",
-        "finland10010.discord.media": "104.25.158.178",
-        "finland10011.discord.media": "104.25.158.178",
-        "finland10012.discord.media": "104.25.158.178",
-        "finland10013.discord.media": "104.25.158.178",
-        "finland10014.discord.media": "104.25.158.178",
-        "finland10015.discord.media": "104.25.158.178",
-        "finland10016.discord.media": "104.25.158.178",
-        "finland10017.discord.media": "104.25.158.178",
-        "finland10018.discord.media": "104.25.158.178",
-        "finland10019.discord.media": "104.25.158.178",
-        "finland10020.discord.media": "104.25.158.178",
-        "finland10021.discord.media": "104.25.158.178",
-        "finland10022.discord.media": "104.25.158.178",
-        "finland10023.discord.media": "104.25.158.178",
-        "finland10024.discord.media": "104.25.158.178",
-        "finland10025.discord.media": "104.25.158.178",
-        "finland10026.discord.media": "104.25.158.178",
-        "finland10027.discord.media": "104.25.158.178",
-        "finland10028.discord.media": "104.25.158.178",
-        "finland10029.discord.media": "104.25.158.178",
-        "finland10030.discord.media": "104.25.158.178",
-        "finland10031.discord.media": "104.25.158.178",
-        "finland10032.discord.media": "104.25.158.178",
-        "finland10033.discord.media": "104.25.158.178",
-        "finland10034.discord.media": "104.25.158.178",
-        "finland10035.discord.media": "104.25.158.178",
-        "finland10036.discord.media": "104.25.158.178",
-        "finland10037.discord.media": "104.25.158.178",
-        "finland10038.discord.media": "104.25.158.178",
-        "finland10039.discord.media": "104.25.158.178",
-        "finland10040.discord.media": "104.25.158.178",
-        "finland10041.discord.media": "104.25.158.178",
-        "finland10042.discord.media": "104.25.158.178",
-        "finland10043.discord.media": "104.25.158.178",
-        "finland10044.discord.media": "104.25.158.178",
-        "finland10045.discord.media": "104.25.158.178",
-        "finland10046.discord.media": "104.25.158.178",
-        "finland10047.discord.media": "104.25.158.178",
-        "finland10048.discord.media": "104.25.158.178",
-        "finland10049.discord.media": "104.25.158.178",
-        "finland10050.discord.media": "104.25.158.178",
-        "finland10051.discord.media": "104.25.158.178",
-        "finland10052.discord.media": "104.25.158.178",
-        "finland10053.discord.media": "104.25.158.178",
-        "finland10054.discord.media": "104.25.158.178",
-        "finland10055.discord.media": "104.25.158.178",
-        "finland10056.discord.media": "104.25.158.178",
-        "finland10057.discord.media": "104.25.158.178",
-        "finland10058.discord.media": "104.25.158.178",
-        "finland10059.discord.media": "104.25.158.178",
-        "finland10060.discord.media": "104.25.158.178",
-        "finland10061.discord.media": "104.25.158.178",
-        "finland10062.discord.media": "104.25.158.178",
-        "finland10063.discord.media": "104.25.158.178",
-        "finland10064.discord.media": "104.25.158.178",
-        "finland10065.discord.media": "104.25.158.178",
-        "finland10066.discord.media": "104.25.158.178",
-        "finland10067.discord.media": "104.25.158.178",
-        "finland10068.discord.media": "104.25.158.178",
-        "finland10069.discord.media": "104.25.158.178",
-        "finland10070.discord.media": "104.25.158.178",
-        "finland10071.discord.media": "104.25.158.178",
-        "finland10072.discord.media": "104.25.158.178",
-        "finland10073.discord.media": "104.25.158.178",
-        "finland10074.discord.media": "104.25.158.178",
-        "finland10075.discord.media": "104.25.158.178",
-        "finland10076.discord.media": "104.25.158.178",
-        "finland10077.discord.media": "104.25.158.178",
-        "finland10078.discord.media": "104.25.158.178",
-        "finland10079.discord.media": "104.25.158.178",
-        "finland10080.discord.media": "104.25.158.178",
-        "finland10081.discord.media": "104.25.158.178",
-        "finland10082.discord.media": "104.25.158.178",
-        "finland10083.discord.media": "104.25.158.178",
-        "finland10084.discord.media": "104.25.158.178",
-        "finland10085.discord.media": "104.25.158.178",
-        "finland10086.discord.media": "104.25.158.178",
-        "finland10087.discord.media": "104.25.158.178",
-        "finland10088.discord.media": "104.25.158.178",
-        "finland10089.discord.media": "104.25.158.178",
-        "finland10090.discord.media": "104.25.158.178",
-        "finland10091.discord.media": "104.25.158.178",
-        "finland10092.discord.media": "104.25.158.178",
-        "finland10093.discord.media": "104.25.158.178",
-        "finland10094.discord.media": "104.25.158.178",
-        "finland10095.discord.media": "104.25.158.178",
-        "finland10096.discord.media": "104.25.158.178",
-        "finland10097.discord.media": "104.25.158.178",
-        "finland10098.discord.media": "104.25.158.178",
-        "finland10099.discord.media": "104.25.158.178",
-        "finland10100.discord.media": "104.25.158.178",
-        "finland10101.discord.media": "104.25.158.178",
-        "finland10102.discord.media": "104.25.158.178",
-        "finland10103.discord.media": "104.25.158.178",
-        "finland10104.discord.media": "104.25.158.178",
-        "finland10105.discord.media": "104.25.158.178",
-        "finland10106.discord.media": "104.25.158.178",
-        "finland10107.discord.media": "104.25.158.178",
-        "finland10108.discord.media": "104.25.158.178",
-        "finland10109.discord.media": "104.25.158.178",
-        "finland10110.discord.media": "104.25.158.178",
-        "finland10111.discord.media": "104.25.158.178",
-        "finland10112.discord.media": "104.25.158.178",
-        "finland10113.discord.media": "104.25.158.178",
-        "finland10114.discord.media": "104.25.158.178",
-        "finland10115.discord.media": "104.25.158.178",
-        "finland10116.discord.media": "104.25.158.178",
-        "finland10117.discord.media": "104.25.158.178",
-        "finland10118.discord.media": "104.25.158.178",
-        "finland10119.discord.media": "104.25.158.178",
-        "finland10120.discord.media": "104.25.158.178",
-        "finland10121.discord.media": "104.25.158.178",
-        "finland10122.discord.media": "104.25.158.178",
-        "finland10123.discord.media": "104.25.158.178",
-        "finland10124.discord.media": "104.25.158.178",
-        "finland10125.discord.media": "104.25.158.178",
-        "finland10126.discord.media": "104.25.158.178",
-        "finland10127.discord.media": "104.25.158.178",
-        "finland10128.discord.media": "104.25.158.178",
-        "finland10129.discord.media": "104.25.158.178",
-        "finland10130.discord.media": "104.25.158.178",
-        "finland10131.discord.media": "104.25.158.178",
-        "finland10132.discord.media": "104.25.158.178",
-        "finland10133.discord.media": "104.25.158.178",
-        "finland10134.discord.media": "104.25.158.178",
-        "finland10135.discord.media": "104.25.158.178",
-        "finland10136.discord.media": "104.25.158.178",
-        "finland10137.discord.media": "104.25.158.178",
-        "finland10138.discord.media": "104.25.158.178",
-        "finland10139.discord.media": "104.25.158.178",
-        "finland10140.discord.media": "104.25.158.178",
-        "finland10141.discord.media": "104.25.158.178",
-        "finland10142.discord.media": "104.25.158.178",
-        "finland10143.discord.media": "104.25.158.178",
-        "finland10144.discord.media": "104.25.158.178",
-        "finland10145.discord.media": "104.25.158.178",
-        "finland10146.discord.media": "104.25.158.178",
-        "finland10147.discord.media": "104.25.158.178",
-        "finland10148.discord.media": "104.25.158.178",
-        "finland10149.discord.media": "104.25.158.178",
-        "finland10150.discord.media": "104.25.158.178",
-        "finland10151.discord.media": "104.25.158.178",
-        "finland10152.discord.media": "104.25.158.178",
-        "finland10153.discord.media": "104.25.158.178",
-        "finland10154.discord.media": "104.25.158.178",
-        "finland10155.discord.media": "104.25.158.178",
-        "finland10156.discord.media": "104.25.158.178",
-        "finland10157.discord.media": "104.25.158.178",
-        "finland10158.discord.media": "104.25.158.178",
-        "finland10159.discord.media": "104.25.158.178",
-        "finland10160.discord.media": "104.25.158.178",
-        "finland10161.discord.media": "104.25.158.178",
-        "finland10162.discord.media": "104.25.158.178",
-        "finland10163.discord.media": "104.25.158.178",
-        "finland10164.discord.media": "104.25.158.178",
-        "finland10165.discord.media": "104.25.158.178",
-        "finland10166.discord.media": "104.25.158.178",
-        "finland10167.discord.media": "104.25.158.178",
-        "finland10168.discord.media": "104.25.158.178",
-        "finland10169.discord.media": "104.25.158.178",
-        "finland10170.discord.media": "104.25.158.178",
-        "finland10171.discord.media": "104.25.158.178",
-        "finland10172.discord.media": "104.25.158.178",
-        "finland10173.discord.media": "104.25.158.178",
-        "finland10174.discord.media": "104.25.158.178",
-        "finland10175.discord.media": "104.25.158.178",
-        "finland10176.discord.media": "104.25.158.178",
-        "finland10177.discord.media": "104.25.158.178",
-        "finland10178.discord.media": "104.25.158.178",
-        "finland10179.discord.media": "104.25.158.178",
-        "finland10180.discord.media": "104.25.158.178",
-        "finland10181.discord.media": "104.25.158.178",
-        "finland10182.discord.media": "104.25.158.178",
-        "finland10183.discord.media": "104.25.158.178",
-        "finland10184.discord.media": "104.25.158.178",
-        "finland10185.discord.media": "104.25.158.178",
-        "finland10186.discord.media": "104.25.158.178",
-        "finland10187.discord.media": "104.25.158.178",
-        "finland10188.discord.media": "104.25.158.178",
-        "finland10189.discord.media": "104.25.158.178",
-        "finland10190.discord.media": "104.25.158.178",
-        "finland10191.discord.media": "104.25.158.178",
-        "finland10192.discord.media": "104.25.158.178",
-        "finland10193.discord.media": "104.25.158.178",
-        "finland10194.discord.media": "104.25.158.178",
-        "finland10195.discord.media": "104.25.158.178",
-        "finland10196.discord.media": "104.25.158.178",
-        "finland10197.discord.media": "104.25.158.178",
-        "finland10198.discord.media": "104.25.158.178",
-        "finland10199.discord.media": "104.25.158.178"
-    },
+def _log(msg: str, level: str = "INFO") -> None:
+    """Отложенный импорт log (PyQt6) чтобы модуль можно было импортировать без GUI."""
+    try:
+        from log import log as _log_impl  # type: ignore
+        _log_impl(msg, level)
+    except Exception:
+        print(f"[{level}] {msg}")
 
-    "ChatGPT": {
-        "chatgpt.com": "82.22.36.11",
-        "ab.chatgpt.com": "82.22.36.11",
-        "openai.com": "82.22.36.11",
-        "www.openai.com": "82.22.36.11",
-        "auth.openai.com": "82.22.36.11",
-        "auth0.openai.com": "82.22.36.11",
-        "platform.openai.com": "82.22.36.11",
-        "cdn.oaistatic.com": "82.22.36.11",
-        "files.oaiusercontent.com": "82.22.36.11",
-        "cdn.auth0.com": "82.22.36.11",
-        "tcr9i.chat.openai.com": "82.22.36.11",
-        "webrtc.chatgpt.com": "82.22.36.11",
-        "android.chat.openai.com": "82.22.36.11",
-        "api.openai.com": "82.22.36.11",
-        "sora.com": "82.22.36.11",
-        "sora.chatgpt.com": "82.22.36.11",
-        "videos.openai.com": "82.22.36.11",
-        "us.posthog.com": "82.22.36.11",
-        "realtime.chatgpt.com": "82.22.36.11",
-        "ws.chatgpt.com": "82.22.36.11"
-    },
-    
-    "Gemini": {
-        "gemini.google.com": "82.22.36.11",
-        "alkalimakersuite-pa.clients6.google.com": "82.22.36.11",
-        "aisandbox-pa.googleapis.com": "82.22.36.11",
-        "webchannel-alkalimakersuite-pa.clients6.google.com": "82.22.36.11",
-        "proactivebackend-pa.googleapis.com": "82.22.36.11",
-        "o.pki.goog": "82.22.36.11",
-        "labs.google": "82.22.36.11",
-        "notebooklm.google": "82.22.36.11",
-        "notebooklm.google.com": "82.22.36.11"
-    },
-    
-    "Claude": {
-        "claude.ai": "82.22.36.11",
-        "claude.com": "82.22.36.11",
-        "www.claude.com": "82.22.36.11",
-        "api.claude.ai": "82.22.36.11",
-        "anthropic.com": "82.22.36.11",
-        "www.anthropic.com": "82.22.36.11",
-        "api.anthropic.com": "82.22.36.11",
-        "consonel.anthropic.com": "82.22.36.11",
-        "a-api.anthropic.com": "82.22.36.11",
-        "s-cdn.anthropic.com": "82.22.36.11",
-        "nexus-websocket-a.intercom.io": "82.22.36.11"
-    },
-    
-    "Copilot": {
-        "copilot.microsoft.com": "82.22.36.11",
-        "sydney.bing.com": "82.22.36.11",
-        "edgeservices.bing.com": "82.22.36.11",
-        "rewards.bing.com": "82.22.36.11",
-        "xsts.auth.xboxlive.com": "82.22.36.11",
-    },
-    
-    "Grok": {
-        "grok.com": "82.22.36.11",
-        "assets.grok.com": "82.22.36.11",
-        "accounts.x.ai": "82.22.36.11",
-    },
-    
-    "Instagram": {
-        "www.instagram.com": "157.240.225.174",
-        "instagram.com": "157.240.225.174",
-        "scontent.cdninstagram.com": "157.240.224.63",
-        "scontent-hel3-1.cdninstagram.com": "157.240.224.63",
-        "static.cdninstagram.com": "31.13.72.53",
-        "b.i.instagram.com": "157.240.245.174",
-    },
-    
-    "Facebook": {
-        "facebook.com": "31.13.72.36",
-        "www.facebook.com": "31.13.72.36",
-        "static.xx.fbcdn.net": "31.13.72.12",
-        "external-hel3-1.xx.fbcdn.net": "31.13.72.12",
-        "scontent-hel3-1.xx.fbcdn.net": "31.13.72.12",
-        "z-p42-chat-e2ee-ig.facebook.com": "157.240.245.174",
-    },
-    
-    "Threads": {
-        "threads.com": "157.240.224.63",
-        "www.threads.com": "157.240.224.63",
-    },
-    
-    "Spotify": {
-        "api.spotify.com": "82.22.36.11",
-        "xpui.app.spotify.com": "82.22.36.11",
-        "appresolve.spotify.com": "82.22.36.11",
-        "login5.spotify.com": "82.22.36.11",
-        "gew1-spclient.spotify.com": "82.22.36.11",
-        "gew1-dealer.spotify.com": "82.22.36.11",
-        "spclient.wg.spotify.com": "82.22.36.11",
-        "api-partner.spotify.com": "82.22.36.11",
-        "aet.spotify.com": "82.22.36.11",
-        "www.spotify.com": "82.22.36.11",
-        "accounts.spotify.com": "82.22.36.11",
-        "spotifycdn.com": "82.22.36.11",
-        "open-exp.spotifycdn.com": "82.22.36.11",
-        "www-growth.scdn.co": "82.22.36.11",
-        "login.app.spotify.com": "82.22.36.11",
-        "accounts.scdn.co": "82.22.36.11",
-        "ap-gew1.spotify.com": "82.22.36.11",
-    },
-    
-    "Notion": {
-        "www.notion.so": "82.22.36.11",
-        "notion.so": "82.22.36.11",
-        "calendar.notion.so": "82.22.36.11",
-    },
-    
-    "Twitch": {
-        "usher.ttvnw.net": "82.22.36.11",
-        "gql.twitch.tv": "82.22.36.11",
-    },
-    
-    "DeepL": {
-        "deepl.com": "82.22.36.11",
-        "www.deepl.com": "82.22.36.11",
-        "s.deepl.com": "82.22.36.11",
-        "ita-free.www.deepl.com": "82.22.36.11",
-        "experimentation.deepl.com": "82.22.36.11",
-        "w.deepl.com": "82.22.36.11",
-        "login-wall.deepl.com": "82.22.36.11",
-        "gtm.deepl.com": "82.22.36.11",
-        "checkout.www.deepl.com": "82.22.36.11",
-    },
-    
-    "TikTok": {
-        "www.tiktok.com": "82.22.36.11",
-        "mcs-sg.tiktok.com": "82.22.36.11",
-        "mon.tiktokv.com": "82.22.36.11",
-    },
-    
-    "Netflix": {
-        "www.netflix.com": "158.255.0.189",
-        "netflix.com": "158.255.0.189",
-    },
-    
-    "Canva": {
-        "static.canva.com": "82.22.36.11",
-        "content-management-files.canva.com": "82.22.36.11",
-        "www.canva.com": "82.22.36.11",
-    },
-    
-    "ProtonMail": {
-        "protonmail.com": "3.66.189.153",
-        "mail.proton.me": "3.66.189.153",
-    },
-    
-    "ElevenLabs": {
-        "elevenlabs.io": "82.22.36.11",
-        "api.us.elevenlabs.io": "82.22.36.11",
-        "elevenreader.io": "82.22.36.11",
-    },
-    
-    "GitHub Copilot": {
-        "api.individual.githubcopilot.com": "82.22.36.11",
-        "proxy.individual.githubcopilot.com": "82.22.36.11",
-    },
-    
-    "JetBrains": {
-        "datalore.jetbrains.com": "50.7.85.221",
-        "plugins.jetbrains.com": "107.150.34.100",
-    },
-    
-    "Codeium": {
-        "codeium.com": "82.22.36.11",
-        "inference.codeium.com": "82.22.36.11",
-    },
-    
-    "SoundCloud": {
-        "soundcloud.com": "18.238.243.27",
-        "style.sndcdn.com": "13.224.222.71",
-        "a-v2.sndcdn.com": "3.164.206.34",
-        "secure.sndcdn.com": "18.165.140.56",
-    },
-    
-    "Manus": {
-        "manus.im": "82.22.36.11",
-        "api.manus.im": "82.22.36.11",
-        "manuscdn.com": "82.22.36.11",
-        "files.manuscdn.com": "82.22.36.11",
-    },
-    
-    "Pixabay": {
-        "pixabay.com": "82.22.36.11",
-        "cdn.pixabay.com": "82.22.36.11",
-    },
-    
-    "RuTracker": {
-        "rutracker.org": "172.67.182.196",
-        "static.rutracker.cc": "104.21.50.150",
-    },
-    
-    "Rutor": {
-        "rutor.info": "172.64.33.155",
-        "d.rutor.info": "172.64.33.155",
-        "rutor.is": "173.245.59.155",
-        "rutor.org": "0.0.0.0",
-    },
-    
-    "Другое": {
-        "www.aomeitech.com": "0.0.0.0",
-        "www.intel.com": "82.22.36.11",
-        "www.dell.com": "82.22.36.11",
-        "developer.nvidia.com": "82.22.36.11",
-        "truthsocial.com": "204.12.192.221",
-        "static-assets-1.truthsocial.com": "204.12.192.221",
-        "autodesk.com": "94.131.119.85",
-        "accounts.autodesk.com": "94.131.119.85",
-        "www.hulu.com": "2.19.183.66",
-        "hulu.com": "2.22.31.233",
-        "anilib.me": "172.67.192.246",
-        "ntc.party": "130.255.77.28",
-        "pump.fun": "82.22.36.11",
-        "frontend-api-v3.pump.fun": "82.22.36.11",
-        "images.pump.fun": "82.22.36.11",
-        "swap-api.pump.fun": "82.22.36.11",
-        "www.elgato.com": "82.22.36.11",
-        "info.dns.malw.link": "104.21.24.110",
-        "only-fans.uk": "0.0.0.0",
-        "only-fans.me": "0.0.0.0",
-        "only-fans.wtf": "0.0.0.0",
-    },
+
+@dataclass(frozen=True)
+class HostsCatalog:
+    dns_profiles: list[str]
+    services: dict[str, dict[str, list[str]]]
+    service_order: list[str]
+
+
+_SPECIAL_SECTIONS = {
+    "dns",
+    # meta sections from older formats (must not be treated as services)
+    "static",
+    "profiles",
+    "selectedprofiles",
+    "selectedstatic",
 }
 
-# ═══════════════════════════════════════════════════════════════
-# PROXY_DOMAINS - объединённый словарь для совместимости
-# ═══════════════════════════════════════════════════════════════
+_MISSING_IP_MARKERS = {
+    "-",
+    "—",
+    "none",
+    "null",
+    "off",
+    "disabled",
+    "откл",
+    "откл.",
+}
 
-PROXY_DOMAINS = {}
-for service_domains in SERVICES.values():
-    PROXY_DOMAINS.update(service_domains)
+_CACHE: HostsCatalog | None = None
+_CACHE_MTIME: float | None = None
+
+
+def _get_project_root() -> Path:
+    # hosts/proxy_domains.py -> hosts/ -> project root
+    return Path(__file__).resolve().parent.parent
+
+
+def _get_catalog_hosts_ini_path() -> Path:
+    """
+    Каталог доменов/профилей (без настроек пользователя).
+
+    В проде генерируется как `<project>/json/hosts.ini`.
+    """
+    # Primary location: inside this project (bundled by PyInstaller into sys._MEIPASS/json/hosts.ini).
+    local = _get_project_root() / "json" / "hosts.ini"
+    if local.exists():
+        return local
+
+    # Dev fallback: some setups generate the catalog in a sibling repo (e.g. `../zapret/json/hosts.ini`).
+    sibling = _get_project_root().parent / "zapret" / "json" / "hosts.ini"
+    if sibling.exists():
+        return sibling
+
+    return local
+
+
+def _get_user_hosts_ini_path() -> Path:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "zapret" / "user_hosts.ini"
+    return Path.home() / ".config" / "zapret" / "user_hosts.ini"
+
+
+def _parse_bool(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v in ("1", "true", "yes", "y", "on", "enabled", "enable")
+
+
+def get_hosts_catalog_ini_path() -> Path:
+    return _get_catalog_hosts_ini_path()
+
+
+def get_user_hosts_ini_path() -> Path:
+    return _get_user_hosts_ini_path()
+
+
+def _parse_hosts_ini(text: str) -> HostsCatalog:
+    dns_profiles: list[str] = []
+    services: dict[str, dict[str, list[str]]] = {}
+    service_order: list[str] = []
+
+    current_section: str | None = None
+    pending_domain: str | None = None
+    pending_ips: list[str] = []
+
+    def flush_domain() -> None:
+        nonlocal pending_domain, pending_ips
+        if not current_section:
+            pending_domain = None
+            pending_ips = []
+            return
+
+        sec = current_section.strip()
+        if not sec or sec.lower() in _SPECIAL_SECTIONS:
+            pending_domain = None
+            pending_ips = []
+            return
+
+        if pending_domain:
+            services.setdefault(sec, {})[pending_domain] = list(pending_ips)
+        pending_domain = None
+        pending_ips = []
+
+    def flush_section() -> None:
+        flush_domain()
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+
+        # Comments / empty
+        if not line or line.startswith("#"):
+            # Empty line ends current domain block in service sections.
+            if current_section and current_section.strip().lower() not in _SPECIAL_SECTIONS:
+                flush_domain()
+            continue
+
+        # Section header
+        if line.startswith("[") and line.endswith("]"):
+            flush_section()
+            current_section = line[1:-1].strip()
+            if current_section and current_section.strip().lower() not in _SPECIAL_SECTIONS:
+                if current_section not in services:
+                    services[current_section] = {}
+                    service_order.append(current_section)
+            continue
+
+        if not current_section:
+            continue
+
+        sec_norm = current_section.strip().lower()
+        if sec_norm == "dns":
+            dns_profiles.append(line)
+            continue
+
+        # Service section: domain line then N IP lines
+        if pending_domain is None:
+            pending_domain = line
+            pending_ips = []
+        else:
+            ip_value = line
+            if ip_value.strip().lower() in _MISSING_IP_MARKERS:
+                ip_value = ""
+            pending_ips.append(ip_value)
+
+    flush_section()
+
+    return HostsCatalog(
+        dns_profiles=dns_profiles,
+        services=services,
+        service_order=service_order,
+    )
+
+
+def _load_catalog() -> HostsCatalog:
+    global _CACHE, _CACHE_MTIME
+
+    path = get_hosts_catalog_ini_path()
+    try:
+        mtime = path.stat().st_mtime if path.exists() else None
+    except Exception:
+        mtime = None
+
+    if _CACHE is not None and _CACHE_MTIME is not None and mtime is not None and mtime == _CACHE_MTIME:
+        return _CACHE
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    except Exception as e:
+        _log(f"Не удалось прочитать hosts.ini: {e}", "WARNING")
+        text = ""
+
+    _CACHE = _parse_hosts_ini(text)
+    _CACHE_MTIME = mtime
+    return _CACHE
+
+
+def invalidate_hosts_catalog_cache() -> None:
+    global _CACHE, _CACHE_MTIME
+    _CACHE = None
+    _CACHE_MTIME = None
+
+
+def get_dns_profiles() -> list[str]:
+    return list(_load_catalog().dns_profiles)
+
+
+def get_all_services() -> list[str]:
+    return list(_load_catalog().service_order)
+
+def get_service_domain_names(service_name: str) -> list[str]:
+    """Возвращает список доменов сервиса (без привязки к профилю)."""
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    return list(domains.keys())
+
+
+def get_service_domains(service_name: str) -> dict[str, str]:
+    """Домены сервиса (IP по умолчанию = профиль 0)."""
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    out: dict[str, str] = {}
+    for domain, ips in domains.items():
+        if ips and ips[0]:
+            out[domain] = ips[0]
+    return out
+
+
+def get_service_available_dns_profiles(service_name: str) -> list[str]:
+    """
+    Возвращает список DNS-профилей, доступных для сервиса.
+
+    Профиль доступен если ДЛЯ КАЖДОГО домена сервиса есть IP на этом индексе.
+    """
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    if not domains:
+        return []
+
+    available: list[str] = []
+    for profile_index, profile_name in enumerate(cat.dns_profiles):
+        ok = True
+        for ips in domains.values():
+            if not ips or profile_index >= len(ips) or not ips[profile_index]:
+                ok = False
+                break
+        if ok:
+            available.append(profile_name)
+    return available
+
+
+def _is_direct_profile_name(profile_name: str) -> bool:
+    name = (profile_name or "").strip().lower()
+    if not name:
+        return False
+    return (
+        "без прокси" in name
+        or "из файла" in name
+        or "no proxy" in name
+        or "direct" in name
+    )
+
+
+def _infer_direct_profile_index(cat: HostsCatalog) -> int | None:
+    # First try: by name (stable for user renames of other profiles).
+    for i, profile_name in enumerate(cat.dns_profiles):
+        if _is_direct_profile_name(profile_name):
+            return i
+
+    # Fallback: choose profile column with the most distinct IPs across the whole catalog.
+    if not cat.dns_profiles:
+        return None
+
+    distinct: list[set[str]] = [set() for _ in cat.dns_profiles]
+    for domains in (cat.services or {}).values():
+        for ips in (domains or {}).values():
+            for idx, ip in enumerate((ips or [])[: len(distinct)]):
+                ip = (ip or "").strip()
+                if ip:
+                    distinct[idx].add(ip)
+
+    best_idx = 0
+    best_count = -1
+    for idx, values in enumerate(distinct):
+        if len(values) > best_count:
+            best_count = len(values)
+            best_idx = idx
+    return best_idx
+
+
+def _get_proxy_profile_indices(cat: HostsCatalog) -> list[int]:
+    direct_idx = _infer_direct_profile_index(cat)
+    if direct_idx is None:
+        return list(range(len(cat.dns_profiles)))
+    return [i for i in range(len(cat.dns_profiles)) if i != direct_idx]
+
+
+def _service_has_proxy_ips(cat: HostsCatalog, service_name: str) -> bool:
+    """
+    True если у сервиса есть ХОТЯ БЫ ОДИН домен с IP в proxy/hide колонках.
+
+    Proxy/hide колонки определяются автоматически (все профили кроме "direct"/"Без прокси").
+    """
+    domains = cat.services.get(service_name, {}) or {}
+    if not domains:
+        return False
+
+    proxy_indices = _get_proxy_profile_indices(cat)
+    if not proxy_indices:
+        return False
+
+    for ips in domains.values():
+        for idx in proxy_indices:
+            if ips and idx < len(ips) and (ips[idx] or "").strip():
+                return True
+    return False
+
+
+def get_service_has_geohide_ips(service_name: str) -> bool:
+    """
+    Back-compat API for UI: returns True if service has proxy/hide IPs.
+
+    Note: historically this was tied to GeoHide DNS naming, but now detection is name-agnostic
+    to support user-renamed DNS profile titles.
+    """
+    return _service_has_proxy_ips(_load_catalog(), service_name)
+
+
+def get_service_domain_ip_map(service_name: str, profile_name: str) -> dict[str, str]:
+    """Возвращает {domain: ip} для сервиса под выбранный профиль, или {} если профиль неполный."""
+    cat = _load_catalog()
+    if profile_name not in cat.dns_profiles:
+        return {}
+    profile_index = cat.dns_profiles.index(profile_name)
+
+    domains = cat.services.get(service_name, {}) or {}
+    out: dict[str, str] = {}
+    for domain, ips in domains.items():
+        if not ips or profile_index >= len(ips) or not ips[profile_index]:
+            return {}
+        out[domain] = ips[profile_index]
+    return out
+
+
+def load_user_hosts_selection() -> dict[str, str]:
+    """
+    Возвращает выбор пользователя: {service_name: profile_name}.
+
+    Хранится отдельно от каталога доменов в `%APPDATA%/zapret/user_hosts.ini`.
+    """
+    user_path = get_user_hosts_ini_path()
+    path = user_path
+    migrate_to_new_path = False
+
+    if not user_path.exists():
+        # Back-compat: earlier builds could store the selection in `%APPDATA%/zapret/hosts.ini`.
+        legacy_path = user_path.with_name("hosts.ini")
+        if legacy_path.exists():
+            try:
+                with legacy_path.open("r", encoding="utf-8", errors="replace") as f:
+                    sample = f.read(64 * 1024).lower()
+                if "[profiles]" in sample or "[selectedprofiles]" in sample:
+                    path = legacy_path
+                    migrate_to_new_path = True
+            except Exception:
+                pass
+
+    if not path.exists():
+        return {}
+
+    parser = configparser.ConfigParser(strict=False)
+    parser.optionxform = str
+    try:
+        parser.read(path, encoding="utf-8")
+    except Exception as e:
+        _log(f"Не удалось прочитать user_hosts.ini: {e}", "WARNING")
+        return {}
+
+    section = None
+    if parser.has_section("profiles"):
+        section = "profiles"
+    elif parser.has_section("SelectedProfiles"):
+        # compatibility
+        section = "SelectedProfiles"
+
+    if not section:
+        return {}
+
+    out: dict[str, str] = {}
+    for service_name, profile_name in parser.items(section):
+        service_name = (service_name or "").strip()
+        profile_name = (profile_name or "").strip()
+        if service_name and profile_name:
+            out[service_name] = profile_name
+
+    if migrate_to_new_path and out:
+        save_user_hosts_selection(out)
+    return out
+
+
+def save_user_hosts_selection(selected_profiles: dict[str, str]) -> bool:
+    """Сохраняет выбор пользователя в `%APPDATA%/zapret/user_hosts.ini`."""
+    path = get_user_hosts_ini_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        parser = configparser.ConfigParser()
+        parser.optionxform = str
+        parser["profiles"] = {}
+
+        for service_name in sorted((selected_profiles or {}).keys(), key=lambda s: s.lower()):
+            profile_name = (selected_profiles.get(service_name) or "").strip()
+            service_name = (service_name or "").strip()
+            if service_name and profile_name:
+                parser["profiles"][service_name] = profile_name
+
+        with path.open("w", encoding="utf-8") as f:
+            f.write("# Zapret GUI: hosts selection\n")
+            parser.write(f)
+        return True
+    except Exception as e:
+        _log(f"Не удалось сохранить user_hosts.ini: {e}", "WARNING")
+        return False
+
 
 # ═══════════════════════════════════════════════════════════════
-# БЫСТРЫЙ ВЫБОР - ВСЕ сервисы для кнопок быстрого выбора
+# UI hints (иконки/цвета) — без доменов и IP
 # Формат: (иконка_qtawesome, название, цвет_иконки)
 # ═══════════════════════════════════════════════════════════════
 
@@ -474,6 +430,7 @@ QUICK_SERVICES = [
     ("fa5b.discord", "Discord Voice", "#5865f2"),
     ("mdi.robot", "ChatGPT", "#10a37f"),
     ("mdi.google", "Gemini", "#4285f4"),
+    ("mdi.google", "Gemini AI", "#4285f4"),
     ("fa5s.brain", "Claude", "#cc9b7a"),
     ("fa5b.microsoft", "Copilot", "#00bcf2"),
     ("fa5b.twitter", "Grok", "#1da1f2"),
@@ -505,37 +462,3 @@ QUICK_SERVICES = [
     ("fa5s.images", "Pixabay", "#00ab6c"),
     ("fa5s.box-open", "Другое", "#6c757d"),
 ]
-
-# ═══════════════════════════════════════════════════════════════
-# ПРЕСЕТЫ - готовые наборы сервисов
-# ═══════════════════════════════════════════════════════════════
-
-# Пресеты: (иконка_qtawesome, цвет, список_сервисов)
-PRESETS = {
-    "Минимум": ("fa5s.check-circle", "#60cdff", ["ChatGPT", "Instagram", "Spotify"]),
-    "Все AI": ("fa5s.robot", "#60cdff", ["ChatGPT", "Gemini", "Claude", "Copilot", "Grok", "ElevenLabs", "GitHub Copilot", "Codeium"]),
-    "Соцсети": ("fa5s.users", "#60cdff", ["Instagram", "Facebook", "Threads", "TikTok"]),
-    "Популярное": ("fa5s.star", "#60cdff", ["ChatGPT", "Claude", "Instagram", "Spotify", "Notion", "DeepL"]),
-}
-
-
-def get_service_domains(service_name: str) -> dict:
-    """Возвращает домены сервиса"""
-    return SERVICES.get(service_name, {})
-
-
-def get_preset_domains(preset_name: str) -> dict:
-    """Возвращает все домены для пресета"""
-    domains = {}
-    preset_data = PRESETS.get(preset_name)
-    if preset_data:
-        # Новый формат: (icon, color, services)
-        services = preset_data[2] if len(preset_data) >= 3 else []
-        for service in services:
-            domains.update(get_service_domains(service))
-    return domains
-
-
-def get_all_services() -> list:
-    """Возвращает список всех сервисов"""
-    return list(SERVICES.keys())

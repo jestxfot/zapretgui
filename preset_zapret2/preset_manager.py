@@ -1433,6 +1433,99 @@ class PresetManager:
             log(f"Error resetting active preset to built-in template: {e}", "ERROR")
             return False
 
+    def reset_preset_to_default_template(self, preset_name: str) -> bool:
+        """
+        Resets a specific (non-built-in) preset to the built-in `Default` template and activates it.
+
+        Overwrites:
+        - presets/{preset_name}.txt
+        - preset-zapret2.txt
+        """
+        from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
+        from .txt_preset_parser import parse_preset_content
+        from .strategy_inference import infer_strategy_id_from_args
+
+        name = (preset_name or "").strip()
+        if not name:
+            return False
+
+        try:
+            if not preset_exists(name):
+                log(f"Cannot reset: preset '{name}' not found", "ERROR")
+                return False
+
+            existing = load_preset(name)
+            if not existing:
+                log(f"Cannot reset: failed to load preset '{name}'", "ERROR")
+                return False
+
+            if existing.is_builtin:
+                log(f"Cannot reset built-in preset '{name}'", "WARNING")
+                return False
+
+            template_content = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+            data = parse_preset_content(template_content)
+
+            preset = Preset(name=name, base_args=data.base_args, is_builtin=False)
+            preset.created = existing.created
+            preset.description = existing.description
+
+            for block in data.categories:
+                cat_name = block.category
+                if cat_name not in preset.categories:
+                    preset.categories[cat_name] = CategoryConfig(
+                        name=cat_name,
+                        filter_mode=block.filter_mode or "hostlist",
+                        syndata_tcp=SyndataSettings.get_defaults(),
+                        syndata_udp=SyndataSettings.get_defaults_udp(),
+                    )
+
+                cat = preset.categories[cat_name]
+                cat.filter_mode = block.filter_mode or cat.filter_mode or "hostlist"
+
+                if block.protocol == "tcp":
+                    cat.tcp_enabled = True
+                    cat.tcp_port = block.port
+                    cat.tcp_args = (block.strategy_args or "").strip()
+                elif block.protocol == "udp":
+                    cat.udp_enabled = True
+                    cat.udp_port = block.port
+                    cat.udp_args = (block.strategy_args or "").strip()
+
+                # Prefer explicit overrides from the template block if present.
+                if getattr(block, "syndata_dict", None):
+                    if block.protocol == "tcp":
+                        base = cat.syndata_tcp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_tcp = SyndataSettings.from_dict(base)
+                    elif block.protocol == "udp":
+                        base = cat.syndata_udp.to_dict()
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
+                        cat.syndata_udp = SyndataSettings.from_dict(base)
+
+            for cat_name, cat in preset.categories.items():
+                inferred = "none"
+                if cat.tcp_args:
+                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.tcp_args, protocol="tcp")
+                if inferred == "none" and cat.udp_args:
+                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
+                cat.strategy_id = inferred or "none"
+
+            # Make this preset active (so UI state and active file match).
+            set_active_preset_name(name)
+            self._invalidate_active_preset_cache()
+            if self.on_preset_switched:
+                try:
+                    self.on_preset_switched(name)
+                except Exception:
+                    pass
+
+            return self._save_and_sync_preset(preset)
+
+        except Exception as e:
+            log(f"Error resetting preset '{name}' to Default template: {e}", "ERROR")
+            return False
+
     def _save_and_sync_preset(self, preset: Preset) -> bool:
         """
         Saves preset to file and syncs to active file.

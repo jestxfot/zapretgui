@@ -89,13 +89,32 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Используется иконка: {icon_path}")
     
-    # ✅ Добавляем сертификат в datas (если существует)
-    datas_line = "datas=[]"
+    # ✅ Datas для PyInstaller (сертификат + json/hosts.ini если есть)
+    datas_items: list[tuple[str, str]] = []
+
     cert_file = Path(__file__).parent / "zapret_certificate.cer"
     if cert_file.exists():
-        datas_line = f"datas=[(r'{cert_file}', '.')]"
+        datas_items.append((str(cert_file), "."))
         if log_queue:
             log_queue.put(f"✅ Сертификат будет встроен: {cert_file}")
+
+    hosts_ini = root_path / "json" / "hosts.ini"
+    if not hosts_ini.exists():
+        # Dev fallback: some setups generate catalog in sibling repo (e.g. `../zapret/json/hosts.ini`)
+        alt_hosts_ini = root_path.parent / "zapret" / "json" / "hosts.ini"
+        if alt_hosts_ini.exists():
+            hosts_ini = alt_hosts_ini
+
+    if hosts_ini.exists():
+        # Нужен как `<project>/json/hosts.ini` (в onefile попадает в sys._MEIPASS/json/hosts.ini)
+        datas_items.append((str(hosts_ini), "json"))
+        if log_queue:
+            log_queue.put(f"✅ json/hosts.ini будет встроен: {hosts_ini}")
+
+    if datas_items:
+        datas_line = "datas=[" + ", ".join([f"(r'{src}', r'{dst}')" for src, dst in datas_items]) + "]"
+    else:
+        datas_line = "datas=[]"
     
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 import sys

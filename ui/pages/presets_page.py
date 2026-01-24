@@ -24,11 +24,12 @@ class _DestructiveConfirmButton(QPushButton):
 
     confirmed = pyqtSignal()
 
-    def __init__(self, text: str, confirm_text: str, icon_name: str, parent=None):
+    def __init__(self, text: str, confirm_text: str, icon_name: str, busy_text: str = "Удаление…", parent=None):
         super().__init__(text, parent)
         self._default_text = text
         self._confirm_text = confirm_text
         self._icon_name = icon_name
+        self._busy_text = busy_text
         self._pending = False
         self._hovered = False
 
@@ -77,7 +78,7 @@ class _DestructiveConfirmButton(QPushButton):
             if self._pending:
                 self._reset_timer.stop()
                 self.setEnabled(False)
-                self.setText("Удаление…")
+                self.setText(self._busy_text)
                 self._update_icon_and_style()
                 self.confirmed.emit()
                 QTimer.singleShot(800, self._reset_state)
@@ -106,6 +107,7 @@ class PresetCard(QFrame):
     activate_clicked = pyqtSignal(str)  # name
     rename_clicked = pyqtSignal(str)    # name
     duplicate_clicked = pyqtSignal(str) # name
+    reset_clicked = pyqtSignal(str)     # name
     delete_clicked = pyqtSignal(str)    # name
     export_clicked = pyqtSignal(str)    # name
 
@@ -266,12 +268,29 @@ class PresetCard(QFrame):
         self.duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
         buttons_row.addWidget(self.duplicate_btn)
 
+        # Сбросить (недоступно для встроенных)
+        if not self._is_builtin:
+            self.reset_btn = _DestructiveConfirmButton(
+                "Сбросить",
+                confirm_text="Подтвердить",
+                icon_name="fa5s.broom",
+                busy_text="Сброс…",
+                parent=self,
+            )
+            self.reset_btn.setToolTip(
+                "Сбросит этот пресет к настройкам из шаблона Default.\n"
+                "Пресет будет активирован."
+            )
+            self.reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.reset_btn)
+
         # Удалить (недоступно для активного и встроенных)
         if not self._is_active and not self._is_builtin:
             self.delete_btn = _DestructiveConfirmButton(
                 "Удалить",
                 confirm_text="Подтвердить",
                 icon_name="fa5s.trash",
+                busy_text="Удаление…",
                 parent=self,
             )
             self.delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
@@ -1155,6 +1174,7 @@ class PresetsPage(BasePage):
                     card.activate_clicked.connect(self._on_activate_preset)
                     card.rename_clicked.connect(self._on_rename_preset)
                     card.duplicate_clicked.connect(self._on_duplicate_preset)
+                    card.reset_clicked.connect(self._on_reset_preset)
                     card.delete_clicked.connect(self._on_delete_preset)
                     card.export_clicked.connect(self._on_export_preset)
 
@@ -1278,6 +1298,27 @@ class PresetsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка дублирования пресета: {e}", "ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+
+    def _on_reset_preset(self, name: str):
+        """Сбрасывает пресет к шаблону Default и активирует его."""
+        try:
+            manager = self._get_manager()
+
+            if not manager.reset_preset_to_default_template(name):
+                QMessageBox.warning(self, "Ошибка", "Не удалось сбросить пресет к настройкам Default")
+                return
+
+            log(f"Сброшен пресет '{name}' к Default", "INFO")
+
+            # Уведомить MainWindow для обновления связанных страниц.
+            self.preset_switched.emit(name)
+
+            # Обновить список и бейджи
+            self._load_presets()
+
+        except Exception as e:
+            log(f"Ошибка сброса пресета: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
 
     def _on_delete_preset(self, name: str):

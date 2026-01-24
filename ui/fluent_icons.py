@@ -169,7 +169,7 @@ class FluentIcon:
             return cls.create_icon(icon_name, size)
         else:
             # Для невыбранного - полупрозрачный белый
-            return qta.icon(icon_name, color='rgba(255, 255, 255, 0.8)')
+            return qta.icon(icon_name, color='#cccccc')
     
     @classmethod
     def create_status_icon(cls, status: str, size: int = 16) -> QPixmap:

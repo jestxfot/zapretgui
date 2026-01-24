@@ -134,7 +134,7 @@ class AutostartOptionCard(QFrame):
         
         # Стрелка
         self._arrow = QLabel()
-        self._arrow.setPixmap(qta.icon('fa5s.chevron-right', color='rgba(255,255,255,0.4)').pixmap(16, 16))
+        self._arrow.setPixmap(qta.icon('fa5s.chevron-right', color='#666666').pixmap(16, 16))
         layout.addWidget(self._arrow)
         
         self._update_style()

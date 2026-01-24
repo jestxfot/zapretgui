@@ -4,11 +4,24 @@ import os
 import subprocess
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox
-from .proxy_domains import PROXY_DOMAINS
+from .proxy_domains import (
+    get_all_services,
+    get_dns_profiles,
+    get_service_domain_ip_map,
+    get_service_domain_names,
+    get_service_domains,
+)
 from .adobe_domains import ADOBE_DOMAINS
 from log import log
 
 HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
+
+
+def _get_all_managed_domains() -> set[str]:
+    domains: set[str] = set()
+    for service_name in get_all_services():
+        domains.update(get_service_domain_names(service_name))
+    return domains
 
 
 def _run_cmd(args, description):
@@ -538,11 +551,11 @@ class HostsManager:
             log(f"Ошибка при проверке/удалении api.github.com: {e}")
 
     # ------------------------- сервис -------------------------
-    def get_active_domains(self):
-        """Возвращает множество активных доменов из hosts файла с ПРАВИЛЬНЫМИ IP адресами"""
-        current_active = set()
+    def get_active_domains_map(self) -> dict[str, str]:
+        """Возвращает {domain: ip} для всех управляемых доменов, найденных в hosts (без проверки IP)."""
+        current_active: dict[str, str] = {}
+        managed_domains = _get_all_managed_domains()
         try:
-            from .proxy_domains import PROXY_DOMAINS
             content = safe_read_hosts_file()
             if content is None:
                 return current_active
@@ -561,19 +574,17 @@ class HostsManager:
                     ip = parts[0]
                     domain = parts[1]
                     
-                    # Проверяем что домен есть в наших PROXY_DOMAINS И IP совпадает
-                    if domain in PROXY_DOMAINS:
-                        expected_ip = PROXY_DOMAINS[domain]
-                        if ip == expected_ip:
-                            current_active.add(domain)
-                        else:
-                            # Домен есть но с другим IP - не считаем его активным
-                            log(f"Домен {domain} найден с другим IP: {ip} (ожидается {expected_ip})", "DEBUG")
+                    if domain in managed_domains:
+                        current_active[domain] = ip
                             
-            log(f"Найдено активных доменов с правильными IP: {len(current_active)}", "DEBUG")
+            log(f"Найдено активных управляемых доменов: {len(current_active)}", "DEBUG")
         except Exception as e:
             log(f"Ошибка при чтении hosts: {e}", "ERROR")
         return current_active
+
+    def get_active_domains(self) -> set:
+        """Back-compat: возвращает множество активных доменов (без проверки IP)."""
+        return set(self.get_active_domains_map().keys())
 
     def set_status(self, message: str):
         if self.status_callback:
@@ -584,14 +595,14 @@ class HostsManager:
     # ------------------------- проверки -------------------------
 
     def is_proxy_domains_active(self) -> bool:
-        """Проверяет, есть ли активные (НЕ закомментированные) записи наших доменов в hosts"""
+        """Проверяет, есть ли активные (НЕ закомментированные) записи управляемых доменов в hosts"""
         try:
             content = safe_read_hosts_file()
             if content is None:
                 return False
                 
             lines = content.splitlines()
-            domains = set(PROXY_DOMAINS.keys())
+            domains = _get_all_managed_domains()
             
             for line in lines:
                 line = line.strip()
@@ -700,188 +711,154 @@ class HostsManager:
         log("Нет прав для изменения файла hosts")
 
     def add_proxy_domains(self) -> bool:
-        """Добавляет домены в hosts файл"""
-        log("🟡 add_proxy_domains начат", "DEBUG")
-        
-        if not self.is_hosts_file_accessible():
-            self.set_status("Файл hosts недоступен для изменения")
-            return False
-        
+        """LEGACY: включает все домены (профиль 0) + статические."""
+        log("🟡 add_proxy_domains начат (legacy)", "DEBUG")
+
         # ✅ Вызываем check_and_remove_github_api только один раз в начале
         self.check_and_remove_github_api()
-        
-        try:
-            # Сначала удаляем старые записи
-            content = safe_read_hosts_file()
-            if content is None:
-                return False
-            
-            # Удаляем старые записи вручную
-            lines = content.splitlines(keepends=True)
-            domains_to_remove = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
-            for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains_to_remove):
-                    continue
-                new_lines.append(line)
-            
-            # Убираем лишние пустые строки
-            while new_lines and new_lines[-1].strip() == "":
-                new_lines.pop()
-            
-            # Добавляем новые домены
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            new_lines.append('\n')
-            
-            for domain, ip in PROXY_DOMAINS.items():
-                new_lines.append(f"{ip} {domain}\n")
-            
-            # Записываем
-            if not safe_write_hosts_file("".join(new_lines)):
-                return False
-            
-            self.set_status(f"Файл hosts обновлён: добавлено {len(PROXY_DOMAINS)} записей")
-            log(f"✅ Добавлены домены: {list(PROXY_DOMAINS.keys())[:5]}...", "DEBUG")
-            return True
-            
-        except PermissionError:
-            log("Ошибка прав доступа в add_proxy_domains", "ERROR")
-            self._no_perm()
-            return False
-        except Exception as e:
-            log(f"Ошибка в add_proxy_domains: {e}", "ERROR")
-            return False
+
+        all_domains: dict[str, str] = {}
+        default_profile = (get_dns_profiles() or [None])[0]
+        for service_name in get_all_services():
+            domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+            if domain_map:
+                all_domains.update(domain_map)
+            else:
+                all_domains.update(get_service_domains(service_name))
+
+        return self.apply_domain_ip_map(all_domains)
 
     def remove_proxy_domains(self) -> bool:
-        """Удаляет домены из hosts файла"""
-        log("🟡 remove_proxy_domains начат", "DEBUG")
-        
-        if not self.is_hosts_file_accessible():
-            self.set_status("Файл hosts недоступен для изменения")
-            return False
-        
-        # ✅ НЕ вызываем check_and_remove_github_api здесь
-        
-        try:
-            content = safe_read_hosts_file()
-            if content is None:
-                return False
-            
-            lines = content.splitlines(keepends=True)
-            domains = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
-            removed_count = 0
-            
-            for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains):
-                    removed_count += 1
-                    continue
-                new_lines.append(line)
-            
-            # Убираем лишние пустые строки
-            while new_lines and new_lines[-1].strip() == "":
-                new_lines.pop()
-            
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            
-            if not safe_write_hosts_file("".join(new_lines)):
-                return False
-            
-            self.set_status(f"Файл hosts обновлён: удалено {removed_count} записей")
-            log(f"✅ Удалено {removed_count} доменов", "DEBUG")
-            return True
-            
-        except PermissionError:
-            log("Ошибка прав доступа в remove_proxy_domains", "ERROR")
-            self._no_perm()
-            return False
-        except Exception as e:
-            log(f"Ошибка в remove_proxy_domains: {e}", "ERROR")
-            return False
+        """LEGACY: удаляет все управляемые домены из hosts."""
+        log("🟡 remove_proxy_domains начат (legacy)", "DEBUG")
+        return self.apply_domain_ip_map({})
     
     def apply_selected_domains(self, selected_domains):
-        """Применяет выбранные домены к файлу hosts"""
-        log(f"🟡 apply_selected_domains начат: {len(selected_domains)} доменов", "DEBUG")
-        
+        """LEGACY: применяет выбранные домены (IP берётся из профиля 0)."""
+        try:
+            selected = set(selected_domains or [])
+        except Exception:
+            selected = set()
+
+        log(f"🟡 apply_selected_domains начат (legacy): {len(selected)} доменов", "DEBUG")
+
+        if not selected:
+            return self.apply_domain_ip_map({})
+
+        base_map: dict[str, str] = {}
+        default_profile = (get_dns_profiles() or [None])[0]
+        for service_name in get_all_services():
+            domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+            if domain_map:
+                base_map.update(domain_map)
+            else:
+                base_map.update(get_service_domains(service_name))
+
+        out: dict[str, str] = {domain: ip for domain, ip in base_map.items() if domain in selected}
+        return self.apply_domain_ip_map(out)
+
+    def apply_service_dns_selections(self, service_dns: dict[str, str], static_enabled: set[str] | None = None) -> bool:
+        """
+        Применяет выбор DNS-профилей по сервисам.
+
+        Args:
+            service_dns: {service_name: profile_name or 'off'}
+            static_enabled: set(service_name) для сервисов, которые включаются без выбора профиля
+        """
+        log("🟡 apply_service_dns_selections начат", "DEBUG")
+
+        selected: dict[str, str] = {}
+        for service_name, profile_name in (service_dns or {}).items():
+            if not isinstance(service_name, str):
+                continue
+            if not isinstance(profile_name, str):
+                continue
+
+            normalized = profile_name.strip().lower()
+            if not normalized or normalized in ("off", "откл", "откл.", "0", "false"):
+                continue
+
+            domain_map = get_service_domain_ip_map(service_name, profile_name.strip())
+            if not domain_map:
+                # Профиль недоступен для сервиса (не хватает IP) — просто пропускаем.
+                continue
+            selected.update(domain_map)
+
+        if static_enabled:
+            default_profile = (get_dns_profiles() or [None])[0]
+            for service_name in static_enabled:
+                domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+                if domain_map:
+                    selected.update(domain_map)
+
+        return self.apply_domain_ip_map(selected)
+
+    def apply_domain_ip_map(self, domain_ip_map: dict[str, str]) -> bool:
+        """Применяет домены в hosts: удаляет все управляемые и добавляет указанные."""
+        log(f"🟡 apply_domain_ip_map начат: {len(domain_ip_map)} записей", "DEBUG")
+
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
             return False
-        
-        # Создаем временный словарь только с выбранными доменами
-        selected_proxy_domains = {
-            domain: ip for domain, ip in PROXY_DOMAINS.items() 
-            if domain in selected_domains
-        }
-        
-        if not selected_proxy_domains:
-            log("Нет выбранных доменов, удаляем все", "DEBUG")
-            return self.remove_proxy_domains()
-        
+
+        managed_domains = _get_all_managed_domains()
+
         try:
-            # Читаем текущее содержимое
             content = safe_read_hosts_file()
             if content is None:
                 self.set_status("Не удалось прочитать файл hosts")
                 return False
-            
-            # Удаляем старые записи ВРУЧНУЮ
+
             lines = content.splitlines(keepends=True)
-            domains_to_remove = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
+            new_lines: list[str] = []
+
+            removed_count = 0
             for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains_to_remove):
+                if (
+                    line.strip()
+                    and not line.lstrip().startswith("#")
+                    and len(line.split()) >= 2
+                    and line.split()[1] in managed_domains
+                ):
+                    removed_count += 1
                     continue
                 new_lines.append(line)
-            
+
             # Убираем лишние пустые строки в конце
             while new_lines and new_lines[-1].strip() == "":
                 new_lines.pop()
-            
+
+            # Ничего не добавляем — просто очищаем управляемые домены
+            if not domain_ip_map:
+                if new_lines and not new_lines[-1].endswith("\n"):
+                    new_lines[-1] += "\n"
+                if not safe_write_hosts_file("".join(new_lines)):
+                    return False
+                self.set_status(f"Файл hosts обновлён: удалено {removed_count} записей")
+                return True
+
             # Добавляем выбранные домены
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            
-            new_lines.append('\n')  # Разделитель
-            
-            for domain, ip in selected_proxy_domains.items():
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append("\n")  # Разделитель
+
+            for domain, ip in domain_ip_map.items():
                 new_lines.append(f"{ip} {domain}\n")
-            
-            # Записываем результат
-            final_content = "".join(new_lines)
-            
-            if not safe_write_hosts_file(final_content):
+
+            if not safe_write_hosts_file("".join(new_lines)):
                 self.set_status("Не удалось записать файл hosts")
                 return False
-            
-            count = len(selected_proxy_domains)
-            self.set_status(f"Файл hosts обновлён: добавлено {count} записей")
-            log(f"✅ Добавлены выбранные домены: {list(selected_proxy_domains.keys())}", "DEBUG")
-            
-            log(f"🟡 apply_selected_domains завершен успешно", "DEBUG")
+
+            self.set_status(f"Файл hosts обновлён: добавлено {len(domain_ip_map)} записей")
+            log(f"✅ apply_domain_ip_map: removed={removed_count}, added={len(domain_ip_map)}", "DEBUG")
             return True
-            
+
         except PermissionError:
-            log("🟡 Ошибка прав доступа", "DEBUG") 
+            log("Ошибка прав доступа в apply_domain_ip_map", "ERROR")
             self._no_perm()
             return False
         except Exception as e:
-            error_msg = f"Ошибка при обновлении hosts: {e}"
-            self.set_status(error_msg)
-            log(error_msg, "ERROR")
+            log(f"Ошибка в apply_domain_ip_map: {e}", "ERROR")
             return False
 
     # НОВЫЕ МЕТОДЫ ДЛЯ ADOBE

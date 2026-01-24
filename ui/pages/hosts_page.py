@@ -2,10 +2,10 @@
 """Страница управления Hosts файлом - разблокировка сервисов"""
 
 import os
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QMessageBox
+    QPushButton, QMessageBox, QComboBox
 )
 import qtawesome as qta
 
@@ -16,93 +16,49 @@ from utils import get_system32_path
 
 # Импортируем сервисы и домены
 try:
-    from hosts.proxy_domains import PROXY_DOMAINS, QUICK_SERVICES, PRESETS, get_service_domains, get_preset_domains
+    from hosts.proxy_domains import (
+        QUICK_SERVICES,
+        get_all_services,
+        get_service_has_geohide_ips,
+        get_service_available_dns_profiles,
+        get_service_domains,
+        load_user_hosts_selection,
+        save_user_hosts_selection,
+    )
 except ImportError:
-    PROXY_DOMAINS = {}
     QUICK_SERVICES = []
-    PRESETS = {}
+    def get_all_services(): return []
+    def get_service_has_geohide_ips(s): return False
+    def get_service_available_dns_profiles(s): return []
     def get_service_domains(s): return {}
-    def get_preset_domains(p): return {}
+    def load_user_hosts_selection(): return {}
+    def save_user_hosts_selection(*args, **kwargs): return False
 
-# Импортируем функции реестра
-try:
-    from config import get_active_hosts_domains, set_active_hosts_domains
-except ImportError:
-    def get_active_hosts_domains(): return set()
-    def set_active_hosts_domains(d): return False
-
-
-class QuickServiceButton(QPushButton):
-    """Кнопка быстрого выбора сервиса"""
-    
-    def __init__(self, icon_name: str, name: str, icon_color: str = "#ffffff", is_active: bool = False, parent=None):
-        super().__init__(parent)
-        self.service_name = name
-        self.icon_name = icon_name
-        self.icon_color = icon_color
-        
-        self.setText(name)
-        self.setFixedHeight(28)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setCheckable(True)
-        self.setChecked(is_active)
-        self._update_style()
-        
-    def _update_style(self):
-        from PyQt6.QtCore import QSize
-        # Устанавливаем иконку с правильным цветом
-        if self.isChecked():
-            self.setIcon(qta.icon(self.icon_name, color='white'))
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #3182ce; color: white;
-                    border: none; border-radius: 4px;
-                    font-size: 10px; font-weight: 600; padding: 2px 8px;
-                }
-                QPushButton:hover { background-color: #2b6cb0; }
-            """)
-        else:
-            self.setIcon(qta.icon(self.icon_name, color=self.icon_color))
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255,255,255,0.06);
-                    color: rgba(255,255,255,0.8);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 4px; font-size: 10px; padding: 2px 8px;
-                }
-                QPushButton:hover { background-color: rgba(255,255,255,0.1); }
-            """)
-        self.setIconSize(QSize(14, 14))
-            
-    def set_active(self, active: bool):
-        self.blockSignals(True)
-        self.setChecked(active)
-        self.blockSignals(False)
-        self._update_style()
 
 
 class HostsWorker(QObject):
     """Воркер для асинхронных операций с hosts файлом"""
     finished = pyqtSignal(bool, str)
     
-    def __init__(self, hosts_manager, operation, domains=None):
+    def __init__(self, hosts_manager, operation, payload=None):
         super().__init__()
         self.hosts_manager = hosts_manager
         self.operation = operation
-        self.domains = domains
+        self.payload = payload
         
     def run(self):
         try:
             success = False
             message = ""
             
-            if self.operation == 'apply':
-                if not self.domains:
-                    success = self.hosts_manager.clear_hosts_file()
-                    message = "Hosts очищен" if success else "Ошибка"
-                else:
-                    success = self.hosts_manager.apply_selected_domains(self.domains)
-                    message = f"Применено {len(self.domains)} доменов" if success else "Ошибка"
+            if self.operation == 'apply_selection':
+                service_dns = self.payload or {}
+                success = self.hosts_manager.apply_service_dns_selections(service_dns)
+                message = "Применено" if success else "Ошибка"
+
+            elif self.operation == 'clear_all':
+                success = self.hosts_manager.clear_hosts_file()
+                message = "Hosts очищен" if success else "Ошибка"
                         
             elif self.operation == 'adobe_add':
                 success = self.hosts_manager.add_adobe_domains()
@@ -126,13 +82,16 @@ class HostsPage(BasePage):
         super().__init__("Hosts", "Управление разблокировкой сервисов через hosts файл", parent)
         
         self.hosts_manager = None
-        self.quick_buttons = {}
+        self.service_combos = {}
+        self.service_icon_labels = {}
+        self.service_icon_base_colors = {}
         self._worker = None
         self._thread = None
         self._applying = False
         self._active_domains_cache = None  # Кеш активных доменов
         self._last_error = None  # Последняя ошибка
         self.error_panel = None  # Панель ошибок
+        self._service_dns_selection = load_user_hosts_selection()
         
         self._init_hosts_manager()
         self._build_ui()
@@ -173,16 +132,6 @@ class HostsPage(BasePage):
                 return set()
         return set()
     
-    def _is_service_active(self, service_name: str) -> bool:
-        """Проверяет активен ли сервис (все его домены в hosts с правильными IP)"""
-        active = self._get_active_domains()
-        service_domains = get_service_domains(service_name)
-        if not service_domains:
-            return False
-        # Сервис активен если хотя бы половина его доменов активна
-        active_count = sum(1 for d in service_domains if d in active)
-        return active_count >= len(service_domains) / 2
-        
     def _build_ui(self):
         # Панель ошибок (скрыта по умолчанию)
         self._build_error_panel()
@@ -202,8 +151,8 @@ class HostsPage(BasePage):
         self._build_status_section()
         self.add_spacing(6)
         
-        # Быстрый выбор (все сервисы)
-        self._build_quick_select()
+        # Сервисы (выбор DNS-профиля по каждому сервису)
+        self._build_services_selectors()
         self.add_spacing(6)
         
         # Adobe
@@ -237,7 +186,7 @@ class HostsPage(BasePage):
 
         # Кнопка закрыть
         close_btn = QPushButton()
-        close_btn.setIcon(qta.icon('fa5s.times', color='rgba(255,255,255,0.5)'))
+        close_btn.setIcon(qta.icon('fa5s.times', color='#808080'))
         close_btn.setFixedSize(20, 20)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet("""
@@ -427,59 +376,105 @@ class HostsPage(BasePage):
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
         
-    def _build_quick_select(self):
-        self.add_section_title("Быстрый выбор")
-        
-        quick_card = SettingsCard()
-        
-        # Пресеты сначала
-        presets_row = QHBoxLayout()
-        presets_row.setSpacing(6)
-        
-        for preset_name, preset_data in PRESETS.items():
-            icon_name, icon_color, services = preset_data
-            btn = QPushButton(f" {preset_name}")
-            btn.setIcon(qta.icon(icon_name, color='#60cdff'))
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(96, 205, 255, 0.08);
-                    color: #60cdff;
-                    border: 1px solid rgba(96, 205, 255, 0.25);
-                    border-radius: 6px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    padding: 0 12px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(96, 205, 255, 0.18);
-                    border-color: rgba(96, 205, 255, 0.4);
-                }
-            """)
-            btn.clicked.connect(lambda checked, p=preset_name: self._apply_preset(p))
-            presets_row.addWidget(btn)
-            
-        presets_row.addStretch()
-        quick_card.add_layout(presets_row)
-        
-        # Все сервисы - автоматически распределяем по рядам (по 5 в ряду)
-        SERVICES_PER_ROW = 5
-        
-        for row_start in range(0, len(QUICK_SERVICES), SERVICES_PER_ROW):
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            
-            for icon_name, name, icon_color in QUICK_SERVICES[row_start:row_start + SERVICES_PER_ROW]:
-                is_active = self._is_service_active(name)
-                btn = QuickServiceButton(icon_name, name, icon_color, is_active)
-                btn.clicked.connect(lambda checked, n=name: self._toggle_service(n))
-                self.quick_buttons[name] = btn
-                row.addWidget(btn, 1)  # stretch factor 1 для равномерного распределения
-            
-            quick_card.add_layout(row)
-        
-        self.add_widget(quick_card)
+    def _build_services_selectors(self):
+        OFF_LABEL = "Откл."
+
+        # Карта иконок/цветов по сервису (если есть в QUICK_SERVICES)
+        ui_map = {name: (icon_name, icon_color) for icon_name, name, icon_color in QUICK_SERVICES}
+
+        # Все сервисы (с выбором DNS)
+        all_services = list(get_all_services() or [])
+        ordered_services: list[str] = []
+        for _icon, name, _color in QUICK_SERVICES:
+            if name in all_services and name not in ordered_services:
+                ordered_services.append(name)
+        for name in all_services:
+            if name not in ordered_services:
+                ordered_services.append(name)
+
+        def is_ai_service(name: str) -> bool:
+            s = (name or "").strip().lower()
+            return any(
+                k in s
+                for k in (
+                    "chatgpt",
+                    "openai",
+                    "gemini",
+                    "claude",
+                    "copilot",
+                    "grok",
+                )
+            )
+
+        no_geohide: list[str] = []
+        ai: list[str] = []
+        other: list[str] = []
+        for service_name in ordered_services:
+            if not get_service_has_geohide_ips(service_name):
+                no_geohide.append(service_name)
+            elif is_ai_service(service_name):
+                ai.append(service_name)
+            else:
+                other.append(service_name)
+
+        self.add_section_title("Сервисы")
+
+        self._building_services_ui = True
+        try:
+            def add_group(title: str, names: list[str]) -> None:
+                if not names:
+                    return
+
+                card = SettingsCard(title)
+                for service_name in names:
+                    row = QHBoxLayout()
+                    row.setContentsMargins(0, 0, 0, 0)
+                    row.setSpacing(10)
+
+                    icon_name, icon_color = ui_map.get(service_name, ("fa5s.globe", "#60cdff"))
+
+                    icon_label = QLabel()
+                    icon_label.setFixedSize(20, 20)
+                    row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                    name_label = QLabel(service_name)
+                    name_label.setStyleSheet("color: #fff; font-size: 12px; font-weight: 600;")
+                    row.addWidget(name_label, 1, Qt.AlignmentFlag.AlignVCenter)
+
+                    combo = QComboBox()
+                    combo.setFixedHeight(28)
+                    combo.setCursor(Qt.CursorShape.PointingHandCursor)
+
+                    # Откл. + доступные профили
+                    available = get_service_available_dns_profiles(service_name) or []
+                    combo.addItem(OFF_LABEL)
+                    for profile_name in available:
+                        combo.addItem(profile_name)
+
+                    saved = (self._service_dns_selection or {}).get(service_name, "")
+                    if saved in available:
+                        combo.setCurrentText(saved)
+                    else:
+                        combo.setCurrentText(OFF_LABEL)
+
+                    combo.currentTextChanged.connect(lambda text, s=service_name: self._on_profile_changed(s, text))
+                    row.addWidget(combo, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                    card.add_layout(row)
+
+                    self.service_combos[service_name] = combo
+                    self.service_icon_labels[service_name] = icon_label
+                    self.service_icon_base_colors[service_name] = icon_color
+
+                    self._update_profile_row_visual(service_name)
+
+                self.add_widget(card)
+
+            add_group("Без прокси IP", no_geohide)
+            add_group("ИИ", ai)
+            add_group("Остальные", other)
+        finally:
+            self._building_services_ui = False
         
     def _build_adobe_section(self):
         self.add_section_title("Дополнительно")
@@ -532,20 +527,6 @@ class HostsPage(BasePage):
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(6)
         
-        # Выбрать все
-        select_all_btn = QPushButton("Выбрать все")
-        select_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        select_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255,255,255,0.08);
-                color: #fff; border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px; font-size: 11px; padding: 6px 10px;
-            }
-            QPushButton:hover { background-color: rgba(255,255,255,0.12); }
-        """)
-        select_all_btn.clicked.connect(self._select_all)
-        actions_layout.addWidget(select_all_btn)
-        
         # Очистить
         clear_btn = QPushButton("Очистить")
         clear_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
@@ -585,39 +566,45 @@ class HostsPage(BasePage):
     # ОБРАБОТЧИКИ
     # ═══════════════════════════════════════════════════════════════
     
-    def _toggle_service(self, service_name: str):
-        """Переключает сервис - добавляет или удаляет все его домены"""
-        if self._applying:
+    def _on_profile_changed(self, service_name: str, selected_text: str):
+        if getattr(self, "_building_services_ui", False):
+            self._update_profile_row_visual(service_name)
             return
-            
-        active = self._get_active_domains()
-        service_domains = get_service_domains(service_name)
-        
-        # Проверяем текущее состояние
-        is_active = self._is_service_active(service_name)
-        
-        if is_active:
-            # Удаляем все домены сервиса
-            new_domains = active - set(service_domains.keys())
+        if self._applying:
+            self._update_profile_row_visual(service_name)
+            return
+
+        if selected_text == "Откл.":
+            self._service_dns_selection.pop(service_name, None)
         else:
-            # Добавляем все домены сервиса
-            new_domains = active | set(service_domains.keys())
-        
-        self._run_operation('apply', new_domains)
-        
-    def _apply_preset(self, preset_name: str):
-        """Применяет пресет - выбирает только указанные сервисы"""
+            self._service_dns_selection[service_name] = selected_text
+
+        save_user_hosts_selection(self._service_dns_selection)
+        self._update_profile_row_visual(service_name)
+        self._apply_current_selection()
+
+    def _update_profile_row_visual(self, service_name: str):
+        OFF_LABEL = "Откл."
+        combo = self.service_combos.get(service_name)
+        icon_label = self.service_icon_labels.get(service_name)
+        base_color = self.service_icon_base_colors.get(service_name, "#60cdff")
+        if not combo or not icon_label:
+            return
+
+        selected = combo.currentText().strip()
+        enabled = bool(selected) and selected != OFF_LABEL
+        color = base_color if enabled else "#808080"
+        icon_name = None
+        for i_name, n, _c in QUICK_SERVICES:
+            if n == service_name:
+                icon_name = i_name
+                break
+        icon_label.setPixmap(qta.icon(icon_name or "fa5s.globe", color=color).pixmap(18, 18))
+
+    def _apply_current_selection(self):
         if self._applying:
             return
-        
-        preset_domains = get_preset_domains(preset_name)
-        self._run_operation('apply', set(preset_domains.keys()))
-        
-    def _select_all(self):
-        """Выбирает все сервисы"""
-        if self._applying:
-            return
-        self._run_operation('apply', set(PROXY_DOMAINS.keys()))
+        self._run_operation('apply_selection', dict(self._service_dns_selection))
         
     def _clear_hosts(self):
         """Очищает hosts"""
@@ -631,7 +618,7 @@ class HostsPage(BasePage):
             QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._run_operation('apply', set())
+            self._run_operation('clear_all')
             
     def _open_hosts_file(self):
         try:
@@ -649,13 +636,13 @@ class HostsPage(BasePage):
         is_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
         self._run_operation('adobe_remove' if is_active else 'adobe_add')
         
-    def _run_operation(self, operation: str, domains: set = None):
+    def _run_operation(self, operation: str, payload=None):
         if not self.hosts_manager or self._applying:
             return
             
         self._applying = True
         
-        self._worker = HostsWorker(self.hosts_manager, operation, domains)
+        self._worker = HostsWorker(self.hosts_manager, operation, payload)
         self._thread = QThread()
         
         self._worker.moveToThread(self._thread)
@@ -676,7 +663,6 @@ class HostsPage(BasePage):
         
         if success:
             self._hide_error()
-            set_active_hosts_domains(self._get_active_domains())
         else:
             # Показываем ошибку на панели
             if "Permission denied" in message or "Access" in message:
@@ -698,9 +684,9 @@ class HostsPage(BasePage):
             self.status_dot.setStyleSheet("color: #888; font-size: 12px;")
             self.status_label.setText("Нет активных")
         
-        # Быстрые кнопки
-        for name, btn in self.quick_buttons.items():
-            btn.set_active(self._is_service_active(name))
+        # Обновляем иконки под текущие выборы
+        for name in list(self.service_combos.keys()):
+            self._update_profile_row_visual(name)
         
         # Adobe
         is_adobe = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False

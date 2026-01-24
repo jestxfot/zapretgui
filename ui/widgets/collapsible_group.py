@@ -95,7 +95,7 @@ class CollapsibleServiceHeader(QFrame):
     def _update_chevron(self):
         """Обновляет иконку chevron"""
         icon_name = "fa5s.chevron-down" if self._expanded else "fa5s.chevron-right"
-        icon = qta.icon(icon_name, color="rgba(255, 255, 255, 0.5)")
+        icon = qta.icon(icon_name, color="#808080")
         self._chevron.setPixmap(icon.pixmap(12, 12))
 
     def mousePressEvent(self, event):

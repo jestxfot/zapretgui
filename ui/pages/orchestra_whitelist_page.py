@@ -59,7 +59,7 @@ class WhitelistDomainRow(QFrame):
         # Иконка замка для системных
         if is_default:
             lock_icon = QLabel()
-            lock_icon.setPixmap(qta.icon("mdi.lock", color="rgba(255,255,255,0.4)").pixmap(14, 14))
+            lock_icon.setPixmap(qta.icon("mdi.lock", color="#666666").pixmap(14, 14))
             lock_icon.setToolTip("Системный домен (нельзя удалить)")
             lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
