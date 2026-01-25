@@ -99,6 +99,7 @@ try:
         get_all_services,
         get_service_has_geohide_ips,
         get_service_available_dns_profiles,
+        get_service_domain_ip_map,
         get_service_domains,
         load_user_hosts_selection,
         save_user_hosts_selection,
@@ -109,6 +110,7 @@ except ImportError:
     def get_all_services(): return []
     def get_service_has_geohide_ips(s): return False
     def get_service_available_dns_profiles(s): return []
+    def get_service_domain_ip_map(*args, **kwargs): return {}
     def get_service_domains(s): return {}
     def load_user_hosts_selection(): return {}
     def save_user_hosts_selection(*args, **kwargs): return False
@@ -468,8 +470,7 @@ class HostsPage(BasePage):
         def is_direct(profile_name: str) -> bool:
             s = (profile_name or "").strip().lower()
             return (
-                "без прокси" in s
-                or "из файла" in s
+                "вкл. (активировать hosts)" in s
                 or "no proxy" in s
                 or "direct" in s
             )
@@ -563,8 +564,72 @@ class HostsPage(BasePage):
         self.add_section_title("Сервисы")
 
         self._building_services_ui = True
+        selection_migrated = False
         try:
+            active_domains_map: dict[str, str] = {}
+            try:
+                if self.hosts_manager:
+                    active_domains_map = self.hosts_manager.get_active_domains_map() or {}
+            except Exception:
+                active_domains_map = {}
+
+            def normalize_profile_name(profile_name: str) -> str:
+                return _format_dns_profile_label(profile_name).strip().lower()
+
+            def infer_profile_from_hosts(service_name: str, available_profiles: list[str]) -> str | None:
+                if not active_domains_map:
+                    return None
+                if not available_profiles:
+                    return None
+
+                best_profile: str | None = None
+                best_matches = -1
+                best_present = -1
+                best_total = 0
+
+                for profile_name in available_profiles:
+                    try:
+                        domain_map = get_service_domain_ip_map(service_name, profile_name) or {}
+                    except Exception:
+                        domain_map = {}
+                    if not domain_map:
+                        continue
+
+                    total = len(domain_map)
+                    present = 0
+                    matches = 0
+                    for domain, ip in domain_map.items():
+                        active_ip = active_domains_map.get(domain)
+                        if active_ip is None:
+                            continue
+                        present += 1
+                        if (active_ip or "").strip() == (ip or "").strip():
+                            matches += 1
+
+                    if total and matches == total:
+                        return profile_name
+
+                    if matches > best_matches or (matches == best_matches and present > best_present):
+                        best_profile = profile_name
+                        best_matches = matches
+                        best_present = present
+                        best_total = total
+
+                if not best_profile:
+                    return None
+
+                # Direct-only services: if at least one domain is present in hosts, keep them enabled.
+                if len(available_profiles) == 1 and best_present > 0:
+                    return best_profile
+
+                # Otherwise, require a reasonably confident match.
+                if best_total and best_matches > 0 and (best_matches / best_total) >= 0.6:
+                    return best_profile
+
+                return None
+
             def add_group(title: str, names: list[str]) -> None:
+                nonlocal selection_migrated
                 if not names:
                     return
 
@@ -646,8 +711,32 @@ class HostsPage(BasePage):
                     if saved_idx >= 0:
                         combo.setCurrentIndex(saved_idx)
                     else:
-                        combo.setCurrentIndex(0)
-                        self._service_dns_selection.pop(service_name, None)
+                        inferred: str | None = None
+
+                        # Back-compat: user config might store profile labels without the "(IP)" suffix.
+                        if saved:
+                            want = normalize_profile_name(saved)
+                            if want:
+                                candidates = [p for p in available if normalize_profile_name(p) == want]
+                                if len(candidates) == 1:
+                                    inferred = candidates[0]
+
+                        # If hosts already contains entries for this service, infer the profile from IPs.
+                        if not inferred:
+                            inferred = infer_profile_from_hosts(service_name, available)
+
+                        if inferred:
+                            inferred_idx = combo.findData(inferred)
+                            if inferred_idx >= 0:
+                                combo.setCurrentIndex(inferred_idx)
+                                self._service_dns_selection[service_name] = inferred
+                                selection_migrated = True
+                            else:
+                                combo.setCurrentIndex(0)
+                                self._service_dns_selection.pop(service_name, None)
+                        else:
+                            combo.setCurrentIndex(0)
+                            self._service_dns_selection.pop(service_name, None)
 
                     combo.currentIndexChanged.connect(
                         lambda _idx, s=service_name, c=combo: self._on_profile_changed(s, c.currentData())
@@ -664,9 +753,12 @@ class HostsPage(BasePage):
 
                 self.add_widget(card)
 
-            add_group("Без прокси IP", no_geohide)
+            add_group("Напрямую из hosts", no_geohide)
             add_group("ИИ", ai)
             add_group("Остальные", other)
+
+            if selection_migrated:
+                save_user_hosts_selection(self._service_dns_selection)
         finally:
             self._building_services_ui = False
         

@@ -224,9 +224,16 @@ class ArgsPreviewDialog(QDialog):
         if enabled:
             # Tooltip should not steal focus.
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            # And it should never block clicks/hover on the underlying UI.
+            # (Some platforms/drivers can still treat tooltip windows as hit-testable.)
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         else:
             try:
                 self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+            except Exception:
+                pass
+            try:
+                self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
             except Exception:
                 pass
 

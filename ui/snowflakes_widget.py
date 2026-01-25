@@ -48,8 +48,8 @@ class Snowflake:
         # Вращение
         self.rotation += self.rotation_speed
         
-        # Держим заметно дольше, чтобы точно пройти весь экран
-        return self.y < max_height + 800
+        # Удаляем вскоре после выхода за нижнюю границу, чтобы не "забивать" лимит снежинок невидимыми.
+        return self.y < max_height + 50
 
 
 class SnowflakesWidget(QWidget):
@@ -66,6 +66,7 @@ class SnowflakesWidget(QWidget):
         self._opacity = 0.0
         self._intensity = 15  # Количество снежинок для спавна
         self._cached_height = 0  # Кэшированная высота для корректного удаления
+        self._event_filters_installed_on = set()
         
         # Таймер анимации
         self.animation_timer = QTimer(self)
@@ -84,26 +85,41 @@ class SnowflakesWidget(QWidget):
         
         # Скрываем по умолчанию
         self.hide()
+
+    def _sync_geometry(self) -> None:
+        """Синхронизирует геометрию виджета с целевым контейнером (обычно parent)."""
+        target = self.parentWidget() or self.window()
+        if not target:
+            return
+
+        w = target.width()
+        h = target.height()
+        if w <= 0 or h <= 0:
+            return
+
+        if self.x() != 0 or self.y() != 0 or self.width() != w or self.height() != h:
+            self.setGeometry(0, 0, w, h)
+
+        self._cached_height = max(self._cached_height, h)
         
     def showEvent(self, event):
         """При показе устанавливаем фильтр событий на родителя"""
         super().showEvent(event)
-        if self.parent():
-            self.parent().installEventFilter(self)
-            self.setGeometry(0, 0, self.parent().width(), self.parent().height())
-            self._cached_height = max(self._cached_height, self.parent().height())
-        if self.window() and self.window() is not self.parent():
-            self.window().installEventFilter(self)
+        parent = self.parentWidget()
+        window = self.window()
+
+        # Устанавливаем фильтры только один раз (Qt допускает дубли)
+        for obj in (parent, window):
+            if obj and obj not in self._event_filters_installed_on:
+                obj.installEventFilter(self)
+                self._event_filters_installed_on.add(obj)
+
+        self._sync_geometry()
             
     def eventFilter(self, obj, event):
         """Отслеживаем изменение размера родителя"""
         if event.type() == QEvent.Type.Resize:
-            if obj == self.parent():
-                self.setGeometry(0, 0, self.parent().width(), self.parent().height())
-                self._cached_height = max(self._cached_height, self.parent().height())
-            elif obj == self.window():
-                self.setGeometry(0, 0, self.window().width(), self.window().height())
-                self._cached_height = max(self._cached_height, self.window().height())
+            self._sync_geometry()
         return super().eventFilter(obj, event)
 
     def _spawn_snowflakes(self):
@@ -128,16 +144,20 @@ class SnowflakesWidget(QWidget):
         # Обновляем кэш высоты
         self._cached_height = max(self._cached_height, height)
         
-        # Спавним несколько снежинок
-        for _ in range(random.randint(1, 3)):
+        # Ограничиваем количество снежинок (важно: не выкидываем "старые" снежинки,
+        # иначе они исчезают снизу и визуально "сваливаются" в верхней части окна).
+        max_flakes = max(50, (width * height) // 8000)
+
+        available = max_flakes - len(self.snowflakes)
+        if available <= 0:
+            return
+
+        # Спавним несколько снежинок, но не превышаем лимит
+        spawn_count = min(random.randint(1, 3), available)
+        for _ in range(spawn_count):
             x = random.uniform(-20, width + 20)
             y = random.uniform(-30, -5)
             self.snowflakes.append(Snowflake(x, y))
-        
-        # Ограничиваем количество снежинок
-        max_flakes = max(50, (width * height) // 8000)
-        if len(self.snowflakes) > max_flakes:
-            self.snowflakes = self.snowflakes[-max_flakes:]
             
     def set_enabled(self, enabled: bool):
         """Включает или выключает снежинки с анимацией"""
@@ -147,6 +167,7 @@ class SnowflakesWidget(QWidget):
         self._enabled = enabled
         
         if enabled:
+            self._sync_geometry()
             self.snowflakes.clear()
             # Начальные снежинки по всему экрану
             self._generate_initial_snowflakes()
@@ -227,29 +248,12 @@ class SnowflakesWidget(QWidget):
         
     def _animate(self):
         """Обновляет состояние снежинок"""
-        # Используем кэшированную высоту или текущую (берём максимум)
-        current_h = self.height()
-        
-        parent_w = parent_h = 0
-        window_w = window_h = 0
-        
-        # Если есть родитель, синхронизируем размер принудительно
-        if self.parent():
-            parent_w = self.parent().width()
-            parent_h = self.parent().height()
-            if parent_w != self.width() or parent_h != self.height():
-                self.setGeometry(0, 0, parent_w, parent_h)
-                current_h = self.height()
-        
-        # Если есть окно, учитываем его размер (на случай кастомного контейнера)
-        if self.window():
-            window_w = self.window().width()
-            window_h = self.window().height()
+        # Подстраховка: если геометрия "съехала", возвращаемся к размеру контейнера.
+        self._sync_geometry()
 
-        max_h = max(current_h, parent_h, window_h, self._cached_height, 800)  # Минимум 800px
-        
-        # Обновляем кэш если какая-либо из высот больше
-        self._cached_height = max(self._cached_height, current_h, parent_h, window_h)
+        current_h = self.height()
+        max_h = max(current_h, self._cached_height, 1)
+        self._cached_height = max(self._cached_height, current_h)
         
         # Обновляем и удаляем вышедшие за границы
         self.snowflakes = [sf for sf in self.snowflakes if sf.update(max_h)]

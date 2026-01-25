@@ -15,7 +15,7 @@ from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
     HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
+    HelpPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
     Zapret2StrategiesPageNew, StrategyDetailPage,
     Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage, MyCategoriesPage
@@ -23,7 +23,7 @@ from ui.pages import (
 
 import qtawesome as qta
 import sys, os
-from config import APP_VERSION, CHANNEL
+from config import APP_VERSION, CHANNEL, MIN_WIDTH
 from ui.page_names import PageName, SectionName, SECTION_TO_PAGE
 
 class MainWindowUI:
@@ -50,7 +50,7 @@ class MainWindowUI:
             old_layout.deleteLater()
         
         # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
-        target_widget.setMinimumWidth(width)
+        target_widget.setMinimumWidth(MIN_WIDTH)
         
         # Главный горизонтальный layout
         root = QHBoxLayout(target_widget)
@@ -85,6 +85,15 @@ class MainWindowUI:
         
         # Создаем страницы
         self._create_pages()
+
+        # Hardening: clear any transient popups/grabs that could break hover/cursor
+        # whenever the visible page changes (covers non-standard navigation paths too).
+        try:
+            self.pages_stack.currentChanged.connect(
+                lambda idx: self._dismiss_transient_ui(reason=f"pages_stack_changed:{idx}")
+            )
+        except Exception:
+            pass
         
         content_layout.addWidget(self.pages_stack)
         root.addWidget(content_area, 1)  # stretch=1 для растягивания
@@ -229,6 +238,10 @@ class MainWindowUI:
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
 
+        # Справка (подпункт "О программе")
+        self.help_page = HelpPage(self)
+        self.pages_stack.addWidget(self.help_page)
+
         # Оркестр - автообучение (скрытая вкладка)
         self.orchestra_page = OrchestraPage(self)
         self.pages_stack.addWidget(self.orchestra_page)
@@ -281,6 +294,7 @@ class MainWindowUI:
             PageName.LOGS: self.logs_page,
             PageName.SERVERS: self.servers_page,
             PageName.ABOUT: self.about_page,
+            PageName.HELP: self.help_page,
             PageName.ORCHESTRA: self.orchestra_page,
             PageName.ORCHESTRA_LOCKED: self.orchestra_locked_page,
             PageName.ORCHESTRA_BLOCKED: self.orchestra_blocked_page,
@@ -292,8 +306,165 @@ class MainWindowUI:
         """Возвращает виджет страницы по имени"""
         return self.pages.get(name)
 
+    def _dismiss_transient_ui(self, *, reason: str = "") -> None:
+        """
+        Best-effort cleanup of transient popup/tooltip/preview windows and
+        input-grab/override-cursor states that can break hover/cursor updates.
+        """
+        try:
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtWidgets import QApplication, QToolTip
+        except Exception:
+            return
+
+        cleaned: list[str] = []
+
+        # If updates were left disabled, hover animations/cursor changes may appear "stuck".
+        try:
+            if not bool(self.updatesEnabled()):
+                self.setUpdatesEnabled(True)
+                cleaned.append("updatesEnabled")
+        except Exception:
+            pass
+
+        # Native Qt tooltips
+        try:
+            QToolTip.hideText()
+        except Exception:
+            pass
+
+        # App hover tooltips
+        try:
+            from ui.widgets.strategies_tooltip import strategies_tooltip_manager
+            strategies_tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+        try:
+            from strategy_menu.hover_tooltip import tooltip_manager
+            tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+
+        # Preview popups (ArgsPreviewDialog used in multiple places)
+        try:
+            from strategy_menu.args_preview_dialog import preview_manager
+            preview_manager.cleanup()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "strategy_detail_page"):
+                self.strategy_detail_page._close_preview_dialog(force=True)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        app = QApplication.instance()
+        if not app:
+            return
+
+        # Clear stuck override cursor stack (e.g. WaitCursor).
+        try:
+            if QApplication.overrideCursor() is not None:
+                cleaned.append("overrideCursor")
+            while QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        except Exception:
+            pass
+
+        # Release mouse/keyboard grabs if something grabbed input.
+        try:
+            mg = app.mouseGrabber()
+            if mg is not None:
+                cleaned.append(f"mouseGrabber:{mg.__class__.__name__}")
+                try:
+                    mg.releaseMouse()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            kg = app.keyboardGrabber()
+            if kg is not None:
+                cleaned.append(f"keyboardGrabber:{kg.__class__.__name__}")
+                try:
+                    kg.releaseKeyboard()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Close active popup widget(s) that may keep Qt in a "popup" mode and break hover.
+        try:
+            for _ in range(6):
+                w = app.activePopupWidget()
+                if not w:
+                    break
+                cleaned.append(f"activePopup:{w.__class__.__name__}")
+                try:
+                    w.hide()
+                except Exception:
+                    pass
+                try:
+                    w.close()
+                except Exception:
+                    pass
+                try:
+                    w.deleteLater()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Also close any visible popup-like top-level windows (defensive).
+        # Important: don't use a naive `bool(flags & Qt.WindowType.Popup)` check,
+        # because `Qt.WindowType.Popup` includes the `Window` bit (value 0x9),
+        # so `Window` would match too.
+        try:
+            try:
+                main_win = self.window()
+            except Exception:
+                main_win = None
+            for w in list(app.topLevelWidgets()):
+                try:
+                    if main_win is not None and w is main_win:
+                        continue
+                    if not w.isVisible():
+                        continue
+                    wt = w.windowType()
+                    if wt in (Qt.WindowType.Popup, Qt.WindowType.ToolTip, Qt.WindowType.Tool):
+                        cleaned.append(f"popupWindow:{w.__class__.__name__}")
+                        try:
+                            w.hide()
+                        except Exception:
+                            pass
+                        try:
+                            w.close()
+                        except Exception:
+                            pass
+                        try:
+                            w.deleteLater()
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        if cleaned:
+            try:
+                from log import log
+                suffix = f" ({reason})" if reason else ""
+                log(f"Dismissed transient UI{suffix}: {', '.join(cleaned)}", "DEBUG")
+            except Exception:
+                pass
+
     def show_page(self, name: PageName) -> bool:
         """Переключает на указанную страницу. Возвращает True при успехе."""
+        # Defensive: clear any transient popups/grabs that may break hover/cursor.
+        try:
+            self._dismiss_transient_ui(reason=f"show_page:{name}")
+        except Exception:
+            pass
+
         page = self.pages.get(name)
         if page:
             self.pages_stack.setCurrentWidget(page)
@@ -635,7 +806,7 @@ class MainWindowUI:
 
         self.show_page(target_page)
         if hasattr(self, "side_nav"):
-            self.side_nav.set_section_by_name(SectionName.STRATEGIES)
+            self.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
     
     def _auto_start_after_method_switch(self, method: str):
         """Автоматически запускает DPI после переключения метода"""
@@ -738,13 +909,17 @@ class MainWindowUI:
         """Остановка winws и закрытие программы"""
         from log import log
         log("Остановка winws и закрытие программы...", "INFO")
-        
-        # Используем dpi_controller для корректной остановки и выхода
+
+        # Единая логика выхода (как в трее): остановить DPI и выйти.
+        if hasattr(self, "request_exit"):
+            self.request_exit(stop_dpi=True)
+            return
+
+        # Fallback для старой архитектуры
         if hasattr(self, 'dpi_controller') and self.dpi_controller:
             self._closing_completely = True
             self.dpi_controller.stop_and_exit_async()
         else:
-            # Fallback - просто останавливаем и выходим
             self.home_page.stop_btn.click()
             from PyQt6.QtWidgets import QApplication
             QApplication.quit()
@@ -760,7 +935,7 @@ class MainWindowUI:
     def _open_subscription_dialog(self):
         """Переключается на страницу Premium (донат)"""
         self.show_page(PageName.PREMIUM)
-        self.side_nav.set_section_by_name(SectionName.PREMIUM)
+        self.side_nav.set_section_by_name(SectionName.PREMIUM, emit_signal=False)
         
     def _on_section_changed(self, page_name: PageName):
         """Обработчик смены раздела в навигации
@@ -968,6 +1143,12 @@ class MainWindowUI:
         from strategy_menu.strategies_registry import registry
 
         try:
+            # Defensive: close any transient popups/tooltips before switching pages.
+            try:
+                self._dismiss_transient_ui(reason="open_category_detail")
+            except Exception:
+                pass
+
             # Get category info
             category_info = registry.get_category_info(category_key)
             if not category_info:
@@ -1044,22 +1225,22 @@ class MainWindowUI:
     def show_autostart_page(self):
         """Переключается на страницу автозапуска"""
         self.show_page(PageName.AUTOSTART)
-        self.side_nav.set_section_by_name(SectionName.AUTOSTART)
+        self.side_nav.set_section_by_name(SectionName.AUTOSTART, emit_signal=False)
 
     def show_hosts_page(self):
         """Переключается на страницу Hosts"""
         self.show_page(PageName.HOSTS)
-        self.side_nav.set_section_by_name(SectionName.HOSTS)
+        self.side_nav.set_section_by_name(SectionName.HOSTS, emit_signal=False)
 
     def show_servers_page(self):
         """Переключается на страницу серверов обновлений"""
         self.show_page(PageName.SERVERS)
-        self.side_nav.set_section_by_name(SectionName.SERVERS)
+        self.side_nav.set_section_by_name(SectionName.SERVERS, emit_signal=False)
 
     def _navigate_to_control(self):
         """Переключается на страницу управления"""
         self.show_page(PageName.CONTROL)
-        self.side_nav.set_section_by_name(SectionName.CONTROL)
+        self.side_nav.set_section_by_name(SectionName.CONTROL, emit_signal=False)
 
     def _navigate_to_strategies(self):
         """Переключается на страницу стратегий с учётом метода запуска"""
@@ -1117,7 +1298,8 @@ class MainWindowUI:
             # Fallback на Zapret 2 Direct как самый распространённый
             self.show_page(PageName.ZAPRET2_DIRECT)
 
-        self.side_nav.set_section_by_name(SectionName.STRATEGIES)
+        # Highlight the section without re-triggering navigation (important when restoring STRATEGY_DETAIL).
+        self.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
 
     def _navigate_to_dpi_settings(self):
         """Переключается на страницу настроек DPI"""
@@ -1125,5 +1307,5 @@ class MainWindowUI:
         log("_navigate_to_dpi_settings called!", "DEBUG")
         # Используем новый API навигации
         self.show_page(PageName.DPI_SETTINGS)
-        self.side_nav.set_section_by_name(SectionName.DPI_SETTINGS)
+        self.side_nav.set_section_by_name(SectionName.DPI_SETTINGS, emit_signal=False)
         log("Navigated to DPI settings page", "DEBUG")

@@ -436,6 +436,16 @@ class StrategiesRegistry:
         base_strategies = _lazy_import_base_strategies(category_info.strategy_type)
         strategy = base_strategies.get(strategy_id)
         
+        # TCP multi-phase UI can store a strategy_id from tcp_fake.txt (e.g., hostfakesplit_multi).
+        # Provide a name fallback so main lists don't show raw ids or "custom" unnecessarily.
+        if not strategy and category_info.strategy_type == "tcp":
+            try:
+                from strategy_menu.strategy_loader import load_strategies_as_dict
+                fake_strategies = load_strategies_as_dict("tcp_fake", get_current_strategy_set())
+                strategy = (fake_strategies or {}).get(strategy_id)
+            except Exception:
+                strategy = None
+
         if strategy:
             return strategy.get('name', strategy_id)
         return strategy_id or "Unknown"

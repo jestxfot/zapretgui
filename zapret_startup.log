@@ -1,0 +1,10 @@
+
+=== ZAPRET STARTUP DEBUG ===
+Compiled mode: False
+Frozen mode: False
+sys.executable: /usr/bin/python
+sys.argv[0]: -
+Working directory: /mnt/h/Privacy/zapretgui
+Directory exists: True
+Directory contents: ['.claude', '.git', '.gitattributes', '.github', '.gitignore', '.venv', '.vscode', 'AGENTS.md', 'altmenu', 'async_workers.py', 'autostart', 'build.bat', 'build.json', 'build_zapret', 'builtin_categories_txt.py', 'CLAUDE.md', 'config', 'connection_test.py', 'discord', 'dns', 'dns_checker.py', 'donater', 'dpi', 'github_api_toggle.py', 'help.txt', 'help_err.txt', 'hosts', 'json', 'launcher_common', 'log', 'log_tail.py', 'main.build', 'main.dist', 'main.py', 'managers', 'net_helpers.py', 'node_modules', 'orchestra', 'package-lock.json', 'package.json', 'preset_zapret2', 'requirements.txt', 'startup', 'strategy_checker.py', 'strategy_menu', 'test.py', 'tests', 'tgram', 'tools', 'tray.py', 'trusted_installer.py', 'ui', 'updater', 'utils', 'version_info.txt', 'vs_block.gv', 'vs_block_scheme.png', 'widgets', 'winreg.py', 'zapret.ico', 'Zapret1.ico', 'zapret1_launcher', 'Zapret2Setup.exe', 'Zapret2Setup_TEST.exe', 'Zapret2Setup_test_1765026158_tmp.exe', 'Zapret2Setup_test_1765460244_tmp.exe', 'Zapret2Setup_test_1765661461_tmp.exe', 'Zapret2Setup_test_1767900817_tmp.exe', 'Zapret2Setup_test_1768836868_tmp.exe', 'zapret2_launcher', 'zapretbuild.py', 'ZAPRETBUILD_dev.bat', 'ZapretDevLogo.ico', 'ZapretDevLogo2.ico', 'ZapretDevLogo3.ico', 'ZapretDevLogo4.ico', 'ZapretLogo.png', 'ZapretLogo2.png', 'ZapretSetup_test_1760459530_tmp.exe', 'zapret_build.spec', 'zapret_log.txt', 'zapret_stable.iss', 'zapret_test.iss', 'zapret_universal.iss', 'zapret_uploader.session', '_server.bat', '_zapret.pptx', '__pycache__']
+========================

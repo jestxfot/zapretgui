@@ -1,22 +1,18 @@
 # altmenu/app_menubar.py
 
-from PyQt6.QtWidgets import (QMenuBar, QWidget, QMessageBox, QApplication, 
+from PyQt6.QtWidgets import (QMenuBar, QWidget, QMessageBox,
                             QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                             QTextEdit, QLineEdit, QPushButton, QDialogButtonBox)
-from PyQt6.QtGui     import QKeySequence, QAction
+from PyQt6.QtGui     import QAction
 from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
 
-from config import APP_VERSION, get_dpi_autostart, set_dpi_autostart # build_info moved to config/__init__.py
+from config import APP_VERSION  # build_info moved to config/__init__.py
 from config.urls import INFO_URL
 from .about_dialog import AboutDialog
-from .defender_manager import WindowsDefenderManager
-from .max_blocker import MaxBlockerManager
 
 from utils import run_hidden
 from log import log, global_logger
-
-from startup import get_remove_windows_terminal, set_remove_windows_terminal
 
 class LogReportDialog(QDialog):
     """Диалог для ввода описания проблемы и контактов при отправке лога"""
@@ -102,48 +98,6 @@ class AppMenuBar(QMenuBar):
         self._settings = QSettings("ZapretGUI", "Zapret") # для сохранения настроек
         self._set_status = getattr(parent, "set_status", lambda *_: None)
 
-        # -------- 1. Настройки -------------------------------------------------
-        file_menu = self.addMenu("&Настройки")
-
-        # Чек-бокс Автозагрузка DPI»
-        self.auto_dpi_act = QAction("Автозагрузка DPI", self, checkable=True)
-        self.auto_dpi_act.setChecked(get_dpi_autostart())
-        self.auto_dpi_act.toggled.connect(self.toggle_dpi_autostart)
-        file_menu.addAction(self.auto_dpi_act)
-
-        self.clear_cache = file_menu.addAction("Сбросить программу")
-        self.clear_cache.triggered.connect(self.clear_startup_cache)
-
-        file_menu.addSeparator()
-
-        # Windows Defender
-        file_menu.addSeparator()
-        self.defender_act = QAction("Отключить Windows Defender", self, checkable=True)
-        self.defender_act.setChecked(self._get_defender_disabled())
-        self.defender_act.toggled.connect(self.toggle_windows_defender)
-        file_menu.addAction(self.defender_act)
-
-        self.remove_wt_act = QAction("Удалять Windows Terminal", self, checkable=True)
-        self.remove_wt_act.setChecked(get_remove_windows_terminal())
-        self.remove_wt_act.toggled.connect(self.toggle_remove_windows_terminal)
-        file_menu.addAction(self.remove_wt_act)
-
-        # Блокировка MAX
-        self.block_max_act = QAction("Блокировать установку MAX", self, checkable=True)
-        self.block_max_act.setChecked(self._get_max_blocked())
-        self.block_max_act.toggled.connect(self.toggle_max_blocker)
-        file_menu.addAction(self.block_max_act)
-
-        file_menu.addSeparator()
-
-        act_exit = QAction("Скрыть GUI в трей", self, shortcut=QKeySequence("Ctrl+Q"))
-        act_exit.triggered.connect(parent.close)
-        file_menu.addAction(act_exit)
-
-        full_exit_act = QAction("Полностью выйти", self, shortcut=QKeySequence("Ctrl+Shift+Q"))
-        full_exit_act.triggered.connect(self.full_exit)
-        file_menu.addAction(full_exit_act)
-
         """
         # === ХОСТЛИСТЫ ===
         hostlists_menu = self.addMenu("&Хостлисты")
@@ -221,20 +175,6 @@ class AppMenuBar(QMenuBar):
                 "Попробуйте открыть файл вручную из папки Help."
             )
 
-    def clear_startup_cache(self):
-        """Очищает кэш проверок запуска"""
-        from startup.check_cache import startup_cache
-        try:
-            startup_cache.invalidate_cache()
-            QMessageBox.information(self._pw, "Настройки программы сброшены", 
-                                  "Кэш проверок запуска и настройки программы успешно очищены.\n"
-                                  "При следующем запуске все проверки будут выполнены заново.")
-            log("Кэш проверок запуска очищен пользователем", "INFO")
-        except Exception as e:
-            QMessageBox.warning(self._pw, "Ошибка", 
-                              f"Не удалось очистить кэш: {e}")
-            log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
-
     def create_premium_menu(self):
         """Создает меню Premium функций"""
         premium_menu = self.addMenu("💎 Premium")
@@ -260,103 +200,6 @@ class AppMenuBar(QMenuBar):
         telegram_action.triggered.connect(lambda: open_telegram_link("zapretvpns_bot"))
         
         return premium_menu
-
-    # ==================================================================
-    #  Обработчики чек-боксов
-    # ==================================================================
-    def toggle_remove_windows_terminal(self, enabled: bool):
-        """
-        Включает / выключает удаление Windows Terminal при запуске программы.
-        """
-        set_remove_windows_terminal(enabled)
-
-        msg = ("Windows Terminal будет удаляться при запуске программы"
-               if enabled
-               else "Удаление Windows Terminal отключено")
-        self._set_status(msg)
-        
-        if not enabled:
-            # При отключении показываем предупреждение
-            warning_msg = (
-                "Внимание! Windows Terminal может мешать работе программы.\n\n"
-                "Если у вас возникнут проблемы с работой DPI-обхода, "
-                "рекомендуется включить эту опцию обратно."
-            )
-            QMessageBox.warning(self._pw, "Предупреждение", warning_msg)
-        else:
-            QMessageBox.information(self._pw, "Удаление Windows Terminal", msg)
-
-    def toggle_dpi_autostart(self, enabled: bool):
-        set_dpi_autostart(enabled)
-
-        msg = ("DPI будет включаться автоматически при старте программы"
-               if enabled
-               else "Автозагрузка DPI отключена")
-        self._set_status(msg)
-        QMessageBox.information(self._pw, "Автозагрузка DPI", msg)
-
-    # ==================================================================
-    #  Полный выход (убираем трей +, при желании, останавливаем DPI)
-    # ==================================================================
-
-    def full_exit(self):
-        # -----------------------------------------------------------------
-        # 1. Диалог на русском, но с англ. подсказками в тексте
-        # -----------------------------------------------------------------
-        box = QMessageBox(self._pw)
-        box.setWindowTitle("Выход")
-        box.setIcon(QMessageBox.Icon.Question)
-
-        # сам текст оставляем без изменений
-        box.setText(
-            "Остановить DPI-службу перед выходом?\n"
-            "Да – остановить DPI и выйти\n"
-            "Нет  – выйти, не останавливая DPI\n"
-            "Отмена – остаться в программе"
-        )
-
-        # добавляем три стандартные кнопки
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No  |
-            QMessageBox.StandardButton.Cancel
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-
-        # ─── Русифицируем подписи ────────────────────────────────────────
-        box.button(QMessageBox.StandardButton.Yes).setText("Да")
-        box.button(QMessageBox.StandardButton.No).setText("Нет")
-        box.button(QMessageBox.StandardButton.Cancel).setText("Отмена")
-
-        # показываем диалог
-        resp = box.exec()
-
-        if resp == QMessageBox.StandardButton.Cancel:
-            return                      # пользователь передумал
-
-        stop_dpi_required = resp == QMessageBox.StandardButton.Yes
-
-        # -----------------------------------------------------------------
-        # 2. Дальше логика выхода (как раньше)
-        # -----------------------------------------------------------------
-        if stop_dpi_required:
-            try:
-                from dpi.stop import stop_dpi
-                stop_dpi(self._pw)
-            except Exception as e:
-                QMessageBox.warning(
-                    self._pw, "Ошибка DPI",
-                    f"Не удалось остановить DPI:\n{e}"
-                )
-
-        if hasattr(self._pw, "process_monitor") and self._pw.process_monitor:
-            self._pw.process_monitor.stop()
-
-        if hasattr(self._pw, "tray_manager"):
-            self._pw.tray_manager.tray_icon.hide()
-
-        self._pw._allow_close = True
-        QApplication.quit()
 
     # ==================================================================
     #  Справка
@@ -396,7 +239,7 @@ class AppMenuBar(QMenuBar):
                 main_window.show_page(PageName.LOGS)
                 # Также обновляем sidebar
                 if hasattr(main_window, 'side_nav'):
-                    main_window.side_nav.set_section_by_name(SectionName.LOGS)
+                    main_window.side_nav.set_section_by_name(SectionName.LOGS, emit_signal=False)
                 log("Переключение на страницу логов", "DEBUG")
                 return
 
@@ -538,263 +381,3 @@ class AppMenuBar(QMenuBar):
         self._log_send_thread = thr
         thr.start()
 
-    def _get_defender_disabled(self) -> bool:
-        """Проверяет, отключен ли Windows Defender"""
-        try:
-            manager = WindowsDefenderManager()
-            return manager.is_defender_disabled()
-        except Exception as e:
-            log(f"Ошибка при проверке состояния Windows Defender: {e}", "❌ ERROR")
-            return False
-
-    def toggle_windows_defender(self, disable: bool):
-        """Включает/выключает Windows Defender"""
-        import ctypes
-        
-        # Проверяем права администратора
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            QMessageBox.critical(
-                self._pw,
-                "Требуются права администратора",
-                "Для управления Windows Defender требуются права администратора.\n\n"
-                "Перезапустите программу от имени администратора."
-            )
-            # Откатываем галочку
-            self.defender_act.blockSignals(True)
-            self.defender_act.setChecked(not disable)
-            self.defender_act.blockSignals(False)
-            return
-        
-        try:
-            manager = WindowsDefenderManager(status_callback=self._set_status)
-            
-            if disable:
-                # Показываем предупреждение перед отключением
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Отключение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Warning)
-                msg_box.setText(
-                    "Вы действительно хотите отключить Windows Defender?\n\n"
-                )
-                msg_box.setInformativeText(
-                    "Отключение Windows Defender:\n"
-                    "• Отключит защиту в реальном времени\n"
-                    "• Отключит облачную защиту\n"
-                    "• Отключит автоматическую отправку образцов\n"
-                    "• Может потребовать перезагрузки для полного применения\n\n"
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-                
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
-                    # Пользователь отменил - откатываем галочку
-                    self.defender_act.blockSignals(True)
-                    self.defender_act.setChecked(False)
-                    self.defender_act.blockSignals(False)
-                    return
-                
-                # Отключаем Defender
-                self._set_status("Отключение Windows Defender...")
-                success, count = manager.disable_defender()
-                
-                if success:
-                    # Сохраняем настройку
-                    from .defender_manager import set_defender_disabled
-                    set_defender_disabled(True)
-                    
-                    QMessageBox.information(
-                        self._pw,
-                        "Windows Defender отключен",
-                        f"Windows Defender успешно отключен.\n"
-                        f"Применено {count} настроек.\n\n"
-                        "Для полного применения изменений может потребоваться перезагрузка."
-                    )
-                    log(f"Windows Defender отключен пользователем", "⚠️ WARNING")
-                else:
-                    QMessageBox.critical(
-                        self._pw,
-                        "Ошибка",
-                        "Не удалось отключить Windows Defender.\n"
-                        "Возможно, некоторые настройки заблокированы системой."
-                    )
-                    # Откатываем настройку
-                    self.defender_act.blockSignals(True)
-                    self.defender_act.setChecked(False)
-                    self.defender_act.blockSignals(False)
-                    
-            else:
-                # Включение Windows Defender
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Включение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
-                    "Включить Windows Defender обратно?\n\n"
-                    "Это восстановит защиту вашего компьютера."
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-                
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
-                    # Пользователь отменил - возвращаем галочку
-                    self.defender_act.blockSignals(True)
-                    self.defender_act.setChecked(True)
-                    self.defender_act.blockSignals(False)
-                    return
-                
-                # Включаем Defender
-                self._set_status("Включение Windows Defender...")
-                success, count = manager.enable_defender()
-                
-                if success:
-                    # Сохраняем настройку
-                    from .defender_manager import set_defender_disabled
-                    set_defender_disabled(False)
-                    
-                    QMessageBox.information(
-                        self._pw,
-                        "Windows Defender включен",
-                        f"Windows Defender успешно включен.\n"
-                        f"Выполнено {count} операций.\n\n"
-                        "Защита вашего компьютера восстановлена."
-                    )
-                    log("Windows Defender включен пользователем", "✅ INFO")
-                else:
-                    QMessageBox.warning(
-                        self._pw,
-                        "Частичный успех",
-                        "Windows Defender включен частично.\n"
-                        "Для полного восстановления может потребоваться перезагрузка."
-                    )
-                    
-            self._set_status("Готово")
-            
-        except Exception as e:
-            log(f"Ошибка при переключении Windows Defender: {e}", "❌ ERROR")
-            QMessageBox.critical(
-                self._pw,
-                "Ошибка",
-                f"Произошла ошибка при изменении настроек Windows Defender:\n{e}"
-            )
-            # В случае ошибки откатываем галочку
-            self.defender_act.blockSignals(True)
-            self.defender_act.setChecked(not disable)
-            self.defender_act.blockSignals(False)
-
-    def _get_max_blocked(self) -> bool:
-        """Проверяет, включена ли блокировка MAX"""
-        try:
-            from .max_blocker import is_max_blocked
-            return is_max_blocked()
-        except Exception as e:
-            log(f"Ошибка при проверке блокировки MAX: {e}", "❌ ERROR")
-            return False
-
-    def toggle_max_blocker(self, enable: bool):
-        """Включает/выключает блокировку программы MAX"""
-        try:
-            manager = MaxBlockerManager(status_callback=self._set_status)
-            
-            if enable:
-                # Показываем предупреждение перед включением
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Блокировка MAX")
-                msg_box.setIcon(QMessageBox.Icon.Information)
-                msg_box.setText(
-                    "Включить блокировку установки и работы программы MAX?\n\n"
-                    "Это действие:"
-                )
-                msg_box.setInformativeText(
-                    "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
-                    "• Создаст файлы-блокировки в папках установки\n"
-                    "• Добавит правила блокировки в Windows Firewall (при наличии прав)\n"
-                    "• Заблокирует домены MAX в файле hosts\n\n"
-                    "В итоге даже если мессенджер Max поставиться будет тёмный экран, в результате чего он будет выглядеть так, будто не может подключиться к своим серверам."
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-                
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
-                    # Пользователь отменил - откатываем галочку
-                    self.block_max_act.blockSignals(True)
-                    self.block_max_act.setChecked(False)
-                    self.block_max_act.blockSignals(False)
-                    return
-                
-                # Включаем блокировку
-                success, message = manager.enable_blocking()
-                
-                if success:
-                    QMessageBox.information(
-                        self._pw,
-                        "Блокировка включена",
-                        message
-                    )
-                    log("Блокировка MAX включена пользователем", "🛡️ INFO")
-                else:
-                    QMessageBox.warning(
-                        self._pw,
-                        "Ошибка",
-                        f"Не удалось полностью включить блокировку:\n{message}"
-                    )
-                    # Откатываем галочку
-                    self.block_max_act.blockSignals(True)
-                    self.block_max_act.setChecked(False)
-                    self.block_max_act.blockSignals(False)
-                    
-            else:
-                # Отключение блокировки
-                msg_box = QMessageBox(self._pw)
-                msg_box.setWindowTitle("Отключение блокировки MAX")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
-                    "Отключить блокировку программы MAX?\n\n"
-                    "Это удалит все созданные блокировки и правила."
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-                
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
-                    # Пользователь отменил - возвращаем галочку
-                    self.block_max_act.blockSignals(True)
-                    self.block_max_act.setChecked(True)
-                    self.block_max_act.blockSignals(False)
-                    return
-                
-                # Отключаем блокировку
-                success, message = manager.disable_blocking()
-                
-                if success:
-                    QMessageBox.information(
-                        self._pw,
-                        "Блокировка отключена",
-                        message
-                    )
-                    log("Блокировка MAX отключена пользователем", "✅ INFO")
-                else:
-                    QMessageBox.warning(
-                        self._pw,
-                        "Ошибка",
-                        f"Не удалось полностью отключить блокировку:\n{message}"
-                    )
-                    
-            self._set_status("Готово")
-            
-        except Exception as e:
-            log(f"Ошибка при переключении блокировки MAX: {e}", "❌ ERROR")
-            QMessageBox.critical(
-                self._pw,
-                "Ошибка",
-                f"Произошла ошибка при изменении блокировки MAX:\n{e}"
-            )
-            # В случае ошибки откатываем галочку
-            self.block_max_act.blockSignals(True)
-            self.block_max_act.setChecked(not enable)
-            self.block_max_act.blockSignals(False)

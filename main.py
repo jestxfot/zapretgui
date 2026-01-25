@@ -93,7 +93,7 @@ _preload_slow_modules()
 # ──────────────────────────────────────────────────────────────
 import subprocess, time
 
-from PyQt6.QtCore    import QTimer
+from PyQt6.QtCore    import QTimer, QEvent
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 from ui.main_window import MainWindowUI
@@ -104,7 +104,7 @@ from ui.snowflakes_widget import SnowflakesWidget
 
 from startup.admin_check import is_admin
 
-from config import ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT
+from config import ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT, MIN_WIDTH
 from config import get_last_strategy, set_last_strategy
 from config import APP_VERSION
 from utils import run_hidden
@@ -184,21 +184,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         """Обрабатывает событие закрытия окна"""
         self._is_exiting = True
         
-        # ✅ СОХРАНЯЕМ ПОЗИЦИЮ И РАЗМЕР ОКНА
+        # ✅ Гарантированно сохраняем геометрию/состояние окна при выходе
         try:
-            from config import set_window_position, set_window_size
-            
-            # Сохраняем позицию
-            pos = self.pos()
-            set_window_position(pos.x(), pos.y())
-            
-            # Сохраняем размер
-            size = self.size()
-            set_window_size(size.width(), size.height())
-            
-            log(f"Сохранена позиция окна: ({pos.x()}, {pos.y()}), размер: ({size.width()}x{size.height()})", "DEBUG")
+            self._persist_window_geometry_now(force=True)
         except Exception as e:
-            log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
+            log(f"Ошибка сохранения геометрии окна при закрытии: {e}", "❌ ERROR")
         
         # ✅ Очищаем менеджеры через их методы
         if hasattr(self, 'process_monitor_manager'):
@@ -234,14 +224,17 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         if hasattr(self, 'dpi_controller'):
             self.dpi_controller.cleanup_threads()
 
-        # ✅ ОСТАНАВЛИВАЕМ ПРОЦЕССЫ winws.exe ПРИ ЗАКРЫТИИ
-        # Это нужно чтобы при следующем запуске не было WinError 5
-        try:
-            from utils.process_killer import kill_winws_force
-            kill_winws_force()
-            log("Процессы winws завершены при закрытии приложения", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка остановки winws при закрытии: {e}", "DEBUG")
+        # ✅ ВАЖНО: winws/winws2 не должны останавливаться при "Выход" из трея/меню.
+        # Останавливаем процессы только если явно запрошен "Выход и остановить DPI".
+        if getattr(self, "_stop_dpi_on_exit", False):
+            try:
+                from utils.process_killer import kill_winws_force
+                kill_winws_force()
+                log("Процессы winws завершены при закрытии приложения (stop_dpi_on_exit=True)", "DEBUG")
+            except Exception as e:
+                log(f"Ошибка остановки winws при закрытии: {e}", "DEBUG")
+        else:
+            log("Выход без остановки DPI: winws не трогаем", "DEBUG")
 
         # Останавливаем все асинхронные операции без уведомлений
         try:
@@ -265,21 +258,70 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         super().closeEvent(event)
 
+    def request_exit(self, stop_dpi: bool) -> None:
+        """Единая точка выхода из приложения.
+
+        - stop_dpi=False: закрыть GUI, DPI оставить работать.
+        - stop_dpi=True: остановить DPI и выйти (учитывает текущий launch_method).
+        """
+        from PyQt6.QtWidgets import QApplication
+
+        self._stop_dpi_on_exit = bool(stop_dpi)
+
+        # Разрешаем закрытие (иначе треевый перехватчик свернёт окно в трей).
+        self._allow_close = True
+        self._closing_completely = True
+
+        # Сохраняем геометрию/состояние окна сразу (без debounce).
+        try:
+            self._persist_window_geometry_now(force=True)
+        except Exception as e:
+            log(f"Ошибка сохранения геометрии окна при request_exit: {e}", "DEBUG")
+
+        # Скрываем иконку трея (если есть) — пользователь выбрал полный выход.
+        try:
+            if hasattr(self, "tray_manager") and self.tray_manager:
+                self.tray_manager.tray_icon.hide()
+        except Exception:
+            pass
+
+        if stop_dpi:
+            log("Запрошен выход: остановить DPI и выйти", "INFO")
+
+            # Предпочтительно: асинхронная остановка + выход.
+            try:
+                if hasattr(self, "dpi_controller") and self.dpi_controller:
+                    self.dpi_controller.stop_and_exit_async()
+                    return
+            except Exception as e:
+                log(f"stop_and_exit_async не удалось: {e}", "WARNING")
+
+            # Fallback: синхронная остановка.
+            try:
+                from dpi.stop import stop_dpi
+                stop_dpi(self)
+            except Exception as e:
+                log(f"Ошибка остановки DPI перед выходом: {e}", "WARNING")
+
+        else:
+            log("Запрошен выход: выйти без остановки DPI", "INFO")
+
+        QApplication.quit()
+
     def restore_window_geometry(self):
         """Восстанавливает сохраненную позицию и размер окна"""
+        self._geometry_restore_in_progress = True
         try:
-            from config import get_window_position, get_window_size, WIDTH, HEIGHT
+            from config import get_window_position, get_window_size, get_window_maximized, WIDTH, HEIGHT
 
-            # Минимальные размеры окна (фиксированные)
-            MIN_WIDTH = 400
-            MIN_HEIGHT = 400
+            min_width = MIN_WIDTH
+            min_height = 400
 
-            # Восстанавливаем размер
+            # Размер
             saved_size = get_window_size()
             if saved_size:
                 width, height = saved_size
-                # Проверяем что размер не меньше минимального
-                if width >= MIN_WIDTH and height >= MIN_HEIGHT:
+                if width >= min_width and height >= min_height:
                     self.resize(width, height)
                     log(f"Восстановлен размер окна: {width}x{height}", "DEBUG")
                 else:
@@ -287,52 +329,55 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                     self.resize(WIDTH, HEIGHT)
             else:
                 self.resize(WIDTH, HEIGHT)
-            
-            # Восстанавливаем позицию
+
+            # Позиция
             saved_pos = get_window_position()
+            screen_geometry = QApplication.primaryScreen().availableGeometry()
+            screens = QApplication.screens()
+
             if saved_pos:
                 x, y = saved_pos
-                
-                # Проверяем что окно будет видимо на каком-то из экранов
-                screen_geometry = QApplication.primaryScreen().availableGeometry()
-                screens = QApplication.screens()
-                
-                # Проверяем все экраны
+
                 is_visible = False
                 for screen in screens:
                     screen_rect = screen.availableGeometry()
                     # Окно считается видимым если хотя бы 100x100 пикселей на экране
-                    if (x + 100 > screen_rect.left() and 
+                    if (x + 100 > screen_rect.left() and
                         x < screen_rect.right() and
-                        y + 100 > screen_rect.top() and 
+                        y + 100 > screen_rect.top() and
                         y < screen_rect.bottom()):
                         is_visible = True
                         break
-                
+
                 if is_visible:
                     self.move(x, y)
                     log(f"Восстановлена позиция окна: ({x}, {y})", "DEBUG")
                 else:
-                    # Если окно за пределами всех экранов - центрируем на основном
                     self.move(
                         screen_geometry.center().x() - self.width() // 2,
                         screen_geometry.center().y() - self.height() // 2
                     )
-                    log(f"Сохраненная позиция за пределами экранов, окно отцентрировано", "WARNING")
+                    log("Сохраненная позиция за пределами экранов, окно отцентрировано", "WARNING")
             else:
-                # Если позиция не сохранена - центрируем
-                screen_geometry = QApplication.primaryScreen().availableGeometry()
                 self.move(
                     screen_geometry.center().x() - self.width() // 2,
                     screen_geometry.center().y() - self.height() // 2
                 )
                 log("Позиция не сохранена, окно отцентрировано", "DEBUG")
-                
+
+            # Сохраняем нормальную геометрию (для корректного закрытия из maximized)
+            self._last_normal_geometry = (int(self.x()), int(self.y()), int(self.width()), int(self.height()))
+
+            # Maximized будем применять при первом showEvent (особенно важно для start_in_tray/splash)
+            saved_maximized = get_window_maximized()
+            self._pending_restore_maximized = bool(saved_maximized)
+
         except Exception as e:
             log(f"Ошибка восстановления геометрии окна: {e}", "❌ ERROR")
-            # В случае ошибки используем размер по умолчанию
             from config import WIDTH, HEIGHT
             self.resize(WIDTH, HEIGHT)
+        finally:
+            self._geometry_restore_in_progress = False
 
     def set_status(self, text: str) -> None:
         """Sets the status text."""
@@ -524,6 +569,22 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Флаги для защиты от двойных вызовов
         self._splash_closed = False
         self._dpi_autostart_initiated = False
+        self._is_exiting = False
+        self._stop_dpi_on_exit = False  # True только для "Выход и остановить DPI"
+
+        # ✅ Современное сохранение/восстановление геометрии окна (debounce)
+        self._geometry_restore_in_progress = False
+        self._geometry_persistence_enabled = False
+        self._pending_restore_maximized = False
+        self._applied_saved_maximize_state = False
+        self._last_normal_geometry = None  # (x, y, w, h) для normal state
+        self._last_persisted_geometry = None
+        self._last_persisted_maximized = None
+
+        self._geometry_save_timer = QTimer(self)
+        self._geometry_save_timer.setSingleShot(True)
+        self._geometry_save_timer.setInterval(450)
+        self._geometry_save_timer.timeout.connect(self._persist_window_geometry_now)
 
         # ✅ FRAMELESS WINDOW - убираем стандартную рамку
         from PyQt6.QtCore import Qt
@@ -538,12 +599,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Устанавливаем основные параметры окна
         self.setWindowTitle(f"Zapret2 v{APP_VERSION} - загрузка...")
 
-        # ✅ ДОБАВЛЕНО: Восстанавливаем сохраненную геометрию окна
+        # ✅ УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЙ МИНИМАЛЬНЫЙ РАЗМЕР ОКНА (компактный)
+        self.setMinimumSize(MIN_WIDTH, 400)
+
+        # ✅ Восстанавливаем сохраненную геометрию окна (размер/позиция/развернутость)
         self.restore_window_geometry()
-        
-        # ✅ УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЙ РАЗМЕР ОКНА (компактный)
-        self.setMinimumSize(WIDTH, 400)  # Минимальная высота 400, ширина из конфига
-        self.resize(WIDTH, HEIGHT)       # Стартовый размер
                 
         # Устанавливаем иконку
         icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
@@ -562,7 +622,9 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
 
         # Инициализируем функционал безрамочного resize
-        self.init_frameless()
+        # Важно: делаем resize-оверлеи дочерними контейнера, иначе "прозрачные" оверлеи
+        # могут давать визуальные щели по краям (особенно при WA_TranslucentBackground).
+        self.init_frameless(resize_target=self.container)
         
         # Layout для контейнера
         container_layout = QVBoxLayout(self.container)
@@ -583,8 +645,10 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.garland.setGeometry(0, 32, self.width(), 20)  # Под title bar
         self.garland.raise_()  # Поверх всех виджетов
         
-        # ✅ СНЕЖИНКИ (Premium) - поверх всего окна (геометрия будет установлена в showEvent/resizeEvent)
+        # ✅ СНЕЖИНКИ (Premium) - поверх всего окна (как "живой" фон)
+        # Важно: делаем оверлеем, иначе их может перекрывать viewport QScrollArea/QAbstractScrollArea.
         self.snowflakes = SnowflakesWidget(self)
+        self.snowflakes.raise_()
 
         # Обновляем зоны resize после создания titlebar,
         # иначе верхний правый угол будет рассчитан без учёта кнопок
@@ -604,7 +668,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.main_widget = QWidget(self.stacked_widget)  # ✅ Родитель = stacked_widget
         # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         # ✅ Только минимальная ширина, высота динамическая
-        self.main_widget.setMinimumWidth(WIDTH)
+        self.main_widget.setMinimumWidth(MIN_WIDTH)
 
         # ✅ НЕ СОЗДАЕМ theme_handler ЗДЕСЬ - создадим его после theme_manager
 
@@ -672,7 +736,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.update_title_with_subscription_status(False, None, 0, source="init")
         
         # Запускаем асинхронную инициализацию через менеджер
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
         QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
@@ -698,6 +761,155 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         super().setWindowTitle(title)
         if hasattr(self, 'title_bar'):
             self.title_bar.set_title(title)
+
+    def _enable_geometry_persistence(self) -> None:
+        if getattr(self, "_geometry_persistence_enabled", False):
+            return
+        self._geometry_persistence_enabled = True
+
+    def _schedule_window_geometry_save(self) -> None:
+        if not getattr(self, "_geometry_persistence_enabled", False):
+            return
+        if getattr(self, "_geometry_restore_in_progress", False):
+            return
+        if getattr(self, "_is_exiting", False):
+            return
+
+        try:
+            if self.isMinimized():
+                return
+        except Exception:
+            return
+
+        try:
+            if hasattr(self, "_geometry_save_timer") and self._geometry_save_timer is not None:
+                self._geometry_save_timer.start()
+        except Exception:
+            pass
+
+    def _on_window_geometry_changed(self) -> None:
+        if getattr(self, "_geometry_restore_in_progress", False):
+            return
+
+        try:
+            if self.isMinimized() or self.isMaximized():
+                return
+        except Exception:
+            return
+
+        self._last_normal_geometry = (int(self.x()), int(self.y()), int(self.width()), int(self.height()))
+        self._schedule_window_geometry_save()
+
+    def _get_normal_geometry_to_save(self, is_maximized: bool):
+        if not is_maximized:
+            return (int(self.x()), int(self.y()), int(self.width()), int(self.height()))
+
+        # Если окно maximized — сохраняем "normal" геометрию, чтобы корректно восстановить при следующем запуске.
+        try:
+            normal_geo = self.normalGeometry()
+            w = int(normal_geo.width())
+            h = int(normal_geo.height())
+            if w > 0 and h > 0:
+                return (int(normal_geo.x()), int(normal_geo.y()), w, h)
+        except Exception:
+            pass
+
+        if self._last_normal_geometry:
+            return self._last_normal_geometry
+
+        return None
+
+    def _persist_window_geometry_now(self, force: bool = False) -> None:
+        if not force:
+            if not getattr(self, "_geometry_persistence_enabled", False):
+                return
+            if getattr(self, "_geometry_restore_in_progress", False):
+                return
+            if getattr(self, "_is_exiting", False):
+                return
+
+        try:
+            if self.isMinimized():
+                return
+        except Exception:
+            pass
+
+        try:
+            from config import set_window_position, set_window_size, set_window_maximized
+
+            is_maximized = False
+            try:
+                is_maximized = bool(self.isMaximized())
+            except Exception:
+                is_maximized = False
+
+            if force or self._last_persisted_maximized != is_maximized:
+                set_window_maximized(is_maximized)
+                self._last_persisted_maximized = is_maximized
+
+            geometry = self._get_normal_geometry_to_save(is_maximized)
+            if geometry is None:
+                return
+
+            x, y, w, h = geometry
+            w = max(int(w), MIN_WIDTH)
+            h = max(int(h), 400)
+            geometry = (int(x), int(y), int(w), int(h))
+
+            if force or self._last_persisted_geometry != geometry:
+                set_window_position(geometry[0], geometry[1])
+                set_window_size(geometry[2], geometry[3])
+                self._last_persisted_geometry = geometry
+
+        except Exception as e:
+            log(f"Ошибка сохранения геометрии окна: {e}", "DEBUG")
+
+    def _apply_saved_maximized_state_if_needed(self) -> None:
+        if getattr(self, "_applied_saved_maximize_state", False):
+            return
+
+        self._applied_saved_maximize_state = True
+
+        if getattr(self, "_pending_restore_maximized", False):
+            try:
+                if not self.isMaximized():
+                    self._geometry_restore_in_progress = True
+                    self.showMaximized()
+            except Exception:
+                pass
+            finally:
+                self._geometry_restore_in_progress = False
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            is_maximized = self.isMaximized()
+
+            if hasattr(self, "_was_maximized"):
+                self._was_maximized = is_maximized
+
+            if hasattr(self, "_update_border_radius"):
+                self._update_border_radius(not is_maximized)
+
+            if hasattr(self, "_set_handles_visible"):
+                self._set_handles_visible(not is_maximized)
+
+            if hasattr(self, "title_bar") and hasattr(self.title_bar, "maximize_btn"):
+                self.title_bar.maximize_btn.set_maximized(is_maximized)
+
+            # Persist maximized state immediately (размер/позиция — по debounce)
+            try:
+                from config import set_window_maximized
+                if self._last_persisted_maximized != bool(is_maximized):
+                    set_window_maximized(bool(is_maximized))
+                    self._last_persisted_maximized = bool(is_maximized)
+            except Exception:
+                pass
+
+        super().changeEvent(event)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._on_window_geometry_changed()
     
     def mousePressEvent(self, event):
         """Обработка нажатия мыши"""
@@ -767,7 +979,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log("Основное окно показано", "DEBUG")
         
         # Принудительно обновляем стили
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(10, self._force_style_refresh)
         
         # Проверяем РКН Тян темы
@@ -812,7 +1023,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                     set_selected_theme(self.theme_manager.current_theme)
             
             # Принудительно обновляем стили виджетов
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(10, self._force_style_refresh)
             
             # Проверяем РКН Тян темы
@@ -893,7 +1103,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # Используем новый API навигации через PageName
             if self.show_page(PageName.CONNECTION_TEST):
                 if hasattr(self, "side_nav"):
-                    self.side_nav.set_page_by_name(PageName.CONNECTION_TEST)
+                    self.side_nav.set_page_by_name(PageName.CONNECTION_TEST, emit_signal=False)
                 try:
                     self.connection_page.start_btn.setFocus()
                 except Exception:
@@ -927,7 +1137,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             if hasattr(self, 'snowflakes'):
                 self._update_snowflakes_geometry()
                 self.snowflakes.set_enabled(enabled)
-                self.snowflakes.raise_()  # Поднимаем поверх всего
+                self.snowflakes.raise_()  # Оверлей поверх контента
                 log(f"Снежинки {'включены' if enabled else 'выключены'}", "DEBUG")
         except Exception as e:
             log(f"Ошибка при изменении состояния снежинок: {e}", "❌ ERROR")
@@ -1011,8 +1221,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     def resizeEvent(self, event):
         """Обновляем декорации при изменении размера окна"""
         super().resizeEvent(event)
+        try:
+            if hasattr(self, "_update_resize_handles"):
+                self._update_resize_handles()
+        except Exception:
+            pass
         self._update_garland_geometry()
         self._update_snowflakes_geometry()
+        self._on_window_geometry_changed()
     
     def showEvent(self, event):
         """Устанавливаем геометрию декораций при первом показе окна"""
@@ -1028,6 +1244,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             BlurEffect.disable_window_rounding(hwnd)
         except Exception:
             pass
+
+        # Применяем сохранённое maximized состояние при первом показе
+        self._apply_saved_maximized_state_if_needed()
+
+        # Включаем автосохранение геометрии (после первого show + небольшой паузы)
+        QTimer.singleShot(350, self._enable_geometry_persistence)
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""

@@ -7,13 +7,13 @@
 import re
 import json
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QRectF
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit, QSizePolicy, QButtonGroup
+    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar
 )
-from PyQt6.QtGui import QFont, QFontMetrics
+from PyQt6.QtGui import QFont, QFontMetrics, QColor, QPainter, QFontMetricsF
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
@@ -35,6 +35,7 @@ TCP_PHASE_TAB_ORDER: list[tuple[str, str]] = [
     ("multidisorder_legacy", "LEGACY"),
     ("tcpseg", "TCPSEG"),
     ("oob", "OOB"),
+    ("other", "OTHER"),
 ]
 
 TCP_PHASE_COMMAND_ORDER: list[str] = [
@@ -44,6 +45,7 @@ TCP_PHASE_COMMAND_ORDER: list[str] = [
     "multidisorder_legacy",
     "tcpseg",
     "oob",
+    "other",
 ]
 
 TCP_EMBEDDED_FAKE_TECHNIQUES: set[str] = {
@@ -92,7 +94,7 @@ def _map_desync_technique_to_tcp_phase(technique: str) -> str | None:
         return "tcpseg"
     if t == "oob":
         return "oob"
-    return None
+    return "other"
 
 
 def _normalize_args_text(text: str) -> str:
@@ -819,6 +821,154 @@ class FilterChip(QPushButton):
         self._update_style()
 
 
+class PhaseTabBar(QTabBar):
+    """
+    Phase tabs for direct_zapret2 TCP multi-phase UI.
+
+    Design (per `.claude/agents/ui-designer.md`):
+    - Selected tab: thin cyan underline
+    - Active phases (contributing args): cyan text
+    - Inactive phases: white text
+    - Horizontal scrolling when not fitting: QTabBar scroll buttons
+    """
+
+    _ACCENT_CYAN = QColor("#60cdff")
+    _TEXT_PRIMARY = QColor(255, 255, 255)
+    _TEXT_SECONDARY = QColor(255, 255, 255)
+    _BG_HOVER = QColor(255, 255, 255, 15)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._active_keys: set[str] = set()
+        self._hover_index: int = -1
+
+        f = QFont("Segoe UI Variable", 10)
+        try:
+            f.setWeight(QFont.Weight.DemiBold)
+        except Exception:
+            pass
+        try:
+            self.setFont(f)
+        except Exception:
+            pass
+
+        try:
+            self.setMouseTracking(True)
+        except Exception:
+            pass
+
+    def set_active_keys(self, keys: set[str]) -> None:
+        try:
+            self._active_keys = {str(k or "").strip().lower() for k in (keys or set()) if str(k or "").strip()}
+        except Exception:
+            self._active_keys = set()
+        self.update()
+
+    def _tab_key(self, index: int) -> str:
+        try:
+            return str(self.tabData(index) or "").strip().lower()
+        except Exception:
+            return ""
+
+    def leaveEvent(self, event):  # noqa: N802 (Qt override)
+        self._hover_index = -1
+        try:
+            self.update()
+        except Exception:
+            pass
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            idx = int(self.tabAt(event.pos()))
+        except Exception:
+            idx = -1
+        if idx != int(self._hover_index):
+            self._hover_index = idx
+            try:
+                self.update()
+            except Exception:
+                pass
+        super().mouseMoveEvent(event)
+
+    def paintEvent(self, event):  # noqa: N802 (Qt override)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        fm = QFontMetricsF(self.font())
+
+        pad_x = 10.0
+        pad_y = 6.0
+        underline_h = 2.0
+        underline_radius = 1.0
+        hover_radius = 6.0
+
+        for i in range(self.count()):
+            try:
+                if not bool(self.isTabVisible(i)):
+                    continue
+            except Exception:
+                pass
+
+            r = self.tabRect(i)
+            if r.isNull():
+                continue
+
+            is_selected = int(i) == int(self.currentIndex())
+            is_hover = int(i) == int(self._hover_index)
+            key = self._tab_key(i)
+            is_active = bool(key) and (key in (self._active_keys or set()))
+
+            # Hover background (subtle)
+            if is_hover:
+                try:
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(self._BG_HOVER)
+                    p.drawRoundedRect(r.adjusted(0, 1, 0, -2), hover_radius, hover_radius)
+                except Exception:
+                    pass
+
+            # Selected underline
+            if is_selected:
+                try:
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(self._ACCENT_CYAN)
+                    underline_y = float(r.bottom()) - underline_h + 1.0
+                    p.drawRoundedRect(
+                        QRectF(float(r.left()), float(underline_y), float(r.width()), float(underline_h)),
+                        underline_radius,
+                        underline_radius,
+                    )
+                except Exception:
+                    pass
+
+            # Text
+            try:
+                text = str(self.tabText(i) or "").strip()
+            except Exception:
+                text = ""
+
+            try:
+                color = self._ACCENT_CYAN if is_active else self._TEXT_SECONDARY
+                if is_selected and not is_active:
+                    color = self._TEXT_PRIMARY
+                p.setPen(color)
+            except Exception:
+                pass
+
+            tr = r.adjusted(int(pad_x), int(pad_y), -int(pad_x), -int(pad_y))
+            try:
+                elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, float(max(1, tr.width())))
+            except Exception:
+                elided = text
+            try:
+                p.drawText(tr, int(Qt.AlignmentFlag.AlignCenter), elided)
+            except Exception:
+                pass
+
+        p.end()
+
+
 class StrategyDetailPage(BasePage):
     """
     Страница детального выбора стратегии для категории.
@@ -868,8 +1018,9 @@ class StrategyDetailPage(BasePage):
         self._active_filters = set()  # Активные фильтры по технике
         # TCP multi-phase UI state (direct_zapret2, tcp.txt + tcp_fake.txt)
         self._tcp_phase_mode = False
-        self._phase_chips = {}
-        self._phase_chip_group = None
+        self._phase_tabbar: PhaseTabBar | None = None
+        self._phase_tab_index_by_key: dict[str, int] = {}
+        self._phase_tab_key_by_index: dict[int, str] = {}
         self._active_phase_key = None
         self._last_active_phase_key_by_category: dict[str, str] = {}
         self._tcp_phase_selected_ids: dict[str, str] = {}  # phase_key -> strategy_id
@@ -936,6 +1087,26 @@ class StrategyDetailPage(BasePage):
         except Exception:
             pass
         return super().eventFilter(obj, event)
+
+    def hideEvent(self, event):  # noqa: N802 (Qt override)
+        # Ensure floating preview/tool windows do not keep intercepting mouse events
+        # after navigation away from this page.
+        try:
+            self._close_preview_dialog(force=True)
+        except Exception:
+            pass
+        try:
+            self._stop_loading()
+        except Exception:
+            pass
+        try:
+            self._strategies_load_generation += 1
+            if self._strategies_load_timer:
+                self._strategies_load_timer.stop()
+                self._strategies_load_timer = None
+        except Exception:
+            pass
+        return super().hideEvent(event)
 
     def _refresh_scroll_range(self) -> None:
         # Ensure QScrollArea recomputes range after dynamic content growth.
@@ -1835,22 +2006,66 @@ class StrategyDetailPage(BasePage):
         self._phases_bar_widget = QWidget()
         self._phases_bar_widget.setStyleSheet("background: transparent;")
         self._phases_bar_widget.setVisible(False)
+        try:
+            # Prevent frameless window drag from stealing tab clicks.
+            self._phases_bar_widget.setProperty("noDrag", True)
+        except Exception:
+            pass
         phases_layout = QHBoxLayout(self._phases_bar_widget)
         phases_layout.setContentsMargins(0, 0, 0, 8)
-        phases_layout.setSpacing(6)
+        phases_layout.setSpacing(0)
 
-        self._phase_chips = {}
-        self._phase_chip_group = QButtonGroup(self)
-        self._phase_chip_group.setExclusive(True)
+        self._phase_tabbar = PhaseTabBar(self)
+        self._phase_tabbar.setDrawBase(False)
+        self._phase_tabbar.setExpanding(False)
+        self._phase_tabbar.setMovable(False)
+        self._phase_tabbar.setUsesScrollButtons(True)
+        try:
+            self._phase_tabbar.setCursor(Qt.CursorShape.PointingHandCursor)
+        except Exception:
+            pass
+        try:
+            # Prevent frameless window drag from stealing tab clicks.
+            self._phase_tabbar.setProperty("noDrag", True)
+        except Exception:
+            pass
 
+        # Keep scroll buttons aligned with the app style (tabs are custom-painted).
+        self._phase_tabbar.setStyleSheet("""
+            QTabBar { background: transparent; }
+            QTabBar QToolButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 6px;
+                margin: 0 2px;
+            }
+            QTabBar QToolButton:hover {
+                background: rgba(255, 255, 255, 0.10);
+            }
+        """)
+
+        self._phase_tab_index_by_key = {}
+        self._phase_tab_key_by_index = {}
         for phase_key, label in TCP_PHASE_TAB_ORDER:
-            chip = FilterChip(label, phase_key, selected_radius=8, selected_style="neutral")
-            chip.toggled_filter.connect(self._on_phase_tab_toggled)
-            self._phase_chips[phase_key] = chip
-            self._phase_chip_group.addButton(chip)
-            phases_layout.addWidget(chip)
+            idx = self._phase_tabbar.addTab(label)
+            key = str(phase_key or "").strip().lower()
+            self._phase_tab_index_by_key[key] = idx
+            self._phase_tab_key_by_index[idx] = key
+            try:
+                self._phase_tabbar.setTabData(idx, key)
+            except Exception:
+                pass
 
-        phases_layout.addStretch()
+        try:
+            self._phase_tabbar.currentChanged.connect(self._on_phase_tab_changed)
+        except Exception:
+            pass
+        try:
+            self._phase_tabbar.tabBarClicked.connect(self._on_phase_tab_clicked)
+        except Exception:
+            pass
+
+        phases_layout.addWidget(self._phase_tabbar, 1)
         strategies_layout.addWidget(self._phases_bar_widget)
 
         # Лёгкий список стратегий: item-based, без сотен QWidget в layout
@@ -2767,7 +2982,7 @@ class StrategyDetailPage(BasePage):
                 return None
             data = json.loads(raw) if isinstance(raw, str) else {}
             phase = str((data or {}).get(key) or "").strip().lower()
-            if phase and phase in (self._phase_chips or {}):
+            if phase and phase in (self._phase_tab_index_by_key or {}):
                 return phase
         except Exception:
             return None
@@ -2788,7 +3003,7 @@ class StrategyDetailPage(BasePage):
             return
 
         # Validate phase key early to avoid persisting garbage.
-        if self._tcp_phase_mode and phase not in (self._phase_chips or {}):
+        if self._tcp_phase_mode and phase not in (self._phase_tab_index_by_key or {}):
             return
 
         try:
@@ -3298,20 +3513,31 @@ class StrategyDetailPage(BasePage):
         return True
 
     def _update_tcp_phase_chip_markers(self) -> None:
-        """Highlights all active phases with blue (even when not currently selected)."""
+        """
+        Highlights all active phases (even when not currently selected).
+
+        In the tab UI, this is implemented by cyan tab text for active phases.
+        """
         if not self._tcp_phase_mode:
             return
 
-        try:
-            chips = dict(self._phase_chips or {})
-        except Exception:
-            chips = {}
+        tabbar = self._phase_tabbar
+        if not tabbar:
+            return
 
-        for key, chip in chips.items():
+        active_keys: set[str] = set()
+        for key in (self._phase_tab_index_by_key or {}).keys():
             try:
-                chip.set_active_marker(self._is_tcp_phase_active_for_ui(key))
+                is_active = bool(self._is_tcp_phase_active_for_ui(key))
             except Exception:
-                pass
+                is_active = False
+            if is_active:
+                active_keys.add(str(key or "").strip().lower())
+
+        try:
+            tabbar.set_active_keys(active_keys)
+        except Exception:
+            pass
 
     def _load_tcp_phase_state_from_preset(self) -> None:
         """Parses current tcp_args into phase selections (best-effort)."""
@@ -3391,45 +3617,50 @@ class StrategyDetailPage(BasePage):
 
         hide_fake = bool(self._tcp_hide_fake_phase)
         try:
-            fake_chip = self._phase_chips.get("fake")
-            if fake_chip:
-                fake_chip.setVisible(not hide_fake)
+            tabbar = self._phase_tabbar
+            idx = (self._phase_tab_index_by_key or {}).get("fake")
+            if tabbar is not None and idx is not None:
+                tabbar.setTabVisible(int(idx), not hide_fake)
         except Exception:
             pass
 
         if hide_fake and (self._active_phase_key or "") == "fake":
             self._set_active_phase_chip("multisplit")
+            try:
+                self._apply_filters()
+            except Exception:
+                pass
 
     def _set_active_phase_chip(self, phase_key: str) -> None:
-        """Selects a phase chip (tab) programmatically without firing user side effects twice."""
+        """Selects a phase tab programmatically without firing user side effects twice."""
         key = str(phase_key or "").strip().lower()
-        if not (self._tcp_phase_mode and key and key in self._phase_chips):
+        if not (self._tcp_phase_mode and key and key in (self._phase_tab_index_by_key or {})):
             return
 
-        # If the chip is hidden, fall back to multisplit.
+        tabbar = self._phase_tabbar
+        if not tabbar:
+            return
+
+        # If the tab is hidden, fall back to multisplit.
         try:
-            chip = self._phase_chips.get(key)
-            if chip and not chip.isVisible():
+            idx = (self._phase_tab_index_by_key or {}).get(key)
+            if idx is None or not bool(tabbar.isTabVisible(int(idx))):
                 key = "multisplit"
         except Exception:
             key = "multisplit"
 
-        # Block all signals while switching.
+        idx = (self._phase_tab_index_by_key or {}).get(key)
+        if idx is None:
+            return
+
         try:
-            for c in self._phase_chips.values():
-                c.blockSignals(True)
-            for k, c in self._phase_chips.items():
-                c.setChecked(k == key)
-                try:
-                    c._update_style()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+            tabbar.blockSignals(True)
+            tabbar.setCurrentIndex(int(idx))
         finally:
-            for c in self._phase_chips.values():
-                try:
-                    c.blockSignals(False)
-                except Exception:
-                    pass
+            try:
+                tabbar.blockSignals(False)
+            except Exception:
+                pass
 
         self._active_phase_key = key
 
@@ -3440,7 +3671,7 @@ class StrategyDetailPage(BasePage):
 
         # Prefer a main phase that is currently selected.
         preferred = None
-        for k in ("multisplit", "multidisorder", "multidisorder_legacy", "tcpseg", "oob"):
+        for k in ("multisplit", "multidisorder", "multidisorder_legacy", "tcpseg", "oob", "other"):
             sid = (self._tcp_phase_selected_ids.get(k) or "").strip()
             if sid:
                 preferred = k
@@ -3769,45 +4000,52 @@ class StrategyDetailPage(BasePage):
             self._active_filters.discard(technique)
         self._apply_filters()
 
-    def _on_phase_tab_toggled(self, phase_key: str, active: bool) -> None:
-        """TCP multi-phase: handler for phase "tab" selection."""
+    def _on_phase_tab_changed(self, index: int) -> None:
+        """TCP multi-phase: handler for phase tab selection (QTabBar)."""
         if not self._tcp_phase_mode:
             return
 
-        key = str(phase_key or "").strip().lower()
+        try:
+            idx = int(index)
+        except Exception:
+            return
+
+        key = str((self._phase_tab_key_by_index or {}).get(idx) or "").strip().lower()
         if not key:
             return
 
-        if active:
-            self._active_phase_key = key
-            try:
-                if self._category_key:
-                    self._last_active_phase_key_by_category[self._category_key] = key
-                    self._save_category_last_tcp_phase_tab(self._category_key, key)
-            except Exception:
-                pass
-            self._apply_filters()
-            self._sync_tree_selection_to_active_phase()
+        self._active_phase_key = key
+        try:
+            if self._category_key:
+                self._last_active_phase_key_by_category[self._category_key] = key
+                self._save_category_last_tcp_phase_tab(self._category_key, key)
+        except Exception:
+            pass
+
+        self._apply_filters()
+        self._sync_tree_selection_to_active_phase()
+
+    def _on_phase_tab_clicked(self, index: int) -> None:
+        """
+        Ensures phase selection reacts to mouse clicks even when Qt doesn't emit
+        `currentChanged` (or when the user clicks the already-selected tab).
+        """
+        tabbar = self._phase_tabbar
+        if not tabbar:
+            return
+        try:
+            idx = int(index)
+        except Exception:
             return
 
-        # Keep one tab active: if the current tab gets unchecked and no other is checked,
-        # restore it back.
-        if key == (self._active_phase_key or ""):
-            any_checked = any(bool(chip.isChecked()) for chip in self._phase_chips.values())
-            if not any_checked and key in self._phase_chips:
-                try:
-                    chip = self._phase_chips[key]
-                    chip.blockSignals(True)
-                    chip.setChecked(True)
-                    try:
-                        chip._update_style()  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                finally:
-                    try:
-                        chip.blockSignals(False)
-                    except Exception:
-                        pass
+        try:
+            if int(tabbar.currentIndex()) != idx:
+                tabbar.setCurrentIndex(idx)
+                return
+        except Exception:
+            pass
+
+        self._on_phase_tab_changed(idx)
 
     def _apply_filters(self):
         """Применяет фильтры по технике к списку стратегий"""

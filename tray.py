@@ -192,19 +192,15 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def exit_only(self):
         """Закрывает GUI, процесс winws.exe остаётся запущенным."""
+        # Единая точка выхода: DPI не трогаем.
+        if hasattr(self.parent, "request_exit"):
+            self.parent.request_exit(stop_dpi=False)
+            return
+
+        # Fallback для старой архитектуры
         from log import log
-        log("Выход без остановки DPI (только GUI)", level="INFO")
-
-        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
-        self._save_window_geometry()
-
-        # останавливаем мониторинг (он будет «пустым» без окна)
-        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
-
-        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
+        log("Выход без остановки DPI (fallback, только GUI)", level="INFO")
         self.parent._allow_close = True
-        
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -213,23 +209,18 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def exit_and_stop(self):
         """Останавливает winws.exe, затем закрывает GUI."""
+        # Единая точка выхода: остановить DPI и выйти (учитывает все режимы).
+        if hasattr(self.parent, "request_exit"):
+            self.parent.request_exit(stop_dpi=True)
+            return
+
+        # Fallback для старой архитектуры
         from dpi.stop import stop_dpi
         from log import log
-
-        log("Выход + остановка DPI", level="INFO")
-
-        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
-        self._save_window_geometry()
-
+        log("Выход + остановка DPI (fallback)", level="INFO")
         if hasattr(self.parent, 'dpi_starter'):
             stop_dpi(self.parent)
-
-        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
-
-        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
         self.parent._allow_close = True
-        
         self.tray_icon.hide()
         QApplication.quit()
 

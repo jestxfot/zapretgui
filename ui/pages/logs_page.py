@@ -1172,31 +1172,56 @@ class LogsPage(BasePage):
             self._worker.new_lines.connect(self._append_text)
             self._worker.finished.connect(self._thread.quit)
             self._worker.finished.connect(self._worker.deleteLater)
+            self._thread.finished.connect(self._on_tail_thread_finished)
             self._thread.finished.connect(self._thread.deleteLater)
 
             self._thread.start()
         except Exception as e:
             log(f"Ошибка запуска log tail worker: {e}", "ERROR")
+
+    def _on_tail_thread_finished(self):
+        """Очищает ссылки на thread/worker после завершения, чтобы не дергать удалённые Qt-объекты."""
+        self._thread = None
+        self._worker = None
             
     def _stop_tail_worker(self, blocking: bool = False):
         """Останавливает worker (неблокирующий по умолчанию)"""
+        worker = getattr(self, "_worker", None)
+        thread = getattr(self, "_thread", None)
+
+        if worker:
+            try:
+                worker.stop()
+            except RuntimeError:
+                # Qt-объект уже удалён
+                self._worker = None
+                worker = None
+
+        if not thread:
+            return
+
         try:
-            if self._worker:
-                self._worker.stop()
-            if self._thread and self._thread.isRunning():
-                self._thread.quit()
-                if blocking:
-                    # Блокирующий режим только при закрытии приложения
-                    if not self._thread.wait(2000):
-                        log("⚠ Log tail worker не завершился, принудительно завершаем", "WARNING")
-                        try:
-                            self._thread.terminate()
-                            self._thread.wait(500)
-                        except:
-                            pass
-                # Неблокирующий режим - поток остановится сам
-        except Exception as e:
-            log(f"Ошибка остановки log tail worker: {e}", "DEBUG")
+            running = bool(thread.isRunning())
+        except RuntimeError:
+            # Qt-объект уже удалён
+            self._thread = None
+            return
+
+        if not running:
+            return
+
+        thread.quit()
+        if not blocking:
+            return
+
+        # Блокирующий режим только при закрытии приложения
+        if not thread.wait(2000):
+            log("⚠ Log tail worker не завершился, принудительно завершаем", "WARNING")
+            try:
+                thread.terminate()
+                thread.wait(500)
+            except Exception:
+                pass
 
     def _start_winws_output_worker(self):
         """Запускает worker для чтения вывода winws"""
@@ -1419,4 +1444,3 @@ class LogsPage(BasePage):
         """Очистка при закрытии - блокирующий режим"""
         self._stop_tail_worker(blocking=True)
         self._stop_winws_output_worker(blocking=True)
-

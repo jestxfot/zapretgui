@@ -23,6 +23,9 @@ class FloatingSpinner(QWidget):
             Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Tooltip/spinner must never block clicks/hover on the underlying UI.
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setFixedSize(32, 32)
         
         self._angle = 0
@@ -78,6 +81,8 @@ class StrategyHoverTooltip(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # Tooltip must not block clicks/hover on the app UI.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         self._opacity = 0.0
         self._spinner = None

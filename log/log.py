@@ -262,11 +262,21 @@ class LogViewerDialog(QDialog):
     def start_tail_worker(self, log_file):
         """Запускает или перезапускает worker для отслеживания лог файла"""
         # Останавливаем предыдущий worker если есть
-        if hasattr(self, '_worker') and self._worker:
-            self._worker.stop()
-        if hasattr(self, '_thread') and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait()
+        prev_worker = getattr(self, "_worker", None)
+        if prev_worker:
+            try:
+                prev_worker.stop()
+            except RuntimeError:
+                self._worker = None
+
+        prev_thread = getattr(self, "_thread", None)
+        if prev_thread:
+            try:
+                if prev_thread.isRunning():
+                    prev_thread.quit()
+                    prev_thread.wait()
+            except RuntimeError:
+                self._thread = None
             
         # Очищаем текстовое поле
         self.log_text.clear()
@@ -284,9 +294,15 @@ class LogViewerDialog(QDialog):
         self._worker.new_lines.connect(self._append_text)
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._on_tail_thread_finished)
         self._thread.finished.connect(self._thread.deleteLater)
 
         self._thread.start()
+
+    def _on_tail_thread_finished(self):
+        """Очищает ссылки на thread/worker после завершения, чтобы не дергать удалённые Qt-объекты."""
+        self._thread = None
+        self._worker = None
 
     def update_stats(self):
         """Обновляет статистику по лог файлам"""
@@ -392,9 +408,13 @@ class LogViewerDialog(QDialog):
         try:
             if hasattr(self, "_worker") and self._worker:
                 self._worker.stop()           # просим воркер завершиться
-            if hasattr(self, "_thread") and self._thread.isRunning():
-                self._thread.quit()
-                self._thread.wait(2_000)      # <= 2 сек
+            if hasattr(self, "_thread") and self._thread:
+                try:
+                    if self._thread.isRunning():
+                        self._thread.quit()
+                        self._thread.wait(2_000)      # <= 2 сек
+                except RuntimeError:
+                    self._thread = None
         finally:
             super().closeEvent(event)
 

@@ -299,7 +299,7 @@ def get_window_opacity() -> int:
     from config import REGISTRY_PATH
     val = reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME)
     if val is None:
-        return 95  # По умолчанию 95% прозрачности
+        return 100  # По умолчанию 100% (непрозрачное)
     # Ограничиваем значение диапазоном 0-100
     return max(0, min(100, int(val)))
 

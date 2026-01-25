@@ -1698,6 +1698,15 @@ class PresetManager:
         strategies = load_strategies(strategy_type)
         args = (strategies.get(strategy_id) or {}).get("args", "") or ""
 
+        # TCP presets may include strategies from tcp_fake.txt (multi-phase UI).
+        # Keep selection working by falling back to that catalog file.
+        if not args and strategy_type == "tcp":
+            try:
+                fake_strategies = load_strategies("tcp_fake")
+                args = (fake_strategies.get(strategy_id) or {}).get("args", "") or ""
+            except Exception:
+                args = args or ""
+
         if args:
             protocol = (category_info.get("protocol") or "").upper()
             is_udp = any(t in protocol for t in ("UDP", "QUIC", "L7", "RAW"))

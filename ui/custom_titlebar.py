@@ -2,7 +2,7 @@
 """
 Кастомный titlebar для окна со скругленными углами и узкой рамкой.
 """
-from PyQt6.QtCore import Qt, QPoint, QSize, pyqtSignal, QEvent, QObject
+from PyQt6.QtCore import Qt, QPoint, QSize, pyqtSignal, QEvent, QObject, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QPushButton, 
     QSizePolicy, QApplication, QMenuBar, QSpacerItem,
@@ -147,6 +147,14 @@ class DraggableWidget(QWidget):
         """Начинает перетаскивание окна"""
         main_window = self._get_main_window()
         if main_window:
+            try:
+                window_handle = main_window.windowHandle()
+                if window_handle is not None and hasattr(window_handle, "startSystemMove"):
+                    if window_handle.startSystemMove():
+                        return True
+            except Exception:
+                pass
+
             self._is_dragging = True
             self._drag_start_pos = global_pos
             self._drag_window_pos = main_window.pos()
@@ -477,6 +485,7 @@ class CustomTitleBar(QWidget):
         self._drag_pos = None
         self._window_pos = None
         self._is_moving = False
+        self._is_system_moving = False
         self._menubar = None
         
         # Высота titlebar (узкая рамка)
@@ -710,6 +719,19 @@ class CustomTitleBar(QWidget):
             if child and isinstance(child, TitleBarButton):
                 event.ignore()
                 return
+
+            try:
+                if self.parent_window:
+                    window_handle = self.parent_window.windowHandle()
+                    if window_handle is not None and hasattr(window_handle, "startSystemMove"):
+                        self.drag_started.emit()
+                        if window_handle.startSystemMove():
+                            self._is_system_moving = True
+                            QTimer.singleShot(50, self._check_system_move_end)
+                            event.accept()
+                            return
+            except Exception:
+                pass
             
             self._drag_pos = event.globalPosition().toPoint()
             self._window_pos = self.parent_window.pos()
@@ -750,6 +772,17 @@ class CustomTitleBar(QWidget):
         if was_moving:
             self.drag_ended.emit()  # Включаем Acrylic обратно
         event.accept()
+
+    def _check_system_move_end(self) -> None:
+        if not self._is_system_moving:
+            return
+
+        if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            QTimer.singleShot(50, self._check_system_move_end)
+            return
+
+        self._is_system_moving = False
+        self.drag_ended.emit()
         
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         """Двойной клик для максимизации/восстановления"""
@@ -761,8 +794,8 @@ class CustomTitleBar(QWidget):
 class ResizeHandle(QWidget):
     """Полупрозрачный оверлей для изменения размера по краям окна"""
     
-    def __init__(self, window, edge: str, thickness: int):
-        super().__init__(window)
+    def __init__(self, window, edge: str, thickness: int, parent=None):
+        super().__init__(parent if parent is not None else window)
         self.window = window
         self.edge = edge
         self.thickness = thickness
@@ -837,6 +870,7 @@ class FramelessWindowMixin:
     
     def init_frameless(self, resize_target=None):
         """Инициализация frameless режима"""
+        self._resize_target = resize_target if resize_target is not None else self
         self._resize_handles = []
         self._resize_edge = None
         self._resize_start_pos = None
@@ -857,9 +891,10 @@ class FramelessWindowMixin:
             'top-left', 'top-right', 'bottom-left', 'bottom-right'
         ]
         thickness = self.RESIZE_MARGIN
+        target = getattr(self, "_resize_target", self)
         
         for edge in edges:
-            handle = ResizeHandle(self, edge, thickness)
+            handle = ResizeHandle(self, edge, thickness, parent=target)
             handle.raise_()
             self._resize_handles.append(handle)
         
@@ -871,8 +906,9 @@ class FramelessWindowMixin:
             return
         
         margin = self.RESIZE_MARGIN
-        w = self.width()
-        h = self.height()
+        target = getattr(self, "_resize_target", self)
+        w = target.width()
+        h = target.height()
         corner = max(int(margin * 2.0), margin + 12)
         corner = min(corner, w // 2, h // 2)
 
@@ -994,6 +1030,13 @@ class FramelessWindowMixin:
         """Проверяет, является ли виджет интерактивным (не должен перетаскивать окно)"""
         if widget is None:
             return False
+
+        # Explicit opt-out from window dragging (used by complex interactive areas).
+        try:
+            if widget.property("clickable") or widget.property("noDrag"):
+                return True
+        except Exception:
+            pass
         
         class_name = widget.__class__.__name__
         
@@ -1142,8 +1185,8 @@ class FramelessWindowMixin:
         bg_match = re.search(r'background-color:\s*([^;]+);', current_style)
         border_match = re.search(r'border:\s*([^;]+);', current_style)
         
-        bg_color = bg_match.group(1).strip() if bg_match else "rgba(30, 30, 30, 240)"
-        border_style = border_match.group(1).strip() if border_match else "1px solid rgba(80, 80, 80, 200)"
+        bg_color = bg_match.group(1).strip() if bg_match else "rgba(30, 30, 30, 255)"
+        border_style = border_match.group(1).strip() if border_match else "1px solid rgba(80, 80, 80, 255)"
         
         self.container.setStyleSheet(f"""
             QFrame#mainContainer {{
@@ -1155,9 +1198,13 @@ class FramelessWindowMixin:
         
         # Обновляем titlebar
         title_radius = radius if enable_radius else 0
+        title_style = self.title_bar.styleSheet() or ""
+        title_bg_match = re.search(r'background-color:\s*([^;]+);', title_style)
+        title_bg = title_bg_match.group(1).strip() if title_bg_match else None
+        title_bg_line = f"background-color: {title_bg};" if title_bg else ""
         self.title_bar.setStyleSheet(f"""
             QWidget#customTitleBar {{
-                background-color: rgba(26, 26, 26, 240);
+                {title_bg_line}
                 border-top-left-radius: {title_radius}px;
                 border-top-right-radius: {title_radius}px;
             }}

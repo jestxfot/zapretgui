@@ -248,8 +248,7 @@ def _is_direct_profile_name(profile_name: str) -> bool:
     if not name:
         return False
     return (
-        "без прокси" in name
-        or "из файла" in name
+        "вкл. (активировать hosts)" in name
         or "no proxy" in name
         or "direct" in name
     )
@@ -293,7 +292,7 @@ def _service_has_proxy_ips(cat: HostsCatalog, service_name: str) -> bool:
     """
     True если у сервиса есть ХОТЯ БЫ ОДИН домен с IP в proxy/hide колонках.
 
-    Proxy/hide колонки определяются автоматически (все профили кроме "direct"/"Без прокси").
+    Proxy/hide колонки определяются автоматически (все профили кроме "direct"/"Вкл. (активировать hosts)").
     """
     domains = cat.services.get(service_name, {}) or {}
     if not domains:

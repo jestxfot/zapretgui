@@ -262,96 +262,30 @@ class InitializationManager:
 
     def _init_menu(self):
         """Инициализация меню"""
+        # Alt-меню отключено: все настройки/ссылки перенесены в страницы интерфейса.
         try:
-            from altmenu.app_menubar import AppMenuBar
-            from PyQt6.QtWidgets import QWidget, QHBoxLayout
-            
-            self.app.menu_bar = AppMenuBar(self.app)
-            
-            # ✅ Добавляем меню под titlebar в отдельном контейнере
-            if hasattr(self.app, 'container') and self.app.container.layout():
-                # Создаем контейнер для меню (с явным родителем!)
-                menubar_widget = QWidget(self.app.container)  # ✅ Родитель = container
-                menubar_widget.setObjectName("menubarWidget")
-                menubar_widget.setFixedHeight(28)
-                menubar_widget.setStyleSheet("""
-                    QWidget#menubarWidget {
-                        background-color: rgba(20, 20, 20, 240);
-                        border-bottom: 1px solid rgba(80, 80, 80, 200);
-                    }
-                """)
-                
-                menubar_layout = QHBoxLayout(menubar_widget)
-                menubar_layout.setContentsMargins(8, 0, 8, 0)
-                menubar_layout.setSpacing(0)
-                
-                # Стилизуем menubar
-                self.app.menu_bar.setStyleSheet("""
-                    QMenuBar {
-                        background-color: transparent;
-                        color: #ffffff;
-                        border: none;
-                        padding: 0px;
-                        spacing: 0px;
-                        font-size: 11px;
-                        font-family: 'Segoe UI', Arial, sans-serif;
-                    }
-                    QMenuBar::item {
-                        background-color: transparent;
-                        color: #ffffff;
-                        padding: 4px 10px;
-                        border-radius: 4px;
-                        margin: 2px 1px;
-                    }
-                    QMenuBar::item:selected {
-                        background-color: #333333;
-                    }
-                    QMenuBar::item:pressed {
-                        background-color: #404040;
-                    }
-                    QMenu {
-                        background-color: #252525;
-                        border: 1px solid #3d3d3d;
-                        border-radius: 6px;
-                        padding: 4px;
-                    }
-                    QMenu::item {
-                        padding: 6px 24px 6px 12px;
-                        border-radius: 4px;
-                        color: #ffffff;
-                    }
-                    QMenu::item:selected {
-                        background-color: #333333;
-                    }
-                    QMenu::separator {
-                        height: 1px;
-                        background-color: #3d3d3d;
-                        margin: 4px 8px;
-                    }
-                """)
-                
-                menubar_layout.addWidget(self.app.menu_bar)
-                menubar_layout.addStretch()
-                
-                # Вставляем после titlebar (индекс 1)
-                container_layout = self.app.container.layout()
-                container_layout.insertWidget(1, menubar_widget)
-                
-                # Сохраняем ссылку для обновления стилей при смене темы
-                self.app.menubar_widget = menubar_widget
-                
-                log("Меню добавлено под titlebar", "INFO")
-            else:
-                # Fallback для старого поведения
-                if self.app.layout():
-                    self.app.layout().setMenuBar(self.app.menu_bar)
-                log("Меню инициализировано (fallback)", "INFO")
-                
+            # На всякий случай убираем старый menubar_widget (если остался после hot-reload)
+            if hasattr(self.app, "menubar_widget") and getattr(self.app, "menubar_widget", None):
+                try:
+                    self.app.menubar_widget.hide()
+                    self.app.menubar_widget.deleteLater()
+                except Exception:
+                    pass
+            if hasattr(self.app, "menubar_widget"):
+                try:
+                    delattr(self.app, "menubar_widget")
+                except Exception:
+                    pass
+            if hasattr(self.app, "menu_bar"):
+                try:
+                    delattr(self.app, "menu_bar")
+                except Exception:
+                    pass
+
             self.init_tasks_completed.add('menu')
+            log("Alt-меню отключено (перенесено в страницы)", "INFO")
         except Exception as e:
-            log(f"Ошибка инициализации меню: {e}", "❌ ERROR")
-            import traceback
-            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
+            log(f"Ошибка отключения меню: {e}", "❌ ERROR")
 
     def _connect_signals(self):
         """Подключение всех сигналов"""
@@ -433,7 +367,7 @@ class InitializationManager:
 
             self.app.show_page(target_page)
             if hasattr(self.app, 'side_nav'):
-                self.app.side_nav.set_section_by_name(SectionName.STRATEGIES)
+                self.app.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
         except Exception as e:
             log(f"Ошибка навигации на стратегии: {e}", "ERROR")
 

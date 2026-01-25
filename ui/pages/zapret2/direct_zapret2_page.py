@@ -187,7 +187,9 @@ class Zapret2StrategiesPageNew(BasePage):
         """Обработчик клика по категории - открывает страницу выбора стратегий"""
         try:
             current_strategy = self.category_selections.get(category_key, 'none')
-            self.open_category_detail.emit(category_key, current_strategy)
+            # Defer navigation to the next event loop tick: prevents page switch
+            # while Qt is still processing the mouse event (can break hover/cursor updates).
+            QTimer.singleShot(0, lambda ck=category_key, cs=current_strategy: self.open_category_detail.emit(ck, cs))
         except Exception as e:
             log(f"Ошибка открытия детальной страницы: {e}", "ERROR")
 

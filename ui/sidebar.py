@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QIcon, QColor, QPainter, QPainterPath, QTransform
 import qtawesome as qta
 
-from ui.page_names import PageName, SectionName, SECTION_TO_PAGE, ORCHESTRA_ONLY_SECTIONS
+from ui.page_names import PageName, SectionName, SECTION_TO_PAGE, SECTION_CHILDREN, ORCHESTRA_ONLY_SECTIONS
 
 
 class ShimmerMixin:
@@ -512,6 +512,12 @@ class CollapsibleNavButton(NavButton):
     
     def mousePressEvent(self, event):
         """Проверяем клик по шеврону или ПКМ в любом месте"""
+        # В свёрнутом сайдбаре шеврон не виден, поэтому ЛКМ должен работать как обычный клик,
+        # а не перехватываться "областью шеврона" (иначе кнопка не открывает страницу).
+        if self._collapsed and event.button() == Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+
         # ПКМ в любом месте кнопки переключает сворачивание
         if event.button() == Qt.MouseButton.RightButton:
             self.toggle_expanded()
@@ -521,6 +527,12 @@ class CollapsibleNavButton(NavButton):
         # ЛКМ по области шеврона тоже переключает
         chevron_area = QRect(self.width() - 30, 0, 30, self.height())
         if event.button() == Qt.MouseButton.LeftButton and chevron_area.contains(event.pos()):
+            # Если секция уже активна, ЛКМ по шеврону должен вести себя как обычный клик
+            # (например, вернуться из detail-страницы на главный список).
+            if self._selected:
+                super().mousePressEvent(event)
+                return
+
             self.toggle_expanded()
             event.accept()
             return
@@ -604,6 +616,7 @@ class SideNavBar(QWidget):
             SectionName.STRATEGIES: "SidebarStrategiesExpanded",
             SectionName.MY_LISTS_HEADER: "SidebarMyListsExpanded",
             SectionName.DIAGNOSTICS: "SidebarDiagnosticsExpanded",
+            SectionName.ABOUT: "SidebarAboutExpanded",
         }
         
         # Анимация ширины
@@ -732,8 +745,9 @@ class SideNavBar(QWidget):
             (SectionName.APPEARANCE, "fa5s.palette", "Оформление", False),
             (SectionName.PREMIUM, "fa5s.star", "Донат", False),
             (SectionName.LOGS, "fa5s.file-alt", "Логи", False),
-            (SectionName.SERVERS, "fa5s.sync-alt", "Обновления", False),
-            (SectionName.ABOUT, "fa5s.info-circle", "О программе", False),
+            (SectionName.ABOUT, "fa5s.info-circle", "О программе", "collapsible"),
+            (SectionName.SERVERS, "fa5s.sync-alt", "Обновления", True),
+            (SectionName.HELP, "fa5s.question-circle", "Справка", True),
         ]
 
         self._section_widgets: dict[SectionName, QWidget] = {}
@@ -1316,7 +1330,45 @@ class SideNavBar(QWidget):
         
     def _on_button_clicked(self, section: SectionName):
         if section == self.current_section:
+            # Allow re-click on collapsible groups (e.g. "Стратегии", "Диагностика")
+            # to navigate to the group's main page even when the section is active.
+            btn = self._section_widgets.get(section)
+            # IMPORTANT: only do this for real user clicks. Programmatic calls like
+            # `set_section_by_name()` should not trigger navigation.
+            sender = None
+            try:
+                sender = self.sender()
+            except Exception:
+                sender = None
+
+            if isinstance(btn, CollapsibleNavButton) and (sender is btn):
+                page_name = SECTION_TO_PAGE.get(section)
+                self.section_changed.emit(page_name)
             return
+
+        self._select_section(section, emit_signal=True)
+
+    def _select_section(self, section: SectionName, *, emit_signal: bool) -> None:
+        """Selects a sidebar section and optionally emits navigation signal.
+
+        NOTE: This method never triggers "re-click" navigation; it's meant for
+        programmatic selection/highlighting. User-click re-navigation is handled
+        in `_on_button_clicked`.
+        """
+        if section == self.current_section:
+            return
+
+        # Если выбираем подпункт, убедимся что его родительская группа развёрнута,
+        # иначе подсветка будет "невидимой" при свернутой группе.
+        try:
+            for parent_section, children in SECTION_CHILDREN.items():
+                if section in children:
+                    parent_btn = self._section_widgets.get(parent_section)
+                    if parent_btn is not None and hasattr(parent_btn, "set_expanded"):
+                        parent_btn.set_expanded(True)
+                    break
+        except Exception:
+            pass
 
         old_btn = self._section_widgets.get(self.current_section) if self.current_section else None
         if old_btn is not None and hasattr(old_btn, "set_selected"):
@@ -1330,15 +1382,16 @@ class SideNavBar(QWidget):
 
         self.current_section = section
         new_btn.set_selected(True)
-        
-        # Эмитим сигнал с PageName (не числовым индексом!)
-        page_name = SECTION_TO_PAGE.get(section)
-        # Always emit - main_window handles None for collapsible groups dynamically
-        self.section_changed.emit(page_name)
 
-    def set_section_by_name(self, section: SectionName):
+        if emit_signal:
+            # Эмитим сигнал с PageName (не числовым индексом!)
+            page_name = SECTION_TO_PAGE.get(section)
+            # Always emit - main_window handles None for collapsible groups dynamically
+            self.section_changed.emit(page_name)
+
+    def set_section_by_name(self, section: SectionName, *, emit_signal: bool = True):
         """Программно устанавливает раздел по SectionName"""
-        self._on_button_clicked(section)
+        self._select_section(section, emit_signal=emit_signal)
 
     def set_page(self, page_name: PageName):
         """Программно устанавливает раздел по PageName
@@ -1347,7 +1400,7 @@ class SideNavBar(QWidget):
         """
         self.set_page_by_name(page_name)
 
-    def set_page_by_name(self, page_name: PageName):
+    def set_page_by_name(self, page_name: PageName, *, emit_signal: bool = True):
         """Программно устанавливает страницу по PageName
 
         Находит секцию, которая соответствует этой странице через SECTION_TO_PAGE
@@ -1355,7 +1408,7 @@ class SideNavBar(QWidget):
         """
         for section, page in SECTION_TO_PAGE.items():
             if page == page_name:
-                self.set_section_by_name(section)
+                self.set_section_by_name(section, emit_signal=emit_signal)
                 return
     
     def update_strategies_submenu_visibility(self):

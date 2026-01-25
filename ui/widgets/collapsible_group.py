@@ -32,6 +32,7 @@ class CollapsibleServiceHeader(QFrame):
         self._group_key = group_key
         self._title = title
         self._expanded = True
+        self._pressed = False
         self._build_ui()
         self._apply_style()
 
@@ -47,6 +48,8 @@ class CollapsibleServiceHeader(QFrame):
         """Создает UI заголовка"""
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setFixedHeight(28)
+        self.setProperty("clickable", True)
+        self.setProperty("noDrag", True)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 0, 8, 0)
@@ -99,10 +102,30 @@ class CollapsibleServiceHeader(QFrame):
         self._chevron.setPixmap(icon.pixmap(12, 12))
 
     def mousePressEvent(self, event):
-        """Обработчик клика - переключает состояние"""
+        """Track press; toggle on release (Qt-like behavior)."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.toggle()
-        super().mousePressEvent(event)
+            self._pressed = True
+            try:
+                event.accept()
+            except Exception:
+                pass
+        return super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_pressed = bool(self._pressed)
+            self._pressed = False
+            if was_pressed and self.rect().contains(event.position().toPoint()):
+                self.toggle()
+                try:
+                    event.accept()
+                except Exception:
+                    pass
+        return super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802 (Qt override)
+        self._pressed = False
+        return super().leaveEvent(event)
 
     def toggle(self):
         """Переключает развернутое/свернутое состояние"""

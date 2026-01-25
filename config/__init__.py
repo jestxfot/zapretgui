@@ -3,6 +3,7 @@ from .config import (
     BIN_FOLDER, EXE_FOLDER, LUA_FOLDER, THEME_FOLDER, BAT_FOLDER, LISTS_FOLDER,
     LOGS_FOLDER, WINWS_EXE, WINWS2_EXE, ICON_PATH, ICON_TEST_PATH, OTHER_PATH,
     OTHER2_PATH, NETROGAT_PATH, NETROGAT2_PATH, STRATEGIES_FOLDER, WIDTH, HEIGHT,
+    MIN_WIDTH, MIN_HEIGHT,
     INDEXJSON_FOLDER, DEFAULT_STRAT, REG_LATEST_STRATEGY, WINDIVERT_FILTER,
     MAX_LOG_FILES, MAX_DEBUG_LOG_FILES, MAIN_DIRECTORY, HELP_FOLDER, PROGRAMDATA_PATH,
     # Пути реестра
@@ -10,6 +11,7 @@ from .config import (
     REGISTRY_PATH_DIRECT, REGISTRY_PATH_STRATEGIES, REGISTRY_PATH_WINDOW,
     # Функции окна
     get_window_position, set_window_position, get_window_size, set_window_size,
+    get_window_maximized, set_window_maximized,
     # Функции настроек анимации
     get_wall_animation_enabled, set_wall_animation_enabled,
     # Функции определения exe по методу
@@ -61,6 +63,8 @@ __all__ = [
     'MAX_DEBUG_LOG_FILES',
     'WIDTH',
     'HEIGHT',
+    'MIN_WIDTH',
+    'MIN_HEIGHT',
     # reg.py
     'get_last_strategy',  # УСТАРЕВШАЯ - используйте get_last_bat_strategy
     'set_last_strategy',  # УСТАРЕВШАЯ - используйте set_last_bat_strategy
@@ -80,6 +84,8 @@ __all__ = [
     'set_window_position',
     'get_window_size',
     'set_window_size',
+    'get_window_maximized',
+    'set_window_maximized',
     'get_wall_animation_enabled',
     'set_wall_animation_enabled',
     'reg',

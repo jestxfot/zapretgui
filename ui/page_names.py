@@ -58,6 +58,7 @@ class PageName(Enum):
     LOGS = auto()                    # Логи
     SERVERS = auto()                 # Серверы обновлений
     ABOUT = auto()                   # О программе
+    HELP = auto()                    # Справка (вкладка внутри "О программе")
 
     # === Оркестратор (автообучение) ===
     ORCHESTRA = auto()               # Оркестр - главная
@@ -118,6 +119,7 @@ class SectionName(Enum):
     LOGS = auto()                    # Логи
     SERVERS = auto()                 # Обновления
     ABOUT = auto()                   # О программе
+    HELP = auto()                    # Справка (подпункт "О программе")
 
 
 # Маппинг Section -> Page (какую страницу открывать при клике на секцию)
@@ -154,6 +156,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.LOGS: PageName.LOGS,
     SectionName.SERVERS: PageName.SERVERS,
     SectionName.ABOUT: PageName.ABOUT,
+    SectionName.HELP: PageName.HELP,
 }
 
 
@@ -162,6 +165,7 @@ COLLAPSIBLE_SECTIONS: set[SectionName] = {
     SectionName.STRATEGIES,
     SectionName.MY_LISTS_HEADER,
     SectionName.DIAGNOSTICS,
+    SectionName.ABOUT,
 }
 
 
@@ -189,6 +193,10 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     ],
     SectionName.DIAGNOSTICS: [
         SectionName.DNS_CHECK,
+    ],
+    SectionName.ABOUT: [
+        SectionName.SERVERS,
+        SectionName.HELP,
     ],
 }
 

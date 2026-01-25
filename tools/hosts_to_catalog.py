@@ -85,7 +85,7 @@ def parse_hosts_as_catalog(
     profile_ips: list[str],
     profile_names: list[str] | None = None,
     include_non_profile_ips: bool = False,
-    direct_profile_name: str = "Без прокси (из файла)",
+    direct_profile_name: str = "Вкл. (активировать hosts)",
     warnings: list[str] | None = None,
 ) -> Catalog:
     if profile_names is None:

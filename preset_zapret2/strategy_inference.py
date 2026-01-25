@@ -125,27 +125,47 @@ def infer_strategy_id_from_args(
         return "none"
 
     strategy_type = _get_strategy_type_for_category(category_key) or ("udp" if protocol == "udp" else "tcp")
-    try:
-        from .catalog import load_strategies
-        strategies = load_strategies(strategy_type)
-    except Exception:
-        strategies = {}
-
-    if not strategies:
-        return "none"
-
     # Search for matching strategy
-    for strategy_id, strategy_data in strategies.items():
-        strategy_args = strategy_data.get("args", "")
-        if not strategy_args:
-            continue
+    def _iter_candidate_strategy_types(primary_type: str) -> list[str]:
+        """
+        Strategy args may come from multiple builtin files.
 
-        # Normalize strategy args
-        normalized_strategy = normalize_args(strategy_args)
+        Example: TCP multi-phase UI loads additional strategies from `tcp_fake.txt`,
+        and preset files can contain those args. When loading such presets, we want to
+        resolve strategy_id to the real one (not "custom") so UI shows the name.
+        """
+        st = (primary_type or "").strip()
+        if not st:
+            return []
+        if st == "tcp":
+            return [st, "tcp_fake"]
+        return [st]
 
-        # Compare
-        if normalized_strategy == normalized_input:
-            return strategy_id
+    any_strategies_loaded = False
+    for candidate_type in _iter_candidate_strategy_types(strategy_type):
+        try:
+            from .catalog import load_strategies
+            candidates = load_strategies(candidate_type)
+        except Exception:
+            candidates = {}
+
+        if candidates:
+            any_strategies_loaded = True
+
+        for strategy_id, strategy_data in (candidates or {}).items():
+            strategy_args = (strategy_data or {}).get("args", "")
+            if not strategy_args:
+                continue
+
+            # Normalize strategy args
+            normalized_strategy = normalize_args(strategy_args)
+
+            # Compare
+            if normalized_strategy == normalized_input:
+                return strategy_id
+
+    if not any_strategies_loaded:
+        return "none"
 
     # Non-empty args that don't match any known strategy: keep category enabled in UI.
     return "custom"

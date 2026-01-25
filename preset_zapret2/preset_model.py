@@ -22,7 +22,7 @@ class SyndataSettings:
     enabled: bool = True
     blob: str = "tls_google"
     tls_mod: str = "none"
-    autottl_delta: int = -2
+    autottl_delta: int = 0
     autottl_min: int = 3
     autottl_max: int = 20
     out_range: int = 8
@@ -64,7 +64,7 @@ class SyndataSettings:
             enabled=data.get("enabled", True),
             blob=data.get("blob", "tls_google"),
             tls_mod=data.get("tls_mod", "none"),
-            autottl_delta=data.get("autottl_delta", -2),
+            autottl_delta=data.get("autottl_delta", 0),
             autottl_min=data.get("autottl_min", 3),
             autottl_max=data.get("autottl_max", 20),
             out_range=data.get("out_range", 8),

@@ -60,29 +60,29 @@ class LogTailWorker(QObject):
                         except Exception:
                             pass
 
-                # читаем «историю» порциями, чтобы не подвесить UI большим emit()
-                buf = []
-                buf_len = 0
-                while not self._stop_requested:
-                    line = f.readline()
-                    if not line:
-                        break
-                    buf.append(line)
-                    buf_len += len(line)
-                    if buf_len >= self.initial_chunk_chars:
+                    # читаем «историю» порциями, чтобы не подвесить UI большим emit()
+                    buf = []
+                    buf_len = 0
+                    while not self._stop_requested:
+                        line = f.readline()
+                        if not line:
+                            break
+                        buf.append(line)
+                        buf_len += len(line)
+                        if buf_len >= self.initial_chunk_chars:
+                            self.new_lines.emit("".join(buf))
+                            buf.clear()
+                            buf_len = 0
+
+                    if buf and not self._stop_requested:
                         self.new_lines.emit("".join(buf))
-                        buf.clear()
-                        buf_len = 0
 
-                if buf and not self._stop_requested:
-                    self.new_lines.emit("".join(buf))
-
-                # «хвостим» файл
-                while not self._stop_requested:
-                    line = f.readline()
-                    if line:
-                        self.new_lines.emit(line)
-                    else:
-                        time.sleep(self.poll_interval)
+                    # «хвостим» файл
+                    while not self._stop_requested:
+                        line = f.readline()
+                        if line:
+                            self.new_lines.emit(line)
+                        else:
+                            time.sleep(self.poll_interval)
         finally:
             self.finished.emit()

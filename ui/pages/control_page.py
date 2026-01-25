@@ -4,7 +4,7 @@
 import os
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QMessageBox
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -223,6 +223,84 @@ class ControlPage(BasePage):
         self.add_widget(strategy_card)
         
         self.add_spacing(16)
+
+        # Настройки программы (бывшие пункты Alt-меню "Настройки")
+        self.add_section_title("Настройки программы")
+
+        program_settings_card = SettingsCard()
+
+        try:
+            from ui.pages.dpi_settings_page import Win11ToggleSwitch
+        except Exception:
+            Win11ToggleSwitch = None  # type: ignore[assignment]
+
+        # Автозагрузка DPI
+        auto_row = SettingsRow(
+            "fa5s.bolt",
+            "Автозагрузка DPI",
+            "Запускать Zapret автоматически при старте программы",
+        )
+        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.auto_dpi_toggle.setProperty("noDrag", True)
+        if hasattr(self.auto_dpi_toggle, "toggled"):
+            self.auto_dpi_toggle.toggled.connect(self._on_auto_dpi_toggled)
+        auto_row.set_control(self.auto_dpi_toggle)
+        program_settings_card.add_widget(auto_row)
+
+        # Windows Defender
+        defender_row = SettingsRow(
+            "fa5s.shield-alt",
+            "Отключить Windows Defender",
+            "Требуются права администратора",
+        )
+        self.defender_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.defender_toggle.setProperty("noDrag", True)
+        if hasattr(self.defender_toggle, "toggled"):
+            self.defender_toggle.toggled.connect(self._on_defender_toggled)
+        defender_row.set_control(self.defender_toggle)
+        program_settings_card.add_widget(defender_row)
+
+        # Windows Terminal
+        wt_row = SettingsRow(
+            "fa5s.terminal",
+            "Удалять Windows Terminal",
+            "Помогает избежать проблем на Windows 11",
+        )
+        self.remove_wt_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.remove_wt_toggle.setProperty("noDrag", True)
+        if hasattr(self.remove_wt_toggle, "toggled"):
+            self.remove_wt_toggle.toggled.connect(self._on_remove_wt_toggled)
+        wt_row.set_control(self.remove_wt_toggle)
+        program_settings_card.add_widget(wt_row)
+
+        # MAX blocker
+        max_row = SettingsRow(
+            "fa5s.ban",
+            "Блокировать установку MAX",
+            "Блокирует запуск/установку MAX и домены в hosts",
+        )
+        self.max_block_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.max_block_toggle.setProperty("noDrag", True)
+        if hasattr(self.max_block_toggle, "toggled"):
+            self.max_block_toggle.toggled.connect(self._on_max_blocker_toggled)
+        max_row.set_control(self.max_block_toggle)
+        program_settings_card.add_widget(max_row)
+
+        # Сброс программы
+        reset_row = SettingsRow(
+            "fa5s.undo",
+            "Сбросить программу",
+            "Очистить кэш проверок запуска и обновить настройки",
+        )
+        self.reset_program_btn = ActionButton("Сбросить", "fa5s.trash-alt")
+        self.reset_program_btn.setProperty("noDrag", True)
+        self.reset_program_btn.clicked.connect(self._on_reset_program_clicked)
+        reset_row.set_control(self.reset_program_btn)
+        program_settings_card.add_widget(reset_row)
+
+        self.add_widget(program_settings_card)
+
+        self.add_spacing(16)
         
         # Дополнительные действия
         self.add_section_title("Дополнительно")
@@ -266,6 +344,314 @@ class ControlPage(BasePage):
         """)
         self.loading_label.setVisible(False)
         self.add_widget(self.loading_label)
+
+        # Первичная синхронизация состояния тогглов с текущими настройками
+        self._sync_program_settings()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Обновляем состояние тогглов при каждом показе страницы
+        try:
+            self._sync_program_settings()
+        except Exception:
+            pass
+
+    def _set_toggle_checked(self, toggle, checked: bool) -> None:
+        """Устанавливает состояние Win11ToggleSwitch без побочных эффектов анимации/сигналов."""
+        try:
+            toggle.blockSignals(True)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(toggle, "setChecked"):
+                toggle.setChecked(bool(checked))
+        except Exception:
+            pass
+
+        # Win11ToggleSwitch: обновляем позицию круга без анимации (как в Win11ToggleRow)
+        try:
+            toggle._circle_position = (toggle.width() - 18) if checked else 4.0  # type: ignore[attr-defined]
+            toggle.update()
+        except Exception:
+            pass
+
+        try:
+            toggle.blockSignals(False)
+        except Exception:
+            pass
+
+    def _sync_program_settings(self) -> None:
+        """Синхронизирует UI с текущими настройками (реестр/система)."""
+        # Автозагрузка DPI
+        try:
+            from config import get_dpi_autostart
+            self._set_toggle_checked(self.auto_dpi_toggle, bool(get_dpi_autostart()))
+        except Exception:
+            pass
+
+        # Удаление Windows Terminal
+        try:
+            from startup import get_remove_windows_terminal
+            self._set_toggle_checked(self.remove_wt_toggle, bool(get_remove_windows_terminal()))
+        except Exception:
+            pass
+
+        # Windows Defender (реальное состояние системы)
+        try:
+            from altmenu.defender_manager import WindowsDefenderManager
+            self._set_toggle_checked(self.defender_toggle, bool(WindowsDefenderManager().is_defender_disabled()))
+        except Exception:
+            pass
+
+        # MAX blocker (состояние из реестра GUI)
+        try:
+            from altmenu.max_blocker import is_max_blocked
+            self._set_toggle_checked(self.max_block_toggle, bool(is_max_blocked()))
+        except Exception:
+            pass
+
+    def _set_status(self, msg: str) -> None:
+        try:
+            if hasattr(self.parent_app, "set_status"):
+                self.parent_app.set_status(msg)
+        except Exception:
+            pass
+
+    def _on_auto_dpi_toggled(self, enabled: bool) -> None:
+        try:
+            from config import set_dpi_autostart
+            set_dpi_autostart(bool(enabled))
+
+            msg = (
+                "DPI будет включаться автоматически при старте программы"
+                if enabled
+                else "Автозагрузка DPI отключена"
+            )
+            self._set_status(msg)
+            QMessageBox.information(self, "Автозагрузка DPI", msg)
+        finally:
+            self._sync_program_settings()
+
+    def _on_remove_wt_toggled(self, enabled: bool) -> None:
+        try:
+            from startup import set_remove_windows_terminal
+            set_remove_windows_terminal(bool(enabled))
+
+            msg = (
+                "Windows Terminal будет удаляться при запуске программы"
+                if enabled
+                else "Удаление Windows Terminal отключено"
+            )
+            self._set_status(msg)
+
+            if not enabled:
+                warning_msg = (
+                    "Внимание! Windows Terminal может мешать работе программы.\n\n"
+                    "Если у вас возникнут проблемы с работой DPI-обхода, "
+                    "рекомендуется включить эту опцию обратно."
+                )
+                QMessageBox.warning(self, "Предупреждение", warning_msg)
+            else:
+                QMessageBox.information(self, "Удаление Windows Terminal", msg)
+        finally:
+            self._sync_program_settings()
+
+    def _on_defender_toggled(self, disable: bool) -> None:
+        import ctypes
+
+        # Требуются права администратора
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            QMessageBox.critical(
+                self,
+                "Требуются права администратора",
+                "Для управления Windows Defender требуются права администратора.\n\n"
+                "Перезапустите программу от имени администратора.",
+            )
+            self._set_toggle_checked(self.defender_toggle, not disable)
+            return
+
+        try:
+            from altmenu.defender_manager import WindowsDefenderManager, set_defender_disabled
+
+            manager = WindowsDefenderManager(status_callback=self._set_status)
+
+            if disable:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Отключение Windows Defender")
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setText("Вы действительно хотите отключить Windows Defender?\n\n")
+                msg_box.setInformativeText(
+                    "Отключение Windows Defender:\n"
+                    "• Отключит защиту в реальном времени\n"
+                    "• Отключит облачную защиту\n"
+                    "• Отключит автоматическую отправку образцов\n"
+                    "• Может потребовать перезагрузки для полного применения\n\n"
+                )
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    self._set_toggle_checked(self.defender_toggle, False)
+                    return
+
+                self._set_status("Отключение Windows Defender...")
+                success, count = manager.disable_defender()
+
+                if success:
+                    set_defender_disabled(True)
+                    QMessageBox.information(
+                        self,
+                        "Windows Defender отключен",
+                        "Windows Defender успешно отключен.\n"
+                        f"Применено {count} настроек.\n\n"
+                        "Для полного применения изменений может потребоваться перезагрузка.",
+                    )
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Ошибка",
+                        "Не удалось отключить Windows Defender.\n"
+                        "Возможно, некоторые настройки заблокированы системой.",
+                    )
+                    self._set_toggle_checked(self.defender_toggle, False)
+            else:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Включение Windows Defender")
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText(
+                    "Включить Windows Defender обратно?\n\n"
+                    "Это восстановит защиту вашего компьютера."
+                )
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    self._set_toggle_checked(self.defender_toggle, True)
+                    return
+
+                self._set_status("Включение Windows Defender...")
+                success, count = manager.enable_defender()
+
+                if success:
+                    set_defender_disabled(False)
+                    QMessageBox.information(
+                        self,
+                        "Windows Defender включен",
+                        "Windows Defender успешно включен.\n"
+                        f"Выполнено {count} операций.\n\n"
+                        "Защита вашего компьютера восстановлена.",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Частичный успех",
+                        "Windows Defender включен частично.\n"
+                        "Для полного восстановления может потребоваться перезагрузка.",
+                    )
+
+            self._set_status("Готово")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Произошла ошибка при изменении настроек Windows Defender:\n{e}",
+            )
+        finally:
+            self._sync_program_settings()
+
+    def _on_max_blocker_toggled(self, enable: bool) -> None:
+        try:
+            from altmenu.max_blocker import MaxBlockerManager
+
+            manager = MaxBlockerManager(status_callback=self._set_status)
+
+            if enable:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Блокировка MAX")
+                msg_box.setIcon(QMessageBox.Icon.Information)
+                msg_box.setText("Включить блокировку установки и работы программы MAX?\n\nЭто действие:")
+                msg_box.setInformativeText(
+                    "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
+                    "• Создаст файлы-блокировки в папках установки\n"
+                    "• Добавит правила блокировки в Windows Firewall (при наличии прав)\n"
+                    "• Заблокирует домены MAX в файле hosts\n\n"
+                    "В итоге даже если мессенджер Max поставиться будет тёмный экран, в результате чего он будет выглядеть так, будто не может подключиться к своим серверам."
+                )
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    self._set_toggle_checked(self.max_block_toggle, False)
+                    return
+
+                success, message = manager.enable_blocking()
+
+                if success:
+                    QMessageBox.information(self, "Блокировка включена", message)
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Ошибка",
+                        f"Не удалось полностью включить блокировку:\n{message}",
+                    )
+                    self._set_toggle_checked(self.max_block_toggle, False)
+            else:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Отключение блокировки MAX")
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText(
+                    "Отключить блокировку программы MAX?\n\n"
+                    "Это удалит все созданные блокировки и правила."
+                )
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                    self._set_toggle_checked(self.max_block_toggle, True)
+                    return
+
+                success, message = manager.disable_blocking()
+                if success:
+                    QMessageBox.information(self, "Блокировка отключена", message)
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Ошибка",
+                        f"Не удалось полностью отключить блокировку:\n{message}",
+                    )
+
+            self._set_status("Готово")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Ошибка при переключении блокировки MAX:\n{e}",
+            )
+        finally:
+            self._sync_program_settings()
+
+    def _on_reset_program_clicked(self) -> None:
+        from startup.check_cache import startup_cache
+        from log import log
+
+        try:
+            startup_cache.invalidate_cache()
+            QMessageBox.information(
+                self,
+                "Настройки программы сброшены",
+                "Кэш проверок запуска и настройки программы успешно очищены.\n"
+                "При следующем запуске все проверки будут выполнены заново.",
+            )
+            log("Кэш проверок запуска очищен пользователем", "INFO")
+            self._set_status("Настройки программы сброшены")
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
+            log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
+        finally:
+            self._sync_program_settings()
 
     def _update_stop_winws_button_text(self):
         """Обновляет подпись кнопки остановки (winws.exe vs winws2.exe) по текущему режиму."""

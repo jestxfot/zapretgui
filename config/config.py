@@ -342,6 +342,39 @@ def set_window_size(width, height):
         log(f"Ошибка сохранения размера окна: {e}", "❌ ERROR")
         return False
 
+def get_window_maximized():
+    """Получает сохранённое состояние "окно развернуто" из реестра"""
+    try:
+        import winreg
+        from log import log
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_READ)
+        try:
+            maximized = winreg.QueryValueEx(key, "WindowMaximized")[0]
+            winreg.CloseKey(key)
+            return bool(int(maximized))
+        except FileNotFoundError:
+            winreg.CloseKey(key)
+            return None
+    except Exception as e:
+        log(f"Ошибка чтения состояния maximized: {e}", "DEBUG")
+        return None
+
+def set_window_maximized(maximized: bool):
+    """Сохраняет состояние "окно развернуто" в реестр"""
+    try:
+        import winreg
+        from log import log
+
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
+        winreg.SetValueEx(key, "WindowMaximized", 0, winreg.REG_DWORD, int(bool(maximized)))
+        winreg.CloseKey(key)
+        log(f"Состояние maximized сохранено: {bool(maximized)}", "DEBUG")
+        return True
+    except Exception as e:
+        log(f"Ошибка сохранения состояния maximized: {e}", "❌ ERROR")
+        return False
+
 def get_wall_animation_enabled():
     """Получает настройку анимации стены из реестра (по умолчанию включена)"""
     try:

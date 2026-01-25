@@ -28,6 +28,8 @@ class StrategiesListTooltip(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # Tooltip must not block clicks/hover on the app UI.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         self._opacity = 0.0
         self._strategies = []

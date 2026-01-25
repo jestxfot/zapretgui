@@ -16,7 +16,7 @@ class ProxyDomainsServiceGroupingTests(unittest.TestCase):
                 "Zapret DNS (82.22.36.11)",
                 "XBOX DNS (45.155.204.190)",
                 "Comss DNS (95.182.120.241)",
-                "Без прокси (из файла)",
+                "Вкл. (активировать hosts)",
                 "",
                 "[DirectOnly]",
                 "direct.example",

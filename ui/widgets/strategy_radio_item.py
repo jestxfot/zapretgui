@@ -50,9 +50,15 @@ class StrategyRadioItem(QFrame):
         # Текущая стратегия
         self._strategy_id = "none"
         self._strategy_name = "Отключено"
+        self._pressed = False
 
         self._build_ui()
         self._apply_style()
+
+        # Mark as interactive: prevents draggable titlebar/content wrappers
+        # from interpreting clicks as window-drag.
+        self.setProperty("clickable", True)
+        self.setProperty("noDrag", True)
 
         # Устанавливаем тултип после построения UI
         # PyQt6 requires HTML for line breaks in tooltips
@@ -210,10 +216,30 @@ class StrategyRadioItem(QFrame):
         return self._strategy_id != "none"
 
     def mousePressEvent(self, event):
-        """Обработчик клика - эмитит сигнал clicked"""
+        """Track press; emit click on release (Qt-like behavior)."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._category_key)
-        super().mousePressEvent(event)
+            self._pressed = True
+            try:
+                event.accept()
+            except Exception:
+                pass
+        return super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_pressed = bool(self._pressed)
+            self._pressed = False
+            if was_pressed and self.rect().contains(event.position().toPoint()):
+                self.clicked.emit(self._category_key)
+                try:
+                    event.accept()
+                except Exception:
+                    pass
+        return super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802 (Qt override)
+        self._pressed = False
+        return super().leaveEvent(event)
 
     def set_visible_by_filter(self, visible: bool):
         """Устанавливает видимость (для фильтрации)"""
