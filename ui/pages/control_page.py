@@ -291,7 +291,7 @@ class ControlPage(BasePage):
         reset_row = SettingsRow(
             "fa5s.undo",
             "Сбросить программу",
-            "Очистить кэш проверок запуска и обновить настройки",
+            "Очистить кэш проверок запуска (без удаления пресетов/настроек)",
         )
         self.reset_program_btn = ResetActionButton("Сбросить", confirm_text="Сбросить?")
         self.reset_program_btn.setProperty("noDrag", True)
@@ -641,7 +641,7 @@ class ControlPage(BasePage):
         try:
             startup_cache.invalidate_cache()
             log("Кэш проверок запуска очищен пользователем", "INFO")
-            self._set_status("Настройки программы сброшены")
+            self._set_status("Кэш проверок запуска очищен")
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
             log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
