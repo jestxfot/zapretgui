@@ -6,7 +6,7 @@ import re
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QMessageBox, QComboBox
+    QPushButton, QMessageBox, QComboBox, QScrollArea, QFrame, QLayout
 )
 import qtawesome as qta
 
@@ -85,27 +85,24 @@ QComboBox QListView::item:selected {
 
 FLUENT_CHIP_STYLE = """
 QPushButton {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background-color: rgba(255, 255, 255, 0.08);
+    border: none;
     border-radius: 12px;
-    color: rgba(255, 255, 255, 0.85);
-    padding: 4px 12px;
-    font-size: 11px;
+    color: #ffffff;
+    padding: 0 10px;
+    font-size: 10px;
     font-weight: 600;
     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-    min-height: 24px;
+    min-height: 22px;
 }
 QPushButton:hover {
-    background: rgba(255, 255, 255, 0.10);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background-color: rgba(255, 255, 255, 0.15);
 }
 QPushButton:pressed {
-    background: rgba(96, 205, 255, 0.15);
-    border: 1px solid rgba(96, 205, 255, 0.35);
+    background-color: rgba(255, 255, 255, 0.20);
 }
 QPushButton:disabled {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.03);
     color: rgba(255, 255, 255, 0.35);
 }
 """
@@ -525,7 +522,7 @@ class HostsPage(BasePage):
     def _make_fluent_chip(self, label: str) -> QPushButton:
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(26)
+        btn.setFixedHeight(24)
         btn.setStyleSheet(FLUENT_CHIP_STYLE)
         return btn
 
@@ -715,12 +712,14 @@ class HostsPage(BasePage):
                     }
                     """
                 )
-                header.addWidget(title_label, 1, Qt.AlignmentFlag.AlignVCenter)
+                header.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
                 chips = QWidget()
                 chips_layout = QHBoxLayout(chips)
                 chips_layout.setContentsMargins(0, 0, 0, 0)
-                chips_layout.setSpacing(6)
+                chips_layout.setSpacing(4)
+                chips_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+                chips_layout.addStretch(1)
 
                 off_btn = self._make_fluent_chip(OFF_LABEL)
                 off_btn.clicked.connect(lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None))
@@ -736,7 +735,39 @@ class HostsPage(BasePage):
                     )
                     chips_layout.addWidget(btn)
 
-                header.addWidget(chips, 0, Qt.AlignmentFlag.AlignVCenter)
+                chips_scroll = QScrollArea()
+                chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
+                chips_scroll.setWidgetResizable(True)
+                chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                chips_scroll.setFixedHeight(30)
+                chips_scroll.setStyleSheet(
+                    """
+                    QScrollArea { background: transparent; border: none; }
+                    QScrollArea QWidget { background: transparent; }
+                    QScrollBar:horizontal {
+                        height: 4px;
+                        background: transparent;
+                        margin: 0px;
+                    }
+                    QScrollBar::handle:horizontal {
+                        background: rgba(255, 255, 255, 0.22);
+                        border-radius: 2px;
+                        min-width: 24px;
+                    }
+                    QScrollBar::handle:horizontal:hover { background: rgba(255, 255, 255, 0.32); }
+                    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                        width: 0px;
+                        height: 0px;
+                        background: transparent;
+                        border: none;
+                    }
+                    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+                    """
+                )
+                chips_scroll.setWidget(chips)
+
+                header.addWidget(chips_scroll, 1, Qt.AlignmentFlag.AlignVCenter)
 
                 card.add_layout(header)
 
