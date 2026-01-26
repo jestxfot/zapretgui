@@ -12,8 +12,6 @@ from .config import (
     # Функции окна
     get_window_position, set_window_position, get_window_size, set_window_size,
     get_window_maximized, set_window_maximized,
-    # Функции настроек анимации
-    get_wall_animation_enabled, set_wall_animation_enabled,
     # Функции определения exe по методу
     ZAPRET2_MODES, get_winws_exe_for_method, is_zapret2_mode
 )
@@ -86,8 +84,6 @@ __all__ = [
     'set_window_size',
     'get_window_maximized',
     'set_window_maximized',
-    'get_wall_animation_enabled',
-    'set_wall_animation_enabled',
     'reg',
     'HKCU'
 ]

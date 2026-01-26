@@ -11,7 +11,7 @@ import os
 import math
 import random
 import threading
-from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH, get_wall_animation_enabled
+from config import APP_VERSION, CHANNEL, ICON_PATH, ICON_TEST_PATH
 from log import log
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -114,9 +114,8 @@ class WallDestructionOverlay(QWidget):
         self._is_painting = False
         self._is_destroyed = False
         
-        # ⚙️ Настройка анимации кирпичей (можно отключить для производительности)
-        self.animation_enabled = get_wall_animation_enabled()
-        log(f"Анимация стены: {'включена' if self.animation_enabled else 'отключена'}", "DEBUG")
+        # Анимация кирпичей отключена (фича удалена из UI)
+        self.animation_enabled = False
         
         # Прогресс разрушения (0-100)
         self.progress = 0
@@ -951,12 +950,8 @@ class SplashScreen(QWidget):
         central_layout.addWidget(progress_container, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(central_container, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Анимация стены (опционально) - отключена по умолчанию для производительности
-        animation_enabled = get_wall_animation_enabled()
-        if animation_enabled:
-            self.wall_overlay = WallDestructionOverlay(self)
-        else:
-            self.wall_overlay = None
+        # Анимация стены (кирпичей) удалена
+        self.wall_overlay = None
     
     def resizeEvent(self, event):
         """Растягиваем overlay"""

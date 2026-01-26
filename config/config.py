@@ -374,37 +374,3 @@ def set_window_maximized(maximized: bool):
     except Exception as e:
         log(f"Ошибка сохранения состояния maximized: {e}", "❌ ERROR")
         return False
-
-def get_wall_animation_enabled():
-    """Получает настройку анимации стены из реестра (по умолчанию включена)"""
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_READ)
-        try:
-            enabled = winreg.QueryValueEx(key, "WallAnimationEnabled")[0]
-            winreg.CloseKey(key)
-            return bool(enabled)
-        except FileNotFoundError:
-            winreg.CloseKey(key)
-            return True  # По умолчанию анимация включена
-    except Exception:
-        return True  # По умолчанию анимация включена
-
-def set_wall_animation_enabled(enabled: bool):
-    """Сохраняет настройку анимации стены в реестр"""
-    try:
-        import winreg
-        from log import log
-        
-        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI)
-        winreg.SetValueEx(key, "WallAnimationEnabled", 0, winreg.REG_DWORD, int(enabled))
-        winreg.CloseKey(key)
-        log(f"Анимация стены {'включена' if enabled else 'отключена'}", "DEBUG")
-        return True
-    except Exception as e:
-        try:
-            from log import log
-            log(f"Ошибка сохранения настройки анимации: {e}", "❌ ERROR")
-        except:
-            pass
-        return False

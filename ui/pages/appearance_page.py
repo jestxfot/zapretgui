@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider,
     QStyle, QStyleOptionSlider,
 )
-from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtGui import QWheelEvent, QPainter, QColor, QPen
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -77,6 +77,94 @@ class PreciseSlider(QSlider):
         elif delta < 0:
             self.setValue(self.value() - 1)
         event.accept()
+
+
+class AcrylicSlider(PreciseSlider):
+    """Кастомный слайдер без QSS, чтобы на 100% не оставался "хвост" справа (Win10)."""
+
+    def __init__(self, orientation: Qt.Orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.setMouseTracking(True)
+        self._hovered = False
+        self._track_height = 4
+        self._handle_diameter = 16
+        self.setFixedHeight(24)
+
+    def _ratio(self) -> float:
+        minimum = self.minimum()
+        maximum = self.maximum()
+        if maximum <= minimum:
+            return 1.0
+        r = (self.value() - minimum) / (maximum - minimum)
+        return max(0.0, min(1.0, float(r)))
+
+    def _handle_center_x(self) -> float:
+        handle_radius = self._handle_diameter / 2
+        span = max(1.0, self.width() - self._handle_diameter)
+        return handle_radius + span * self._ratio()
+
+    def _value_from_pos(self, pos) -> int:
+        if self.orientation() != Qt.Orientation.Horizontal:
+            return super()._value_from_pos(pos)
+
+        handle_radius = self._handle_diameter / 2
+        span = max(1.0, self.width() - self._handle_diameter)
+        x = max(handle_radius, min(float(pos.x()), handle_radius + span))
+        r = (x - handle_radius) / span
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        if maximum <= minimum:
+            return maximum
+        return int(round(minimum + r * (maximum - minimum)))
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        if self.orientation() != Qt.Orientation.Horizontal:
+            return super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        track_y = (self.height() - self._track_height) / 2
+        track_radius = self._track_height / 2
+        handle_radius = self._handle_diameter / 2
+
+        bg = QColor(255, 255, 255, 26)  # ~0.10
+        fill = QColor("#60cdff")
+        handle = QColor("#7dd8ff" if self._hovered else "#60cdff")
+
+        if not self.isEnabled():
+            bg.setAlpha(16)
+            fill.setAlpha(96)
+            handle.setAlpha(96)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(0, track_y, self.width(), self._track_height, track_radius, track_radius)
+
+        cx = self._handle_center_x()
+        fill_w = max(0.0, min(float(self.width()), cx + handle_radius))
+        if fill_w > 0:
+            painter.setBrush(fill)
+            painter.drawRoundedRect(0, track_y, fill_w, self._track_height, track_radius, track_radius)
+
+        cy = self.height() / 2
+        painter.setBrush(handle)
+        painter.drawEllipse(cx - handle_radius, cy - handle_radius, self._handle_diameter, self._handle_diameter)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(0, 0, 0, 40), 1))
+        painter.drawEllipse(cx - handle_radius, cy - handle_radius, self._handle_diameter, self._handle_diameter)
 
 
 # Цвета для превью тем
@@ -247,7 +335,6 @@ class AppearancePage(BasePage):
         self._is_premium = False
         self._garland_checkbox = None
         self._snowflakes_checkbox = None
-        self._wall_animation_checkbox = None
         self._blur_effect_checkbox = None
         self._opacity_slider = None
         self._opacity_label = None
@@ -636,42 +723,13 @@ class AppearancePage(BasePage):
         opacity_layout.addLayout(opacity_row)
 
         # Слайдер
-        self._opacity_slider = PreciseSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider = AcrylicSlider(Qt.Orientation.Horizontal)
         self._opacity_slider.setMinimum(10)  # Минимум 10% чтобы окно не стало невидимым
         self._opacity_slider.setMaximum(100)
         self._opacity_slider.setValue(100)
         self._opacity_slider.setSingleStep(1)
         self._opacity_slider.setPageStep(5)  # Page Up/Down меняет на 5%
         self._opacity_slider.setTickPosition(QSlider.TickPosition.NoTicks)
-        self._opacity_slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                border: none;
-                height: 4px;
-                background: rgba(255, 255, 255, 0.1);
-                border-radius: 2px;
-                /* Делаем отступы под хэндл, чтобы на 0/100% "линия" доходила до конца,
-                   а сам хэндл не выглядел смещённым относительно курсора. */
-                margin: 0 8px;
-            }
-            QSlider::handle:horizontal {
-                background: #60cdff;
-                border: none;
-                width: 16px;
-                height: 16px;
-                margin: -6px 0;
-                border-radius: 8px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #7dd8ff;
-            }
-            QSlider::sub-page:horizontal {
-                background: #60cdff;
-                border-radius: 2px;
-                /* Qt часто оставляет "хвост" после хэндла на 100%.
-                   Небольшой выход за край визуально доводит линию до конца. */
-                margin-right: -8px;
-            }
-        """)
         self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
         opacity_layout.addWidget(self._opacity_slider)
 
@@ -679,81 +737,6 @@ class AppearancePage(BasePage):
         self.add_widget(opacity_card)
 
         self.add_spacing(16)
-
-        # ═══════════════════════════════════════════════════════════
-        # ПРОИЗВОДИТЕЛЬНОСТЬ
-        # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Производительность")
-        
-        wall_card = SettingsCard()
-        
-        wall_layout = QVBoxLayout()
-        wall_layout.setSpacing(12)
-        
-        # Описание
-        wall_desc = QLabel(
-            "Анимация разрушения стены на загрузочном экране. "
-            "Отключите для ускорения запуска на слабых системах."
-        )
-        wall_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
-        wall_desc.setWordWrap(True)
-        wall_layout.addWidget(wall_desc)
-        
-        # Переключатель
-        wall_row = QHBoxLayout()
-        wall_row.setSpacing(12)
-        
-        wall_icon = QLabel()
-        wall_icon.setPixmap(qta.icon('fa5s.cubes', color='#ff6666').pixmap(20, 20))
-        wall_row.addWidget(wall_icon)
-        
-        wall_label = QLabel("Анимация кирпичей")
-        wall_label.setStyleSheet("color: #ffffff; font-size: 13px;")
-        wall_row.addWidget(wall_label)
-        
-        wall_row.addStretch()
-        
-        self._wall_animation_checkbox = QCheckBox()
-        self._wall_animation_checkbox.setStyleSheet("""
-            QCheckBox {
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 40px;
-                height: 20px;
-                border-radius: 10px;
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4cd964;
-                border-color: #4cd964;
-            }
-            QCheckBox::indicator:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QCheckBox::indicator:checked:hover {
-                background-color: #5ce06e;
-            }
-        """)
-        self._wall_animation_checkbox.stateChanged.connect(self._on_wall_animation_changed)
-        wall_row.addWidget(self._wall_animation_checkbox)
-        
-        wall_layout.addLayout(wall_row)
-        
-        wall_card.add_layout(wall_layout)
-        self.add_widget(wall_card)
-        
-    def _on_wall_animation_changed(self, state):
-        """Обработчик изменения состояния анимации стены"""
-        enabled = state == Qt.CheckState.Checked.value
-
-        # Сохраняем в реестр
-        from config import set_wall_animation_enabled
-        set_wall_animation_enabled(enabled)
-
-        from log import log
-        log(f"Анимация стены {'включена' if enabled else 'отключена'}", "DEBUG")
 
     def _on_blur_effect_changed(self, state):
         """Обработчик изменения состояния эффекта размытия"""
@@ -857,13 +840,6 @@ class AppearancePage(BasePage):
         
         # Включаем/выключаем чекбоксы новогоднего оформления
         from config.reg import get_garland_enabled, get_snowflakes_enabled, get_blur_effect_enabled
-        from config import get_wall_animation_enabled
-
-        # Загружаем настройку анимации стены (не зависит от премиума)
-        if self._wall_animation_checkbox:
-            self._wall_animation_checkbox.blockSignals(True)
-            self._wall_animation_checkbox.setChecked(get_wall_animation_enabled())
-            self._wall_animation_checkbox.blockSignals(False)
 
         # Загружаем настройку эффекта размытия (не зависит от премиума)
         if self._blur_effect_checkbox and self._blur_effect_checkbox.isEnabled():
