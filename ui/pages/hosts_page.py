@@ -521,6 +521,7 @@ class HostsPage(BasePage):
     def _make_fluent_chip(self, label: str) -> QPushButton:
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(24)
         btn.setStyleSheet(FLUENT_CHIP_STYLE)
         return btn
 
@@ -738,7 +739,7 @@ class HostsPage(BasePage):
                 chips_scroll.setWidgetResizable(True)
                 chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                chips_scroll.setFixedHeight(24)
+                chips_scroll.setFixedHeight(30)
                 chips_scroll.setStyleSheet(
                     """
                     QScrollArea { background: transparent; border: none; }

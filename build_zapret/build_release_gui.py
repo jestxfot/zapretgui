@@ -1148,9 +1148,37 @@ class BuildReleaseGUI:
         self.log_queue.put(message)
 
 
+    def _kill_blocking_processes(self):
+        """Убить процессы которые могут блокировать файлы"""
+        processes_to_kill = [
+            "ISCC.exe",      # Inno Setup компилятор
+            "compil32.exe",  # Inno Setup GUI
+            "Zapret.exe",    # Наше приложение
+        ]
+
+        for proc_name in processes_to_kill:
+            try:
+                result = subprocess.run(
+                    f'taskkill /F /IM "{proc_name}"',
+                    shell=True,
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    self.log_queue.put(f"   🔪 Убит процесс: {proc_name}")
+            except Exception:
+                pass
+
+        # Небольшая пауза чтобы файлы освободились
+        time.sleep(1)
+
     def run_inno_setup(self, channel, version, max_retries=10):
         """Запуск Inno Setup с временным именем"""
-        
+
+        # ✅ Убиваем блокирующие процессы перед началом
+        self.log_queue.put("🔪 Завершение блокирующих процессов...")
+        self._kill_blocking_processes()
+
         project_root = Path("H:/Privacy/zapretgui")
         source_root = Path("H:/Privacy/zapret")
         universal_iss = project_root / "zapret_universal.iss"

@@ -8,6 +8,87 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+def cleanup_all_cache(root_path: Path, log_queue: Optional[Any] = None) -> int:
+    """
+    Полная очистка всего кэша перед сборкой:
+    - __pycache__ во всём проекте
+    - .pyc файлы
+    - build/ папка PyInstaller
+    - *.spec.bak файлы
+
+    Args:
+        root_path: Корневая папка проекта
+        log_queue: Очередь для логов
+
+    Returns:
+        int: Количество удалённых элементов
+    """
+    cleaned = 0
+
+    if log_queue:
+        log_queue.put("🧹 Очистка всего кэша проекта...")
+
+    # 1. Удаляем все __pycache__ папки
+    for cache_dir in root_path.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            try:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                cleaned += 1
+            except Exception:
+                pass
+
+    if log_queue:
+        log_queue.put(f"   ✓ Удалено __pycache__ папок: {cleaned}")
+
+    # 2. Удаляем .pyc файлы вне __pycache__ (на всякий случай)
+    pyc_count = 0
+    for pyc_file in root_path.rglob("*.pyc"):
+        try:
+            pyc_file.unlink(missing_ok=True)
+            pyc_count += 1
+        except Exception:
+            pass
+
+    if pyc_count and log_queue:
+        log_queue.put(f"   ✓ Удалено .pyc файлов: {pyc_count}")
+    cleaned += pyc_count
+
+    # 3. Удаляем build/ папку PyInstaller если есть
+    build_dir = root_path / "build"
+    if build_dir.exists():
+        try:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            cleaned += 1
+            if log_queue:
+                log_queue.put(f"   ✓ Удалена папка build/")
+        except Exception:
+            pass
+
+    # 4. Удаляем __pycache__ в build_zapret/ отдельно
+    build_zapret_cache = Path(__file__).parent / "__pycache__"
+    if build_zapret_cache.exists():
+        try:
+            shutil.rmtree(build_zapret_cache, ignore_errors=True)
+            cleaned += 1
+            if log_queue:
+                log_queue.put(f"   ✓ Удалён кэш build_zapret/")
+        except Exception:
+            pass
+
+    # 5. Удаляем старые .spec.bak файлы
+    for bak_file in root_path.glob("*.spec.bak"):
+        try:
+            bak_file.unlink(missing_ok=True)
+            cleaned += 1
+        except Exception:
+            pass
+
+    if log_queue:
+        log_queue.put(f"🧹 Очистка завершена: {cleaned} элементов удалено")
+
+    return cleaned
+
+
 def embed_certificate_in_installer(root_path: Path) -> None:
     """
     Встраивает сертификат в certificate_installer.py в формате base64.
@@ -367,6 +448,9 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
     out = root_path.parent / "zapret"
     exe_path = None  # Инициализируем до try блока
 
+    # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
+    cleanup_all_cache(root_path, log_queue)
+
     try:
         if log_queue:
             log_queue.put("🔨 Запуск PyInstaller...")
@@ -376,7 +460,15 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
             
         # Создаем папку вывода если не существует
         out.mkdir(parents=True, exist_ok=True)
-            
+
+        # ✅ Очищаем целевую папку Zapret/ перед сборкой (как в Nuitka)
+        # Это гарантирует что старые файлы не останутся в сборке
+        target_zapret_dir = out / "Zapret"
+        if target_zapret_dir.exists():
+            if log_queue:
+                log_queue.put(f"🧹 Очистка целевой папки: {target_zapret_dir}")
+            shutil.rmtree(target_zapret_dir, ignore_errors=True)
+
         run_func([
             sys.executable, "-m", "PyInstaller",
             "--workpath", str(work),

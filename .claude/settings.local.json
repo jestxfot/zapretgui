@@ -54,7 +54,8 @@
       "Bash(if [ -f \"/mnt/h/Privacy/zapretgui/preset-zapret2.txt\" ])",
       "Bash(then head -20 \"/mnt/h/Privacy/zapretgui/preset-zapret2.txt\")",
       "Bash(else echo \"Файл не существует\")",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(unzip:*)"
     ]
   }
 }

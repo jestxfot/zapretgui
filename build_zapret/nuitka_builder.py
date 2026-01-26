@@ -20,6 +20,82 @@ def _log(log_queue: Optional[Any], text: str) -> None:
         log_queue.put(text)
 
 
+def cleanup_all_cache(root_path: Path, log_queue: Optional[Any] = None) -> int:
+    """
+    Полная очистка всего кэша перед сборкой:
+    - __pycache__ во всём проекте
+    - .pyc файлы
+    - *.build и *.dist папки Nuitka
+
+    Args:
+        root_path: Корневая папка проекта
+        log_queue: Очередь для логов
+
+    Returns:
+        int: Количество удалённых элементов
+    """
+    cleaned = 0
+
+    _log(log_queue, "🧹 Очистка всего кэша проекта...")
+
+    # 1. Удаляем все __pycache__ папки
+    for cache_dir in root_path.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            try:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                cleaned += 1
+            except Exception:
+                pass
+
+    _log(log_queue, f"   ✓ Удалено __pycache__ папок: {cleaned}")
+
+    # 2. Удаляем .pyc файлы
+    pyc_count = 0
+    for pyc_file in root_path.rglob("*.pyc"):
+        try:
+            pyc_file.unlink(missing_ok=True)
+            pyc_count += 1
+        except Exception:
+            pass
+
+    if pyc_count:
+        _log(log_queue, f"   ✓ Удалено .pyc файлов: {pyc_count}")
+    cleaned += pyc_count
+
+    # 3. Удаляем *.build и *.dist папки Nuitka
+    for build_dir in root_path.glob("*.build"):
+        if build_dir.is_dir():
+            try:
+                shutil.rmtree(build_dir, ignore_errors=True)
+                cleaned += 1
+                _log(log_queue, f"   ✓ Удалена: {build_dir.name}")
+            except Exception:
+                pass
+
+    for dist_dir in root_path.glob("*.dist"):
+        if dist_dir.is_dir():
+            try:
+                shutil.rmtree(dist_dir, ignore_errors=True)
+                cleaned += 1
+                _log(log_queue, f"   ✓ Удалена: {dist_dir.name}")
+            except Exception:
+                pass
+
+    # 4. Удаляем __pycache__ в build_zapret/
+    build_zapret_cache = Path(__file__).parent / "__pycache__"
+    if build_zapret_cache.exists():
+        try:
+            shutil.rmtree(build_zapret_cache, ignore_errors=True)
+            cleaned += 1
+            _log(log_queue, f"   ✓ Удалён кэш build_zapret/")
+        except Exception:
+            pass
+
+    _log(log_queue, f"🧹 Очистка завершена: {cleaned} элементов удалено")
+
+    return cleaned
+
+
 def _is_windows_store_python(python_exe: str) -> bool:
     p = python_exe.replace("/", "\\").lower()
     return (
@@ -188,6 +264,9 @@ def run_nuitka(
         target_dir = root_path.parent / "zapret" / "Zapret"
     target_dir = Path(target_dir).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
+
+    # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
+    cleanup_all_cache(root_path, log_queue)
 
     try:
         icon_file = "ZapretDevLogo3.ico" if channel == "test" else "Zapret1.ico"
