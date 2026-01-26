@@ -105,12 +105,11 @@ def load_categories() -> Dict[str, Dict]:
             nonlocal current_key, current
             if not current_key:
                 return
-            # categories.txt may omit explicit `order`/`command_order` fields.
-            # In that case, preserve the ordering by section appearance in the file.
+            # Categories are ordered strictly by section appearance in the file.
             file_order = current.get("_file_order")
-            if "order" not in current and isinstance(file_order, int):
+            if isinstance(file_order, int):
+                # Ignore any explicit `order`/`command_order` values in the file.
                 current["order"] = file_order
-            if "command_order" not in current and isinstance(file_order, int):
                 current["command_order"] = file_order
             categories[current_key] = dict(current)
 
@@ -134,11 +133,8 @@ def load_categories() -> Dict[str, Dict]:
             v = v.strip()
 
             if k in ("order", "command_order"):
-                try:
-                    current[k] = int(v)
-                except ValueError:
-                    # Keep field absent so we can fall back to file ordering.
-                    continue
+                # Deprecated: order/command_order are ignored; ordering is determined by section order.
+                continue
             elif k in ("needs_new_separator", "strip_payload", "requires_all_ports"):
                 current[k] = _parse_bool(v)
             else:

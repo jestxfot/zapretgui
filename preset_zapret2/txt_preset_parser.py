@@ -1044,54 +1044,36 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
 
         def _key(item: tuple[int, CategoryBlock]) -> tuple:
             idx, block = item
-            info = categories_info.get(block.category) if categories_info else None
             proto = (block.protocol or "").lower()
             proto_rank = 0 if proto == "tcp" else (1 if proto == "udp" else 2)
 
             # Custom user categories must come first in the preset to have priority.
             # The GUI generates keys as `user_category_N`.
+            cat_key = str(block.category or "").strip().lower()
+            info = categories_info.get(cat_key) if categories_info else None
             try:
-                m = re.fullmatch(r"user_category_(\d+)", str(block.category or "").strip().lower())
+                is_user_cat = re.fullmatch(r"user_category_(\d+)", cat_key) is not None
             except Exception:
-                m = None
-            if m:
-                try:
-                    user_idx = int(m.group(1))
-                except Exception:
-                    user_idx = 10**9
-                return (0, user_idx, proto_rank, block.category, idx)
+                is_user_cat = False
 
             if info:
-                order = info.get("order")
-                cmd_order = info.get("command_order")
                 file_order = info.get("_file_order")
-                try:
-                    if order is not None:
-                        order_i = int(order)
-                    elif file_order is not None:
-                        order_i = int(file_order)
-                    else:
-                        order_i = 9999
-                except Exception:
-                    order_i = 9999
-                try:
-                    if cmd_order is not None:
-                        cmd_i = int(cmd_order)
-                    elif file_order is not None:
-                        cmd_i = int(file_order)
-                    else:
-                        cmd_i = order_i
-                except Exception:
-                    cmd_i = order_i
-                # Use file order as a stable tie-breaker for categories that share the same order.
                 try:
                     file_i = int(file_order) if file_order is not None else 999999
                 except Exception:
                     file_i = 999999
-                return (1, order_i, cmd_i, file_i, proto_rank, block.category, idx)
+            else:
+                file_i = 999999
+
+            if is_user_cat:
+                return (0, file_i, proto_rank, block.category, idx)
+
+            if info:
+                # Categories are ordered strictly by section appearance in categories.txt.
+                return (1, file_i, proto_rank, block.category, idx)
 
             # Unknown categories: keep original relative order, but after known ones.
-            return (2, 999999, 999999, 999999, proto_rank, idx)
+            return (2, 999999, proto_rank, idx)
 
         blocks = [b for _, b in sorted(enumerate(blocks), key=_key)]
     except Exception:

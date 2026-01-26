@@ -724,6 +724,7 @@ def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional
         current_category = None
         file_version = '1.0'
         file_description = ''
+        section_index = 0
 
         for line in content.splitlines():
             line = line.rstrip()
@@ -740,6 +741,10 @@ def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional
             if line.startswith('[') and line.endswith(']'):
                 # Сохраняем предыдущую категорию
                 if current_category is not None:
+                    # Строго следуем порядку секций в файле, независимо от order/command_order.
+                    file_order = int(current_category.get("_file_order") or 0)
+                    current_category["order"] = file_order
+                    current_category["command_order"] = file_order
                     categories.append(current_category)
 
                 # Начинаем новую
@@ -747,9 +752,11 @@ def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional
                 # (preset blocks infer category keys in lower-case from filter tokens/filenames).
                 raw_key = line[1:-1].strip()
                 category_key = raw_key.lower()
+                section_index += 1
                 current_category = {
                     'key': category_key,
                     'full_name': raw_key or category_key,  # По умолчанию имя = исходный key
+                    '_file_order': section_index,
                 }
                 continue
 
@@ -784,15 +791,11 @@ def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional
                 elif key == 'protocol':
                     current_category['protocol'] = value
                 elif key == 'order':
-                    try:
-                        current_category['order'] = int(value)
-                    except ValueError:
-                        current_category['order'] = 0
+                    # Deprecated: order/command_order are ignored; ordering is determined by section order.
+                    pass
                 elif key == 'command_order':
-                    try:
-                        current_category['command_order'] = int(value)
-                    except ValueError:
-                        current_category['command_order'] = 0
+                    # Deprecated: order/command_order are ignored; ordering is determined by section order.
+                    pass
                 elif key == 'needs_new_separator':
                     current_category['needs_new_separator'] = value.lower() == 'true'
                 elif key == 'command_group':
@@ -816,6 +819,9 @@ def _parse_categories_txt_content(content: str, *, source_name: str) -> Optional
 
         # Сохраняем последнюю категорию
         if current_category is not None:
+            file_order = int(current_category.get("_file_order") or 0)
+            current_category["order"] = file_order
+            current_category["command_order"] = file_order
             categories.append(current_category)
 
         log(f"Загружено {len(categories)} категорий из TXT: {source_name}", "DEBUG")
@@ -846,8 +852,8 @@ def load_categories_txt(filepath: Path) -> Optional[Dict]:
         default_strategy = strategy_id
         ports = 80, 443
         protocol = TCP
-        order = 1
-        command_order = 3
+        order = 1  # устарело (игнорируется)
+        command_order = 3  # устарело (игнорируется)
         needs_new_separator = true
         command_group = youtube
         icon_name = fa5b.youtube

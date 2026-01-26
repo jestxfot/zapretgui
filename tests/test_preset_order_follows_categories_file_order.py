@@ -43,8 +43,12 @@ class PresetOrderFollowsCategoriesFileOrderTests(unittest.TestCase):
             (builtin_dir / "categories.txt").write_text(
                 "version = 1.0\n\n"
                 "[b]\n"
+                "order = 999\n"
+                "command_order = 999\n"
                 "base_filter = --filter-tcp=443\n\n"
                 "[a]\n"
+                "order = 1\n"
+                "command_order = 1\n"
                 "base_filter = --filter-tcp=443\n",
                 encoding="utf-8",
             )
@@ -93,4 +97,3 @@ class PresetOrderFollowsCategoriesFileOrderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
