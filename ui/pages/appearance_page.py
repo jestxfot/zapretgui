@@ -153,7 +153,7 @@ class AcrylicSlider(PreciseSlider):
         painter.drawRoundedRect(0, track_y, self.width(), self._track_height, track_radius, track_radius)
 
         cx = self._handle_center_x()
-        fill_w = max(0.0, min(float(self.width()), cx + handle_radius))
+        fill_w = max(0.0, min(float(self.width()), cx))
         if fill_w > 0:
             painter.setBrush(fill)
             painter.drawRoundedRect(0, track_y, fill_w, self._track_height, track_radius, track_radius)

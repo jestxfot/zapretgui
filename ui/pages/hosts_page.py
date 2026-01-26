@@ -85,24 +85,23 @@ QComboBox QListView::item:selected {
 
 FLUENT_CHIP_STYLE = """
 QPushButton {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: transparent;
     border: none;
-    border-radius: 12px;
-    color: #ffffff;
-    padding: 0 10px;
-    font-size: 10px;
-    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-    min-height: 22px;
+    text-decoration: none;
 }
 QPushButton:hover {
-    background-color: rgba(255, 255, 255, 0.15);
+    color: #60cdff;
+    text-decoration: underline;
 }
 QPushButton:pressed {
-    background-color: rgba(255, 255, 255, 0.20);
+    color: rgba(96, 205, 255, 0.8);
 }
 QPushButton:disabled {
-    background-color: rgba(255, 255, 255, 0.03);
     color: rgba(255, 255, 255, 0.35);
 }
 """
@@ -522,7 +521,6 @@ class HostsPage(BasePage):
     def _make_fluent_chip(self, label: str) -> QPushButton:
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(24)
         btn.setStyleSheet(FLUENT_CHIP_STYLE)
         return btn
 
@@ -740,7 +738,7 @@ class HostsPage(BasePage):
                 chips_scroll.setWidgetResizable(True)
                 chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                chips_scroll.setFixedHeight(30)
+                chips_scroll.setFixedHeight(24)
                 chips_scroll.setStyleSheet(
                     """
                     QScrollArea { background: transparent; border: none; }
