@@ -52,6 +52,16 @@ class DraggableWidget(QWidget):
         self._drag_window_pos = None
         self._main_window = None
         self._installed_filters = set()  # Отслеживаем виджеты с установленными фильтрами
+
+    def _ctrl_drag_enabled(self, event) -> bool:
+        """Разрешаем перетаскивание окна только при Ctrl+ЛКМ (контент).
+
+        Titlebar остаётся "как в Windows" и тянется обычным ЛКМ (см. CustomTitleBar).
+        """
+        try:
+            return bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        except Exception:
+            return False
     
     def _get_main_window(self):
         """Находит главное окно (QMainWindow или FramelessWindow)"""
@@ -234,19 +244,20 @@ class DraggableWidget(QWidget):
         if event.type() == QEvent.Type.MouseButtonPress:
             mouse_event = event
             if mouse_event.button() == Qt.MouseButton.LeftButton:
+                # По умолчанию LMB должен работать как обычный клик.
+                # Перетаскивание по контенту разрешаем только при Ctrl+LMB.
+                if not self._ctrl_drag_enabled(mouse_event):
+                    return False
+
                 # ✅ НЕ перехватываем события в зоне resize
                 if self._is_in_resize_zone(mouse_event.globalPosition().toPoint()):
                     return False
                 
                 # Находим виджет под курсором в watched
                 if isinstance(watched, QWidget):
-                    child = watched.childAt(mouse_event.pos())
-                    target = child if child else watched
-                    
-                    # Если это НЕ интерактивный виджет - начинаем перетаскивание
-                    if not self._is_interactive_widget(target):
-                        if self._start_drag(mouse_event.globalPosition().toPoint()):
-                            return True  # Событие обработано
+                    # Ctrl+LMB должен тянуть окно везде (даже поверх интерактивных элементов).
+                    if self._start_drag(mouse_event.globalPosition().toPoint()):
+                        return True  # Событие обработано
         
         elif event.type() == QEvent.Type.MouseMove:
             if self._is_dragging:
@@ -266,20 +277,18 @@ class DraggableWidget(QWidget):
         """Рекурсивно устанавливает event filter на виджет и его потомков"""
         if widget in self._installed_filters:
             return
-        
-        # Не устанавливаем на интерактивные виджеты
-        if isinstance(widget, self.INTERACTIVE_TYPES):
-            return
-        
+
+        # Важно: перетаскивание по контенту включается только при Ctrl+LMB,
+        # поэтому фильтр можно ставить и на интерактивные виджеты — пока Ctrl не нажат,
+        # события проходят как обычно.
         widget.installEventFilter(self)
         self._installed_filters.add(widget)
         
         # Рекурсивно для детей
         for child in widget.findChildren(QWidget):
             if child not in self._installed_filters:
-                if not isinstance(child, self.INTERACTIVE_TYPES):
-                    child.installEventFilter(self)
-                    self._installed_filters.add(child)
+                child.installEventFilter(self)
+                self._installed_filters.add(child)
     
     def showEvent(self, event):
         """При показе виджета устанавливаем event filter на всех потомков"""
@@ -303,20 +312,16 @@ class DraggableWidget(QWidget):
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
+            if not self._ctrl_drag_enabled(event):
+                super().mousePressEvent(event)
+                return
+
             # ✅ НЕ перехватываем события в зоне resize
             if self._is_in_resize_zone(event.globalPosition().toPoint()):
                 super().mousePressEvent(event)
                 return
             
-            # Находим виджет под курсором
-            child = self.childAt(event.pos())
-            
-            # Если клик по интерактивному элементу - пропускаем
-            if child and self._is_interactive_widget(child):
-                super().mousePressEvent(event)
-                return
-            
-            # Начинаем перетаскивание
+            # Ctrl+LMB должен тянуть окно везде.
             if self._start_drag(event.globalPosition().toPoint()):
                 event.accept()
                 return
@@ -481,7 +486,6 @@ class CustomTitleBar(QWidget):
     
     def __init__(self, parent=None, title: str = "Zapret 2 GUI", show_icon: bool = True):
         super().__init__(parent)
-        self.parent_window = parent
         self._drag_pos = None
         self._window_pos = None
         self._is_moving = False
@@ -690,26 +694,76 @@ class CustomTitleBar(QWidget):
     def set_maximized_state(self, maximized: bool):
         """Обновляет состояние кнопки максимизации"""
         self.maximize_btn.set_maximized(maximized)
-        
+
+    def _get_window(self):
+        """Получает главное окно приложения"""
+        # Способ 1: window() - стандартный метод QWidget
+        try:
+            w = self.window()
+            if w and hasattr(w, 'isWindow') and w.isWindow():
+                return w
+        except Exception:
+            pass
+
+        # Способ 2: parent() - прямой родитель
+        try:
+            p = self.parent()
+            if p and hasattr(p, 'isWindow') and p.isWindow():
+                return p
+        except Exception:
+            pass
+
+        # Способ 3: перебор родителей до окна верхнего уровня
+        try:
+            current = self
+            for _ in range(10):  # Макс 10 уровней вложенности
+                parent = current.parent()
+                if not parent:
+                    break
+                if hasattr(parent, 'isWindow') and parent.isWindow():
+                    return parent
+                current = parent
+        except Exception:
+            pass
+
+        return None
+
     def _on_minimize(self):
+        """Сворачивает окно"""
         self.minimize_clicked.emit()
-        if self.parent_window:
-            self.parent_window.showMinimized()
-            
+        win = self._get_window()
+        if not win:
+            return
+
+        # Пробуем разные способы минимизации
+        try:
+            win.setWindowState(Qt.WindowState.WindowMinimized)
+        except Exception:
+            try:
+                win.showMinimized()
+            except Exception:
+                pass
+
     def _on_maximize(self):
+        """Максимизирует/восстанавливает окно"""
         self.maximize_clicked.emit()
-        if self.parent_window:
-            if self.parent_window.isMaximized():
-                self.parent_window.showNormal()
-                self.maximize_btn.set_maximized(False)
-            else:
-                self.parent_window.showMaximized()
-                self.maximize_btn.set_maximized(True)
-                
+        win = self._get_window()
+        if not win:
+            return
+
+        if win.isMaximized():
+            win.setWindowState(Qt.WindowState.WindowNoState)
+            self.maximize_btn.set_maximized(False)
+        else:
+            win.setWindowState(Qt.WindowState.WindowMaximized)
+            self.maximize_btn.set_maximized(True)
+
     def _on_close(self):
+        """Закрывает окно"""
         self.close_clicked.emit()
-        if self.parent_window:
-            self.parent_window.close()
+        win = self._get_window()
+        if win:
+            win.close()
             
     # Перетаскивание окна
     def mousePressEvent(self, event: QMouseEvent):
@@ -720,48 +774,57 @@ class CustomTitleBar(QWidget):
                 event.ignore()
                 return
 
+            win = self._get_window()
+            if not win:
+                event.ignore()
+                return
+
+            # Пытаемся использовать системное перетаскивание (Windows 10+)
             try:
-                if self.parent_window:
-                    window_handle = self.parent_window.windowHandle()
-                    if window_handle is not None and hasattr(window_handle, "startSystemMove"):
-                        self.drag_started.emit()
-                        if window_handle.startSystemMove():
-                            self._is_system_moving = True
-                            QTimer.singleShot(50, self._check_system_move_end)
-                            event.accept()
-                            return
+                window_handle = win.windowHandle()
+                if window_handle and hasattr(window_handle, "startSystemMove"):
+                    self.drag_started.emit()
+                    if window_handle.startSystemMove():
+                        self._is_system_moving = True
+                        QTimer.singleShot(50, self._check_system_move_end)
+                        event.accept()
+                        return
             except Exception:
                 pass
-            
+
+            # Fallback: ручное перетаскивание
             self._drag_pos = event.globalPosition().toPoint()
-            self._window_pos = self.parent_window.pos()
+            self._window_pos = win.pos()
             self._is_moving = True
-            self.drag_started.emit()  # Отключаем Acrylic для производительности
+            self.drag_started.emit()
             event.accept()
             
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._is_moving and self._drag_pos is not None:
+            win = self._get_window()
+            if not win:
+                return
+
             # Если окно максимизировано, сначала восстанавливаем
-            if self.parent_window.isMaximized():
-                # Вычисляем относительную позицию клика
-                old_width = self.parent_window.width()
-                relative_x = self._drag_pos.x() - self.parent_window.x()
-                
-                self.parent_window.showNormal()
+            if win.isMaximized():
+                old_width = win.width()
+                relative_x = self._drag_pos.x() - win.x()
+
+                win.setWindowState(Qt.WindowState.WindowNoState)
                 self.maximize_btn.set_maximized(False)
-                
+
                 # Пересчитываем позицию после восстановления
-                new_width = self.parent_window.width()
-                ratio = new_width / old_width
+                new_width = win.width()
+                ratio = new_width / old_width if old_width > 0 else 0.5
                 self._window_pos = QPoint(
                     int(self._drag_pos.x() - relative_x * ratio),
                     self._drag_pos.y() - 16  # половина высоты titlebar
                 )
-            
+
             # Вычисляем новую позицию
             delta = event.globalPosition().toPoint() - self._drag_pos
             new_pos = self._window_pos + delta
-            self.parent_window.move(new_pos)
+            win.move(new_pos)
             event.accept()
             
     def mouseReleaseEvent(self, event: QMouseEvent):

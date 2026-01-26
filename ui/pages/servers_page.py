@@ -328,16 +328,17 @@ class UpdateStatusCard(QFrame):
                 font-size: 12px;
                 font-weight: 500;
             }
-            QPushButton:hover {
+            QPushButton:hover:enabled {
                 background: rgba(255, 255, 255, 0.1);
                 border-color: rgba(255, 255, 255, 0.12);
             }
-            QPushButton:pressed {
+            QPushButton:pressed:enabled {
                 background: rgba(255, 255, 255, 0.04);
             }
             QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.03);
-                color: rgba(255, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.02);
+                border-color: rgba(255, 255, 255, 0.04);
+                color: rgba(255, 255, 255, 0.25);
             }
         """)
         content_layout.addWidget(self.check_btn)
@@ -445,41 +446,23 @@ class UpdateStatusCard(QFrame):
         self._is_checking = False
         self.check_btn.setEnabled(True)
         self.progress_bar.stop()
-        
+
         # Запускаем плавное завершение анимации (довернуть до 360°)
         if self._rotation_timer.isActive():
             self._rotation_stopping = True
             # Таймер сам остановится когда дойдёт до 360°
         else:
             self._set_icon_idle()
-        
+
         if found_update:
             self.title_label.setText(f"Доступно обновление v{version}")
             self.subtitle_label.setText("Установите обновление ниже или проверьте ещё раз")
         else:
             self.title_label.setText("Обновлений нет")
             self.subtitle_label.setText(f"Установлена последняя версия {APP_VERSION}")
-        
+
         # Кнопка всегда видна для повторной проверки
         self.check_btn.setText("ПРОВЕРИТЬ СНОВА")
-        self.check_btn.show()
-        self.check_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.04);
-            }
-        """)
             
     def set_error(self, message: str):
         """Показывает ошибку"""
@@ -1549,41 +1532,18 @@ class ServersPage(BasePage):
         self.update_card.title_label.setText("Ошибка загрузки")
         self.update_card.subtitle_label.setText("Попробуйте снова")
         self.update_card.check_btn.setText("ПРОВЕРИТЬ СНОВА")
-        self.update_card.check_btn.show()
-        self._apply_default_btn_style()
+        self.update_card.check_btn.setEnabled(True)
     
     def _dismiss_update(self):
         """Скрывает карточку обновления и показывает кнопку проверки"""
         log("Обновление отложено пользователем", "🔄 UPDATE")
-        
+
         # Показываем кнопку проверки снова
         self.update_card.title_label.setText(f"Обновление v{self._remote_version} отложено")
         self.update_card.subtitle_label.setText("Нажмите для повторной проверки")
         self.update_card.check_btn.setText("ПРОВЕРИТЬ СНОВА")
-        self.update_card.check_btn.show()
-        self._apply_default_btn_style()
+        self.update_card.check_btn.setEnabled(True)
     
-    def _apply_default_btn_style(self):
-        """Применяет стандартный стиль к кнопке проверки (с поддержкой disabled)"""
-        self.update_card.check_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            QPushButton:hover:enabled {
-                background: rgba(255, 255, 255, 0.1);
-            }
-            QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.02);
-                border-color: rgba(255, 255, 255, 0.04);
-                color: rgba(255, 255, 255, 0.25);
-            }
-        """)
             
     def _open_telegram_channel(self):
         """Открывает Telegram канал с релизами"""
