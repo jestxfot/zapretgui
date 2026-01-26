@@ -16,6 +16,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
 from ui.sidebar import SettingsCard, ActionButton
+from ui.pages.strategies_page_base import ResetActionButton
 from log import log
 from dns import DNS_PROVIDERS
 
@@ -413,9 +414,9 @@ class NetworkPage(BasePage):
         self.test_btn.clicked.connect(self._test_connection)
         tools_layout.addWidget(self.test_btn)
         
-        self.dns_flush_btn = ActionButton("Сбросить DNS кэш", "fa5s.sync")
+        self.dns_flush_btn = ResetActionButton("Сбросить DNS кэш", confirm_text="Сбросить?")
         self.dns_flush_btn.setFixedHeight(28)
-        self.dns_flush_btn.clicked.connect(self._flush_dns_cache)
+        self.dns_flush_btn.reset_confirmed.connect(self._flush_dns_cache)
         tools_layout.addWidget(self.dns_flush_btn)
         
         tools_layout.addStretch()
@@ -879,7 +880,6 @@ class NetworkPage(BasePage):
             from dns.dns_core import DNSManager
             manager = DNSManager()
             manager.flush_dns_cache()
-            QMessageBox.information(self, "Готово", "DNS кэш очищен")
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
 

@@ -12,6 +12,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
+from ui.pages.strategies_page_base import ResetActionButton
 from log import log
 from utils import get_system32_path
 
@@ -82,6 +83,33 @@ QComboBox QListView::item:selected {
 }
 """
 
+FLUENT_CHIP_STYLE = """
+QPushButton {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.85);
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+    min-height: 24px;
+}
+QPushButton:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+QPushButton:pressed {
+    background: rgba(96, 205, 255, 0.15);
+    border: 1px solid rgba(96, 205, 255, 0.35);
+}
+QPushButton:disabled {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.35);
+}
+"""
+
 _DNS_PROFILE_IP_SUFFIX = re.compile(r"\s*\(\s*(?:\d{1,3}\.){3}\d{1,3}\s*\)\s*$")
 
 
@@ -90,6 +118,37 @@ def _format_dns_profile_label(profile_name: str) -> str:
     if not label:
         return ""
     return _DNS_PROFILE_IP_SUFFIX.sub("", label).strip()
+
+
+class DangerResetActionButton(ResetActionButton):
+    def _update_icon(self, rotation: int = 0):
+        color = "white"
+        icon_name = "fa5s.trash-alt"
+        if rotation != 0:
+            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
+        else:
+            self.setIcon(qta.icon(icon_name, color=color))
+
+    def _update_style(self):
+        if self._pending:
+            bg = "rgba(220, 53, 69, 0.98)" if self._hovered else "rgba(220, 53, 69, 0.90)"
+            border = "1px solid rgba(255, 255, 255, 0.25)"
+        else:
+            bg = "rgba(220, 53, 69, 0.90)" if self._hovered else "rgba(220, 53, 69, 0.70)"
+            border = "none"
+
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg};
+                border: {border};
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+        """)
 
 # Импортируем сервисы и домены
 try:
@@ -172,6 +231,7 @@ class HostsPage(BasePage):
         self._active_domains_cache = None  # Кеш активных доменов
         self._last_error = None  # Последняя ошибка
         self.error_panel = None  # Панель ошибок
+        self._current_operation = None
         self._service_dns_selection = load_user_hosts_selection()
         
         self._init_hosts_manager()
@@ -462,28 +522,19 @@ class HostsPage(BasePage):
         combo.setFixedHeight(32)
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def _get_dns_profile_families(self) -> tuple[str | None, list[str]]:
-        profiles = list(get_dns_profiles() or [])
+    def _make_fluent_chip(self, label: str) -> QPushButton:
+        btn = QPushButton(label)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(26)
+        btn.setStyleSheet(FLUENT_CHIP_STYLE)
+        return btn
 
-        zapret = next((p for p in profiles if "zapret" in (p or "").strip().lower()), None)
-
-        def is_direct(profile_name: str) -> bool:
-            s = (profile_name or "").strip().lower()
-            return (
-                "вкл. (активировать hosts)" in s
-                or "no proxy" in s
-                or "direct" in s
-            )
-
-        direct = next((p for p in profiles if is_direct(p)), None)
-        geohide_candidates = [p for p in profiles if p and p != zapret and p != direct]
-        return zapret, geohide_candidates
-
-    def _bulk_apply_dns_profile(self, service_names: list[str], profile_name: str) -> None:
+    def _bulk_apply_dns_profile(self, service_names: list[str], profile_name: str | None) -> None:
         if self._applying:
             return
 
         changed = False
+        skipped: list[str] = []
         for service_name in service_names:
             combo = self.service_combos.get(service_name)
             if not combo:
@@ -491,9 +542,16 @@ class HostsPage(BasePage):
 
             available = list(get_service_available_dns_profiles(service_name) or [])
 
-            target_profile = profile_name if profile_name in available else ""
-            target_idx = combo.findData(target_profile) if target_profile else 0
-            if target_idx < 0:
+            target_profile = (profile_name or "").strip()
+            if target_profile:
+                if target_profile not in available:
+                    skipped.append(service_name)
+                    continue
+                target_idx = combo.findData(target_profile)
+                if target_idx < 0:
+                    skipped.append(service_name)
+                    continue
+            else:
                 target_idx = 0
 
             if combo.currentIndex() != target_idx:
@@ -514,6 +572,13 @@ class HostsPage(BasePage):
             self._update_profile_row_visual(service_name)
 
         if not changed:
+            if skipped:
+                log(
+                    "Hosts: профиль недоступен для: "
+                    + ", ".join(skipped[:8])
+                    + ("…" if len(skipped) > 8 else ""),
+                    "DEBUG",
+                )
             return
 
         save_user_hosts_selection(self._service_dns_selection)
@@ -652,32 +717,26 @@ class HostsPage(BasePage):
                 )
                 header.addWidget(title_label, 1, Qt.AlignmentFlag.AlignVCenter)
 
-                group_combo = QComboBox()
-                self._configure_fluent_combo(group_combo)
-                group_combo.setMinimumWidth(180)
-                group_combo.addItem("Для категории…", None)
-                zapret_profile, geohide_profiles = self._get_dns_profile_families()
-                if zapret_profile:
-                    group_combo.addItem(
-                        f"Все → {_format_dns_profile_label(zapret_profile)}",
-                        zapret_profile,
-                    )
-                for p in geohide_profiles:
-                    group_combo.addItem(
-                        f"GeoHide → {_format_dns_profile_label(p)}",
-                        p,
-                    )
+                chips = QWidget()
+                chips_layout = QHBoxLayout(chips)
+                chips_layout.setContentsMargins(0, 0, 0, 0)
+                chips_layout.setSpacing(6)
 
-                def on_group_combo_changed(_index: int, c=group_combo, n=tuple(names)) -> None:
-                    profile_name = c.currentData()
-                    if isinstance(profile_name, str) and profile_name.strip():
-                        self._bulk_apply_dns_profile(list(n), profile_name.strip())
-                    c.blockSignals(True)
-                    c.setCurrentIndex(0)
-                    c.blockSignals(False)
+                off_btn = self._make_fluent_chip(OFF_LABEL)
+                off_btn.clicked.connect(lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None))
+                chips_layout.addWidget(off_btn)
 
-                group_combo.currentIndexChanged.connect(on_group_combo_changed)
-                header.addWidget(group_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+                for profile_name in (get_dns_profiles() or []):
+                    label = _format_dns_profile_label(profile_name)
+                    if not label:
+                        continue
+                    btn = self._make_fluent_chip(label)
+                    btn.clicked.connect(
+                        lambda _checked=False, n=tuple(names), p=profile_name: self._bulk_apply_dns_profile(list(n), p)
+                    )
+                    chips_layout.addWidget(btn)
+
+                header.addWidget(chips, 0, Qt.AlignmentFlag.AlignVCenter)
 
                 card.add_layout(header)
 
@@ -809,23 +868,22 @@ class HostsPage(BasePage):
         
     def _build_actions(self):
         actions_card = SettingsCard()
+
+        clear_note = QLabel(
+            "⚠ «Очистить» полностью сбрасывает файл hosts к стандартному содержимому Windows "
+            "и удаляет ВСЕ записи (включая добавленные вручную)."
+        )
+        clear_note.setWordWrap(True)
+        clear_note.setStyleSheet("color: rgba(255, 152, 0, 0.85); font-size: 10px; margin-bottom: 6px;")
+        actions_card.add_widget(clear_note)
+
         actions_layout = QHBoxLayout()
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(6)
         
-        # Очистить
-        clear_btn = QPushButton("Очистить")
-        clear_btn.setIcon(qta.icon('fa5s.trash-alt', color='white'))
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(220, 53, 69, 0.7);
-                color: white; border: none;
-                border-radius: 4px; font-size: 11px; padding: 4px 10px;
-            }
-            QPushButton:hover { background-color: rgba(220, 53, 69, 0.9); }
-        """)
-        clear_btn.clicked.connect(self._clear_hosts)
+        # Очистить (двойное подтверждение без модального окна)
+        clear_btn = DangerResetActionButton("Очистить", confirm_text="Сбросить hosts полностью?")
+        clear_btn.reset_confirmed.connect(self._clear_hosts)
         actions_layout.addWidget(clear_btn)
         
         actions_layout.addStretch()
@@ -901,15 +959,8 @@ class HostsPage(BasePage):
         """Очищает hosts"""
         if self._applying:
             return
-            
-        reply = QMessageBox.question(
-            self, "Очистка hosts",
-            "Удалить все записи из hosts?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._run_operation('clear_all')
+
+        self._run_operation('clear_all')
             
     def _open_hosts_file(self):
         try:
@@ -932,6 +983,7 @@ class HostsPage(BasePage):
             return
             
         self._applying = True
+        self._current_operation = operation
         
         self._worker = HostsWorker(self.hosts_manager, operation, payload)
         self._thread = QThread()
@@ -946,11 +998,16 @@ class HostsPage(BasePage):
         self._thread.start()
         
     def _on_operation_complete(self, success: bool, message: str):
+        operation = self._current_operation
+        self._current_operation = None
         self._applying = False
         
         # Сбрасываем кеш и обновляем UI
         self._invalidate_cache()
         self._update_ui()
+
+        if success and operation == "clear_all":
+            self._reset_all_service_profiles()
         
         if success:
             self._hide_error()
@@ -962,6 +1019,24 @@ class HostsPage(BasePage):
                 )
             else:
                 self._show_error(f"Ошибка: {message}")
+
+    def _reset_all_service_profiles(self) -> None:
+        """Сбрасывает выбор профилей в UI и user_hosts.ini (после очистки hosts)."""
+        self._service_dns_selection = {}
+        save_user_hosts_selection(self._service_dns_selection)
+
+        was_building = getattr(self, "_building_services_ui", False)
+        self._building_services_ui = True
+        try:
+            for combo in self.service_combos.values():
+                combo.blockSignals(True)
+                combo.setCurrentIndex(0)
+                combo.blockSignals(False)
+        finally:
+            self._building_services_ui = was_building
+
+        for service_name in list(self.service_combos.keys()):
+            self._update_profile_row_visual(service_name)
             
     def _update_ui(self):
         """Обновляет весь UI"""

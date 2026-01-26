@@ -68,8 +68,8 @@ class AboutPage(BasePage):
         
         version_layout.addLayout(text_layout, 1)
         
-        # Кнопка обновления
-        self.update_btn = ActionButton("Проверить обновления", "fa5s.sync-alt")
+        # Кнопка для перехода на страницу обновлений
+        self.update_btn = ActionButton("Настройка обновлений", "fa5s.sync-alt")
         self.update_btn.setFixedHeight(36)
         version_layout.addWidget(self.update_btn)
         

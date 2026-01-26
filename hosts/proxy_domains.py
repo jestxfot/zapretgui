@@ -298,14 +298,25 @@ def _service_has_proxy_ips(cat: HostsCatalog, service_name: str) -> bool:
     if not domains:
         return False
 
-    proxy_indices = _get_proxy_profile_indices(cat)
+    direct_idx = _infer_direct_profile_index(cat)
+    proxy_indices = [i for i in range(len(cat.dns_profiles)) if direct_idx is None or i != direct_idx]
     if not proxy_indices:
         return False
 
     for ips in domains.values():
+        direct_ip = ""
+        if direct_idx is not None and ips and direct_idx < len(ips):
+            direct_ip = (ips[direct_idx] or "").strip()
         for idx in proxy_indices:
-            if ips and idx < len(ips) and (ips[idx] or "").strip():
-                return True
+            if not ips or idx >= len(ips):
+                continue
+            ip = (ips[idx] or "").strip()
+            if not ip:
+                continue
+            # Do not treat copies of the "direct" column as proxy/hide IPs.
+            if direct_ip and ip == direct_ip:
+                continue
+            return True
     return False
 
 
