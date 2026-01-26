@@ -60,11 +60,15 @@ def get_system_exe(exe_name: str) -> str:
     return os.path.join(get_system32_path(), exe_name)
 
 # Максимальный набор флагов для полного скрытия окон
-WIN_FLAGS = (subprocess.CREATE_NO_WINDOW | 
-             subprocess.DETACHED_PROCESS | 
-             subprocess.CREATE_NEW_PROCESS_GROUP |
-             subprocess.CREATE_NEW_CONSOLE |
-             0x00000008)   # CREATE_BREAKAWAY_FROM_JOB
+# NOTE: `CREATE_NEW_CONSOLE` can cause a visible console window (or "ghost" artifacts)
+# on some systems when combined with translucency/frameless Qt windows.
+# We keep `CREATE_NO_WINDOW` + `DETACHED_PROCESS` for reliably hidden execution.
+WIN_FLAGS = (
+    subprocess.CREATE_NO_WINDOW
+    | subprocess.DETACHED_PROCESS
+    | subprocess.CREATE_NEW_PROCESS_GROUP
+    | 0x00000008  # CREATE_BREAKAWAY_FROM_JOB
+)
 
 WIN_OEM   = "cp866"
 UTF8      = "utf-8"

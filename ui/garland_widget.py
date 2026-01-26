@@ -80,7 +80,9 @@ class GarlandWidget(QWidget):
         self._fade_animation = None
         
         # Настройки
-        self.setFixedHeight(20)
+        # 20px иногда чуть-чуть клипает нижнюю часть лампочек (anti-aliasing + max y/size).
+        # Даем небольшой запас, т.к. виджет рисуется оверлеем и не влияет на layout.
+        self.setFixedHeight(24)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         

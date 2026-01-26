@@ -18,6 +18,7 @@ from config import APP_VERSION, CHANNEL
 from log import log
 from updater.telegram_updater import TELEGRAM_CHANNELS
 from config.telegram_links import open_telegram_link
+from updater.github_release import normalize_version
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -538,6 +539,8 @@ class ServerCheckWorker(QThread):
                 
                 stable_version = tg_info.get('version') if tg_channel == 'stable' and tg_info else '—'
                 test_version = tg_info.get('version') if tg_channel == 'test' and tg_info else '—'
+                stable_notes = tg_info.get('release_notes') if tg_channel == 'stable' and tg_info else ''
+                test_notes = tg_info.get('release_notes') if tg_channel == 'test' and tg_info else ''
                 
                 if tg_info and tg_info.get('version'):
                     tg_status = {
@@ -545,6 +548,8 @@ class ServerCheckWorker(QThread):
                         'response_time': response_time,
                         'stable_version': stable_version,
                         'test_version': test_version,
+                        'stable_notes': stable_notes,
+                        'test_notes': test_notes,
                         'is_current': True,
                     }
                     self._first_online_server_id = 'telegram'
@@ -626,6 +631,9 @@ class ServerCheckWorker(QThread):
                 
                 if response.status_code == 200:
                     data = response.json()
+
+                    stable_notes = data.get('stable', {}).get('release_notes', '')
+                    test_notes = data.get('test', {}).get('release_notes', '')
                     
                     # Первый работающий сервер становится активным
                     is_first_online = self._first_online_server_id is None
@@ -637,6 +645,8 @@ class ServerCheckWorker(QThread):
                         'response_time': response_time,
                         'stable_version': data.get('stable', {}).get('version', '—'),
                         'test_version': data.get('test', {}).get('version', '—'),
+                        'stable_notes': stable_notes,
+                        'test_notes': test_notes,
                         'is_current': is_first_online,  # Звёздочка первому работающему
                     }
                     
@@ -1296,6 +1306,75 @@ class ServersPage(BasePage):
         self.server_worker.all_complete.connect(self._on_servers_complete)
         self.server_worker.start()
         
+    def _get_candidate_version_and_notes(self, status: dict) -> tuple[str | None, str]:
+        """Возвращает версию и release_notes для текущего канала (stable/test)."""
+        if CHANNEL in ("dev", "test"):
+            raw_version = status.get("test_version")
+            notes = status.get("test_notes", "") or ""
+        else:
+            raw_version = status.get("stable_version")
+            notes = status.get("stable_notes", "") or ""
+
+        if not raw_version or raw_version == "—":
+            return None, ""
+
+        try:
+            return normalize_version(str(raw_version)), notes
+        except Exception:
+            return None, ""
+
+    def _maybe_offer_update_from_server(self, server_name: str, status: dict) -> None:
+        """Показывает предложение обновиться как можно раньше.
+
+        Правила:
+        - Если обновление ещё не найдено: показываем только по ⭐ активному серверу.
+        - Если обновление уже найдено: если где-то нашли более новую версию — обновляем предложение.
+        """
+        if getattr(self, "_checking", False) is False:
+            return
+
+        if getattr(self, "_found_update", False) is False and not status.get("is_current"):
+            return
+
+        if hasattr(self, "changelog_card") and getattr(self.changelog_card, "_is_downloading", False):
+            return
+
+        candidate_version, candidate_notes = self._get_candidate_version_and_notes(status)
+        if not candidate_version:
+            return
+
+        from updater.update import compare_versions
+
+        try:
+            if compare_versions(APP_VERSION, candidate_version) >= 0:
+                return
+        except Exception:
+            return
+
+        if getattr(self, "_remote_version", ""):
+            try:
+                if compare_versions(self._remote_version, candidate_version) >= 0:
+                    return
+            except Exception:
+                return
+
+        self._found_update = True
+        self._remote_version = candidate_version
+        self._release_notes = candidate_notes or ""
+
+        # Показываем карточку установки сразу, не дожидаясь завершения проверки всех серверов.
+        try:
+            self.changelog_card.show_update(self._remote_version, self._release_notes)
+        except Exception:
+            pass
+
+        # Обновляем текст в верхней карточке, но не останавливаем анимацию (проверка продолжается).
+        try:
+            self.update_card.title_label.setText(f"Найдено обновление v{self._remote_version}")
+            self.update_card.subtitle_label.setText(f"Источник: {server_name}")
+        except Exception:
+            pass
+
     def _on_server_checked(self, server_name: str, status: dict):
         row = self.servers_table.rowCount()
         self.servers_table.insertRow(row)
@@ -1341,6 +1420,8 @@ class ServersPage(BasePage):
             extra = status.get('error', '')[:40]
         
         self.servers_table.setItem(row, 3, QTableWidgetItem(extra))
+
+        self._maybe_offer_update_from_server(server_name, status)
         
     def _on_servers_complete(self):
         """После проверки серверов запускаем проверку версий (кэш уже заполнен)"""

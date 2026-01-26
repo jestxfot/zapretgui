@@ -1050,6 +1050,20 @@ class DPIController:
         """Завершает приложение после остановки DPI"""
         self.app.set_status("Завершение...")
         from PyQt6.QtWidgets import QApplication
+
+        # Best-effort: close popups/tooltip windows and flush close events.
+        # On some Windows setups, abrupt quit with translucent/frameless windows can leave "ghost" artifacts.
+        try:
+            if hasattr(self.app, "_dismiss_transient_ui_safe"):
+                self.app._dismiss_transient_ui_safe(reason="stop_and_exit_finished")
+        except Exception:
+            pass
+        try:
+            QApplication.closeAllWindows()
+            QApplication.processEvents()
+        except Exception:
+            pass
+
         QApplication.quit()
     
     def cleanup_threads(self):

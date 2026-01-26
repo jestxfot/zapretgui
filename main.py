@@ -258,6 +258,39 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         super().closeEvent(event)
 
+    def _dismiss_transient_ui_safe(self, *, reason: str) -> None:
+        """Безопасно закрывает попапы/tooltip-окна и сбрасывает grabs/cursor.
+
+        На Windows "замирание" и артефакты часто вызваны зависшими Popup/ToolTip окнами
+        (они могут оставаться поверх при сворачивании/переключении приложений).
+        """
+        if getattr(self, "_transient_ui_cleanup_in_progress", False):
+            return
+        self._transient_ui_cleanup_in_progress = True
+        try:
+            try:
+                self._dismiss_transient_ui(reason=reason)
+            except Exception:
+                pass
+        finally:
+            self._transient_ui_cleanup_in_progress = False
+
+    def hideEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            self._dismiss_transient_ui_safe(reason="main_window_hide")
+        except Exception:
+            pass
+        super().hideEvent(event)
+
+    def event(self, event):  # noqa: N802 (Qt override)
+        try:
+            et = event.type()
+            if et in (QEvent.Type.WindowDeactivate, QEvent.Type.ApplicationDeactivate):
+                self._dismiss_transient_ui_safe(reason=f"main_window_deactivate:{et}")
+        except Exception:
+            pass
+        return super().event(event)
+
     def request_exit(self, stop_dpi: bool) -> None:
         """Единая точка выхода из приложения.
 
@@ -642,7 +675,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         # ✅ НОВОГОДНЯЯ ГИРЛЯНДА (Premium) - поверх всего контента
         self.garland = GarlandWidget(self.container)
-        self.garland.setGeometry(0, 32, self.width(), 20)  # Под title bar
+        self.garland.setGeometry(0, 32, self.container.width(), self.garland.maximumHeight())  # Под title bar
         self.garland.raise_()  # Поверх всех виджетов
         
         # ✅ СНЕЖИНКИ (Premium) - поверх всего окна (как "живой" фон)
@@ -1128,7 +1161,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         """Обновляет позицию и размер гирлянды"""
         if hasattr(self, 'garland') and hasattr(self, 'container'):
             # Позиционируем под title bar на всю ширину контейнера
-            self.garland.setGeometry(0, 32, self.container.width(), 20)
+            self.garland.setGeometry(0, 32, self.container.width(), self.garland.maximumHeight())
             self.garland.raise_()
     
     def set_snowflakes_enabled(self, enabled: bool) -> None:

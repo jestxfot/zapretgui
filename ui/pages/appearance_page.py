@@ -4,7 +4,8 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider
+    QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider,
+    QStyle, QStyleOptionSlider,
 )
 from PyQt6.QtGui import QWheelEvent
 import qtawesome as qta
@@ -15,6 +16,58 @@ from ui.sidebar import SettingsCard, ActionButton
 
 class PreciseSlider(QSlider):
     """Слайдер с точным управлением колёсиком мыши (1 шаг за скролл)"""
+
+    def _value_from_pos(self, pos) -> int:
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+
+        groove = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self
+        )
+
+        if self.orientation() == Qt.Orientation.Horizontal:
+            # Привязываем значение к позиции курсора как к центру хэндла.
+            # Так "ползунок" визуально следует за курсором и на 100% нет ощущения сдвига влево.
+            slider_min = groove.left()
+            slider_max = groove.right()
+            x = pos.x()
+            x = max(slider_min, min(x, slider_max))
+            span = max(1, slider_max - slider_min)
+            return QStyle.sliderValueFromPosition(
+                self.minimum(), self.maximum(), x - slider_min, span, opt.upsideDown
+            )
+
+        slider_min = groove.top()
+        slider_max = groove.bottom()
+        y = pos.y()
+        y = max(slider_min, min(y, slider_max))
+        span = max(1, slider_max - slider_min)
+        return QStyle.sliderValueFromPosition(
+            self.minimum(), self.maximum(), y - slider_min, span, opt.upsideDown
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setSliderDown(True)
+            self.setValue(self._value_from_pos(event.position().toPoint()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.isSliderDown() and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.setValue(self._value_from_pos(event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.isSliderDown() and event.button() == Qt.MouseButton.LeftButton:
+            self.setValue(self._value_from_pos(event.position().toPoint()))
+            self.setSliderDown(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent):
         # Определяем направление скролла
@@ -596,6 +649,9 @@ class AppearancePage(BasePage):
                 height: 4px;
                 background: rgba(255, 255, 255, 0.1);
                 border-radius: 2px;
+                /* Делаем отступы под хэндл, чтобы на 0/100% "линия" доходила до конца,
+                   а сам хэндл не выглядел смещённым относительно курсора. */
+                margin: 0 8px;
             }
             QSlider::handle:horizontal {
                 background: #60cdff;
@@ -611,6 +667,9 @@ class AppearancePage(BasePage):
             QSlider::sub-page:horizontal {
                 background: #60cdff;
                 border-radius: 2px;
+                /* Qt часто оставляет "хвост" после хэндла на 100%.
+                   Небольшой выход за край визуально доводит линию до конца. */
+                margin-right: -8px;
             }
         """)
         self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
