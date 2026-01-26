@@ -9,6 +9,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, SettingsRow, ActionButton, StatusIndicator, PulsingDot
+from ui.pages.strategies_page_base import ResetActionButton
 
 
 # Стиль для индикатора загрузки (бегающая полоска)
@@ -292,9 +293,9 @@ class ControlPage(BasePage):
             "Сбросить программу",
             "Очистить кэш проверок запуска и обновить настройки",
         )
-        self.reset_program_btn = ActionButton("Сбросить", "fa5s.trash-alt")
+        self.reset_program_btn = ResetActionButton("Сбросить", confirm_text="Сбросить?")
         self.reset_program_btn.setProperty("noDrag", True)
-        self.reset_program_btn.clicked.connect(self._on_reset_program_clicked)
+        self.reset_program_btn.reset_confirmed.connect(self._on_reset_program_clicked)
         reset_row.set_control(self.reset_program_btn)
         program_settings_card.add_widget(reset_row)
 
@@ -639,12 +640,6 @@ class ControlPage(BasePage):
 
         try:
             startup_cache.invalidate_cache()
-            QMessageBox.information(
-                self,
-                "Настройки программы сброшены",
-                "Кэш проверок запуска и настройки программы успешно очищены.\n"
-                "При следующем запуске все проверки будут выполнены заново.",
-            )
             log("Кэш проверок запуска очищен пользователем", "INFO")
             self._set_status("Настройки программы сброшены")
         except Exception as e:
@@ -759,4 +754,3 @@ class ControlPage(BasePage):
         else:
             self.strategy_label.setText("Не выбрана")
             self.strategy_desc.setText("Выберите стратегию в разделе «Стратегии»")
-
