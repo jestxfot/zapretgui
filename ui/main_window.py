@@ -313,7 +313,7 @@ class MainWindowUI:
         """
         try:
             from PyQt6.QtCore import Qt
-            from PyQt6.QtWidgets import QApplication, QToolTip
+            from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
         except Exception:
             return
 
@@ -372,7 +372,13 @@ class MainWindowUI:
 
         # Release mouse/keyboard grabs if something grabbed input.
         try:
-            mg = app.mouseGrabber()
+            mg = None
+            for obj in (app, QApplication, QWidget):
+                try:
+                    mg = obj.mouseGrabber()  # type: ignore[attr-defined]
+                    break
+                except Exception:
+                    continue
             if mg is not None:
                 cleaned.append(f"mouseGrabber:{mg.__class__.__name__}")
                 try:
@@ -382,7 +388,13 @@ class MainWindowUI:
         except Exception:
             pass
         try:
-            kg = app.keyboardGrabber()
+            kg = None
+            for obj in (app, QApplication, QWidget):
+                try:
+                    kg = obj.keyboardGrabber()  # type: ignore[attr-defined]
+                    break
+                except Exception:
+                    continue
             if kg is not None:
                 cleaned.append(f"keyboardGrabber:{kg.__class__.__name__}")
                 try:

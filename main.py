@@ -275,6 +275,236 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         finally:
             self._transient_ui_cleanup_in_progress = False
 
+    def _snapshot_interaction_state_for_debug(self) -> dict:
+        """Срез состояния UI (для диагностики залипаний hover/cursor)."""
+        state: dict = {}
+        try:
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtWidgets import QApplication, QWidget
+
+            def _enum_to_int(value):
+                try:
+                    return int(value)
+                except Exception:
+                    try:
+                        return int(value.value)
+                    except Exception:
+                        return str(value)
+
+            def _get_mouse_grabber(app_):
+                for obj in (app_, QApplication, QWidget):
+                    try:
+                        return obj.mouseGrabber()  # type: ignore[attr-defined]
+                    except Exception:
+                        continue
+                return None
+
+            def _get_keyboard_grabber(app_):
+                for obj in (app_, QApplication, QWidget):
+                    try:
+                        return obj.keyboardGrabber()  # type: ignore[attr-defined]
+                    except Exception:
+                        continue
+                return None
+
+            app = QApplication.instance()
+            if not app:
+                return state
+
+            try:
+                oc = QApplication.overrideCursor()
+                state["overrideCursor"] = _enum_to_int(oc.shape()) if oc is not None else None
+            except Exception:
+                state["overrideCursor"] = "err"
+
+            try:
+                state["mouseButtons"] = _enum_to_int(QApplication.mouseButtons())
+            except Exception:
+                state["mouseButtons"] = "err"
+
+            try:
+                mg = _get_mouse_grabber(app)
+                state["mouseGrabber"] = mg.__class__.__name__ if mg is not None else None
+            except Exception:
+                state["mouseGrabber"] = "err"
+
+            try:
+                kg = _get_keyboard_grabber(app)
+                state["keyboardGrabber"] = kg.__class__.__name__ if kg is not None else None
+            except Exception:
+                state["keyboardGrabber"] = "err"
+
+            try:
+                ap = app.activePopupWidget()
+                state["activePopupWidget"] = ap.__class__.__name__ if ap is not None else None
+            except Exception:
+                state["activePopupWidget"] = "err"
+
+            try:
+                state["windowCursorShape"] = _enum_to_int(self.cursor().shape())
+            except Exception:
+                state["windowCursorShape"] = "err"
+
+            try:
+                state["windowHasCursor"] = bool(self.testAttribute(Qt.WidgetAttribute.WA_SetCursor))
+            except Exception:
+                state["windowHasCursor"] = "err"
+
+            try:
+                state["isResizing"] = bool(getattr(self, "_is_resizing", False))
+                state["resizeEdge"] = getattr(self, "_resize_edge", None)
+            except Exception:
+                state["isResizing"] = "err"
+                state["resizeEdge"] = "err"
+
+            try:
+                state["isDragging"] = bool(getattr(self, "_is_dragging", False))
+            except Exception:
+                state["isDragging"] = "err"
+
+            try:
+                tb = getattr(self, "title_bar", None)
+                if tb is not None:
+                    state["titlebarMoving"] = bool(getattr(tb, "_is_moving", False))
+                    state["titlebarSystemMoving"] = bool(getattr(tb, "_is_system_moving", False))
+            except Exception:
+                state["titlebarMoving"] = "err"
+                state["titlebarSystemMoving"] = "err"
+        except Exception:
+            return state
+
+        return state
+
+    def _force_release_interaction_states(self, *, reason: str) -> None:
+        """Сбрасывает состояния drag/resize/cursor, которые могут залипать при потере фокуса."""
+        cancelled: list[str] = []
+        need_win_cancelmode = False
+
+        aggressive_win_cancelmode = reason.startswith("deactivate:") or reason.startswith("app_state_inactive")
+
+        # Cancel frameless resize if focus changed mid-resize.
+        try:
+            if bool(getattr(self, "_is_resizing", False)) and hasattr(self, "_end_resize"):
+                self._end_resize()
+                cancelled.append("resize")
+                need_win_cancelmode = True
+        except Exception:
+            pass
+
+        # Cancel window dragging if focus changed mid-drag.
+        try:
+            if bool(getattr(self, "_is_dragging", False)):
+                self._is_dragging = False
+                self._drag_start_pos = None
+                self._drag_window_pos = None
+                cancelled.append("drag_window")
+                need_win_cancelmode = True
+        except Exception:
+            pass
+
+        # Cancel titlebar move flags (can stick if mouse released outside app).
+        try:
+            tb = getattr(self, "title_bar", None)
+            if tb is not None:
+                was_moving = bool(getattr(tb, "_is_moving", False) or getattr(tb, "_is_system_moving", False))
+                if was_moving:
+                    tb._is_moving = False
+                    tb._is_system_moving = False
+                    tb._drag_pos = None
+                    tb._window_pos = None
+                    cancelled.append("titlebar_move")
+                    need_win_cancelmode = True
+        except Exception:
+            pass
+
+        # Clear stuck override cursor stack (e.g. WaitCursor/PointingHandCursor).
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            if QApplication.overrideCursor() is not None:
+                cancelled.append("overrideCursor")
+                need_win_cancelmode = True
+            while QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        except Exception:
+            pass
+
+        # Release mouse/keyboard grabs if something grabbed input.
+        try:
+            from PyQt6.QtWidgets import QApplication, QWidget
+
+            app = QApplication.instance()
+            if app is not None:
+                mg = None
+                for obj in (app, QApplication, QWidget):
+                    try:
+                        mg = obj.mouseGrabber()  # type: ignore[attr-defined]
+                        break
+                    except Exception:
+                        continue
+                if mg is not None:
+                    try:
+                        mg.releaseMouse()
+                        cancelled.append(f"mouseGrabber:{mg.__class__.__name__}")
+                        need_win_cancelmode = True
+                    except Exception:
+                        pass
+
+                kg = None
+                for obj in (app, QApplication, QWidget):
+                    try:
+                        kg = obj.keyboardGrabber()  # type: ignore[attr-defined]
+                        break
+                    except Exception:
+                        continue
+                if kg is not None:
+                    try:
+                        kg.releaseKeyboard()
+                        cancelled.append(f"keyboardGrabber:{kg.__class__.__name__}")
+                        need_win_cancelmode = True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Clear window-level cursor that can remain set after interrupted resize.
+        try:
+            from PyQt6.QtCore import Qt
+
+            had_window_cursor = bool(self.testAttribute(Qt.WidgetAttribute.WA_SetCursor))
+            self.unsetCursor()
+            if had_window_cursor:
+                cancelled.append("windowCursor")
+        except Exception:
+            pass
+
+        # Windows: cancel stuck capture / native modal loops (system move/resize).
+        try:
+            if sys.platform.startswith("win"):
+                import ctypes
+
+                try:
+                    ctypes.windll.user32.ReleaseCapture()
+                except Exception:
+                    pass
+
+                try:
+                    if aggressive_win_cancelmode or need_win_cancelmode:
+                        hwnd = int(self.winId())
+                        WM_CANCELMODE = 0x001F
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_CANCELMODE, 0, 0)
+                        cancelled.append("win_cancelmode")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        if cancelled:
+            try:
+                log(f"Force-released interaction states ({reason}): {', '.join(cancelled)}", "DEBUG")
+            except Exception:
+                pass
+
     def hideEvent(self, event):  # noqa: N802 (Qt override)
         try:
             self._dismiss_transient_ui_safe(reason="main_window_hide")
@@ -285,8 +515,62 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     def event(self, event):  # noqa: N802 (Qt override)
         try:
             et = event.type()
-            if et in (QEvent.Type.WindowDeactivate, QEvent.Type.ApplicationDeactivate):
+            if et == QEvent.Type.WindowDeactivate:
+                # Не ломаем нормальные Qt popups (QMenu/QComboBox/меню трея): они могут
+                # деактивировать главное окно, но приложение остаётся активным.
+                try:
+                    app = QApplication.instance()
+                    if app and app.activePopupWidget() is not None:
+                        return super().event(event)
+                except Exception:
+                    pass
+
+                try:
+                    snap = self._snapshot_interaction_state_for_debug()
+                    log(f"Focus change: window_deactivate ({et}) snap={snap}", "DEBUG")
+                except Exception:
+                    pass
+
                 self._dismiss_transient_ui_safe(reason=f"main_window_deactivate:{et}")
+                self._force_release_interaction_states(reason=f"deactivate:{et}")
+
+            elif et == QEvent.Type.ApplicationDeactivate:
+                try:
+                    snap = self._snapshot_interaction_state_for_debug()
+                    log(f"Focus change: app_deactivate ({et}) snap={snap}", "DEBUG")
+                except Exception:
+                    pass
+
+                self._dismiss_transient_ui_safe(reason=f"app_deactivate:{et}")
+                self._force_release_interaction_states(reason=f"deactivate:{et}")
+
+            elif et in (QEvent.Type.WindowActivate, QEvent.Type.ApplicationActivate):
+                try:
+                    snap = self._snapshot_interaction_state_for_debug()
+                    log(f"Focus change: activate ({et}) snap={snap}", "DEBUG")
+                except Exception:
+                    pass
+
+                # Не закрываем попапы при активации — только сброс input-состояний.
+                self._force_release_interaction_states(reason=f"activate:{et}")
+
+            elif et == QEvent.Type.ActivationChange:
+                # ActivationChange может происходить при открытии QMenu/QComboBox.
+                # Не вмешиваемся, если видим активный popup.
+                try:
+                    app = QApplication.instance()
+                    if app and app.activePopupWidget() is not None:
+                        return super().event(event)
+                except Exception:
+                    pass
+
+                try:
+                    snap = self._snapshot_interaction_state_for_debug()
+                    log("Focus change: activation_change snap=%s" % (snap,), "DEBUG")
+                except Exception:
+                    pass
+
+                self._force_release_interaction_states(reason="activation_change")
         except Exception:
             pass
         return super().event(event)

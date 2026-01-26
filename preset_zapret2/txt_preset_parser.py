@@ -1064,18 +1064,34 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
             if info:
                 order = info.get("order")
                 cmd_order = info.get("command_order")
+                file_order = info.get("_file_order")
                 try:
-                    order_i = int(order) if order is not None else 9999
+                    if order is not None:
+                        order_i = int(order)
+                    elif file_order is not None:
+                        order_i = int(file_order)
+                    else:
+                        order_i = 9999
                 except Exception:
                     order_i = 9999
                 try:
-                    cmd_i = int(cmd_order) if cmd_order is not None else order_i
+                    if cmd_order is not None:
+                        cmd_i = int(cmd_order)
+                    elif file_order is not None:
+                        cmd_i = int(file_order)
+                    else:
+                        cmd_i = order_i
                 except Exception:
                     cmd_i = order_i
-                return (1, order_i, cmd_i, proto_rank, block.category)
+                # Use file order as a stable tie-breaker for categories that share the same order.
+                try:
+                    file_i = int(file_order) if file_order is not None else 999999
+                except Exception:
+                    file_i = 999999
+                return (1, order_i, cmd_i, file_i, proto_rank, block.category, idx)
 
             # Unknown categories: keep original relative order, but after known ones.
-            return (2, 999999, 999999, proto_rank, idx)
+            return (2, 999999, 999999, 999999, proto_rank, idx)
 
         blocks = [b for _, b in sorted(enumerate(blocks), key=_key)]
     except Exception:

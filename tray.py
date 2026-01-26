@@ -67,6 +67,17 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def setup_menu(self):
         menu = QMenu()
+        self.menu = menu
+
+        # Диагностика: помогает понять, "появляется ли" меню и не закрывается ли сразу.
+        try:
+            from log import log
+
+            menu.aboutToShow.connect(lambda: log("Tray menu: aboutToShow", "DEBUG"))  # type: ignore[attr-defined]
+            menu.aboutToHide.connect(lambda: log("Tray menu: aboutToHide", "DEBUG"))  # type: ignore[attr-defined]
+            log(f"Tray menu initialized (hasContextMenu=True)", "DEBUG")
+        except Exception:
+            pass
 
         # Применяем стиль меню
         self._apply_menu_style(menu)
@@ -228,6 +239,26 @@ class SystemTrayManager:
     #  РЕАКЦИЯ НА КЛИКИ ПО ИКОНКЕ
     # ------------------------------------------------------------------
     def on_tray_icon_activated(self, reason):
+        # Диагностика: 1=Trigger (LMB), 2=DoubleClick, 3=MiddleClick, 4=Context (RMB)
+        try:
+            from log import log
+
+            def _enum_to_int(v):
+                try:
+                    return int(v)
+                except Exception:
+                    try:
+                        return int(v.value)
+                    except Exception:
+                        return str(v)
+
+            log(
+                f"Tray activated: reason={_enum_to_int(reason)} visible={self.parent.isVisible()}",
+                "DEBUG",
+            )
+        except Exception:
+            pass
+
         if reason == QSystemTrayIcon.ActivationReason.Trigger:          # левая кнопка
             if self.parent.isVisible():
                 self.parent.hide()
@@ -263,6 +294,26 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def show_window(self):
         """Показывает окно и восстанавливает его на прежнем месте"""
+        try:
+            from log import log
+            if hasattr(self.parent, "_snapshot_interaction_state_for_debug"):
+                snap = self.parent._snapshot_interaction_state_for_debug()
+                log(f"Tray show_window: snap={snap}", "DEBUG")
+        except Exception:
+            pass
+
+        # Defensive: if we got here to "unstick" the UI, clear any grabs/popups/cursors first.
+        try:
+            if hasattr(self.parent, "_dismiss_transient_ui_safe"):
+                self.parent._dismiss_transient_ui_safe(reason="tray_show_window")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            if hasattr(self.parent, "_force_release_interaction_states"):
+                self.parent._force_release_interaction_states(reason="tray_show_window")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
         # ✅ ПРОВЕРЯЕМ: если окно было скрыто, просто показываем
         # Позиция уже сохранена, Qt сам её помнит
         self.parent.showNormal()

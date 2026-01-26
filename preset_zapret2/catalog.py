@@ -99,18 +99,32 @@ def load_categories() -> Dict[str, Dict]:
         categories: Dict[str, Dict] = {}
         current_key: Optional[str] = None
         current: Dict[str, object] = {}
+        section_index = 0
+
+        def _flush() -> None:
+            nonlocal current_key, current
+            if not current_key:
+                return
+            # categories.txt may omit explicit `order`/`command_order` fields.
+            # In that case, preserve the ordering by section appearance in the file.
+            file_order = current.get("_file_order")
+            if "order" not in current and isinstance(file_order, int):
+                current["order"] = file_order
+            if "command_order" not in current and isinstance(file_order, int):
+                current["command_order"] = file_order
+            categories[current_key] = dict(current)
 
         for raw in text.splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
             if line.startswith("[") and line.endswith("]"):
-                if current_key:
-                    categories[current_key] = dict(current)
+                _flush()
                 # Keep category keys normalized (lower-case) to match preset parsing,
                 # which infers category keys in lower-case from filter tokens/filenames.
                 current_key = line[1:-1].strip().lower()
-                current = {"key": current_key}
+                section_index += 1
+                current = {"key": current_key, "_file_order": section_index}
                 continue
             if "=" not in line or current_key is None:
                 continue
@@ -123,14 +137,14 @@ def load_categories() -> Dict[str, Dict]:
                 try:
                     current[k] = int(v)
                 except ValueError:
-                    current[k] = 0
+                    # Keep field absent so we can fall back to file ordering.
+                    continue
             elif k in ("needs_new_separator", "strip_payload", "requires_all_ports"):
                 current[k] = _parse_bool(v)
             else:
                 current[k] = v
 
-        if current_key:
-            categories[current_key] = dict(current)
+        _flush()
         return categories
 
     builtin = _load_one(paths.builtin_dir / "categories.txt")
