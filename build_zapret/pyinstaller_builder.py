@@ -449,7 +449,7 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
     exe_path = None  # Инициализируем до try блока
 
     # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
-    cleanup_all_cache(root_path, log_queue)
+    #cleanup_all_cache(root_path, log_queue)
 
     try:
         if log_queue:

@@ -13,10 +13,10 @@
 
 ; Пути можно переопределять из CI: ISCC.exe /DSOURCEPATH=... /DPROJECTPATH=...
 #ifndef SOURCEPATH
-  #define SOURCEPATH "H:\Privacy\zapret"
+  #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret"
 #endif
 #ifndef PROJECTPATH
-  #define PROJECTPATH "H:\Privacy\zapretgui"
+  #define PROJECTPATH "\\wsl.localhost\Debian\opt\zapretgui"
 #endif
 
 ; ✅ Настройки в зависимости от канала

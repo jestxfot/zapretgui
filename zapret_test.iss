@@ -13,10 +13,10 @@
 
 ; Пути можно переопределять из CI: ISCC.exe /DSOURCEPATH=... /DPROJECTPATH=...
 #ifndef SOURCEPATH
-  #define SOURCEPATH "H:\Privacy\zapret"
+  #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret"
 #endif
 #ifndef PROJECTPATH
-  #define PROJECTPATH "H:\Privacy\zapretgui"
+  #define PROJECTPATH "\\wsl.localhost\Debian\opt\zapretgui"
 #endif
 
 ; ✅ Настройки в зависимости от канала
@@ -62,7 +62,7 @@ DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
 OutputDir={#PROJECTPATH}
-OutputBaseFilename=Zapret2Setup_test_1769453937_tmp
+OutputBaseFilename=Zapret2Setup_test_1769604371_tmp
 Compression=lzma2
 SolidCompression=yes
 ; ✅ Иконка установщика (используем абсолютный путь)
