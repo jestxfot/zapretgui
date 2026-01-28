@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 # kid -> base64(raw 32-byte Ed25519 public key)
 TRUSTED_PUBLIC_KEYS_B64: Dict[str, str] = {
     # Generated 2026-01-28 (must match server ACTIVE_SIGNING_KID)
-    "v1": "ZnAipafIOF9CFCxclD7cdPJIzP+HO/4OzjHzwwLIEfI=",
+    "v1": "YLsnaxGcYv1CHAQbiB2dAgRTXkX6Z6klsWh6mjPi9F8=",
 }
 
 
