@@ -11,7 +11,6 @@ from .crypto import verify_signed_response
 from .storage import PremiumStorage
 from .types import ActivationStatus
 
-
 API_BASE_URL = "http://185.114.116.232:6666/api"
 REQUEST_TIMEOUT = 10
 
@@ -166,4 +165,3 @@ def get_premium_service() -> PremiumService:
     if _SERVICE is None:
         _SERVICE = PremiumService()
     return _SERVICE
-
