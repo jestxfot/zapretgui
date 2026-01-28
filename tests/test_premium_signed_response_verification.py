@@ -1,6 +1,8 @@
 import unittest
 import sys
 from pathlib import Path
+import base64
+import json
 
 
 repo_root = Path(__file__).resolve().parents[1]
@@ -19,6 +21,20 @@ class PremiumSignedResponseVerificationTests(unittest.TestCase):
         from donater import donate as donate_mod
 
         self.donate = donate_mod
+        # Generate an ephemeral keypair for this test and patch the trusted keys map.
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives import serialization
+
+        priv = Ed25519PrivateKey.generate()
+        pub = priv.public_key()
+
+        pub_raw = pub.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        self.kid = "test"
+        self.donate.TRUSTED_PUBLIC_KEYS_B64 = {self.kid: base64.b64encode(pub_raw).decode("ascii")}
+
         self.payload = {
             "v": 1,
             "type": "zapret_premium_status",
@@ -34,10 +50,14 @@ class PremiumSignedResponseVerificationTests(unittest.TestCase):
             "message": "ok",
         }
 
+        msg = json.dumps(self.payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        sig = priv.sign(msg)
+        sig_b64url = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
+
         self.resp = {
             "success": True,
-            "kid": "v1",
-            "sig": "GBZLLd60Q0w-0ZCHrMtDCuuTVXBKJeBqFD1C4fYpSHZGo_cVl-SqrCOqahTEarW0Fc91XxLfe-ALn5YgeuxOAg",
+            "kid": self.kid,
+            "sig": sig_b64url,
             "signed": self.payload,
         }
 

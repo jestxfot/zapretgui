@@ -29,13 +29,12 @@ PREMIUM_CACHE_VALUE = "PremiumCacheV1"
 # API server validates subscription locally (on bot server) and talks to remote keys storage itself.
 # The Windows client should point to the bot server API host, not to the keys storage host.
 #
-# Default points to the bot server (where subscriptions are stored locally).
+# API server host (this is the keys server in current setup).
 API_BASE_URL = "http://185.114.116.232:6666/api"
 REQUEST_TIMEOUT = 10
 
 FALLBACK_API_BASE_URLS = [
     API_BASE_URL,
-    "http://31.192.111.158:6666/api",
 ]
 
 # ============== CRYPTO / SIGNATURES ==============
