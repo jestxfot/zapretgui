@@ -384,7 +384,7 @@ class PremiumPage(BasePage):
         self.refresh_btn.clicked.connect(self._check_status)
         row1.addWidget(self.refresh_btn)
         
-        self.change_key_btn = ActionButton("Изменить ключ", "fa5s.exchange-alt")
+        self.change_key_btn = ActionButton("Сбросить активацию", "fa5s.exchange-alt")
         self.change_key_btn.setFixedHeight(36)
         self.change_key_btn.clicked.connect(self._change_key)
         row1.addWidget(self.change_key_btn)
@@ -422,16 +422,25 @@ class PremiumPage(BasePage):
             device_id = self.checker.device_id
             self.device_id_label.setText(f"ID устройства: {device_id[:16]}...")
             
-            # Сохранённый ключ
-            saved_key = self.RegistryManager.get_key()
+            # Активация устройства (device token) + legacy key (не используется для статуса)
+            device_token = None
+            try:
+                device_token = self.RegistryManager.get_device_token()
+            except Exception:
+                device_token = None
+
+            saved_key = None
+            try:
+                saved_key = self.RegistryManager.get_key()
+            except Exception:
+                saved_key = None
+
+            parts = []
+            parts.append("device token: ✅" if device_token else "device token: ❌")
             if saved_key:
-                self.saved_key_label.setText(f"Сохранённый ключ: {saved_key[:4]}****")
-                self.saved_key_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
-            else:
-                # Проверяем, есть ли активная подписка
-                # Если подписка есть, но ключа нет — значит активация по device_id
-                self.saved_key_label.setText("Сохранённый ключ: привязано к устройству")
-                self.saved_key_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 12px;")
+                parts.append(f"key(legacy): {saved_key[:4]}****")
+            self.saved_key_label.setText(" | ".join(parts))
+            self.saved_key_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
             
             # Последняя проверка
             last_check = self.RegistryManager.get_last_check()
@@ -537,11 +546,9 @@ class PremiumPage(BasePage):
             return
         
         try:
-            # ✅ Проверяем наличие локального ключа
-            # Если ключа нет — показываем FREE, даже если сервер говорит что device активирован
-            has_local_key = self.RegistryManager and self.RegistryManager.get_key()
-            
-            if result['activated'] and has_local_key:
+            is_premium = bool(result.get("is_premium", result.get("activated")))
+
+            if is_premium:
                 days_remaining = result.get('days_remaining')
                 
                 # ✅ Скрываем секцию активации — подписка уже есть
@@ -568,14 +575,10 @@ class PremiumPage(BasePage):
                     self.days_label.setText("")
                     self.subscription_updated.emit(True, 0)
             else:
-                # ✅ Показываем секцию активации — подписки нет или ключ удалён
+                # ✅ Показываем секцию активации — подписки/активации нет
                 self._set_activation_section_visible(True)
-                
-                if result['activated'] and not has_local_key:
-                    # Сервер говорит активировано, но локально ключа нет
-                    self.status_badge.set_status("Требуется активация", "Введите ключ для восстановления подписки", "expired")
-                else:
-                    self.status_badge.set_status("Подписка не активна", result.get('status', 'Активируйте ключ'), "expired")
+
+                self.status_badge.set_status("Подписка не активна", result.get('status', 'Активируйте ключ'), "expired")
                 
                 self.days_label.setText("")
                 self.subscription_updated.emit(False, 0)
@@ -631,23 +634,27 @@ class PremiumPage(BasePage):
         self.server_status_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
         
     def _change_key(self):
-        """Изменение ключа"""
+        """Сброс активации на устройстве"""
         reply = QMessageBox.question(
             self, 
             "Подтверждение", 
-            "Вы уверены, что хотите изменить ключ?\n"
-            "Текущий ключ будет удален и подписка станет FREE\n"
-            "до повторной активации.",
+            "Сбросить активацию на этом устройстве?\n"
+            "Будут удалены device token и offline-кэш.\n"
+            "Для восстановления потребуется повторная активация ключом.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            if self.RegistryManager:
-                self.RegistryManager.delete_key()
+            try:
+                if self.checker:
+                    self.checker.clear_saved_key()
+            except Exception:
+                if self.RegistryManager:
+                    self.RegistryManager.delete_key()
             self.key_input.clear()
             self.activation_status.setText("")
             self._update_device_info()
-            self.status_badge.set_status("Ключ удалён", "Введите новый ключ для активации", "expired")
+            self.status_badge.set_status("Активация сброшена", "Введите ключ для активации", "expired")
             self.days_label.setText("")
             
             # Показываем секцию активации

@@ -463,12 +463,14 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
 
         # ✅ Очищаем целевую папку Zapret/ перед сборкой (как в Nuitka)
         # Это гарантирует что старые файлы не останутся в сборке
+        """
         target_zapret_dir = out / "Zapret"
         if target_zapret_dir.exists():
             if log_queue:
                 log_queue.put(f"🧹 Очистка целевой папки: {target_zapret_dir}")
             shutil.rmtree(target_zapret_dir, ignore_errors=True)
-
+        """
+        
         run_func([
             sys.executable, "-m", "PyInstaller",
             "--workpath", str(work),

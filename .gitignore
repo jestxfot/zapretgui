@@ -1,4 +1,7 @@
 __pycache__
+.env
+.env.*
+!.env.example
 /build
 version_info.txt
 main.spec

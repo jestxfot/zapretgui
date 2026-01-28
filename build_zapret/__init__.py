@@ -1,5 +1,8 @@
 # build_tools/__init__.py
 
+# Optional local .env support (no hard dependency).
+import os
+
 # Пытаемся импортировать GitHub функции
 try:
     from .github_release import (
@@ -26,12 +29,9 @@ except ImportError:
     GITHUB_CONFIG = {"enabled": False}
     GITHUB_AVAILABLE = False
 
-# Telegram config is optional and typically not committed (may contain secrets).
-try:
-    from .config import TELEGRAM_API_HASH, TELEGRAM_API_ID
-except ImportError:
-    TELEGRAM_API_ID = None
-    TELEGRAM_API_HASH = None
+# Telegram API credentials are provided via env/.env (do not store in repo).
+TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID") or os.getenv("ZAPRET_TELEGRAM_API_ID")
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH") or os.getenv("ZAPRET_TELEGRAM_API_HASH")
 
 # Экспортируем функции
 __all__ = [

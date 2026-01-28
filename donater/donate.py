@@ -1,9 +1,18 @@
 # donater/donate.py
 
-import requests, winreg, hashlib, platform, logging
+import base64
+import json
+import logging
+import secrets
+import time
+import hashlib
+import platform
 from datetime import datetime
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
+
+import requests, winreg
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,25 +20,90 @@ logger = logging.getLogger(__name__)
 # Константы
 from config import REGISTRY_PATH_GUI
 DEVICE_ID_VALUE = "DeviceID"
-KEY_VALUE = "ActivationKey"
+KEY_VALUE = "ActivationKey"  # legacy (no longer trusted for premium status)
 LAST_CHECK_VALUE = "LastCheck"
+DEVICE_TOKEN_VALUE = "DeviceToken"
+PREMIUM_CACHE_VALUE = "PremiumCacheV1"
 
 #
 # API server validates subscription locally (on bot server) and talks to remote keys storage itself.
 # The Windows client should point to the bot server API host, not to the keys storage host.
 #
-# You can override the URL via registry:
-#   HKCU\\<REGISTRY_PATH_GUI>\\ApiBaseUrl
-#
 # Default points to the bot server (where subscriptions are stored locally).
-API_BASE_URL = "http://31.192.111.158:6666/api"
+API_BASE_URL = "http://185.114.116.232:6666/api"
 REQUEST_TIMEOUT = 10
 
-API_BASE_URL_REGISTRY_VALUE = "ApiBaseUrl"
 FALLBACK_API_BASE_URLS = [
     API_BASE_URL,
-    "http://84.54.30.233:6666/api",
+    "http://31.192.111.158:6666/api",
 ]
+
+# ============== CRYPTO / SIGNATURES ==============
+
+# kid -> base64(raw 32-byte Ed25519 public key)
+TRUSTED_PUBLIC_KEYS_B64 = {
+    # Generated 2026-01-28 (must match server ACTIVE_SIGNING_KID)
+    "v1": "ZnAipafIOF9CFCxclD7cdPJIzP+HO/4OzjHzwwLIEfI=",
+}
+
+
+def _canonical_json(obj) -> bytes:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _b64url_decode(data: str) -> bytes:
+    data = (data or "").strip()
+    if not data:
+        return b""
+    pad = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + pad)
+
+
+def _b64_decode(data: str) -> bytes:
+    return base64.b64decode((data or "").strip())
+
+
+def _verify_signed_response(resp: Dict, *, expected_device_id: str, expected_nonce: Optional[str] = None) -> Optional[Dict]:
+    """
+    Verify server response signature.
+
+    Returns the signed payload dict when valid; otherwise None.
+    """
+    try:
+        if not isinstance(resp, dict):
+            return None
+
+        signed = resp.get("signed")
+        kid = (resp.get("kid") or "").strip()
+        sig = (resp.get("sig") or "").strip()
+
+        if not isinstance(signed, dict) or not kid or not sig:
+            return None
+
+        pub_b64 = TRUSTED_PUBLIC_KEYS_B64.get(kid)
+        if not pub_b64:
+            return None
+
+        pub_raw = _b64_decode(pub_b64)
+        if len(pub_raw) != 32:
+            return None
+
+        sig_bytes = _b64url_decode(sig)
+        if len(sig_bytes) != 64:
+            return None
+
+        pub = Ed25519PublicKey.from_public_bytes(pub_raw)
+        pub.verify(sig_bytes, _canonical_json(signed))
+
+        if str(signed.get("device_id") or "") != str(expected_device_id):
+            return None
+
+        if expected_nonce is not None and str(signed.get("nonce") or "") != str(expected_nonce):
+            return None
+
+        return signed
+    except Exception:
+        return None
 
 # ============== DATA CLASSES ==============
 
@@ -143,28 +217,69 @@ class RegistryManager:
             return None
 
     @staticmethod
-    def get_api_base_url() -> Optional[str]:
-        """Get API base URL override from registry."""
+    def get_device_token() -> Optional[str]:
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                value, _ = winreg.QueryValueEx(key, API_BASE_URL_REGISTRY_VALUE)
+                value, _ = winreg.QueryValueEx(key, DEVICE_TOKEN_VALUE)
                 value = (value or "").strip()
                 return value or None
         except Exception:
             return None
 
     @staticmethod
-    def set_api_base_url(base_url: str) -> bool:
-        """Persist API base URL to registry (best-effort)."""
+    def set_device_token(token: str) -> bool:
         try:
-            base_url = (base_url or "").strip()
-            if not base_url:
+            token = (token or "").strip()
+            if not token:
                 return False
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                winreg.SetValueEx(key, API_BASE_URL_REGISTRY_VALUE, 0, winreg.REG_SZ, base_url)
+                winreg.SetValueEx(key, DEVICE_TOKEN_VALUE, 0, winreg.REG_SZ, token)
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def clear_device_token() -> bool:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, DEVICE_TOKEN_VALUE)
+            return True
+        except Exception:
+            return True
+
+    @staticmethod
+    def get_premium_cache() -> Optional[Dict]:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
+                raw, _ = winreg.QueryValueEx(key, PREMIUM_CACHE_VALUE)
+            raw = (raw or "").strip()
+            if not raw:
+                return None
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def set_premium_cache(cache: Dict) -> bool:
+        try:
+            if not isinstance(cache, dict):
+                return False
+            raw = json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
+                winreg.SetValueEx(key, PREMIUM_CACHE_VALUE, 0, winreg.REG_SZ, raw)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def clear_premium_cache() -> bool:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, PREMIUM_CACHE_VALUE)
+            return True
+        except Exception:
+            return True
 
 
 # ============== API CLIENT ==============
@@ -173,14 +288,75 @@ class APIClient:
     """Клиент для API сервера"""
     
     def __init__(self, base_url: str = API_BASE_URL):
-        override = RegistryManager.get_api_base_url()
         self.base_urls = []
-        if override:
-            self.base_urls.append(override)
         self.base_urls.extend([u for u in FALLBACK_API_BASE_URLS if u and u not in self.base_urls])
         self.base_url = self.base_urls[0] if self.base_urls else base_url
+        self._last_good_base_url: Optional[str] = None
+        self._host_failures: Dict[str, Tuple[int, float]] = {}  # base_url -> (fail_count, fail_until_ts)
+        self._rr_cursor: int = 0
         self.device_id = RegistryManager.get_device_id()
+        self.device_token = RegistryManager.get_device_token()
         logger.info(f"Device ID: {self.device_id[:8]}...")
+
+    def _record_host_failure(self, base_url: str, *, is_network: bool) -> None:
+        """
+        Записывает неудачу хоста и выставляет backoff.
+        - Для сетевых ошибок/таймаутов — агрессивнее.
+        - Для HTTP 5xx — умеренно.
+        """
+        try:
+            fail_count, fail_until = self._host_failures.get(base_url, (0, 0.0))
+            fail_count = min(fail_count + 1, 10)
+
+            # Экспоненциальная задержка с потолком.
+            # Network: быстрее уходим на другие хосты, чтобы не "залипать".
+            base_delay = 5 if is_network else 3
+            max_delay = 120 if is_network else 60
+            delay = min(int(base_delay * (2 ** (fail_count - 1))), max_delay)
+            self._host_failures[base_url] = (fail_count, time.time() + delay)
+        except Exception:
+            pass
+
+    def _record_host_success(self, base_url: str) -> None:
+        try:
+            self._host_failures.pop(base_url, None)
+            self._last_good_base_url = base_url
+        except Exception:
+            pass
+
+    def _iter_base_urls(self) -> list[str]:
+        """
+        Возвращает список base_url в порядке попыток:
+        - сначала last_good (если есть и не в backoff),
+        - затем round-robin по остальным,
+        - пропускаем хосты на backoff.
+        """
+        urls = list(self.base_urls or ([self.base_url] if self.base_url else []))
+        if not urls:
+            return []
+
+        now = time.time()
+
+        def is_blocked(u: str) -> bool:
+            entry = self._host_failures.get(u)
+            return bool(entry and now < float(entry[1]))
+
+        ordered: list[str] = []
+
+        if self._last_good_base_url and self._last_good_base_url in urls and not is_blocked(self._last_good_base_url):
+            ordered.append(self._last_good_base_url)
+
+        remaining = [u for u in urls if u not in ordered and not is_blocked(u)]
+        if not remaining:
+            # Если все на backoff — попробуем хотя бы по одному (чтобы не зависнуть навсегда).
+            remaining = [u for u in urls if u not in ordered]
+
+        if remaining:
+            start = self._rr_cursor % len(remaining)
+            ordered.extend(remaining[start:] + remaining[:start])
+            self._rr_cursor = (self._rr_cursor + 1) % max(len(remaining), 1)
+
+        return ordered
     
     def _request_once(self, base_url: str, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
         """Выполнить HTTP запрос"""
@@ -225,6 +401,49 @@ class APIClient:
         
         return None
 
+    def _signed_post_best(self, endpoint: str, data: Dict, *, nonce: str, prefer_activated: bool) -> Tuple[Optional[Dict], Optional[Dict], Optional[str]]:
+        """
+        Try all base URLs and return the best signed payload.
+
+        - If prefer_activated=True, prefer a valid signed payload with activated=True.
+        - Otherwise return the first valid signed payload.
+        """
+        best = None
+        best_resp = None
+        best_url = None
+        last_resp: Optional[Dict] = None
+        last_url: Optional[str] = None
+
+        for base_url in self._iter_base_urls():
+            resp = self._request_once(base_url, endpoint, "POST", data)
+            if isinstance(resp, dict):
+                last_resp = resp
+                last_url = base_url
+            signed = _verify_signed_response(resp or {}, expected_device_id=self.device_id, expected_nonce=nonce)
+            if not signed:
+                continue
+
+            if prefer_activated and signed.get("activated") is True:
+                self.base_url = base_url
+                self._record_host_success(base_url)
+                return signed, resp, base_url
+
+            if best is None:
+                best = signed
+                best_resp = resp
+                best_url = base_url
+
+        if best_url:
+            self.base_url = best_url
+            self._record_host_success(best_url)
+            return best, best_resp, best_url
+
+        # No valid signature received. Still return the last response (usually contains a helpful error),
+        # so the UI doesn't misleadingly show "server unavailable" when the server is reachable.
+        if last_url:
+            self.base_url = last_url
+        return best, last_resp, last_url
+
     def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
         """
         Request with fallback URLs.
@@ -233,7 +452,7 @@ class APIClient:
         'У вас нет активной подписки' even for valid users. In that case try the next host.
         """
         last = None
-        for base_url in (self.base_urls or [self.base_url]):
+        for base_url in self._iter_base_urls():
             resp = self._request_once(base_url, endpoint, method, data)
             last = resp
             if not isinstance(resp, dict):
@@ -244,7 +463,7 @@ class APIClient:
             # Prefer a working host if possible.
             if is_success:
                 self.base_url = base_url
-                RegistryManager.set_api_base_url(base_url)
+                self._record_host_success(base_url)
                 return resp
 
             err = (resp.get("error") or "").lower()
@@ -256,11 +475,13 @@ class APIClient:
 
             # Network errors / timeouts: try next host.
             if http_status is None:
+                self._record_host_failure(base_url, is_network=True)
                 continue
 
             # Server errors: try next host.
             try:
                 if int(http_status) >= 500:
+                    self._record_host_failure(base_url, is_network=False)
                     continue
             except Exception:
                 pass
@@ -291,19 +512,41 @@ class APIClient:
     def activate_key(self, key: str) -> Tuple[bool, str]:
         """Активация ключа"""
         logger.info(f"Activating key: {key[:4]}****")
-        
-        result = self._request("activate_key", "POST", {
+
+        nonce = secrets.token_urlsafe(16)
+        signed, result, _ = self._signed_post_best(
+            "activate_key",
+            {
             "key": key,
-            "device_id": self.device_id
-        })
-        
-        if result and result.get('success'):
-            # Сохраняем ключ локально
-            RegistryManager.save_key(key)
-            # Сохраняем время проверки
+            "device_id": self.device_id,
+            "nonce": nonce,
+            },
+            nonce=nonce,
+            prefer_activated=True,
+        )
+        if signed and signed.get("type") == "zapret_premium_activation" and signed.get("activated") is True:
+            token = str(signed.get("device_token") or "").strip()
+            if not token:
+                return False, "Сервер не вернул device_token"
+
+            RegistryManager.set_device_token(token)
+            self.device_token = token
+
+            # Cache signed payload for offline (7 days max enforced by server via valid_until)
+            RegistryManager.set_premium_cache(
+                {
+                    "kid": result.get("kid"),
+                    "sig": result.get("sig"),
+                    "signed": signed,
+                    "cached_at": int(time.time()),
+                }
+            )
+
+            # We no longer store activation key on disk for security.
+            RegistryManager.delete_key()
+
             RegistryManager.save_last_check()
-            
-            message = result.get('message', 'Ключ активирован')
+            message = str(signed.get("message") or "Ключ активирован")
             logger.info(f"✅ Activation successful: {message}")
             return True, message
         
@@ -313,53 +556,68 @@ class APIClient:
     
     def check_device_status(self) -> ActivationStatus:
         """Проверка статуса устройства"""
-        # Пробуем API
-        result = self._request("check_device", "POST", {"device_id": self.device_id})
-        
-        if result and result.get('success'):
-            # Сохраняем время проверки при успешном ответе
+        # Try API first (if response is validly signed, it overrides/clears cache immediately).
+        nonce = secrets.token_urlsafe(16)
+        self.device_token = RegistryManager.get_device_token()
+        signed, result, _ = self._signed_post_best(
+            "check_device",
+            {"device_id": self.device_id, "device_token": self.device_token, "nonce": nonce},
+            nonce=nonce,
+            prefer_activated=True,
+        )
+        if signed and signed.get("type") == "zapret_premium_status":
             RegistryManager.save_last_check()
-            
-            if result.get('activated'):
-                # Активировано
-                return ActivationStatus(
-                    is_activated=True,
-                    days_remaining=result.get('days_remaining'),
-                    expires_at=result.get('expires_at'),
-                    status_message=result.get('message', 'Активировано'),
-                    subscription_level=result.get('subscription_level', 'zapretik')
+
+            activated = bool(signed.get("activated"))
+            if activated:
+                RegistryManager.set_premium_cache(
+                    {
+                        "kid": result.get("kid"),
+                        "sig": result.get("sig"),
+                        "signed": signed,
+                        "cached_at": int(time.time()),
+                    }
                 )
             else:
-                # Не активировано
-                return ActivationStatus(
-                    is_activated=False,
-                    days_remaining=None,
-                    expires_at=None,
-                    status_message=result.get('message', 'Не активировано'),
-                    subscription_level='–'
-                )
-        
-        # API недоступен - offline режим
-        logger.warning("API unavailable, using offline mode")
-        
-        saved_key = RegistryManager.get_key()
-        if saved_key:
-            # Если есть ключ - считаем что активировано
+                RegistryManager.clear_premium_cache()
+                # If server says token is bad, force re-activation.
+                msg = str(signed.get("message") or "")
+                if "активац" in msg.lower():
+                    RegistryManager.clear_device_token()
+
             return ActivationStatus(
-                is_activated=True,
-                days_remaining=None,
-                expires_at=None,
-                status_message='Активировано (offline)',
-                subscription_level='zapretik'
+                is_activated=activated,
+                days_remaining=signed.get("days_remaining"),
+                expires_at=signed.get("expires_at"),
+                status_message=str(signed.get("message") or ("Активировано" if activated else "Не активировано")),
+                subscription_level=str(signed.get("subscription_level") or ("zapretik" if activated else "–")),
             )
-        
-        # Нет ключа
+
+        # API unreachable or signature invalid -> offline cache (up to signed.valid_until, max 7 days)
+        cache = RegistryManager.get_premium_cache()
+        if isinstance(cache, dict):
+            cached_resp = {"kid": cache.get("kid"), "sig": cache.get("sig"), "signed": cache.get("signed")}
+            cached_signed = _verify_signed_response(cached_resp, expected_device_id=self.device_id, expected_nonce=None)
+            if cached_signed and cached_signed.get("activated") is True:
+                valid_until = cached_signed.get("valid_until")
+                try:
+                    if int(valid_until) >= int(time.time()):
+                        return ActivationStatus(
+                            is_activated=True,
+                            days_remaining=cached_signed.get("days_remaining"),
+                            expires_at=cached_signed.get("expires_at"),
+                            status_message="Активировано (offline)",
+                            subscription_level=str(cached_signed.get("subscription_level") or "zapretik"),
+                        )
+                except Exception:
+                    pass
+
         return ActivationStatus(
             is_activated=False,
             days_remaining=None,
             expires_at=None,
-            status_message='Не активировано',
-            subscription_level='–'
+            status_message="Не активировано",
+            subscription_level="–",
         )
 
 
@@ -381,8 +639,9 @@ class SimpleDonateChecker:
         status = self.api_client.check_device_status()
         
         return {
-            'found': RegistryManager.get_key() is not None,
+            'found': RegistryManager.get_device_token() is not None,
             'activated': status.is_activated,
+            'is_premium': status.is_activated,
             'days_remaining': status.days_remaining,
             'status': status.status_message,
             'expires_at': status.expires_at,
@@ -393,17 +652,8 @@ class SimpleDonateChecker:
     def get_full_subscription_info(self) -> Dict:
         """Полная информация о подписке"""
         info = self.check_device_activation()
-        
-        # ✅ Premium только если ЕСТЬ локальный ключ И сервер подтвердил активацию
-        # Это синхронизирует логику с premium_page.py
-        has_local_key = RegistryManager.get_key() is not None
-        is_premium = info['activated'] and has_local_key
-        
-        # Если сервер говорит activated, но ключа нет локально - статус "требуется активация"
-        if info['activated'] and not has_local_key:
-            status_msg = "Требуется активация (введите ключ)"
-        else:
-            status_msg = info['status']
+        is_premium = bool(info.get("activated"))
+        status_msg = info.get("status") or ("Premium активен" if is_premium else "Не активировано")
         
         return {
             'is_premium': is_premium,
@@ -441,6 +691,8 @@ class SimpleDonateChecker:
     
     def clear_saved_key(self) -> bool:
         """Удалить сохраненный ключ"""
+        RegistryManager.clear_device_token()
+        RegistryManager.clear_premium_cache()
         return RegistryManager.delete_key()
 
 

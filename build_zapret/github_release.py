@@ -10,6 +10,18 @@ import json, os, sys, re, requests, tempfile, mimetypes, ssl, urllib3, subproces
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
+# Load /opt/zapretgui/.env if present so GITHUB_TOKEN/GH_TOKEN can be configured
+# without hardcoding it in repo.
+try:
+    _ROOT = Path(__file__).resolve().parents[1]
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
+    from utils.dotenv import load_dotenv
+
+    load_dotenv(_ROOT / ".env", _ROOT / "build_zapret" / ".env")
+except Exception:
+    pass
+
 
 PARTS = [
     ("PTIqBWgSLAAwFw==", 0x5A, 0),

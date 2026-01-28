@@ -13,6 +13,7 @@ pywin32
 requests
 urllib3
 PySocks
+cryptography
 
 # System and Process Management
 psutil
@@ -69,8 +70,8 @@ tgcrypto  # Ускоритель шифрования для Pyrogram
 # - PyGithub, paramiko, pyrogram опциональны (нужны только для публикации)
 
 aiohttp
-dotenv
 telethon
+PySocks
 python-telegram
 python-telegram-bot
 qtawesome

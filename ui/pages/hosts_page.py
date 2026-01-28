@@ -190,19 +190,31 @@ class HostsWorker(QObject):
             if self.operation == 'apply_selection':
                 service_dns = self.payload or {}
                 success = self.hosts_manager.apply_service_dns_selections(service_dns)
-                message = "Применено" if success else "Ошибка"
+                if success:
+                    message = "Применено"
+                else:
+                    message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
 
             elif self.operation == 'clear_all':
                 success = self.hosts_manager.clear_hosts_file()
-                message = "Hosts очищен" if success else "Ошибка"
+                if success:
+                    message = "Hosts очищен"
+                else:
+                    message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
                         
             elif self.operation == 'adobe_add':
                 success = self.hosts_manager.add_adobe_domains()
-                message = "Adobe заблокирован" if success else "Ошибка"
+                if success:
+                    message = "Adobe заблокирован"
+                else:
+                    message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
                 
             elif self.operation == 'adobe_remove':
                 success = self.hosts_manager.remove_adobe_domains()
-                message = "Adobe разблокирован" if success else "Ошибка"
+                if success:
+                    message = "Adobe разблокирован"
+                else:
+                    message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
             
             self.finished.emit(success, message)
             
@@ -243,6 +255,111 @@ class HostsPage(BasePage):
     def _invalidate_cache(self):
         """Сбрасывает кеш активных доменов"""
         self._active_domains_cache = None
+
+    def _get_hosts_path_str(self) -> str:
+        try:
+            if os.name == "nt":
+                sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+                if sys_root:
+                    return os.path.join(sys_root, "System32", "drivers", "etc", "hosts")
+            return os.path.join(get_system32_path(), "drivers", "etc", "hosts")
+        except Exception:
+            return os.path.join(get_system32_path(), "drivers", "etc", "hosts")
+
+    def _sync_selections_from_hosts(self) -> None:
+        """
+        Делает UI «источником истины» = реальный hosts.
+        Сбрасывает combo/конфиг к тому, что реально присутствует в hosts сейчас.
+        """
+        if not self.hosts_manager:
+            return
+
+        try:
+            active_domains_map = self.hosts_manager.get_active_domains_map() or {}
+        except Exception:
+            active_domains_map = {}
+
+        def infer_profile_from_hosts(service_name: str, available_profiles: list[str]) -> str | None:
+            if not active_domains_map or not available_profiles:
+                return None
+
+            best_profile: str | None = None
+            best_matches = -1
+            best_present = -1
+            best_total = 0
+
+            for profile_name in available_profiles:
+                try:
+                    domain_map = get_service_domain_ip_map(service_name, profile_name) or {}
+                except Exception:
+                    domain_map = {}
+                if not domain_map:
+                    continue
+
+                total = len(domain_map)
+                present = 0
+                matches = 0
+                for domain, ip in domain_map.items():
+                    active_ip = active_domains_map.get(domain)
+                    if active_ip is None:
+                        continue
+                    present += 1
+                    if (active_ip or "").strip() == (ip or "").strip():
+                        matches += 1
+
+                if total and matches == total:
+                    return profile_name
+
+                if matches > best_matches or (matches == best_matches and present > best_present):
+                    best_profile = profile_name
+                    best_matches = matches
+                    best_present = present
+                    best_total = total
+
+            if not best_profile:
+                return None
+
+            # Direct-only services: if at least one domain is present in hosts, keep them enabled.
+            if len(available_profiles) == 1 and best_present > 0:
+                return best_profile
+
+            # Otherwise, require a reasonably confident match.
+            if best_total and best_matches > 0 and (best_matches / best_total) >= 0.6:
+                return best_profile
+
+            return None
+
+        new_selection: dict[str, str] = {}
+
+        was_building = getattr(self, "_building_services_ui", False)
+        self._building_services_ui = True
+        try:
+            for service_name, combo in list(self.service_combos.items()):
+                available = list(get_service_available_dns_profiles(service_name) or [])
+                inferred = infer_profile_from_hosts(service_name, available)
+
+                if inferred:
+                    idx = combo.findData(inferred)
+                    if idx >= 0:
+                        combo.blockSignals(True)
+                        combo.setCurrentIndex(idx)
+                        combo.blockSignals(False)
+                        new_selection[service_name] = inferred
+                    else:
+                        combo.blockSignals(True)
+                        combo.setCurrentIndex(0)
+                        combo.blockSignals(False)
+                else:
+                    combo.blockSignals(True)
+                    combo.setCurrentIndex(0)
+                    combo.blockSignals(False)
+
+                self._update_profile_row_visual(service_name)
+        finally:
+            self._building_services_ui = was_building
+
+        self._service_dns_selection = new_selection
+        save_user_hosts_selection(self._service_dns_selection)
             
     def _get_active_domains(self) -> set:
         """Возвращает активные домены с кешированием (чтобы не читать hosts 28 раз)"""
@@ -250,20 +367,20 @@ class HostsPage(BasePage):
             return self._active_domains_cache
         if self.hosts_manager:
             try:
-                # Пробуем прочитать hosts файл напрямую для проверки доступа
-                hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
-                with open(hosts_path, 'r', encoding='utf-8') as f:
-                    f.read()
-                self._hide_error()
+                writable = self.hosts_manager.is_hosts_file_accessible()
+                if not writable:
+                    hosts_path = self._get_hosts_path_str()
+                    self._show_error(
+                        "Нет доступа для изменения файла hosts.\n"
+                        "Если файл редактируется вручную, возможно защитник/антивирус блокирует запись.\n"
+                        f"Путь: {hosts_path}"
+                    )
+                else:
+                    self._hide_error()
+
+                # Даже если запись запрещена — чтение может работать: показываем реальное состояние.
                 self._active_domains_cache = self.hosts_manager.get_active_domains()
                 return self._active_domains_cache
-            except PermissionError:
-                hosts_path = os.path.join(get_system32_path(), "drivers", "etc", "hosts")
-                self._show_error(
-                    "Нет доступа к файлу hosts. Запустите программу от имени администратора.\n"
-                    f"Путь: {hosts_path}"
-                )
-                return set()
             except Exception as e:
                 self._show_error(f"Ошибка чтения hosts: {e}")
                 return set()
@@ -403,6 +520,7 @@ class HostsPage(BasePage):
                 self._hide_error()
                 self._invalidate_cache()
                 self._update_ui()
+                self._sync_selections_from_hosts()
                 QMessageBox.information(
                     self, "Успех",
                     "Права доступа к файлу hosts успешно восстановлены!"
@@ -425,14 +543,15 @@ class HostsPage(BasePage):
     def _check_hosts_access(self):
         """Проверяет доступ к hosts файлу при загрузке страницы"""
         try:
-            hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
-            with open(hosts_path, 'r', encoding='utf-8') as f:
-                f.read()
-            self._hide_error()
-        except PermissionError:
-            self._show_error(
-                "Нет доступа к файлу hosts. Скорее всего антивирус заблокировал его для записи."
-            )
+            if self.hosts_manager and self.hosts_manager.is_hosts_file_accessible():
+                self._hide_error()
+            else:
+                hosts_path = self._get_hosts_path_str()
+                self._show_error(
+                    "Нет доступа для изменения файла hosts. "
+                    "Скорее всего защитник/антивирус заблокировал запись.\n"
+                    f"Путь: {hosts_path}"
+                )
         except Exception as e:
             self._show_error(f"Ошибка чтения hosts: {e}")
         
@@ -577,7 +696,6 @@ class HostsPage(BasePage):
                 )
             return
 
-        save_user_hosts_selection(self._service_dns_selection)
         self._apply_current_selection()
 	        
     def _build_services_selectors(self):
@@ -795,37 +913,25 @@ class HostsPage(BasePage):
                     for profile_name in available:
                         combo.addItem(_format_dns_profile_label(profile_name), profile_name)
 
-                    saved = (self._service_dns_selection or {}).get(service_name, "")
-                    saved_idx = combo.findData(saved)
-                    if saved_idx >= 0:
-                        combo.setCurrentIndex(saved_idx)
-                    else:
-                        inferred: str | None = None
-
-                        # Back-compat: user config might store profile labels without the "(IP)" suffix.
-                        if saved:
-                            want = normalize_profile_name(saved)
-                            if want:
-                                candidates = [p for p in available if normalize_profile_name(p) == want]
-                                if len(candidates) == 1:
-                                    inferred = candidates[0]
-
-                        # If hosts already contains entries for this service, infer the profile from IPs.
-                        if not inferred:
-                            inferred = infer_profile_from_hosts(service_name, available)
-
-                        if inferred:
-                            inferred_idx = combo.findData(inferred)
-                            if inferred_idx >= 0:
-                                combo.setCurrentIndex(inferred_idx)
+                    # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
+                    inferred = infer_profile_from_hosts(service_name, available)
+                    if inferred:
+                        inferred_idx = combo.findData(inferred)
+                        if inferred_idx >= 0:
+                            combo.setCurrentIndex(inferred_idx)
+                            if self._service_dns_selection.get(service_name) != inferred:
                                 self._service_dns_selection[service_name] = inferred
                                 selection_migrated = True
-                            else:
-                                combo.setCurrentIndex(0)
-                                self._service_dns_selection.pop(service_name, None)
                         else:
                             combo.setCurrentIndex(0)
+                            if service_name in self._service_dns_selection:
+                                self._service_dns_selection.pop(service_name, None)
+                                selection_migrated = True
+                    else:
+                        combo.setCurrentIndex(0)
+                        if service_name in self._service_dns_selection:
                             self._service_dns_selection.pop(service_name, None)
+                            selection_migrated = True
 
                     combo.currentIndexChanged.connect(
                         lambda _idx, s=service_name, c=combo: self._on_profile_changed(s, c.currentData())
@@ -954,7 +1060,6 @@ class HostsPage(BasePage):
         else:
             self._service_dns_selection[service_name] = profile_name
 
-        save_user_hosts_selection(self._service_dns_selection)
         self._update_profile_row_visual(service_name)
         self._apply_current_selection()
 
@@ -996,7 +1101,7 @@ class HostsPage(BasePage):
         try:
             import ctypes
             import os
-            hosts_path = r"C:\Windows\System32\drivers\etc\hosts"
+            hosts_path = self._get_hosts_path_str()
             if os.path.exists(hosts_path):
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", "notepad.exe", hosts_path, None, 1)
         except Exception as e:
@@ -1035,6 +1140,7 @@ class HostsPage(BasePage):
         # Сбрасываем кеш и обновляем UI
         self._invalidate_cache()
         self._update_ui()
+        self._sync_selections_from_hosts()
 
         if success and operation == "clear_all":
             self._reset_all_service_profiles()
@@ -1042,13 +1148,8 @@ class HostsPage(BasePage):
         if success:
             self._hide_error()
         else:
-            # Показываем ошибку на панели
-            if "Permission denied" in message or "Access" in message:
-                self._show_error(
-                    "Нет доступа к файлу hosts. Запустите программу от имени администратора."
-                )
-            else:
-                self._show_error(f"Ошибка: {message}")
+            hosts_path = self._get_hosts_path_str()
+            self._show_error(f"{message}\nПуть: {hosts_path}")
 
     def _reset_all_service_profiles(self) -> None:
         """Сбрасывает выбор профилей в UI и user_hosts.ini (после очистки hosts)."""

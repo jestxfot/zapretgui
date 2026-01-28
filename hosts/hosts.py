@@ -14,7 +14,18 @@ from .proxy_domains import (
 from .adobe_domains import ADOBE_DOMAINS
 from log import log
 
-HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
+def _get_hosts_path_from_env() -> Path:
+    """
+    Возвращает путь к hosts через переменные окружения, чтобы корректно работать
+    когда Windows установлена не на C:.
+    """
+    sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+    if sys_root:
+        return Path(sys_root, "System32", "drivers", "etc", "hosts")
+    return Path(r"C:\Windows\System32\drivers\etc\hosts")
+
+
+HOSTS_PATH = _get_hosts_path_from_env() if os.name == "nt" else Path(r"C:\Windows\System32\drivers\etc\hosts")
 
 
 def _get_all_managed_domains() -> set[str]:
@@ -158,15 +169,19 @@ Set-Acl "{hosts_path}" $acl
             content = HOSTS_PATH.read_text(encoding='utf-8')
             log("✅ Права восстановлены! Файл hosts доступен для ЧТЕНИЯ")
 
-            # Пробуем записать (проверка прав на запись)
+            # Пробуем открыть на запись (проверка прав на запись)
             try:
-                with HOSTS_PATH.open('a', encoding='utf-8') as f:
-                    pass  # Просто открываем на запись
+                with HOSTS_PATH.open('a', encoding='utf-8-sig'):
+                    pass
                 log("✅ Файл hosts доступен для ЗАПИСИ")
                 return True, "Права доступа к файлу hosts успешно восстановлены"
             except PermissionError:
-                log("⚠ Файл доступен для чтения, но НЕ для записи", "⚠ WARNING")
-                return True, "Файл hosts доступен для чтения. Запись может быть заблокирована антивирусом."
+                log("❌ Файл доступен для чтения, но НЕ для записи", "❌ ERROR")
+                return False, (
+                    "Файл hosts доступен для чтения, но запись запрещена.\n"
+                    "Чаще всего это защита антивируса/Defender.\n"
+                    "Добавьте исключение для hosts или временно отключите защиту и повторите."
+                )
 
         except PermissionError:
             log("❌ После всех попыток файл все еще недоступен", "❌ ERROR")
@@ -430,6 +445,7 @@ def safe_write_hosts_file(content):
 class HostsManager:
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
+        self._last_status: str | None = None
         # 🆕 При инициализации проверяем и удаляем api.github.com
         self.check_and_remove_github_api()
 
@@ -587,10 +603,15 @@ class HostsManager:
         return set(self.get_active_domains_map().keys())
 
     def set_status(self, message: str):
+        self._last_status = message
         if self.status_callback:
             self.status_callback(message)
         else:
             print(message)
+
+    @property
+    def last_status(self) -> str | None:
+        return self._last_status
 
     # ------------------------- проверки -------------------------
 
