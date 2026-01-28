@@ -260,6 +260,58 @@ class PremiumStorage:
 
         return bool(PremiumStorage.update(_upd))
 
+    # --- Pairing code (8 chars, TTL ~10 min) ---
+
+    @staticmethod
+    def get_pair_code() -> Optional[str]:
+        try:
+            with _INI_LOCK:
+                path = PremiumStorage.path()
+                parser = PremiumStorage._read(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                v = (parser.get(_INI_SECTION, "pair_code", fallback="") or "").strip().upper()
+                return v or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def get_pair_expires_at() -> Optional[int]:
+        try:
+            with _INI_LOCK:
+                path = PremiumStorage.path()
+                parser = PremiumStorage._read(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                raw = (parser.get(_INI_SECTION, "pair_expires_at", fallback="") or "").strip()
+            return int(raw) if raw else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def set_pair_code(*, code: str, expires_at: int) -> bool:
+        code = (code or "").strip().upper()
+        try:
+            expires_at_i = int(expires_at)
+        except Exception:
+            return False
+        if not code or expires_at_i <= 0:
+            return False
+
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.set(_INI_SECTION, "pair_code", code)
+            p.set(_INI_SECTION, "pair_expires_at", str(expires_at_i))
+
+        return bool(PremiumStorage.update(_upd))
+
+    @staticmethod
+    def clear_pair_code() -> bool:
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.remove_option(_INI_SECTION, "pair_code")
+            p.remove_option(_INI_SECTION, "pair_expires_at")
+
+        return bool(PremiumStorage.update(_upd))
+
     # Back-compat aliases (old UI used RegistryManager.get_key/save_key/delete_key)
     @staticmethod
     def get_key() -> Optional[str]:
@@ -324,6 +376,32 @@ class PremiumStorage:
             p.set(_INI_SECTION, "last_check", datetime.now().isoformat())
             p.set(_INI_SECTION, "activation_key_fmt", "xor-v1")
             p.set(_INI_SECTION, "activation_key_obf", PremiumStorage._obfuscate_activation_key(activation_key, device_id))
+            cache = {"kid": kid, "sig": sig, "signed": signed_payload, "cached_at": int(time.time())}
+            p.set(_INI_SECTION, "premium_cache_json", json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+
+        return bool(PremiumStorage.update(_upd))
+
+    @staticmethod
+    def store_after_pairing(
+        *,
+        device_id: str,
+        device_token: str,
+        signed_payload: Dict[str, Any],
+        kid: Optional[str],
+        sig: Optional[str],
+    ) -> bool:
+        device_id = (device_id or "").strip()
+        device_token = (device_token or "").strip()
+        if not device_id or not device_token or not isinstance(signed_payload, dict):
+            return False
+
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.set(_INI_SECTION, "device_id", device_id)
+            p.set(_INI_SECTION, "device_token", device_token)
+            p.set(_INI_SECTION, "last_check", datetime.now().isoformat())
+            # Pair code is one-time; clear after success.
+            p.remove_option(_INI_SECTION, "pair_code")
+            p.remove_option(_INI_SECTION, "pair_expires_at")
             cache = {"kid": kid, "sig": sig, "signed": signed_payload, "cached_at": int(time.time())}
             p.set(_INI_SECTION, "premium_cache_json", json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
 

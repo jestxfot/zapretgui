@@ -38,7 +38,11 @@ class DonateChecker:
         self.device_id = self._svc.device_id
 
     def activate(self, key: str) -> Tuple[bool, str]:
-        return self._svc.activate(key)
+        # Legacy flow removed: pairing code is used instead of activation keys.
+        return (False, "Активация ключом больше не поддерживается. Используйте привязку устройства.")
+
+    def pair_start(self, device_name: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
+        return self._svc.pair_start(device_name=device_name)
 
     def check_device_activation(self) -> Dict[str, Any]:
         return self._svc.check_device_activation()
@@ -54,7 +58,7 @@ class DonateChecker:
         return self._svc.test_connection()
 
     def clear_saved_key(self) -> bool:
-        # Keep activation key for convenience; clear only token+cache.
+        # Clear token + offline cache + pending pairing code.
         return self._svc.clear_activation()
 
 

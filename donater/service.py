@@ -38,43 +38,40 @@ class PremiumService:
                 return True, f"API сервер доступен (v{version})"
             return False, "Сервер недоступен"
 
-    def activate(self, key: str) -> Tuple[bool, str]:
-        key = (key or "").strip()
-        if not key:
-            return False, "Введите ключ"
-
+    def pair_start(self, *, device_name: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
+        """
+        Create 8-char pairing code (TTL ~10 min). User sends this code to Telegram bot.
+        """
         with self._lock:
             device_id = PremiumStorage.get_device_id()
-            raw, nonce = self._api.post_activate(key=key, device_id=device_id)
+            raw, nonce = self._api.post_pair_start(device_id=device_id, device_name=device_name)
             if not raw:
-                return False, "Сервер недоступен"
+                return False, "Сервер недоступен", None
 
             signed = verify_signed_response(raw, expected_device_id=device_id, expected_nonce=nonce)
-            if not signed or signed.get("type") != "zapret_premium_activation" or signed.get("activated") is not True:
-                err = (raw.get("error") if isinstance(raw, dict) else None) or "Ошибка активации"
-                return False, str(err)
+            if not signed or signed.get("type") != "zapret_pair_start":
+                err = (raw.get("error") if isinstance(raw, dict) else None) or "Ошибка создания кода"
+                return False, str(err), None
 
-            token = str(signed.get("device_token") or "").strip()
-            if not token:
-                return False, "Сервер не вернул device_token"
+            code = str(signed.get("pair_code") or "").strip().upper()
+            expires_at = signed.get("pair_expires_at")
+            try:
+                expires_at_i = int(expires_at)
+            except Exception:
+                expires_at_i = 0
 
-            ok = PremiumStorage.store_after_activation(
-                device_id=device_id,
-                device_token=token,
-                activation_key=key,
-                signed_payload=signed,
-                kid=raw.get("kid") if isinstance(raw, dict) else None,
-                sig=raw.get("sig") if isinstance(raw, dict) else None,
-            )
-            if not ok:
-                return False, "Не удалось сохранить premium.ini"
+            if not code or expires_at_i <= 0:
+                return False, "Сервер вернул некорректный код", None
 
-            return True, str(signed.get("message") or "Ключ активирован")
+            PremiumStorage.set_pair_code(code=code, expires_at=expires_at_i)
+            return True, str(signed.get("message") or "Код создан"), code
 
     def clear_activation(self) -> bool:
         with self._lock:
             PremiumStorage.clear_device_token()
             PremiumStorage.clear_premium_cache()
+            PremiumStorage.clear_pair_code()
+            PremiumStorage.clear_activation_key()
             PremiumStorage.save_last_check()
             return True
 
@@ -82,6 +79,27 @@ class PremiumService:
         with self._lock:
             device_id = PremiumStorage.get_device_id()
             device_token = PremiumStorage.get_device_token() or ""
+
+            # If token is missing, but we have a pending pair code, try to finish pairing first.
+            if not device_token:
+                code = PremiumStorage.get_pair_code()
+                exp = PremiumStorage.get_pair_expires_at() or 0
+                if code and int(exp) >= int(time.time()):
+                    raw2, nonce2 = self._api.post_pair_finish(device_id=device_id, pair_code=code)
+                    if raw2:
+                        signed2 = verify_signed_response(raw2, expected_device_id=device_id, expected_nonce=nonce2)
+                        if signed2 and signed2.get("type") == "zapret_premium_activation" and signed2.get("activated") is True:
+                            token = str(signed2.get("device_token") or "").strip()
+                            if token:
+                                PremiumStorage.store_after_pairing(
+                                    device_id=device_id,
+                                    device_token=token,
+                                    signed_payload=signed2,
+                                    kid=raw2.get("kid") if isinstance(raw2, dict) else None,
+                                    sig=raw2.get("sig") if isinstance(raw2, dict) else None,
+                                )
+                                device_token = token
+
             raw, nonce = self._api.post_check(device_id=device_id, device_token=device_token)
 
             if raw:

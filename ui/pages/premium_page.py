@@ -216,9 +216,9 @@ class PremiumPage(BasePage):
         self.add_spacing(8)
         
         # ═══════════════════════════════════════════════════════════
-        # АКТИВАЦИЯ КЛЮЧА
+        # ПРИВЯЗКА УСТРОЙСТВА (PAIRING CODE)
         # ═══════════════════════════════════════════════════════════
-        self.activation_section_title = self.add_section_title("Активация ключа", return_widget=True)
+        self.activation_section_title = self.add_section_title("Привязка устройства", return_widget=True)
         
         self.activation_card = AnimatedCard(delay=100)
         activation_card = self.activation_card  # для совместимости с остальным кодом
@@ -229,10 +229,9 @@ class PremiumPage(BasePage):
         
         # Инструкции (обычный QLabel)
         instructions = QLabel(
-            "1. Откройте Telegram бота @zapretvpns_bot\n"
-            "2. Выберите подходящий тариф и оплатите\n"
-            "3. Получите ключ командой /newkey\n"
-            "4. Введите ключ ниже и нажмите «Активировать»"
+            "1. Нажмите «Создать код»\n"
+            "2. Отправьте код боту в Telegram (сообщением)\n"
+            "3. Вернитесь сюда и нажмите «Проверить статус»"
         )
         instructions.setStyleSheet("""
             QLabel {
@@ -248,27 +247,21 @@ class PremiumPage(BasePage):
         instructions.setWordWrap(True)
         activation_layout.addWidget(instructions)
         
-        # Кнопка открытия бота
-        from config.telegram_links import open_telegram_link
-        open_bot_btn = ActionButton("Открыть Telegram бота", "fa5b.telegram")
-        open_bot_btn.setFixedHeight(40)
-        open_bot_btn.clicked.connect(lambda: open_telegram_link("zapretvpns_bot"))
-        activation_layout.addWidget(open_bot_btn)
-        
         # ═══════════════════════════════════════════════════════════
-        # Контейнер для поля ввода ключа (скрывается при активной подписке)
+        # Контейнер для кода привязки (скрывается при активной подписке)
         # ═══════════════════════════════════════════════════════════
         self.key_input_container = QWidget()
         key_container_layout = QVBoxLayout(self.key_input_container)
         key_container_layout.setContentsMargins(0, 0, 0, 0)
         key_container_layout.setSpacing(8)
         
-        # Поле ввода ключа
+        # Поле с кодом привязки
         key_layout = QHBoxLayout()
         key_layout.setSpacing(8)
         
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("XXXX-XXXX-XXXX-XXXX")
+        self.key_input.setPlaceholderText("ABCD12EF")
+        self.key_input.setReadOnly(True)
         self.key_input.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -286,15 +279,15 @@ class PremiumPage(BasePage):
         """)
         key_layout.addWidget(self.key_input, 1)
         
-        self.activate_btn = ActionButton("Активировать", "fa5s.key", accent=True)
+        self.activate_btn = ActionButton("Создать код", "fa5s.link", accent=True)
         self.activate_btn.setFixedHeight(36)
         self.activate_btn.setMinimumWidth(140)
-        self.activate_btn.clicked.connect(self._activate_key)
+        self.activate_btn.clicked.connect(self._create_pair_code)
         key_layout.addWidget(self.activate_btn)
         
         key_container_layout.addLayout(key_layout)
         
-        # Статус активации
+        # Статус привязки
         self.activation_status = QLabel("")
         self.activation_status.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
         self.activation_status.setWordWrap(True)
@@ -429,16 +422,16 @@ class PremiumPage(BasePage):
             except Exception:
                 device_token = None
 
-            saved_key = None
+            pair_code = None
             try:
-                saved_key = self.RegistryManager.get_key()
+                pair_code = self.RegistryManager.get_pair_code()
             except Exception:
-                saved_key = None
+                pair_code = None
 
             parts = []
             parts.append("device token: ✅" if device_token else "device token: ❌")
-            if saved_key:
-                parts.append(f"key(legacy): {saved_key[:4]}****")
+            if pair_code:
+                parts.append(f"pair: {pair_code}")
             self.saved_key_label.setText(" | ".join(parts))
             self.saved_key_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
             
@@ -454,55 +447,48 @@ class PremiumPage(BasePage):
             log(f"Ошибка обновления информации об устройстве: {e}", "DEBUG")
     
     def _set_activation_section_visible(self, visible: bool):
-        """Показывает или скрывает поле ввода ключа (инструкция остаётся видимой)"""
+        """Показывает или скрывает контейнер привязки (инструкция остаётся видимой)"""
         if hasattr(self, 'key_input_container') and self.key_input_container:
             self.key_input_container.setVisible(visible)
             
-    def _activate_key(self):
-        """Активация ключа"""
+    def _create_pair_code(self):
+        """Создать код привязки (8 символов, ~10 минут)"""
         if not self.checker:
             self._init_checker()
             if not self.checker:
                 self.activation_status.setText("❌ Ошибка инициализации")
                 self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
                 return
-        
-        key = self.key_input.text().strip()
-        if not key:
-            self.activation_status.setText("❌ Введите ключ активации")
-            self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
-            return
-        
+
         # Блокируем кнопку
         self.activate_btn.setEnabled(False)
-        self.activate_btn.setText("Активация...")
-        self.activation_status.setText("🔄 Проверка ключа...")
+        self.activate_btn.setText("Создание...")
+        self.activation_status.setText("🔄 Создаю код...")
         self.activation_status.setStyleSheet("color: #60cdff; font-size: 12px;")
         
         # Запускаем в потоке
-        self.current_thread = WorkerThread(self.checker.activate, args=(key,))
-        self.current_thread.result_ready.connect(self._on_activation_complete)
+        self.current_thread = WorkerThread(self.checker.pair_start, args=())
+        self.current_thread.result_ready.connect(self._on_pair_code_created)
         self.current_thread.error_occurred.connect(self._on_activation_error)
         self.current_thread.start()
         
-    def _on_activation_complete(self, result):
-        """Обработка результата активации"""
-        success, message = result
+    def _on_pair_code_created(self, result):
+        """Обработка результата создания кода"""
+        # (success, message, code)
+        try:
+            success, message, code = result
+        except Exception:
+            success, message, code = False, "Неверный ответ", None
         
         self.activate_btn.setEnabled(True)
-        self.activate_btn.setText("Активировать")
+        self.activate_btn.setText("Создать код")
         
         if success:
-            self.activation_status.setText("✅ Ключ успешно активирован!")
+            if code:
+                self.key_input.setText(str(code))
+            self.activation_status.setText("✅ Код создан. Отправьте его боту в Telegram.")
             self.activation_status.setStyleSheet("color: #6ccb5f; font-size: 12px;")
             self._update_device_info()
-            # Скрываем секцию активации после успешной активации
-            self._set_activation_section_visible(False)
-            self._check_status()
-            # Эмитим сигнал с корректным days_remaining
-            info = self.checker.get_full_subscription_info()
-            days = info.get('days_remaining', 0) or 0
-            self.subscription_updated.emit(True, days)
         else:
             self.activation_status.setText(f"❌ {message}")
             self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
@@ -510,7 +496,7 @@ class PremiumPage(BasePage):
     def _on_activation_error(self, error):
         """Обработка ошибки активации"""
         self.activate_btn.setEnabled(True)
-        self.activate_btn.setText("Активировать")
+        self.activate_btn.setText("Создать код")
         self.activation_status.setText(f"❌ Ошибка: {error}")
         self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
         
@@ -578,7 +564,7 @@ class PremiumPage(BasePage):
                 # ✅ Показываем секцию активации — подписки/активации нет
                 self._set_activation_section_visible(True)
 
-                self.status_badge.set_status("Подписка не активна", result.get('status', 'Активируйте ключ'), "expired")
+                self.status_badge.set_status("Подписка не активна", result.get('status', 'Привяжите устройство'), "expired")
                 
                 self.days_label.setText("")
                 self.subscription_updated.emit(False, 0)
@@ -634,13 +620,13 @@ class PremiumPage(BasePage):
         self.server_status_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
         
     def _change_key(self):
-        """Сброс активации на устройстве"""
+        """Сброс привязки на устройстве"""
         reply = QMessageBox.question(
             self, 
             "Подтверждение", 
             "Сбросить активацию на этом устройстве?\n"
-            "Будут удалены device token и offline-кэш.\n"
-            "Для восстановления потребуется повторная активация ключом.",
+            "Будут удалены device token, offline-кэш и код привязки.\n"
+            "Для восстановления потребуется повторная привязка в боте.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
@@ -650,11 +636,17 @@ class PremiumPage(BasePage):
                     self.checker.clear_saved_key()
             except Exception:
                 if self.RegistryManager:
-                    self.RegistryManager.delete_key()
+                    try:
+                        self.RegistryManager.clear_device_token()
+                        self.RegistryManager.clear_premium_cache()
+                        self.RegistryManager.clear_pair_code()
+                        self.RegistryManager.save_last_check()
+                    except Exception:
+                        pass
             self.key_input.clear()
             self.activation_status.setText("")
             self._update_device_info()
-            self.status_badge.set_status("Активация сброшена", "Введите ключ для активации", "expired")
+            self.status_badge.set_status("Привязка сброшена", "Создайте новый код для привязки", "expired")
             self.days_label.setText("")
             
             # Показываем секцию активации

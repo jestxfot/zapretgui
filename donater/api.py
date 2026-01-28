@@ -25,11 +25,32 @@ class PremiumApiClient:
             return None
 
     def post_activate(self, *, key: str, device_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        # Legacy endpoint (removed in new pairing architecture).
+        nonce = secrets.token_urlsafe(16)
+        return (None, nonce)
+
+    def post_pair_start(self, *, device_id: str, device_name: str | None = None) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
         try:
             r = requests.post(
-                self._url("activate_key"),
-                json={"key": key, "device_id": device_id, "nonce": nonce},
+                self._url("pair_start"),
+                json={"device_id": device_id, "device_name": device_name, "nonce": nonce},
+                timeout=self.timeout,
+            )
+            data = r.json() if r.content else None
+            if isinstance(data, dict):
+                data["_nonce"] = nonce
+                data["_http_status"] = r.status_code
+            return (data if isinstance(data, dict) else None, nonce)
+        except Exception:
+            return (None, nonce)
+
+    def post_pair_finish(self, *, device_id: str, pair_code: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        nonce = secrets.token_urlsafe(16)
+        try:
+            r = requests.post(
+                self._url("pair_finish"),
+                json={"device_id": device_id, "pair_code": pair_code, "nonce": nonce},
                 timeout=self.timeout,
             )
             data = r.json() if r.content else None
@@ -55,4 +76,3 @@ class PremiumApiClient:
             return (data if isinstance(data, dict) else None, nonce)
         except Exception:
             return (None, nonce)
-
