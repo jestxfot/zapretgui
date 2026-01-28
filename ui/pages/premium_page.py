@@ -5,7 +5,8 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QE
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QFrame, QGraphicsOpacityEffect,
-    QMessageBox
+    QMessageBox,
+    QApplication,
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
@@ -486,7 +487,12 @@ class PremiumPage(BasePage):
         if success:
             if code:
                 self.key_input.setText(str(code))
-            self.activation_status.setText("✅ Код создан. Отправьте его боту в Telegram.")
+            try:
+                if code:
+                    QApplication.clipboard().setText(str(code))
+            except Exception:
+                pass
+            self.activation_status.setText("✅ Код создан и скопирован. Отправьте его боту в Telegram.")
             self.activation_status.setStyleSheet("color: #6ccb5f; font-size: 12px;")
             self._update_device_info()
         else:
