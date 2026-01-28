@@ -88,9 +88,11 @@ class PremiumService:
                     raw2, nonce2 = self._api.post_pair_finish(device_id=device_id, pair_code=code)
                     if raw2:
                         signed2 = verify_signed_response(raw2, expected_device_id=device_id, expected_nonce=nonce2)
-                        if signed2 and signed2.get("type") == "zapret_premium_activation" and signed2.get("activated") is True:
+                        if signed2 and signed2.get("type") == "zapret_premium_activation":
                             token = str(signed2.get("device_token") or "").strip()
                             if token:
+                                # Store token even if subscription is currently inactive:
+                                # it will become active automatically after renewal (bot sync).
                                 PremiumStorage.store_after_pairing(
                                     device_id=device_id,
                                     device_token=token,
@@ -129,8 +131,19 @@ class PremiumService:
                 cached_signed = verify_signed_response(cached_resp, expected_device_id=device_id, expected_nonce=None)
                 if cached_signed and cached_signed.get("activated") is True:
                     valid_until = cached_signed.get("valid_until")
+                    expires_at = cached_signed.get("expires_at")
                     try:
-                        if int(valid_until) >= int(time.time()):
+                        now_ts = int(time.time())
+                        if int(valid_until) >= now_ts:
+                            # Do not allow offline premium past subscription expiry.
+                            if expires_at:
+                                from datetime import datetime
+
+                                dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                                if dt.tzinfo is not None:
+                                    dt = dt.replace(tzinfo=None)
+                                if dt <= datetime.now():
+                                    raise ValueError("expired")
                             return ActivationStatus(
                                 is_activated=True,
                                 days_remaining=cached_signed.get("days_remaining"),

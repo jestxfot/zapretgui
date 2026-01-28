@@ -533,6 +533,7 @@ class PremiumPage(BasePage):
         
         try:
             is_premium = bool(result.get("is_premium", result.get("activated")))
+            is_linked = bool(result.get("found"))
 
             if is_premium:
                 days_remaining = result.get('days_remaining')
@@ -561,10 +562,12 @@ class PremiumPage(BasePage):
                     self.days_label.setText("")
                     self.subscription_updated.emit(True, 0)
             else:
-                # ✅ Показываем секцию активации — подписки/активации нет
-                self._set_activation_section_visible(True)
+                # Если устройство уже привязано (есть device_token), не заставляем перепривязывать:
+                # просто показываем, что подписка не активна/истекла.
+                self._set_activation_section_visible(not is_linked)
 
-                self.status_badge.set_status("Подписка не активна", result.get('status', 'Привяжите устройство'), "expired")
+                details = result.get('status', '') or ("Продлите подписку в боте и нажмите «Обновить статус»." if is_linked else "Создайте код и привяжите устройство.")
+                self.status_badge.set_status("Подписка не активна", details, "expired")
                 
                 self.days_label.setText("")
                 self.subscription_updated.emit(False, 0)
