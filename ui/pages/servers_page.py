@@ -19,6 +19,7 @@ from log import log
 from updater.telegram_updater import TELEGRAM_CHANNELS
 from config.telegram_links import open_telegram_link
 from updater.github_release import normalize_version
+from updater.rate_limiter import UpdateRateLimiter
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1267,14 +1268,31 @@ class ServersPage(BasePage):
             log("⏭️ Пропуск проверки - идёт скачивание обновления", "🔄 UPDATE")
             return
         
-        # Обновляем время последней проверки только при полной проверке
+        keep_existing_rows = False
+
+        # Жёсткий rate-limit для полной проверки всех VPS (на одного пользователя).
+        # Если лимит не прошёл — всё равно делаем telegram-only (как requested),
+        # но не очищаем таблицу, чтобы не терять предыдущие результаты.
         if not telegram_only:
-            self._last_check_time = time.time()
+            can_full, msg = UpdateRateLimiter.can_check_servers_full()
+            if not can_full:
+                telegram_only = True
+                keep_existing_rows = True
+                try:
+                    self.update_card.subtitle_label.setText(f"{msg} • Проверяем через Telegram")
+                except Exception:
+                    pass
+                log(f"⏱️ Полная проверка VPS заблокирована: {msg}. fallback=telegram-only", "🔄 UPDATE")
+            else:
+                UpdateRateLimiter.record_servers_full_check()
+                self._last_check_time = time.time()
         
         self._checking = True
         self._found_update = False
         self.update_card.start_checking()
-        self.servers_table.setRowCount(0)
+        self._keep_existing_server_rows = keep_existing_rows
+        if not keep_existing_rows:
+            self.servers_table.setRowCount(0)
         
         if self.server_worker and self.server_worker.isRunning():
             self.server_worker.terminate()
@@ -1359,8 +1377,23 @@ class ServersPage(BasePage):
             pass
 
     def _on_server_checked(self, server_name: str, status: dict):
-        row = self.servers_table.rowCount()
-        self.servers_table.insertRow(row)
+        def _normalize_name(text: str) -> str:
+            t = (text or "").strip()
+            if t.startswith("⭐"):
+                t = t.lstrip("⭐").strip()
+            return t
+
+        row = None
+        if getattr(self, "_keep_existing_server_rows", False):
+            for r in range(self.servers_table.rowCount()):
+                item = self.servers_table.item(r, 0)
+                if item and _normalize_name(item.text()) == server_name:
+                    row = r
+                    break
+
+        if row is None:
+            row = self.servers_table.rowCount()
+            self.servers_table.insertRow(row)
         
         name_item = QTableWidgetItem(server_name)
         if status.get('is_current'):
