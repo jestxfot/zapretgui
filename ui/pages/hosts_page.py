@@ -155,6 +155,7 @@ try:
         get_service_has_geohide_ips,
         get_service_available_dns_profiles,
         get_service_domain_ip_map,
+        get_service_domain_names,
         get_service_domains,
         load_user_hosts_selection,
         save_user_hosts_selection,
@@ -166,6 +167,7 @@ except ImportError:
     def get_service_has_geohide_ips(s): return False
     def get_service_available_dns_profiles(s): return []
     def get_service_domain_ip_map(*args, **kwargs): return {}
+    def get_service_domain_names(s): return []
     def get_service_domains(s): return {}
     def load_user_hosts_selection(): return {}
     def save_user_hosts_selection(*args, **kwargs): return False
@@ -329,14 +331,35 @@ class HostsPage(BasePage):
 
             return None
 
+        def infer_direct_toggle_from_hosts(service_name: str) -> bool:
+            """Для direct-only сервисов: включено, если хотя бы один домен сервиса есть в hosts."""
+            try:
+                for domain in (get_service_domain_names(service_name) or []):
+                    if domain in active_domains_map:
+                        return True
+            except Exception:
+                pass
+            return False
+
+        direct_profile = self._get_direct_profile_name()
+
         new_selection: dict[str, str] = {}
 
         was_building = getattr(self, "_building_services_ui", False)
         self._building_services_ui = True
         try:
             for service_name, combo in list(self.service_combos.items()):
+                direct_only = not get_service_has_geohide_ips(service_name)
+
                 available = list(get_service_available_dns_profiles(service_name) or [])
-                inferred = infer_profile_from_hosts(service_name, available)
+                inferred: str | None = None
+
+                if direct_only:
+                    enabled = infer_direct_toggle_from_hosts(service_name)
+                    if enabled and direct_profile and direct_profile in available:
+                        inferred = direct_profile
+                else:
+                    inferred = infer_profile_from_hosts(service_name, available)
 
                 if inferred:
                     idx = combo.findData(inferred)
@@ -700,6 +723,7 @@ class HostsPage(BasePage):
 	        
     def _build_services_selectors(self):
         OFF_LABEL = "Откл."
+        ON_LABEL = "Вкл."
 
         # Карта иконок/цветов по сервису (если есть в QUICK_SERVICES)
         ui_map = {name: (icon_name, icon_color) for icon_name, name, icon_color in QUICK_SERVICES}
@@ -807,7 +831,9 @@ class HostsPage(BasePage):
 
                 return None
 
-            def add_group(title: str, names: list[str]) -> None:
+            direct_profile = self._get_direct_profile_name()
+
+            def add_group(title: str, names: list[str], direct_only: bool = False) -> None:
                 nonlocal selection_migrated
                 if not names:
                     return
@@ -842,15 +868,23 @@ class HostsPage(BasePage):
                 off_btn.clicked.connect(lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None))
                 chips_layout.addWidget(off_btn)
 
-                for profile_name in (get_dns_profiles() or []):
-                    label = _format_dns_profile_label(profile_name)
-                    if not label:
-                        continue
-                    btn = self._make_fluent_chip(label)
-                    btn.clicked.connect(
-                        lambda _checked=False, n=tuple(names), p=profile_name: self._bulk_apply_dns_profile(list(n), p)
-                    )
-                    chips_layout.addWidget(btn)
+                if direct_only:
+                    if direct_profile:
+                        on_btn = self._make_fluent_chip(ON_LABEL)
+                        on_btn.clicked.connect(
+                            lambda _checked=False, n=tuple(names), p=direct_profile: self._bulk_apply_dns_profile(list(n), p)
+                        )
+                        chips_layout.addWidget(on_btn)
+                else:
+                    for profile_name in (get_dns_profiles() or []):
+                        label = _format_dns_profile_label(profile_name)
+                        if not label:
+                            continue
+                        btn = self._make_fluent_chip(label)
+                        btn.clicked.connect(
+                            lambda _checked=False, n=tuple(names), p=profile_name: self._bulk_apply_dns_profile(list(n), p)
+                        )
+                        chips_layout.addWidget(btn)
 
                 chips_scroll = QScrollArea()
                 chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -910,11 +944,31 @@ class HostsPage(BasePage):
                     # Откл. + доступные профили
                     available = get_service_available_dns_profiles(service_name) or []
                     combo.addItem(OFF_LABEL, None)
-                    for profile_name in available:
-                        combo.addItem(_format_dns_profile_label(profile_name), profile_name)
+
+                    is_direct_only = not get_service_has_geohide_ips(service_name)
+                    if is_direct_only:
+                        # direct-only сервисы: отображаем как toggle (Вкл/Откл) вместо списка DNS.
+                        if direct_profile and direct_profile in available:
+                            combo.addItem(ON_LABEL, direct_profile)
+                    else:
+                        for profile_name in available:
+                            combo.addItem(_format_dns_profile_label(profile_name), profile_name)
 
                     # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
-                    inferred = infer_profile_from_hosts(service_name, available)
+                    inferred: str | None = None
+                    if is_direct_only:
+                        if direct_profile and direct_profile in available:
+                            try:
+                                enabled = any(
+                                    (domain in active_domains_map)
+                                    for domain in (get_service_domain_names(service_name) or [])
+                                )
+                            except Exception:
+                                enabled = False
+                            inferred = direct_profile if enabled else None
+                    else:
+                        inferred = infer_profile_from_hosts(service_name, available)
+
                     if inferred:
                         inferred_idx = combo.findData(inferred)
                         if inferred_idx >= 0:
@@ -948,7 +1002,7 @@ class HostsPage(BasePage):
 
                 self.add_widget(card)
 
-            add_group("Напрямую из hosts", no_geohide)
+            add_group("Напрямую из hosts", no_geohide, direct_only=True)
             add_group("ИИ", ai)
             add_group("Остальные", other)
 
@@ -956,6 +1010,22 @@ class HostsPage(BasePage):
                 save_user_hosts_selection(self._service_dns_selection)
         finally:
             self._building_services_ui = False
+
+    def _get_direct_profile_name(self) -> str | None:
+        """
+        Профиль "direct"/"Вкл. (активировать hosts)" из каталога DNS.
+        Нужен для сервисов без proxy/geohide IP (они должны работать как toggle).
+        """
+        try:
+            for profile in (get_dns_profiles() or []):
+                p = (profile or "").strip().lower()
+                if not p:
+                    continue
+                if ("вкл. (активировать hosts)" in p) or ("direct" in p) or ("no proxy" in p):
+                    return profile
+        except Exception:
+            pass
+        return None
         
     def _build_adobe_section(self):
         self.add_section_title("Дополнительно")

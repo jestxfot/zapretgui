@@ -296,6 +296,10 @@ class APIClient:
         self._rr_cursor: int = 0
         self.device_id = RegistryManager.get_device_id()
         self.device_token = RegistryManager.get_device_token()
+        try:
+            logger.info(f"API hosts: {', '.join(self.base_urls) or self.base_url}")
+        except Exception:
+            pass
         logger.info(f"Device ID: {self.device_id[:8]}...")
 
     def _record_host_failure(self, base_url: str, *, is_network: bool) -> None:
@@ -408,9 +412,15 @@ class APIClient:
         - If prefer_activated=True, prefer a valid signed payload with activated=True.
         - Otherwise return the first valid signed payload.
         """
-        best = None
-        best_resp = None
-        best_url = None
+        best: Optional[Dict] = None
+        best_resp: Optional[Dict] = None
+        best_url: Optional[str] = None
+
+        # If we don't get a valid signed payload, we still want to return the most
+        # informative error response (HTTP error beats network error).
+        best_error_resp: Optional[Dict] = None
+        best_error_url: Optional[str] = None
+
         last_resp: Optional[Dict] = None
         last_url: Optional[str] = None
 
@@ -419,6 +429,12 @@ class APIClient:
             if isinstance(resp, dict):
                 last_resp = resp
                 last_url = base_url
+                http_status = resp.get("_http_status")
+                if http_status is not None:
+                    # Prefer any HTTP response over connection/timeout (None).
+                    if best_error_resp is None or best_error_resp.get("_http_status") is None:
+                        best_error_resp = resp
+                        best_error_url = base_url
             signed = _verify_signed_response(resp or {}, expected_device_id=self.device_id, expected_nonce=nonce)
             if not signed:
                 continue
@@ -440,9 +456,11 @@ class APIClient:
 
         # No valid signature received. Still return the last response (usually contains a helpful error),
         # so the UI doesn't misleadingly show "server unavailable" when the server is reachable.
-        if last_url:
-            self.base_url = last_url
-        return best, last_resp, last_url
+        chosen_resp = best_error_resp or last_resp
+        chosen_url = best_error_url or last_url
+        if chosen_url:
+            self.base_url = chosen_url
+        return best, chosen_resp, chosen_url
 
     def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
         """
