@@ -230,7 +230,7 @@ class PremiumPage(BasePage):
         # Инструкции (обычный QLabel)
         instructions = QLabel(
             "1. Нажмите «Создать код»\n"
-            "2. Отправьте код боту в Telegram (сообщением)\n"
+            "2. Отправьте код боту @zapretvpns_bot в Telegram (сообщением)\n"
             "3. Вернитесь сюда и нажмите «Проверить статус»"
         )
         instructions.setStyleSheet("""
