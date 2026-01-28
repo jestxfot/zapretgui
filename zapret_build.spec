@@ -10,9 +10,9 @@ strategy_hiddenimports = collect_submodules('strategy_menu')
 
 a = Analysis(
     ['main.py'],
-    pathex=[r'H:\Privacy\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
+    pathex=[r'\\wsl.localhost\Debian\opt\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[(r'H:\Privacy\zapretgui\build_zapret\zapret_certificate.cer', r'.'), (r'H:\Privacy\zapret\json\hosts.ini', r'json')],  # ✅ Включаем сертификат и другие data файлы
+    datas=[(r'\\wsl.localhost\Debian\opt\zapretgui\build_zapret\zapret_certificate.cer', r'.')],  # ✅ Включаем сертификат и другие data файлы
 	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
 	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
 	        'ui',
@@ -205,7 +205,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon=r'H:\Privacy\zapretgui\ZapretDevLogo4.ico',
+    icon=r'\\wsl.localhost\Debian\opt\zapretgui\ZapretDevLogo4.ico',
 )
 
 # ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами

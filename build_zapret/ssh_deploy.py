@@ -21,6 +21,21 @@ import tempfile
 VPS_SERVERS = [
     # ═══ НОВЫЙ ОСНОВНОЙ СЕРВЕР (вход по паролю) ═══
     {
+        'id': 'vps_super',
+        'name': 'VPS Super (Новый основной)',
+        'host': '185.114.116.232',
+        'port': 22,
+        'user': 'root',
+        'password': 'MuN24tvDGL',  # ← Вход по паролю
+        'key_path': None,
+        'key_password': None,
+        'upload_dir': '/var/www/zapret/download',
+        'scripts_dir': '/root/zapretgpt/tests',
+        'json_path': '/var/www/zapret/api/all_versions.json',
+        'priority': 1,
+        'use_for_telegram': True,
+    },
+    {
         'id': 'vps0',
         'name': 'VPS Primary (Новый основной)',
         'host': '45.144.30.84',
@@ -32,23 +47,8 @@ VPS_SERVERS = [
         'upload_dir': '/var/www/zapret/download',
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
-        'priority': 1,
-        'use_for_telegram': False,
-    },
-    {
-        'id': 'vps1',
-        'name': 'VPS Server 1',
-        'host': '84.54.30.233',
-        'port': 2089,
-        'user': 'root',
-        'password': None,
-        'key_path': 'H:/Privacy/main',
-        'key_password': 'zxcvbita2014',
-        'upload_dir': '/var/www/zapret/download',
-        'scripts_dir': '/root/zapretgpt/tests',
-        'json_path': '/var/www/zapret/api/all_versions.json',
         'priority': 2,
-        'use_for_telegram': True,  # ← Telegram теперь здесь (стабильный сервер)
+        'use_for_telegram': False,
     },
     {
         'id': 'vps2',
