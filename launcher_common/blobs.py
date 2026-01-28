@@ -16,7 +16,7 @@ import json
 
 from log import log
 
-# Примечание: blobs.json находится в H:\Privacy\zapret\json\blobs.json
+# Примечание: blobs.json находится в /opt/zapret/json/blobs.json
 # (не в папке проекта zapretgui, а в родительской папке zapret)
 
 # Кэш для блобов - заполняется при первом вызове get_blobs()

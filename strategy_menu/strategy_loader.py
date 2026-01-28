@@ -42,7 +42,7 @@ STRATEGIES_DIR = Path(INDEXJSON_FOLDER) / "strategies"
 _LOCAL_STRATEGIES_DIR = Path(__file__).parent
 
 # Fallback на соседнюю папку zapret (для разработки из IDE)
-# H:\Privacy\zapretgui -> H:\Privacy\zapret
+# /opt/zapretgui -> /opt/zapret
 _DEV_ZAPRET_DIR = Path(__file__).parent.parent.parent / "zapret" / "json" / "strategies"
 
 

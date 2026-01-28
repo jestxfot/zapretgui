@@ -58,7 +58,7 @@
 | `qa-reviewer` | **QA** - проверяет качество ВСЕХ изменений после агентов | Контроль |
 | `doc-writer` | **Документация** - пишет доки только по запросу | По запросу |
 | `zapret-source-expert` | Эксперт по оригинальному zapret2 (F:\doc\zapret2) | Только читает |
-| `orchestra-lua-reviewer` | Lua код (exe/lua/, H:\Privacy\zapret\lua\) | Редактирует |
+| `orchestra-lua-reviewer` | Lua код (exe/lua/, /opt/zapret/lua/) | Редактирует |
 | `orchestra-python-reviewer` | Python оркестратора (orchestra/*.py) | Редактирует |
 | `nfq2-lua-orchestrator` | Создание новых Lua/Python файлов | Создаёт |
 | `ui-designer` | **UI/UX** - следит за согласованностью дизайна Windows 11 | Стили |
@@ -97,8 +97,8 @@
 ### ВАЖНО: Разделение кода
 
 - **Оригинальный код zapret2:** `F:\doc\zapret2\` - читает только `zapret-source-expert`
-- **Наши Lua модификации:** `H:\Privacy\zapret\lua\` - редактирует `orchestra-lua-reviewer`
-- **Python оркестратор:** `H:\Privacy\zapretgui\orchestra\` - редактирует `orchestra-python-reviewer`
+- **Наши Lua модификации:** `/opt/zapret/lua/` - редактирует `orchestra-lua-reviewer`
+- **Python оркестратор:** `/opt/zapretgui/orchestra/` - редактирует `orchestra-python-reviewer`
 
 ### ОБЯЗАТЕЛЬНО: Используй агентов для экономии ресурсов
 
