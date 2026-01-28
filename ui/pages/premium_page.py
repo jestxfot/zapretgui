@@ -169,9 +169,9 @@ class PremiumPage(BasePage):
     def _init_checker(self):
         """Инициализирует checker"""
         try:
-            from donater.donate import SimpleDonateChecker, RegistryManager
-            self.checker = SimpleDonateChecker()
-            self.RegistryManager = RegistryManager
+            from donater import DonateChecker, PremiumStorage
+            self.checker = DonateChecker()
+            self.RegistryManager = PremiumStorage
             self._update_device_info()
         except Exception as e:
             from log import log
@@ -669,4 +669,3 @@ class PremiumPage(BasePage):
             self.current_thread.quit()
             self.current_thread.wait()
         event.accept()
-
