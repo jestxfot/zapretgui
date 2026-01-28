@@ -1,29 +1,29 @@
 # donater/donate.py
 
 import base64
+import configparser
 import json
 import logging
+import os
 import secrets
+import threading
 import time
 import hashlib
 import platform
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
 
-import requests, winreg
+import requests
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Константы
-from config import REGISTRY_PATH_GUI
-DEVICE_ID_VALUE = "DeviceID"
-KEY_VALUE = "ActivationKey"  # legacy (no longer trusted for premium status)
-LAST_CHECK_VALUE = "LastCheck"
-DEVICE_TOKEN_VALUE = "DeviceToken"
-PREMIUM_CACHE_VALUE = "PremiumCacheV1"
+_INI_SECTION = "premium"
+_INI_LOCK = threading.Lock()
 
 #
 # API server validates subscription locally (on bot server) and talks to remote keys storage itself.
@@ -131,127 +131,216 @@ class ActivationStatus:
         return "Активировано"
 
 
-# ============== REGISTRY MANAGER ==============
+# ============== PREMIUM.INI STORAGE ==============
 
 class RegistryManager:
-    """Работа с реестром Windows"""
-    
+    """Хранилище premium-состояния в %APPDATA%\\zapret\\premium.ini"""
+
+    @staticmethod
+    def _get_premium_ini_path() -> Path:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "zapret" / "premium.ini"
+        return Path.home() / ".config" / "zapret" / "premium.ini"
+
+    @staticmethod
+    def _read_premium_ini(path: Path) -> configparser.ConfigParser:
+        parser = configparser.ConfigParser(strict=False)
+        parser.optionxform = str
+        try:
+            if path.exists():
+                parser.read(path, encoding="utf-8")
+        except Exception:
+            pass
+        return parser
+
+    @staticmethod
+    def _write_premium_ini(path: Path, parser: configparser.ConfigParser) -> bool:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                f.write("# Zapret GUI: premium storage\n")
+                parser.write(f)
+            tmp.replace(path)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _update_premium_ini(update_fn) -> bool:
+        """
+        Atomic read-modify-write under a single process lock.
+        Prevents concurrent threads from overwriting each other's fields.
+        """
+        with _INI_LOCK:
+            path = RegistryManager._get_premium_ini_path()
+            parser = RegistryManager._read_premium_ini(path)
+            if not parser.has_section(_INI_SECTION):
+                parser.add_section(_INI_SECTION)
+            try:
+                update_fn(parser)
+            except Exception:
+                return False
+            return RegistryManager._write_premium_ini(path, parser)
+
+    @staticmethod
+    def _machine_info() -> str:
+        try:
+            return f"{platform.machine()}-{platform.processor()}-{platform.node()}"
+        except Exception:
+            return "unknown"
+
+    @staticmethod
+    def _xor_keystream(seed: bytes, n: int) -> bytes:
+        out = bytearray()
+        counter = 0
+        while len(out) < n:
+            block = hashlib.sha256(seed + b"|" + str(counter).encode("ascii")).digest()
+            out.extend(block)
+            counter += 1
+        return bytes(out[:n])
+
+    @staticmethod
+    def _obfuscate_activation_key(plain: str, device_id: str) -> str:
+        plain_b = (plain or "").encode("utf-8")
+        seed = hashlib.sha256(
+            ("zapret-premium|xor-v1|" + (device_id or "") + "|" + RegistryManager._machine_info()).encode("utf-8")
+        ).digest()
+        ks = RegistryManager._xor_keystream(seed, len(plain_b))
+        obf = bytes([a ^ b for a, b in zip(plain_b, ks)])
+        return base64.urlsafe_b64encode(obf).decode("ascii")
+
+    @staticmethod
+    def _deobfuscate_activation_key(obf_b64: str, device_id: str) -> Optional[str]:
+        try:
+            raw = base64.urlsafe_b64decode((obf_b64 or "").encode("ascii"))
+            seed = hashlib.sha256(
+                ("zapret-premium|xor-v1|" + (device_id or "") + "|" + RegistryManager._machine_info()).encode("utf-8")
+            ).digest()
+            ks = RegistryManager._xor_keystream(seed, len(raw))
+            plain_b = bytes([a ^ b for a, b in zip(raw, ks)])
+            plain = plain_b.decode("utf-8", errors="strict").strip()
+            return plain or None
+        except Exception:
+            return None
+
     @staticmethod
     def get_device_id() -> str:
-        """Получить или создать Device ID"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                device_id, _ = winreg.QueryValueEx(key, DEVICE_ID_VALUE)
-                return device_id
-        except:
+            with _INI_LOCK:
+                path = RegistryManager._get_premium_ini_path()
+                parser = RegistryManager._read_premium_ini(path)
+                if parser.has_section(_INI_SECTION):
+                    device_id = (parser.get(_INI_SECTION, "device_id", fallback="") or "").strip()
+                    if device_id:
+                        return device_id
+        except Exception:
             pass
-        
-        # Генерируем новый
-        machine_info = f"{platform.machine()}-{platform.processor()}-{platform.node()}"
+
+        machine_info = RegistryManager._machine_info()
         device_id = hashlib.md5(machine_info.encode()).hexdigest()
-        
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                winreg.SetValueEx(key, DEVICE_ID_VALUE, 0, winreg.REG_SZ, device_id)
-            logger.info(f"Created Device ID: {device_id[:8]}...")
-        except Exception as e:
-            logger.error(f"Error saving device_id: {e}")
-        
+
+        RegistryManager._update_premium_ini(lambda p: p.set(_INI_SECTION, "device_id", device_id))
         return device_id
-    
+
     @staticmethod
     def save_key(key: str) -> bool:
-        """Сохранить ключ"""
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as reg_key:
-                winreg.SetValueEx(reg_key, KEY_VALUE, 0, winreg.REG_SZ, key)
-            logger.info(f"Key saved: {key[:4]}****")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving key: {e}")
+        key = (key or "").strip()
+        if not key:
             return False
-    
+        device_id = RegistryManager.get_device_id()
+        return bool(
+            RegistryManager._update_premium_ini(
+                lambda p: (
+                    p.set(_INI_SECTION, "activation_key_fmt", "xor-v1"),
+                    p.set(_INI_SECTION, "activation_key_obf", RegistryManager._obfuscate_activation_key(key, device_id)),
+                )
+            )
+        )
+
     @staticmethod
     def get_key() -> Optional[str]:
-        """Получить сохраненный ключ"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                value, _ = winreg.QueryValueEx(key, KEY_VALUE)
-                return value
-        except:
+            with _INI_LOCK:
+                path = RegistryManager._get_premium_ini_path()
+                parser = RegistryManager._read_premium_ini(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                device_id = (parser.get(_INI_SECTION, "device_id", fallback="") or "").strip() or RegistryManager.get_device_id()
+                fmt = (parser.get(_INI_SECTION, "activation_key_fmt", fallback="") or "").strip().lower()
+                if fmt == "xor-v1":
+                    obf = (parser.get(_INI_SECTION, "activation_key_obf", fallback="") or "").strip()
+                    if obf:
+                        return RegistryManager._deobfuscate_activation_key(obf, device_id)
+                plain = (parser.get(_INI_SECTION, "activation_key", fallback="") or "").strip()
+                return plain or None
+        except Exception:
             return None
-    
+
     @staticmethod
     def delete_key() -> bool:
-        """Удалить ключ"""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.DeleteValue(key, KEY_VALUE)
-            logger.info("Key deleted")
-            return True
-        except:
-            return True
-    
+        return bool(
+            RegistryManager._update_premium_ini(
+                lambda p: (
+                    p.remove_option(_INI_SECTION, "activation_key_fmt"),
+                    p.remove_option(_INI_SECTION, "activation_key_obf"),
+                    p.remove_option(_INI_SECTION, "activation_key"),
+                )
+            )
+        )
+
     @staticmethod
     def save_last_check() -> bool:
-        """Сохранить время последней проверки"""
-        try:
-            timestamp = datetime.now().isoformat()
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as reg_key:
-                winreg.SetValueEx(reg_key, LAST_CHECK_VALUE, 0, winreg.REG_SZ, timestamp)
-            logger.debug(f"Last check saved: {timestamp}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving last_check: {e}")
-            return False
-    
+        ts = datetime.now().isoformat()
+        return bool(RegistryManager._update_premium_ini(lambda p: p.set(_INI_SECTION, "last_check", ts)))
+
     @staticmethod
     def get_last_check() -> Optional[datetime]:
-        """Получить время последней проверки"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                timestamp_str, _ = winreg.QueryValueEx(key, LAST_CHECK_VALUE)
-                return datetime.fromisoformat(timestamp_str)
-        except:
+            with _INI_LOCK:
+                path = RegistryManager._get_premium_ini_path()
+                parser = RegistryManager._read_premium_ini(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                raw = (parser.get(_INI_SECTION, "last_check", fallback="") or "").strip()
+            return datetime.fromisoformat(raw) if raw else None
+        except Exception:
             return None
 
     @staticmethod
     def get_device_token() -> Optional[str]:
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                value, _ = winreg.QueryValueEx(key, DEVICE_TOKEN_VALUE)
-                value = (value or "").strip()
-                return value or None
+            with _INI_LOCK:
+                path = RegistryManager._get_premium_ini_path()
+                parser = RegistryManager._read_premium_ini(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                v = (parser.get(_INI_SECTION, "device_token", fallback="") or "").strip()
+                return v or None
         except Exception:
             return None
 
     @staticmethod
     def set_device_token(token: str) -> bool:
-        try:
-            token = (token or "").strip()
-            if not token:
-                return False
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                winreg.SetValueEx(key, DEVICE_TOKEN_VALUE, 0, winreg.REG_SZ, token)
-            return True
-        except Exception:
+        token = (token or "").strip()
+        if not token:
             return False
+        return bool(RegistryManager._update_premium_ini(lambda p: p.set(_INI_SECTION, "device_token", token)))
 
     @staticmethod
     def clear_device_token() -> bool:
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.DeleteValue(key, DEVICE_TOKEN_VALUE)
-            return True
-        except Exception:
-            return True
+        return bool(RegistryManager._update_premium_ini(lambda p: p.remove_option(_INI_SECTION, "device_token")))
 
     @staticmethod
     def get_premium_cache() -> Optional[Dict]:
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                raw, _ = winreg.QueryValueEx(key, PREMIUM_CACHE_VALUE)
-            raw = (raw or "").strip()
+            with _INI_LOCK:
+                path = RegistryManager._get_premium_ini_path()
+                parser = RegistryManager._read_premium_ini(path)
+                if not parser.has_section(_INI_SECTION):
+                    return None
+                raw = (parser.get(_INI_SECTION, "premium_cache_json", fallback="") or "").strip()
             if not raw:
                 return None
             data = json.loads(raw)
@@ -261,24 +350,78 @@ class RegistryManager:
 
     @staticmethod
     def set_premium_cache(cache: Dict) -> bool:
-        try:
-            if not isinstance(cache, dict):
-                return False
-            raw = json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI) as key:
-                winreg.SetValueEx(key, PREMIUM_CACHE_VALUE, 0, winreg.REG_SZ, raw)
-            return True
-        except Exception:
+        if not isinstance(cache, dict):
             return False
+        raw = json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return bool(RegistryManager._update_premium_ini(lambda p: p.set(_INI_SECTION, "premium_cache_json", raw)))
 
     @staticmethod
     def clear_premium_cache() -> bool:
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH_GUI, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.DeleteValue(key, PREMIUM_CACHE_VALUE)
-            return True
-        except Exception:
-            return True
+        return bool(RegistryManager._update_premium_ini(lambda p: p.remove_option(_INI_SECTION, "premium_cache_json")))
+
+    @staticmethod
+    def store_after_activation(
+        *,
+        device_id: str,
+        device_token: str,
+        activation_key: str,
+        signed_payload: Dict,
+        kid: Optional[str],
+        sig: Optional[str],
+    ) -> bool:
+        device_id = (device_id or "").strip()
+        device_token = (device_token or "").strip()
+        activation_key = (activation_key or "").strip()
+        if not device_id or not device_token or not activation_key or not isinstance(signed_payload, dict):
+            return False
+
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.set(_INI_SECTION, "device_id", device_id)
+            p.set(_INI_SECTION, "device_token", device_token)
+            p.set(_INI_SECTION, "last_check", datetime.now().isoformat())
+            p.set(_INI_SECTION, "activation_key_fmt", "xor-v1")
+            p.set(_INI_SECTION, "activation_key_obf", RegistryManager._obfuscate_activation_key(activation_key, device_id))
+            cache = {"kid": kid, "sig": sig, "signed": signed_payload, "cached_at": int(time.time())}
+            p.set(
+                _INI_SECTION,
+                "premium_cache_json",
+                json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            )
+
+        return bool(RegistryManager._update_premium_ini(_upd))
+
+    @staticmethod
+    def store_status_active(*, signed_payload: Dict, kid: Optional[str], sig: Optional[str]) -> bool:
+        if not isinstance(signed_payload, dict):
+            return False
+
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.set(_INI_SECTION, "last_check", datetime.now().isoformat())
+            cache = {"kid": kid, "sig": sig, "signed": signed_payload, "cached_at": int(time.time())}
+            p.set(
+                _INI_SECTION,
+                "premium_cache_json",
+                json.dumps(cache, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            )
+
+        return bool(RegistryManager._update_premium_ini(_upd))
+
+    @staticmethod
+    def apply_status_inactive(*, sent_device_token: str, message: str) -> bool:
+        sent_device_token = (sent_device_token or "").strip()
+        msg = (message or "").strip().lower()
+        should_force_reactivate = ("активац" in msg) and bool(sent_device_token)
+
+        def _upd(p: configparser.ConfigParser) -> None:
+            p.set(_INI_SECTION, "last_check", datetime.now().isoformat())
+            current = (p.get(_INI_SECTION, "device_token", fallback="") or "").strip()
+            if current != sent_device_token:
+                return
+            p.remove_option(_INI_SECTION, "premium_cache_json")
+            if should_force_reactivate:
+                p.remove_option(_INI_SECTION, "device_token")
+
+        return bool(RegistryManager._update_premium_ini(_upd))
 
 
 # ============== API CLIENT ==============
@@ -546,23 +689,18 @@ class APIClient:
             if not token:
                 return False, "Сервер не вернул device_token"
 
-            RegistryManager.set_device_token(token)
+            ok = RegistryManager.store_after_activation(
+                device_id=self.device_id,
+                device_token=token,
+                activation_key=key,
+                signed_payload=signed,
+                kid=result.get("kid") if isinstance(result, dict) else None,
+                sig=result.get("sig") if isinstance(result, dict) else None,
+            )
+            if not ok:
+                return False, "Не удалось сохранить device_token (premium.ini)"
             self.device_token = token
 
-            # Cache signed payload for offline (7 days max enforced by server via valid_until)
-            RegistryManager.set_premium_cache(
-                {
-                    "kid": result.get("kid"),
-                    "sig": result.get("sig"),
-                    "signed": signed,
-                    "cached_at": int(time.time()),
-                }
-            )
-
-            # We no longer store activation key on disk for security.
-            RegistryManager.delete_key()
-
-            RegistryManager.save_last_check()
             message = str(signed.get("message") or "Ключ активирован")
             logger.info(f"✅ Activation successful: {message}")
             return True, message
@@ -576,6 +714,7 @@ class APIClient:
         # Try API first (if response is validly signed, it overrides/clears cache immediately).
         nonce = secrets.token_urlsafe(16)
         self.device_token = RegistryManager.get_device_token()
+        sent_device_token = self.device_token or ""
         signed, result, _ = self._signed_post_best(
             "check_device",
             {"device_id": self.device_id, "device_token": self.device_token, "nonce": nonce},
@@ -583,24 +722,15 @@ class APIClient:
             prefer_activated=True,
         )
         if signed and signed.get("type") == "zapret_premium_status":
-            RegistryManager.save_last_check()
-
             activated = bool(signed.get("activated"))
             if activated:
-                RegistryManager.set_premium_cache(
-                    {
-                        "kid": result.get("kid"),
-                        "sig": result.get("sig"),
-                        "signed": signed,
-                        "cached_at": int(time.time()),
-                    }
+                RegistryManager.store_status_active(
+                    signed_payload=signed,
+                    kid=result.get("kid") if isinstance(result, dict) else None,
+                    sig=result.get("sig") if isinstance(result, dict) else None,
                 )
             else:
-                RegistryManager.clear_premium_cache()
-                # If server says token is bad, force re-activation.
-                msg = str(signed.get("message") or "")
-                if "активац" in msg.lower():
-                    RegistryManager.clear_device_token()
+                RegistryManager.apply_status_inactive(sent_device_token=sent_device_token, message=str(signed.get("message") or ""))
 
             return ActivationStatus(
                 is_activated=activated,
@@ -707,10 +837,10 @@ class SimpleDonateChecker:
         return self.api_client.test_connection()
     
     def clear_saved_key(self) -> bool:
-        """Удалить сохраненный ключ"""
+        """Сброс активации на устройстве (token + offline cache). Ключ оставляем для удобства."""
         RegistryManager.clear_device_token()
         RegistryManager.clear_premium_cache()
-        return RegistryManager.delete_key()
+        return True
 
 
 # Алиас для совместимости
