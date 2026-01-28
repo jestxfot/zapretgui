@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Константы
 _INI_SECTION = "premium"
 _INI_LOCK = threading.Lock()
+DONATER_STORAGE_VERSION = "premium.ini-v3-atomic"
 
 #
 # API server validates subscription locally (on bot server) and talks to remote keys storage itself.
@@ -439,6 +440,10 @@ class APIClient:
         self.device_id = RegistryManager.get_device_id()
         self.device_token = RegistryManager.get_device_token()
         try:
+            logger.info(f"Donate storage: {DONATER_STORAGE_VERSION} ({RegistryManager._get_premium_ini_path()})")
+        except Exception:
+            pass
+        try:
             logger.info(f"API hosts: {', '.join(self.base_urls) or self.base_url}")
         except Exception:
             pass
@@ -700,6 +705,11 @@ class APIClient:
             if not ok:
                 return False, "Не удалось сохранить device_token (premium.ini)"
             self.device_token = token
+            try:
+                saved = RegistryManager.get_device_token() or ""
+                logger.info(f"device_token saved: {'✅' if saved else '❌'} ({saved[:8]}...)")
+            except Exception:
+                pass
 
             message = str(signed.get("message") or "Ключ активирован")
             logger.info(f"✅ Activation successful: {message}")
@@ -713,11 +723,13 @@ class APIClient:
         """Проверка статуса устройства"""
         # Try API first (if response is validly signed, it overrides/clears cache immediately).
         nonce = secrets.token_urlsafe(16)
-        self.device_token = RegistryManager.get_device_token()
-        sent_device_token = self.device_token or ""
+        token_from_storage = RegistryManager.get_device_token()
+        if token_from_storage:
+            self.device_token = token_from_storage
+        sent_device_token = (self.device_token or "").strip()
         signed, result, _ = self._signed_post_best(
             "check_device",
-            {"device_id": self.device_id, "device_token": self.device_token, "nonce": nonce},
+            {"device_id": self.device_id, "device_token": sent_device_token, "nonce": nonce},
             nonce=nonce,
             prefer_activated=True,
         )
