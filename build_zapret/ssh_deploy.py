@@ -26,7 +26,7 @@ VPS_SERVERS = [
         'host': '185.114.116.232',
         'port': 22,
         'user': 'root',
-        'password': 'MuN24tvDGL',  # ← Вход по паролю
+        'password': ',^A4=;,%&?-D-n>\@&XEWZj:ALhX>pP.YW'?7YdK;HHmKrinxJU"F/y.=',
         'key_path': None,
         'key_password': None,
         'upload_dir': '/var/www/zapret/download',

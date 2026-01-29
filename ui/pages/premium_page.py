@@ -305,6 +305,20 @@ class PremiumPage(BasePage):
         # ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ
         # ═══════════════════════════════════════════════════════════
         self.add_section_title("Информация об устройстве")
+
+        # Быстрая кнопка для открытия бота (дублирует действие "Продлить подписку")
+        bot_row = QHBoxLayout()
+        bot_row.setSpacing(8)
+        bot_row.addStretch()
+
+        self.open_bot_btn = ActionButton("Открыть бота", "fa5b.telegram", accent=True)
+        self.open_bot_btn.setFixedHeight(32)
+        self.open_bot_btn.clicked.connect(self._open_extend_bot)
+        bot_row.addWidget(self.open_bot_btn)
+
+        bot_row_widget = QWidget()
+        bot_row_widget.setLayout(bot_row)
+        self.add_widget(bot_row_widget)
         
         device_card = AnimatedCard(delay=200)
         self._animated_cards.append(device_card)
@@ -397,7 +411,7 @@ class PremiumPage(BasePage):
         
         self.extend_btn = ActionButton("Продлить подписку", "fa5b.telegram", accent=True)
         self.extend_btn.setFixedHeight(36)
-        self.extend_btn.clicked.connect(lambda: open_telegram_link("zapretvpns_bot"))
+        self.extend_btn.clicked.connect(self._open_extend_bot)
         row2.addWidget(self.extend_btn)
         
         row2.addStretch()
@@ -405,6 +419,19 @@ class PremiumPage(BasePage):
         
         actions_card.add_layout(actions_layout)
         self.add_widget(actions_card)
+
+    def _open_extend_bot(self) -> None:
+        """Открывает бота для продления подписки."""
+        try:
+            from config.telegram_links import open_telegram_link
+            open_telegram_link("zapretvpns_bot")
+            return
+        except Exception:
+            # Fallback: open via browser even if Telegram handler detection fails.
+            try:
+                webbrowser.open("https://t.me/zapretvpns_bot")
+            except Exception as e:
+                QMessageBox.warning(self, "Ошибка", f"Не удалось открыть Telegram: {e}")
         
     def _update_device_info(self):
         """Обновляет информацию об устройстве"""

@@ -36,6 +36,9 @@
   #define IconFile "Zapret2.ico"
 #endif
 
+; Имя ярлыков (Start Menu / Desktop) с версией
+#define ShortcutName AppName + " v" + VERSION
+
 ; Иконка установщика: ожидаем в {#SOURCEPATH}\ico\{#IconFile},
 ; но делаем fallback, чтобы сборка не падала на чистом окружении.
 #define _ICON_FROM_SOURCE AddBackslash(SOURCEPATH) + "ico\\" + IconFile
@@ -102,9 +105,9 @@ Source: "{#SOURCEPATH}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; F
 Source: "{#SOURCEPATH}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
-Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\Zapret.exe"
-Name: "{commondesktop}\{#AppName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
+Name: "{group}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
+Name: "{group}\Удалить {#ShortcutName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\Zapret.exe"
+Name: "{commondesktop}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: desktopicon; Description: "Создать ярлык на рабочем столе";
@@ -115,8 +118,13 @@ Type: filesandordirs; Name: "{commonappdata}\Zapret2Dev"
 Type: filesandordirs; Name: "{commonappdata}\Zapret2"
 Type: filesandordirs; Name: "{commonappdata}\ZapretDev"
 Type: filesandordirs; Name: "{commonappdata}\Zapret"
-; Удаляем только ярлык ТЕКУЩЕЙ версии перед созданием нового
+; Удаляем старые ярлыки (без версии и с версией), чтобы не копились при обновлениях
 Type: files; Name: "{commondesktop}\{#AppName}.lnk"
+Type: files; Name: "{commondesktop}\{#AppName} v*.lnk"
+Type: files; Name: "{group}\{#AppName}.lnk"
+Type: files; Name: "{group}\{#AppName} v*.lnk"
+Type: files; Name: "{group}\Удалить {#AppName}.lnk"
+Type: files; Name: "{group}\Удалить {#AppName} v*.lnk"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
