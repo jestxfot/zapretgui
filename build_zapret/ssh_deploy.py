@@ -8,6 +8,7 @@ SSH деплой на несколько VPS серверов с автомат�
 import paramiko
 import os
 import subprocess
+import re
 from pathlib import Path
 from typing import Optional, Any, List, Dict
 import json
@@ -18,6 +19,44 @@ import tempfile
 # КОНФИГУРАЦИЯ СЕРВЕРОВ
 # ═══════════════════════════════════════════════════════════════
 
+def _load_dotenv_if_present() -> None:
+    """
+    Minimal .env loader (no external dependency).
+    - Only sets keys that are not already present in process env.
+    - Supports plain KEY=VALUE and quoted KEY="VALUE"/KEY='VALUE'.
+    """
+    if os.environ.get("ZAPRET_DISABLE_DOTENV") == "1":
+        return
+
+    try:
+        start_dir = Path(__file__).resolve().parent
+    except Exception:
+        start_dir = Path.cwd()
+
+    for parent in (start_dir, *start_dir.parents):
+        dotenv_path = parent / ".env"
+        if dotenv_path.exists() and dotenv_path.is_file():
+            try:
+                for raw_line in dotenv_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    if not key or key in os.environ:
+                        continue
+                    value = value.strip()
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                        value = value[1:-1]
+                    os.environ[key] = value
+            except Exception:
+                pass
+            return
+
+_load_dotenv_if_present()
+
 VPS_SERVERS = [
     # ═══ НОВЫЙ ОСНОВНОЙ СЕРВЕР (вход по паролю) ═══
     {
@@ -26,7 +65,8 @@ VPS_SERVERS = [
         'host': '185.114.116.232',
         'port': 22,
         'user': 'root',
-        'password': ',^A4=;,%&?-D-n>\@&XEWZj:ALhX>pP.YW'?7YdK;HHmKrinxJU"F/y.=',
+        'password': None,
+        'password_env': 'ZAPRET_VPS_SUPER_PASSWORD',
         'key_path': None,
         'key_password': None,
         'upload_dir': '/var/www/zapret/download',
@@ -41,7 +81,8 @@ VPS_SERVERS = [
         'host': '45.144.30.84',
         'port': 22,
         'user': 'root',
-        'password': '105SuT4QnL59',  # ← Вход по паролю
+        'password': None,
+        'password_env': 'ZAPRET_VPS0_PASSWORD',
         'key_path': None,
         'key_password': None,
         'upload_dir': '/var/www/zapret/download',
@@ -70,6 +111,24 @@ VPS_SERVERS = [
 # ═══════════════════════════════════════════════════════════════
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ═══════════════════════════════════════════════════════════════
+
+def _normalize_env_key(value: str) -> str:
+    return re.sub(r'[^A-Za-z0-9]+', '_', value).upper().strip('_')
+
+def _password_env_name(server_config: Dict[str, Any]) -> str:
+    explicit = server_config.get('password_env')
+    if explicit:
+        return explicit
+    server_id = server_config.get('id') or ""
+    if server_id:
+        return f"ZAPRET_{_normalize_env_key(server_id)}_PASSWORD"
+    return "ZAPRET_SSH_PASSWORD"
+
+def _resolve_password(server_config: Dict[str, Any]) -> Optional[str]:
+    password = server_config.get('password')
+    if password:
+        return password
+    return os.environ.get(_password_env_name(server_config)) or None
 
 def convert_key_to_pem(key_path: str, password: str = None) -> Optional[str]:
     """Конвертирует OpenSSH ключ в PEM формат для Paramiko"""
@@ -102,7 +161,7 @@ def is_ssh_configured() -> bool:
     
     for server in VPS_SERVERS:
         # Сервер с паролем или с существующим ключом
-        if server.get('password'):
+        if _resolve_password(server):
             return True
         key_path = server.get('key_path')
         if key_path and Path(key_path).exists():
@@ -123,7 +182,7 @@ def get_ssh_config_info() -> str:
     count = len(VPS_SERVERS)
     first = VPS_SERVERS[0]
     
-    auth_type = "пароль" if first.get('password') else "ключ"
+    auth_type = "пароль" if not first.get('key_path') else "ключ"
     
     if count == 1:
         return f"SSH настроен (1 сервер, {auth_type}): {first['user']}@{first['host']}"
@@ -146,7 +205,7 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
     host = server_config['host']
     port = server_config['port']
     user = server_config['user']
-    password = server_config.get('password')
+    password = _resolve_password(server_config)
     key_path = server_config.get('key_path')
     key_password = server_config.get('key_password')
     
@@ -155,6 +214,9 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
     pem_key_path = None
     
     try:
+        if not key_path and not password:
+            return None, None, f"Пароль не задан для {user}@{host}:{port}. Установите переменную окружения {_password_env_name(server_config)}"
+
         if password and not key_path:
             # ═══ ВХОД ПО ПАРОЛЮ ═══
             log_func(f"🔑 Подключение по паролю к {user}@{host}:{port}...")
