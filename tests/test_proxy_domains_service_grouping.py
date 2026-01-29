@@ -41,7 +41,33 @@ class ProxyDomainsServiceGroupingTests(unittest.TestCase):
         self.assertFalse(_service_has_proxy_ips(cat, "DirectOnly"))
         self.assertTrue(_service_has_proxy_ips(cat, "HasProxy"))
 
+    def test_raw_hosts_lines_are_parsed_as_direct_only_domain_services(self):
+        text = "\n".join(
+            [
+                "[DNS]",
+                "Zapret DNS",
+                "XBOX DNS",
+                "Comss DNS",
+                "Вкл. (активировать hosts)",
+                "",
+                "[Supercell]",
+                "144.31.14.104 accounts.supercell.com",
+                "185.246.223.127 game-assets.clashofclans.com",
+                "",
+            ]
+        )
+
+        cat = _parse_hosts_ini(text)
+        self.assertIn("accounts.supercell.com", cat.services)
+        self.assertNotIn("Supercell", cat.services)  # do not create empty service sections
+
+        direct_idx = _infer_direct_profile_index(cat)
+        self.assertEqual(direct_idx, 3)
+
+        ips = cat.services["accounts.supercell.com"]["accounts.supercell.com"]
+        self.assertEqual(ips[direct_idx], "144.31.14.104")
+        self.assertFalse(_service_has_proxy_ips(cat, "accounts.supercell.com"))
+
 
 if __name__ == "__main__":
     unittest.main()
-

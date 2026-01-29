@@ -6,7 +6,7 @@ import re
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QMessageBox, QComboBox, QScrollArea, QFrame, QLayout
+    QPushButton, QMessageBox, QComboBox, QScrollArea, QFrame, QLayout, QCheckBox
 )
 import qtawesome as qta
 
@@ -15,6 +15,12 @@ from ui.sidebar import SettingsCard
 from ui.pages.strategies_page_base import ResetActionButton
 from log import log
 from utils import get_system32_path
+
+try:
+    # Simple Win11 toggle without text (QCheckBox-based).
+    from ui.pages.dpi_settings_page import Win11ToggleSwitch as Win11ToggleSwitchNoText
+except Exception:
+    Win11ToggleSwitchNoText = QCheckBox  # type: ignore[misc,assignment]
 
 
 FLUENT_COMBO_STYLE = """
@@ -356,26 +362,42 @@ class HostsPage(BasePage):
 
                 if direct_only:
                     enabled = infer_direct_toggle_from_hosts(service_name)
+                    if isinstance(combo, QCheckBox):
+                        can_toggle = bool(direct_profile and direct_profile in available)
+                        combo.setEnabled(can_toggle)
+                        combo.blockSignals(True)
+                        combo.setChecked(bool(enabled and can_toggle))
+                        combo.blockSignals(False)
+                        if combo.isChecked() and direct_profile:
+                            new_selection[service_name] = direct_profile
+                        self._update_profile_row_visual(service_name)
+                        continue
                     if enabled and direct_profile and direct_profile in available:
                         inferred = direct_profile
                 else:
                     inferred = infer_profile_from_hosts(service_name, available)
 
                 if inferred:
-                    idx = combo.findData(inferred)
-                    if idx >= 0:
-                        combo.blockSignals(True)
-                        combo.setCurrentIndex(idx)
-                        combo.blockSignals(False)
-                        new_selection[service_name] = inferred
-                    else:
+                    if isinstance(combo, QComboBox):
+                        idx = combo.findData(inferred)
+                        if idx >= 0:
+                            combo.blockSignals(True)
+                            combo.setCurrentIndex(idx)
+                            combo.blockSignals(False)
+                            new_selection[service_name] = inferred
+                        else:
+                            combo.blockSignals(True)
+                            combo.setCurrentIndex(0)
+                            combo.blockSignals(False)
+                else:
+                    if isinstance(combo, QComboBox):
                         combo.blockSignals(True)
                         combo.setCurrentIndex(0)
                         combo.blockSignals(False)
-                else:
-                    combo.blockSignals(True)
-                    combo.setCurrentIndex(0)
-                    combo.blockSignals(False)
+                    elif isinstance(combo, QCheckBox):
+                        combo.blockSignals(True)
+                        combo.setChecked(False)
+                        combo.blockSignals(False)
 
                 self._update_profile_row_visual(service_name)
         finally:
@@ -674,29 +696,42 @@ class HostsPage(BasePage):
         changed = False
         skipped: list[str] = []
         for service_name in service_names:
-            combo = self.service_combos.get(service_name)
-            if not combo:
+            control = self.service_combos.get(service_name)
+            if not control:
                 continue
 
             available = list(get_service_available_dns_profiles(service_name) or [])
 
             target_profile = (profile_name or "").strip()
-            if target_profile:
-                if target_profile not in available:
-                    skipped.append(service_name)
-                    continue
-                target_idx = combo.findData(target_profile)
-                if target_idx < 0:
-                    skipped.append(service_name)
-                    continue
-            else:
-                target_idx = 0
+            if isinstance(control, QComboBox):
+                if target_profile:
+                    if target_profile not in available:
+                        skipped.append(service_name)
+                        continue
+                    target_idx = control.findData(target_profile)
+                    if target_idx < 0:
+                        skipped.append(service_name)
+                        continue
+                else:
+                    target_idx = 0
 
-            if combo.currentIndex() != target_idx:
-                combo.blockSignals(True)
-                combo.setCurrentIndex(target_idx)
-                combo.blockSignals(False)
-                changed = True
+                if control.currentIndex() != target_idx:
+                    control.blockSignals(True)
+                    control.setCurrentIndex(target_idx)
+                    control.blockSignals(False)
+                    changed = True
+            elif isinstance(control, QCheckBox):
+                if target_profile and target_profile not in available:
+                    skipped.append(service_name)
+                    continue
+                desired = bool(target_profile)
+                if control.isChecked() != desired:
+                    control.blockSignals(True)
+                    control.setChecked(desired)
+                    control.blockSignals(False)
+                    changed = True
+            else:
+                continue
 
             if not target_profile:
                 if service_name in self._service_dns_selection:
@@ -937,27 +972,18 @@ class HostsPage(BasePage):
                     name_label.setStyleSheet("color: #fff; font-size: 12px; font-weight: 600;")
                     row.addWidget(name_label, 1, Qt.AlignmentFlag.AlignVCenter)
 
-                    combo = QComboBox()
-                    self._configure_fluent_combo(combo)
-                    combo.setMinimumWidth(220)
-
                     # Откл. + доступные профили
                     available = get_service_available_dns_profiles(service_name) or []
-                    combo.addItem(OFF_LABEL, None)
 
                     is_direct_only = not get_service_has_geohide_ips(service_name)
                     if is_direct_only:
-                        # direct-only сервисы: отображаем как toggle (Вкл/Откл) вместо списка DNS.
-                        if direct_profile and direct_profile in available:
-                            combo.addItem(ON_LABEL, direct_profile)
-                    else:
-                        for profile_name in available:
-                            combo.addItem(_format_dns_profile_label(profile_name), profile_name)
+                        toggle = Win11ToggleSwitchNoText()
+                        can_toggle = bool(direct_profile and direct_profile in available)
+                        toggle.setEnabled(can_toggle)
 
-                    # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
-                    inferred: str | None = None
-                    if is_direct_only:
-                        if direct_profile and direct_profile in available:
+                        # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
+                        enabled = False
+                        if can_toggle:
                             try:
                                 enabled = any(
                                     (domain in active_domains_map)
@@ -965,36 +991,63 @@ class HostsPage(BasePage):
                                 )
                             except Exception:
                                 enabled = False
-                            inferred = direct_profile if enabled else None
+
+                        toggle.blockSignals(True)
+                        toggle.setChecked(bool(enabled and can_toggle))
+                        toggle.blockSignals(False)
+
+                        if toggle.isChecked():
+                            if self._service_dns_selection.get(service_name) != direct_profile:
+                                self._service_dns_selection[service_name] = direct_profile  # type: ignore[arg-type]
+                                selection_migrated = True
+                        else:
+                            if service_name in self._service_dns_selection:
+                                self._service_dns_selection.pop(service_name, None)
+                                selection_migrated = True
+
+                        toggle.toggled.connect(
+                            lambda checked, s=service_name: self._on_direct_toggle_changed(s, checked)
+                        )
+
+                        row.addWidget(toggle, 0, Qt.AlignmentFlag.AlignVCenter)
+                        card.add_layout(row)
+                        self.service_combos[service_name] = toggle
                     else:
+                        combo = QComboBox()
+                        self._configure_fluent_combo(combo)
+                        combo.setMinimumWidth(220)
+                        combo.addItem(OFF_LABEL, None)
+                        for profile_name in available:
+                            combo.addItem(_format_dns_profile_label(profile_name), profile_name)
+
+                        # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
                         inferred = infer_profile_from_hosts(service_name, available)
 
-                    if inferred:
-                        inferred_idx = combo.findData(inferred)
-                        if inferred_idx >= 0:
-                            combo.setCurrentIndex(inferred_idx)
-                            if self._service_dns_selection.get(service_name) != inferred:
-                                self._service_dns_selection[service_name] = inferred
-                                selection_migrated = True
+                        if inferred:
+                            inferred_idx = combo.findData(inferred)
+                            if inferred_idx >= 0:
+                                combo.setCurrentIndex(inferred_idx)
+                                if self._service_dns_selection.get(service_name) != inferred:
+                                    self._service_dns_selection[service_name] = inferred
+                                    selection_migrated = True
+                            else:
+                                combo.setCurrentIndex(0)
+                                if service_name in self._service_dns_selection:
+                                    self._service_dns_selection.pop(service_name, None)
+                                    selection_migrated = True
                         else:
                             combo.setCurrentIndex(0)
                             if service_name in self._service_dns_selection:
                                 self._service_dns_selection.pop(service_name, None)
                                 selection_migrated = True
-                    else:
-                        combo.setCurrentIndex(0)
-                        if service_name in self._service_dns_selection:
-                            self._service_dns_selection.pop(service_name, None)
-                            selection_migrated = True
 
-                    combo.currentIndexChanged.connect(
-                        lambda _idx, s=service_name, c=combo: self._on_profile_changed(s, c.currentData())
-                    )
-                    row.addWidget(combo, 0, Qt.AlignmentFlag.AlignVCenter)
+                        combo.currentIndexChanged.connect(
+                            lambda _idx, s=service_name, c=combo: self._on_profile_changed(s, c.currentData())
+                        )
+                        row.addWidget(combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
-                    card.add_layout(row)
-
-                    self.service_combos[service_name] = combo
+                        card.add_layout(row)
+                        self.service_combos[service_name] = combo
                     self.service_icon_labels[service_name] = icon_label
                     self.service_icon_base_colors[service_name] = icon_color
 
@@ -1026,6 +1079,35 @@ class HostsPage(BasePage):
         except Exception:
             pass
         return None
+
+    def _on_direct_toggle_changed(self, service_name: str, checked: bool) -> None:
+        if getattr(self, "_building_services_ui", False):
+            self._update_profile_row_visual(service_name)
+            return
+        if self._applying:
+            self._update_profile_row_visual(service_name)
+            return
+
+        direct_profile = self._get_direct_profile_name()
+        if not direct_profile:
+            # Strict: without an explicit "direct"/"Вкл. (активировать hosts)" profile we can never apply hosts.
+            control = self.service_combos.get(service_name)
+            if isinstance(control, QCheckBox):
+                control.blockSignals(True)
+                control.setChecked(False)
+                control.blockSignals(False)
+                control.setEnabled(False)
+            self._service_dns_selection.pop(service_name, None)
+            self._update_profile_row_visual(service_name)
+            return
+
+        if checked:
+            self._service_dns_selection[service_name] = direct_profile
+        else:
+            self._service_dns_selection.pop(service_name, None)
+
+        self._update_profile_row_visual(service_name)
+        self._apply_current_selection()
         
     def _build_adobe_section(self):
         self.add_section_title("Дополнительно")
@@ -1141,8 +1223,12 @@ class HostsPage(BasePage):
         if not combo or not icon_label:
             return
 
-        selected = combo.currentText().strip()
-        enabled = bool(selected) and selected != OFF_LABEL
+        enabled = False
+        if isinstance(combo, QComboBox):
+            selected = combo.currentText().strip()
+            enabled = bool(selected) and selected != OFF_LABEL
+        elif isinstance(combo, QCheckBox):
+            enabled = bool(combo.isChecked())
         color = base_color if enabled else "#808080"
         icon_name = None
         for i_name, n, _c in QUICK_SERVICES:
@@ -1229,10 +1315,15 @@ class HostsPage(BasePage):
         was_building = getattr(self, "_building_services_ui", False)
         self._building_services_ui = True
         try:
-            for combo in self.service_combos.values():
-                combo.blockSignals(True)
-                combo.setCurrentIndex(0)
-                combo.blockSignals(False)
+            for control in self.service_combos.values():
+                if isinstance(control, QComboBox):
+                    control.blockSignals(True)
+                    control.setCurrentIndex(0)
+                    control.blockSignals(False)
+                elif isinstance(control, QCheckBox):
+                    control.blockSignals(True)
+                    control.setChecked(False)
+                    control.blockSignals(False)
         finally:
             self._building_services_ui = was_building
 

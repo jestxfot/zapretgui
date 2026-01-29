@@ -98,6 +98,11 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
     pending_domain: str | None = None
     pending_ips: list[str] = []
 
+    def ensure_service(service_name: str) -> None:
+        if service_name not in services:
+            services[service_name] = {}
+            service_order.append(service_name)
+
     def flush_domain() -> None:
         nonlocal pending_domain, pending_ips
         if not current_section:
@@ -112,7 +117,8 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
             return
 
         if pending_domain:
-            services.setdefault(sec, {})[pending_domain] = list(pending_ips)
+            ensure_service(sec)
+            services[sec][pending_domain] = list(pending_ips)
         pending_domain = None
         pending_ips = []
 
@@ -133,10 +139,6 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
         if line.startswith("[") and line.endswith("]"):
             flush_section()
             current_section = line[1:-1].strip()
-            if current_section and current_section.strip().lower() not in _SPECIAL_SECTIONS:
-                if current_section not in services:
-                    services[current_section] = {}
-                    service_order.append(current_section)
             continue
 
         if not current_section:
@@ -146,6 +148,46 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
         if sec_norm == "dns":
             dns_profiles.append(line)
             continue
+
+        # Service section: support both catalog format and raw hosts lines.
+        #
+        # 1) Catalog format:
+        #    domain.tld
+        #    ip_for_profile_0
+        #    ip_for_profile_1
+        #    ...
+        #
+        # 2) Raw hosts lines:
+        #    1.2.3.4 domain.tld
+        #
+        # Raw hosts lines are treated as direct-only entries (IP only in the "direct" profile column).
+        parts = line.split()
+        if len(parts) >= 2:
+            ip_candidate = parts[0].strip()
+            host_candidate = parts[1].strip()
+            if (
+                ip_candidate.count(".") == 3
+                and all(p.isdigit() for p in ip_candidate.split("."))
+                and host_candidate
+            ):
+                # We are switching mode: raw hosts lines don't belong to the pending domain block.
+                flush_domain()
+
+                # Strict direct-only support: we only place the IP into the explicit "direct" profile column.
+                direct_idx: int | None = None
+                for i, profile_name in enumerate(dns_profiles):
+                    if _is_direct_profile_name(profile_name):
+                        direct_idx = i
+                        break
+
+                ips = [""] * len(dns_profiles)
+                if direct_idx is not None and direct_idx < len(ips):
+                    ips[direct_idx] = ip_candidate
+
+                # Per-domain toggles in UI: store each raw-host entry as its own "service".
+                ensure_service(host_candidate)
+                services[host_candidate][host_candidate] = ips
+                continue
 
         # Service section: domain line then N IP lines
         if pending_domain is None:
