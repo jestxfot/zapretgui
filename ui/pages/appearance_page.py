@@ -1,13 +1,13 @@
 # ui/pages/appearance_page.py
 """Страница настроек оформления - темы"""
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider,
     QStyle, QStyleOption, QStyleOptionSlider,
 )
-from PyQt6.QtGui import QWheelEvent, QPainter
+from PyQt6.QtGui import QWheelEvent, QPainter, QColor
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -86,6 +86,8 @@ class AcrylicSlider(PreciseSlider):
         super().__init__(orientation, parent)
         self.setMouseTracking(True)
         self.setFixedHeight(24)
+        self._track_height = 6.0
+        self._handle_diameter = 16.0
         # Делаем максимально контрастным для тёмных тем (включая "Темная синяя")
         # и для полупрозрачного окна/карточек.
         self.setStyleSheet(
@@ -93,41 +95,101 @@ class AcrylicSlider(PreciseSlider):
             QSlider::groove:horizontal {
                 height: 6px;
                 border-radius: 3px;
-                background: rgba(255, 255, 255, 0.20);
+                background: transparent;
             }
             QSlider::sub-page:horizontal {
                 height: 6px;
                 border-radius: 3px;
-                background: #60cdff;
+                background: transparent;
             }
             QSlider::add-page:horizontal {
                 height: 6px;
                 border-radius: 3px;
-                background: rgba(255, 255, 255, 0.12);
+                background: transparent;
             }
             QSlider::handle:horizontal {
                 width: 16px;
                 height: 16px;
                 margin: -6px 0px;
                 border-radius: 8px;
-                background: #60cdff;
-                border: 1px solid rgba(0, 0, 0, 0.30);
+                background: transparent;
+                border: none;
             }
             QSlider::handle:horizontal:hover {
-                background: #7dd8ff;
+                background: transparent;
             }
             QSlider::groove:horizontal:disabled {
-                background: rgba(255, 255, 255, 0.12);
+                background: transparent;
             }
             QSlider::sub-page:horizontal:disabled {
-                background: rgba(96, 205, 255, 0.45);
+                background: transparent;
             }
             QSlider::handle:horizontal:disabled {
-                background: rgba(96, 205, 255, 0.45);
-                border: 1px solid rgba(0, 0, 0, 0.18);
+                background: transparent;
+                border: none;
             }
             """
         )
+
+    def paintEvent(self, event):  # noqa: N802 (Qt override)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+
+        groove = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self
+        )
+
+        track_h = float(self._track_height)
+        track_y = groove.center().y() - (track_h / 2.0)
+        track_rect = QRectF(groove.left(), track_y, groove.width(), track_h)
+        track_radius = track_h / 2.0
+
+        enabled = self.isEnabled()
+        accent = QColor("#60cdff")
+        accent_hover = QColor("#7dd8ff")
+        if not enabled:
+            accent.setAlphaF(0.45)
+            accent_hover.setAlphaF(0.45)
+
+        track_bg = QColor(255, 255, 255, int(255 * 0.20))
+        track_remaining = QColor(255, 255, 255, int(255 * 0.12))
+        if not enabled:
+            track_bg.setAlphaF(0.12)
+            track_remaining.setAlphaF(0.08)
+
+        # Фон трека
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(track_bg)
+        painter.drawRoundedRect(track_rect, track_radius, track_radius)
+
+        # Заполненная часть
+        span = self.maximum() - self.minimum()
+        ratio = 0.0 if span <= 0 else (self.value() - self.minimum()) / float(span)
+        ratio = max(0.0, min(1.0, ratio))
+        fill_w = track_rect.width() * ratio
+
+        # Незаполненная часть (отрисуем поверх фона, чтобы быть чуть темнее)
+        if fill_w < track_rect.width():
+            remaining_rect = QRectF(track_rect.left() + fill_w, track_rect.top(), track_rect.width() - fill_w, track_rect.height())
+            painter.setBrush(track_remaining)
+            painter.drawRoundedRect(remaining_rect, track_radius, track_radius)
+
+        if fill_w > 0.0:
+            fill_rect = QRectF(track_rect.left(), track_rect.top(), fill_w, track_rect.height())
+            painter.setBrush(accent_hover if self.underMouse() else accent)
+            painter.drawRoundedRect(fill_rect, track_radius, track_radius)
+
+        # Хэндл — чистая синяя точка без обводки
+        handle_d = float(self._handle_diameter)
+        cx = track_rect.left() + fill_w
+        cx = max(track_rect.left(), min(cx, track_rect.right()))
+        cy = track_rect.center().y()
+        handle_rect = QRectF(cx - handle_d / 2.0, cy - handle_d / 2.0, handle_d, handle_d)
+        painter.setBrush(accent_hover if (self.underMouse() or self.isSliderDown()) else accent)
+        painter.drawEllipse(handle_rect)
 
 
 # Цвета для превью тем
