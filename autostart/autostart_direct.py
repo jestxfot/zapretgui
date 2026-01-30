@@ -148,6 +148,7 @@ def setup_direct_autostart_service(
     winws_exe: str,
     strategy_args: List[str],
     strategy_name: str = "direct_zapret2",
+    registry_method: str = "direct_boot",
     ui_error_cb: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
@@ -262,7 +263,7 @@ def setup_direct_autostart_service(
             log(f"Задача {DIRECT_BOOT_TASK_NAME} создана (запуск при загрузке)", "✅ SUCCESS")
             
             # Обновляем статус в реестре
-            set_autostart_enabled(True, "direct_boot")
+            set_autostart_enabled(True, registry_method)
             
             if ui_error_cb:
                 ui_error_cb(
@@ -455,15 +456,10 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
                 log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
                 return [], f"Пресет: {preset_name}", winws_exe
 
-            args: List[str] = []
-            with open(preset_path, "r", encoding="utf-8") as f:
-                for raw in f:
-                    line = raw.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    args.append(line)
-
-            log(f"Собрано {len(args)} аргументов из preset файла", "INFO")
+            # winws2.exe поддерживает загрузку аргументов из файла через формат @file.
+            # Это сильно сокращает командную строку для задач/служб.
+            args = [f"@{preset_path}"]
+            log(f"DirectZ2 autostart: используем preset файл как @config: {preset_path}", "INFO")
             return args, f"Пресет: {preset_name}", winws_exe
 
         # Получаем выборы стратегий

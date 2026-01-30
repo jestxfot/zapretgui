@@ -904,7 +904,9 @@ class AutostartPage(BasePage):
     
     def _setup_direct_service(self):
         """Служба Windows для Direct режима"""
+        from strategy_menu import get_strategy_launch_method
         from autostart.autostart_direct import collect_direct_strategy_args
+        from autostart.autostart_direct import setup_direct_autostart_service
         from autostart.autostart_direct_service import setup_direct_service
         
         if not self.app_instance:
@@ -915,6 +917,24 @@ class AutostartPage(BasePage):
         
         if not args or not winws_exe:
             log("Не удалось собрать аргументы стратегии", "ERROR")
+            return
+
+        # direct_zapret2: вместо NSSM/службы делаем boot-задачу планировщика (без длинной команды),
+        # но показываем это как "служба" в UI (и сохраняем метод как direct_service).
+        method = get_strategy_launch_method()
+        if method == "direct_zapret2":
+            ok = setup_direct_autostart_service(
+                winws_exe=winws_exe,
+                strategy_args=args,
+                strategy_name=name,
+                registry_method="direct_service",
+                ui_error_cb=lambda msg: log(msg, "ERROR"),
+            )
+
+            if ok:
+                self._current_autostart_type = "service"
+                self.update_status(True, name, "service")
+                self.autostart_enabled.emit()
             return
         
         ok = setup_direct_service(
