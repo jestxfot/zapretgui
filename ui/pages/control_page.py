@@ -261,19 +261,6 @@ class ControlPage(BasePage):
         defender_row.set_control(self.defender_toggle)
         program_settings_card.add_widget(defender_row)
 
-        # Windows Terminal
-        wt_row = SettingsRow(
-            "fa5s.terminal",
-            "Удалять Windows Terminal",
-            "Помогает избежать проблем на Windows 11",
-        )
-        self.remove_wt_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
-        self.remove_wt_toggle.setProperty("noDrag", True)
-        if hasattr(self.remove_wt_toggle, "toggled"):
-            self.remove_wt_toggle.toggled.connect(self._on_remove_wt_toggled)
-        wt_row.set_control(self.remove_wt_toggle)
-        program_settings_card.add_widget(wt_row)
-
         # MAX blocker
         max_row = SettingsRow(
             "fa5s.ban",
@@ -391,13 +378,6 @@ class ControlPage(BasePage):
         except Exception:
             pass
 
-        # Удаление Windows Terminal
-        try:
-            from startup import get_remove_windows_terminal
-            self._set_toggle_checked(self.remove_wt_toggle, bool(get_remove_windows_terminal()))
-        except Exception:
-            pass
-
         # Windows Defender (реальное состояние системы)
         try:
             from altmenu.defender_manager import WindowsDefenderManager
@@ -431,30 +411,6 @@ class ControlPage(BasePage):
             )
             self._set_status(msg)
             QMessageBox.information(self, "Автозагрузка DPI", msg)
-        finally:
-            self._sync_program_settings()
-
-    def _on_remove_wt_toggled(self, enabled: bool) -> None:
-        try:
-            from startup import set_remove_windows_terminal
-            set_remove_windows_terminal(bool(enabled))
-
-            msg = (
-                "Windows Terminal будет удаляться при запуске программы"
-                if enabled
-                else "Удаление Windows Terminal отключено"
-            )
-            self._set_status(msg)
-
-            if not enabled:
-                warning_msg = (
-                    "Внимание! Windows Terminal может мешать работе программы.\n\n"
-                    "Если у вас возникнут проблемы с работой DPI-обхода, "
-                    "рекомендуется включить эту опцию обратно."
-                )
-                QMessageBox.warning(self, "Предупреждение", warning_msg)
-            else:
-                QMessageBox.information(self, "Удаление Windows Terminal", msg)
         finally:
             self._sync_program_settings()
 

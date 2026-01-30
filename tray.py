@@ -89,6 +89,38 @@ class SystemTrayManager:
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
+        # Прозрачность окна (быстрые пресеты + способ восстановить видимость)
+        opacity_menu = menu.addMenu("Прозрачность окна")
+        if HAS_QTAWESOME:
+            opacity_menu.setIcon(qta.icon('fa5s.adjust', color='#60cdff'))
+
+        def set_opacity(value: int):
+            try:
+                from config.reg import set_window_opacity as _set_window_opacity
+                _set_window_opacity(value)
+            except Exception:
+                pass
+
+            try:
+                if hasattr(self.parent, "set_window_opacity"):
+                    self.parent.set_window_opacity(value)
+                if hasattr(self.parent, "appearance_page") and self.parent.appearance_page:
+                    self.parent.appearance_page.set_opacity_value(value)
+            except Exception:
+                pass
+
+        presets = [
+            (100, "100% (непрозрачное)"),
+            (75, "75%"),
+            (50, "50%"),
+            (25, "25%"),
+            (0, "0% (полностью прозрачное)"),
+        ]
+        for value, title in presets:
+            act = QAction(title, self.parent)
+            act.triggered.connect(lambda checked=False, v=value: set_opacity(v))
+            opacity_menu.addAction(act)
+
         menu.addSeparator()
 
         # консоль

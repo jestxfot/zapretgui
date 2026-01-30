@@ -1497,7 +1497,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         """Устанавливает прозрачность окна (0-100%)"""
         try:
             # Преобразуем процент в значение 0.0-1.0
-            opacity = max(0.1, min(1.0, value / 100.0))  # Минимум 0.1 чтобы окно не исчезло
+            opacity = max(0.0, min(1.0, value / 100.0))
             self.setWindowOpacity(opacity)
             log(f"Прозрачность окна установлена: {value}%", "DEBUG")
         except Exception as e:
@@ -1813,27 +1813,25 @@ def main():
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
             from startup.check_start import display_startup_warnings
-            from startup.remove_terminal import remove_windows_terminal_if_win11
             from startup.admin_check_debug import debug_admin_status
-            
+
             preload_service_status("BFE")
-            
+
             if not ensure_bfe_running(show_ui=True):
                 log("BFE не запущен, продолжаем работу после предупреждения", "⚠ WARNING")
-            
+
             # ✅ ТОЛЬКО НЕКРИТИЧЕСКИЕ ПРОВЕРКИ (пути, команды, архив)
             warnings_ok = display_startup_warnings()
             if not warnings_ok and not start_in_tray:
                 log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
-            
-            remove_windows_terminal_if_win11()
+
             debug_admin_status()
             set_batfile_association()
-            
+
             atexit.register(bfe_cleanup)
-            
+
             log("✅ Все проверки пройдены", "🔹 main")
-            
+
         except Exception as e:
             log(f"Ошибка при асинхронных проверках: {e}", "❌ ERROR")
             if hasattr(window, 'set_status'):

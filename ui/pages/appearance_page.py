@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider,
     QStyle, QStyleOptionSlider,
 )
-from PyQt6.QtGui import QWheelEvent, QPainter, QColor, QPen
+from PyQt6.QtGui import QWheelEvent
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -80,91 +80,54 @@ class PreciseSlider(QSlider):
 
 
 class AcrylicSlider(PreciseSlider):
-    """Кастомный слайдер без QSS, чтобы на 100% не оставался "хвост" справа (Win10)."""
+    """Обычный QSlider со стилем через QSS (более предсказуемый и всегда видимый)."""
 
     def __init__(self, orientation: Qt.Orientation, parent=None):
         super().__init__(orientation, parent)
         self.setMouseTracking(True)
-        self._hovered = False
-        self._track_height = 4
-        self._handle_diameter = 16
         self.setFixedHeight(24)
-
-    def _ratio(self) -> float:
-        minimum = self.minimum()
-        maximum = self.maximum()
-        if maximum <= minimum:
-            return 1.0
-        r = (self.value() - minimum) / (maximum - minimum)
-        return max(0.0, min(1.0, float(r)))
-
-    def _handle_center_x(self) -> float:
-        handle_radius = self._handle_diameter / 2
-        span = max(1.0, self.width() - self._handle_diameter)
-        return handle_radius + span * self._ratio()
-
-    def _value_from_pos(self, pos) -> int:
-        if self.orientation() != Qt.Orientation.Horizontal:
-            return super()._value_from_pos(pos)
-
-        handle_radius = self._handle_diameter / 2
-        span = max(1.0, self.width() - self._handle_diameter)
-        x = max(handle_radius, min(float(pos.x()), handle_radius + span))
-        r = (x - handle_radius) / span
-
-        minimum = self.minimum()
-        maximum = self.maximum()
-        if maximum <= minimum:
-            return maximum
-        return int(round(minimum + r * (maximum - minimum)))
-
-    def enterEvent(self, event):
-        self._hovered = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event):
-        if self.orientation() != Qt.Orientation.Horizontal:
-            return super().paintEvent(event)
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        track_y = (self.height() - self._track_height) / 2
-        track_radius = self._track_height / 2
-        handle_radius = self._handle_diameter / 2
-
-        bg = QColor(255, 255, 255, 26)  # ~0.10
-        fill = QColor("#60cdff")
-        handle = QColor("#7dd8ff" if self._hovered else "#60cdff")
-
-        if not self.isEnabled():
-            bg.setAlpha(16)
-            fill.setAlpha(96)
-            handle.setAlpha(96)
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg)
-        painter.drawRoundedRect(0, track_y, self.width(), self._track_height, track_radius, track_radius)
-
-        cx = self._handle_center_x()
-        fill_w = max(0.0, min(float(self.width()), cx))
-        if fill_w > 0:
-            painter.setBrush(fill)
-            painter.drawRoundedRect(0, track_y, fill_w, self._track_height, track_radius, track_radius)
-
-        cy = self.height() / 2
-        painter.setBrush(handle)
-        painter.drawEllipse(cx - handle_radius, cy - handle_radius, self._handle_diameter, self._handle_diameter)
-
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(0, 0, 0, 40), 1))
-        painter.drawEllipse(cx - handle_radius, cy - handle_radius, self._handle_diameter, self._handle_diameter)
+        # Делаем максимально контрастным для тёмных тем (включая "Темная синяя")
+        # и для полупрозрачного окна/карточек.
+        self.setStyleSheet(
+            """
+            QSlider::groove:horizontal {
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(255, 255, 255, 0.20);
+            }
+            QSlider::sub-page:horizontal {
+                height: 6px;
+                border-radius: 3px;
+                background: #60cdff;
+            }
+            QSlider::add-page:horizontal {
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QSlider::handle:horizontal {
+                width: 16px;
+                height: 16px;
+                margin: -6px 0px;
+                border-radius: 8px;
+                background: #60cdff;
+                border: 1px solid rgba(0, 0, 0, 0.30);
+            }
+            QSlider::handle:horizontal:hover {
+                background: #7dd8ff;
+            }
+            QSlider::groove:horizontal:disabled {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QSlider::sub-page:horizontal:disabled {
+                background: rgba(96, 205, 255, 0.45);
+            }
+            QSlider::handle:horizontal:disabled {
+                background: rgba(96, 205, 255, 0.45);
+                border: 1px solid rgba(0, 0, 0, 0.18);
+            }
+            """
+        )
 
 
 # Цвета для превью тем
@@ -724,7 +687,7 @@ class AppearancePage(BasePage):
 
         # Слайдер
         self._opacity_slider = AcrylicSlider(Qt.Orientation.Horizontal)
-        self._opacity_slider.setMinimum(10)  # Минимум 10% чтобы окно не стало невидимым
+        self._opacity_slider.setMinimum(0)
         self._opacity_slider.setMaximum(100)
         self._opacity_slider.setValue(100)
         self._opacity_slider.setSingleStep(1)

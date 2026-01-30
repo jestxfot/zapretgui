@@ -115,16 +115,26 @@ def run_bat_through_vbs(bat_path: str, cwd: str = None) -> subprocess.Popen:
     if not cwd:
         cwd = os.path.dirname(bat_path)
     
+    def _vbs_escape(s: str) -> str:
+        # VBScript string literal escaping: " -> ""
+        return (s or "").replace('"', '""')
+
     # Создаем VBS скрипт для скрытого запуска
+    escaped_cwd = _vbs_escape(cwd)
+    escaped_bat = _vbs_escape(bat_path)
+
     vbs_content = f'''
-Set objShell = CreateObject("Wscript.Shell")
-objShell.CurrentDirectory = "{cwd}"
-objShell.Run "cmd /c ""{bat_path}""", 0, False
+	Set objShell = CreateObject("Wscript.Shell")
+	objShell.CurrentDirectory = "{escaped_cwd}"
+	' cmd.exe quoting: cmd /c ""C:\\Path With Spaces\\file.bat""
+	objShell.Run "cmd /c """"{escaped_bat}""""", 0, False
 '''
     
     # Создаем временный VBS файл
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.vbs', delete=False) as f:
-        f.write(vbs_content)
+    # ВАЖНО: пишем VBS в UTF-16LE с BOM, чтобы корректно работало с Unicode-путями (кириллица и т.п.)
+    vbs_bytes = b"\xff\xfe" + vbs_content.lstrip("\n").encode("utf-16-le")
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".vbs", delete=False) as f:
+        f.write(vbs_bytes)
         vbs_path = f.name
     
     try:
