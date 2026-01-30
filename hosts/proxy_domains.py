@@ -74,11 +74,8 @@ def _get_catalog_hosts_ini_candidates() -> list[Path]:
     """
     root = _get_app_root()
 
-    # Dev fallback: some setups generate the catalog in a sibling repo (e.g. `../zapret/json/hosts.ini`).
-    # Keep it as an optional compatibility fallback.
     return [
         root / "json" / "hosts.ini",
-        root.parent / "zapret" / "json" / "hosts.ini",
     ]
 
 

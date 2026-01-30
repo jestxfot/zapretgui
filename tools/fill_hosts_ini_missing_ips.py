@@ -27,10 +27,7 @@ _MISSING_IP_MARKERS = {
 def _detect_hosts_ini_path() -> Path:
     root = Path(__file__).resolve().parent.parent
     local = root / "json" / "hosts.ini"
-    if local.exists():
-        return local
-    sibling = root.parent / "zapret" / "json" / "hosts.ini"
-    return sibling
+    return local
 
 
 def _is_section_header(line: str) -> bool:
@@ -185,4 +182,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
