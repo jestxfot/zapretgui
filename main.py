@@ -1856,13 +1856,58 @@ def main():
                 "Zapret работает в трее", 
                 "Приложение запущено в фоновом режиме"
             )
-                
+
     # ✅ НЕКРИТИЧЕСКИЕ ПРОВЕРКИ ПОСЛЕ ПОКАЗА ОКНА
-    def async_startup_checks():
-        """Выполняет некритические стартовые проверки асинхронно"""
+    # Важно: тяжёлые проверки должны выполняться НЕ в GUI-потоке, иначе окно "замирает".
+    from PyQt6.QtCore import QObject, pyqtSignal
+
+    class _StartupChecksBridge(QObject):
+        finished = pyqtSignal(dict)
+
+    _startup_bridge = _StartupChecksBridge()
+
+    def _on_startup_checks_finished(payload: dict) -> None:
+        try:
+            fatal_error = payload.get("fatal_error")
+            warnings = payload.get("warnings") or []
+            ok = bool(payload.get("ok", True))
+
+            if fatal_error:
+                try:
+                    QMessageBox.critical(window, "Ошибка", str(fatal_error))
+                except Exception:
+                    _native_message("Ошибка", str(fatal_error), 0x10)
+                QApplication.quit()
+                return
+
+            if warnings:
+                full_message = "\n\n".join([str(w) for w in warnings if w]) + "\n\nПродолжить работу?"
+                try:
+                    result = QMessageBox.warning(
+                        window,
+                        "Предупреждение",
+                        full_message,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    ok = (result == QMessageBox.StandardButton.Yes)
+                except Exception:
+                    btn = _native_message("Предупреждение", full_message, 0x34)  # MB_ICONWARNING | MB_YESNO
+                    ok = (btn == 6)  # IDYES
+
+            if not ok and not start_in_tray:
+                log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
+
+            log("✅ Все проверки пройдены", "🔹 main")
+        except Exception as e:
+            log(f"Ошибка при обработке результатов проверок: {e}", "❌ ERROR")
+
+    _startup_bridge.finished.connect(_on_startup_checks_finished)
+
+    def _startup_checks_worker():
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
-            from startup.check_start import display_startup_warnings
+            from startup.check_start import collect_startup_warnings
             from startup.admin_check_debug import debug_admin_status
 
             preload_service_status("BFE")
@@ -1870,25 +1915,38 @@ def main():
             if not ensure_bfe_running(show_ui=True):
                 log("BFE не запущен, продолжаем работу после предупреждения", "⚠ WARNING")
 
-            # ✅ ТОЛЬКО НЕКРИТИЧЕСКИЕ ПРОВЕРКИ (пути, команды, архив)
-            warnings_ok = display_startup_warnings()
-            if not warnings_ok and not start_in_tray:
-                log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
+            can_continue, warnings, fatal_error = collect_startup_warnings()
 
             debug_admin_status()
             set_batfile_association()
 
-            atexit.register(bfe_cleanup)
+            try:
+                atexit.register(bfe_cleanup)
+            except Exception:
+                pass
 
-            log("✅ Все проверки пройдены", "🔹 main")
-
+            _startup_bridge.finished.emit(
+                {
+                    "ok": bool(can_continue),
+                    "warnings": warnings,
+                    "fatal_error": fatal_error,
+                }
+            )
         except Exception as e:
             log(f"Ошибка при асинхронных проверках: {e}", "❌ ERROR")
             if hasattr(window, 'set_status'):
-                window.set_status(f"Ошибка проверок: {e}")
+                try:
+                    window.set_status(f"Ошибка проверок: {e}")
+                except Exception:
+                    pass
+            _startup_bridge.finished.emit({"ok": True, "warnings": [], "fatal_error": None})
 
-    # Запускаем проверки через 100ms после показа окна
-    QTimer.singleShot(100, async_startup_checks)
+    # Запускаем проверки через 100ms после показа окна (в фоне)
+    def _start_startup_checks():
+        import threading
+        threading.Thread(target=_startup_checks_worker, daemon=True).start()
+
+    QTimer.singleShot(100, _start_startup_checks)
     
     # Exception handler
     def global_exception_handler(exctype, value, traceback):
