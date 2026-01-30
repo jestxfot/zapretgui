@@ -165,7 +165,9 @@ def infer_strategy_id_from_args(
                 return strategy_id
 
     if not any_strategies_loaded:
-        return "none"
+        # Strategies catalog isn't available (first-run extract/update/etc).
+        # Keep the category enabled in UI when args are present.
+        return "custom"
 
     # Non-empty args that don't match any known strategy: keep category enabled in UI.
     return "custom"
