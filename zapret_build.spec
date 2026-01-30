@@ -14,13 +14,12 @@ a = Analysis(
     binaries=[],
     datas=[(r'\\wsl.localhost\Debian\home\privacy\zapretgui\build_zapret\zapret_certificate.cer', r'.')],  # ✅ Включаем сертификат и другие data файлы
 	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
-	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
-	        'ui',
-	        'ui.splash_screen',
-	        'ui.main_window', 
-	        'ui.theme',
-	        'ui.theme_subscription_manager',
-	        'ui.sidebar',
+		        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+		        'ui',
+		        'ui.main_window', 
+		        'ui.theme',
+		        'ui.theme_subscription_manager',
+		        'ui.sidebar',
 	        'ui.custom_titlebar',
 	        'ui.dialogs',
 	        'ui.dialogs.add_category_dialog',

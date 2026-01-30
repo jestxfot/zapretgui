@@ -23,7 +23,6 @@ class DPIManager(QObject):
         from config import get_dpi_autostart
         if not get_dpi_autostart():
             log("Автозапуск DPI отключён", "INFO")
-            self._finish_splash("Готово", "Автозапуск отключен")
             self._update_ui(running=False)
             return
 
@@ -45,15 +44,6 @@ class DPIManager(QObject):
         """Обновляет UI состояние"""
         if hasattr(self.app, 'ui_manager'):
             self.app.ui_manager.update_ui_state(running=running)
-    
-    def _update_splash(self, progress: int, message: str, subtitle: str = ""):
-        """Обновляет splash screen"""
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.set_progress(progress, message, subtitle)
-    
-    def _finish_splash(self, message: str, subtitle: str = ""):
-        """Завершает splash screen"""
-        self._update_splash(100, message, subtitle)
 
     def _start_direct_mode(self):
         """⚡ Запускает Direct режим (комбинированные стратегии)"""
@@ -78,7 +68,6 @@ class DPIManager(QObject):
         if combined.get('_active_categories', 0) == 0:
             log("Автозапуск пропущен: нет активных категорий", "INFO")
             self.app.set_status("⚠️ Выберите хотя бы одну категорию")
-            self._finish_splash("Готово", "Категории не выбраны")
             self._update_ui(running=False)
             return
         
@@ -95,7 +84,6 @@ class DPIManager(QObject):
 
         # Обновляем UI и запускаем
         self.app.current_strategy_name = "Прямой запуск"
-        self._update_splash(65, "Запуск Direct режима...")
         # ✅ Передаём актуальный launch_method (direct, direct_zapret2_orchestra, direct_zapret1)
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
@@ -109,7 +97,6 @@ class DPIManager(QObject):
 
         # Обновляем UI и запускаем
         self.app.current_strategy_name = strategy_name
-        self._update_splash(65, f"Запуск '{strategy_name}'...")
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
         self._update_ui(running=True)
 
@@ -130,29 +117,21 @@ class DPIManager(QObject):
             # НЕ используем callback - UI обновляется через таймер (чтение лог-файла)
             # Это безопаснее, т.к. callback вызывается из reader thread
 
-            # Подготавливаем и запускаем
-            self._update_splash(65, "Подготовка оркестратора...")
-
             if not self.app.orchestra_runner.prepare():
                 log("Ошибка подготовки оркестратора", "ERROR")
                 self.app.set_status("❌ Ошибка подготовки оркестратора")
-                self._finish_splash("Ошибка", "Не удалось подготовить оркестратор")
                 self._update_ui(running=False)
                 return
-
-            self._update_splash(80, "Запуск оркестратора...")
 
             if not self.app.orchestra_runner.start():
                 log("Ошибка запуска оркестратора", "ERROR")
                 self.app.set_status("❌ Ошибка запуска оркестратора")
-                self._finish_splash("Ошибка", "Не удалось запустить")
                 self._update_ui(running=False)
                 return
 
             # Обновляем UI
             self.app.current_strategy_name = "Оркестр"
             self._update_ui(running=True)
-            self._finish_splash("Готово", "Оркестратор запущен")
 
             # Запускаем мониторинг на странице оркестра
             if hasattr(self.app, 'orchestra_page'):
@@ -161,7 +140,6 @@ class DPIManager(QObject):
         except Exception as e:
             log(f"Ошибка запуска Orchestra: {e}", "ERROR")
             self.app.set_status(f"❌ Ошибка: {e}")
-            self._finish_splash("Ошибка", str(e))
             self._update_ui(running=False)
 
     def _on_discord_fail_restart(self):

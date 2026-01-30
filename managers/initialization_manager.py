@@ -495,13 +495,6 @@ class InitializationManager:
                             startup_css_hash = None
                     self.app.theme_manager._current_css_hash = startup_css_hash
                     
-                    # ✅ Закрываем splash т.к. тема применена (если ещё не закрыт)
-                    if (
-                        hasattr(self.app, 'splash')
-                        and self.app.splash
-                        and not getattr(self.app, '_splash_closed', False)
-                    ):
-                        self.app.splash.set_progress(100, "Готово", "")
                 else:
                     # Темы разные - применяем асинхронно
                     log(f"🔄 Тема изменилась: startup='{startup_theme}' -> current='{current_theme}'", "DEBUG")
@@ -514,10 +507,6 @@ class InitializationManager:
             else:
                 # CSS не был применён при старте - применяем асинхронно
                 self.app._theme_pending = True
-                
-                if hasattr(self.app, 'splash') and self.app.splash:
-                    self.app.splash.set_progress(40, "Генерация темы...", "")
-                
                 self.app.theme_manager.apply_theme_async(
                     persist=True,
                     progress_callback=self._on_theme_progress,
@@ -576,12 +565,7 @@ class InitializationManager:
 
     def _on_theme_progress(self, status: str):
         """Обработчик прогресса генерации темы"""
-        try:
-            # Обновляем splash если есть
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(45, f"🎨 {status}", "")
-        except Exception:
-            pass
+        return
     
     def _on_theme_ready(self, success: bool, message: str):
         """Обработчик завершения генерации/применения темы"""
@@ -595,19 +579,11 @@ class InitializationManager:
                     self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
 
                 # Если окно уже показано (splash закрыт раньше), принудительно обновим стили после применения темы.
-                if getattr(self.app, '_splash_closed', False) and hasattr(self.app, '_force_style_refresh'):
+                if hasattr(self.app, '_force_style_refresh'):
                     try:
                         QTimer.singleShot(10, self.app._force_style_refresh)
                     except Exception:
                         pass
-                
-                # ✅ Закрываем splash т.к. тема применена (если ещё не закрыт)
-                if (
-                    hasattr(self.app, 'splash')
-                    and self.app.splash
-                    and not getattr(self.app, '_splash_closed', False)
-                ):
-                    self.app.splash.set_progress(100, "Готово", "")
             else:
                 log(f"⚠ Тема не применена: {message}", "WARNING")
         except Exception as e:
@@ -777,18 +753,6 @@ class InitializationManager:
         log("Менеджеры инициализированы", "✅ SUCCESS")
         try:
             self.app.set_status("Инициализация завершена")
-        except Exception:
-            pass
-
-        # Ускоряем появление главного окна: не держим splash до полной темы.
-        # Тема может примениться позже (и потенциально подфризить), но окно уже будет видно.
-        try:
-            if (
-                hasattr(self.app, 'splash')
-                and self.app.splash
-                and not getattr(self.app, '_splash_closed', False)
-            ):
-                self.app.splash.set_progress(100, "Готово", "")
         except Exception:
             pass
 

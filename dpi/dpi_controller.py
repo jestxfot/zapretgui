@@ -30,17 +30,9 @@ class DPIStartWorker(QObject):
         try:
             self.progress.emit("Подготовка к запуску...")
             
-            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
-            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
-                self.app_instance.splash.set_progress(70, "Подготовка к запуску DPI...", "")
-            
             # Проверяем, не запущен ли уже процесс
             if self.dpi_starter.check_process_running_wmi(silent=True):
                 self.progress.emit("Останавливаем предыдущий процесс...")
-
-                # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
-                if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
-                    self.app_instance.splash.set_progress(75, "Останавливаем предыдущий процесс...", "")
 
                 # Останавливаем через соответствующий метод
                 if self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
@@ -75,10 +67,6 @@ class DPIStartWorker(QObject):
 
             self.progress.emit("Запуск DPI...")
             
-            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN
-            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
-                self.app_instance.splash.set_progress(80, "Запуск DPI...", "Инициализация winws.exe")
-            
             # Выбираем метод запуска
             if self.launch_method == "orchestra":
                 success = self._start_orchestra()
@@ -88,10 +76,6 @@ class DPIStartWorker(QObject):
                 success = self._start_direct()
             else:
                 success = self._start_bat()
-            
-            # ✅ ОБНОВЛЯЕМ SPLASH SCREEN ПЕРЕД ЗАВЕРШЕНИЕМ
-            if hasattr(self.app_instance, 'splash') and self.app_instance.splash:
-                self.app_instance.splash.set_progress(90, "Инициализация завершена", "Загрузка интерфейса...")
             
             if success:
                 self.progress.emit("DPI успешно запущен")
@@ -923,12 +907,6 @@ class DPIController:
                 if is_actually_running:
                     log("DPI запущен асинхронно", "INFO")
                     self.app.set_status("✅ DPI успешно запущен")
-                    
-                    # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ТОЛЬКО ОДИН РАЗ
-                    if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
-                        # Показываем финальное сообщение
-                        self.app.splash.set_progress(100, "✅ DPI успешно запущен!", "Готово к работе")
-                        # splash закроется автоматически через 500ms из-за progress=100
                         
                     # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
                     if hasattr(self.app, 'ui_manager'):
@@ -961,12 +939,6 @@ class DPIController:
             else:
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
                 self.app.set_status(f"❌ Ошибка запуска: {error_message}")
-                
-                # ✅ ЗАКРЫВАЕМ ЗАГРУЗОЧНЫЙ ЭКРАН ПРИ ОШИБКЕ
-                if hasattr(self.app, 'splash') and self.app.splash and not self.app._splash_closed:
-                    # Показываем ошибку на splash screen
-                    self.app.splash.show_error(error_message)
-                    # Splash screen сам закроется через 3 секунды
                 
                 # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
                 if hasattr(self.app, 'ui_manager'):

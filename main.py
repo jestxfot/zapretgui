@@ -97,7 +97,6 @@ from PyQt6.QtCore    import QTimer, QEvent
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 from ui.main_window import MainWindowUI
-from ui.splash_screen import SplashScreen
 from ui.custom_titlebar import CustomTitleBar, FramelessWindowMixin
 from ui.garland_widget import GarlandWidget
 from ui.snowflakes_widget import SnowflakesWidget
@@ -898,7 +897,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.start_in_tray = start_in_tray
         
         # Флаги для защиты от двойных вызовов
-        self._splash_closed = False
         self._dpi_autostart_initiated = False
         self._is_exiting = False
         self._stop_dpi_on_exit = False  # True только для "Выход и остановить DPI"
@@ -1007,28 +1005,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.main_index = self.stacked_widget.addWidget(self.main_widget)
         self.stacked_widget.setCurrentIndex(self.main_index)
         
-        # ✅ ВОЗВРАЩАЕМ SPLASH но главное окно НЕ показываем пока CSS не готов
+        # Splash удалён: окно показываем сразу (если не стартуем в трее)
         self._css_applied_at_startup = False
         self._startup_theme = None
         
-        if not self.start_in_tray:
-            # Создаём splash
-            self.splash = SplashScreen(parent=self)
-            self.splash.load_complete.connect(self._on_splash_complete)
-            self.splash.show()
-            
-            QApplication.processEvents()
-            
-            self.splash.set_progress(5, "Запуск Zapret...", "Подготовка")
-            QApplication.processEvents()
-            
-            # Главное окно НЕ показываем - оно создано но скрыто
-            # Splash анимируется, а главное окно ждёт применения CSS
-            log("Splash показан, главное окно скрыто", "DEBUG")
-        else:
-            # Если в трее - без splash
-            self.splash = None
-            self._css_applied_at_startup = False
+        self.splash = None
 
         # ✅ Пытаемся применить CSS из кеша ДО построения основного UI.
         # Это резко снижает стоимость QApplication.setStyleSheet(),
@@ -1046,10 +1027,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Теперь строим UI в main_widget (не в self)
         self._build_main_ui()
         
-        # Обновляем прогресс splash
-        if self.splash:
-            self.splash.set_progress(35, "Создание интерфейса...", "")
-        
         # Создаем менеджеры
         from managers.initialization_manager import InitializationManager
         from managers.subscription_manager import SubscriptionManager
@@ -1062,10 +1039,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
         self.dpi_manager = DPIManager(self)
-        
-        # Обновляем прогресс splash
-        if self.splash:
-            self.splash.set_progress(50, "Проверка подписки...", "")
 
         # Инициализируем donate checker
         self._init_real_donate_checker()  # Упрощенная версия
@@ -1075,6 +1048,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
         QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
+
+        # Показываем главное окно сразу (если не стартуем в трее)
+        if not self.start_in_tray and not self.isVisible():
+            self.show()
+            log("Основное окно показано (без splash)", "DEBUG")
 
     def init_theme_handler(self):
         """Инициализирует theme_handler после создания theme_manager"""
@@ -1347,32 +1325,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Вызываем модифицированный метод
         modified_build_ui(WIDTH, HEIGHT)
 
-    def _on_splash_complete(self) -> None:
-        """Обработчик завершения splash - показываем главное окно"""
-        if self._splash_closed:
-            log("Splash уже закрыт, пропускаем", "DEBUG")
-            return
-        
-        self._splash_closed = True
-        log("Splash завершён, показываем главное окно", "DEBUG")
-        
-        # Показываем главное окно
-        if not self.start_in_tray and not self.isVisible():
-            self.show()
-            log("Основное окно показано", "DEBUG")
-        
-        # Принудительно обновляем стили
-        QTimer.singleShot(10, self._force_style_refresh)
-        
-        # Проверяем РКН Тян темы
-        if hasattr(self, 'theme_manager'):
-            current_theme = self.theme_manager.current_theme
-            if current_theme == "РКН Тян":
-                QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn_background())
-            elif current_theme == "РКН Тян 2":
-                QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn2_background())
-        
-        self.splash = None
+    # Splash удалён: _on_splash_complete больше не используется
     
     def _apply_deferred_css_if_needed(self) -> None:
         """Применяет отложенный полный CSS (вызывается через 300ms после показа окна)"""
