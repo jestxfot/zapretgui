@@ -900,6 +900,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._dpi_autostart_initiated = False
         self._is_exiting = False
         self._stop_dpi_on_exit = False  # True только для "Выход и остановить DPI"
+        self._deferred_init_started = False
 
         # ✅ Современное сохранение/восстановление геометрии окна (debounce)
         self._geometry_restore_in_progress = False
@@ -1010,23 +1011,37 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._startup_theme = None
         
         self.splash = None
-
-        # ✅ Пытаемся применить CSS из кеша ДО построения основного UI.
-        # Это резко снижает стоимость QApplication.setStyleSheet(),
-        # потому что виджетов ещё мало.
-        self._apply_cached_css_at_startup()
-
-        # Splash больше не используется - окно показывается сразу
         
         # Инициализируем атрибуты
         self.process_monitor = None
         self.first_start = True
         self.current_strategy_id = None
         self.current_strategy_name = None
-        
+
+        # Показываем главное окно сразу (если не стартуем в трее)
+        if not self.start_in_tray and not self.isVisible():
+            self.show()
+            log("Основное окно показано (каркас, init в фоне)", "DEBUG")
+
+        # Тяжёлую инициализацию переносим на следующий тик event loop,
+        # чтобы окно появлялось мгновенно.
+        QTimer.singleShot(0, self._deferred_init)
+
+    def _deferred_init(self) -> None:
+        """Тяжёлая инициализация, запускается после первого показа окна."""
+        if self._deferred_init_started:
+            return
+        self._deferred_init_started = True
+
+        # CSS из кеша (может быть тяжелым из-за импорта ui.theme)
+        try:
+            self._apply_cached_css_at_startup()
+        except Exception:
+            pass
+
         # Теперь строим UI в main_widget (не в self)
         self._build_main_ui()
-        
+
         # Создаем менеджеры
         from managers.initialization_manager import InitializationManager
         from managers.subscription_manager import SubscriptionManager
@@ -1043,16 +1058,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Инициализируем donate checker
         self._init_real_donate_checker()  # Упрощенная версия
         self.update_title_with_subscription_status(False, None, 0, source="init")
-        
+
         # Запускаем асинхронную инициализацию через менеджер
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
         QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
-
-        # Показываем главное окно сразу (если не стартуем в трее)
-        if not self.start_in_tray and not self.isVisible():
-            self.show()
-            log("Основное окно показано (без splash)", "DEBUG")
 
     def init_theme_handler(self):
         """Инициализирует theme_handler после создания theme_manager"""
@@ -1572,20 +1582,24 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._update_garland_geometry()
         self._update_snowflakes_geometry()
 
-        # Отключаем системное скругление углов на Windows 11
-        # чтобы избежать белых треугольников по краям при использовании CSS border-radius
-        try:
-            from ui.theme import BlurEffect
-            hwnd = int(self.winId())
-            BlurEffect.disable_window_rounding(hwnd)
-        except Exception:
-            pass
+        # Отключаем системное скругление углов на Windows 11.
+        # Импорт ui.theme может быть тяжёлым, поэтому откладываем его,
+        # чтобы первый кадр окна отрисовался без задержек.
+        QTimer.singleShot(150, self._disable_win11_rounding_if_needed)
 
         # Применяем сохранённое maximized состояние при первом показе
         self._apply_saved_maximized_state_if_needed()
 
         # Включаем автосохранение геометрии (после первого show + небольшой паузы)
         QTimer.singleShot(350, self._enable_geometry_persistence)
+
+    def _disable_win11_rounding_if_needed(self) -> None:
+        try:
+            from ui.theme import BlurEffect
+            hwnd = int(self.winId())
+            BlurEffect.disable_window_rounding(hwnd)
+        except Exception:
+            pass
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""
