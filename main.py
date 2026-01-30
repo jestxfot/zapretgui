@@ -999,7 +999,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         
         if not self.start_in_tray:
             # Создаём splash
-            self.splash = SplashScreen()
+            self.splash = SplashScreen(parent=self)
             self.splash.load_complete.connect(self._on_splash_complete)
             self.splash.show()
             

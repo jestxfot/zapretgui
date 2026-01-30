@@ -4,7 +4,7 @@ Splash Screen в стиле Windows 11 Fluent Design.
 Мягкие цвета, плавные анимации, полупрозрачность.
 """
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QGraphicsOpacityEffect, QApplication
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QGraphicsOpacityEffect, QApplication, QFrame
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QLinearGradient, QIcon, QTransform, QPen, QPainterPath
 import qtawesome as qta
 import os
@@ -16,14 +16,14 @@ from log import log
 # ═══════════════════════════════════════════════════════════════════════════════
 # ЦВЕТОВАЯ ПАЛИТРА - Windows 11 Fluent (мягкие, приглушённые тона)
 # ═══════════════════════════════════════════════════════════════════════════════
-FLUENT_ACCENT = "#4c8ee7"           # Мягкий синий (как в теме)
-FLUENT_ACCENT_LIGHT = "#6ba3f0"     # Светлее для hover/glow
-FLUENT_ACCENT_DARK = "#3a7bd5"      # Темнее для pressed
-FLUENT_BG = "22, 24, 28"            # Тёмный фон (как в теме)
-FLUENT_BG_LIGHT = "30, 32, 36"      # Чуть светлее для градиента
-FLUENT_BORDER = "60, 63, 68"        # Мягкая рамка
+FLUENT_ACCENT = "#60cdff"           # Основной акцент (ui-designer.md)
+FLUENT_ACCENT_LIGHT = "#8ad9ff"     # Светлее для glow
+FLUENT_ACCENT_DARK = "#3fbde8"      # Темнее для pressed
+FLUENT_BG = "28, 28, 28"            # BG_PRIMARY (приближено)
+FLUENT_BG_LIGHT = "32, 32, 32"      # Чуть светлее для градиента
+FLUENT_BORDER = "255, 255, 255"     # Для rgba бордеров в стилях
 FLUENT_TEXT = "#ffffff"             # Белый текст
-FLUENT_TEXT_SECONDARY = "rgba(255, 255, 255, 0.6)"  # Вторичный текст
+FLUENT_TEXT_SECONDARY = "rgba(255, 255, 255, 0.7)"  # Вторичный текст
 
 
 class AnimatedIconWidget(QWidget):
@@ -117,8 +117,8 @@ class AnimatedIconWidget(QWidget):
                     ring_alpha = int(30 * (1 - ring_progress) * min(1.0, self.progress / 30))
 
                     if ring_alpha > 0:
-                        # Мягкий синий вместо кислотного зелёного
-                        ring_pen = QPen(QColor(76, 142, 231, ring_alpha), 1)
+                        # ACCENT_CYAN вместо синего
+                        ring_pen = QPen(QColor(96, 205, 255, ring_alpha), 1)
                         painter.setPen(ring_pen)
                         painter.setBrush(Qt.BrushStyle.NoBrush)
                         painter.drawEllipse(
@@ -136,10 +136,10 @@ class AnimatedIconWidget(QWidget):
                     center_x - glow_size/2, center_y - glow_size/2,
                     center_x + glow_size/2, center_y + glow_size/2
                 )
-                # Мягкий синий
-                glow_gradient.setColorAt(0.0, QColor(76, 142, 231, 0))
-                glow_gradient.setColorAt(0.5, QColor(76, 142, 231, glow_alpha))
-                glow_gradient.setColorAt(1.0, QColor(76, 142, 231, 0))
+                # ACCENT_CYAN
+                glow_gradient.setColorAt(0.0, QColor(96, 205, 255, 0))
+                glow_gradient.setColorAt(0.5, QColor(96, 205, 255, glow_alpha))
+                glow_gradient.setColorAt(1.0, QColor(96, 205, 255, 0))
 
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(glow_gradient)
@@ -184,15 +184,16 @@ class SplashScreen(QWidget):
     load_complete = pyqtSignal()
     _progress_signal = pyqtSignal(int, str, str)
 
-    def __init__(self):
-        super().__init__(None)
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-        # Флаги окна: без рамки, всегда сверху, прозрачный фон для скруглённых углов
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
+        # Флаги окна: без рамки, НЕ always-on-top, прозрачный фон для скруглённых углов
+        # parent задан -> Dialog (транзиент к главному окну, без taskbar)
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
+        if parent is None:
+            # fallback: не показываем в taskbar, но без WindowStaysOnTopHint
+            flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         # Размер и позиция - компактное окно в стиле Windows 11
@@ -262,7 +263,7 @@ class SplashScreen(QWidget):
         glow_alpha = int(20 + 15 * glow_intensity)  # Меньше интенсивность
 
         # Только один мягкий слой свечения
-        glow_color = QColor(76, 142, 231, glow_alpha)  # Мягкий синий
+        glow_color = QColor(96, 205, 255, glow_alpha)  # ACCENT_CYAN
         glow_rect = rect.adjusted(4, 4, -4, -4)
 
         path = QPainterPath()
@@ -274,11 +275,11 @@ class SplashScreen(QWidget):
         # ═══════════════════════════════════════════════════════════
         bg_rect = rect.adjusted(1, 1, -1, -1)
 
-        # Градиент фона - тёмный, как в основном окне
+        # Полупрозрачный "glass" фон (BG_PRIMARY ~ 0.85)
         bg_gradient = QLinearGradient(0, 0, 0, self.height())
-        bg_gradient.setColorAt(0.0, QColor(30, 32, 36))      # Верх
-        bg_gradient.setColorAt(0.5, QColor(26, 28, 32))      # Середина
-        bg_gradient.setColorAt(1.0, QColor(22, 24, 28))      # Низ
+        bg_gradient.setColorAt(0.0, QColor(32, 32, 32, 235))      # Верх
+        bg_gradient.setColorAt(0.5, QColor(28, 28, 28, 225))      # Середина
+        bg_gradient.setColorAt(1.0, QColor(24, 24, 24, 217))      # Низ
 
         bg_path = QPainterPath()
         bg_path.addRoundedRect(QRectF(bg_rect), radius, radius)
@@ -290,7 +291,7 @@ class SplashScreen(QWidget):
         border_rect = rect.adjusted(1, 1, -1, -1)
 
         # Статичная мягкая рамка (без анимации для чистоты)
-        border_color = QColor(60, 63, 68, 180)  # Мягкий серый
+        border_color = QColor(255, 255, 255, 18)  # Мягкий бордер
 
         border_pen = QPen(border_color, 1)
         painter.setPen(border_pen)
@@ -391,12 +392,13 @@ class SplashScreen(QWidget):
             channel_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             channel_label.setStyleSheet(f"""
                 QLabel {{
-                    color: #1a1a1a;
-                    background: {FLUENT_ACCENT};
+                    color: {FLUENT_ACCENT};
+                    background: rgba(96, 205, 255, 0.14);
+                    border: 1px solid rgba(96, 205, 255, 0.35);
                     font-size: 10px;
                     font-weight: 600;
                     padding: 4px 12px;
-                    border-radius: 10px;
+                    border-radius: 12px;
                 }}
             """)
             central_layout.addWidget(channel_label, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -404,11 +406,18 @@ class SplashScreen(QWidget):
         central_layout.addSpacing(16)
 
         # Контейнер прогресса
-        progress_container = QWidget(central_container)
+        progress_container = QFrame(central_container)
         progress_container.setMaximumWidth(360)
-        progress_container.setStyleSheet("background: transparent;")
+        progress_container.setObjectName("progressCard")
+        progress_container.setStyleSheet("""
+            QFrame#progressCard {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 8px;
+            }
+        """)
         progress_layout = QVBoxLayout(progress_container)
-        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setContentsMargins(16, 14, 16, 14)
         progress_layout.setSpacing(8)
 
         # Статус
@@ -434,7 +443,7 @@ class SplashScreen(QWidget):
         self.progress_bar.setMinimumWidth(320)
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
-                background-color: rgba(255, 255, 255, 0.08);
+                background-color: rgba(255, 255, 255, 0.06);
                 border: none;
                 border-radius: 2px;
             }}
