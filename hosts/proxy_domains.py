@@ -184,9 +184,11 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
                 if direct_idx is not None and direct_idx < len(ips):
                     ips[direct_idx] = ip_candidate
 
-                # Per-domain toggles in UI: store each raw-host entry as its own "service".
-                ensure_service(host_candidate)
-                services[host_candidate][host_candidate] = ips
+                # Store raw-host entries under their section, so UI can toggle a whole group.
+                sec = current_section.strip()
+                if sec and sec.lower() not in _SPECIAL_SECTIONS:
+                    ensure_service(sec)
+                    services[sec][host_candidate] = ips
                 continue
 
         # Service section: domain line then N IP lines

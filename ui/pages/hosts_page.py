@@ -365,9 +365,7 @@ class HostsPage(BasePage):
                     if isinstance(combo, QCheckBox):
                         can_toggle = bool(direct_profile and direct_profile in available)
                         combo.setEnabled(can_toggle)
-                        combo.blockSignals(True)
                         combo.setChecked(bool(enabled and can_toggle))
-                        combo.blockSignals(False)
                         if combo.isChecked() and direct_profile:
                             new_selection[service_name] = direct_profile
                         self._update_profile_row_visual(service_name)
@@ -395,9 +393,7 @@ class HostsPage(BasePage):
                         combo.setCurrentIndex(0)
                         combo.blockSignals(False)
                     elif isinstance(combo, QCheckBox):
-                        combo.blockSignals(True)
                         combo.setChecked(False)
-                        combo.blockSignals(False)
 
                 self._update_profile_row_visual(service_name)
         finally:
@@ -726,9 +722,12 @@ class HostsPage(BasePage):
                     continue
                 desired = bool(target_profile)
                 if control.isChecked() != desired:
-                    control.blockSignals(True)
-                    control.setChecked(desired)
-                    control.blockSignals(False)
+                    was_building = getattr(self, "_building_services_ui", False)
+                    self._building_services_ui = True
+                    try:
+                        control.setChecked(desired)
+                    finally:
+                        self._building_services_ui = was_building
                     changed = True
             else:
                 continue
@@ -892,25 +891,20 @@ class HostsPage(BasePage):
                 )
                 header.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-                chips = QWidget()
-                chips_layout = QHBoxLayout(chips)
-                chips_layout.setContentsMargins(0, 0, 0, 0)
-                chips_layout.setSpacing(4)
-                chips_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-                chips_layout.addStretch(1)
+                if not direct_only:
+                    chips = QWidget()
+                    chips_layout = QHBoxLayout(chips)
+                    chips_layout.setContentsMargins(0, 0, 0, 0)
+                    chips_layout.setSpacing(4)
+                    chips_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+                    chips_layout.addStretch(1)
 
-                off_btn = self._make_fluent_chip(OFF_LABEL)
-                off_btn.clicked.connect(lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None))
-                chips_layout.addWidget(off_btn)
+                    off_btn = self._make_fluent_chip(OFF_LABEL)
+                    off_btn.clicked.connect(
+                        lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None)
+                    )
+                    chips_layout.addWidget(off_btn)
 
-                if direct_only:
-                    if direct_profile:
-                        on_btn = self._make_fluent_chip(ON_LABEL)
-                        on_btn.clicked.connect(
-                            lambda _checked=False, n=tuple(names), p=direct_profile: self._bulk_apply_dns_profile(list(n), p)
-                        )
-                        chips_layout.addWidget(on_btn)
-                else:
                     for profile_name in (get_dns_profiles() or []):
                         label = _format_dns_profile_label(profile_name)
                         if not label:
@@ -921,39 +915,41 @@ class HostsPage(BasePage):
                         )
                         chips_layout.addWidget(btn)
 
-                chips_scroll = QScrollArea()
-                chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
-                chips_scroll.setWidgetResizable(True)
-                chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-                chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                chips_scroll.setFixedHeight(30)
-                chips_scroll.setStyleSheet(
-                    """
-                    QScrollArea { background: transparent; border: none; }
-                    QScrollArea QWidget { background: transparent; }
-                    QScrollBar:horizontal {
-                        height: 4px;
-                        background: transparent;
-                        margin: 0px;
-                    }
-                    QScrollBar::handle:horizontal {
-                        background: rgba(255, 255, 255, 0.22);
-                        border-radius: 2px;
-                        min-width: 24px;
-                    }
-                    QScrollBar::handle:horizontal:hover { background: rgba(255, 255, 255, 0.32); }
-                    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                        width: 0px;
-                        height: 0px;
-                        background: transparent;
-                        border: none;
-                    }
-                    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
-                    """
-                )
-                chips_scroll.setWidget(chips)
+                    chips_scroll = QScrollArea()
+                    chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
+                    chips_scroll.setWidgetResizable(True)
+                    chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                    chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                    chips_scroll.setFixedHeight(30)
+                    chips_scroll.setStyleSheet(
+                        """
+                        QScrollArea { background: transparent; border: none; }
+                        QScrollArea QWidget { background: transparent; }
+                        QScrollBar:horizontal {
+                            height: 4px;
+                            background: transparent;
+                            margin: 0px;
+                        }
+                        QScrollBar::handle:horizontal {
+                            background: rgba(255, 255, 255, 0.22);
+                            border-radius: 2px;
+                            min-width: 24px;
+                        }
+                        QScrollBar::handle:horizontal:hover { background: rgba(255, 255, 255, 0.32); }
+                        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                            width: 0px;
+                            height: 0px;
+                            background: transparent;
+                            border: none;
+                        }
+                        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+                        """
+                    )
+                    chips_scroll.setWidget(chips)
 
-                header.addWidget(chips_scroll, 1, Qt.AlignmentFlag.AlignVCenter)
+                    header.addWidget(chips_scroll, 1, Qt.AlignmentFlag.AlignVCenter)
+                else:
+                    header.addStretch(1)
 
                 card.add_layout(header)
 
@@ -992,9 +988,7 @@ class HostsPage(BasePage):
                             except Exception:
                                 enabled = False
 
-                        toggle.blockSignals(True)
                         toggle.setChecked(bool(enabled and can_toggle))
-                        toggle.blockSignals(False)
 
                         if toggle.isChecked():
                             if self._service_dns_selection.get(service_name) != direct_profile:
@@ -1093,9 +1087,12 @@ class HostsPage(BasePage):
             # Strict: without an explicit "direct"/"Вкл. (активировать hosts)" profile we can never apply hosts.
             control = self.service_combos.get(service_name)
             if isinstance(control, QCheckBox):
-                control.blockSignals(True)
-                control.setChecked(False)
-                control.blockSignals(False)
+                was_building = getattr(self, "_building_services_ui", False)
+                self._building_services_ui = True
+                try:
+                    control.setChecked(False)
+                finally:
+                    self._building_services_ui = was_building
                 control.setEnabled(False)
             self._service_dns_selection.pop(service_name, None)
             self._update_profile_row_visual(service_name)
@@ -1321,9 +1318,7 @@ class HostsPage(BasePage):
                     control.setCurrentIndex(0)
                     control.blockSignals(False)
                 elif isinstance(control, QCheckBox):
-                    control.blockSignals(True)
                     control.setChecked(False)
-                    control.blockSignals(False)
         finally:
             self._building_services_ui = was_building
 

@@ -58,15 +58,15 @@ class ProxyDomainsServiceGroupingTests(unittest.TestCase):
         )
 
         cat = _parse_hosts_ini(text)
-        self.assertIn("accounts.supercell.com", cat.services)
-        self.assertNotIn("Supercell", cat.services)  # do not create empty service sections
+        self.assertIn("Supercell", cat.services)
+        self.assertIn("accounts.supercell.com", cat.services["Supercell"])
 
         direct_idx = _infer_direct_profile_index(cat)
         self.assertEqual(direct_idx, 3)
 
-        ips = cat.services["accounts.supercell.com"]["accounts.supercell.com"]
+        ips = cat.services["Supercell"]["accounts.supercell.com"]
         self.assertEqual(ips[direct_idx], "144.31.14.104")
-        self.assertFalse(_service_has_proxy_ips(cat, "accounts.supercell.com"))
+        self.assertFalse(_service_has_proxy_ips(cat, "Supercell"))
 
 
 if __name__ == "__main__":
