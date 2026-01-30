@@ -93,9 +93,11 @@ def setup_direct_service(
     Приоритет: NSSM > BAT-обертка
     """
     try:
+        import ctypes
         from config import MAIN_DIRECTORY, LOGS_FOLDER
         from .autostart_direct import _resolve_file_paths
         from launcher_common import apply_all_filters
+        from .service_api import create_zapret_service
         from .nssm_service import (
             get_nssm_path, 
             create_service_with_nssm, 
@@ -104,9 +106,60 @@ def setup_direct_service(
         
         # Создаем папку для логов если её нет
         os.makedirs(LOGS_FOLDER, exist_ok=True)
-        
+
+        # Создание служб требует прав администратора.
+        try:
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                error_msg = (
+                    "Для создания службы требуются права администратора. "
+                    "Перезапустите программу от имени администратора."
+                )
+                log(error_msg, "❌ ERROR")
+                if ui_error_cb:
+                    ui_error_cb(error_msg)
+                return False
+        except Exception:
+            pass
+
         if not os.path.exists(winws_exe):
             error_msg = f"winws.exe не найден: {winws_exe}"
+            log(error_msg, "❌ ERROR")
+            if ui_error_cb:
+                ui_error_cb(error_msg)
+            return False
+
+        # direct_zapret2: создаём службу напрямую через WinAPI (без NSSM).
+        # В этом режиме strategy_args приходит как ["@<preset_path>"].
+        try:
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+        except Exception:
+            launch_method = None
+
+        if launch_method == "direct_zapret2":
+            if create_zapret_service(
+                service_name=SERVICE_NAME,
+                display_name=SERVICE_DISPLAY_NAME,
+                exe_path=winws_exe,
+                args=strategy_args,
+                description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
+                auto_start=True,
+            ):
+                # Пытаемся запустить службу, но считаем успехом сам факт создания:
+                # winws2.exe может не поддерживать протокол Windows Service (ошибка 1053),
+                # однако процесс может стартовать, а пользователю важен автозапуск.
+                try:
+                    if start_service(SERVICE_NAME):
+                        log(f"✅ Служба {SERVICE_NAME} создана через WinAPI и запущена", "SUCCESS")
+                    else:
+                        log("⚠ Служба создана через WinAPI, но не удалось запустить (см. лог)", "WARNING")
+                except Exception as e:
+                    log(f"⚠ Ошибка запуска службы после создания: {e}", "WARNING")
+
+                set_autostart_enabled(True, "direct_service")
+                return True
+
+            error_msg = "Не удалось создать службу Direct режима через WinAPI"
             log(error_msg, "❌ ERROR")
             if ui_error_cb:
                 ui_error_cb(error_msg)
