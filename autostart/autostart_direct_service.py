@@ -128,15 +128,43 @@ def setup_direct_service(
                 ui_error_cb(error_msg)
             return False
 
-        # direct_zapret2: создаём службу напрямую через WinAPI (без NSSM).
-        # В этом режиме strategy_args приходит как ["@<preset_path>"].
         try:
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
         except Exception:
             launch_method = None
 
+        # direct_zapret2: используем обертку NSSM и запускаем winws2.exe через @preset файл.
+        # Это даёт корректный "service wrapper" без необходимости поддержки service-протокола в winws2.exe.
         if launch_method == "direct_zapret2":
+            nssm_path = get_nssm_path()
+            if nssm_path:
+                log("⚡ Создание службы direct_zapret2 через NSSM (@preset)...", "INFO")
+
+                if create_service_with_nssm(
+                    service_name=SERVICE_NAME,
+                    display_name=SERVICE_DISPLAY_NAME,
+                    exe_path=winws_exe,
+                    args=strategy_args,
+                    description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
+                    auto_start=True,
+                ):
+                    if start_service_with_nssm(SERVICE_NAME):
+                        log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
+                    else:
+                        log("⚠ Служба создана через NSSM, но не запущена", "WARNING")
+
+                    set_autostart_enabled(True, "direct_service")
+                    return True
+
+                error_msg = "NSSM не смог создать службу Direct режима"
+                log(error_msg, "❌ ERROR")
+                if ui_error_cb:
+                    ui_error_cb(error_msg)
+                return False
+
+            # Fallback: пробуем создать через WinAPI (служба может не стартовать, если winws2.exe не Service-aware).
+            log("NSSM не найден, пробуем создать службу через WinAPI...", "WARNING")
             if create_zapret_service(
                 service_name=SERVICE_NAME,
                 display_name=SERVICE_DISPLAY_NAME,
@@ -145,9 +173,6 @@ def setup_direct_service(
                 description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
                 auto_start=True,
             ):
-                # Пытаемся запустить службу, но считаем успехом сам факт создания:
-                # winws2.exe может не поддерживать протокол Windows Service (ошибка 1053),
-                # однако процесс может стартовать, а пользователю важен автозапуск.
                 try:
                     if start_service(SERVICE_NAME):
                         log(f"✅ Служба {SERVICE_NAME} создана через WinAPI и запущена", "SUCCESS")
@@ -159,7 +184,7 @@ def setup_direct_service(
                 set_autostart_enabled(True, "direct_service")
                 return True
 
-            error_msg = "Не удалось создать службу Direct режима через WinAPI"
+            error_msg = "Не удалось создать службу Direct режима (NSSM/WinAPI)"
             log(error_msg, "❌ ERROR")
             if ui_error_cb:
                 ui_error_cb(error_msg)
