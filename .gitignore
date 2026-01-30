@@ -9,6 +9,7 @@ main.spec
 /dist/lists
 bin/
 /json/hosts.ini
+logs/
 
 # Keep most build tooling out of git (some files may contain secrets),
 # but track the minimal scripts required for GitHub Actions builds.
