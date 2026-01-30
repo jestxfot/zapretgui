@@ -7,9 +7,18 @@ import os, sys
 # ═══════════════════════════════════════════════════════════════════
 # ОСНОВНАЯ ПАПКА ПРОГРАММЫ
 # ═══════════════════════════════════════════════════════════════════
-# Путь определяется автоматически по расположению exe файла
-# Работает независимо от того, куда пользователь установил программу
-MAIN_DIRECTORY = os.path.dirname(sys.executable)
+# В сборке (exe) путь определяется автоматически по расположению exe файла.
+# В dev-режиме (python main.py) используем корень проекта, иначе sys.executable
+# указывает на python.exe/python и логи/ресурсы пытаются создаться в системной папке.
+try:
+    _is_frozen = bool(getattr(sys, "frozen", False))
+except Exception:
+    _is_frozen = False
+
+if _is_frozen:
+    MAIN_DIRECTORY = os.path.dirname(sys.executable)
+else:
+    MAIN_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
 # Канал сборки (для информации)
 try:

@@ -1,6 +1,7 @@
 # ui/pages/base_page.py
 """Базовый класс для страниц"""
 
+import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QPlainTextEdit, QTextEdit
 from PyQt6.QtGui import QFont
@@ -67,6 +68,11 @@ class BasePage(QScrollArea):
         
         # Настройка ScrollArea
         self.setWidgetResizable(True)
+        # На Windows принудительно показываем вертикальный скроллбар:
+        # некоторые стили/настройки ОС делают скроллбары "transient" и они почти
+        # не появляются/слишком быстро скрываются.
+        if sys.platform.startswith("win"):
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         # ✅ Отключаем горизонтальный скролл - контент должен вписываться в ширину
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -160,4 +166,3 @@ class BasePage(QScrollArea):
         self.layout.addWidget(label)
         if return_widget:
             return label
-

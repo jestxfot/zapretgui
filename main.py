@@ -1730,6 +1730,23 @@ def main():
 
         app = QApplication(sys.argv)
 
+        # На Windows принудительно отключаем "transient/overlay" скроллбары
+        # (иначе они могут не отображаться/быть практически невидимыми).
+        try:
+            import platform
+            if platform.system() == "Windows":
+                from PyQt6.QtWidgets import QProxyStyle, QStyle
+
+                class _NoTransientScrollbarsStyle(QProxyStyle):
+                    def styleHint(self, hint, option=None, widget=None, returnData=None):
+                        if hint == QStyle.StyleHint.SH_ScrollBar_Transient:
+                            return 0
+                        return super().styleHint(hint, option, widget, returnData)
+
+                app.setStyle(_NoTransientScrollbarsStyle(app.style()))
+        except Exception:
+            pass
+
         # ──────────────────────────────────────────────────────────────
         # Debug: log every top-level window that becomes visible
         # Helps to track mysterious blank window reported on Windows
