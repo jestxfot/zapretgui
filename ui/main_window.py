@@ -836,6 +836,11 @@ class MainWindowUI:
 
             elif method == "direct_zapret2":
                 # ✅ ТОЛЬКО ДЛЯ direct_zapret2 используем preset-zapret2.txt!
+                from config import get_dpi_autostart
+                if not get_dpi_autostart():
+                    log("⏸️ direct_zapret2: автозагрузка DPI отключена", "INFO")
+                    return
+
                 from preset_zapret2 import get_active_preset_path, get_active_preset_name
                 
                 preset_path = get_active_preset_path()
