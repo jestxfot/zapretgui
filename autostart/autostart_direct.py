@@ -427,13 +427,44 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     Собирает аргументы для текущей Direct стратегии
     """
     try:
-        from strategy_menu import get_direct_strategy_selections
+        from strategy_menu import get_direct_strategy_selections, get_strategy_launch_method
         from launcher_common import combine_strategies
         from config.config import get_current_winws_exe
 
         # Используем единую функцию определения exe
         # direct_zapret1 → winws.exe, direct/direct_zapret2_orchestra → winws2.exe
         winws_exe = get_current_winws_exe()
+
+        launch_method = get_strategy_launch_method()
+
+        # direct_zapret2: аргументы берём из активного preset файла (preset-zapret2.txt),
+        # а не из legacy combine_strategies(), иначе будут не те настройки.
+        if launch_method == "direct_zapret2":
+            from preset_zapret2 import (
+                ensure_default_preset_exists,
+                get_active_preset_path,
+                get_active_preset_name,
+            )
+
+            ensure_default_preset_exists()
+
+            preset_path = get_active_preset_path()
+            preset_name = get_active_preset_name() or "Default"
+
+            if not preset_path.exists():
+                log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
+                return [], f"Пресет: {preset_name}", winws_exe
+
+            args: List[str] = []
+            with open(preset_path, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    args.append(line)
+
+            log(f"Собрано {len(args)} аргументов из preset файла", "INFO")
+            return args, f"Пресет: {preset_name}", winws_exe
 
         # Получаем выборы стратегий
         selections = get_direct_strategy_selections()

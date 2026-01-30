@@ -711,9 +711,11 @@ class AutostartPage(BasePage):
             else:
                 self.mode_label.setText("Классический (BAT файлы)")
 
-            # Опции службы/задач временно скрыты - пока не реализованы
-            self.service_option.setVisible(False)
-            self.logon_option.setVisible(False)
+            # Опции службы/задач:
+            # - orchestra/direct_zapret2_orchestra: оставляем только GUI автозапуск
+            # - остальные режимы: показываем службу и задачу при входе
+            self.service_option.setVisible(not is_orchestra)
+            self.logon_option.setVisible(not is_orchestra)
             self.boot_option.setVisible(False)
 
         except Exception as e:
