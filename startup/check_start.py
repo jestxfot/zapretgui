@@ -162,18 +162,23 @@ def check_mitmproxy() -> tuple[bool, str]:
     if has_cache:
         return cached_result, ""
     
-    # Имена исполняемых файлов mitmproxy (точное совпадение)
+    # Имена исполняемых файлов mitmproxy (точное совпадение).
+    # ВАЖНО: не запрашиваем cmdline/exe у psutil на старте — это заметно замедляет итерацию.
     MITMPROXY_EXECUTABLES = [
         "mitmproxy.exe",
-        "mitmdump.exe", 
+        "mitmdump.exe",
         "mitmweb.exe",
     ]
+    mitmproxy_names = {name.lower() for name in MITMPROXY_EXECUTABLES}
+    # На некоторых системах имя может приходить без расширения
+    mitmproxy_names |= {os.path.splitext(name)[0] for name in mitmproxy_names}
     
     # Получаем PID текущего процесса для исключения
     current_pid = os.getpid()
     
     try:
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        # Запрашиваем только лёгкие поля
+        for proc in psutil.process_iter(['pid', 'name']):
             try:
                 # Пропускаем текущий процесс
                 if proc.info['pid'] == current_pid:
@@ -182,7 +187,7 @@ def check_mitmproxy() -> tuple[bool, str]:
                 proc_name = proc.info['name'].lower() if proc.info['name'] else ""
                 
                 # Точное совпадение имени процесса с mitmproxy
-                if proc_name in [exe.lower() for exe in MITMPROXY_EXECUTABLES]:
+                if proc_name in mitmproxy_names:
                     err = (
                         f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
                         "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
@@ -197,26 +202,6 @@ def check_mitmproxy() -> tuple[bool, str]:
                     
                     startup_cache.cache_result("mitmproxy_check", True)
                     return True, err
-                
-                # Проверка пути исполняемого файла
-                proc_exe = proc.info.get('exe', '') or ''
-                if proc_exe:
-                    exe_basename = os.path.basename(proc_exe).lower()
-                    if exe_basename in [exe.lower() for exe in MITMPROXY_EXECUTABLES]:
-                        err = (
-                            f"Обнаружен запущенный процесс mitmproxy: {proc.info['name']} (PID: {proc.info['pid']})\n\n"
-                            "mitmproxy использует тот же драйвер WinDivert, что и Zapret.\n"
-                            "Одновременная работа этих программ невозможна.\n\n"
-                            "Пожалуйста, завершите все процессы mitmproxy и перезапустите Zapret."
-                        )
-                        try:
-                            from log import log
-                            log(f"ERROR: Найден конфликтующий процесс mitmproxy по пути: {proc_exe} (PID: {proc.info['pid']})", level="❌ ERROR")
-                        except ImportError:
-                            print(f"ERROR: Найден конфликтующий процесс mitmproxy по пути: {proc_exe}")
-                        
-                        startup_cache.cache_result("mitmproxy_check", True)
-                        return True, err
                         
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
@@ -558,7 +543,10 @@ def _service_exists_sc(name: str) -> bool:
     if proc.returncode == 1060:       # службы нет
         return False
     # Неопределённое состояние, но вывод всё-таки посмотрим:
-    return "STATE" in proc.stdout.upper()
+    stdout_text = getattr(proc, "stdout", "")
+    if stdout_text is None:
+        stdout_text = ""
+    return "STATE" in str(stdout_text).upper()
 
 def _stop_and_delete_service(name: str) -> tuple[bool, str]:
     """
@@ -782,6 +770,11 @@ def check_goodbyedpi() -> tuple[bool, str]:
     """
     Проверяет службы GoodbyeDPI и автоматически удаляет их.
     """
+
+    # Быстрый путь: если недавно проверяли и ничего не нашли — не делаем лишние запросы.
+    has_cache, cached_result = startup_cache.is_cached_and_valid("goodbyedpi_check")
+    if has_cache and not cached_result:
+        return False, ""
     
     SERVICE_NAMES = [
         "GoodbyeDPI",
@@ -799,7 +792,21 @@ def check_goodbyedpi() -> tuple[bool, str]:
     
     # Сначала находим все существующие службы
     for svc in SERVICE_NAMES:
-        if _service_exists_reg(svc) or _service_exists_sc(svc):
+        exists_reg: bool | None
+        try:
+            exists_reg = _service_exists_reg(svc)
+        except Exception:
+            exists_reg = None
+
+        exists = bool(exists_reg)
+        # Если реестр недоступен/вернул ошибку — пробуем sc как fallback
+        if exists_reg is None:
+            try:
+                exists = _service_exists_sc(svc)
+            except Exception:
+                exists = False
+
+        if exists:
             found_services.append(svc)
             log(f"Обнаружена служба GoodbyeDPI: {svc}", level="WARNING")
     
@@ -826,7 +833,20 @@ def check_goodbyedpi() -> tuple[bool, str]:
     # Проверяем, остались ли службы после удаления
     still_exists = []
     for svc in found_services:
-        if _service_exists_reg(svc) or _service_exists_sc(svc):
+        exists_reg: bool | None
+        try:
+            exists_reg = _service_exists_reg(svc)
+        except Exception:
+            exists_reg = None
+
+        exists = bool(exists_reg)
+        if exists_reg is None:
+            try:
+                exists = _service_exists_sc(svc)
+            except Exception:
+                exists = False
+
+        if exists:
             still_exists.append(svc)
     
     if still_exists:

@@ -621,7 +621,7 @@ def set_selected_theme(theme_name: str) -> bool:
     log(f"💾 Сохранение темы в реестр [{REGISTRY_PATH}]: '{theme_name}' -> {result}", "DEBUG")
     return result
 
-def load_cached_css_sync(theme_name: str = None) -> str | None:
+def load_cached_css_sync(theme_name: str | None = None) -> str | None:
     """
     Синхронно загружает CSS из кеша для быстрого применения при старте.
     Возвращает CSS строку или None если кеш не найден.
@@ -642,20 +642,35 @@ def load_cached_css_sync(theme_name: str = None) -> str | None:
     if os.path.exists(cache_file):
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
-                css = f.read()
-            
-            # ✅ Проверяем что кеш содержит динамические стили (проверка по маркеру версии)
-            # Маркер добавляется в ThemeBuildWorker при генерации CSS
-            if "/* THEME_VERSION:v2 */" not in css:
-                log(f"⚠️ Кеш CSS устарел (нет маркера версии v2), удаляем: {cache_file}", "WARNING")
-                try:
-                    os.remove(cache_file)
-                except:
-                    pass
+                cached_css = f.read()
+
+            if not cached_css:
                 return None
-            
-            log(f"📦 Загружен CSS из кеша: {len(css)} символов для '{theme_name}'", "DEBUG")
-            return css
+
+            # В старых версиях в кеше мог быть уже финальный CSS с маркером.
+            # Сейчас в кеше хранится базовый CSS qt_material (без оверлеев) —
+            # финальный собираем синхронно, чтобы ускорить старт.
+            if "/* THEME_VERSION:v2 */" in cached_css:
+                log(f"📦 Загружен финальный CSS из кеша: {len(cached_css)} символов для '{theme_name}'", "DEBUG")
+                return cached_css
+
+            theme_info = THEMES.get(theme_name, {})
+            is_rkn_tyan = (theme_name == "РКН Тян")
+            is_rkn_tyan_2 = (theme_name == "РКН Тян 2")
+            is_pure_black = (theme_name == "Полностью черная" or theme_info.get("pure_black", False))
+            is_amoled = (theme_name.startswith("AMOLED") or theme_info.get("amoled", False))
+
+            final_css = _assemble_final_css(
+                cached_css,
+                theme_name,
+                is_amoled=is_amoled,
+                is_pure_black=is_pure_black,
+                is_rkn_tyan=is_rkn_tyan,
+                is_rkn_tyan_2=is_rkn_tyan_2,
+            )
+
+            log(f"📦 Собран финальный CSS из кеша: {len(final_css)} символов для '{theme_name}'", "DEBUG")
+            return final_css
         except Exception as e:
             log(f"Ошибка чтения кеша CSS: {e}", "WARNING")
     
@@ -679,122 +694,42 @@ def get_theme_content_bg_color(theme_name: str) -> str:
         return f"{r}, {g}, {b}"
     except:
         return "39, 39, 39"
-   
-class ThemeBuildWorker(QObject):
-    """Воркер для полной подготовки CSS темы в фоновом потоке.
-    
-    Делает ВСЮ тяжёлую работу в фоне:
-    - Чтение кеша
-    - Генерация CSS через qt_material (если кеша нет)
-    - Сборка финального CSS со всеми оверлеями
-    
-    В главном потоке остаётся только setStyleSheet() - одна операция.
+
+
+def _build_dynamic_style_sheet(theme_name: str) -> str:
+    """Строит динамические оверлеи CSS для темы.
+
+    Должно быть максимально быстрым: только форматирование строк + чтение 1-2 флагов из реестра.
     """
-    
-    finished = pyqtSignal(str, str)  # final_css, theme_name
-    error = pyqtSignal(str)
-    progress = pyqtSignal(str)  # status message
-    
-    def __init__(self, theme_file: str, theme_name: str, cache_file: str, 
-                 is_amoled: bool = False, is_pure_black: bool = False, is_rkn_tyan: bool = False, is_rkn_tyan_2: bool = False):
-        super().__init__()
-        self.theme_file = theme_file
-        self.theme_name = theme_name
-        self.cache_file = cache_file
-        self.is_amoled = is_amoled
-        self.is_pure_black = is_pure_black
-        self.is_rkn_tyan = is_rkn_tyan
-        self.is_rkn_tyan_2 = is_rkn_tyan_2
-    
-    def run(self):
-        """Подготавливает полный CSS в фоновом потоке"""
-        try:
-            import os
-            import re
-            start_time = time.time()
-            base_css = None
-            from_cache = False
-            
-            # 1. Пробуем загрузить из кеша (быстро) - кеш уже оптимизирован
-            if os.path.exists(self.cache_file):
-                try:
-                    self.progress.emit("Загрузка темы из кеша...")
-                    with open(self.cache_file, 'r', encoding='utf-8') as f:
-                        base_css = f.read()
-                    if base_css:
-                        from_cache = True
-                        log(f"🎨 ThemeBuildWorker: загружен CSS из кеша ({len(base_css)} символов)", "DEBUG")
-                except Exception as e:
-                    log(f"⚠ Ошибка чтения кеша: {e}", "WARNING")
-                    base_css = None
-            
-            # 2. Если кеша нет - генерируем через qt_material и оптимизируем
-            if not base_css:
-                import qt_material
-                self.progress.emit("Генерация CSS темы...")
-                log(f"🎨 ThemeBuildWorker: генерация CSS для {self.theme_file}", "DEBUG")
-                
-                base_css = qt_material.build_stylesheet(theme=self.theme_file)
-                original_size = len(base_css)
-                
-                # === ОПТИМИЗАЦИЯ CSS ===
-                self.progress.emit("Оптимизация CSS...")
-                
-                # 2.1 Удаляем проблемные icon:/ ссылки которые замедляют парсинг Qt
-                base_css = re.sub(r'url\(["\']?icon:[^)]+\)', 'none', base_css)
-                
-                # 2.2 Минификация CSS - удаляем лишние пробелы и переносы
-                base_css = re.sub(r'/\*[^*]*\*+([^/*][^*]*\*+)*/', '', base_css)  # Удаляем комментарии
-                base_css = re.sub(r'\s+', ' ', base_css)  # Множественные пробелы -> один
-                base_css = re.sub(r'\s*([{};:,>])\s*', r'\1', base_css)  # Убираем пробелы вокруг символов
-                base_css = base_css.strip()
-                
-                optimized_size = len(base_css)
-                log(f"🎨 CSS оптимизирован: {original_size} -> {optimized_size} байт ({100-optimized_size*100//original_size}% сжатие)", "DEBUG")
-                
-                # Кешируем ОПТИМИЗИРОВАННЫЙ CSS для будущих запусков
-                try:
-                    os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-                    with open(self.cache_file, 'w', encoding='utf-8') as f:
-                        f.write(base_css)
-                    log(f"✅ Оптимизированный CSS закеширован в {self.cache_file}", "DEBUG")
-                except Exception as e:
-                    log(f"⚠ Не удалось закешировать CSS: {e}", "WARNING")
-            
-            # 3. Собираем финальный CSS со всеми оверлеями (тоже в фоне!)
-            self.progress.emit("Подготовка стилей...")
-            all_styles = [base_css]
-            
-            # ✅ ГЕНЕРИРУЕМ динамический STYLE_SHEET с правильными цветами для темы
-            theme_bg = get_theme_bg_color(self.theme_name)
-            content_bg = get_theme_content_bg_color(self.theme_name)
-            is_light = "Светлая" in self.theme_name
-            text_color = "#000000" if is_light else "#ffffff"
-            border_color = "200, 200, 200" if is_light else "80, 80, 80"
-            titlebar_bg_adjust = 10 if is_light else -4  # Светлее/темнее для titlebar
+    theme_bg = get_theme_bg_color(theme_name)
+    content_bg = get_theme_content_bg_color(theme_name)
+    is_light = "Светлая" in theme_name
+    text_color = "#000000" if is_light else "#ffffff"
+    border_color = "200, 200, 200" if is_light else "80, 80, 80"
+    titlebar_bg_adjust = 10 if is_light else -4  # Светлее/темнее для titlebar
 
-            # Проверяем состояние blur для определения прозрачности
-            try:
-                from config.reg import get_blur_effect_enabled
-                blur_enabled = get_blur_effect_enabled()
-            except:
-                blur_enabled = False
+    # Проверяем состояние blur для определения прозрачности
+    try:
+        from config.reg import get_blur_effect_enabled
+        blur_enabled = get_blur_effect_enabled()
+    except Exception:
+        blur_enabled = False
 
-            # Непрозрачность: меньше при blur, полностью непрозрачно без него
-            base_alpha = 240 if blur_enabled else 255
-            border_alpha = 200 if blur_enabled else 255
+    # Непрозрачность: меньше при blur, полностью непрозрачно без него
+    base_alpha = 240 if blur_enabled else 255
+    border_alpha = 200 if blur_enabled else 255
 
-            # Вычисляем цвет titlebar (чуть темнее основного)
-            try:
-                r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
-                tr = max(0, min(255, r + titlebar_bg_adjust))
-                tg = max(0, min(255, g + titlebar_bg_adjust))
-                tb = max(0, min(255, b + titlebar_bg_adjust))
-                titlebar_bg = f"{tr}, {tg}, {tb}"
-            except:
-                titlebar_bg = theme_bg
+    # Вычисляем цвет titlebar (чуть темнее/светлее основного)
+    try:
+        r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
+        tr = max(0, min(255, r + titlebar_bg_adjust))
+        tg = max(0, min(255, g + titlebar_bg_adjust))
+        tb = max(0, min(255, b + titlebar_bg_adjust))
+        titlebar_bg = f"{tr}, {tg}, {tb}"
+    except Exception:
+        titlebar_bg = theme_bg
 
-            dynamic_style_sheet = f"""
+    return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
     font-family: 'Segoe UI', Arial, sans-serif;
@@ -891,24 +826,128 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0;
 }}
 """
-            all_styles.append(dynamic_style_sheet)
+
+
+def _assemble_final_css(
+    base_css: str,
+    theme_name: str,
+    *,
+    is_amoled: bool = False,
+    is_pure_black: bool = False,
+    is_rkn_tyan: bool = False,
+    is_rkn_tyan_2: bool = False,
+) -> str:
+    """Собирает финальный CSS из базового qt_material CSS + оверлеев."""
+    all_styles = [base_css]
+    all_styles.append(_build_dynamic_style_sheet(theme_name))
+    all_styles.append("/* THEME_VERSION:v2 */")
+
+    if is_rkn_tyan or is_rkn_tyan_2:
+        all_styles.append(
+            """
+QWidget[hasCustomBackground="true"] { background: transparent !important; }
+QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
+"""
+        )
+
+    if is_pure_black:
+        all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
+    elif is_amoled:
+        all_styles.append(AMOLED_OVERRIDE_STYLE)
+
+    return "\n".join(all_styles)
+   
+class ThemeBuildWorker(QObject):
+    """Воркер для полной подготовки CSS темы в фоновом потоке.
+    
+    Делает ВСЮ тяжёлую работу в фоне:
+    - Чтение кеша
+    - Генерация CSS через qt_material (если кеша нет)
+    - Сборка финального CSS со всеми оверлеями
+    
+    В главном потоке остаётся только setStyleSheet() - одна операция.
+    """
+    
+    finished = pyqtSignal(str, str)  # final_css, theme_name
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str)  # status message
+    
+    def __init__(self, theme_file: str, theme_name: str, cache_file: str, 
+                 is_amoled: bool = False, is_pure_black: bool = False, is_rkn_tyan: bool = False, is_rkn_tyan_2: bool = False):
+        super().__init__()
+        self.theme_file = theme_file
+        self.theme_name = theme_name
+        self.cache_file = cache_file
+        self.is_amoled = is_amoled
+        self.is_pure_black = is_pure_black
+        self.is_rkn_tyan = is_rkn_tyan
+        self.is_rkn_tyan_2 = is_rkn_tyan_2
+    
+    def run(self):
+        """Подготавливает полный CSS в фоновом потоке"""
+        try:
+            import os
+            import re
+            start_time = time.time()
+            base_css = None
+            from_cache = False
             
-            # ✅ Добавляем маркер версии для валидации кеша
-            all_styles.append("/* THEME_VERSION:v2 */")
+            # 1. Пробуем загрузить из кеша (быстро) - кеш уже оптимизирован
+            if os.path.exists(self.cache_file):
+                try:
+                    self.progress.emit("Загрузка темы из кеша...")
+                    with open(self.cache_file, 'r', encoding='utf-8') as f:
+                        base_css = f.read()
+                    if base_css:
+                        from_cache = True
+                        log(f"🎨 ThemeBuildWorker: загружен CSS из кеша ({len(base_css)} символов)", "DEBUG")
+                except Exception as e:
+                    log(f"⚠ Ошибка чтения кеша: {e}", "WARNING")
+                    base_css = None
             
-            if self.is_rkn_tyan or self.is_rkn_tyan_2:
-                all_styles.append("""
-                    QWidget[hasCustomBackground="true"] { background: transparent !important; }
-                    QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
-                """)
+            # 2. Если кеша нет - генерируем через qt_material и оптимизируем
+            if not base_css:
+                import qt_material
+                self.progress.emit("Генерация CSS темы...")
+                log(f"🎨 ThemeBuildWorker: генерация CSS для {self.theme_file}", "DEBUG")
+                
+                base_css = qt_material.build_stylesheet(theme=self.theme_file)
+                original_size = len(base_css)
+                
+                # === ОПТИМИЗАЦИЯ CSS ===
+                self.progress.emit("Оптимизация CSS...")
+                
+                # 2.1 Удаляем проблемные icon:/ ссылки которые замедляют парсинг Qt
+                base_css = re.sub(r'url\(["\']?icon:[^)]+\)', 'none', base_css)
+                
+                # 2.2 Минификация CSS - удаляем лишние пробелы и переносы
+                base_css = re.sub(r'/\*[^*]*\*+([^/*][^*]*\*+)*/', '', base_css)  # Удаляем комментарии
+                base_css = re.sub(r'\s+', ' ', base_css)  # Множественные пробелы -> один
+                base_css = re.sub(r'\s*([{};:,>])\s*', r'\1', base_css)  # Убираем пробелы вокруг символов
+                base_css = base_css.strip()
+                
+                optimized_size = len(base_css)
+                log(f"🎨 CSS оптимизирован: {original_size} -> {optimized_size} байт ({100-optimized_size*100//original_size}% сжатие)", "DEBUG")
+                
+                # Кешируем ОПТИМИЗИРОВАННЫЙ CSS для будущих запусков
+                try:
+                    os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+                    with open(self.cache_file, 'w', encoding='utf-8') as f:
+                        f.write(base_css)
+                    log(f"✅ Оптимизированный CSS закеширован в {self.cache_file}", "DEBUG")
+                except Exception as e:
+                    log(f"⚠ Не удалось закешировать CSS: {e}", "WARNING")
             
-            if self.is_pure_black:
-                all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
-            elif self.is_amoled:
-                all_styles.append(AMOLED_OVERRIDE_STYLE)
-            
-            # Объединяем всё в одну строку
-            final_css = "\n".join(all_styles)
+            # 3. Собираем финальный CSS со всеми оверлеями (тоже в фоне!)
+            self.progress.emit("Подготовка стилей...")
+            final_css = _assemble_final_css(
+                base_css,
+                self.theme_name,
+                is_amoled=self.is_amoled,
+                is_pure_black=self.is_pure_black,
+                is_rkn_tyan=self.is_rkn_tyan,
+                is_rkn_tyan_2=self.is_rkn_tyan_2,
+            )
             
             elapsed = time.time() - start_time
             cache_status = "из кеша" if from_cache else "сгенерирован"

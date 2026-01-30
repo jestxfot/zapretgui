@@ -4,6 +4,8 @@
 При клике на категорию открывается отдельная страница StrategyDetailPage.
 """
 
+import webbrowser
+
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -150,6 +152,10 @@ class Zapret2StrategiesPageNew(BasePage):
             collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
             collapse_btn.clicked.connect(self._collapse_all)
             actions_layout.addWidget(collapse_btn)
+
+            presets_info_btn = ActionButton("о пресетах", "fa5s.info-circle")
+            presets_info_btn.clicked.connect(self._open_presets_info)
+            actions_layout.addWidget(presets_info_btn)
 
             # Кнопка выключить все
             self._clear_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
@@ -413,3 +419,13 @@ class Zapret2StrategiesPageNew(BasePage):
         """Открывает Telegram канал с инструкциями по добавлению сайтов"""
         from config.telegram_links import open_telegram_link
         open_telegram_link("zaprethelp", post=18408)
+
+    def _open_presets_info(self):
+        """Открывает страницу с информацией о пресетах"""
+        try:
+            from config.urls import PRESET_INFO_URL
+
+            webbrowser.open(PRESET_INFO_URL)
+            log(f"Открыта страница о пресетах: {PRESET_INFO_URL}", "INFO")
+        except Exception as e:
+            log(f"Не удалось открыть страницу о пресетах: {e}", "ERROR")

@@ -477,10 +477,19 @@ class InitializationManager:
                     log(f"⏭️ CSS уже применён при старте для '{current_theme}', пропускаем асинхронное применение", "DEBUG")
                     self.app._theme_pending = False
                     
-                    # Помечаем тему как применённую в ThemeManager
-                    self.app.theme_manager._theme_applied = True
-                    # ✅ Хеш берём от главного окна (CSS применяется к нему)
-                    self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
+                     # Помечаем тему как применённую в ThemeManager
+                     self.app.theme_manager._theme_applied = True
+                     # ✅ Хеш берём от применённого CSS (startup fast-path)
+                     startup_css_hash = getattr(self.app, "_startup_css_hash", None)
+                     if startup_css_hash is None:
+                         try:
+                             from PyQt6.QtWidgets import QApplication
+                             app = QApplication.instance()
+                             css_text = app.styleSheet() if app else ""
+                             startup_css_hash = hash(css_text) if css_text else None
+                         except Exception:
+                             startup_css_hash = None
+                     self.app.theme_manager._current_css_hash = startup_css_hash
                     
                     # ✅ Закрываем splash т.к. тема применена
                     if hasattr(self.app, 'splash') and self.app.splash:

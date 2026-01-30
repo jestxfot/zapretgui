@@ -1015,7 +1015,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             # Если в трее - без splash
             self.splash = None
             self._css_applied_at_startup = False
-        
+
+        # ✅ Пытаемся применить CSS из кеша ДО построения основного UI.
+        # Это резко снижает стоимость QApplication.setStyleSheet(),
+        # потому что виджетов ещё мало.
+        self._apply_cached_css_at_startup()
+
         # Splash больше не используется - окно показывается сразу
         
         # Инициализируем атрибуты
@@ -1068,6 +1073,53 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 self.theme_handler.set_theme_manager(self.theme_manager)
                 
             log("ThemeHandler инициализирован", "DEBUG")
+
+    def _apply_cached_css_at_startup(self) -> None:
+        """Быстро применяет CSS из кеша на старте (если доступен)."""
+        try:
+            from PyQt6.QtWidgets import QApplication
+            from PyQt6.QtGui import QPalette
+            import time as _time
+
+            app = QApplication.instance()
+            if app is None:
+                return
+
+            # Импортируем лениво: большой модуль, но нужен только на старте.
+            from ui.theme import THEMES, get_selected_theme, load_cached_css_sync
+
+            selected = get_selected_theme("Темная синяя") or "Темная синяя"
+            if selected not in THEMES:
+                selected = "Темная синяя"
+
+            # Премиум темы не применяем до проверки подписки (поведение ThemeManager).
+            info = THEMES.get(selected, {})
+            is_premium_theme = (
+                selected in ("РКН Тян", "РКН Тян 2", "Полностью черная")
+                or selected.startswith("AMOLED")
+                or info.get("amoled", False)
+                or info.get("pure_black", False)
+            )
+            theme_to_apply = "Темная синяя" if is_premium_theme else selected
+
+            css = load_cached_css_sync(theme_to_apply)
+            if not css:
+                return
+
+            t0 = _time.perf_counter()
+            app.setStyleSheet(css)
+            # Сбрасываем палитру чтобы стили гарантированно применились
+            self.setPalette(QPalette())
+            elapsed_ms = (_time.perf_counter() - t0) * 1000
+
+            self._css_applied_at_startup = True
+            self._startup_theme = theme_to_apply
+            self._startup_css_hash = hash(css)
+
+            log(f"🎨 Startup CSS applied from cache: {elapsed_ms:.0f}ms (theme='{theme_to_apply}')", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка применения CSS из кеша при старте: {e}", "DEBUG")
 
     # ═══════════════════════════════════════════════════════════════════════
     # FRAMELESS WINDOW: Обработчики событий мыши для изменения размера
