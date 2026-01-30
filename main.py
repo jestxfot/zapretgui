@@ -1780,25 +1780,6 @@ def main():
         except Exception:
             pass
 
-        # ──────────────────────────────────────────────────────────────
-        # Debug: log every top-level window that becomes visible
-        # Helps to track mysterious blank window reported on Windows
-        # ──────────────────────────────────────────────────────────────
-        from PyQt6.QtCore import QObject, QEvent, QTimer
-
-        class _ShowDebugFilter(QObject):
-            def eventFilter(self, obj, event):
-                try:
-                    is_window = hasattr(obj, "isWindow") and obj.isWindow()
-                except Exception:
-                    is_window = False
-
-                if event.type() == QEvent.Type.Show and is_window:
-                    print(f"[DEBUG SHOW] {obj.__class__.__name__} title={obj.windowTitle()!r}")
-                return False
-
-        _show_debug_filter = _ShowDebugFilter()
-        app.installEventFilter(_show_debug_filter)
         app.setQuitOnLastWindowClosed(False)
         
         # Устанавливаем Qt crash handler
@@ -1829,21 +1810,6 @@ def main():
     # СОЗДАЁМ ОКНО
     window = LupiDPIApp(start_in_tray=start_in_tray)
 
-    # ──────────────────────────────────────────────────────────────
-    # Debug helper: dump all top-level windows shortly after start
-    # Helps track mysterious blank window reported by users
-    # ──────────────────────────────────────────────────────────────
-    def _dump_top_level_windows():
-        try:
-            items = []
-            for w in QApplication.topLevelWidgets():
-                items.append(f"{w.__class__.__name__} :: title={w.windowTitle()!r} :: visible={w.isVisible()}")
-            log("DEBUG TOP-LEVEL WINDOWS:\n" + "\n".join(items), "DEBUG")
-        except Exception as debug_err:
-            log(f"Failed to dump top-level windows: {debug_err}", "⚠ DEBUG")
-
-    QTimer.singleShot(1500, _dump_top_level_windows)
-    
     # ✅ ЗАПУСКАЕМ IPC СЕРВЕР
     ipc_manager = IPCManager()
     ipc_manager.start_server(window)
