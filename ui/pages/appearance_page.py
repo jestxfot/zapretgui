@@ -85,9 +85,9 @@ class AcrylicSlider(PreciseSlider):
     def __init__(self, orientation: Qt.Orientation, parent=None):
         super().__init__(orientation, parent)
         self.setMouseTracking(True)
-        self.setFixedHeight(24)
+        self.setFixedHeight(22)
         self._track_height = 6.0
-        self._handle_diameter = 16.0
+        self._handle_diameter = 12.0
         # Делаем максимально контрастным для тёмных тем (включая "Темная синяя")
         # и для полупрозрачного окна/карточек.
         self.setStyleSheet(
@@ -185,7 +185,9 @@ class AcrylicSlider(PreciseSlider):
         # Хэндл — чистая синяя точка без обводки
         handle_d = float(self._handle_diameter)
         cx = track_rect.left() + fill_w
-        cx = max(track_rect.left(), min(cx, track_rect.right()))
+        cx_min = track_rect.left() + (handle_d / 2.0)
+        cx_max = track_rect.right() - (handle_d / 2.0)
+        cx = max(cx_min, min(cx, cx_max))
         cy = track_rect.center().y()
         handle_rect = QRectF(cx - handle_d / 2.0, cy - handle_d / 2.0, handle_d, handle_d)
         painter.setBrush(accent_hover if (self.underMouse() or self.isSliderDown()) else accent)
