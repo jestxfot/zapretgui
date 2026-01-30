@@ -16,7 +16,7 @@
    - **SKIP_PASS фильтр**: блокирует сохранение strategy=1 для заблокированных доменов (YouTube, Discord, Google и др.)
    - Три точки фильтрации: загрузка из реестра, генерация lua, парсинг LOCK событий
 
-2. **Lua файлы** (исходники в /opt/zapret/lua/):
+2. **Lua файлы** (исходники в /home/privacy/zapret/lua/):
    - `zapret-lib.lua` - Базовые хелперы (deepcopy, blob, rawsend и т.д.)
    - `zapret-antidpi.lua` - DPI атаки (fake, multisplit, fakedsplit, syndata и т.д.)
    - `zapret-auto.lua` - Оркестраторы: circular, circular_quality, repeater

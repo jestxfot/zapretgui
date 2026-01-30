@@ -7,9 +7,9 @@ Circular Orchestra Runner - автоматическое обучение стр
 - strategy_stats (LOCK механизм после 3 успехов, UNLOCK после 2 failures)
 - domain_grouping (группировка субдоменов)
 
-При этом сам оркестратор (его исходный код) всегда хранится /opt/zapret/lua/
+При этом сам оркестратор (его исходный код) всегда хранится /home/privacy/zapret/lua/
 
-Копировать в Program Data не нужно -  приложение берёт файлы напрямую из /opt/zapret/lua/.
+Копировать в Program Data не нужно -  приложение берёт файлы напрямую из /home/privacy/zapret/lua/.
 
 Можешь посмотреть исходный код логов в исходном коде запрета F:\\doc\\zapret2\\nfq2\\desync.c
 Логи - только Python - компактные для гуи чтобы не было огромных winws2 debug логов.
@@ -166,7 +166,7 @@ class OrchestraRunner:
         self.bin_path = BIN_FOLDER
 
         # Файлы конфигурации (в lua папке)
-        # ВАЖНО: circular-config.txt теперь СТАТИЧЕСКИЙ файл в /opt/zapret/lua/
+        # ВАЖНО: circular-config.txt теперь СТАТИЧЕСКИЙ файл в /home/privacy/zapret/lua/
         # Стратегии встроены напрямую в circular-config.txt, отдельные strategies-*.txt не нужны
         self.config_path = os.path.join(self.lua_path, "circular-config.txt")
         self.blobs_path = os.path.join(self.lua_path, "blobs.txt")
@@ -440,7 +440,7 @@ class OrchestraRunner:
     def _generate_learned_lua(self) -> Optional[str]:
         """
         Генерирует learned-strategies.lua для предзагрузки в strategy-stats.lua.
-        Этот файл хранится по пути /opt/zapret/lua/strategy-stats.lua
+        Этот файл хранится по пути /home/privacy/zapret/lua/strategy-stats.lua
         Вызывает strategy_preload() и strategy_preload_history() для каждого домена.
 
         Returns:
@@ -1422,7 +1422,7 @@ class OrchestraRunner:
         return None
 
     # REMOVED: _write_strategies_from_file() - стратегии теперь встроены в circular-config.txt
-    # REMOVED: _generate_circular_config() - конфиг теперь статический в /opt/zapret/lua/circular-config.txt
+    # REMOVED: _generate_circular_config() - конфиг теперь статический в /home/privacy/zapret/lua/circular-config.txt
 
     def _generate_whitelist_file(self) -> bool:
         """Генерирует файл whitelist.txt для winws2 --hostlist-exclude"""

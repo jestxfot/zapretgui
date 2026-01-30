@@ -36,7 +36,7 @@ def _candidate_indexjson_dirs() -> Iterable[Path]:
     except Exception:
         pass
 
-    # Repo layout hint: /opt/zapretgui -> /opt/zapret
+    # Repo layout hint: /home/privacy/zapretgui -> /home/privacy/zapret
     try:
         here = Path(__file__).resolve()
         # preset_zapret2/catalog.py -> zapretgui -> Privacy

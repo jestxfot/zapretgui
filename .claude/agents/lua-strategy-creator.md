@@ -310,7 +310,7 @@ end
 
 ## ФАЙЛЫ ДЛЯ РАБОТЫ
 
-- **Целевой файл:** `/opt/zapret/lua/custom_funcs.lua`
+- **Целевой файл:** `/home/privacy/zapret/lua/custom_funcs.lua`
 - **Референс API:** `F:\doc\zapret2\nfq2\lua\zapret-lib.lua`
 - **Референс функций:** `F:\doc\zapret2\nfq2\lua\zapret-antidpi.lua`
 
