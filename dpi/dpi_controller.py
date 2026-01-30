@@ -32,38 +32,67 @@ class DPIStartWorker(QObject):
             
             # Проверяем, не запущен ли уже процесс
             if self.dpi_starter.check_process_running_wmi(silent=True):
-                self.progress.emit("Останавливаем предыдущий процесс...")
+                skip_stop = False
+
+                # direct_zapret2: если запущен ТОТ ЖЕ preset (@preset-zapret2.txt),
+                # не останавливаем и не перезапускаем — просто "подключаемся".
+                try:
+                    mode_param = self.selected_mode
+                    if (
+                        self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra")
+                        and isinstance(mode_param, dict)
+                        and mode_param.get("is_preset_file")
+                    ):
+                        preset_path = (mode_param.get("preset_path") or "").strip()
+                        if preset_path:
+                            from launcher_common import get_strategy_runner
+
+                            runner = get_strategy_runner(self._get_winws_exe())
+                            if hasattr(runner, "find_running_preset_pid"):
+                                pid = runner.find_running_preset_pid(preset_path)
+                                if pid:
+                                    log(
+                                        f"Preset уже запущен (PID: {pid}), пропускаем остановку",
+                                        "INFO",
+                                    )
+                                    skip_stop = True
+                except Exception:
+                    pass
+
+                if not skip_stop:
+                    self.progress.emit("Останавливаем предыдущий процесс...")
 
                 # Останавливаем через соответствующий метод
-                if self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                if (not skip_stop) and self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                     from launcher_common import get_strategy_runner
                     runner = get_strategy_runner(self._get_winws_exe())
                     runner.stop()
-                else:
+                elif not skip_stop:
                     from dpi.stop import stop_dpi
                     stop_dpi(self.app_instance)
 
                 # Ждём пока процесс действительно остановится (до 5 секунд)
-                max_wait = 10
-                for attempt in range(max_wait):
-                    time.sleep(0.5)
-                    if not self.dpi_starter.check_process_running_wmi(silent=True):
-                        log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
-                        break
-                else:
-                    log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
-                    import subprocess
-                    try:
-                        subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
-                                       capture_output=True, timeout=3)
-                        subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
-                                       capture_output=True, timeout=3)
-                        time.sleep(1)
-                    except Exception as e:
-                        log(f"Ошибка taskkill: {e}", "DEBUG")
+                if not skip_stop:
+                    max_wait = 10
+                    for attempt in range(max_wait):
+                        time.sleep(0.5)
+                        if not self.dpi_starter.check_process_running_wmi(silent=True):
+                            log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
+                            break
+                    else:
+                        log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
+                        import subprocess
+                        try:
+                            subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
+                                           capture_output=True, timeout=3)
+                            subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
+                                           capture_output=True, timeout=3)
+                            time.sleep(1)
+                        except Exception as e:
+                            log(f"Ошибка taskkill: {e}", "DEBUG")
 
-                # Дополнительная пауза для освобождения WinDivert
-                time.sleep(0.5)
+                    # Дополнительная пауза для освобождения WinDivert
+                    time.sleep(0.5)
 
             self.progress.emit("Запуск DPI...")
             

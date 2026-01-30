@@ -274,6 +274,17 @@ class StrategyRunnerV2(StrategyRunnerBase):
             return False
 
         try:
+            # If the exact preset is already running, do NOT restart it.
+            # Just attach watcher + update runner state.
+            pid = self.find_running_preset_pid(preset_path)
+            if pid:
+                self._preset_file_path = preset_path
+                self.current_strategy_name = strategy_name
+                self.current_strategy_args = [f"@{preset_path}"]
+                log(f"Preset already running (PID: {pid}), attaching without restart", "INFO")
+                self._start_config_watcher()
+                return True
+
             # Stop previous process and watcher
             if self.running_process and self.is_running():
                 log("Stopping previous process before starting new one", "INFO")
@@ -362,6 +373,50 @@ class StrategyRunnerV2(StrategyRunnerBase):
             self.current_strategy_args = None
             self._preset_file_path = None
             return False
+
+    def find_running_preset_pid(self, preset_path: str) -> Optional[int]:
+        """Returns PID of winws2.exe running with @preset_path, if any."""
+        try:
+            import psutil
+
+            target_exe = os.path.basename(self.winws_exe).lower()
+            target_preset = os.path.normcase(os.path.normpath(os.path.abspath(preset_path)))
+
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    name = (proc.info.get("name") or "").lower()
+                    if name != target_exe:
+                        continue
+
+                    cmdline = proc.info.get("cmdline") or []
+                    if not isinstance(cmdline, list):
+                        continue
+
+                    for arg in cmdline:
+                        if not isinstance(arg, str):
+                            continue
+                        if not arg.startswith("@"):
+                            continue
+
+                        raw = arg[1:].strip().strip('"').strip()
+                        if not raw:
+                            continue
+
+                        candidate = raw
+                        if not os.path.isabs(candidate):
+                            candidate = os.path.join(self.work_dir, candidate)
+
+                        candidate_norm = os.path.normcase(os.path.normpath(os.path.abspath(candidate)))
+                        if candidate_norm == target_preset:
+                            return int(proc.info.get("pid"))
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+                except Exception:
+                    continue
+
+            return None
+        except Exception:
+            return None
 
     def _start_config_watcher(self):
         """Start watching the preset file for changes"""
