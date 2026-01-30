@@ -230,6 +230,34 @@ class SystemTrayManager:
             from log import log
             log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
 
+    def hide_to_tray(self, show_hint: bool = True) -> None:
+        """Скрывает окно в трей (без выхода из GUI)."""
+        try:
+            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
+            self._save_window_geometry()
+        except Exception:
+            pass
+
+        try:
+            self.parent.hide()
+        except Exception:
+            return
+
+        if not show_hint:
+            return
+
+        # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
+        try:
+            from config import get_tray_hint_shown, set_tray_hint_shown
+            if not get_tray_hint_shown():
+                self.show_notification(
+                    "Zapret продолжает работать",
+                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
+                )
+                set_tray_hint_shown(True)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # 1) ПРОСТО закрыть GUI, winws.exe оставить жить
     # ------------------------------------------------------------------
@@ -293,7 +321,7 @@ class SystemTrayManager:
 
         if reason == QSystemTrayIcon.ActivationReason.Trigger:          # левая кнопка
             if self.parent.isVisible():
-                self.parent.hide()
+                self.hide_to_tray(show_hint=False)
             else:
                 self.show_window()
 
@@ -368,45 +396,13 @@ class SystemTrayManager:
             # (который сохранит позицию)
             self._orig_close(ev)
             return
-            
-        # Проверяем флаг разрешения закрытия (устанавливается в exit_only/exit_and_stop)
-        if not getattr(self.parent, '_allow_close', False):
-            # Обычное закрытие окна (крестик) - сворачиваем в трей
-            # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
-            from config import get_tray_hint_shown, set_tray_hint_shown
-            if not get_tray_hint_shown():
-                self.show_notification(
-                    "Zapret продолжает работать",
-                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
-                )
-                set_tray_hint_shown(True)
-            
-            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
-            self._save_window_geometry()
-            
-            self.parent.hide()
+
+        # Обычное закрытие окна (крестик) — полностью закрываем GUI (DPI не трогаем).
+        try:
+            self.exit_only()
+        finally:
+            # request_exit() инициирует QApplication.quit(), closeEvent придёт ещё раз с _closing_completely=True
             ev.ignore()
-        else:
-            # Разрешено закрытие (из методов exit_*)
-            # Геометрия уже сохранена в exit_only/exit_and_stop
-            self._orig_close(ev)
 
     def _change_event(self, ev):
-        if ev.type() == QEvent.Type.WindowStateChange and self.parent.isMinimized():
-            ev.ignore()
-            
-            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД МИНИМИЗАЦИЕЙ
-            self._save_window_geometry()
-            
-            self.parent.hide()
-            
-            # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
-            from config import get_tray_hint_shown, set_tray_hint_shown
-            if not get_tray_hint_shown():
-                self.show_notification(
-                    "Zapret продолжает работать",
-                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
-                )
-                set_tray_hint_shown(True)
-        else:
-            self._orig_change(ev)
+        self._orig_change(ev)

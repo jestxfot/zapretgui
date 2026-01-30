@@ -469,6 +469,13 @@ class MaximizeButton(TitleBarButton):
         self.setIcon(qta.icon(icon_name, color='white'))
 
 
+class TrayButton(TitleBarButton):
+    """Кнопка сворачивания в трей"""
+
+    def __init__(self, parent=None):
+        super().__init__('fa5s.cube', '#555555', parent, border_radius="border-radius: 0px;")
+
+
 class CustomTitleBar(QWidget):
     """
     Кастомный titlebar для Frameless окна.
@@ -479,6 +486,7 @@ class CustomTitleBar(QWidget):
     # Сигналы
     minimize_clicked = pyqtSignal()
     maximize_clicked = pyqtSignal()
+    tray_clicked = pyqtSignal()
     close_clicked = pyqtSignal()
     double_clicked = pyqtSignal()
     drag_started = pyqtSignal()  # Начало перемещения (для отключения Acrylic)
@@ -537,15 +545,18 @@ class CustomTitleBar(QWidget):
         # Кнопки
         self.minimize_btn = MinimizeButton(self)
         self.maximize_btn = MaximizeButton(self)
+        self.tray_btn = TrayButton(self)
         self.close_btn = CloseButton(self)
-        
+
         # Подключаем сигналы
         self.minimize_btn.clicked.connect(self._on_minimize)
         self.maximize_btn.clicked.connect(self._on_maximize)
+        self.tray_btn.clicked.connect(self._on_tray)
         self.close_btn.clicked.connect(self._on_close)
-        
+
         buttons_layout.addWidget(self.minimize_btn)
         buttons_layout.addWidget(self.maximize_btn)
+        buttons_layout.addWidget(self.tray_btn)
         buttons_layout.addWidget(self.close_btn)
         
         layout.addWidget(buttons_widget)
@@ -757,6 +768,25 @@ class CustomTitleBar(QWidget):
         else:
             win.setWindowState(Qt.WindowState.WindowMaximized)
             self.maximize_btn.set_maximized(True)
+
+    def _on_tray(self):
+        """Сворачивает окно в трей"""
+        self.tray_clicked.emit()
+        win = self._get_window()
+        if not win:
+            return
+
+        try:
+            if hasattr(win, "minimize_to_tray"):
+                win.minimize_to_tray()
+                return
+        except Exception:
+            pass
+
+        try:
+            win.hide()
+        except Exception:
+            pass
 
     def _on_close(self):
         """Закрывает окно"""
@@ -1296,4 +1326,3 @@ def apply_rounded_corners_style(widget: QWidget, radius: int = 10):
     """
     
     widget.setStyleSheet(current_style + rounded_style)
-

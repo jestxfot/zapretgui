@@ -625,6 +625,20 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
         QApplication.quit()
 
+    def minimize_to_tray(self) -> None:
+        """Скрывает окно в трей (без выхода из GUI)."""
+        try:
+            if hasattr(self, "tray_manager") and self.tray_manager:
+                self.tray_manager.hide_to_tray(show_hint=True)
+                return
+        except Exception:
+            pass
+
+        try:
+            self.hide()
+        except Exception:
+            pass
+
     def restore_window_geometry(self):
         """Восстанавливает сохраненную позицию и размер окна"""
         self._geometry_restore_in_progress = True
