@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import configparser
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,30 +44,46 @@ _MISSING_IP_MARKERS = {
 
 _CACHE: HostsCatalog | None = None
 _CACHE_MTIME: float | None = None
+_MISSING_CATALOG_LOGGED: bool = False
 
 
-def _get_project_root() -> Path:
+def _get_app_root() -> Path:
+    """
+    Возвращает корень приложения для поиска внешних файлов.
+
+    - В source-режиме: корень репозитория (рядом с папкой `hosts/`).
+    - В exe-сборке (PyInstaller frozen): папка, где лежит exe.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     # hosts/proxy_domains.py -> hosts/ -> project root
     return Path(__file__).resolve().parent.parent
 
 
-def _get_catalog_hosts_ini_path() -> Path:
+def _get_catalog_hosts_ini_candidates() -> list[Path]:
     """
     Каталог доменов/профилей (без настроек пользователя).
 
-    В проде генерируется как `<project>/json/hosts.ini`.
+    Канонический путь: `<app_root>/json/hosts.ini`:
+    - source: `<repo>/json/hosts.ini`
+    - exe: `<exe_dir>/json/hosts.ini`
     """
-    # Primary location: inside this project (bundled by PyInstaller into sys._MEIPASS/json/hosts.ini).
-    local = _get_project_root() / "json" / "hosts.ini"
-    if local.exists():
-        return local
+    root = _get_app_root()
 
     # Dev fallback: some setups generate the catalog in a sibling repo (e.g. `../zapret/json/hosts.ini`).
-    sibling = _get_project_root().parent / "zapret" / "json" / "hosts.ini"
-    if sibling.exists():
-        return sibling
+    # Keep it as an optional compatibility fallback.
+    return [
+        root / "json" / "hosts.ini",
+        root.parent / "zapret" / "json" / "hosts.ini",
+    ]
 
-    return local
+
+def _get_catalog_hosts_ini_path() -> Path:
+    candidates = _get_catalog_hosts_ini_candidates()
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
 
 
 def _get_user_hosts_ini_path() -> Path:
@@ -211,9 +228,23 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
 
 
 def _load_catalog() -> HostsCatalog:
-    global _CACHE, _CACHE_MTIME
+    global _CACHE, _CACHE_MTIME, _MISSING_CATALOG_LOGGED
 
-    path = get_hosts_catalog_ini_path()
+    candidates = _get_catalog_hosts_ini_candidates()
+    existing = [p for p in candidates if p.exists()]
+    path = existing[0] if existing else candidates[0]
+
+    if not existing:
+        if not _MISSING_CATALOG_LOGGED:
+            _log(
+                "hosts.ini не найден. Ожидается внешний файл по одному из путей: "
+                + " | ".join(str(p) for p in candidates),
+                "WARNING",
+            )
+            _MISSING_CATALOG_LOGGED = True
+    else:
+        _MISSING_CATALOG_LOGGED = False
+
     try:
         mtime = path.stat().st_mtime if path.exists() else None
     except Exception:
