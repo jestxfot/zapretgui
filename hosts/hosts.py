@@ -28,6 +28,40 @@ def _get_hosts_path_from_env() -> Path:
 HOSTS_PATH = _get_hosts_path_from_env() if os.name == "nt" else Path(r"C:\Windows\System32\drivers\etc\hosts")
 
 
+# ───────────────────────── hosts file read cache ─────────────────────────
+#
+# На старте приложение может несколько раз читать hosts подряд (проверки/страницы UI).
+# Файл маленький, но повторные чтения + перебор кодировок/обработка PermissionError
+# могут давать заметную задержку. Делаем безопасный кэш "на процесс":
+# - инвалидируем по сигнатуре файла (mtime_ns + size)
+# - обновляем кэш после успешной записи
+
+_HOSTS_TEXT_CACHE: str | None = None
+_HOSTS_SIG_CACHE: tuple[int, int] | None = None  # (mtime_ns, size)
+
+
+def _get_hosts_sig(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+        mtime_ns = getattr(st, "st_mtime_ns", None)
+        if mtime_ns is None:
+            mtime_ns = int(st.st_mtime * 1_000_000_000)
+        return (int(mtime_ns), int(st.st_size))
+    except Exception:
+        return None
+
+
+def _set_hosts_cache(content: str | None, sig: tuple[int, int] | None) -> None:
+    global _HOSTS_TEXT_CACHE, _HOSTS_SIG_CACHE
+    _HOSTS_TEXT_CACHE = content
+    _HOSTS_SIG_CACHE = sig
+
+
+def invalidate_hosts_file_cache() -> None:
+    """Принудительно сбрасывает кэш чтения hosts (на случай внешних изменений)."""
+    _set_hosts_cache(None, None)
+
+
 def _get_all_managed_domains() -> set[str]:
     domains: set[str] = set()
     for service_name in get_all_services():
@@ -324,6 +358,15 @@ def remove_readonly_attribute(filepath):
 def safe_read_hosts_file():
     """Безопасно читает файл hosts с обработкой различных кодировок"""
     hosts_path = HOSTS_PATH
+
+    # Fast path: используем кэш если файл не менялся.
+    try:
+        if hosts_path.exists():
+            sig = _get_hosts_sig(hosts_path)
+            if sig is not None and _HOSTS_SIG_CACHE == sig and _HOSTS_TEXT_CACHE is not None:
+                return _HOSTS_TEXT_CACHE
+    except Exception:
+        pass
     
     # ✅ НОВОЕ: Проверяем существование файла
     if not hosts_path.exists():
@@ -356,6 +399,7 @@ def safe_read_hosts_file():
 #	::1             localhost
 """
             hosts_path.write_text(default_content, encoding='utf-8-sig')
+            _set_hosts_cache(default_content, _get_hosts_sig(hosts_path))
             log("Файл hosts успешно создан с базовым содержимым")
             return default_content
             
@@ -368,10 +412,12 @@ def safe_read_hosts_file():
 
     permission_error_occurred = False
 
+    sig_before = _get_hosts_sig(hosts_path)
     for encoding in encodings:
         try:
             content = hosts_path.read_text(encoding=encoding)
             log(f"Файл hosts успешно прочитан с кодировкой: {encoding}")
+            _set_hosts_cache(content, sig_before or _get_hosts_sig(hosts_path))
             return content
         except UnicodeDecodeError:
             continue
@@ -393,6 +439,7 @@ def safe_read_hosts_file():
                 try:
                     content = hosts_path.read_text(encoding=encoding)
                     log(f"Файл hosts успешно прочитан после восстановления прав с кодировкой: {encoding}")
+                    _set_hosts_cache(content, _get_hosts_sig(hosts_path))
                     return content
                 except UnicodeDecodeError:
                     continue
@@ -406,6 +453,7 @@ def safe_read_hosts_file():
     try:
         content = hosts_path.read_text(encoding='utf-8', errors='ignore')
         log("Файл hosts прочитан с игнорированием ошибок кодировки", level="⚠ WARNING")
+        _set_hosts_cache(content, _get_hosts_sig(hosts_path))
         return content
     except Exception as e:
         log(f"Критическая ошибка при чтении файла hosts: {e}", "❌ ERROR")
@@ -422,6 +470,7 @@ def safe_write_hosts_file(content):
                 return False
 
         HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
+        _set_hosts_cache(content, _get_hosts_sig(HOSTS_PATH))
         return True
     except PermissionError:
         log("Ошибка доступа при записи файла hosts, пытаемся восстановить права...")
@@ -431,6 +480,7 @@ def safe_write_hosts_file(content):
             try:
                 HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
                 log("✅ Файл hosts успешно записан после восстановления прав")
+                _set_hosts_cache(content, _get_hosts_sig(HOSTS_PATH))
                 return True
             except Exception as e:
                 log(f"Ошибка при повторной записи после восстановления прав: {e}", "❌ ERROR")

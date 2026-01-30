@@ -537,6 +537,7 @@ class SplashScreen(QWidget):
                 self.detail_label.setText(detail)
             
             if value >= 100 and not self._loading_complete:
+                self._loading_complete = True
                 log("SplashScreen: прогресс 100%, закрываемся", "DEBUG")
                 QTimer.singleShot(300, self.fade_out)
         except RuntimeError:

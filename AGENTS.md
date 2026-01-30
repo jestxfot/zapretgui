@@ -7,6 +7,12 @@ Ask questions before changing anything interactively, considering several possib
 
 “Make sure to commit every change, as the code sometimes gets reset.
 
+hosts.ini (каталог доменов)
+
+- Канонический путь каталога: `<repo>/json/hosts.ini` (рядом с репозиторием).
+- Для exe-сборки это тоже внешний файл рядом с репой/папкой приложения; не полагаться на пути вида `.../_internal/json/hosts.ini` / `sys._MEIPASS`.
+- Если в логах/отладке путь выглядит как `.../_internal/json/hosts.ini`, это признак того, что путь вычислили от `__file__` внутри PyInstaller-бандла (и это не то поведение, которое здесь считаем правильным).
+
 Обязательно перед каждым `git commit`:
 - проверь, что staged-изменения содержат актуальный код: `git diff --staged`
 
