@@ -5,9 +5,9 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QScrollArea, QCheckBox, QSlider,
-    QStyle, QStyleOptionSlider,
+    QStyle, QStyleOption, QStyleOptionSlider,
 )
-from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtGui import QWheelEvent, QPainter
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -165,6 +165,9 @@ class ThemeCard(QFrame):
         self.setFixedSize(100, 80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setObjectName("themeCard")
+        # Нужно для корректной отрисовки background/border из stylesheet
+        # в кастомных paintEvent/на некоторых стилях Windows.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -206,6 +209,19 @@ class ThemeCard(QFrame):
         layout.addLayout(name_layout)
         
         self._update_style()
+
+    def paintEvent(self, event):
+        """
+        Надёжная отрисовка карточки через стиль Qt.
+
+        На некоторых связках Windows + PyQt6 можно словить TypeError из-за
+        некорректных аргументов drawRoundedRect в кастомной отрисовке.
+        Здесь используем стандартный механизм QStyle/stylesheet.
+        """
+        painter = QPainter(self)
+        opt = QStyleOption()
+        opt.initFrom(self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, painter, self)
         
     def _update_style(self):
         if not self._enabled:
