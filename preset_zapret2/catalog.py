@@ -8,6 +8,7 @@ and inference usable in non-GUI contexts and during development.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -23,6 +24,8 @@ class CatalogPaths:
 _CACHED_PATHS: Optional[CatalogPaths] = None
 _CACHED_CATEGORIES: Optional[Dict[str, Dict]] = None
 _CACHED_STRATEGIES: Dict[tuple[str, Optional[str]], Dict[str, Dict]] = {}
+_LAST_PATHS_MISS_AT: float = 0.0
+_PATHS_MISS_BACKOFF_SECONDS: float = 1.0
 
 
 def _candidate_indexjson_dirs() -> Iterable[Path]:
@@ -86,8 +89,15 @@ def load_categories() -> Dict[str, Dict]:
 
     paths = get_catalog_paths()
     if paths is None:
-        _CACHED_CATEGORIES = {}
-        return _CACHED_CATEGORIES
+        # Do not permanently cache misses: the json catalog can appear later
+        # (first-run install/extract/update). Use a small backoff to avoid
+        # tight retry loops.
+        global _LAST_PATHS_MISS_AT
+        now = time.monotonic()
+        if _LAST_PATHS_MISS_AT and (now - _LAST_PATHS_MISS_AT) < _PATHS_MISS_BACKOFF_SECONDS:
+            return {}
+        _LAST_PATHS_MISS_AT = now
+        return {}
 
     def _load_one(file_path: Path) -> Dict[str, Dict]:
         if not file_path.exists():
@@ -182,8 +192,8 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
 
     paths = get_catalog_paths()
     if paths is None:
-        _CACHED_STRATEGIES[cache_key] = {}
-        return _CACHED_STRATEGIES[cache_key]
+        # Same rationale as load_categories(): don't cache misses permanently.
+        return {}
 
     filename = f"{strategy_type}.txt" if not strategy_set else f"{strategy_type}_{strategy_set}.txt"
 
@@ -251,5 +261,8 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
     merged = dict(builtin)
     merged.update(user)  # user overrides builtin by id
 
-    _CACHED_STRATEGIES[cache_key] = merged
+    # If the file(s) aren't present yet, don't cache an empty result: allow
+    # later retries when an updater/extractor finishes writing the catalog.
+    if merged:
+        _CACHED_STRATEGIES[cache_key] = merged
     return merged

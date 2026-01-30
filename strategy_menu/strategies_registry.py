@@ -13,6 +13,7 @@
 
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass, field
+import time
 from log import log
 
 # ==================== LAZY IMPORTS ====================
@@ -21,6 +22,9 @@ _strategies_cache = {}  # {(strategy_type, strategy_set): strategies_dict} - к�
 _imported_types = set()  # Какие (type, set) пары уже загружены
 _logged_missing_strategies = set()  # Чтобы не спамить логи одними и теми же предупреждениями
 _current_strategy_set = None  # Текущий набор стратегий (None = стандартный, "orchestra" и т.д.)
+_failed_import_last_attempt_at = {}  # {(strategy_type, strategy_set): monotonic_time}
+_failed_import_logged = set()  # {(strategy_type, strategy_set)}
+_FAILED_IMPORT_RETRY_SECONDS = 1.0
 
 
 def get_current_strategy_set() -> Optional[str]:
@@ -104,15 +108,31 @@ def _lazy_import_base_strategies(strategy_type: str) -> Dict:
     if cache_key in _imported_types:
         return _strategies_cache.get(cache_key, {})
 
+    # Avoid permanently caching an empty result: on first run / during updates
+    # the strategies files may appear a bit later. Use a small backoff to avoid
+    # hot-looping when the catalog is genuinely missing.
+    try:
+        now = time.monotonic()
+    except Exception:
+        now = 0.0
+    last = _failed_import_last_attempt_at.get(cache_key, 0.0)
+    if last and now and (now - last) < _FAILED_IMPORT_RETRY_SECONDS:
+        return {}
+    _failed_import_last_attempt_at[cache_key] = now or 0.0
+
     strategies = _load_strategies_from_json(strategy_type, strategy_set)
 
     if strategies:
         _strategies_cache[cache_key] = strategies
         _imported_types.add(cache_key)
+        _failed_import_last_attempt_at.pop(cache_key, None)
+        _failed_import_logged.discard(cache_key)
         return strategies
 
-    log(f"Не удалось загрузить стратегии типа '{strategy_type}'", "WARNING")
-    _imported_types.add(cache_key)
+    # Don't mark as imported when load failed/returned empty: allow retry later.
+    if cache_key not in _failed_import_logged:
+        _failed_import_logged.add(cache_key)
+        log(f"Не удалось загрузить стратегии типа '{strategy_type}'", "WARNING")
     return {}
 
 def _lazy_import_all_strategies() -> Dict[str, Dict]:

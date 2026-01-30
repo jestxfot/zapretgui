@@ -2856,6 +2856,19 @@ class StrategyDetailPage(BasePage):
         if enabled:
             # Включаем - восстанавливаем последнюю стратегию (если была), иначе дефолтную
             strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
+
+            # Rare: strategies catalog may not be available yet (first-run install/extract/update).
+            # Try a one-shot reload before giving up and reverting the toggle.
+            if (not strategy_to_select or strategy_to_select == "none") and not (self._strategies_data_by_id or {}):
+                try:
+                    from strategy_menu.strategies_registry import registry
+                    registry.reload_strategies()
+                    self._clear_strategies()
+                    self._load_strategies()
+                    strategy_to_select = self._get_default_strategy()
+                except Exception:
+                    strategy_to_select = strategy_to_select or "none"
+
             if strategy_to_select and strategy_to_select != "none":
                 self._selected_strategy_id = strategy_to_select
                 if self._strategies_tree:
