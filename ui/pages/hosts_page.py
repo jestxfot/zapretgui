@@ -3,7 +3,7 @@
 
 import os
 import re
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QMessageBox, QComboBox, QScrollArea, QFrame, QLayout, QCheckBox
@@ -163,6 +163,8 @@ try:
         get_service_domain_ip_map,
         get_service_domain_names,
         get_service_domains,
+        get_hosts_catalog_signature,
+        invalidate_hosts_catalog_cache,
         load_user_hosts_selection,
         save_user_hosts_selection,
     )
@@ -175,6 +177,8 @@ except ImportError:
     def get_service_domain_ip_map(*args, **kwargs): return {}
     def get_service_domain_names(s): return []
     def get_service_domains(s): return {}
+    def get_hosts_catalog_signature(): return None
+    def invalidate_hosts_catalog_cache(): return None
     def load_user_hosts_selection(): return {}
     def save_user_hosts_selection(*args, **kwargs): return False
 
@@ -241,6 +245,10 @@ class HostsPage(BasePage):
         self.service_combos = {}
         self.service_icon_labels = {}
         self.service_icon_base_colors = {}
+        self._services_container = None
+        self._services_layout = None
+        self._catalog_sig = None
+        self._catalog_watch_timer = None
         self._worker = None
         self._thread = None
         self._applying = False
@@ -252,6 +260,15 @@ class HostsPage(BasePage):
         
         self._init_hosts_manager()
         self._build_ui()
+
+    def showEvent(self, event):  # noqa: N802 (Qt naming)
+        super().showEvent(event)
+        self._start_catalog_watcher()
+        self._refresh_catalog_if_needed(trigger="tab")
+
+    def hideEvent(self, event):  # noqa: N802 (Qt naming)
+        self._stop_catalog_watcher()
+        super().hideEvent(event)
         
     def _init_hosts_manager(self):
         try:
@@ -447,7 +464,7 @@ class HostsPage(BasePage):
         self.add_spacing(6)
         
         # Сервисы (выбор DNS-профиля по каждому сервису)
-        self._build_services_selectors()
+        self._build_services_container()
         self.add_spacing(6)
         
         # Adobe
@@ -456,6 +473,99 @@ class HostsPage(BasePage):
         
         # Кнопки
         self._build_actions()
+
+    def _build_services_container(self) -> None:
+        self._services_container = QWidget()
+        self._services_layout = QVBoxLayout(self._services_container)
+        self._services_layout.setContentsMargins(0, 0, 0, 0)
+        self._services_layout.setSpacing(16)
+        self.add_widget(self._services_container)
+        self._rebuild_services_selectors()
+
+    def _clear_layout(self, layout: QLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if not item:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            child_layout = item.layout()
+            if child_layout is not None:
+                self._clear_layout(child_layout)
+
+    def _start_catalog_watcher(self) -> None:
+        if self._catalog_watch_timer is None:
+            self._catalog_watch_timer = QTimer(self)
+            self._catalog_watch_timer.setInterval(5000)
+            self._catalog_watch_timer.timeout.connect(lambda: self._refresh_catalog_if_needed(trigger="watcher"))
+        if not self._catalog_watch_timer.isActive():
+            self._catalog_watch_timer.start()
+
+    def _stop_catalog_watcher(self) -> None:
+        if self._catalog_watch_timer is not None and self._catalog_watch_timer.isActive():
+            self._catalog_watch_timer.stop()
+
+    def _refresh_catalog_if_needed(self, trigger: str) -> None:
+        try:
+            sig = get_hosts_catalog_signature()
+        except Exception:
+            sig = None
+
+        if sig == self._catalog_sig:
+            return
+
+        # Сбросим кэш парсинга, чтобы следующий доступ точно перечитал файл.
+        try:
+            invalidate_hosts_catalog_cache()
+        except Exception:
+            pass
+
+        if self._services_layout is None:
+            self._catalog_sig = sig
+            return
+
+        if self._catalog_sig is not None:
+            log(f"Hosts: hosts.ini изменился ({trigger}) — обновляем список сервисов", "INFO")
+
+        self._rebuild_services_selectors()
+        self._catalog_sig = sig
+
+    def _services_add_section_title(self, text: str) -> None:
+        if self._services_layout is None:
+            return
+        label = QLabel(text)
+        label.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 13px;
+                font-weight: 600;
+                padding-top: 8px;
+                padding-bottom: 4px;
+            }
+            """
+        )
+        self._services_layout.addWidget(label)
+
+    def _services_add_widget(self, widget: QWidget) -> None:
+        if self._services_layout is None:
+            return
+        self._services_layout.addWidget(widget)
+
+    def _rebuild_services_selectors(self) -> None:
+        if self._services_layout is None:
+            return
+        self._clear_layout(self._services_layout)
+        self.service_combos = {}
+        self.service_icon_labels = {}
+        self.service_icon_base_colors = {}
+        self._build_services_selectors()
+        try:
+            self._catalog_sig = get_hosts_catalog_signature()
+        except Exception:
+            self._catalog_sig = None
         
     def _build_error_panel(self):
         """Панель для отображения ошибок доступа к hosts"""
@@ -798,7 +908,7 @@ class HostsPage(BasePage):
             else:
                 other.append(service_name)
 
-        self.add_section_title("Сервисы")
+        self._services_add_section_title("Сервисы")
 
         self._building_services_ui = True
         selection_migrated = False
@@ -1047,7 +1157,7 @@ class HostsPage(BasePage):
 
                     self._update_profile_row_visual(service_name)
 
-                self.add_widget(card)
+                self._services_add_widget(card)
 
             add_group("Напрямую из hosts", no_geohide, direct_only=True)
             add_group("ИИ", ai)

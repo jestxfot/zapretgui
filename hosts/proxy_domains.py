@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import configparser
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,8 +43,11 @@ _MISSING_IP_MARKERS = {
     "откл.",
 }
 
+_CACHE_LOCK = threading.RLock()
 _CACHE: HostsCatalog | None = None
-_CACHE_MTIME: float | None = None
+_CACHE_TEXT: str | None = None
+_CACHE_SIG: tuple[int, int] | None = None  # (mtime_ns, size)
+_CACHE_PATH: Path | None = None
 _MISSING_CATALOG_LOGGED: bool = False
 
 
@@ -227,47 +231,95 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
     )
 
 
-def _load_catalog() -> HostsCatalog:
-    global _CACHE, _CACHE_MTIME, _MISSING_CATALOG_LOGGED
+def _get_path_sig(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+        mtime_ns = getattr(st, "st_mtime_ns", None)
+        if mtime_ns is None:
+            mtime_ns = int(st.st_mtime * 1_000_000_000)
+        return (int(mtime_ns), int(st.st_size))
+    except Exception:
+        return None
 
+
+def _select_catalog_path() -> tuple[Path, list[Path], bool]:
     candidates = _get_catalog_hosts_ini_candidates()
     existing = [p for p in candidates if p.exists()]
-    path = existing[0] if existing else candidates[0]
+    if existing:
+        return (existing[0], candidates, True)
+    return (candidates[0], candidates, False)
 
-    if not existing:
-        if not _MISSING_CATALOG_LOGGED:
-            _log(
-                "hosts.ini не найден. Ожидается внешний файл по одному из путей: "
-                + " | ".join(str(p) for p in candidates),
-                "WARNING",
-            )
-            _MISSING_CATALOG_LOGGED = True
-    else:
-        _MISSING_CATALOG_LOGGED = False
 
-    try:
-        mtime = path.stat().st_mtime if path.exists() else None
-    except Exception:
-        mtime = None
+def _load_catalog() -> HostsCatalog:
+    global _CACHE, _CACHE_TEXT, _CACHE_SIG, _CACHE_PATH, _MISSING_CATALOG_LOGGED
 
-    if _CACHE is not None and _CACHE_MTIME is not None and mtime is not None and mtime == _CACHE_MTIME:
+    with _CACHE_LOCK:
+        path, candidates, exists = _select_catalog_path()
+
+        if not exists:
+            if not _MISSING_CATALOG_LOGGED:
+                _log(
+                    "hosts.ini не найден. Ожидается внешний файл по одному из путей: "
+                    + " | ".join(str(p) for p in candidates),
+                    "WARNING",
+                )
+                _MISSING_CATALOG_LOGGED = True
+        else:
+            _MISSING_CATALOG_LOGGED = False
+
+        sig = _get_path_sig(path) if path.exists() else None
+        if (
+            _CACHE is not None
+            and _CACHE_PATH is not None
+            and _CACHE_SIG is not None
+            and sig is not None
+            and _CACHE_PATH == path
+            and _CACHE_SIG == sig
+        ):
+            return _CACHE
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        except Exception as e:
+            _log(f"Не удалось прочитать hosts.ini: {e}", "WARNING")
+            text = ""
+
+        _CACHE_TEXT = text
+        _CACHE = _parse_hosts_ini(text)
+        _CACHE_SIG = sig
+        _CACHE_PATH = path
         return _CACHE
-
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-    except Exception as e:
-        _log(f"Не удалось прочитать hosts.ini: {e}", "WARNING")
-        text = ""
-
-    _CACHE = _parse_hosts_ini(text)
-    _CACHE_MTIME = mtime
-    return _CACHE
 
 
 def invalidate_hosts_catalog_cache() -> None:
-    global _CACHE, _CACHE_MTIME
-    _CACHE = None
-    _CACHE_MTIME = None
+    global _CACHE, _CACHE_TEXT, _CACHE_SIG, _CACHE_PATH
+    with _CACHE_LOCK:
+        _CACHE = None
+        _CACHE_TEXT = None
+        _CACHE_SIG = None
+        _CACHE_PATH = None
+
+
+def get_hosts_catalog_signature() -> tuple[str, int, int] | None:
+    """
+    Возвращает сигнатуру текущего каталога hosts.ini: (path, mtime_ns, size).
+    None если файл отсутствует/не читается.
+    """
+    path, _candidates, _exists = _select_catalog_path()
+    if not path.exists():
+        return None
+    sig = _get_path_sig(path)
+    if sig is None:
+        return None
+    mtime_ns, size = sig
+    return (str(path), mtime_ns, size)
+
+
+def get_hosts_catalog_text() -> str:
+    """Возвращает сырой текст каталога hosts.ini (с учётом кэша/инвалидции)."""
+    _load_catalog()
+    with _CACHE_LOCK:
+        return _CACHE_TEXT or ""
 
 
 def get_dns_profiles() -> list[str]:
