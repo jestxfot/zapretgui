@@ -36,10 +36,8 @@ class Zapret2PresetTemplatesPage(BasePage):
         if self._manager is None:
             from preset_zapret2 import PresetManager
 
-            self._manager = PresetManager(
-                on_preset_switched=self._on_preset_switched_callback,
-                on_dpi_reload_needed=self._on_dpi_reload_needed,
-            )
+            # UI: do not restart DPI here; MainWindow handles restart via preset_switched.
+            self._manager = PresetManager()
         return self._manager
 
     def showEvent(self, event):
@@ -247,7 +245,7 @@ class Zapret2PresetTemplatesPage(BasePage):
                     QMessageBox.warning(self, "Ошибка", "Не удалось создать копию шаблона")
                     return
 
-            if manager.switch_preset(copy_name, reload_dpi=True):
+            if manager.switch_preset(copy_name, reload_dpi=False):
                 log(f"Выбран шаблон '{name}' -> активирован '{copy_name}'", "INFO")
                 self.preset_switched.emit(copy_name)
                 self._load_templates()

@@ -315,8 +315,6 @@ def load_preset(name: str) -> Optional["Preset"]:
                 cat.tcp_enabled = True
                 # TCP filter_mode takes priority over UDP
                 cat.filter_mode = block.filter_mode
-                # DEBUG: Log loaded tcp_args
-                log(f"[LOAD] {cat_name}.tcp_args = {repr(cat.tcp_args[:80] if cat.tcp_args else '')}", "DEBUG")
             elif block.protocol == "udp":
                 cat.udp_args = block.strategy_args
                 cat.udp_port = block.port
@@ -324,8 +322,6 @@ def load_preset(name: str) -> Optional["Preset"]:
                 # UDP sets filter_mode only if TCP didn't set it
                 if not cat.filter_mode:
                     cat.filter_mode = block.filter_mode
-                # DEBUG: Log loaded udp_args
-                log(f"[LOAD] {cat_name}.udp_args = {repr(cat.udp_args[:80] if cat.udp_args else '')}", "DEBUG")
 
         # ✅ INFERENCE: Determine strategy_id from args for all categories
         # This is needed because preset files store args but not strategy_id
@@ -353,9 +349,7 @@ def load_preset(name: str) -> Optional["Preset"]:
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id
 
-        log(f"[LOAD] Loaded preset '{name}': {len(preset.categories)} categories", "DEBUG")
-        for cat_name, cat in preset.categories.items():
-            log(f"[LOAD] Category '{cat_name}': filter_mode={cat.filter_mode}, tcp_enabled={cat.tcp_enabled}, udp_enabled={cat.udp_enabled}", "DEBUG")
+        log(f"Loaded preset '{name}': {len(preset.categories)} categories", "DEBUG")
         return preset
 
     except Exception as e:
@@ -452,9 +446,6 @@ def save_preset(preset: "Preset") -> bool:
                         args_lines.append(f"--{cat.filter_mode}={filter_file}")
                 # Use get_full_tcp_args() to include syndata/send/out-range
                 full_tcp_args = cat.get_full_tcp_args()
-                # DEBUG: Log what we're saving
-                log(f"[SAVE] {cat_name}.tcp_args (clean) = {repr(cat.tcp_args[:80] if cat.tcp_args else '')}", "DEBUG")
-                log(f"[SAVE] {cat_name}.get_full_tcp_args() = {repr(full_tcp_args[:120] if full_tcp_args else '')}", "DEBUG")
                 for line in full_tcp_args.strip().split('\n'):
                     if line.strip():
                         args_lines.append(line.strip())

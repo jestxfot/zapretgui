@@ -57,10 +57,8 @@ class Zapret2UserPresetsPage(BasePage):
         if self._manager is None:
             from preset_zapret2 import PresetManager
 
-            self._manager = PresetManager(
-                on_preset_switched=self._on_preset_switched_callback,
-                on_dpi_reload_needed=self._on_dpi_reload_needed,
-            )
+            # UI: do not restart DPI here; MainWindow handles restart via preset_switched.
+            self._manager = PresetManager()
         return self._manager
 
     def showEvent(self, event):
@@ -704,7 +702,7 @@ class Zapret2UserPresetsPage(BasePage):
         try:
             manager = self._get_manager()
 
-            if manager.switch_preset(name, reload_dpi=True):
+            if manager.switch_preset(name, reload_dpi=False):
                 log(f"Активирован пресет '{name}'", "INFO")
                 self.preset_switched.emit(name)
                 self._load_presets()
