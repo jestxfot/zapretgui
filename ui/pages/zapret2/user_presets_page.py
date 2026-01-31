@@ -65,6 +65,21 @@ class Zapret2UserPresetsPage(BasePage):
 
     def showEvent(self, event):
         super().showEvent(event)
+        try:
+            # Legacy migration: built-in templates should never be active presets.
+            manager = self._get_manager()
+            active_name = manager.get_active_preset_name() or ""
+            from preset_zapret2.preset_defaults import is_builtin_preset_name, get_builtin_copy_name
+            from preset_zapret2.template_selection_store import set_active_preset_template_name
+
+            if active_name and is_builtin_preset_name(active_name):
+                set_active_preset_template_name(active_name)
+                copy_name = get_builtin_copy_name(active_name) or f"{active_name} (копия)"
+                if not manager.preset_exists(copy_name):
+                    manager.duplicate_preset(active_name, copy_name)
+                manager.switch_preset(copy_name, reload_dpi=False)
+        except Exception:
+            pass
         self._start_watching_presets()
         self._load_presets()
 

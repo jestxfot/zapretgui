@@ -88,8 +88,8 @@ class Zapret2PresetTemplatesPage(BasePage):
 
         self.add_spacing(12)
 
-        # Active preset card
-        self.active_card = SettingsCard("Активный пресет")
+        # Selected template card
+        self.active_card = SettingsCard("Выбранный шаблон")
         self.active_card.setStyleSheet(
             """
             QFrame#settingsCard {
@@ -106,7 +106,7 @@ class Zapret2PresetTemplatesPage(BasePage):
         active_layout = QHBoxLayout()
         active_layout.setSpacing(12)
         active_icon = QLabel()
-        active_icon.setPixmap(qta.icon("fa5s.star", color="#60cdff").pixmap(20, 20))
+        active_icon.setPixmap(qta.icon("mdi.view-grid", color="#60cdff").pixmap(20, 20))
         active_layout.addWidget(active_icon)
         self.active_preset_label = QLabel("Загрузка...")
         self.active_preset_label.setStyleSheet(
@@ -144,9 +144,43 @@ class Zapret2PresetTemplatesPage(BasePage):
         try:
             manager = self._get_manager()
             preset_names = manager.list_presets()
-            active_name = manager.get_active_preset_name()
+            _active_user_preset_name = manager.get_active_preset_name() or ""
 
-            self.active_preset_label.setText(active_name or "Не выбран")
+            from preset_zapret2.template_selection_store import (
+                get_active_preset_template_name,
+                set_active_preset_template_name,
+            )
+
+            template_name = get_active_preset_template_name() or ""
+            if not template_name:
+                # Back-compat: infer template name from active preset name.
+                try:
+                    from preset_zapret2.preset_defaults import get_builtin_base_from_copy_name, is_builtin_preset_name
+
+                    inferred = get_builtin_base_from_copy_name(_active_user_preset_name)
+                    if not inferred and is_builtin_preset_name(_active_user_preset_name):
+                        inferred = _active_user_preset_name
+                    if inferred:
+                        template_name = inferred
+                        set_active_preset_template_name(inferred)
+                except Exception:
+                    template_name = ""
+
+            self.active_preset_label.setText(template_name or "Не выбран")
+
+            # If legacy state has a built-in template selected as the active preset,
+            # migrate it to an editable copy so templates are never "active".
+            try:
+                from preset_zapret2.preset_defaults import is_builtin_preset_name, get_builtin_copy_name
+
+                if template_name and is_builtin_preset_name(_active_user_preset_name) and _active_user_preset_name == template_name:
+                    copy_name = get_builtin_copy_name(template_name) or f"{template_name} (копия)"
+                    if not manager.preset_exists(copy_name):
+                        manager.duplicate_preset(template_name, copy_name)
+                    manager.switch_preset(copy_name, reload_dpi=False)
+                    _active_user_preset_name = copy_name
+            except Exception:
+                pass
 
             for card in self._preset_cards:
                 card.deleteLater()
@@ -163,7 +197,7 @@ class Zapret2PresetTemplatesPage(BasePage):
                     name=name,
                     description=preset.description,
                     modified=preset.modified,
-                    is_active=(name == active_name),
+                    is_active=(bool(template_name) and name == template_name),
                     is_builtin=True,
                     parent=self,
                 )
@@ -195,12 +229,30 @@ class Zapret2PresetTemplatesPage(BasePage):
     def _on_activate_preset(self, name: str):
         try:
             manager = self._get_manager()
-            if manager.switch_preset(name, reload_dpi=True):
-                log(f"Активирован пресет '{name}'", "INFO")
-                self.preset_switched.emit(name)
+
+            from preset_zapret2.template_selection_store import set_active_preset_template_name
+            set_active_preset_template_name(name)
+
+            # Templates are not selected as active presets.
+            # Instead we switch to an editable user copy: "<template> (копия)".
+            try:
+                from preset_zapret2.preset_defaults import get_builtin_copy_name
+
+                copy_name = get_builtin_copy_name(name) or f"{name} (копия)"
+            except Exception:
+                copy_name = f"{name} (копия)"
+
+            if not manager.preset_exists(copy_name):
+                if not manager.duplicate_preset(name, copy_name):
+                    QMessageBox.warning(self, "Ошибка", "Не удалось создать копию шаблона")
+                    return
+
+            if manager.switch_preset(copy_name, reload_dpi=True):
+                log(f"Выбран шаблон '{name}' -> активирован '{copy_name}'", "INFO")
+                self.preset_switched.emit(copy_name)
                 self._load_templates()
             else:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось активировать пресет '{name}'")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось активировать пресет '{copy_name}'")
         except Exception as e:
             log(f"Ошибка активации пресета: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
