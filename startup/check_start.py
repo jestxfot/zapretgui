@@ -510,6 +510,48 @@ def display_startup_warnings():
         error_msg = f"Ошибка при проверке условий запуска: {str(e)}"
         log(error_msg, level="❌ CRITICAL")
         return False
+
+def collect_startup_warnings() -> tuple[bool, list[str], str | None]:
+    """
+    Собирает НЕКРИТИЧЕСКИЕ предупреждения старта без показа UI.
+
+    Returns:
+        (can_continue, warnings, fatal_error)
+        fatal_error != None означает, что запуск не поддерживается (например, Windows 7/8).
+    """
+    warnings: list[str] = []
+
+    # "Критичное": версия Windows
+    has_old_windows, win_error = check_windows_version()
+    if has_old_windows:
+        return False, warnings, win_error
+
+    # Некритические проверки
+    has_cmd_issues, cmd_msg = check_system_commands()
+    if has_cmd_issues and cmd_msg:
+        warnings.append(cmd_msg)
+
+    if check_if_in_archive():
+        warnings.append(
+            "Программа запущена из временной директории.\n\n"
+            "Для корректной работы необходимо распаковать архив в постоянную директорию "
+            "(например, C:\\zapretgui) и запустить программу оттуда.\n\n"
+            "Продолжение работы возможно, но некоторые функции могут работать некорректно."
+        )
+
+    in_onedrive, msg = check_path_for_onedrive()
+    if in_onedrive and msg:
+        warnings.append(msg)
+
+    has_special_chars, error_message = check_path_for_special_chars()
+    if has_special_chars and error_message:
+        warnings.append(error_message)
+
+    proxy_was_disabled, proxy_msg = check_and_disable_proxy()
+    if proxy_was_disabled and proxy_msg:
+        warnings.append(proxy_msg)
+
+    return True, warnings, None
         
 def _service_exists_reg(name: str) -> bool:
     """
