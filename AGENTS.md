@@ -7,6 +7,14 @@ Ask questions before changing anything interactively, considering several possib
 
 “Make sure to commit every change, as the code sometimes gets reset.
 
+Git workflow (auto-commit + push)
+
+- После любых изменений в коде/конфигах: делай коммит (обычно 1 коммит на задачу/запрос), не оставляй изменения незакоммиченными.
+- По умолчанию после каждого успешного коммита: делай `git push` на текущую ветку.
+- Если push невозможен (нет remote/прав/инета): сообщи об ошибке и оставь локальный коммит.
+- Никогда не используй `--force`/`--force-with-lease`.
+- Никогда не меняй git config.
+
 hosts.ini (каталог доменов)
 
 - Канонический путь каталога: `<repo>/json/hosts.ini` (рядом с репозиторием).
