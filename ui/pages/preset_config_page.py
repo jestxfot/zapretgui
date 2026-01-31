@@ -27,7 +27,17 @@ class PresetConfigPage(BasePage):
         # Сначала определяем путь к файлу, чтобы использовать в subtitle
         self._preset_path, self._preset_display_name = self._get_current_preset_path()
 
-        super().__init__("Активный пресет", f"Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла — {self._preset_display_name}", parent)
+        self._subtitle_intro = (
+            "Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
+            "обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
+            "GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла"
+        )
+
+        super().__init__(
+            "Активный пресет",
+            f"{self._subtitle_intro} — {self._preset_display_name}",
+            parent,
+        )
 
         self._is_loading = False
         self._save_timer = QTimer(self)
@@ -83,14 +93,14 @@ class PresetConfigPage(BasePage):
             self._preset_path = new_path
             self._preset_display_name = new_display
             self._load_file()
-            self._update_title_label()
+            self._update_subtitle_label()
         # В любом случае обновляем ожидаемый процесс под новый режим
         self._sync_process_status_from_cache()
 
-    def _update_title_label(self):
-        """Update subtitle to show which file is being edited"""
+    def _update_subtitle_label(self):
+        """Update subtitle to show which file is being edited."""
         if hasattr(self, 'subtitle_label'):
-            self.subtitle_label.setText(f"Редактор {self._preset_display_name}")
+            self.subtitle_label.setText(f"{self._subtitle_intro} — {self._preset_display_name}")
 
     def _build_ui(self):
         """Строит UI страницы"""
