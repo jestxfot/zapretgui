@@ -17,8 +17,8 @@ from ui.pages import (
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     HelpPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
-    Zapret2DirectControlPage, Zapret2StrategiesPageNew, StrategyDetailPage,
-    Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage, MyCategoriesPage
+    Zapret2DirectControlPage, Zapret2StrategiesPageNew, Zapret2PresetTemplatesPage, Zapret2UserPresetsPage, StrategyDetailPage,
+    Zapret1DirectStrategiesPage, BatStrategiesPage, MyCategoriesPage
 )
 
 import qtawesome as qta
@@ -180,9 +180,12 @@ class MainWindowUI:
         self.dpi_settings_page = DpiSettingsPage(self)
         self.pages_stack.addWidget(self.dpi_settings_page)
 
-        # Пресеты настроек (только direct_zapret2)
-        self.presets_page = PresetsPage(self)
-        self.pages_stack.addWidget(self.presets_page)
+        # Presets (direct_zapret2)
+        self.zapret2_preset_templates_page = Zapret2PresetTemplatesPage(self)
+        self.pages_stack.addWidget(self.zapret2_preset_templates_page)
+
+        self.zapret2_user_presets_page = Zapret2UserPresetsPage(self)
+        self.pages_stack.addWidget(self.zapret2_user_presets_page)
 
         # === МОИ СПИСКИ ===
         # Исключения netrogat.txt
@@ -284,7 +287,10 @@ class MainWindowUI:
             PageName.BLOBS: self.blobs_page,
             PageName.EDITOR: self.editor_page,
             PageName.DPI_SETTINGS: self.dpi_settings_page,
-            PageName.PRESETS: self.presets_page,
+            # Legacy alias: keep PageName.PRESETS working.
+            PageName.PRESETS: self.zapret2_user_presets_page,
+            PageName.ZAPRET2_PRESET_TEMPLATES: self.zapret2_preset_templates_page,
+            PageName.ZAPRET2_USER_PRESETS: self.zapret2_user_presets_page,
             PageName.NETROGAT: self.netrogat_page,
             PageName.CUSTOM_DOMAINS: self.custom_domains_page,
             PageName.CUSTOM_IPSET: self.custom_ipset_page,
@@ -617,9 +623,17 @@ class MainWindowUI:
                 self.zapret2_strategies_page.on_external_sort_changed
             )
 
-        # Подключаем сигналы от PresetsPage
-        if hasattr(self, 'presets_page') and hasattr(self.presets_page, 'preset_switched'):
-            self.presets_page.preset_switched.connect(self._on_preset_switched)
+        # Presets: any preset switch should refresh preset-driven pages
+        try:
+            if hasattr(self, 'zapret2_user_presets_page') and hasattr(self.zapret2_user_presets_page, 'preset_switched'):
+                self.zapret2_user_presets_page.preset_switched.connect(self._on_preset_switched)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'zapret2_preset_templates_page') and hasattr(self.zapret2_preset_templates_page, 'preset_switched'):
+                self.zapret2_preset_templates_page.preset_switched.connect(self._on_preset_switched)
+        except Exception:
+            pass
 
     def _on_preset_switched(self, preset_name: str):
         """Обработчик переключения пресета - перезапускает DPI если запущен"""
@@ -811,6 +825,8 @@ class MainWindowUI:
         strategies_context_pages = set()
         for attr in (
             "dpi_settings_page",
+            "zapret2_preset_templates_page",
+            "zapret2_user_presets_page",
             "zapret2_strategies_page",
             "zapret2_orchestra_strategies_page",
             "zapret1_strategies_page",
