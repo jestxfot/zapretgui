@@ -1,8 +1,13 @@
 """
-nuitka_builder.py - Модуль для сборки через Nuitka
+nuitka_builder.py - Модуль для сборки через Nuitka.
+
+Сборка делается в режиме onedir (standalone), чтобы приложение работало из папки
+установки и корректно определяло пути (onefile часто запускается из временной
+папки распаковки).
 """
 
 from __future__ import annotations
+
 import shutil
 import subprocess
 import sys
@@ -10,27 +15,127 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 
+def _log(log_queue: Optional[Any], text: str) -> None:
+    if log_queue:
+        log_queue.put(text)
+
+
+def cleanup_all_cache(root_path: Path, log_queue: Optional[Any] = None) -> int:
+    """
+    Полная очистка всего кэша перед сборкой:
+    - __pycache__ во всём проекте
+    - .pyc файлы
+    - *.build и *.dist папки Nuitka
+
+    Args:
+        root_path: Корневая папка проекта
+        log_queue: Очередь для логов
+
+    Returns:
+        int: Количество удалённых элементов
+    """
+    cleaned = 0
+
+    _log(log_queue, "🧹 Очистка всего кэша проекта...")
+
+    # 1. Удаляем все __pycache__ папки
+    for cache_dir in root_path.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            try:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                cleaned += 1
+            except Exception:
+                pass
+
+    _log(log_queue, f"   ✓ Удалено __pycache__ папок: {cleaned}")
+
+    # 2. Удаляем .pyc файлы
+    pyc_count = 0
+    for pyc_file in root_path.rglob("*.pyc"):
+        try:
+            pyc_file.unlink(missing_ok=True)
+            pyc_count += 1
+        except Exception:
+            pass
+
+    if pyc_count:
+        _log(log_queue, f"   ✓ Удалено .pyc файлов: {pyc_count}")
+    cleaned += pyc_count
+
+    # 3. Удаляем *.build и *.dist папки Nuitka
+    for build_dir in root_path.glob("*.build"):
+        if build_dir.is_dir():
+            try:
+                shutil.rmtree(build_dir, ignore_errors=True)
+                cleaned += 1
+                _log(log_queue, f"   ✓ Удалена: {build_dir.name}")
+            except Exception:
+                pass
+
+    for dist_dir in root_path.glob("*.dist"):
+        if dist_dir.is_dir():
+            try:
+                shutil.rmtree(dist_dir, ignore_errors=True)
+                cleaned += 1
+                _log(log_queue, f"   ✓ Удалена: {dist_dir.name}")
+            except Exception:
+                pass
+
+    # 4. Удаляем __pycache__ в build_zapret/
+    build_zapret_cache = Path(__file__).parent / "__pycache__"
+    if build_zapret_cache.exists():
+        try:
+            shutil.rmtree(build_zapret_cache, ignore_errors=True)
+            cleaned += 1
+            _log(log_queue, f"   ✓ Удалён кэш build_zapret/")
+        except Exception:
+            pass
+
+    _log(log_queue, f"🧹 Очистка завершена: {cleaned} элементов удалено")
+
+    return cleaned
+
+
+def _is_windows_store_python(python_exe: str) -> bool:
+    p = python_exe.replace("/", "\\").lower()
+    return (
+        "\\windowsapps\\" in p
+        or "pythonsoftwarefoundation.python" in p
+        or p.endswith("\\windowsapps\\python.exe")
+        or "\\windowsapps\\python" in p
+    )
+
+
+def _exception_text(exc: Exception) -> str:
+    parts: list[str] = [str(exc)]
+    for attr in ("stdout", "output", "stderr"):
+        try:
+            val = getattr(exc, attr, None)
+        except Exception:
+            val = None
+        if not val:
+            continue
+        if isinstance(val, bytes):
+            try:
+                val = val.decode("utf-8", errors="ignore")
+            except Exception:
+                val = ""
+        if isinstance(val, str) and val.strip():
+            parts.append(val)
+    return "\n".join(parts)
+
+
 def create_version_info(channel: str, version: str, root_path: Path) -> Path:
     """
-    Создает файл с метаданными версии для Nuitka
-    
-    Args:
-        channel: Канал сборки ('stable' или 'test')
-        version: Версия приложения
-        root_path: Корневая папка проекта
-        
-    Returns:
-        Path: Путь к созданному файлу version_info.txt
+    Создает файл с метаданными версии (VSVersionInfo).
+    Сейчас используется как совместимость с существующим API сборщиков.
     """
-    # Парсим версию в числа
-    version_parts = version.split('.')
+    version_parts = version.split(".")
     while len(version_parts) < 4:
-        version_parts.append('0')
-    version_tuple = ', '.join(version_parts[:4])
-    
-    # Определяем имя продукта
-    product_name = "Zapret Dev" if channel == 'test' else "Zapret"
-    
+        version_parts.append("0")
+    version_tuple = ", ".join(version_parts[:4])
+
+    product_name = "Zapret Dev" if channel == "test" else "Zapret"
     version_info = f"""
 VSVersionInfo(
   ffi=FixedFileInfo(
@@ -53,381 +158,311 @@ VSVersionInfo(
         StringStruct(u'FileVersion', u'{version}'),
         StringStruct(u'InternalName', u'zapret'),
         StringStruct(u'LegalCopyright', u'© 2024 Zapret Project'),
-        StringStruct(u'OriginalFilename', u'zapret.exe'),
+        StringStruct(u'OriginalFilename', u'Zapret.exe'),
         StringStruct(u'ProductName', u'{product_name}'),
         StringStruct(u'ProductVersion', u'{version}')])
-      ]), 
+      ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
 """
-    
+
     version_file = root_path / "version_info.txt"
-    version_file.write_text(version_info, encoding='utf-8')
+    version_file.write_text(version_info, encoding="utf-8")
     return version_file
 
 
-def check_and_install_nuitka(python_exe: str, run_func: Any, log_queue: Optional[Any] = None) -> Tuple[bool, str]:
+def check_and_install_nuitka(
+    python_exe: str, run_func: Any, log_queue: Optional[Any] = None
+) -> Tuple[bool, str]:
     """
-    Проверяет и устанавливает Nuitka если нужно
-    
-    Args:
-        python_exe: Путь к python.exe
-        run_func: Функция для запуска команд
-        log_queue: Очередь для логов (опционально)
-        
-    Returns:
-        Tuple[bool, str]: (установлен ли Nuitka, путь к python.exe)
+    Проверяет наличие Nuitka, при необходимости пытается установить.
     """
-    # Сначала пробуем python.exe (консольная версия)
-    python_exe = python_exe.replace('pythonw.exe', 'python.exe')
-    
+    python_exe = python_exe.replace("pythonw.exe", "python.exe")
+    if sys.platform == "win32" and _is_windows_store_python(python_exe):
+        _log(
+            log_queue,
+            "❌ Nuitka не поддерживает Python из Microsoft Store (WindowsApps). "
+            "Установите python.org (обычный CPython) и запускайте сборку через него.",
+        )
+        return False, python_exe
+
     try:
-        # Проверяем установлен ли Nuitka
         result = run_func([python_exe, "-m", "nuitka", "--version"], capture=True)
-        if log_queue:
-            log_queue.put(f"✔ Nuitka найден: {result.strip()}")
+        _log(log_queue, f"✔ Nuitka найден: {str(result).strip()}")
         return True, python_exe
-    except Exception:
-        pass
-    
-    # Если не найден, пробуем установить
-    if log_queue:
-        log_queue.put("⚠ Nuitka не найден, пытаемся установить...")
-    
-    try:
-        # Устанавливаем Nuitka
-        install_cmd = [python_exe, "-m", "pip", "install", "nuitka"]
-        if log_queue:
-            log_queue.put(f"Команда установки: {' '.join(install_cmd)}")
-        
-        run_func(install_cmd)
-        
-        # Проверяем установку еще раз
-        result = run_func([python_exe, "-m", "nuitka", "--version"], capture=True)
-        if log_queue:
-            log_queue.put(f"✔ Nuitka успешно установлен: {result.strip()}")
-        return True, python_exe
-        
     except Exception as e:
-        if log_queue:
-            log_queue.put(f"❌ Не удалось установить Nuitka: {e}")
+        msg = _exception_text(e)
+        if "windows app store" in msg.lower() or "not supported" in msg.lower():
+            _log(log_queue, f"❌ Nuitka не может работать с этим Python:\n{msg}")
+            return False, python_exe
+
+    _log(log_queue, "⚠ Nuitka не найден, пытаемся установить...")
+
+    try:
+        install_cmd = [python_exe, "-m", "pip", "install", "--upgrade", "nuitka"]
+        _log(log_queue, f"Команда установки: {' '.join(install_cmd)}")
+        run_func(install_cmd)
+
+        result = run_func([python_exe, "-m", "nuitka", "--version"], capture=True)
+        _log(log_queue, f"✔ Nuitka успешно установлен: {str(result).strip()}")
+        return True, python_exe
+    except Exception as e:
+        _log(log_queue, f"❌ Не удалось установить Nuitka: {e}")
         return False, python_exe
 
 
-def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str, 
-               run_func: Any, log_queue: Optional[Any] = None) -> None:
+def _module_source_exists(root_path: Path, module_name: str) -> bool:
+    rel = Path(*module_name.split("."))
+    return (root_path / f"{rel}.py").exists() or (root_path / rel / "__init__.py").exists()
+
+
+def _pick_dist_dir(root_path: Path) -> Path:
+    dist_candidates = [p for p in root_path.glob("*.dist") if p.is_dir()]
+    if not dist_candidates:
+        raise FileNotFoundError("Nuitka не создал папку *.dist (ожидается --standalone)")
+    return max(dist_candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _clear_dir(path: Path) -> None:
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+        return
+    for entry in path.iterdir():
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink(missing_ok=True)
+
+
+def run_nuitka(
+    channel: str,
+    version: str,
+    root_path: Path,
+    python_exe: str,
+    run_func: Any,
+    log_queue: Optional[Any] = None,
+    *,
+    target_dir: Optional[Path] = None,
+) -> Path:
     """
-    Запускает Nuitka для сборки exe
-    
-    Args:
-        channel: Канал сборки ('stable' или 'test')
-        version: Версия приложения
-        root_path: Корневая папка проекта
-        python_exe: Путь к python.exe
-        run_func: Функция для запуска команд
-        log_queue: Очередь для логов (опционально)
-        
-    Raises:
-        Exception: При ошибке сборки
+    Собирает Zapret GUI через Nuitka в режиме onedir (standalone) и копирует
+    содержимое *.dist в target_dir.
     """
-    # Проверяем и устанавливаем Nuitka
     nuitka_available, python_exe = check_and_install_nuitka(python_exe, run_func, log_queue)
     if not nuitka_available:
-        raise Exception("Не удалось установить Nuitka! Попробуйте вручную: pip install nuitka")
-    
-    # Создаем файл версии
-    version_file = create_version_info(channel, version, root_path)
-    
-    # Определяем иконку
-    icon_file = 'ZapretDevLogo3.ico' if channel == 'test' else 'Zapret1.ico'
-    icon_path = root_path / icon_file
-    
-    if not icon_path.exists():
-        if log_queue:
-            log_queue.put(f"⚠ Иконка не найдена: {icon_path}")
-        icon_path = None
-    
-    # Выходной файл
-    output_path = root_path / "zapret.exe"
-    
-    # Удаляем старый exe если есть
-    if output_path.exists():
-        output_path.unlink()
-        if log_queue:
-            log_queue.put("✔ Удален старый zapret.exe")
-    
+        if sys.platform == "win32" and _is_windows_store_python(python_exe):
+            raise Exception(
+                "Nuitka не поддерживает Python из Microsoft Store (WindowsApps). "
+                "Поставьте CPython с python.org и запустите сборку через него."
+            )
+        raise Exception("Nuitka недоступен. Установите python.org + pip install nuitka")
+
+    root_path = Path(root_path).resolve()
+    if target_dir is None:
+        # Inno Setup (*.iss) ожидает файлы в "{#SourcePath}\\Zapret\\*"
+        target_dir = root_path.parent / "zapret" / "Zapret"
+    target_dir = Path(target_dir).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
+    cleanup_all_cache(root_path, log_queue)
+
     try:
-        # Базовые параметры Nuitka
-        nuitka_args = [
-            python_exe, "-m", "nuitka",
+        icon_file = "ZapretDevLogo3.ico" if channel == "test" else "Zapret1.ico"
+        icon_path = root_path / icon_file
+
+        product_name = "Zapret Dev" if channel == "test" else "Zapret"
+
+        nuitka_args: list[str] = [
+            python_exe,
+            "-m",
+            "nuitka",
             "--standalone",
-            "--onefile", 
             "--remove-output",
             "--windows-console-mode=disable",
             "--assume-yes-for-downloads",
-            
-            # ВАЖНО: Поддержка multiprocessing и threading
-            "--plugin-enable=multiprocessing",
-            "--plugin-enable=anti-bloat",
-            
-            # Метаданные Windows
+            "--windows-uac-admin",
+            "--python-flag=-O",
+            "--follow-imports",
+            "--enable-plugin=pyqt6",
+            "--include-qt-plugins=all",
             f"--windows-file-version={version}",
             f"--windows-product-version={version}",
             "--windows-company-name=Zapret Project",
-            f"--windows-product-name={'Zapret Dev' if channel == 'test' else 'Zapret'}",
+            f"--windows-product-name={product_name}",
             "--windows-file-description=Zapret - DPI bypass tool",
-            
-            # UAC админские права
-            "--windows-uac-admin",
-            
-            # Оптимизации
-            "--python-flag=-O",
-            "--follow-imports",
-            
-            # ============= ВСЕ МОДУЛИ ИЗ ВАШЕГО ПРОЕКТА =============
-            "--include-package=altmenu",
-            "--include-package=autostart", 
-            "--include-package=config",
-            "--include-package=discord",
-            "--include-package=dns",
-            "--include-package=donater",
-            "--include-package=dpi",
-            "--include-package=hosts",
-            "--include-package=startup",
-            "--include-package=strategy_menu",
-            "--include-package=tgram",
-            "--include-package=ui",
-            "--include-package=updater",
-            "--include-package=utils",
-            
-            # Основные системные модули
-            "--include-module=queue", 
-            "--include-module=threading",
-            "--include-module=subprocess",
-            "--include-module=pathlib",
-            "--include-module=json",
-            "--include-module=configparser",
-            "--include-module=tempfile",
-            "--include-module=shutil",
-            "--include-module=time",
-            "--include-module=datetime",
-            "--include-module=os",
-            "--include-module=sys",
-            "--include-module=re",
-            "--include-module=urllib",
-            "--include-module=urllib.request",
-            "--include-module=urllib.parse",
-            
-            # PyQt6 и Qt материалы
-            "--enable-plugin=pyqt6",
-            "--include-package=PyQt6",
-            "--include-package=PyQt6.QtCore",
-            "--include-package=PyQt6.QtWidgets", 
-            "--include-package=PyQt6.QtGui",
-            "--include-package=qt_material",
-            "--include-qt-plugins=all",
-            
-            # Windows API
-            "--include-module=ctypes",
-            "--include-module=ctypes.wintypes",
-            
-            # Сетевые модули
-            "--include-module=requests",
-            "--include-module=urllib3",
-            
-            # ============= ДАННЫЕ ФАЙЛЫ =============
-            # Иконки
-            f"--include-data-files={root_path / 'Zapret1.ico'}=Zapret1.ico",
-            f"--include-data-files={root_path / 'ZapretDevLogo3.ico'}=ZapretDevLogo3.ico",
-            
-            # Папки с данными (если есть)
-            f"--include-data-dir={root_path / 'config'}=config",
-            f"--include-data-dir={root_path / 'ui'}=ui",
-            
-            # ============= ИСКЛЮЧЕНИЯ =============
-            "--nofollow-import-to=test",
-            "--nofollow-import-to=build", 
-            "--nofollow-import-to=dist",
-            "--nofollow-import-to=logs",
-            "--nofollow-import-to=__pycache__",
-            
-            # Выходной файл
-            f"--output-filename=zapret.exe",
-            
-            # Главный файл
-            "main.py"
-        ]
-        
-        # Добавляем иконку если найдена
-        if icon_path:
-            nuitka_args.insert(-1, f"--windows-icon-from-ico={icon_path}")
-        
-        # Проверяем и добавляем только существующие модули
-        additional_modules = [
-            "win32com", "win32com.client", "pythoncom", 
-            "win32api", "win32con", "win32service", "win32serviceutil",
-            "pkg_resources", "paramiko", "psutil", "packaging"
         ]
 
-        for module in additional_modules:
+        if icon_path.exists():
+            nuitka_args.append(f"--windows-icon-from-ico={icon_path}")
+        else:
+            _log(log_queue, f"⚠ Иконка не найдена: {icon_path}")
+
+        # Включаем пакеты проекта (часть импортов делается динамически)
+        packages_to_include = [
+            "altmenu",
+            "autostart",
+            "config",
+            "discord",
+            "dns",
+            "donater",
+            "dpi",
+            "hosts",
+            "launcher_common",
+            "log",
+            "managers",
+            "orchestra",
+            "preset_zapret2",
+            "startup",
+            "strategy_menu",
+            "tgram",
+            "ui",
+            "updater",
+            "utils",
+            "widgets",
+            "zapret1_launcher",
+            "zapret2_launcher",
+        ]
+
+        for pkg in packages_to_include:
+            pkg_dir = root_path / pkg
+            if pkg_dir.is_dir() and any(pkg_dir.rglob("*.py")):
+                nuitka_args.append(f"--include-package={pkg}")
+
+        # Явные модули (только если реально есть в исходниках)
+        modules_to_include = [
+            "ui.dialogs.add_category_dialog",
+            "ui.pages.home_page",
+            "ui.pages.control_page",
+            "ui.pages.network_page",
+        ]
+        for mod in modules_to_include:
+            if _module_source_exists(root_path, mod):
+                nuitka_args.append(f"--include-module={mod}")
+
+        # Опциональные зависимости
+        for mod in [
+            "win32com",
+            "win32com.client",
+            "pythoncom",
+            "win32api",
+            "win32con",
+            "win32service",
+            "win32serviceutil",
+            "pkg_resources",
+            "paramiko",
+            "psutil",
+            "packaging",
+        ]:
             try:
-                __import__(module)
-                nuitka_args.insert(-1, f"--include-module={module}")
-                if log_queue:
-                    log_queue.put(f"✔ Включен модуль: {module}")
-            except ImportError:
-                if log_queue:
-                    log_queue.put(f"⚠ Модуль {module} недоступен, пропускаем")
-        
-        if log_queue:
-            log_queue.put("🔨 Запуск Nuitka...")
-            log_queue.put("⏳ Это может занять 5-15 минут...")
+                __import__(mod)
+            except Exception:
+                continue
+            nuitka_args.append(f"--include-module={mod}")
 
-        # Проверяем наличие дополнительных файлов данных
-        data_files_to_check = [
-            "build.json",
-            "zapret.iss",
-            "connection_test.py",
-            "downloader.py", 
-            "heavy_init_worker.py",
-            "log.py",
-            "tray.py"
-        ]
+        # Имя exe
+        nuitka_args.append("--output-filename=Zapret.exe")
+        nuitka_args.append("main.py")
 
-        for file_name in data_files_to_check:
-            file_path = root_path / file_name
-            if file_path.exists():
-                nuitka_args.insert(-1, f"--include-data-files={file_path}={file_name}")
-                if log_queue:
-                    log_queue.put(f"✔ Включен файл данных: {file_name}")
-                            
-        # Показываем команду для отладки (первые параметры)
-        cmd_preview = ' '.join(nuitka_args[:10]) + " ... main.py"
-        if log_queue:
-            log_queue.put(f"Команда: {cmd_preview}")
-        
-        # Запускаем Nuitka с улучшенным логированием
+        _log(log_queue, "🔨 Запуск Nuitka...")
+        _log(log_queue, "⏳ Это может занять 5-15 минут...")
+
         process = subprocess.Popen(
             nuitka_args,
             cwd=root_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        
-        # Собираем весь вывод
-        all_output = []
+
+        all_output: list[str] = []
+        assert process.stdout is not None
         while True:
             output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
+            if output == "" and process.poll() is not None:
                 break
             if output:
                 line = output.strip()
                 all_output.append(line)
-                if line and log_queue:
-                    # Показываем все важные сообщения
-                    if any(keyword in line.lower() for keyword in 
-                        ['error', 'fatal', 'warning', 'info:', 'nuitka:', 'compiling', 'linking', 'creating']):
-                        log_queue.put(f"Nuitka: {line}")
-                    elif len(line) < 100:  # Короткие строки тоже показываем
-                        log_queue.put(f"Nuitka: {line}")
-        
+                if log_queue and line:
+                    if any(
+                        k in line.lower()
+                        for k in ("error", "fatal", "warning", "nuitka:", "compiling", "linking", "creating")
+                    ):
+                        _log(log_queue, f"Nuitka: {line}")
+
         return_code = process.poll()
-        
         if return_code != 0:
-            # Показываем последние строки вывода при ошибке
             if log_queue:
-                log_queue.put("❌ Ошибка компиляции Nuitka!")
-                log_queue.put("📋 Последние строки вывода:")
-                for line in all_output[-20:]:  # Последние 20 строк
+                _log(log_queue, "❌ Ошибка компиляции Nuitka!")
+                _log(log_queue, "📋 Последние строки вывода:")
+                for line in all_output[-30:]:
                     if line.strip():
-                        log_queue.put(f"   {line}")
-                
-                # Ищем конкретные ошибки
-                error_lines = [line for line in all_output if 'error' in line.lower() or 'fatal' in line.lower()]
-                if error_lines:
-                    log_queue.put("🔍 Найденные ошибки:")
-                    for error in error_lines[-5:]:  # Последние 5 ошибок
-                        log_queue.put(f"   ❌ {error}")
-            
-            raise Exception(f"Ошибка компиляции Nuitka (код {return_code}). Смотрите лог выше.")
-        
-        # Проверяем что exe создан
-        if not output_path.exists():
-            raise FileNotFoundError(f"Nuitka не создал {output_path}")
-            
-        # Получаем размер файла
-        size_mb = output_path.stat().st_size / (1024 * 1024)
-        if log_queue:
-            log_queue.put(f"✔ Создан zapret.exe ({size_mb:.1f} MB)")
-        
-        # Перемещаем в нужную папку для Inno Setup
-        target_dir = root_path.parent / "zapret"
-        target_dir.mkdir(exist_ok=True)
-        
-        target_exe = target_dir / "zapret.exe"
-        if target_exe.exists():
-            target_exe.unlink()
-            
-        shutil.move(str(output_path), str(target_exe))
-        if log_queue:
-            log_queue.put(f"✔ Перемещен в {target_exe}")
-        
-    except subprocess.CalledProcessError as e:
-        raise Exception(f"Ошибка компиляции Nuitka (код {e.returncode}). Смотрите лог выше.")
-    except Exception as e:
-        raise Exception(f"Ошибка сборки Nuitka: {str(e)}")
+                        _log(log_queue, f"   {line}")
+            raise Exception(f"Ошибка компиляции Nuitka (код {return_code})")
+
+        dist_dir = _pick_dist_dir(root_path)
+        exe_in_dist = dist_dir / "Zapret.exe"
+        if not exe_in_dist.exists():
+            candidates = [p for p in dist_dir.glob("*.exe") if p.is_file()]
+            if not candidates:
+                raise FileNotFoundError(f"В {dist_dir} нет *.exe после сборки Nuitka")
+            exe_in_dist = max(candidates, key=lambda p: p.stat().st_size)
+
+        _clear_dir(target_dir)
+        for src in dist_dir.iterdir():
+            dst = target_dir / src.name
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+        produced = target_dir / exe_in_dist.name
+        if produced.name.lower() != "zapret.exe":
+            # На всякий случай нормализуем имя под Inno Setup ярлыки/иконку
+            normalized = target_dir / "Zapret.exe"
+            if normalized.exists():
+                normalized.unlink(missing_ok=True)
+            produced.replace(normalized)
+            produced = normalized
+
+        size_mb = produced.stat().st_size / (1024 * 1024)
+        _log(log_queue, f"✔ Создан onedir: {dist_dir.name} ({produced.name} {size_mb:.1f} MB)")
+        _log(log_queue, f"✔ Скопировано в {target_dir}")
+        return produced
+
     finally:
-        # Удаляем временные файлы
-        if version_file and version_file.exists():
-            version_file.unlink()
-        
-        # Удаляем папки сборки
-        cleanup_dirs = ["zapret.build", "zapret.dist", "zapret.onefile-build"]
-        for dir_name in cleanup_dirs:
-            build_dir = root_path / dir_name
-            if build_dir.exists():
+        for build_dir in root_path.glob("*.build"):
+            if build_dir.is_dir():
                 shutil.rmtree(build_dir, ignore_errors=True)
-                if log_queue:
-                    log_queue.put(f"✔ Удалена временная папка: {dir_name}")
+        for dist_dir in root_path.glob("*.dist"):
+            if dist_dir.is_dir():
+                shutil.rmtree(dist_dir, ignore_errors=True)
 
 
 def check_nuitka_available() -> bool:
-    """
-    Проверяет доступность Nuitka
-    
-    Returns:
-        bool: True если Nuitka установлен
-    """
     try:
-        import nuitka
+        import nuitka  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
 def get_nuitka_version() -> str:
-    """
-    Получает версию Nuitka
-    
-    Returns:
-        str: Версия Nuitka или сообщение об ошибке
-    """
     try:
         import nuitka
-        return nuitka.__version__
-    except ImportError:
-        return "Nuitka не установлен"
-    except AttributeError:
-        # Если __version__ не определен, пробуем через командную строку
+        return getattr(nuitka, "__version__", "unknown")
+    except Exception:
         try:
-            import subprocess
-            result = subprocess.run([sys.executable, "-m", "nuitka", "--version"], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except:
+            res = subprocess.run(
+                [sys.executable, "-m", "nuitka", "--version"],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0:
+                return res.stdout.strip()
+        except Exception:
             pass
-        return "Версия неизвестна"
+        return "Nuitka не установлен"

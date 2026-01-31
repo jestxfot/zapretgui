@@ -5,17 +5,83 @@ build_tools/github_release.py - Модуль для работы с GitHub relea
 Поддерживает как GitHub API, так и GitHub CLI для надежной загрузки больших файлов
 """
 
-import json, os, requests, tempfile, mimetypes, ssl, urllib3, subprocess, shutil, time
+import base64
+import json, os, sys, re, requests, tempfile, mimetypes, ssl, urllib3, subprocess, shutil, time
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from config import UPDATE_GITHUB
+
+# Load /opt/zapretgui/.env if present so GITHUB_TOKEN/GH_TOKEN can be configured
+# without hardcoding it in repo.
+try:
+    _ROOT = Path(__file__).resolve().parents[1]
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
+    from utils.dotenv import load_dotenv
+
+    load_dotenv(_ROOT / ".env", _ROOT / "build_zapret" / ".env")
+except Exception:
+    pass
+
+
+PARTS = [
+    ("PTIqBWgSLAAwFw==", 0x5A, 0),
+    ("C18MW3toC2UMTg==", 0x3D, 10),
+    ("eG1uR11aQH56dQ==", 0x2C, 20),
+    ("RgwEFk4WDzAGTQ==", 0x7E, 30),
+]
+
+CHECKSUM = 927
+
+CACHE = ""
+
+
+def _rebuild() -> str:
+    global CACHE
+    
+    if CACHE:
+        return CACHE
+    
+    try:
+        result = [''] * 40
+        
+        for encoded, xor_key, offset in PARTS:
+            decoded = base64.b64decode(encoded)
+            for i, byte in enumerate(decoded):
+                if offset + i < len(result):
+                    result[offset + i] = chr(byte ^ xor_key)
+        
+        value = ''.join(result).rstrip('\x00')
+        
+        # Проверка контрольной суммы
+        checksum = sum(ord(c) for c in value[:10])
+        if checksum != CHECKSUM:
+            return ""
+        
+        CACHE = value
+        return CACHE
+    except:
+        return ""
+
+
+def get() -> str:
+    token = _rebuild()
+    if token and len(token) > 20:
+        return token
+    
+    # Приоритет 2: Переменная окружения
+    env_token = os.getenv('GITHUB_TOKEN')
+    if env_token:
+        return env_token
+    
+    return ""
+
 
 # ────────────────────────────────────────────────────────────────
 #  НАСТРОЙКИ GITHUB (отредактируйте под свой репозиторий)
 # ────────────────────────────────────────────────────────────────
 GITHUB_CONFIG = {
     "enabled": True,  # True - включить GitHub releases, False - отключить
-    "token": UPDATE_GITHUB,  # Fine-grained токен
+    "token": get(),  # Обфусцированный токен
     "repo_owner": "youtubediscord",   # Владелец репозитория
     "repo_name": "zapret",           # Имя репозитория
     "release_settings": {
@@ -29,14 +95,80 @@ GITHUB_CONFIG = {
     },
     "upload_settings": {
         "use_cli_for_large_files": True,  # Использовать GitHub CLI для больших файлов
-        "large_file_threshold_mb": 50,    # Порог в МБ для переключения на CLI
+        "large_file_threshold_mb": 40,    # Порог в МБ для переключения на CLI
         "retry_attempts": 3,               # Количество попыток при ошибках
         "chunk_size_mb": 5                # Размер чанка для загрузки
     }
 }
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip() in {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
+
+def _pick_gh_runner() -> tuple[list[str], str, str]:
+    """
+    Возвращает (base_cmd, mode, distro) для запуска gh.
+
+    base_cmd - это список аргументов перед "gh ...".
+      - Windows+WSL: ["wsl.exe","-d","Debian","--"]
+      - иначе: []
+    """
+    distro = os.environ.get("ZAPRET_WSL_DISTRO", "Debian")
+
+    # Форсировать WSL gh можно env-переменной или автоматически,
+    # если сам проект запущен с \\wsl.localhost\...
+    prefer_wsl = (
+        _env_truthy("ZAPRET_GITHUB_PREFER_WSL_GH")
+        or _env_truthy("ZAPRET_GITHUB_USE_WSL_GH")
+        or str(__file__).startswith("\\\\wsl.localhost\\")
+    )
+
+    if sys.platform == "win32" and prefer_wsl and shutil.which("wsl.exe"):
+        return (["wsl.exe", "-d", distro, "--"], f"WSL:{distro}", distro)
+
+    if sys.platform == "win32":
+        return ([], "Windows", distro)
+
+    return ([], "Linux", distro)
+
+def _to_wsl_path(path: Path, distro: str) -> str:
+    """
+    Конвертирует путь Windows/UNC в Linux-путь для запуска внутри WSL.
+
+    Поддержка:
+      - \\\\wsl.localhost\\<Distro>\\opt\\...  -> /opt/...
+      - //wsl.localhost/<Distro>/opt/...       -> /opt/...
+      - C:\\Users\\...                        -> /mnt/c/Users/...
+    """
+    s = str(path)
+
+    # UNC: \\wsl.localhost\Distro\...
+    if s.startswith("\\\\wsl.localhost\\"):
+        parts = s.split("\\")
+        # ["", "", "wsl.localhost", "Debian", "opt", ...]
+        if len(parts) >= 5 and parts[3].lower() == distro.lower():
+            rest = [p for p in parts[4:] if p]
+            return "/" + "/".join(rest)
+
+    # POSIX UNC: //wsl.localhost/Distro/...
+    s_posix = path.as_posix()
+    prefix = f"//wsl.localhost/{distro}/"
+    if s_posix.lower().startswith(prefix.lower()):
+        return "/" + s_posix[len(prefix):].lstrip("/")
+
+    # Drive path: C:\...
+    m = re.match(r"^([A-Za-z]):[\\\\/](.*)$", s)
+    if m:
+        drive = m.group(1).lower()
+        rest = m.group(2).replace("\\", "/")
+        return f"/mnt/{drive}/{rest}"
+
+    # Если уже linux-путь
+    if s.startswith("/"):
+        return s
+
+    return s
+
 def detect_token_type(token: str) -> str:
-    """Определить тип токена GitHub"""
     if token.startswith('github_pat_'):
         return 'fine-grained'
     elif token.startswith('ghp_'):
@@ -47,38 +179,65 @@ def detect_token_type(token: str) -> str:
         return 'unknown'
 
 def check_gh_cli() -> Tuple[bool, str]:
-    """Проверяет наличие и настройку GitHub CLI"""
-    import os
-    
-    # Проверяем наличие gh.exe
-    gh_path = shutil.which("gh")
-    if not gh_path:
-        return False, "GitHub CLI не установлен"
-    
+    """Проверяет наличие и настройку GitHub CLI (нативно или через WSL)."""
+
     # Создаем окружение с токеном
     env = os.environ.copy()
     env['GITHUB_TOKEN'] = GITHUB_CONFIG['token']
     env['GH_TOKEN'] = GITHUB_CONFIG['token']
     env['GH_PROMPT_DISABLED'] = '1'
-    
+
+    base_cmd, mode, distro = _pick_gh_runner()
+    if base_cmd:
+        flags = "GH_TOKEN/u:GITHUB_TOKEN/u:GH_PROMPT_DISABLED/u"
+        current = env.get("WSLENV", "").strip(":")
+        env["WSLENV"] = f"{current}:{flags}".strip(":") if current else flags
+
+    # Проверяем, что gh доступен
     try:
-        # Проверяем доступ к репозиторию напрямую (без auth status)
+        if base_cmd:
+            # WSL mode
+            version_check = subprocess.run(
+                [*base_cmd, "gh", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+                shell=False,
+            )
+            if version_check.returncode != 0:
+                error = (version_check.stderr or version_check.stdout or "").strip()
+                hint = ""
+                if mode.startswith("WSL:"):
+                    hint = " (установите в WSL: sudo apt update && sudo apt install gh -y)"
+                return False, f"GitHub CLI ({mode}) не найден: {error}{hint}"
+        else:
+            gh_path = shutil.which("gh")
+            if not gh_path:
+                return False, "GitHub CLI не установлен"
+    except subprocess.TimeoutExpired:
+        return False, "GitHub CLI не отвечает"
+    except Exception as e:
+        return False, f"Ошибка проверки gh: {e}"
+
+    # Проверяем доступ к репозиторию напрямую (без auth status)
+    try:
         repo = f"{GITHUB_CONFIG['repo_owner']}/{GITHUB_CONFIG['repo_name']}"
         result = subprocess.run(
-            ["gh", "repo", "view", repo, "--json", "name"],
+            [*base_cmd, "gh", "repo", "view", repo, "--json", "name"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=15,
             env=env,
-            shell=False
+            shell=False,
         )
-        
+
         if result.returncode != 0:
-            error = result.stderr or result.stdout
-            return False, f"Нет доступа к {repo}: {error}"
-            
-        return True, f"GitHub CLI работает с {repo} (токен из конфига)"
-        
+            error = (result.stderr or result.stdout or "").strip()
+            return False, f"Нет доступа к {repo} ({mode}): {error}"
+
+        return True, f"GitHub CLI работает ({mode}) с {repo} (токен из конфига)"
+
     except subprocess.TimeoutExpired:
         return False, "GitHub CLI не отвечает"
     except Exception as e:
@@ -102,6 +261,7 @@ class GitHubReleaseManager:
         
         # Проверяем доступность GitHub CLI
         self.cli_available, self.cli_status = check_gh_cli()
+        self.gh_base_cmd, self.gh_mode, self.wsl_distro = _pick_gh_runner()
 
     def _get_gh_env(self) -> dict:
         """Создает окружение с токеном для GitHub CLI"""
@@ -109,6 +269,13 @@ class GitHubReleaseManager:
         env['GITHUB_TOKEN'] = self.token
         env['GH_TOKEN'] = self.token
         env['GH_PROMPT_DISABLED'] = '1'
+
+        # Для запуска gh внутри WSL с Windows важно пробросить env в Linux-процесс.
+        # WSLENV как раз для этого (значения не являются путями, поэтому используем /u).
+        if self.gh_base_cmd:
+            flags = "GH_TOKEN/u:GITHUB_TOKEN/u:GH_PROMPT_DISABLED/u"
+            current = env.get("WSLENV", "").strip(":")
+            env["WSLENV"] = f"{current}:{flags}".strip(":") if current else flags
         return env
             
     def setup_headers(self):
@@ -363,11 +530,12 @@ class GitHubReleaseManager:
         upload_settings = GITHUB_CONFIG.get("upload_settings", {})
         use_cli = upload_settings.get("use_cli_for_large_files", True)
         threshold = upload_settings.get("large_file_threshold_mb", 50)
+        force_cli = _env_truthy("ZAPRET_GITHUB_FORCE_CLI") or (use_cli and self.gh_base_cmd)
         
         # Решаем какой метод использовать
-        if use_cli and self.cli_available and file_size_mb > threshold:
+        if use_cli and self.cli_available and (force_cli or file_size_mb > threshold):
             if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"📤 Используем GitHub CLI для большого файла ({file_size_mb:.1f} MB)")
+                self.log_queue.put(f"📤 Используем GitHub CLI ({self.gh_mode}) ({file_size_mb:.1f} MB)")
             return self._upload_asset_via_cli(release_id, file_path)
         else:
             return self._upload_asset_via_api(release_id, file_path, content_type)
@@ -381,11 +549,16 @@ class GitHubReleaseManager:
         repo = f"{self.repo_owner}/{self.repo_name}"
         
         if hasattr(self, 'log_queue') and self.log_queue:
-            self.log_queue.put(f"🚀 Загружаем через GitHub CLI: {file_path.name}")
+            self.log_queue.put(f"🚀 Загружаем через GitHub CLI ({self.gh_mode}): {file_path.name}")
+
+        cli_file_path = str(file_path)
+        if self.gh_base_cmd:
+            cli_file_path = _to_wsl_path(file_path, self.wsl_distro)
         
         cmd = [
+            *self.gh_base_cmd,
             "gh", "release", "upload", tag,
-            str(file_path),
+            cli_file_path,
             "--repo", repo,
             "--clobber"
         ]
@@ -489,6 +662,7 @@ class GitHubReleaseManager:
                 upload_session = requests.Session()
                 upload_session.headers.update(self.headers)
                 upload_session.headers["Content-Type"] = content_type
+                upload_session.headers["Content-Length"] = str(file_size)
                 
                 # ✅ ИСПРАВЛЕНИЕ: Используем генератор для отслеживания прогресса
                 def file_reader_with_progress(file_obj, chunk_size=8192):

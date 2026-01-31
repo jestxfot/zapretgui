@@ -5,13 +5,11 @@ import subprocess
 import logging
 import requests, webbrowser
 from datetime import datetime
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QComboBox, QTextEdit, QMessageBox, QHBoxLayout, QFrame
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from utils import run_hidden # Импортируем нашу обертку для subprocess
+from utils import run_hidden, get_system32_path, get_syswow64_path, get_system_exe  # Импортируем нашу обертку для subprocess
 from config import APP_VERSION, LOGS_FOLDER  # Добавляем импорт
 from strategy_checker import StrategyChecker  # Добавляем импорт
 from dns_checker import DNSChecker
-from dns_check_dialog import DNSCheckDialog
 
 from tgram.tg_log_bot import send_log_file, check_bot_connection
 from tgram.tg_log_delta import get_client_id
@@ -63,6 +61,33 @@ class ConnectionTestWorker(QObject):
         if not self._stop_requested:  # Не логируем после остановки
             logging.info(message)
             self.update_signal.emit(message)
+
+    def check_telegram_bot_api(self):
+        """Проверяет доступность Telegram Bot API (api.telegram.org) для отправки логов."""
+        if self.is_stop_requested():
+            return
+
+        self.log_message("")
+        self.log_message("=" * 40)
+        self.log_message("🤖 ПРОВЕРКА TELEGRAM BOT API")
+        self.log_message("=" * 40)
+
+        try:
+            from tgram.tg_log_bot import check_bot_connection_detailed
+
+            ok, err = check_bot_connection_detailed()
+            if ok:
+                self.log_message("✅ Telegram Bot API доступен (getMe OK)")
+                return
+
+            details = (err or "Неизвестная ошибка").strip()
+            self.log_message(f"❌ Telegram Bot API недоступен: {details}")
+            if "proxy" in details.lower() or "прокси" in details.lower() or "http_proxy" in details.lower():
+                self.log_message("💡 Похоже, включён прокси. Проверьте HTTP_PROXY/HTTPS_PROXY или установите PySocks.")
+            else:
+                self.log_message("💡 Если Telegram-клиент работает, а Bot API нет — возможна блокировка api.telegram.org (DPI/фаервол).")
+        except Exception as e:
+            self.log_message(f"❌ Ошибка проверки Telegram Bot API: {e}")
 
     def check_dns_poisoning(self):
         """Проверяет DNS подмену провайдером"""
@@ -416,10 +441,10 @@ class ConnectionTestWorker(QObject):
             
             self.log_message(f"Тест реального endpoint: {domain}{path}")
             
-            # ✅ ИСПРАВЛЕНИЕ: Ищем curl в разных местах
+            # ✅ ИСПРАВЛЕНИЕ: Ищем curl в разных местах (динамические пути)
             curl_paths = [
-                "C:\\Windows\\System32\\curl.exe",
-                "C:\\Windows\\SysWOW64\\curl.exe",
+                os.path.join(get_system32_path(), "curl.exe"),
+                os.path.join(get_syswow64_path(), "curl.exe"),
                 "curl.exe",
                 "curl"
             ]
@@ -558,35 +583,29 @@ class ConnectionTestWorker(QObject):
         self.log_message("=" * 40)
         
         try:
-            # Проверяем процесс winws.exe
-            command = ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV"]
-            
-            # ✅ ИСПРАВЛЕНИЕ: Используем subprocess напрямую с правильными параметрами
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            # Проверяем процесс winws.exe через psutil (быстрее и надежнее tasklist)
+            import psutil
+            winws_found = False
+            for proc in psutil.process_iter(['pid', 'name', 'memory_info']):
+                try:
+                    proc_name = proc.info['name']
+                    if proc_name and proc_name.lower() in ('winws.exe', 'winws2.exe'):
+                        winws_found = True
+                        pid = proc.info['pid']
+                        try:
+                            memory_mb = proc.info['memory_info'].rss / (1024 * 1024)
+                            memory_str = f"{memory_mb:.1f} MB"
+                        except:
+                            memory_str = "N/A"
+                        self.log_message(f"✅ Процесс {proc_name} запущен")
+                        self.log_message(f"   PID: {pid}, Память: {memory_str}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
 
-            # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем stdout
-            if result and result.stdout:
-                output = result.stdout
-                    
-                if "winws.exe" in output:
-                    self.log_message("✅ Процесс winws.exe запущен")
-                    
-                    # Извлекаем PID и память
-                    lines = output.strip().split('\n')
-                    for line in lines[1:]:  # Пропускаем заголовок
-                        if 'winws.exe' in line:
-                            parts = line.split(',')
-                            if len(parts) >= 2:
-                                pid = parts[1].strip('"')
-                                memory = parts[4].strip('"') if len(parts) > 4 else "N/A"
-                                self.log_message(f"   PID: {pid}, Память: {memory}")
-                else:
-                    self.log_message("❌ Процесс winws.exe НЕ запущен")
-                    self.log_message("   Zapret не работает!")
-            else:
-                self.log_message("❌ Не удалось проверить процесс winws.exe")
-            
+            if not winws_found:
+                self.log_message("❌ Процесс winws.exe НЕ запущен")
+                self.log_message("   Zapret не работает!")
+
             # ДОБАВЛЯЕМ проверку выбранной стратегии
             self.check_current_strategy()
                 
@@ -640,6 +659,7 @@ class ConnectionTestWorker(QObject):
             ]
 
             result = subprocess.run(command, capture_output=True, text=True, timeout=10,
+                                  encoding='cp866', errors='replace',
                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
             # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем результат
@@ -786,8 +806,8 @@ class ConnectionTestWorker(QObject):
     def _get_curl_path(self):
         """Находит путь к curl"""
         curl_paths = [
-            "C:\\Windows\\System32\\curl.exe",
-            "C:\\Windows\\SysWOW64\\curl.exe",
+            os.path.join(get_system32_path(), "curl.exe"),
+            os.path.join(get_syswow64_path(), "curl.exe"),
             "curl.exe",
             "curl"
         ]
@@ -1053,6 +1073,9 @@ class ConnectionTestWorker(QObject):
                 if not self.is_stop_requested():
                     self.log_message("\n" + "="*30 + "\n")
                     self.check_youtube()
+                if not self.is_stop_requested():
+                    self.log_message("\n" + "="*30 + "\n")
+                    self.check_telegram_bot_api()
             
             if self.is_stop_requested():
                 self.log_message("⚠️ Тестирование остановлено пользователем")
@@ -1067,652 +1090,24 @@ class ConnectionTestWorker(QObject):
             # ✅ ВСЕГДА эмитируем сигнал завершения
             self.finished_signal.emit()
 
+# Топик для логов диагностики соединения
+CONNECTION_TEST_TOPIC_ID = 10852
+
 class LogSendWorker(QObject):
     """Воркер для отправки лога в Telegram в отдельном потоке"""
     finished = pyqtSignal(bool, str)  # success, message
-    
+
     def __init__(self, log_path: str, caption: str):
         super().__init__()
         self.log_path = log_path
         self.caption = caption
-    
+
     def run(self):
         try:
-            success, error_msg = send_log_file(self.log_path, self.caption)
+            success, error_msg = send_log_file(self.log_path, self.caption, topic_id=CONNECTION_TEST_TOPIC_ID)
             if success:
                 self.finished.emit(True, "Лог успешно отправлен!")
             else:
                 self.finished.emit(False, error_msg or "Ошибка отправки")
         except Exception as e:
             self.finished.emit(False, str(e))
-
-class ConnectionTestDialog(QDialog):
-    """Неблокирующее диалоговое окно для тестирования соединений."""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Тестирование соединения")
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(500)
-        
-        # Делаем окно модальным, но НЕ блокирующим основной поток
-        self.setModal(False)
-        
-        # Флаг для предотвращения множественных запусков
-        self.is_testing = False
-        self.is_sending_log = False  # Новый флаг для отправки лога
-        
-        self.init_ui()
-        self.worker = None
-        self.worker_thread = None
-        self.log_send_thread = None  # Для отправки лога
-
-    def init_ui(self):
-        """Инициализация пользовательского интерфейса."""
-        layout = QVBoxLayout()
-        
-        # Заголовок
-        from PyQt6.QtWidgets import QLabel
-        from PyQt6.QtCore import Qt
-        
-        title_label = QLabel("🔍 Диагностика сетевых соединений")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
-        layout.addWidget(title_label)
-        
-        # Комбобокс для выбора теста
-        self.test_combo = QComboBox(self)
-        self.test_combo.addItems([
-            "🌐 Все тесты (Discord + YouTube)", 
-            "🎮 Только Discord", 
-            "🎬 Только YouTube"
-        ])
-        self.test_combo.setStyleSheet("padding: 8px; font-size: 12px;")
-        layout.addWidget(self.test_combo)
-        
-        # Кнопки управления тестами
-        button_layout = QVBoxLayout()
-        
-        # Основные кнопки в горизонтальном layout
-        main_buttons_layout = QHBoxLayout()
-        
-        self.start_button = QPushButton("▶️ Начать тестирование", self)
-        self.start_button.clicked.connect(self.start_test_async)
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
-        main_buttons_layout.addWidget(self.start_button)
-        
-        self.stop_button = QPushButton("⏹️ Остановить тест", self)
-        self.stop_button.clicked.connect(self.stop_test)
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
-        main_buttons_layout.addWidget(self.stop_button)
-        
-        button_layout.addLayout(main_buttons_layout)
-        
-        # Дополнительные кнопки
-        extra_buttons_layout = QHBoxLayout()
-        
-        self.dns_check_button = QPushButton("🌐 Проверка DNS подмены", self)
-        self.dns_check_button.clicked.connect(self.show_dns_check)
-        self.dns_check_button.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-        """)
-        extra_buttons_layout.addWidget(self.dns_check_button)
-        
-        # ИЗМЕНЕНО: Заменяем кнопку "Сохранить лог" на "Отправить лог"
-        self.send_log_button = QPushButton("📤 Отправить лог в поддержку", self)
-        self.send_log_button.clicked.connect(self.send_log_to_telegram)
-        self.send_log_button.setEnabled(False)
-        self.send_log_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
-        extra_buttons_layout.addWidget(self.send_log_button)
-        
-        button_layout.addLayout(extra_buttons_layout)
-        
-        layout.addLayout(button_layout)
-        
-        # Разделитель
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setStyleSheet("margin: 10px 0;")
-        layout.addWidget(separator)
-        
-        # Прогресс-бар
-        from PyQt6.QtWidgets import QProgressBar
-        self.progress_bar = QProgressBar(self)
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                width: 20px;
-            }
-        """)
-        layout.addWidget(self.progress_bar)
-        
-        # Статус тестирования
-        self.status_label = QLabel("Готово к тестированию")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("padding: 5px; font-weight: bold; color: #666;")
-        layout.addWidget(self.status_label)
-        
-        # Текстовое поле для вывода результатов
-        self.result_text = QTextEdit(self)
-        self.result_text.setReadOnly(True)
-        layout.addWidget(self.result_text)
-        
-        # Кнопка закрытия
-        close_button = QPushButton("❌ Закрыть", self)
-        close_button.clicked.connect(self.close_dialog_safely)
-        close_button.setStyleSheet("""
-            QPushButton {
-                background-color: #666;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-        """)
-        layout.addWidget(close_button)
-        
-        self.setLayout(layout)
-
-    def send_log_to_telegram(self):
-        """Отправляет лог тестирования в Telegram"""
-        if self.is_sending_log:
-            QMessageBox.information(self, "Отправка в процессе", 
-                                "Лог уже отправляется, подождите...")
-            return
-        
-        # Проверяем наличие лог-файла
-        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
-        
-        if not os.path.exists(temp_log_path):
-            QMessageBox.warning(self, "Ошибка", 
-                            "Файл журнала не найден.\n"
-                            "Сначала выполните тестирование.")
-            return
-        
-        # ✅ ИСПРАВЛЕНИЕ: Правильно обрабатываем возвращаемое значение
-        try:
-            # Проверяем настройки бота
-            bot_connected = check_bot_connection()
-            
-            if not bot_connected:
-                error_msg = "Не удалось подключиться к Telegram боту"
-            else:
-                error_msg = None
-                
-        except Exception as e:
-            bot_connected = False
-            error_msg = str(e)
-        
-        if not bot_connected:
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Бот не настроен")
-            msg_box.setIcon(QMessageBox.Icon.Warning)
-            msg_box.setText(
-                f"Не удалось подключиться к боту для отправки логов.\n\n"
-                f"Ошибка: {error_msg or 'Неизвестная ошибка'}\n\n"
-                "Хотите сохранить лог локально?"
-            )
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if msg_box.exec() == QMessageBox.StandardButton.Yes:
-                self.save_log_locally()
-            return
-        
-        # Подготавливаем caption с информацией
-        import time
-        test_type = self.test_combo.currentText()
-        caption = (
-            f"📊 <b>Лог тестирования соединений</b>\n"
-            f"Тип: {test_type}\n"
-            f"Zapret v{APP_VERSION}\n"
-            f"ID: <code>{get_client_id()}</code>\n"
-            f"Host: {platform.node()}\n"
-            f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"
-        )
-        
-        # Блокируем кнопку
-        self.send_log_button.setEnabled(False)
-        self.is_sending_log = True
-        
-        # Обновляем статус
-        self.status_label.setText("📤 Отправка лога в Telegram...")
-        self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
-        
-        # Показываем прогресс
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Бесконечный прогресс
-        
-        # Создаем воркер и поток для отправки
-        self.log_send_thread = QThread(self)
-        self.log_send_worker = LogSendWorker(temp_log_path, caption)
-        self.log_send_worker.moveToThread(self.log_send_thread)
-        
-        # Подключаем сигналы
-        self.log_send_thread.started.connect(self.log_send_worker.run)
-        self.log_send_worker.finished.connect(self.on_log_sent)
-        self.log_send_worker.finished.connect(self.log_send_thread.quit)
-        self.log_send_worker.finished.connect(self.log_send_worker.deleteLater)
-        self.log_send_thread.finished.connect(self.log_send_thread.deleteLater)
-        
-        # Запускаем отправку
-        self.log_send_thread.start()
-        
-        from log import log
-        log(f"Отправка лога тестирования в Telegram", "INFO")
-    
-    def on_log_sent(self, success: bool, message: str):
-        """Обработчик завершения отправки лога"""
-        # Скрываем прогресс
-        self.progress_bar.setVisible(False)
-        
-        # Разблокируем кнопку
-        self.send_log_button.setEnabled(True)
-        self.is_sending_log = False
-        
-        if success:
-            # Обновляем статус
-            self.status_label.setText("✅ Лог успешно отправлен!")
-            self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-            
-            # Добавляем сообщение в результаты
-            self.result_text.append("\n" + "=" * 50)
-            self.result_text.append("✅ Лог успешно отправлен в канал поддержки!")
-            self.result_text.append("Спасибо за помощь в улучшении программы!")
-            
-            # Показываем уведомление
-            QMessageBox.information(
-                self,
-                "Успешно",
-                "Лог тестирования успешно отправлен!\n\n"
-                "Техническая поддержка получит ваш отчет и сможет "
-                "проанализировать проблемы с подключением."
-            )
-            
-            # Удаляем временный файл после успешной отправки
-            try:
-                temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
-                if os.path.exists(temp_log_path):
-                    os.remove(temp_log_path)
-            except:
-                pass
-                
-        else:
-            # Обновляем статус об ошибке
-            self.status_label.setText("❌ Ошибка отправки лога")
-            self.status_label.setStyleSheet("color: #f44336; font-weight: bold;")
-            
-            # Предлагаем сохранить локально
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Ошибка отправки")
-            msg_box.setIcon(QMessageBox.Icon.Warning)
-            msg_box.setText(
-                f"Не удалось отправить лог:\n{message}\n\n"
-                "Хотите сохранить лог локально?"
-            )
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if msg_box.exec() == QMessageBox.StandardButton.Yes:
-                self.save_log_locally()
-        
-        # Очищаем ссылки
-        self.log_send_worker = None
-        self.log_send_thread = None
-    
-    def save_log_locally(self):
-        """Сохраняет лог локально как запасной вариант"""
-        temp_log_path = os.path.join(LOGS_FOLDER, "connection_test_temp.log")
-        
-        if not os.path.exists(temp_log_path):
-            QMessageBox.warning(self, "Ошибка", "Файл журнала не найден.")
-            return
-        
-        try:
-            from datetime import datetime
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = os.path.join(
-                LOGS_FOLDER, 
-                f"connection_test_{timestamp}.log"
-            )
-            
-            # Копируем файл
-            with open(temp_log_path, "r", encoding="utf-8-sig") as src, \
-                 open(save_path, "w", encoding="utf-8-sig") as dest:
-                dest.write(src.read())
-            
-            QMessageBox.information(
-                self, 
-                "💾 Сохранено локально", 
-                f"Лог сохранен в файл:\n{save_path}\n\n"
-                "Вы можете отправить этот файл в техподдержку вручную."
-            )
-            
-            # Открываем папку с файлом
-            import subprocess
-            subprocess.run(f'explorer /select,"{save_path}"', shell=True)
-            
-        except Exception as e:
-            QMessageBox.critical(
-                self, 
-                "Ошибка при сохранении", 
-                f"Не удалось сохранить файл журнала:\n{str(e)}"
-            )
-    
-    def show_dns_check(self):
-        """Показывает диалог проверки DNS"""
-        try:
-            # Логируем действие
-            from log import log
-            log("Открытие диалога проверки DNS из теста соединений", "INFO")
-            
-            # Если идет тестирование, предупреждаем
-            if self.is_testing:
-                reply = QMessageBox.question(
-                    self,
-                    "Тест выполняется",
-                    "Сетевой тест еще выполняется.\nОткрыть проверку DNS в отдельном окне?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
-            
-            # Создаем и показываем диалог DNS проверки
-            dns_dialog = DNSCheckDialog(self)
-            dns_dialog.exec()
-            
-        except Exception as e:
-            from log import log
-            log(f"Ошибка открытия DNS диалога: {e}", "❌ ERROR")
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось открыть проверку DNS:\n{str(e)}"
-            )
-    
-    def start_test_async(self):
-        """✅ Асинхронно запускает выбранный тест."""
-        if self.is_testing:
-            QMessageBox.information(self, "Тест уже выполняется", 
-                                "Дождитесь завершения текущего теста")
-            return
-        
-        # Определяем тип теста
-        selection = self.test_combo.currentText()
-        test_type = "all"
-        
-        if "Только Discord" in selection:
-            test_type = "discord"
-        elif "Только YouTube" in selection:
-            test_type = "youtube"
-        
-        # Подготавливаем UI
-        self.result_text.clear()
-        self.result_text.append(f"🚀 Запуск тестирования: {selection}")
-        self.result_text.append("=" * 50)
-        
-        # Обновляем состояние кнопок
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.dns_check_button.setEnabled(False)  # Блокируем DNS проверку во время теста
-        self.test_combo.setEnabled(False)
-
-        # Показываем прогресс
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
-        self.status_label.setText("🔄 Тестирование в процессе...")
-        self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
-        
-        # ✅ СОЗДАЕМ ОТДЕЛЬНЫЙ ПОТОК ДЛЯ WORKER'а
-        self.worker_thread = QThread(self)           # привязываем к диалогу
-        self.worker = ConnectionTestWorker(test_type)
-        
-        # ✅ ПЕРЕНОСИМ WORKER В ОТДЕЛЬНЫЙ ПОТОК
-        self.worker.moveToThread(self.worker_thread)
-        
-        # ✅ ПОДКЛЮЧАЕМ СИГНАЛЫ
-        self.worker_thread.started.connect(self.worker.run)
-        self.worker.update_signal.connect(self.update_result_async)
-        self.worker.finished_signal.connect(self.on_test_finished_async)
-        
-        # корректная очистка
-        self.worker.finished_signal.connect(self.worker_thread.quit)
-        self.worker.finished_signal.connect(self.worker.deleteLater)
-        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
-        
-        # Устанавливаем флаг
-        self.is_testing = True
-        
-        # запускаем
-        self.worker_thread.start()
-        
-        from log import log
-        log(f"Запуск асинхронного теста соединения: {test_type}", "INFO")
-    
-    def stop_test(self):
-        """✅ Корректно останавливает текущий тест БЕЗ БЛОКИРОВКИ GUI."""
-        if not self.worker or not self.worker_thread:
-            return
-            
-        # Показываем статус остановки
-        self.result_text.append("\n⚠️ Остановка теста...")
-        self.status_label.setText("⏹️ Остановка в процессе...")
-        self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
-        
-        # Просим worker остановиться
-        self.worker.stop_gracefully()
-        
-        # Создаем таймер для проверки состояния БЕЗ БЛОКИРОВКИ
-        from PyQt6.QtCore import QTimer
-        
-        self.stop_check_timer = QTimer()
-        self.stop_check_attempts = 0
-        
-        def check_thread_stopped():
-            self.stop_check_attempts += 1
-            
-            # ✅ ДОБАВЛЯЕМ ПРОВЕРКУ НА None
-            if not self.worker_thread:
-                # Поток уже очищен
-                self.stop_check_timer.stop()
-                self.result_text.append("✅ Тест уже остановлен")
-                return
-            
-            if not self.worker_thread.isRunning():
-                # Поток остановился
-                self.stop_check_timer.stop()
-                self.result_text.append("✅ Тест остановлен корректно")
-                self.on_test_finished_async()
-                
-            elif self.stop_check_attempts > 50:  # 5 секунд (50 * 100мс)
-                # Принудительная остановка
-                self.stop_check_timer.stop()
-                self.result_text.append("⚠️ Принудительная остановка теста...")
-                if self.worker_thread:  # ✅ Дополнительная проверка
-                    self.worker_thread.terminate()
-                    
-                    # Даем еще немного времени на terminate
-                    QTimer.singleShot(1000, lambda: self._finalize_stop())
-                else:
-                    self._finalize_stop()
-        
-        self.stop_check_timer.timeout.connect(check_thread_stopped)
-        self.stop_check_timer.start(100)  # Проверяем каждые 100мс
-
-    def _finalize_stop(self):
-        """Финализация остановки после terminate."""
-        if self.worker_thread and self.worker_thread.isRunning():
-            self.result_text.append("❌ Не удалось остановить тест")
-        else:
-            self.result_text.append("✅ Тест остановлен")
-        
-        self.on_test_finished_async()
-    
-    def update_result_async(self, message):
-        """✅ Асинхронно обновляет текстовое поле с результатами."""
-        # Специальная обработка для DNS сообщений
-        if "DNS" in message and "подмен" in message:
-            # Добавляем кнопку для быстрого запуска DNS проверки
-            self.result_text.append(message)
-            self.result_text.append("💡 Совет: Используйте кнопку '🌐 Проверка DNS подмены' для детального анализа")
-        else:
-            # ✅ THREAD-SAFE обновление GUI
-            self.result_text.append(message)
-        
-        # Автопрокрутка до конца
-        scrollbar = self.result_text.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-        
-        # Обновляем статус с последним сообщением
-        if len(message) < 60:
-            clean_message = message.replace("✅", "").replace("❌", "").replace("⚠️", "").strip()
-            if clean_message:
-                self.status_label.setText(f"🔄 {clean_message}")
-    
-    def on_test_finished_async(self):
-        """✅ Асинхронно обрабатывает завершение тестов."""
-        # Возвращаем состояние кнопок
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.dns_check_button.setEnabled(True)  # Разблокируем DNS проверку
-        self.test_combo.setEnabled(True)
-        self.send_log_button.setEnabled(True)
-        
-        # Скрываем прогресс
-        self.progress_bar.setVisible(False)
-        
-        # Обновляем статус
-        self.status_label.setText("✅ Тестирование завершено")
-        self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-        
-        # Добавляем финальное сообщение
-        self.result_text.append("\n" + "=" * 50)
-        self.result_text.append("🎉 Тестирование завершено! Лог готов для сохранения.")
-        self.result_text.append("💡 Для детальной проверки DNS используйте кнопку '🌐 Проверка DNS подмены'")
-        
-        # Сбрасываем флаг
-        self.is_testing = False
-        
-        # Очищаем ссылки на поток
-        self.worker = None
-        self.worker_thread = None
-        
-        from log import log
-        log("Асинхронный тест соединения завершен", "INFO")
-    
-    def close_dialog_safely(self):
-        """Безопасно закрывает диалог."""
-        if self.is_testing:
-            reply = QMessageBox.question(
-                self, 
-                "Тест выполняется",
-                "Тест еще выполняется. Остановить и закрыть окно?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                self.stop_test()
-                self.close()
-        else:
-            self.close()
-    
-    def closeEvent(self, event):
-        """Переопределяем событие закрытия окна с улучшенной обработкой."""
-        # ✅ Останавливаем таймер если он существует
-        if hasattr(self, 'stop_check_timer') and self.stop_check_timer:
-            self.stop_check_timer.stop()
-            self.stop_check_timer.deleteLater()
-        
-        if self.is_testing:
-            reply = QMessageBox.question(
-                self, 
-                "Тест выполняется",
-                "Тест еще выполняется. Остановить и закрыть окно?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                # Мягко останавливаем тест
-                if self.worker:
-                    self.worker.stop_gracefully()
-                
-                # Ждем завершения
-                if self.worker_thread and self.worker_thread.isRunning():
-                    if not self.worker_thread.wait(3000):
-                        self.worker_thread.terminate()
-                        self.worker_thread.wait(1000)
-                
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()

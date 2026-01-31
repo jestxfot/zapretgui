@@ -1,11 +1,91 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+from PyInstaller.utils.hooks import collect_submodules
+
+# Собираем ВСЕ подмодули ui пакета
+ui_hiddenimports = collect_submodules('ui')
+log_hiddenimports = collect_submodules('log')
+managers_hiddenimports = collect_submodules('managers')
+strategy_hiddenimports = collect_submodules('strategy_menu')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[r'\\wsl.localhost\Debian\home\privacy\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[],
-    hiddenimports=[
+    datas=[(r'\\wsl.localhost\Debian\home\privacy\zapretgui\build_zapret\zapret_certificate.cer', r'.')],  # ✅ Включаем сертификат и другие data файлы
+	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
+		        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+		        'ui',
+		        'ui.main_window', 
+		        'ui.theme',
+		        'ui.theme_subscription_manager',
+		        'ui.sidebar',
+	        'ui.custom_titlebar',
+	        'ui.dialogs',
+	        'ui.dialogs.add_category_dialog',
+	        'ui.acrylic',
+	        'ui.fluent_icons',
+	        'ui.pages',
+        'ui.pages.home_page',
+        'ui.pages.control_page',
+        'ui.pages.strategies_page',
+        'ui.pages.zapret1_strategies_page',
+        'ui.pages.direct_zapret2_strategies_page',
+        'ui.pages.network_page',
+        'ui.pages.autostart_page',
+        'ui.pages.appearance_page',
+        'ui.pages.about_page',
+        'ui.pages.logs_page',
+        'ui.pages.base_page',
+        'ui.pages.premium_page',
+        
+        # ============= LOG МОДУЛИ =============
+        'log',
+        'log.log',
+        'log.crash_handler',
+        'log_tail',
+        
+        # ============= MANAGERS =============
+        'managers',
+        'managers.dpi_manager',
+        'managers.ui_manager',
+        'managers.heavy_init_manager',
+        'managers.initialization_manager',
+        'managers.process_monitor_manager',
+        
+        # ============= STRATEGY MENU =============
+        'strategy_menu',
+        'strategy_menu.selector',
+        'strategy_menu.strategies_registry',
+        'strategy_menu.strategy_runner',
+        'strategy_menu.strategy_lists_separated',
+        'strategy_menu.animated_side_panel',
+        'strategy_menu.widgets',
+        'strategy_menu.command_line_dialog',
+        'strategy_menu.constants',
+        'strategy_menu.workers',
+        'strategy_menu.lazy_tab_loader',
+        'strategy_menu.profiler',
+        'strategy_menu.strategy_table_widget_favorites',
+        
+        # ============= CRASH HANDLING =============
+        'faulthandler',
+        'threading',
+        'atexit',
+        'traceback',
+        
+        # ============= STARTUP MODULES =============
+        'startup',
+        'startup.admin_check',
+        'startup.single_instance',
+        'startup.kaspersky',
+        'startup.ipc_manager',
+        'startup.check_start',
+        'startup.bfe_util',
+        'startup.remove_terminal',
+        'startup.admin_check_debug',
+        'startup.certificate_installer',  # ✅ Автоустановка сертификата
+        
         # Windows API
         'win32com', 
         'win32com.client', 
@@ -86,6 +166,9 @@ a = Analysis(
         'pip',
         'distutils',
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
+        # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
+        'PySide6',
+        'shiboken6',
         'http.server',
         'xmlrpc',
         'pydoc',
@@ -99,17 +182,19 @@ a.binaries = [x for x in a.binaries if not x[0].startswith('build_zapret')]
 
 pyz = PYZ(a.pure)
 
+# ✅ ИЗМЕНЕНО: Переход с --onefile на --onedir (папка с файлами)
+# Это решает проблему "Failed to start embedded python interpreter!"
+# и предотвращает блокировку антивирусами
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],  # ✅ УБРАЛИ a.binaries и a.datas отсюда
+    exclude_binaries=True,  # ✅ ВАЖНО: binaries будут в COLLECT
     name='Zapret',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # ✅ ИЗМЕНЕНО С True НА False
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -119,5 +204,17 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon=r'H:\Privacy\zapret\ico\ZapretDevLogo4.ico',
+    icon=r'\\wsl.localhost\Debian\home\privacy\zapretgui\ZapretDevLogo4.ico',
+)
+
+# ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='Zapret',
 )

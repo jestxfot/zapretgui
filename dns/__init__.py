@@ -12,7 +12,6 @@
     ensure_default_force_dns() – создание ключа ForceDNS по умолчанию
 
     DNS_PROVIDERS              – словарь провайдеров DNS (категоризированный)
-    DNSSettingsDialog          – современный диалог настройки DNS
 
     DNSUIManager               – менеджер UI для DNS операций
     DNSStartupManager          – менеджер DNS при запуске
@@ -46,12 +45,9 @@ from .dns_force import (
 )
 
 # ══════════════════════════════════════════════════════════════════════
-#  Импорты из dns_dialog (современный UI)
+#  Импорты из dns_providers (список провайдеров)
 # ══════════════════════════════════════════════════════════════════════
-from .dns_dialog import (
-    DNSSettingsDialog,
-    DNS_PROVIDERS
-)
+from .dns_providers import DNS_PROVIDERS
 
 # ══════════════════════════════════════════════════════════════════════
 #  Импорты из dns_worker (упрощенные воркеры)
@@ -82,8 +78,7 @@ __all__ = (
     "DNSForceManager",
     "ensure_default_force_dns",
     
-    # UI
-    "DNSSettingsDialog",
+    # Providers
     "DNS_PROVIDERS",
     
     # Workers

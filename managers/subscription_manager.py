@@ -111,11 +111,23 @@ class SubscriptionManager:
                 sub_info['is_premium'],
                 sub_info['days_remaining']
             )
+        
+        # ✅ ОБНОВЛЯЕМ КАРТОЧКИ НА ГЛАВНОЙ И СТРАНИЦЕ "О ПРОГРАММЕ"
+        if hasattr(self.app, 'update_subscription_display'):
+            self.app.update_subscription_display(
+                sub_info['is_premium'],
+                sub_info['days_remaining'] if sub_info['days_remaining'] and sub_info['days_remaining'] > 0 else None
+            )
+            log(f"Обновлены карточки подписки: premium={sub_info['is_premium']}", "DEBUG")
 
         # Обновляем темы через UI Manager
         if hasattr(self.app, 'theme_manager') and hasattr(self.app, 'ui_manager'):
             available_themes = self.app.theme_manager.get_available_themes()
-            self.app.ui_manager.update_theme_combo(available_themes)
+            self.app.ui_manager.update_theme_gallery(available_themes)
+        
+        # ✅ Инициализируем гирлянду после получения статуса подписки
+        if hasattr(self.app, '_init_garland_from_registry'):
+            self.app._init_garland_from_registry()
             
         self.app.set_status("Подписка инициализирована")
         log(f"Подписка готова: {'Premium' if sub_info['is_premium'] else 'Free'} "
@@ -125,20 +137,18 @@ class SubscriptionManager:
         """Обрабатывает изменение статуса подписки"""
         log(f"Статус подписки изменился: {was_premium} -> {is_premium}", "INFO")
         
-        # ✅ ИСПОЛЬЗУЕМ UI MANAGER для обновления тем
+        # ✅ ИСПОЛЬЗУЕМ UI MANAGER для обновления галереи тем
         if hasattr(self.app, 'theme_manager') and hasattr(self.app, 'ui_manager'):
             available_themes = self.app.theme_manager.get_available_themes()
-            current_selection = self.app.theme_combo.currentText()
+            current_theme = self.app.theme_manager.current_theme
             
-            # Обновляем список тем через UI Manager
-            self.app.ui_manager.update_theme_combo(available_themes)
+            # Обновляем галерею тем через UI Manager
+            self.app.ui_manager.update_theme_gallery(available_themes)
             
-            # Пытаемся восстановить выбор темы
-            if current_selection in available_themes:
-                self.app.theme_combo.setCurrentText(current_selection)
-            else:
-                # Ищем альтернативу
-                self._find_alternative_theme(available_themes, current_selection)
+            # Обновляем премиум статус на странице оформления
+            if hasattr(self.app, 'appearance_page'):
+                self.app.appearance_page.set_premium_status(is_premium)
+                self.app.appearance_page.set_current_theme(current_theme)
         
         # Показываем уведомления
         self._show_subscription_notifications(was_premium, is_premium)
@@ -154,7 +164,9 @@ class SubscriptionManager:
         theme_found = False
         for theme in available_themes:
             if self.app.theme_manager.get_clean_theme_name(theme) == clean_theme_name:
-                self.app.theme_combo.setCurrentText(theme)
+                # Обновляем выбор в галерее
+                if hasattr(self.app, 'appearance_page'):
+                    self.app.appearance_page.set_current_theme(theme)
                 theme_found = True
                 break
         
@@ -162,8 +174,10 @@ class SubscriptionManager:
         if not theme_found:
             for theme in available_themes:
                 if "(заблокировано)" not in theme and "(Premium)" not in theme:
-                    self.app.theme_combo.setCurrentText(theme)
-                    self.app.theme_manager.apply_theme(theme)
+                    # Обновляем выбор в галерее и применяем тему
+                    if hasattr(self.app, 'appearance_page'):
+                        self.app.appearance_page.set_current_theme(theme)
+                    self.app.theme_manager.apply_theme_async(theme, persist=True)
                     log(f"Автоматически выбрана тема: {theme}", "INFO")
                     break
 
@@ -223,10 +237,6 @@ class SubscriptionManager:
     def _update_subscription_ui_elements(self):
         """Обновляет UI элементы, зависящие от подписки"""
         try:
-            # ✅ ИСПОЛЬЗУЕМ UI MANAGER
-            if hasattr(self.app, 'ui_manager'):
-                self.app.ui_manager.update_proxy_button_state()
-            
             if hasattr(self.app, 'button_grid'):
                 self.app.button_grid.update()
             
@@ -281,15 +291,22 @@ class SubscriptionManager:
                     days_remaining
                 )
                 
-                # Обновляем темы через UI Manager
+                # Обновляем галерею тем через UI Manager
                 if hasattr(self.app, 'theme_manager'):
                     available_themes = self.app.theme_manager.get_available_themes()
-                    current_selection = self.app.theme_combo.currentText()
+                    self.app.ui_manager.update_theme_gallery(available_themes)
                     
-                    self.app.ui_manager.update_theme_combo(available_themes)
-                    
-                    if current_selection in available_themes:
-                        self.app.theme_combo.setCurrentText(current_selection)
+                    # Обновляем премиум статус на странице оформления
+                    if hasattr(self.app, 'appearance_page'):
+                        self.app.appearance_page.set_premium_status(is_premium)
+                        self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
+            
+            # ✅ ОБНОВЛЯЕМ КАРТОЧКИ НА ГЛАВНОЙ И СТРАНИЦЕ "О ПРОГРАММЕ"
+            if hasattr(self.app, 'update_subscription_display'):
+                self.app.update_subscription_display(
+                    is_premium,
+                    days_remaining if days_remaining and days_remaining > 0 else None
+                )
             
             self.app.set_status(f"Статус подписки: {status_msg}")
             log(f"Статус подписки обновлен: {'Premium' if is_premium else 'Free'}", "INFO")

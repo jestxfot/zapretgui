@@ -40,6 +40,11 @@ CONFLICTING_PROCESSES = {
         'name': 'Другой экземпляр winws.exe',
         'reason': 'Уже запущен другой экземпляр DPI обхода',
         'solution': 'Остановите старый экземпляр перед запуском нового'
+    },
+    'winws2.exe': {  # Проверка дублей для Zapret 2
+        'name': 'Другой экземпляр winws2.exe',
+        'reason': 'Уже запущен другой экземпляр DPI обхода (Zapret 2)',
+        'solution': 'Остановите старый экземпляр перед запуском нового'
     }
 }
 
@@ -143,37 +148,9 @@ def _check_process_running(process_name: str) -> Tuple[bool, Optional[int]]:
             
     except Exception as e:
         log(f"Ошибка проверки процесса через WMI: {e}", "DEBUG")
-        
-    # ✅ Fallback 2: tasklist (самый медленный, но всегда работает)
-    try:
-        result = subprocess.run(
-            ['tasklist', '/FI', f'IMAGENAME eq {process_name}', '/FO', 'CSV', '/NH'],
-            capture_output=True,
-            text=True,
-            encoding='cp866',
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-            timeout=5
-        )
-        
-        if process_name.lower() in result.stdout.lower():
-            # Пытаемся извлечь PID из вывода
-            try:
-                lines = result.stdout.strip().split('\n')
-                if lines:
-                    # CSV формат: "name","PID","Session","Memory"
-                    parts = lines[0].replace('"', '').split(',')
-                    if len(parts) >= 2:
-                        pid = int(parts[1].strip())
-                        return True, pid
-            except:
-                pass
-            return True, None
-        else:
-            return False, None
-                
-    except Exception as e2:
-        log(f"Ошибка проверки процесса через tasklist: {e2}", "DEBUG")
-        return False, None
+
+    # Если ни psutil, ни WMI не сработали - процесс не найден
+    return False, None
 
 def _get_crash_details(process_name: str) -> Optional[str]:
     """
@@ -306,35 +283,8 @@ def check_conflicting_processes() -> List[Dict[str, str]]:
                 continue
     
     except Exception as e:
-        log(f"Ошибка проверки через psutil, переключаемся на tasklist: {e}", "DEBUG")
-        
-        # Fallback на старый метод
-        try:
-            result = subprocess.run(
-                ['tasklist', '/FO', 'CSV', '/NH'],
-                capture_output=True,
-                text=True,
-                encoding='cp866',
-                creationflags=0x08000000,
-                timeout=5
-            )
-            
-            running_processes = result.stdout.lower()
-            
-            for process_exe, info in CONFLICTING_PROCESSES.items():
-                if process_exe.lower() in running_processes:
-                    found_conflicts.append({
-                        'exe': process_exe,
-                        'name': info['name'],
-                        'reason': info['reason'],
-                        'solution': info['solution'],
-                        'pid': None
-                    })
-                    log(f"⚠ Обнаружен конфликтующий процесс: {info['name']} ({process_exe})", "WARNING")
-            
-        except Exception as e2:
-            log(f"Ошибка проверки конфликтующих процессов: {e2}", "DEBUG")
-    
+        log(f"Ошибка проверки конфликтующих процессов через psutil: {e}", "DEBUG")
+
     return found_conflicts
 
 def check_common_crash_causes(process_name: str = "winws.exe") -> Optional[str]:
@@ -480,20 +430,15 @@ def try_kill_conflicting_processes(auto_kill: bool = False) -> bool:
                     success_count += 1
                     continue
             
-            # Fallback на taskkill
-            result = subprocess.run(
-                ['taskkill', '/F', '/IM', conflict['exe'], '/T'],
-                capture_output=True,
-                text=True,
-                creationflags=0x08000000,
-                timeout=10
-            )
+            # Fallback на Win API
+            from utils.process_killer import kill_process_by_name
+            killed = kill_process_by_name(conflict['exe'], kill_all=True)
             
-            if result.returncode == 0:
-                log(f"✅ Процесс {conflict['name']} успешно закрыт через taskkill", "SUCCESS")
+            if killed > 0:
+                log(f"✅ Процесс {conflict['name']} успешно закрыт через Win API", "SUCCESS")
                 success_count += 1
             else:
-                log(f"❌ Не удалось закрыть {conflict['name']}: {result.stderr}", "ERROR")
+                log(f"❌ Не удалось закрыть {conflict['name']}", "ERROR")
                 
         except Exception as e:
             log(f"Ошибка при закрытии {conflict['name']}: {e}", "ERROR")
@@ -583,5 +528,260 @@ def analyze_strategy_complexity(args: str) -> Dict[str, any]:
         analysis['hostlist_count'] * 3 +
         analysis['ipset_count'] * 2
     )
-    
+
     return analysis
+
+
+def diagnose_startup_error(error: Exception, exe_path: str = None) -> str:
+    """
+    Диагностирует ошибку запуска и возвращает понятное сообщение с решением.
+
+    Args:
+        error: Исключение которое произошло
+        exe_path: Путь к exe файлу (опционально)
+
+    Returns:
+        str: Понятное сообщение об ошибке с рекомендациями
+    """
+    import ctypes
+    import os
+
+    error_str = str(error)
+    error_code = getattr(error, 'winerror', None) or getattr(error, 'errno', None)
+
+    # Определяем тип ошибки
+    diagnostics = []
+
+    # ========== WinError 5: Отказано в доступе ==========
+    if error_code == 5 or "WinError 5" in error_str or "отказано в доступе" in error_str.lower() or "access is denied" in error_str.lower():
+        diagnostics.append("🚫 ОТКАЗАНО В ДОСТУПЕ")
+        diagnostics.append("")
+
+        # Проверка 1: Права администратора
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+            if not is_admin:
+                diagnostics.append("❌ Причина: Программа запущена БЕЗ прав администратора")
+                diagnostics.append("   Решение: Закройте программу и запустите от имени администратора")
+                return "\n".join(diagnostics)
+        except:
+            pass
+
+        # Проверка 2: Антивирус блокирует
+        av_blocking = _check_antivirus_blocking(exe_path)
+        if av_blocking:
+            diagnostics.append(f"❌ Причина: {av_blocking}")
+            diagnostics.append("   Решение: Добавьте папку программы в исключения антивируса")
+            return "\n".join(diagnostics)
+
+        # Проверка 3: Файл заблокирован другим процессом
+        if exe_path and os.path.exists(exe_path):
+            locked_by = _check_file_locked(exe_path)
+            if locked_by:
+                diagnostics.append(f"❌ Причина: Файл заблокирован процессом: {locked_by}")
+                diagnostics.append("   Решение: Закройте указанный процесс или перезагрузите компьютер")
+                return "\n".join(diagnostics)
+
+        # Проверка 4: Предыдущий winws ещё работает
+        running_winws = _check_winws_already_running()
+        if running_winws:
+            diagnostics.append(f"❌ Причина: Уже запущен процесс winws (PID: {running_winws})")
+            diagnostics.append("   Пытаемся автоматически завершить...")
+
+            # Пробуем автоматически завершить
+            try:
+                from utils.process_killer import kill_winws_force
+                if kill_winws_force():
+                    diagnostics.append("   ✅ Процесс завершён. Попробуйте запустить снова")
+                else:
+                    diagnostics.append("   ❌ Не удалось завершить процесс")
+                    diagnostics.append("   Решение: Перезагрузите компьютер")
+            except Exception as kill_err:
+                diagnostics.append(f"   ❌ Ошибка завершения: {kill_err}")
+                diagnostics.append("   Решение: Перезагрузите компьютер")
+
+            return "\n".join(diagnostics)
+
+        # Не смогли определить точную причину - пробуем агрессивную очистку
+        diagnostics.append("❌ Причина не определена, выполняем агрессивную очистку...")
+
+        # Пробуем агрессивную очистку всего
+        try:
+            from utils.process_killer import kill_winws_force
+            from utils.service_manager import cleanup_windivert_services, unload_driver
+
+            # 1. Убиваем все процессы
+            kill_winws_force()
+
+            # 2. Очищаем WinDivert службы
+            cleanup_windivert_services()
+
+            # 3. Выгружаем драйверы WinDivert
+            for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
+                try:
+                    unload_driver(driver)
+                except:
+                    pass
+
+            import time
+            time.sleep(0.5)
+
+            diagnostics.append("   ✅ Очистка выполнена. Попробуйте запустить снова")
+        except Exception as cleanup_err:
+            diagnostics.append(f"   ⚠ Ошибка очистки: {cleanup_err}")
+
+        diagnostics.append("")
+        diagnostics.append("   Если ошибка повторяется:")
+        diagnostics.append("   1. Добавьте папку программы в исключения антивируса")
+        diagnostics.append("   2. Перезагрузите компьютер")
+        return "\n".join(diagnostics)
+
+    # ========== WinError 2: Файл не найден ==========
+    if error_code == 2 or "WinError 2" in error_str or "не удается найти" in error_str.lower() or "cannot find" in error_str.lower():
+        diagnostics.append("📁 ФАЙЛ НЕ НАЙДЕН")
+        diagnostics.append("")
+        if exe_path:
+            diagnostics.append(f"❌ Не найден файл: {exe_path}")
+        diagnostics.append("   Решение: Переустановите программу или восстановите файлы")
+        return "\n".join(diagnostics)
+
+    # ========== WinError 740: Требуется повышение прав ==========
+    if error_code == 740 or "WinError 740" in error_str:
+        diagnostics.append("🔐 ТРЕБУЮТСЯ ПРАВА АДМИНИСТРАТОРА")
+        diagnostics.append("")
+        diagnostics.append("❌ Причина: Операция требует повышенных привилегий")
+        diagnostics.append("   Решение: Запустите программу от имени администратора")
+        return "\n".join(diagnostics)
+
+    # ========== WinError 1314: Недостаточно привилегий ==========
+    if error_code == 1314 or "WinError 1314" in error_str:
+        diagnostics.append("🔐 НЕДОСТАТОЧНО ПРИВИЛЕГИЙ")
+        diagnostics.append("")
+        diagnostics.append("❌ Причина: У текущего пользователя нет необходимых прав")
+        diagnostics.append("   Решение: Запустите программу от имени администратора")
+        return "\n".join(diagnostics)
+
+    # ========== WinError 1450: Недостаточно ресурсов ==========
+    if error_code == 1450 or "WinError 1450" in error_str:
+        diagnostics.append("💾 НЕДОСТАТОЧНО СИСТЕМНЫХ РЕСУРСОВ")
+        diagnostics.append("")
+        diagnostics.append("❌ Причина: Системе не хватает памяти или других ресурсов")
+        diagnostics.append("   Решение: Закройте лишние программы и перезагрузите компьютер")
+        return "\n".join(diagnostics)
+
+    # ========== PermissionError ==========
+    if isinstance(error, PermissionError):
+        diagnostics.append("🚫 ОШИБКА ДОСТУПА")
+        diagnostics.append("")
+        diagnostics.append("❌ Причина: Нет прав на выполнение операции")
+        diagnostics.append("   Решения:")
+        diagnostics.append("   1. Запустите программу от имени администратора")
+        diagnostics.append("   2. Проверьте антивирус на блокировки")
+        return "\n".join(diagnostics)
+
+    # ========== FileNotFoundError ==========
+    if isinstance(error, FileNotFoundError):
+        diagnostics.append("📁 ФАЙЛ ИЛИ ПАПКА НЕ НАЙДЕНЫ")
+        diagnostics.append("")
+        diagnostics.append(f"❌ {error_str}")
+        diagnostics.append("   Решение: Переустановите программу")
+        return "\n".join(diagnostics)
+
+    # ========== OSError с кодом ==========
+    if isinstance(error, OSError) and error_code:
+        diagnostics.append(f"⚠️ СИСТЕМНАЯ ОШИБКА (код {error_code})")
+        diagnostics.append("")
+        diagnostics.append(f"❌ {error_str}")
+        diagnostics.append("   Решение: Перезагрузите компьютер и попробуйте снова")
+        return "\n".join(diagnostics)
+
+    # ========== Неизвестная ошибка ==========
+    diagnostics.append("⚠️ ОШИБКА ЗАПУСКА")
+    diagnostics.append("")
+    diagnostics.append(f"❌ {error_str}")
+    diagnostics.append("")
+    diagnostics.append("   Попробуйте:")
+    diagnostics.append("   1. Перезапустить программу от имени администратора")
+    diagnostics.append("   2. Проверить антивирус")
+    diagnostics.append("   3. Перезагрузить компьютер")
+
+    return "\n".join(diagnostics)
+
+
+def _check_antivirus_blocking(exe_path: str = None) -> Optional[str]:
+    """Проверяет, не блокирует ли антивирус файл"""
+    try:
+        import win32com.client
+        wmi = win32com.client.GetObject("winmgmts:")
+
+        # Проверяем активные антивирусы
+        try:
+            av_products = wmi.ExecQuery("SELECT * FROM AntiVirusProduct", "root\\SecurityCenter2")
+            active_av = []
+            for av in av_products:
+                if hasattr(av, 'displayName'):
+                    active_av.append(av.displayName)
+
+            if active_av:
+                # Проверяем Windows Defender отдельно
+                if any('defender' in av.lower() or 'microsoft' in av.lower() for av in active_av):
+                    return f"Windows Defender может блокировать winws.exe"
+                return f"Антивирус ({', '.join(active_av[:2])}) может блокировать winws.exe"
+        except:
+            pass
+
+        # Проверка журнала Windows Defender
+        if exe_path:
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['powershell', '-Command',
+                     f'Get-MpThreatDetection | Where-Object {{$_.Resources -like "*winws*"}} | Select-Object -First 1'],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=0x08000000
+                )
+                if result.stdout.strip():
+                    return "Windows Defender заблокировал winws.exe (обнаружена угроза)"
+            except:
+                pass
+    except:
+        pass
+
+    return None
+
+
+def _check_file_locked(file_path: str) -> Optional[str]:
+    """Проверяет, заблокирован ли файл другим процессом"""
+    try:
+        # Пробуем открыть файл эксклюзивно
+        import os
+        fd = os.open(file_path, os.O_RDWR | os.O_EXCL)
+        os.close(fd)
+        return None
+    except PermissionError:
+        # Файл заблокирован, пытаемся найти кем
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    for f in proc.open_files():
+                        if file_path.lower() in f.path.lower():
+                            return f"{proc.info['name']} (PID: {proc.info['pid']})"
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+        except:
+            pass
+        return "неизвестный процесс"
+    except:
+        return None
+
+
+def _check_winws_already_running() -> Optional[int]:
+    """Проверяет, запущен ли уже winws"""
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            name = proc.info['name'].lower()
+            if name in ('winws.exe', 'winws2.exe'):
+                return proc.info['pid']
+    except:
+        pass
+    return None

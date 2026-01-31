@@ -8,6 +8,125 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+def cleanup_all_cache(root_path: Path, log_queue: Optional[Any] = None) -> int:
+    """
+    Полная очистка всего кэша перед сборкой:
+    - __pycache__ во всём проекте
+    - .pyc файлы
+    - build/ папка PyInstaller
+    - *.spec.bak файлы
+
+    Args:
+        root_path: Корневая папка проекта
+        log_queue: Очередь для логов
+
+    Returns:
+        int: Количество удалённых элементов
+    """
+    cleaned = 0
+
+    if log_queue:
+        log_queue.put("🧹 Очистка всего кэша проекта...")
+
+    # 1. Удаляем все __pycache__ папки
+    for cache_dir in root_path.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            try:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                cleaned += 1
+            except Exception:
+                pass
+
+    if log_queue:
+        log_queue.put(f"   ✓ Удалено __pycache__ папок: {cleaned}")
+
+    # 2. Удаляем .pyc файлы вне __pycache__ (на всякий случай)
+    pyc_count = 0
+    for pyc_file in root_path.rglob("*.pyc"):
+        try:
+            pyc_file.unlink(missing_ok=True)
+            pyc_count += 1
+        except Exception:
+            pass
+
+    if pyc_count and log_queue:
+        log_queue.put(f"   ✓ Удалено .pyc файлов: {pyc_count}")
+    cleaned += pyc_count
+
+    # 3. Удаляем build/ папку PyInstaller если есть
+    build_dir = root_path / "build"
+    if build_dir.exists():
+        try:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            cleaned += 1
+            if log_queue:
+                log_queue.put(f"   ✓ Удалена папка build/")
+        except Exception:
+            pass
+
+    # 4. Удаляем __pycache__ в build_zapret/ отдельно
+    build_zapret_cache = Path(__file__).parent / "__pycache__"
+    if build_zapret_cache.exists():
+        try:
+            shutil.rmtree(build_zapret_cache, ignore_errors=True)
+            cleaned += 1
+            if log_queue:
+                log_queue.put(f"   ✓ Удалён кэш build_zapret/")
+        except Exception:
+            pass
+
+    # 5. Удаляем старые .spec.bak файлы
+    for bak_file in root_path.glob("*.spec.bak"):
+        try:
+            bak_file.unlink(missing_ok=True)
+            cleaned += 1
+        except Exception:
+            pass
+
+    if log_queue:
+        log_queue.put(f"🧹 Очистка завершена: {cleaned} элементов удалено")
+
+    return cleaned
+
+
+def embed_certificate_in_installer(root_path: Path) -> None:
+    """
+    Встраивает сертификат в certificate_installer.py в формате base64.
+    
+    Args:
+        root_path: Корневая папка проекта
+    """
+    import base64
+    
+    try:
+        cert_file = Path(__file__).parent / "zapret_certificate.cer"
+        installer_file = root_path / "startup" / "certificate_installer.py"
+        
+        if not cert_file.exists() or not installer_file.exists():
+            return
+        
+        # Читаем сертификат
+        cert_data = cert_file.read_bytes()
+        cert_base64 = base64.b64encode(cert_data).decode('ascii')
+        
+        # Читаем installer файл
+        installer_content = installer_file.read_text(encoding='utf-8')
+        
+        # Заменяем встроенный сертификат
+        import re
+        new_content = re.sub(
+            r'EMBEDDED_CERTIFICATE = ""',
+            f'EMBEDDED_CERTIFICATE = "{cert_base64}"',
+            installer_content
+        )
+        
+        # Сохраняем
+        installer_file.write_text(new_content, encoding='utf-8')
+        
+    except Exception:
+        pass  # Не критично
+
+
 def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = None) -> Path:
     """
     Создает spec файл для PyInstaller с исключением папки build_zapret
@@ -20,6 +139,10 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
     Returns:
         Path: Путь к созданному spec файлу
     """
+    
+    # ✅ Встраиваем сертификат перед сборкой
+    embed_certificate_in_installer(root_path)
+    
     icon_file = 'ZapretDevLogo4.ico' if channel == 'test' else 'Zapret2.ico'
     
     # Ищем файл иконки в разных местах
@@ -28,7 +151,7 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         root_path / icon_file,  # В корне проекта
         root_path / 'ico' / icon_file,  # В папке ico
         root_path.parent / 'zapret' / 'ico' / icon_file,  # В папке сборки
-        Path('D:/Privacy/zapret/ico') / icon_file,  # Абсолютный путь к папке сборки
+        Path('H:/Privacy/zapret/ico') / icon_file,  # Абсолютный путь к папке сборки
     ]
     
     for location in possible_locations:
@@ -47,14 +170,122 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Используется иконка: {icon_path}")
     
+    # ✅ Datas для PyInstaller (сертификат + json/hosts.ini если есть)
+    datas_items: list[tuple[str, str]] = []
+
+    cert_file = Path(__file__).parent / "zapret_certificate.cer"
+    if cert_file.exists():
+        datas_items.append((str(cert_file), "."))
+        if log_queue:
+            log_queue.put(f"✅ Сертификат будет встроен: {cert_file}")
+
+    hosts_ini = root_path / "json" / "hosts.ini"
+    if not hosts_ini.exists():
+        # Dev fallback: some setups generate catalog in sibling repo (e.g. `../zapret/json/hosts.ini`)
+        alt_hosts_ini = root_path.parent / "zapret" / "json" / "hosts.ini"
+        if alt_hosts_ini.exists():
+            hosts_ini = alt_hosts_ini
+
+    if hosts_ini.exists():
+        # Нужен как `<project>/json/hosts.ini` (в onefile попадает в sys._MEIPASS/json/hosts.ini)
+        datas_items.append((str(hosts_ini), "json"))
+        if log_queue:
+            log_queue.put(f"✅ json/hosts.ini будет встроен: {hosts_ini}")
+
+    if datas_items:
+        datas_line = "datas=[" + ", ".join([f"(r'{src}', r'{dst}')" for src, dst in datas_items]) + "]"
+    else:
+        datas_line = "datas=[]"
+    
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
+import sys
+from PyInstaller.utils.hooks import collect_submodules
+
+# Собираем ВСЕ подмодули ui пакета
+ui_hiddenimports = collect_submodules('ui')
+log_hiddenimports = collect_submodules('log')
+managers_hiddenimports = collect_submodules('managers')
+strategy_hiddenimports = collect_submodules('strategy_menu')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[r'{root_path}'],  # ✅ ВАЖНО: путь к проекту!
     binaries=[],
-    datas=[],
-    hiddenimports=[
+    {datas_line},  # ✅ Включаем сертификат и другие data файлы
+	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
+	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+	        'ui',
+	        'ui.splash_screen',
+	        'ui.main_window', 
+	        'ui.theme',
+	        'ui.theme_subscription_manager',
+	        'ui.sidebar',
+	        'ui.custom_titlebar',
+	        'ui.dialogs',
+	        'ui.dialogs.add_category_dialog',
+	        'ui.acrylic',
+	        'ui.fluent_icons',
+	        'ui.pages',
+        'ui.pages.home_page',
+        'ui.pages.control_page',
+        'ui.pages.strategies_page',
+        'ui.pages.zapret1_strategies_page',
+        'ui.pages.direct_zapret2_strategies_page',
+        'ui.pages.network_page',
+        'ui.pages.autostart_page',
+        'ui.pages.appearance_page',
+        'ui.pages.about_page',
+        'ui.pages.logs_page',
+        'ui.pages.base_page',
+        'ui.pages.premium_page',
+        
+        # ============= LOG МОДУЛИ =============
+        'log',
+        'log.log',
+        'log.crash_handler',
+        'log_tail',
+        
+        # ============= MANAGERS =============
+        'managers',
+        'managers.dpi_manager',
+        'managers.ui_manager',
+        'managers.heavy_init_manager',
+        'managers.initialization_manager',
+        'managers.process_monitor_manager',
+        
+        # ============= STRATEGY MENU =============
+        'strategy_menu',
+        'strategy_menu.selector',
+        'strategy_menu.strategies_registry',
+        'strategy_menu.strategy_runner',
+        'strategy_menu.strategy_lists_separated',
+        'strategy_menu.animated_side_panel',
+        'strategy_menu.widgets',
+        'strategy_menu.command_line_dialog',
+        'strategy_menu.constants',
+        'strategy_menu.workers',
+        'strategy_menu.lazy_tab_loader',
+        'strategy_menu.profiler',
+        'strategy_menu.strategy_table_widget_favorites',
+        
+        # ============= CRASH HANDLING =============
+        'faulthandler',
+        'threading',
+        'atexit',
+        'traceback',
+        
+        # ============= STARTUP MODULES =============
+        'startup',
+        'startup.admin_check',
+        'startup.single_instance',
+        'startup.kaspersky',
+        'startup.ipc_manager',
+        'startup.check_start',
+        'startup.bfe_util',
+        'startup.remove_terminal',
+        'startup.admin_check_debug',
+        'startup.certificate_installer',  # ✅ Автоустановка сертификата
+        
         # Windows API
         'win32com', 
         'win32com.client', 
@@ -135,6 +366,9 @@ a = Analysis(
         'pip',
         'distutils',
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
+        # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
+        'PySide6',
+        'shiboken6',
         'http.server',
         'xmlrpc',
         'pydoc',
@@ -148,17 +382,19 @@ a.binaries = [x for x in a.binaries if not x[0].startswith('build_zapret')]
 
 pyz = PYZ(a.pure)
 
+# ✅ ИЗМЕНЕНО: Переход с --onefile на --onedir (папка с файлами)
+# Это решает проблему "Failed to start embedded python interpreter!"
+# и предотвращает блокировку антивирусами
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],  # ✅ УБРАЛИ a.binaries и a.datas отсюда
+    exclude_binaries=True,  # ✅ ВАЖНО: binaries будут в COLLECT
     name='Zapret',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # ✅ ИЗМЕНЕНО С True НА False
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -169,6 +405,18 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
     {icon_line}
+)
+
+# ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='Zapret',
 )"""
     
     spec_path = root_path / "zapret_build.spec"
@@ -198,7 +446,11 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
     spec_path = root_path / "zapret_build.spec"
     work = Path(tempfile.mkdtemp(prefix="pyi_"))
     out = root_path.parent / "zapret"
-    
+    exe_path = None  # Инициализируем до try блока
+
+    # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
+    #cleanup_all_cache(root_path, log_queue)
+
     try:
         if log_queue:
             log_queue.put("🔨 Запуск PyInstaller...")
@@ -208,7 +460,17 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
             
         # Создаем папку вывода если не существует
         out.mkdir(parents=True, exist_ok=True)
-            
+
+        # ✅ Очищаем целевую папку Zapret/ перед сборкой (как в Nuitka)
+        # Это гарантирует что старые файлы не останутся в сборке
+        """
+        target_zapret_dir = out / "Zapret"
+        if target_zapret_dir.exists():
+            if log_queue:
+                log_queue.put(f"🧹 Очистка целевой папки: {target_zapret_dir}")
+            shutil.rmtree(target_zapret_dir, ignore_errors=True)
+        """
+        
         run_func([
             sys.executable, "-m", "PyInstaller",
             "--workpath", str(work),
@@ -217,23 +479,113 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
             "--noconfirm",
             str(spec_path)
         ])
-        
-        # Проверяем, что exe создан
-        exe_path = out / "Zapret.exe"
+
+        # ✅ ИЗМЕНЕНО: В режиме --onedir exe находится в подпапке
+        exe_path = out / "Zapret" / "Zapret.exe"
         if not exe_path.exists():
             raise FileNotFoundError(f"Исполняемый файл не создан: {exe_path}")
         
         if log_queue:
             log_queue.put(f"✅ PyInstaller завершен успешно")
             log_queue.put(f"📦 Создан: {exe_path}")
-            log_queue.put(f"📏 Размер: {exe_path.stat().st_size / 1024 / 1024:.1f} MB")
+            # ✅ ИЗМЕНЕНО: Подсчитываем размер всей папки в режиме --onedir
+            total_size = sum(f.stat().st_size for f in exe_path.parent.rglob('*') if f.is_file())
+            log_queue.put(f"📏 Размер папки: {total_size / 1024 / 1024:.1f} MB")
             
     except Exception as e:
         if log_queue:
             log_queue.put(f"❌ Ошибка PyInstaller: {e}")
         raise
-        
+    
+    finally:
+        # Очищаем временную рабочую папку
+        try:
+            if work.exists():
+                shutil.rmtree(work, ignore_errors=True)
+                if log_queue:
+                    log_queue.put(f"🧹 Удалена рабочая папка: {work}")
+        except Exception:
+            pass
 
+        # ✅ Подписываем exe файл если есть сертификат и сборка прошла успешно
+        if exe_path is not None and exe_path.exists():
+            sign_exe_if_available(exe_path, log_queue)
+
+
+def cleanup_pyinstaller_temp(log_queue: Optional[Any] = None, max_age_hours: int = 1) -> int:
+    """
+    Удаляет старые временные папки PyInstaller (_MEI*) из TEMP.
+    
+    Args:
+        log_queue: Очередь для логов (опционально)
+        max_age_hours: Максимальный возраст папок в часах (по умолчанию 1 час)
+        
+    Returns:
+        int: Количество удалённых папок
+    """
+    import os
+    import time
+    
+    try:
+        temp_dir = tempfile.gettempdir()
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        cleaned_count = 0
+        cleaned_size_mb = 0
+        
+        # ✅ Получаем путь к папке ТЕКУЩЕГО процесса (если сборщик запущен через PyInstaller)
+        current_mei_folder = getattr(sys, '_MEIPASS', None)
+        
+        # Находим все папки _MEI*
+        for entry in os.scandir(temp_dir):
+            if entry.is_dir() and entry.name.startswith('_MEI'):
+                try:
+                    # ✅ НЕ УДАЛЯЕМ папку текущего процесса!
+                    if current_mei_folder:
+                        try:
+                            if os.path.samefile(entry.path, current_mei_folder):
+                                continue
+                        except:
+                            pass
+                    
+                    # Проверяем возраст папки
+                    folder_age = current_time - entry.stat().st_mtime
+                    
+                    if folder_age > max_age_seconds:
+                        # Считаем размер перед удалением
+                        folder_size = 0
+                        try:
+                            for root, dirs, files in os.walk(entry.path):
+                                for f in files:
+                                    try:
+                                        folder_size += os.path.getsize(os.path.join(root, f))
+                                    except:
+                                        pass
+                        except:
+                            pass
+                        
+                        # Удаляем папку
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                        
+                        if not os.path.exists(entry.path):
+                            cleaned_count += 1
+                            cleaned_size_mb += folder_size / (1024 * 1024)
+                            
+                except (PermissionError, OSError):
+                    # Папка занята другим процессом - пропускаем
+                    pass
+                except Exception:
+                    pass
+        
+        if cleaned_count > 0 and log_queue:
+            log_queue.put(f"🧹 Очищено {cleaned_count} старых _MEI* папок ({cleaned_size_mb:.1f} MB)")
+            
+        return cleaned_count
+        
+    except Exception as e:
+        if log_queue:
+            log_queue.put(f"⚠️ Ошибка очистки temp папок: {e}")
+        return 0
 
 
 def check_pyinstaller_available() -> bool:
@@ -247,6 +599,96 @@ def check_pyinstaller_available() -> bool:
         import PyInstaller
         return True
     except ImportError:
+        return False
+
+
+def sign_exe_if_available(exe_path: Path, log_queue: Optional[Any] = None) -> bool:
+    """
+    Подписывает exe файл цифровой подписью если доступен сертификат.
+    
+    Args:
+        exe_path: Путь к exe файлу
+        log_queue: Очередь для логов
+        
+    Returns:
+        bool: True если подпись выполнена успешно
+    """
+    import subprocess
+    import glob
+    
+    try:
+        # Ищем signtool.exe (Windows SDK)
+        signtool_patterns = [
+            r"C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe",
+            r"C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe",
+            r"C:\Program Files\Windows Kits\10\bin\*\x64\signtool.exe",
+        ]
+        
+        signtool = None
+        for pattern in signtool_patterns:
+            matches = glob.glob(pattern)
+            if matches:
+                # Берем самую новую версию
+                signtool = sorted(matches, reverse=True)[0]
+                break
+        
+        if not signtool:
+            if log_queue:
+                log_queue.put("⚠️ signtool.exe не найден (Windows SDK не установлен)")
+                log_queue.put("   Скачайте: https://developer.microsoft.com/windows/downloads/windows-sdk/")
+            return False
+        
+        # ✅ Загружаем thumbprint из конфига (если есть)
+        cert_thumbprint = None
+        try:
+            config_file = Path(__file__).parent / "certificate_config.py"
+            if config_file.exists():
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("cert_config", config_file)
+                cert_config = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(cert_config)
+                cert_thumbprint = cert_config.CERTIFICATE_THUMBPRINT
+        except Exception:
+            pass
+        
+        if not cert_thumbprint:
+            if log_queue:
+                log_queue.put("ℹ️ Сертификат не настроен")
+                log_queue.put("   Создайте: python build_zapret/create_certificate.py")
+            return False
+        
+        if log_queue:
+            log_queue.put(f"🔐 Подпись exe файла...")
+            log_queue.put(f"   Сертификат: {cert_thumbprint[:16]}...")
+        
+        # Подписываем файл
+        cmd = [
+            signtool, "sign",
+            "/sha1", cert_thumbprint,
+            "/fd", "sha256",
+            "/tr", "http://timestamp.digicert.com",
+            "/td", "sha256",
+            "/v",
+            str(exe_path)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            if log_queue:
+                log_queue.put(f"✅ Файл успешно подписан цифровой подписью")
+            return True
+        else:
+            if log_queue:
+                log_queue.put(f"⚠️ Ошибка подписи:")
+                for line in result.stderr.strip().split('\n'):
+                    if line.strip():
+                        log_queue.put(f"   {line}")
+            return False
+            
+    except Exception as e:
+        if log_queue:
+            log_queue.put(f"⚠️ Ошибка при подписи exe: {e}")
         return False
 
 

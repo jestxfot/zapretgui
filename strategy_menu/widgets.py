@@ -1,151 +1,198 @@
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel, 
+from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel,
                             QRadioButton, QWidget, QListWidgetItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QBrush
 
-from .constants import LABEL_TEXTS, LABEL_COLORS
+from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
+
+# Константы стилей - оптимизированы для минимизации setStyleSheet вызовов
+_STYLE_SELECTED = """
+    CompactStrategyItem {
+        background: rgba(96, 205, 255, 0.15);
+        border: 1px solid rgba(96, 205, 255, 0.5);
+        border-radius: 4px;
+    }
+"""
+_STYLE_NORMAL = """
+    CompactStrategyItem {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+    }
+    CompactStrategyItem:hover {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+"""
+
+# Стили для рейтинга стратегий (рабочая/нерабочая)
+_STYLE_RATING_WORKING = """
+    CompactStrategyItem {
+        background: rgba(74, 222, 128, 0.15);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+        border-radius: 4px;
+    }
+    CompactStrategyItem:hover {
+        background: rgba(74, 222, 128, 0.2);
+        border-color: rgba(74, 222, 128, 0.5);
+    }
+"""
+_STYLE_RATING_BROKEN = """
+    CompactStrategyItem {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.3);
+        border-radius: 4px;
+    }
+    CompactStrategyItem:hover {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: rgba(248, 113, 113, 0.5);
+    }
+"""
+
+# Константы стилей для текста (используются как есть, без пересоздания строк)
+_STYLE_NAME = "color: rgba(255, 255, 255, 0.9); font-size: 11px; font-weight: 500;"
+_STYLE_DESC = "color: rgba(255, 255, 255, 0.4); font-size: 10px;"
+
+# Кэш стилей для меток (оптимизация - избегаем создания строк)
+_LABEL_STYLE_CACHE = {}
+
+
+def _get_label_style(color: str) -> str:
+    """Получает кэшированный стиль для метки"""
+    if color not in _LABEL_STYLE_CACHE:
+        _LABEL_STYLE_CACHE[color] = f"background:{color};color:#fff;font-size:9px;font-weight:600;padding:3px 8px;border-radius:4px;"
+    return _LABEL_STYLE_CACHE[color]
 
 
 class CompactStrategyItem(QFrame):
-    """Компактный виджет для отображения стратегии"""
-    
-    clicked = pyqtSignal(str)  # Сигнал при клике
-    
+    """Компактный виджет стратегии - без кружка, только подсветка"""
+
+    clicked = pyqtSignal(str)
+
+    # Статические стили для дочерних элементов (не требуют setStyleSheet)
+    _name_style_applied = False
+    _desc_style_applied = False
+
     def __init__(self, strategy_id, strategy_data, parent=None):
         super().__init__(parent)
         self.strategy_id = strategy_id
         self.strategy_data = strategy_data
         self.is_selected = False
-        
-        # Включаем контекстное меню
+        self._current_style = None  # Кэш текущего стиля
+
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        
-        self.setFrameStyle(QFrame.Shape.Box)
-        self.setStyleSheet("""
-            CompactStrategyItem {
-                border: 1px solid #444;
-                border-radius: 4px;
-                padding: 0px;
-                margin: 1px;
-            }
-            CompactStrategyItem:hover {
-                background: #3a3a3a;
-                border: 1px solid #555;
-            }
-        """)
-        
-        self.init_ui()
-        
-        # Устанавливаем простой tooltip
-        self._setup_simple_tooltip()
-        
-    def _setup_simple_tooltip(self):
-        """Устанавливает простой tooltip с базовой информацией"""
-        tooltip_parts = []
-        
-        # Название
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._apply_style(False)
+        self._init_ui()
+        self._setup_tooltip()
+
+    def _get_rating_style(self):
+        """Возвращает стиль на основе рейтинга стратегии"""
+        from strategy_menu import get_strategy_rating
+        # Для CompactStrategyItem category_key не доступен, используем legacy формат
+        rating = get_strategy_rating(self.strategy_id, category_key=None)
+        if rating == 'working':
+            return _STYLE_RATING_WORKING
+        elif rating == 'broken':
+            return _STYLE_RATING_BROKEN
+        return None
+
+    def _apply_style(self, selected):
+        """Применяет стиль (с кэшированием для избежания лишних вызовов)"""
+        if selected:
+            new_style = _STYLE_SELECTED
+        else:
+            # Проверяем рейтинг стратегии
+            rating_style = self._get_rating_style()
+            new_style = rating_style if rating_style else _STYLE_NORMAL
+        if self._current_style != new_style:
+            self._current_style = new_style
+            self.setStyleSheet(new_style)
+
+    def _setup_tooltip(self):
+        """Tooltip"""
         name = self.strategy_data.get('name', self.strategy_id)
-        tooltip_parts.append(f"<b>{name}</b>")
-        
-        # Описание
-        desc = self.strategy_data.get('description', '')
-        if desc and len(desc) > 100:
-            desc = desc[:100] + "..."
-        if desc:
-            tooltip_parts.append(desc)
-        
-        # Подсказка
-        tooltip_parts.append("<br><i>ПКМ - показать полные аргументы</i>")
-        
-        self.setToolTip("<br>".join(tooltip_parts))
-    
-    def init_ui(self):
-        """Инициализация интерфейса виджета"""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.setSpacing(6)
-        
-        # Сохраняем ссылку на layout для FavoriteCompactStrategyItem
-        self.main_layout = layout
-        
-        # Радиокнопка
+        tip = f"<b>{name}</b><br><i style='color:#888'>ПКМ - показать аргументы</i>"
+        self.setToolTip(tip)
+
+    def _init_ui(self):
+        """UI - компактный без кружка"""
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 4, 10, 4)
+        main_layout.setSpacing(6)
+        self.main_layout = main_layout
+
+        # Скрытая радиокнопка для QButtonGroup
         self.radio = QRadioButton()
-        self.radio.toggled.connect(self.on_radio_toggled)
-        layout.addWidget(self.radio)
-        
-        # Контейнер для текста
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(0)
-        
-        # Название стратегии
-        name_label = QLabel(self.strategy_data.get('name', self.strategy_id))
-        name_label.setStyleSheet("font-weight: bold; font-size: 9pt;")
-        text_layout.addWidget(name_label)
-        
-        # Полное описание без обрезки
-        desc_text = self.strategy_data.get('description', '')
-        if desc_text:
-            desc_label = QLabel(desc_text)
-            desc_label.setWordWrap(True)
-            desc_label.setStyleSheet("color: #888; font-size: 8pt;")
-            desc_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            text_layout.addWidget(desc_label)
-        
-        layout.addLayout(text_layout, 1)
-        
+        self.radio.hide()
+        self.radio.toggled.connect(self._on_toggled)
+
+        # Контейнер для текста (вертикальный)
+        text_container = QVBoxLayout()
+        text_container.setContentsMargins(0, 0, 0, 0)
+        text_container.setSpacing(0)
+
+        # Верхняя строка: название + метка
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(6)
+
+        name = self.strategy_data.get('name', self.strategy_id)
+        self.name_label = QLabel(name)
+        self.name_label.setStyleSheet(_STYLE_NAME)
+        top_row.addWidget(self.name_label)
+
         # Метка (если есть)
         label = self.strategy_data.get('label')
         if label and label in LABEL_TEXTS:
-            label_widget = QLabel(LABEL_TEXTS[label])
-            label_widget.setStyleSheet(
-                f"color: {LABEL_COLORS[label]}; font-weight: bold; font-size: 8pt; "
-                f"padding: 2px 6px; border: 1px solid {LABEL_COLORS[label]}; "
-                f"border-radius: 3px;"
-            )
-            layout.addWidget(label_widget, 0)
+            tag = QLabel(LABEL_TEXTS[label])
+            color = LABEL_COLORS[label]
+            tag.setStyleSheet(_get_label_style(color))
+            top_row.addWidget(tag)
+
+        top_row.addStretch()
+        text_container.addLayout(top_row)
+
+        # Нижняя строка: описание
+        desc = self.strategy_data.get('description', '')
+        if desc:
+            self.desc_label = QLabel(desc)
+            self.desc_label.setWordWrap(True)
+            self.desc_label.setStyleSheet(_STYLE_DESC)
+            text_container.addWidget(self.desc_label)
+
+        main_layout.addLayout(text_container, 1)
     
     def mousePressEvent(self, event):
-        """Обработчик клика мыши"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.radio.setChecked(True)
-        elif event.button() == Qt.MouseButton.RightButton:
-            # Показываем окно предпросмотра по правой кнопке
-            from .args_preview_dialog import preview_manager
-            preview_manager.show_preview(self, self.strategy_id, self.strategy_data)
         super().mousePressEvent(event)
     
-    def on_radio_toggled(self, checked):
-        """Обработчик переключения радиокнопки"""
+    def _show_context_menu(self, pos):
+        """Показывает окно информации о стратегии по ПКМ"""
+        from .args_preview_dialog import preview_manager
+        # Для CompactStrategyItem нет category_key, передаем None
+        preview_manager.show_preview(self, self.strategy_id, self.strategy_data, category_key=None)
+    
+    def _on_toggled(self, checked):
+        self.is_selected = checked
+        self._apply_style(checked)
         if checked:
-            self.is_selected = True
-            self.setStyleSheet("""
-                CompactStrategyItem {
-                    border: 2px solid #2196F3;
-                    border-radius: 4px;
-                    background: #2a2a3a;
-                    padding: 0px;
-                    margin: 1px;
-                }
-            """)
             self.clicked.emit(self.strategy_id)
-        else:
-            self.is_selected = False
-            self.setStyleSheet("""
-                CompactStrategyItem {
-                    border: 1px solid #444;
-                    border-radius: 4px;
-                    padding: 0px;
-                    margin: 1px;
-                }
-                CompactStrategyItem:hover {
-                    background: #3a3a3a;
-                    border: 1px solid #555;
-                }
-            """)
     
     def set_checked(self, checked):
-        """Устанавливает состояние радиокнопки"""
         self.radio.setChecked(checked)
+    
+    def refresh_rating(self):
+        """Обновляет стиль на основе рейтинга"""
+        self._current_style = None  # Сбрасываем кэш
+        self._apply_style(self.is_selected)
+
+    def _update_rating_style(self):
+        """Обновляет стиль рейтинга"""
+        self.refresh_rating()
 
 
 class ProviderHeaderItem(QListWidgetItem):

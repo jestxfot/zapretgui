@@ -1,152 +1,598 @@
-PROXY_DOMAINS = {
-    "www.aomeitech.com": "0.0.0.0",
-    "facebook.com": "31.13.72.36",
-    "www.facebook.com": "31.13.72.36",
-    "static.xx.fbcdn.net": "31.13.72.12",
-    "external-hel3-1.xx.fbcdn.net": "31.13.72.12",
-    "scontent-hel3-1.xx.fbcdn.net": "31.13.72.12",
-    "www.instagram.com": "157.240.225.174",
-    "instagram.com": "157.240.225.174",
-    "scontent.cdninstagram.com": "157.240.224.63", # 157.240.247.63
-    "scontent-hel3-1.cdninstagram.com": "157.240.224.63",  # 157.240.247.63
-    "static.cdninstagram.com": "31.13.72.53",
-    "b.i.instagram.com": "157.240.245.174",
-    "z-p42-chat-e2ee-ig.facebook.com": "157.240.245.174",
-    "protonmail.com": "3.66.189.153",
-    "mail.proton.me": "3.66.189.153",
-    "chatgpt.com": "134.0.118.88", # 84.21.191.240
-    "ab.chatgpt.com": "134.0.118.88",
-    "auth.openai.com": "134.0.118.88",
-    "auth0.openai.com": "134.0.118.88",
-    "platform.openai.com": "134.0.118.88",
-    "cdn.oaistatic.com": "134.0.118.88",
-    "files.oaiusercontent.com": "84.21.191.240",
-    "cdn.auth0.com": "134.0.118.88",
-    "tcr9i.chat.openai.com": "134.0.118.88",
-    "webrtc.chatgpt.com": "134.0.118.88",
-    "android.chat.openai.com": "134.0.118.88",
-    "api.openai.com": "134.0.118.88",
+from __future__ import annotations
 
-    "gemini.google.com": "134.0.118.88", # 84.21.191.240 138.201.204.218     89.108.98.20
-    #"aistudio.google.com": "84.21.191.240", # 89.108.98.20
-    #"generativelanguage.googleapis.com": "84.21.191.240",
-    "alkalimakersuite-pa.clients6.google.com": "84.21.191.240", # 84.21.191.240  89.108.98.20
-    #"aitestkitchen.withgoogle.com": "84.21.191.240",
-    "aisandbox-pa.googleapis.com": "84.21.191.240",
-    #"webchannel-alkalimakersuite-pa.clients6.google.com": "84.21.191.240", 
-    #"proactivebackend-pa.googleapis.com": "84.21.191.240",
-    "o.pki.goog": "84.21.191.240",
-    "labs.google": "84.21.191.240",
+import os
+import sys
+import configparser
+import threading
+from dataclasses import dataclass
+from pathlib import Path
 
-    "notebooklm.google": "89.108.98.20", # 84.21.191.240 89.108.98.20
-    "notebooklm.google.com": "89.108.98.20", # 84.21.191.240 89.108.98.20
+def _log(msg: str, level: str = "INFO") -> None:
+    """Отложенный импорт log (PyQt6) чтобы модуль можно было импортировать без GUI."""
+    try:
+        from log import log as _log_impl  # type: ignore
+        _log_impl(msg, level)
+    except Exception:
+        print(f"[{level}] {msg}")
 
-    "copilot.microsoft.com": "45.95.233.23",
-    "sydney.bing.com": "45.95.233.23",
-    "edgeservices.bing.com": "45.95.233.23",
-    "rewards.bing.com": "45.95.233.23",
-    "xsts.auth.xboxlive.com": "45.95.233.23",
 
-    "api.spotify.com": "84.21.191.240", # 84.21.191.240 89.108.98.20
-    "xpui.app.spotify.com": "84.21.191.240",
-    "appresolve.spotify.com": "84.21.191.240",
-    "login5.spotify.com": "84.21.191.240", # 84.21.191.240 35.186.224.24
-    "gew1-spclient.spotify.com": "84.21.191.240", # 84.21.191.240 35.186.224.26
-    "gew1-dealer.spotify.com": "84.21.191.240",
-    "spclient.wg.spotify.com": "84.21.191.240",
-    "api-partner.spotify.com": "84.21.191.240",
-    "aet.spotify.com": "84.21.191.240",
-    "www.spotify.com": "84.21.191.240", # 84.21.191.240
-    "accounts.spotify.com": "84.21.191.240", # 84.21.191.240
-    "spotifycdn.com": "84.21.191.240",
-    "open-exp.spotifycdn.com": "84.21.191.240", # 84.21.191.240
-    "www-growth.scdn.co": "84.21.191.240", # 188.43.72.83 84.21.191.240
-    "login.app.spotify.com": "84.21.191.240", 
-    "accounts.scdn.co": "84.21.191.240", # 84.21.191.240
-    "ap-gew1.spotify.com": "84.21.191.240", # 138.201.204.218
-    
-    "www.notion.so": "84.21.191.240", # 208.103.161.2 208.103.161.1 94.131.119.85, 84.21.191.240 158.255.0.188 84.21.191.240
-    "notion.so": "84.21.191.240", # 208.103.161.2 208.103.161.1 208.103.161.1 84.21.191.240
-    "calendar.notion.so" : "84.21.191.240", # 208.103.161.2 84.21.191.240
+@dataclass(frozen=True)
+class HostsCatalog:
+    dns_profiles: list[str]
+    services: dict[str, dict[str, list[str]]]
+    service_order: list[str]
 
-    "www.canva.com": "50.7.85.222",
-    "www.intel.com": "84.21.191.240",
-    "www.dell.com": "204.12.192.219",
-    "developer.nvidia.com": "204.12.192.220",
-    "codeium.com": "50.7.87.85",
-    "inference.codeium.com": "50.7.85.219",
 
-    "pixabay.com": "84.21.191.240",
-    "cdn.pixabay.com": "84.21.191.240",
-
-    "www.tiktok.com": "84.21.191.240",
-    "mcs-sg.tiktok.com": "84.21.191.240",
-    "mon.tiktokv.com": "84.21.191.240",
-
-    "api.individual.githubcopilot.com": "89.108.98.20",
-    "proxy.individual.githubcopilot.com": "89.108.98.20",
-    "datalore.jetbrains.com": "50.7.85.221",
-    "plugins.jetbrains.com": "107.150.34.100",
-    "elevenlabs.io": "84.21.191.240",
-    "api.us.elevenlabs.io": "84.21.191.240",
-    "elevenreader.io": "84.21.191.240",
-    "truthsocial.com": "204.12.192.221",
-    "static-assets-1.truthsocial.com": "204.12.192.221",
-    "grok.com": "185.250.151.49", # 50.7.85.221
-    "assets.grok.com": "185.250.151.49",
-    "accounts.x.ai": "185.250.151.49", # 50.7.87.85
-    "autodesk.com": "94.131.119.85",
-    "accounts.autodesk.com": "94.131.119.85",
-    "claude.ai": "84.21.191.240",
-    "threads.com": "157.240.224.63",
-    "www.threads.com": "157.240.224.63",
-    "www.netflix.com": "158.255.0.189",
-    "netflix.com": "158.255.0.189",
-    "www.hulu.com": "2.19.183.66",
-    "hulu.com": "2.22.31.233",
-    "soundcloud.com": "18.238.243.27",
-    "style.sndcdn.com": "13.224.222.71",
-    "a-v2.sndcdn.com": "3.164.206.34",
-    "secure.sndcdn.com": "18.165.140.56",
-    "anilib.me": "172.67.192.246",
-
-    "usher.ttvnw.net": "95.81.117.88", # 89.108.98.20  45.95.233.23 5.129.213.53
-    "gql.twitch.tv": "95.81.117.88", # 89.108.98.20  45.95.233.23 5.129.213.53
-
-    "ntc.party": "130.255.77.28",
-
-    "sora.com": "95.81.117.88",
-    "sora.chatgpt.com": "95.81.117.88", # 89.108.98.20
-    "videos.openai.com": "95.81.117.88",
-
-    "pump.fun": "84.21.191.240",
-    "frontend-api-v3.pump.fun": "84.21.191.240",
-    "images.pump.fun": "84.21.191.240",
-    "swap-api.pump.fun": "84.21.191.240",
-    "us.posthog.com": "134.0.118.88",
-    "www.elgato.com": "84.21.191.240",
-
-    "deepl.com": "45.95.233.23",
-    "www.deepl.com": "45.95.233.23",
-    "s.deepl.com": "45.95.233.23",
-    "ita-free.www.deepl.com": "45.95.233.23",
-    "experimentation.deepl.com": "45.95.233.23",
-    "w.deepl.com": "45.95.233.23",
-    "login-wall.deepl.com": "45.95.233.23",
-    "gtm.deepl.com": "45.95.233.23",
-    "checkout.www.deepl.com": "84.21.191.240",
-
-    "info.dns.malw.link": "104.21.24.110", # 172.67.218.88
-
-    "rutracker.org": "172.67.182.196", # 172.67.182.196 104.21.32.39
-    "static.rutracker.cc": "104.21.50.150",
-
-    "rutor.info": "172.64.33.155",
-    "d.rutor.info": "172.64.33.155",
-    "rutor.is": "173.245.59.155",
-    "rutor.org": "0.0.0.0",
-
-    "only-fans.uk": "0.0.0.0",
-    "only-fans.me": "0.0.0.0",
-    "only-fans.wtf": "0.0.0.0"
+_SPECIAL_SECTIONS = {
+    "dns",
+    # meta sections from older formats (must not be treated as services)
+    "static",
+    "profiles",
+    "selectedprofiles",
+    "selectedstatic",
 }
+
+_MISSING_IP_MARKERS = {
+    "-",
+    "—",
+    "none",
+    "null",
+    "off",
+    "disabled",
+    "откл",
+    "откл.",
+}
+
+_CACHE_LOCK = threading.RLock()
+_CACHE: HostsCatalog | None = None
+_CACHE_TEXT: str | None = None
+_CACHE_SIG: tuple[int, int] | None = None  # (mtime_ns, size)
+_CACHE_PATH: Path | None = None
+_MISSING_CATALOG_LOGGED: bool = False
+
+
+def _get_app_root() -> Path:
+    """
+    Возвращает корень приложения для поиска внешних файлов.
+
+    - В source-режиме: корень репозитория (рядом с папкой `hosts/`).
+    - В exe-сборке (PyInstaller frozen): папка, где лежит exe.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    # hosts/proxy_domains.py -> hosts/ -> project root
+    return Path(__file__).resolve().parent.parent
+
+
+def _get_catalog_hosts_ini_candidates() -> list[Path]:
+    """
+    Каталог доменов/профилей (без настроек пользователя).
+
+    Канонический путь: `<app_root>/json/hosts.ini`:
+    - source: `<repo>/json/hosts.ini`
+    - exe: `<exe_dir>/json/hosts.ini`
+    """
+    root = _get_app_root()
+
+    return [
+        root / "json" / "hosts.ini",
+    ]
+
+
+def _get_catalog_hosts_ini_path() -> Path:
+    candidates = _get_catalog_hosts_ini_candidates()
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
+
+
+def _get_user_hosts_ini_path() -> Path:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "zapret" / "user_hosts.ini"
+    return Path.home() / ".config" / "zapret" / "user_hosts.ini"
+
+
+def _parse_bool(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v in ("1", "true", "yes", "y", "on", "enabled", "enable")
+
+
+def get_hosts_catalog_ini_path() -> Path:
+    return _get_catalog_hosts_ini_path()
+
+
+def get_user_hosts_ini_path() -> Path:
+    return _get_user_hosts_ini_path()
+
+
+def _parse_hosts_ini(text: str) -> HostsCatalog:
+    dns_profiles: list[str] = []
+    services: dict[str, dict[str, list[str]]] = {}
+    service_order: list[str] = []
+
+    current_section: str | None = None
+    pending_domain: str | None = None
+    pending_ips: list[str] = []
+
+    def ensure_service(service_name: str) -> None:
+        if service_name not in services:
+            services[service_name] = {}
+            service_order.append(service_name)
+
+    def flush_domain() -> None:
+        nonlocal pending_domain, pending_ips
+        if not current_section:
+            pending_domain = None
+            pending_ips = []
+            return
+
+        sec = current_section.strip()
+        if not sec or sec.lower() in _SPECIAL_SECTIONS:
+            pending_domain = None
+            pending_ips = []
+            return
+
+        if pending_domain:
+            ensure_service(sec)
+            services[sec][pending_domain] = list(pending_ips)
+        pending_domain = None
+        pending_ips = []
+
+    def flush_section() -> None:
+        flush_domain()
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+
+        # Comments / empty
+        if not line or line.startswith("#"):
+            # Empty line ends current domain block in service sections.
+            if current_section and current_section.strip().lower() not in _SPECIAL_SECTIONS:
+                flush_domain()
+            continue
+
+        # Section header
+        if line.startswith("[") and line.endswith("]"):
+            flush_section()
+            current_section = line[1:-1].strip()
+            continue
+
+        if not current_section:
+            continue
+
+        sec_norm = current_section.strip().lower()
+        if sec_norm == "dns":
+            dns_profiles.append(line)
+            continue
+
+        # Service section: support both catalog format and raw hosts lines.
+        #
+        # 1) Catalog format:
+        #    domain.tld
+        #    ip_for_profile_0
+        #    ip_for_profile_1
+        #    ...
+        #
+        # 2) Raw hosts lines:
+        #    1.2.3.4 domain.tld
+        #
+        # Raw hosts lines are treated as direct-only entries (IP only in the "direct" profile column).
+        parts = line.split()
+        if len(parts) >= 2:
+            ip_candidate = parts[0].strip()
+            host_candidate = parts[1].strip()
+            if (
+                ip_candidate.count(".") == 3
+                and all(p.isdigit() for p in ip_candidate.split("."))
+                and host_candidate
+            ):
+                # We are switching mode: raw hosts lines don't belong to the pending domain block.
+                flush_domain()
+
+                # Strict direct-only support: we only place the IP into the explicit "direct" profile column.
+                direct_idx: int | None = None
+                for i, profile_name in enumerate(dns_profiles):
+                    if _is_direct_profile_name(profile_name):
+                        direct_idx = i
+                        break
+
+                ips = [""] * len(dns_profiles)
+                if direct_idx is not None and direct_idx < len(ips):
+                    ips[direct_idx] = ip_candidate
+
+                # Store raw-host entries under their section, so UI can toggle a whole group.
+                sec = current_section.strip()
+                if sec and sec.lower() not in _SPECIAL_SECTIONS:
+                    ensure_service(sec)
+                    services[sec][host_candidate] = ips
+                continue
+
+        # Service section: domain line then N IP lines
+        if pending_domain is None:
+            pending_domain = line
+            pending_ips = []
+        else:
+            ip_value = line
+            if ip_value.strip().lower() in _MISSING_IP_MARKERS:
+                ip_value = ""
+            pending_ips.append(ip_value)
+
+    flush_section()
+
+    return HostsCatalog(
+        dns_profiles=dns_profiles,
+        services=services,
+        service_order=service_order,
+    )
+
+
+def _get_path_sig(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+        mtime_ns = getattr(st, "st_mtime_ns", None)
+        if mtime_ns is None:
+            mtime_ns = int(st.st_mtime * 1_000_000_000)
+        return (int(mtime_ns), int(st.st_size))
+    except Exception:
+        return None
+
+
+def _select_catalog_path() -> tuple[Path, list[Path], bool]:
+    candidates = _get_catalog_hosts_ini_candidates()
+    existing = [p for p in candidates if p.exists()]
+    if existing:
+        return (existing[0], candidates, True)
+    return (candidates[0], candidates, False)
+
+
+def _load_catalog() -> HostsCatalog:
+    global _CACHE, _CACHE_TEXT, _CACHE_SIG, _CACHE_PATH, _MISSING_CATALOG_LOGGED
+
+    with _CACHE_LOCK:
+        path, candidates, exists = _select_catalog_path()
+
+        if not exists:
+            if not _MISSING_CATALOG_LOGGED:
+                _log(
+                    "hosts.ini не найден. Ожидается внешний файл по одному из путей: "
+                    + " | ".join(str(p) for p in candidates),
+                    "WARNING",
+                )
+                _MISSING_CATALOG_LOGGED = True
+        else:
+            _MISSING_CATALOG_LOGGED = False
+
+        sig = _get_path_sig(path) if path.exists() else None
+        if (
+            _CACHE is not None
+            and _CACHE_PATH is not None
+            and _CACHE_SIG is not None
+            and sig is not None
+            and _CACHE_PATH == path
+            and _CACHE_SIG == sig
+        ):
+            return _CACHE
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        except Exception as e:
+            _log(f"Не удалось прочитать hosts.ini: {e}", "WARNING")
+            text = ""
+
+        _CACHE_TEXT = text
+        _CACHE = _parse_hosts_ini(text)
+        _CACHE_SIG = sig
+        _CACHE_PATH = path
+        return _CACHE
+
+
+def invalidate_hosts_catalog_cache() -> None:
+    global _CACHE, _CACHE_TEXT, _CACHE_SIG, _CACHE_PATH
+    with _CACHE_LOCK:
+        _CACHE = None
+        _CACHE_TEXT = None
+        _CACHE_SIG = None
+        _CACHE_PATH = None
+
+
+def get_hosts_catalog_signature() -> tuple[str, int, int] | None:
+    """
+    Возвращает сигнатуру текущего каталога hosts.ini: (path, mtime_ns, size).
+    None если файл отсутствует/не читается.
+    """
+    path, _candidates, _exists = _select_catalog_path()
+    if not path.exists():
+        return None
+    sig = _get_path_sig(path)
+    if sig is None:
+        return None
+    mtime_ns, size = sig
+    return (str(path), mtime_ns, size)
+
+
+def get_hosts_catalog_text() -> str:
+    """Возвращает сырой текст каталога hosts.ini (с учётом кэша/инвалидции)."""
+    _load_catalog()
+    with _CACHE_LOCK:
+        return _CACHE_TEXT or ""
+
+
+def get_dns_profiles() -> list[str]:
+    return list(_load_catalog().dns_profiles)
+
+
+def get_all_services() -> list[str]:
+    return list(_load_catalog().service_order)
+
+def get_service_domain_names(service_name: str) -> list[str]:
+    """Возвращает список доменов сервиса (без привязки к профилю)."""
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    return list(domains.keys())
+
+
+def get_service_domains(service_name: str) -> dict[str, str]:
+    """Домены сервиса (IP по умолчанию = профиль 0)."""
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    out: dict[str, str] = {}
+    for domain, ips in domains.items():
+        if ips and ips[0]:
+            out[domain] = ips[0]
+    return out
+
+
+def get_service_available_dns_profiles(service_name: str) -> list[str]:
+    """
+    Возвращает список DNS-профилей, доступных для сервиса.
+
+    Профиль доступен если ДЛЯ КАЖДОГО домена сервиса есть IP на этом индексе.
+    """
+    cat = _load_catalog()
+    domains = cat.services.get(service_name, {}) or {}
+    if not domains:
+        return []
+
+    available: list[str] = []
+    for profile_index, profile_name in enumerate(cat.dns_profiles):
+        ok = True
+        for ips in domains.values():
+            if not ips or profile_index >= len(ips) or not ips[profile_index]:
+                ok = False
+                break
+        if ok:
+            available.append(profile_name)
+    return available
+
+
+def _is_direct_profile_name(profile_name: str) -> bool:
+    name = (profile_name or "").strip().lower()
+    if not name:
+        return False
+    return (
+        "вкл. (активировать hosts)" in name
+        or "no proxy" in name
+        or "direct" in name
+    )
+
+
+def _infer_direct_profile_index(cat: HostsCatalog) -> int | None:
+    # First try: by name (stable for user renames of other profiles).
+    for i, profile_name in enumerate(cat.dns_profiles):
+        if _is_direct_profile_name(profile_name):
+            return i
+
+    # Fallback: choose profile column with the most distinct IPs across the whole catalog.
+    if not cat.dns_profiles:
+        return None
+
+    distinct: list[set[str]] = [set() for _ in cat.dns_profiles]
+    for domains in (cat.services or {}).values():
+        for ips in (domains or {}).values():
+            for idx, ip in enumerate((ips or [])[: len(distinct)]):
+                ip = (ip or "").strip()
+                if ip:
+                    distinct[idx].add(ip)
+
+    best_idx = 0
+    best_count = -1
+    for idx, values in enumerate(distinct):
+        if len(values) > best_count:
+            best_count = len(values)
+            best_idx = idx
+    return best_idx
+
+
+def _get_proxy_profile_indices(cat: HostsCatalog) -> list[int]:
+    direct_idx = _infer_direct_profile_index(cat)
+    if direct_idx is None:
+        return list(range(len(cat.dns_profiles)))
+    return [i for i in range(len(cat.dns_profiles)) if i != direct_idx]
+
+
+def _service_has_proxy_ips(cat: HostsCatalog, service_name: str) -> bool:
+    """
+    True если у сервиса есть ХОТЯ БЫ ОДИН домен с IP в proxy/hide колонках.
+
+    Proxy/hide колонки определяются автоматически (все профили кроме "direct"/"Вкл. (активировать hosts)").
+    """
+    domains = cat.services.get(service_name, {}) or {}
+    if not domains:
+        return False
+
+    direct_idx = _infer_direct_profile_index(cat)
+    proxy_indices = [i for i in range(len(cat.dns_profiles)) if direct_idx is None or i != direct_idx]
+    if not proxy_indices:
+        return False
+
+    for ips in domains.values():
+        direct_ip = ""
+        if direct_idx is not None and ips and direct_idx < len(ips):
+            direct_ip = (ips[direct_idx] or "").strip()
+        for idx in proxy_indices:
+            if not ips or idx >= len(ips):
+                continue
+            ip = (ips[idx] or "").strip()
+            if not ip:
+                continue
+            # Do not treat copies of the "direct" column as proxy/hide IPs.
+            if direct_ip and ip == direct_ip:
+                continue
+            return True
+    return False
+
+
+def get_service_has_geohide_ips(service_name: str) -> bool:
+    """
+    Back-compat API for UI: returns True if service has proxy/hide IPs.
+
+    Note: historically this was tied to GeoHide DNS naming, but now detection is name-agnostic
+    to support user-renamed DNS profile titles.
+    """
+    return _service_has_proxy_ips(_load_catalog(), service_name)
+
+
+def get_service_domain_ip_map(service_name: str, profile_name: str) -> dict[str, str]:
+    """Возвращает {domain: ip} для сервиса под выбранный профиль, или {} если профиль неполный."""
+    cat = _load_catalog()
+    if profile_name not in cat.dns_profiles:
+        return {}
+    profile_index = cat.dns_profiles.index(profile_name)
+
+    domains = cat.services.get(service_name, {}) or {}
+    out: dict[str, str] = {}
+    for domain, ips in domains.items():
+        if not ips or profile_index >= len(ips) or not ips[profile_index]:
+            return {}
+        out[domain] = ips[profile_index]
+    return out
+
+
+def load_user_hosts_selection() -> dict[str, str]:
+    """
+    Возвращает выбор пользователя: {service_name: profile_name}.
+
+    Хранится отдельно от каталога доменов в `%APPDATA%/zapret/user_hosts.ini`.
+    """
+    user_path = get_user_hosts_ini_path()
+    path = user_path
+    migrate_to_new_path = False
+
+    if not user_path.exists():
+        # Back-compat: earlier builds could store the selection in `%APPDATA%/zapret/hosts.ini`.
+        legacy_path = user_path.with_name("hosts.ini")
+        if legacy_path.exists():
+            try:
+                with legacy_path.open("r", encoding="utf-8", errors="replace") as f:
+                    sample = f.read(64 * 1024).lower()
+                if "[profiles]" in sample or "[selectedprofiles]" in sample:
+                    path = legacy_path
+                    migrate_to_new_path = True
+            except Exception:
+                pass
+
+    if not path.exists():
+        return {}
+
+    parser = configparser.ConfigParser(strict=False)
+    parser.optionxform = str
+    try:
+        parser.read(path, encoding="utf-8")
+    except Exception as e:
+        _log(f"Не удалось прочитать user_hosts.ini: {e}", "WARNING")
+        return {}
+
+    section = None
+    if parser.has_section("profiles"):
+        section = "profiles"
+    elif parser.has_section("SelectedProfiles"):
+        # compatibility
+        section = "SelectedProfiles"
+
+    if not section:
+        return {}
+
+    out: dict[str, str] = {}
+    for service_name, profile_name in parser.items(section):
+        service_name = (service_name or "").strip()
+        profile_name = (profile_name or "").strip()
+        if service_name and profile_name:
+            out[service_name] = profile_name
+
+    if migrate_to_new_path and out:
+        save_user_hosts_selection(out)
+    return out
+
+
+def save_user_hosts_selection(selected_profiles: dict[str, str]) -> bool:
+    """Сохраняет выбор пользователя в `%APPDATA%/zapret/user_hosts.ini`."""
+    path = get_user_hosts_ini_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        parser = configparser.ConfigParser()
+        parser.optionxform = str
+        parser["profiles"] = {}
+
+        for service_name in sorted((selected_profiles or {}).keys(), key=lambda s: s.lower()):
+            profile_name = (selected_profiles.get(service_name) or "").strip()
+            service_name = (service_name or "").strip()
+            if service_name and profile_name:
+                parser["profiles"][service_name] = profile_name
+
+        with path.open("w", encoding="utf-8") as f:
+            f.write("# Zapret GUI: hosts selection\n")
+            parser.write(f)
+        return True
+    except Exception as e:
+        _log(f"Не удалось сохранить user_hosts.ini: {e}", "WARNING")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# UI hints (иконки/цвета) — без доменов и IP
+# Формат: (иконка_qtawesome, название, цвет_иконки)
+# ═══════════════════════════════════════════════════════════════
+
+QUICK_SERVICES = [
+    # AI сервисы
+    ("fa5b.discord", "Discord TCP", "#5865f2"),
+    ("fa5b.youtube", "YouTube TCP", "#ff0000"),
+    ("fa5b.github", "GitHub TCP", "#181717"),
+    ("fa5b.discord", "Discord Voice", "#5865f2"),
+    ("mdi.robot", "ChatGPT", "#10a37f"),
+    ("mdi.google", "Gemini", "#4285f4"),
+    ("mdi.google", "Gemini AI", "#4285f4"),
+    ("fa5s.brain", "Claude", "#cc9b7a"),
+    ("fa5b.microsoft", "Copilot", "#00bcf2"),
+    ("fa5b.twitter", "Grok", "#1da1f2"),
+    ("fa5s.robot", "Manus", "#7c3aed"),
+    # Соцсети
+    ("fa5b.instagram", "Instagram", "#e4405f"),
+    ("fa5b.facebook-f", "Facebook", "#1877f2"),
+    ("mdi.at", "Threads", "#ffffff"),
+    ("fa5b.tiktok", "TikTok", "#ff0050"),
+    # Медиа и развлечения
+    ("fa5b.spotify", "Spotify", "#1db954"),
+    ("fa5s.film", "Netflix", "#e50914"),
+    ("fa5b.twitch", "Twitch", "#9146ff"),
+    ("fa5b.soundcloud", "SoundCloud", "#ff5500"),
+    # Продуктивность
+    ("fa5s.sticky-note", "Notion", "#ffffff"),
+    ("fa5s.language", "DeepL", "#0f2b46"),
+    ("fa5s.palette", "Canva", "#00c4cc"),
+    ("fa5s.envelope", "ProtonMail", "#6d4aff"),
+    # Разработка
+    ("fa5s.microphone-alt", "ElevenLabs", "#ffffff"),
+    ("fa5b.github", "GitHub Copilot", "#ffffff"),
+    ("fa5s.code", "JetBrains", "#fe315d"),
+    ("fa5s.bolt", "Codeium", "#09b6a2"),
+    # Торренты
+    ("fa5s.magnet", "RuTracker", "#3498db"),
+    ("fa5s.magnet", "Rutor", "#e74c3c"),
+    # Другое
+    ("fa5s.images", "Pixabay", "#00ab6c"),
+    ("fa5s.box-open", "Другое", "#6c757d"),
+]

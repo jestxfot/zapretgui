@@ -1,0 +1,65 @@
+name: build-zapret-onedir-nuitka
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: stable or test
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - test
+      version:
+        description: App version (e.g. 20.3.8.21)
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read build info (push builds)
+        if: ${{ github.event_name == 'push' }}
+        id: buildinfo
+        shell: pwsh
+        run: |
+          python -c "from config.build_info import CHANNEL, APP_VERSION; print(f'channel={CHANNEL}'); print(f'version={APP_VERSION}')" >> $env:GITHUB_OUTPUT
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Build (Nuitka onedir)
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $channel = "${{ steps.buildinfo.outputs.channel }}"
+            $version = "${{ steps.buildinfo.outputs.version }}"
+          } else {
+            $channel = "${{ inputs.channel }}"
+            $version = "${{ inputs.version }}"
+          }
+
+          if ($channel -eq "test") { $artifact = "zapret_TEST_onedir" } else { $artifact = "zapret_onedir" }
+          "ARTIFACT_NAME=$artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_PATH=artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          python -m build_zapret.ci_build --channel $channel --version $version --out artifact
+
+      - name: Upload onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_PATH }}

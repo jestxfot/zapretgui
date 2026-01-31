@@ -10,6 +10,7 @@ from typing import List, Tuple, Optional, Dict
 import socket
 
 from log import log
+from config import REGISTRY_PATH
 from .dns_core import DNSManager, DEFAULT_EXCLUSIONS, _normalize_alias
 
 # ──────────────────────────────────────────────────────────────────────
@@ -19,14 +20,13 @@ from .dns_core import DNSManager, DEFAULT_EXCLUSIONS, _normalize_alias
 class DNSForceManager:
     """Менеджер принудительной установки DNS"""
     
-    REGISTRY_PATH = r"Software\ZapretReg2"
     FORCE_DNS_KEY = "ForceDNS"
     
     # DNS серверы
-    DNS_PRIMARY = "185.222.222.222"
-    DNS_SECONDARY = "208.67.222.222"
-    DNS_PRIMARY_V6 = "2a09::"
-    DNS_SECONDARY_V6 = "2620:119:35::35"
+    DNS_PRIMARY = "8.8.8.8"
+    DNS_SECONDARY = "8.8.4.4"
+    DNS_PRIMARY_V6 = "2001:4860:4860::8888"
+    DNS_SECONDARY_V6 = "2001:4860:4860::8844"
     
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
@@ -66,7 +66,7 @@ class DNSForceManager:
     def is_force_dns_enabled(self) -> bool:
         """Проверяет, включен ли принудительный DNS"""
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
                 value, _ = winreg.QueryValueEx(key, self.FORCE_DNS_KEY)
                 return bool(value)
         except:
@@ -75,7 +75,7 @@ class DNSForceManager:
     def set_force_dns_enabled(self, enabled: bool):
         """Устанавливает состояние принудительного DNS"""
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
                 winreg.SetValueEx(key, self.FORCE_DNS_KEY, 0, winreg.REG_DWORD, int(enabled))
             log(f"ForceDNS = {enabled}", "DNS")
         except Exception as e:
@@ -98,19 +98,18 @@ class DNSForceManager:
     def get_network_adapters(
         self,
         include_disconnected: bool = False,
-        apply_exclusions: bool = True,
+        apply_exclusions: bool = False,
         use_cache: bool = True
     ) -> List[str]:
-        """Получает список подходящих адаптеров"""
+        """Получает список подходящих адаптеров (без VPN/виртуальных)"""
         pairs = self.dns_manager.get_network_adapters_fast(
-            include_ignored=False,
+            include_ignored=False,  # Исключает VPN, виртуальные адаптеры и т.д.
             include_disconnected=include_disconnected
         )
         
         adapters = []
         for name, desc in pairs:
-            if apply_exclusions and self.is_adapter_excluded(name):
-                continue
+            # apply_exclusions больше не применяется - используем только include_ignored
             adapters.append(name)
         
         return adapters
@@ -237,63 +236,6 @@ class DNSForceManager:
         
         return all_adapters
     
-    def backup_current_dns(self) -> Dict:
-        """Создает резервную копию DNS"""
-        backup = {}
-        adapters = self.get_network_adapters()
-        
-        for adapter in adapters:
-            backup[adapter] = {
-                'ipv4': self.get_dns_for_adapter(adapter, 'ipv4'),
-                'ipv6': self.get_dns_for_adapter(adapter, 'ipv6') if self.ipv6_available else []
-            }
-        
-        # Сохраняем в реестр
-        try:
-            import json
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
-                winreg.SetValueEx(key, "DNSBackup", 0, winreg.REG_SZ, json.dumps(backup))
-        except Exception as e:
-            log(f"Error saving DNS backup: {e}", "ERROR")
-        
-        return backup
-    
-    def restore_dns_from_backup(self) -> bool:
-        """Восстанавливает DNS из резервной копии"""
-        try:
-            import json
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.REGISTRY_PATH) as key:
-                backup_json, _ = winreg.QueryValueEx(key, "DNSBackup")
-                backup = json.loads(backup_json)
-            
-            for adapter, dns_data in backup.items():
-                # IPv4
-                ipv4_servers = dns_data.get('ipv4', [])
-                if ipv4_servers:
-                    self.set_dns_for_adapter(
-                        adapter,
-                        ipv4_servers[0],
-                        ipv4_servers[1] if len(ipv4_servers) > 1 else None,
-                        'ipv4'
-                    )
-                
-                # IPv6
-                if self.ipv6_available:
-                    ipv6_servers = dns_data.get('ipv6', [])
-                    if ipv6_servers:
-                        self.set_dns_for_adapter(
-                            adapter,
-                            ipv6_servers[0],
-                            ipv6_servers[1] if len(ipv6_servers) > 1 else None,
-                            'ipv6'
-                        )
-            
-            return True
-            
-        except Exception as e:
-            log(f"Error restoring DNS: {e}", "ERROR")
-            return False
-
     def enable_force_dns(self, include_disconnected: bool = True) -> Tuple[bool, int, int, str]:
         """
         Включает принудительный DNS
@@ -302,10 +244,6 @@ class DNSForceManager:
             Tuple[bool, int, int, str]: (успех, количество_успешных, всего_адаптеров, сообщение)
         """
         try:
-            # Создаём резервную копию
-            log("Создание резервной копии DNS...", "DNS")
-            self.backup_current_dns()
-            
             # Включаем опцию в реестре
             self.set_force_dns_enabled(True)
             
@@ -339,35 +277,20 @@ class DNSForceManager:
             self.set_force_dns_enabled(False)
             return (False, 0, 0, str(e))
     
-    def disable_force_dns(self, restore_from_backup: bool = True) -> Tuple[bool, str]:
+    def disable_force_dns(self) -> Tuple[bool, str]:
         """
-        Отключает принудительный DNS
-        
-        Args:
-            restore_from_backup: True - восстановить из бэкапа, False - переключить на авто
-            
+        Отключает принудительный DNS и сбрасывает на автоматическое получение
+
         Returns:
             Tuple[bool, str]: (успех, сообщение)
         """
         try:
             # Отключаем опцию в реестре
             self.set_force_dns_enabled(False)
-            
-            if restore_from_backup:
-                # Восстанавливаем из резервной копии
-                log("Восстановление DNS из резервной копии...", "DNS")
-                if self.restore_dns_from_backup():
-                    msg = "DNS-настройки успешно восстановлены из резервной копии."
-                    log("DNS восстановлен из резервной копии", "INFO")
-                    return (True, msg)
-                else:
-                    # Fallback - сбрасываем на автоматические
-                    log("Не удалось восстановить из бэкапа, сброс на авто", "WARNING")
-                    return self._reset_to_auto()
-            else:
-                # Сбрасываем на автоматическое получение
-                return self._reset_to_auto()
-                
+
+            # Сбрасываем на автоматическое получение
+            return self._reset_to_auto()
+
         except Exception as e:
             log(f"Ошибка отключения Force DNS: {e}", "ERROR")
             return (False, str(e))
@@ -406,11 +329,11 @@ class DNSForceManager:
 def ensure_default_force_dns():
     """Создает ключ ForceDNS по умолчанию"""
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DNSForceManager.REGISTRY_PATH):
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH):
             return
     except FileNotFoundError:
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DNSForceManager.REGISTRY_PATH) as key:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
                 winreg.SetValueEx(key, DNSForceManager.FORCE_DNS_KEY, 0, winreg.REG_DWORD, 1)
             log("Created default ForceDNS=1", "DNS")
         except Exception as e:

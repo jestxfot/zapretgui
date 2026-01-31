@@ -1,14 +1,303 @@
 import ctypes
 import stat
 import os
+import subprocess
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox
-from .proxy_domains import PROXY_DOMAINS
+from .proxy_domains import (
+    get_all_services,
+    get_dns_profiles,
+    get_service_domain_ip_map,
+    get_service_domain_names,
+    get_service_domains,
+)
 from .adobe_domains import ADOBE_DOMAINS
-from .menu import HostsSelectorDialog
 from log import log
 
-HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
+def _get_hosts_path_from_env() -> Path:
+    """
+    Возвращает путь к hosts через переменные окружения, чтобы корректно работать
+    когда Windows установлена не на C:.
+    """
+    sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+    if sys_root:
+        return Path(sys_root, "System32", "drivers", "etc", "hosts")
+    return Path(r"C:\Windows\System32\drivers\etc\hosts")
+
+
+HOSTS_PATH = _get_hosts_path_from_env() if os.name == "nt" else Path(r"C:\Windows\System32\drivers\etc\hosts")
+
+
+# ───────────────────────── hosts file read cache ─────────────────────────
+#
+# На старте приложение может несколько раз читать hosts подряд (проверки/страницы UI).
+# Файл маленький, но повторные чтения + перебор кодировок/обработка PermissionError
+# могут давать заметную задержку. Делаем безопасный кэш "на процесс":
+# - инвалидируем по сигнатуре файла (mtime_ns + size)
+# - обновляем кэш после успешной записи
+
+_HOSTS_TEXT_CACHE: str | None = None
+_HOSTS_SIG_CACHE: tuple[int, int] | None = None  # (mtime_ns, size)
+
+
+def _get_hosts_sig(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+        mtime_ns = getattr(st, "st_mtime_ns", None)
+        if mtime_ns is None:
+            mtime_ns = int(st.st_mtime * 1_000_000_000)
+        return (int(mtime_ns), int(st.st_size))
+    except Exception:
+        return None
+
+
+def _set_hosts_cache(content: str | None, sig: tuple[int, int] | None) -> None:
+    global _HOSTS_TEXT_CACHE, _HOSTS_SIG_CACHE
+    _HOSTS_TEXT_CACHE = content
+    _HOSTS_SIG_CACHE = sig
+
+
+def invalidate_hosts_file_cache() -> None:
+    """Принудительно сбрасывает кэш чтения hosts (на случай внешних изменений)."""
+    _set_hosts_cache(None, None)
+
+
+def _get_all_managed_domains() -> set[str]:
+    domains: set[str] = set()
+    for service_name in get_all_services():
+        domains.update(get_service_domain_names(service_name))
+    return domains
+
+
+def _run_cmd(args, description):
+    """Выполняет команду и логирует результат"""
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        if result.returncode == 0:
+            log(f"✅ {description}: успешно")
+            return True
+        else:
+            # Проверяем stderr или stdout на наличие ошибки
+            error = result.stderr.strip() or result.stdout.strip()
+            log(f"⚠ {description}: {error}", "⚠ WARNING")
+            return False
+    except Exception as e:
+        log(f"❌ {description}: {e}", "❌ ERROR")
+        return False
+
+
+def _get_current_username():
+    """Получает имя текущего пользователя"""
+    try:
+        import getpass
+        return getpass.getuser()
+    except:
+        return None
+
+
+def restore_hosts_permissions():
+    """
+    Агрессивно восстанавливает права доступа к файлу hosts.
+    Использует множество методов для обхода блокировок антивирусов.
+
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    hosts_path = str(HOSTS_PATH)
+
+    log("🔧 Начинаем АГРЕССИВНОЕ восстановление прав доступа к файлу hosts...")
+
+    # Well-known SIDs (работают на любой локализации Windows)
+    # S-1-5-32-544 = Administrators / Администраторы
+    # S-1-5-32-545 = Users / Пользователи
+    # S-1-5-18 = SYSTEM
+    # S-1-1-0 = Everyone / Все
+    SID_ADMINISTRATORS = "*S-1-5-32-544"
+    SID_USERS = "*S-1-5-32-545"
+    SID_SYSTEM = "*S-1-5-18"
+    SID_EVERYONE = "*S-1-1-0"
+
+    current_user = _get_current_username()
+
+    try:
+        # ========== ЭТАП 1: Снимаем атрибуты файла ==========
+        log("Этап 1: Снимаем системные атрибуты файла...")
+        _run_cmd(['attrib', '-R', '-S', '-H', hosts_path], "attrib -R -S -H")
+
+        # ========== ЭТАП 2: Забираем владение файлом ==========
+        log("Этап 2: Забираем владение файлом...")
+
+        # Способ 1: takeown для администраторов
+        _run_cmd(['takeown', '/F', hosts_path, '/A'], "takeown /A (для группы администраторов)")
+
+        # Способ 2: takeown для текущего пользователя
+        if current_user:
+            _run_cmd(['takeown', '/F', hosts_path], "takeown (для текущего пользователя)")
+
+        # ========== ЭТАП 3: Сбрасываем ACL ==========
+        log("Этап 3: Сбрасываем ACL...")
+        _run_cmd(['icacls', hosts_path, '/reset'], "icacls /reset")
+
+        # ========== ЭТАП 4: Выдаём права через SID (работает на любой локализации) ==========
+        log("Этап 4: Выдаём права через SID...")
+
+        # Полный доступ для Administrators через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_ADMINISTRATORS}:F'],
+                 "icacls /grant Administrators (SID)")
+
+        # Полный доступ для SYSTEM через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_SYSTEM}:F'],
+                 "icacls /grant SYSTEM (SID)")
+
+        # Чтение для Users через SID
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_USERS}:R'],
+                 "icacls /grant Users (SID)")
+
+        # Полный доступ для Everyone через SID (агрессивно!)
+        _run_cmd(['icacls', hosts_path, '/grant', f'{SID_EVERYONE}:F'],
+                 "icacls /grant Everyone (SID)")
+
+        # ========== ЭТАП 5: Пробуем с английскими именами (для английской Windows) ==========
+        log("Этап 5: Пробуем с английскими именами групп...")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Administrators:F'], "icacls Administrators:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'SYSTEM:F'], "icacls SYSTEM:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Users:R'], "icacls Users:R")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Everyone:F'], "icacls Everyone:F")
+
+        # ========== ЭТАП 6: Пробуем с русскими именами (для русской Windows) ==========
+        log("Этап 6: Пробуем с русскими именами групп...")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Администраторы:F'], "icacls Администраторы:F")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Пользователи:R'], "icacls Пользователи:R")
+        _run_cmd(['icacls', hosts_path, '/grant', 'Все:F'], "icacls Все:F")
+
+        # ========== ЭТАП 7: Права для текущего пользователя ==========
+        if current_user:
+            log(f"Этап 7: Выдаём права текущему пользователю ({current_user})...")
+            _run_cmd(['icacls', hosts_path, '/grant', f'{current_user}:F'],
+                     f"icacls /grant {current_user}:F")
+
+        # ========== ЭТАП 8: PowerShell для обхода некоторых блокировок ==========
+        log("Этап 8: Пробуем через PowerShell...")
+        ps_script = f'''
+$acl = Get-Acl "{hosts_path}"
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone","FullControl","Allow")
+$acl.SetAccessRule($rule)
+Set-Acl "{hosts_path}" $acl
+'''
+        _run_cmd(['powershell', '-Command', ps_script], "PowerShell Set-Acl")
+
+        # ========== ЭТАП 9: Наследование от родительской папки ==========
+        log("Этап 9: Включаем наследование прав от родительской папки...")
+        _run_cmd(['icacls', hosts_path, '/inheritance:e'], "icacls /inheritance:e")
+
+        # ========== ЭТАП 10: Финальная проверка ==========
+        log("Этап 10: Проверяем результат...")
+
+        # Пробуем прочитать файл
+        try:
+            content = HOSTS_PATH.read_text(encoding='utf-8')
+            log("✅ Права восстановлены! Файл hosts доступен для ЧТЕНИЯ")
+
+            # Пробуем открыть на запись (проверка прав на запись)
+            try:
+                with HOSTS_PATH.open('a', encoding='utf-8-sig'):
+                    pass
+                log("✅ Файл hosts доступен для ЗАПИСИ")
+                return True, "Права доступа к файлу hosts успешно восстановлены"
+            except PermissionError:
+                log("❌ Файл доступен для чтения, но НЕ для записи", "❌ ERROR")
+                return False, (
+                    "Файл hosts доступен для чтения, но запись запрещена.\n"
+                    "Чаще всего это защита антивируса/Defender.\n"
+                    "Добавьте исключение для hosts или временно отключите защиту и повторите."
+                )
+
+        except PermissionError:
+            log("❌ После всех попыток файл все еще недоступен", "❌ ERROR")
+
+            # Последняя попытка - копирование через temp
+            log("Этап 11: Последняя попытка - копирование через временный файл...")
+            success = _try_copy_workaround(hosts_path)
+            if success:
+                return True, "Права восстановлены через копирование"
+
+            return False, "Не удалось восстановить права. Возможно, антивирус блокирует доступ. Попробуйте:\n1. Временно отключить антивирус\n2. Добавить исключение для файла hosts\n3. Запустить программу от имени администратора"
+
+        except Exception as e:
+            log(f"Ошибка при проверке: {e}", "❌ ERROR")
+            return False, f"Ошибка при проверке прав: {e}"
+
+    except FileNotFoundError as e:
+        log(f"Команда не найдена: {e}", "❌ ERROR")
+        return False, f"Системная команда не найдена: {e}"
+    except Exception as e:
+        log(f"Ошибка при восстановлении прав: {e}", "❌ ERROR")
+        return False, f"Ошибка: {e}"
+
+
+def _try_copy_workaround(hosts_path):
+    """
+    Последняя попытка - копируем hosts через временный файл.
+    Иногда помогает обойти блокировку антивируса.
+    """
+    import tempfile
+    import shutil
+
+    try:
+        # Создаём временный файл
+        temp_dir = tempfile.gettempdir()
+        temp_hosts = os.path.join(temp_dir, "hosts_temp_copy")
+
+        # Копируем hosts во временный файл через cmd (обход блокировок)
+        result = subprocess.run(
+            ['cmd', '/c', 'copy', '/Y', hosts_path, temp_hosts],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+
+        if result.returncode == 0:
+            log("✅ Hosts скопирован во временный файл")
+
+            # Удаляем оригинал
+            subprocess.run(
+                ['cmd', '/c', 'del', '/F', '/Q', hosts_path],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+            # Копируем обратно
+            result = subprocess.run(
+                ['cmd', '/c', 'copy', '/Y', temp_hosts, hosts_path],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+
+            if result.returncode == 0:
+                log("✅ Hosts восстановлен из временного файла")
+
+                # Удаляем временный файл
+                try:
+                    os.remove(temp_hosts)
+                except:
+                    pass
+
+                # Проверяем доступ
+                try:
+                    HOSTS_PATH.read_text(encoding='utf-8')
+                    return True
+                except:
+                    return False
+
+        return False
+
+    except Exception as e:
+        log(f"Ошибка при копировании через temp: {e}", "❌ ERROR")
+        return False
 
 def check_hosts_file_name():
     """Проверяет правильность написания имени файла hosts"""
@@ -69,6 +358,15 @@ def remove_readonly_attribute(filepath):
 def safe_read_hosts_file():
     """Безопасно читает файл hosts с обработкой различных кодировок"""
     hosts_path = HOSTS_PATH
+
+    # Fast path: используем кэш если файл не менялся.
+    try:
+        if hosts_path.exists():
+            sig = _get_hosts_sig(hosts_path)
+            if sig is not None and _HOSTS_SIG_CACHE == sig and _HOSTS_TEXT_CACHE is not None:
+                return _HOSTS_TEXT_CACHE
+    except Exception:
+        pass
     
     # ✅ НОВОЕ: Проверяем существование файла
     if not hosts_path.exists():
@@ -101,6 +399,7 @@ def safe_read_hosts_file():
 #	::1             localhost
 """
             hosts_path.write_text(default_content, encoding='utf-8-sig')
+            _set_hosts_cache(default_content, _get_hosts_sig(hosts_path))
             log("Файл hosts успешно создан с базовым содержимым")
             return default_content
             
@@ -110,22 +409,51 @@ def safe_read_hosts_file():
     
     # Если файл существует, пробуем прочитать с разными кодировками
     encodings = ['utf-8', 'utf-8-sig', 'cp1251', 'cp866', 'latin1']
-    
+
+    permission_error_occurred = False
+
+    sig_before = _get_hosts_sig(hosts_path)
     for encoding in encodings:
         try:
             content = hosts_path.read_text(encoding=encoding)
             log(f"Файл hosts успешно прочитан с кодировкой: {encoding}")
+            _set_hosts_cache(content, sig_before or _get_hosts_sig(hosts_path))
             return content
         except UnicodeDecodeError:
+            continue
+        except PermissionError as e:
+            log(f"Ошибка при чтении файла hosts с кодировкой {encoding}: {e}")
+            permission_error_occurred = True
             continue
         except Exception as e:
             log(f"Ошибка при чтении файла hosts с кодировкой {encoding}: {e}")
             continue
-    
+
+    # Если была ошибка доступа, пробуем восстановить права
+    if permission_error_occurred:
+        log("🔧 Обнаружена проблема с правами доступа, пытаемся восстановить...")
+        success, message = restore_hosts_permissions()
+        if success:
+            # Пробуем прочитать снова после восстановления прав
+            for encoding in encodings:
+                try:
+                    content = hosts_path.read_text(encoding=encoding)
+                    log(f"Файл hosts успешно прочитан после восстановления прав с кодировкой: {encoding}")
+                    _set_hosts_cache(content, _get_hosts_sig(hosts_path))
+                    return content
+                except UnicodeDecodeError:
+                    continue
+                except Exception as e:
+                    log(f"Ошибка при повторном чтении с кодировкой {encoding}: {e}")
+                    continue
+        else:
+            log(f"Не удалось восстановить права: {message}", "❌ ERROR")
+
     # Если ни одна кодировка не подошла, пробуем с игнорированием ошибок
     try:
         content = hosts_path.read_text(encoding='utf-8', errors='ignore')
         log("Файл hosts прочитан с игнорированием ошибок кодировки", level="⚠ WARNING")
+        _set_hosts_cache(content, _get_hosts_sig(hosts_path))
         return content
     except Exception as e:
         log(f"Критическая ошибка при чтении файла hosts: {e}", "❌ ERROR")
@@ -140,12 +468,26 @@ def safe_write_hosts_file(content):
             if not remove_readonly_attribute(HOSTS_PATH):
                 log("Не удалось снять атрибут 'только для чтения'")
                 return False
-        
+
         HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
+        _set_hosts_cache(content, _get_hosts_sig(HOSTS_PATH))
         return True
     except PermissionError:
-        log("Ошибка доступа при записи файла hosts (возможно, нет прав администратора)")
-        return False
+        log("Ошибка доступа при записи файла hosts, пытаемся восстановить права...")
+        # Пробуем восстановить права и записать снова
+        success, message = restore_hosts_permissions()
+        if success:
+            try:
+                HOSTS_PATH.write_text(content, encoding="utf-8-sig", newline='\n')
+                log("✅ Файл hosts успешно записан после восстановления прав")
+                _set_hosts_cache(content, _get_hosts_sig(HOSTS_PATH))
+                return True
+            except Exception as e:
+                log(f"Ошибка при повторной записи после восстановления прав: {e}", "❌ ERROR")
+                return False
+        else:
+            log(f"Не удалось восстановить права: {message}", "❌ ERROR")
+            return False
     except Exception as e:
         log(f"Ошибка при записи файла hosts: {e}")
         return False
@@ -153,8 +495,15 @@ def safe_write_hosts_file(content):
 class HostsManager:
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
+        self._last_status: str | None = None
         # 🆕 При инициализации проверяем и удаляем api.github.com
         self.check_and_remove_github_api()
+
+    def restore_permissions(self):
+        """Восстанавливает права доступа к файлу hosts"""
+        success, message = restore_hosts_permissions()
+        self.set_status(message)
+        return success
 
     # 🆕 НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С api.github.com
     def check_github_api_in_hosts(self):
@@ -268,39 +617,63 @@ class HostsManager:
             log(f"Ошибка при проверке/удалении api.github.com: {e}")
 
     # ------------------------- сервис -------------------------
-    def get_active_domains(self):
-        """Возвращает множество активных доменов из hosts файла"""
-        current_active = set()
-        if self.is_proxy_domains_active():
-            try:
-                from .proxy_domains import PROXY_DOMAINS
-                content = safe_read_hosts_file()
-                if content:
-                    for domain in PROXY_DOMAINS.keys():
-                        if domain in content:
-                            current_active.add(domain)
-                log(f"Найдено активных доменов: {len(current_active)}", "DEBUG")
-            except Exception as e:
-                log(f"Ошибка при чтении hosts: {e}", "ERROR")
+    def get_active_domains_map(self) -> dict[str, str]:
+        """Возвращает {domain: ip} для всех управляемых доменов, найденных в hosts (без проверки IP)."""
+        current_active: dict[str, str] = {}
+        managed_domains = _get_all_managed_domains()
+        try:
+            content = safe_read_hosts_file()
+            if content is None:
+                return current_active
+                
+            lines = content.splitlines()
+            
+            for line in lines:
+                line = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Разбиваем строку на части (IP домен)
+                parts = line.split()
+                if len(parts) >= 2:
+                    ip = parts[0]
+                    domain = parts[1]
+                    
+                    if domain in managed_domains:
+                        current_active[domain] = ip
+                            
+            log(f"Найдено активных управляемых доменов: {len(current_active)}", "DEBUG")
+        except Exception as e:
+            log(f"Ошибка при чтении hosts: {e}", "ERROR")
         return current_active
 
+    def get_active_domains(self) -> set:
+        """Back-compat: возвращает множество активных доменов (без проверки IP)."""
+        return set(self.get_active_domains_map().keys())
+
     def set_status(self, message: str):
+        self._last_status = message
         if self.status_callback:
             self.status_callback(message)
         else:
             print(message)
 
+    @property
+    def last_status(self) -> str | None:
+        return self._last_status
+
     # ------------------------- проверки -------------------------
 
     def is_proxy_domains_active(self) -> bool:
-        """Проверяет, есть ли активные (НЕ закомментированные) записи наших доменов в hosts"""
+        """Проверяет, есть ли активные (НЕ закомментированные) записи управляемых доменов в hosts"""
         try:
             content = safe_read_hosts_file()
             if content is None:
                 return False
                 
             lines = content.splitlines()
-            domains = set(PROXY_DOMAINS.keys())
+            domains = _get_all_managed_domains()
             
             for line in lines:
                 line = line.strip()
@@ -409,188 +782,154 @@ class HostsManager:
         log("Нет прав для изменения файла hosts")
 
     def add_proxy_domains(self) -> bool:
-        """Добавляет домены в hosts файл"""
-        log("🟡 add_proxy_domains начат", "DEBUG")
-        
-        if not self.is_hosts_file_accessible():
-            self.set_status("Файл hosts недоступен для изменения")
-            return False
-        
+        """LEGACY: включает все домены (профиль 0) + статические."""
+        log("🟡 add_proxy_domains начат (legacy)", "DEBUG")
+
         # ✅ Вызываем check_and_remove_github_api только один раз в начале
         self.check_and_remove_github_api()
-        
-        try:
-            # Сначала удаляем старые записи
-            content = safe_read_hosts_file()
-            if content is None:
-                return False
-            
-            # Удаляем старые записи вручную
-            lines = content.splitlines(keepends=True)
-            domains_to_remove = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
-            for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains_to_remove):
-                    continue
-                new_lines.append(line)
-            
-            # Убираем лишние пустые строки
-            while new_lines and new_lines[-1].strip() == "":
-                new_lines.pop()
-            
-            # Добавляем новые домены
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            new_lines.append('\n')
-            
-            for domain, ip in PROXY_DOMAINS.items():
-                new_lines.append(f"{ip} {domain}\n")
-            
-            # Записываем
-            if not safe_write_hosts_file("".join(new_lines)):
-                return False
-            
-            self.set_status(f"Файл hosts обновлён: добавлено {len(PROXY_DOMAINS)} записей")
-            log(f"✅ Добавлены домены: {list(PROXY_DOMAINS.keys())[:5]}...", "DEBUG")
-            return True
-            
-        except PermissionError:
-            log("Ошибка прав доступа в add_proxy_domains", "ERROR")
-            self._no_perm()
-            return False
-        except Exception as e:
-            log(f"Ошибка в add_proxy_domains: {e}", "ERROR")
-            return False
+
+        all_domains: dict[str, str] = {}
+        default_profile = (get_dns_profiles() or [None])[0]
+        for service_name in get_all_services():
+            domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+            if domain_map:
+                all_domains.update(domain_map)
+            else:
+                all_domains.update(get_service_domains(service_name))
+
+        return self.apply_domain_ip_map(all_domains)
 
     def remove_proxy_domains(self) -> bool:
-        """Удаляет домены из hosts файла"""
-        log("🟡 remove_proxy_domains начат", "DEBUG")
-        
-        if not self.is_hosts_file_accessible():
-            self.set_status("Файл hosts недоступен для изменения")
-            return False
-        
-        # ✅ НЕ вызываем check_and_remove_github_api здесь
-        
-        try:
-            content = safe_read_hosts_file()
-            if content is None:
-                return False
-            
-            lines = content.splitlines(keepends=True)
-            domains = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
-            removed_count = 0
-            
-            for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains):
-                    removed_count += 1
-                    continue
-                new_lines.append(line)
-            
-            # Убираем лишние пустые строки
-            while new_lines and new_lines[-1].strip() == "":
-                new_lines.pop()
-            
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            
-            if not safe_write_hosts_file("".join(new_lines)):
-                return False
-            
-            self.set_status(f"Файл hosts обновлён: удалено {removed_count} записей")
-            log(f"✅ Удалено {removed_count} доменов", "DEBUG")
-            return True
-            
-        except PermissionError:
-            log("Ошибка прав доступа в remove_proxy_domains", "ERROR")
-            self._no_perm()
-            return False
-        except Exception as e:
-            log(f"Ошибка в remove_proxy_domains: {e}", "ERROR")
-            return False
+        """LEGACY: удаляет все управляемые домены из hosts."""
+        log("🟡 remove_proxy_domains начат (legacy)", "DEBUG")
+        return self.apply_domain_ip_map({})
     
     def apply_selected_domains(self, selected_domains):
-        """Применяет выбранные домены к файлу hosts"""
-        log(f"🟡 apply_selected_domains начат: {len(selected_domains)} доменов", "DEBUG")
-        
+        """LEGACY: применяет выбранные домены (IP берётся из профиля 0)."""
+        try:
+            selected = set(selected_domains or [])
+        except Exception:
+            selected = set()
+
+        log(f"🟡 apply_selected_domains начат (legacy): {len(selected)} доменов", "DEBUG")
+
+        if not selected:
+            return self.apply_domain_ip_map({})
+
+        base_map: dict[str, str] = {}
+        default_profile = (get_dns_profiles() or [None])[0]
+        for service_name in get_all_services():
+            domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+            if domain_map:
+                base_map.update(domain_map)
+            else:
+                base_map.update(get_service_domains(service_name))
+
+        out: dict[str, str] = {domain: ip for domain, ip in base_map.items() if domain in selected}
+        return self.apply_domain_ip_map(out)
+
+    def apply_service_dns_selections(self, service_dns: dict[str, str], static_enabled: set[str] | None = None) -> bool:
+        """
+        Применяет выбор DNS-профилей по сервисам.
+
+        Args:
+            service_dns: {service_name: profile_name or 'off'}
+            static_enabled: set(service_name) для сервисов, которые включаются без выбора профиля
+        """
+        log("🟡 apply_service_dns_selections начат", "DEBUG")
+
+        selected: dict[str, str] = {}
+        for service_name, profile_name in (service_dns or {}).items():
+            if not isinstance(service_name, str):
+                continue
+            if not isinstance(profile_name, str):
+                continue
+
+            normalized = profile_name.strip().lower()
+            if not normalized or normalized in ("off", "откл", "откл.", "0", "false"):
+                continue
+
+            domain_map = get_service_domain_ip_map(service_name, profile_name.strip())
+            if not domain_map:
+                # Профиль недоступен для сервиса (не хватает IP) — просто пропускаем.
+                continue
+            selected.update(domain_map)
+
+        if static_enabled:
+            default_profile = (get_dns_profiles() or [None])[0]
+            for service_name in static_enabled:
+                domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
+                if domain_map:
+                    selected.update(domain_map)
+
+        return self.apply_domain_ip_map(selected)
+
+    def apply_domain_ip_map(self, domain_ip_map: dict[str, str]) -> bool:
+        """Применяет домены в hosts: удаляет все управляемые и добавляет указанные."""
+        log(f"🟡 apply_domain_ip_map начат: {len(domain_ip_map)} записей", "DEBUG")
+
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
             return False
-        
-        # Создаем временный словарь только с выбранными доменами
-        selected_proxy_domains = {
-            domain: ip for domain, ip in PROXY_DOMAINS.items() 
-            if domain in selected_domains
-        }
-        
-        if not selected_proxy_domains:
-            log("Нет выбранных доменов, удаляем все", "DEBUG")
-            return self.remove_proxy_domains()
-        
+
+        managed_domains = _get_all_managed_domains()
+
         try:
-            # Читаем текущее содержимое
             content = safe_read_hosts_file()
             if content is None:
                 self.set_status("Не удалось прочитать файл hosts")
                 return False
-            
-            # Удаляем старые записи ВРУЧНУЮ
+
             lines = content.splitlines(keepends=True)
-            domains_to_remove = set(PROXY_DOMAINS.keys())
-            
-            new_lines = []
+            new_lines: list[str] = []
+
+            removed_count = 0
             for line in lines:
-                if (line.strip() and 
-                    not line.lstrip().startswith("#") and 
-                    len(line.split()) >= 2 and 
-                    line.split()[1] in domains_to_remove):
+                if (
+                    line.strip()
+                    and not line.lstrip().startswith("#")
+                    and len(line.split()) >= 2
+                    and line.split()[1] in managed_domains
+                ):
+                    removed_count += 1
                     continue
                 new_lines.append(line)
-            
+
             # Убираем лишние пустые строки в конце
             while new_lines and new_lines[-1].strip() == "":
                 new_lines.pop()
-            
+
+            # Ничего не добавляем — просто очищаем управляемые домены
+            if not domain_ip_map:
+                if new_lines and not new_lines[-1].endswith("\n"):
+                    new_lines[-1] += "\n"
+                if not safe_write_hosts_file("".join(new_lines)):
+                    return False
+                self.set_status(f"Файл hosts обновлён: удалено {removed_count} записей")
+                return True
+
             # Добавляем выбранные домены
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            
-            new_lines.append('\n')  # Разделитель
-            
-            for domain, ip in selected_proxy_domains.items():
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append("\n")  # Разделитель
+
+            for domain, ip in domain_ip_map.items():
                 new_lines.append(f"{ip} {domain}\n")
-            
-            # Записываем результат
-            final_content = "".join(new_lines)
-            
-            if not safe_write_hosts_file(final_content):
+
+            if not safe_write_hosts_file("".join(new_lines)):
                 self.set_status("Не удалось записать файл hosts")
                 return False
-            
-            count = len(selected_proxy_domains)
-            self.set_status(f"Файл hosts обновлён: добавлено {count} записей")
-            log(f"✅ Добавлены выбранные домены: {list(selected_proxy_domains.keys())}", "DEBUG")
-            
-            log(f"🟡 apply_selected_domains завершен успешно", "DEBUG")
+
+            self.set_status(f"Файл hosts обновлён: добавлено {len(domain_ip_map)} записей")
+            log(f"✅ apply_domain_ip_map: removed={removed_count}, added={len(domain_ip_map)}", "DEBUG")
             return True
-            
+
         except PermissionError:
-            log("🟡 Ошибка прав доступа", "DEBUG") 
+            log("Ошибка прав доступа в apply_domain_ip_map", "ERROR")
             self._no_perm()
             return False
         except Exception as e:
-            error_msg = f"Ошибка при обновлении hosts: {e}"
-            self.set_status(error_msg)
-            log(error_msg, "ERROR")
+            log(f"Ошибка в apply_domain_ip_map: {e}", "ERROR")
             return False
 
     # НОВЫЕ МЕТОДЫ ДЛЯ ADOBE

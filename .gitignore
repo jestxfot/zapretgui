@@ -1,13 +1,22 @@
 __pycache__
+.env
+.env.*
+!.env.example
 /build
 version_info.txt
 main.spec
 *.exe
 /dist/lists
 bin/
-build_zapret/
-build_zapret
-build_zapret/build_release_gui.py
-build_zapret/github_release.py
+/json/hosts.ini
+logs/
+
+# Keep most build tooling out of git (some files may contain secrets),
+# but track the minimal scripts required for GitHub Actions builds.
+build_zapret/*
+!build_zapret/__init__.py
+!build_zapret/ci_build.py
+!build_zapret/nuitka_builder.py
+!build_zapret/write_build_info.py
 config/tokens.py
 config/tokens.py

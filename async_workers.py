@@ -52,7 +52,7 @@ class DNSSetWorker(QObject):
             cmd = f'netsh interface {interface_type} set dnsservers "{self.adapter_name}" static {self.primary_dns} primary'
             
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, 
-                                  encoding='cp866', timeout=5)  # Уменьшили timeout
+                                  encoding='cp866', errors='replace', timeout=5)  # Уменьшили timeout
             
             if result.returncode != 0:
                 self.adapter_done.emit(self.adapter_name, False)
@@ -63,7 +63,7 @@ class DNSSetWorker(QObject):
             if self.secondary_dns:
                 cmd2 = f'netsh interface {interface_type} add dnsservers "{self.adapter_name}" {self.secondary_dns} index=2'
                 subprocess.run(cmd2, shell=True, capture_output=True, text=True, 
-                             encoding='cp866', timeout=5)
+                             encoding='cp866', errors='replace', timeout=5)
             
             self.adapter_done.emit(self.adapter_name, True)
             self.finished.emit(True, f"DNS установлен для {self.adapter_name}")
@@ -130,12 +130,12 @@ class AsyncDNSTask(QRunnable):
             # IPv4
             cmd = f'netsh interface ipv4 set dnsservers "{self.adapter}" static {self.primary} primary'
             result = subprocess.run(cmd, shell=True, capture_output=True, 
-                                  text=True, encoding='cp866', timeout=3)
+                                  text=True, encoding='cp866', errors='replace', timeout=3)
             
             if result.returncode == 0 and self.secondary:
                 cmd2 = f'netsh interface ipv4 add dnsservers "{self.adapter}" {self.secondary} index=2'
                 subprocess.run(cmd2, shell=True, capture_output=True, 
-                             text=True, encoding='cp866', timeout=3)
+                             text=True, encoding='cp866', errors='replace', timeout=3)
             
             self.callback(result.returncode == 0)
             

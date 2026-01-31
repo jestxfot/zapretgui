@@ -24,6 +24,9 @@ MIN_MANUAL_CHECK_INTERVAL = 1800  # 30 минут в секундах
 # Минимальный интервал между АВТОМАТИЧЕСКИМИ проверками (6 часов)
 MIN_AUTO_CHECK_INTERVAL = 21600  # 6 часов в секундах
 
+# Минимальный интервал между ПОЛНЫМИ проверками VPS (30 минут)
+MIN_SERVERS_FULL_CHECK_INTERVAL = 1800  # 30 минут в секундах
+
 
 class UpdateRateLimiter:
     """Ограничитель частоты проверок обновлений"""
@@ -111,6 +114,51 @@ class UpdateRateLimiter:
         
         log(
             f"📝 Записана {check_type} проверка в {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))}",
+            "⏱️ RATE"
+        )
+
+    @staticmethod
+    def can_check_servers_full() -> tuple[bool, Optional[str]]:
+        """
+        Проверяет можно ли запускать ПОЛНУЮ проверку всех VPS серверов
+        (персональный лимит на одного пользователя).
+
+        Returns:
+            (разрешено, сообщение_об_ошибке)
+        """
+        state = UpdateRateLimiter._load_state()
+        current_time = time.time()
+
+        last_check_time = float(state.get("last_servers_full_check", 0) or 0)
+        time_since_last = current_time - last_check_time
+
+        if time_since_last < MIN_SERVERS_FULL_CHECK_INTERVAL:
+            remaining = MIN_SERVERS_FULL_CHECK_INTERVAL - time_since_last
+            remaining_minutes = max(1, int(remaining / 60))
+            msg = f"⏱️ Полная проверка VPS возможна через {remaining_minutes} мин"
+            log(
+                f"❌ Rate limit: servers_full заблокирован "
+                f"(прошло {int(time_since_last)}с, нужно {MIN_SERVERS_FULL_CHECK_INTERVAL}с)",
+                "⏱️ RATE"
+            )
+            return False, msg
+
+        log("✅ Rate limit: servers_full разрешён", "⏱️ RATE")
+        return True, None
+
+    @staticmethod
+    def record_servers_full_check():
+        """Записывает факт полной проверки VPS."""
+        state = UpdateRateLimiter._load_state()
+        current_time = time.time()
+
+        state["last_servers_full_check"] = current_time
+        state["servers_full_check_count"] = state.get("servers_full_check_count", 0) + 1
+
+        UpdateRateLimiter._save_state(state)
+
+        log(
+            f"📝 Записана полная проверка VPS в {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))}",
             "⏱️ RATE"
         )
     

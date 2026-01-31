@@ -139,13 +139,23 @@ class ReleaseManager:
         """
         Получает информацию о последнем релизе
         
+        Приоритет источников:
+        1. Telegram (основной, быстрый)
+        2. VPS серверы (резерв)
+        3. GitHub API (fallback)
+        
         Args:
             channel: "stable" или "dev"
             
         Returns:
             Dict с информацией о релизе или None
         """
-        # ✅ ПРОВЕРЯЕМ ГЛОБАЛЬНУЮ БЛОКИРОВКУ VPS
+        # ✅ 1. ПРОБУЕМ TELEGRAM (основной источник)
+        result = self._try_telegram(channel)
+        if result:
+            return result
+        
+        # ✅ 2. ПРОВЕРЯЕМ ГЛОБАЛЬНУЮ БЛОКИРОВКУ VPS
         vps_blocked = self._is_vps_blocked()
         
         if vps_blocked:
@@ -153,7 +163,7 @@ class ReleaseManager:
             log(f"🚫 ВСЕ VPS серверы заблокированы до {dt}, используем только GitHub", "🔄 RELEASE")
             return self._try_github(channel)
         
-        # ✅ ЕСЛИ ЕСТЬ ПУЛ СЕРВЕРОВ - используем балансировку
+        # ✅ 3. ЕСЛИ ЕСТЬ ПУЛ СЕРВЕРОВ - используем балансировку
         if self.server_pool and VPS_SERVERS:
             result = self._try_server_pool(channel)
             if result:
@@ -163,13 +173,13 @@ class ReleaseManager:
             log("⚠️ Все VPS серверы недоступны, переключаемся на GitHub", "🔄 RELEASE")
             return self._try_github(channel)
         
-        # ✅ FALLBACK: старая логика без пула (если VPS_SERVERS пустой)
+        # ✅ 4. FALLBACK: GitHub
         log("⚠️ Пул серверов пуст, используем только GitHub", "🔄 RELEASE")
         return self._try_github(channel)
-
-    def _try_server_pool(self, channel: str) -> Optional[Dict[str, Any]]:
+    
+    def _try_telegram(self, channel: str) -> Optional[Dict[str, Any]]:
         """
-        Пытается получить релиз из пула серверов с балансировкой
+        Пытается получить информацию о релизе из Telegram
         
         Args:
             channel: "stable" или "dev"
@@ -177,32 +187,116 @@ class ReleaseManager:
         Returns:
             Dict с информацией о релизе или None
         """
-        # Получаем текущий выбранный сервер
-        current_server = self.server_pool.get_current_server()
-        server_urls = self.server_pool.get_server_urls(current_server)
+        try:
+            from .telegram_updater import is_telegram_available, get_telegram_version_info
+            
+            if not is_telegram_available():
+                log("⏭️ Telegram недоступен (telethon не установлен)", "🔄 RELEASE")
+                return None
+            
+            # Маппинг каналов
+            tg_channel = 'test' if channel == 'dev' else 'stable'
+            
+            log(f"📱 Проверка обновлений через Telegram ({tg_channel})...", "🔄 RELEASE")
+            
+            start_time = time.time()
+            info = get_telegram_version_info(tg_channel)
+            response_time = time.time() - start_time
+            
+            if info and info.get('version'):
+                version = normalize_version(info['version'])
+                
+                log(f"✅ Telegram: версия {version} ({response_time:.2f}с)", "🔄 RELEASE")
+                
+                # Формируем результат в стандартном формате
+                return {
+                    "version": version,
+                    "tag_name": f"v{version}",
+                    "update_url": f"telegram://{info['channel']}/{info['message_id']}",  # Специальный URL
+                    "release_notes": "",
+                    "prerelease": channel == "dev",
+                    "name": f"Zapret {version} ({channel})",
+                    "published_at": info.get('date', ''),
+                    "source": info['source'],
+                    "verify_ssl": True,
+                    "file_size": info.get('file_size'),
+                    "telegram_info": info,  # Сохраняем полную информацию для скачивания
+                }
+            
+            log(f"⚠️ Telegram: версия не найдена ({response_time:.2f}с)", "🔄 RELEASE")
+            return None
+            
+        except Exception as e:
+            log(f"❌ Telegram ошибка: {e}", "🔄 RELEASE")
+            return None
+
+    def _try_server_pool(self, channel: str) -> Optional[Dict[str, Any]]:
+        """
+        Пытается получить релиз из пула серверов с балансировкой.
+        Перебирает все доступные серверы, пропуская заблокированные.
         
-        log(f"📍 Выбран сервер: {current_server['name']} ({current_server['host']})", "🔄 RELEASE")
+        Args:
+            channel: "stable" или "dev"
+            
+        Returns:
+            Dict с информацией о релизе или None
+        """
+        # Перебираем все серверы из пула
+        tried_servers = set()
+        max_attempts = len(VPS_SERVERS) * 2  # На случай переключений
         
-        # Пробуем HTTPS
-        result = self._try_vps_url(
-            channel=channel,
-            server=current_server,
-            url=server_urls['https'],
-            protocol='HTTPS'
-        )
+        for attempt in range(max_attempts):
+            # Получаем текущий выбранный сервер
+            current_server = self.server_pool.get_current_server()
+            server_id = current_server['id']
+            
+            # Проверяем не заблокирован ли сервер
+            if self.server_pool.is_server_blocked(server_id):
+                log(f"⏭️ {current_server['name']} заблокирован, пропускаем", "🔄 RELEASE")
+                # Принудительно переключаемся на другой сервер
+                self.server_pool.force_switch()
+                if server_id in tried_servers:
+                    continue  # Уже пробовали этот сервер
+                tried_servers.add(server_id)
+                continue
+            
+            # Если уже пробовали этот сервер - все серверы перебраны
+            if server_id in tried_servers:
+                break
+                
+            tried_servers.add(server_id)
+            server_urls = self.server_pool.get_server_urls(current_server)
+            
+            log(f"📍 Выбран сервер: {current_server['name']} ({current_server['host']})", "🔄 RELEASE")
+            
+            # Пробуем HTTPS
+            result = self._try_vps_url(
+                channel=channel,
+                server=current_server,
+                url=server_urls['https'],
+                protocol='HTTPS'
+            )
+            
+            if result:
+                return result
+            
+            # Проверяем не заблокировали ли сервер после HTTPS попытки
+            if self.server_pool.is_server_blocked(server_id):
+                log(f"🔄 {current_server['name']} заблокирован после HTTPS, переключаемся", "🔄 RELEASE")
+                continue  # Переходим к следующему серверу
+            
+            # Пробуем HTTP только если сервер не заблокирован
+            result = self._try_vps_url(
+                channel=channel,
+                server=current_server,
+                url=server_urls['http'],
+                protocol='HTTP'
+            )
+            
+            if result:
+                return result
         
-        if result:
-            return result
-        
-        # Пробуем HTTP
-        result = self._try_vps_url(
-            channel=channel,
-            server=current_server,
-            url=server_urls['http'],
-            protocol='HTTP'
-        )
-        
-        return result
+        return None
 
     def _try_vps_url(
         self, 
@@ -223,162 +317,194 @@ class ReleaseManager:
         Returns:
             Dict с информацией о релизе или None
         """
+        from .update_cache import get_cached_all_versions, set_cached_all_versions, get_all_versions_source
+        
         server_id = server['id']
         server_name = f"{server['name']} ({protocol})"
         
         log(f"🔍 Проверка через {server_name}...", "🔄 RELEASE")
         
-        start_time = time.time()
+        # ✅ ПРОВЕРЯЕМ IN-MEMORY КЭШ СНАЧАЛА
+        cached_all_versions = get_cached_all_versions()
+        if cached_all_versions:
+            log(f"📦 Используем in-memory кэш all_versions (источник: {get_all_versions_source()})", "🔄 RELEASE")
+            all_data = cached_all_versions
+            # Пропускаем сетевой запрос, используем кэш
+            start_time = time.time()
+            response_time = 0.001  # Мгновенно из кэша
+        else:
+            start_time = time.time()
+            
+            try:
+                # Формируем URL API
+                api_url = f"{url}/api/all_versions.json"
+                
+                # Определяем проверку SSL
+                verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
+                
+                log(f"📡 Запрос к {api_url} (verify_ssl={verify_ssl})", "🔄 RELEASE")
+                
+                # Отключаем предупреждения SSL
+                if not verify_ssl:
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                # Делаем запрос
+                response = requests.get(
+                    api_url,
+                    timeout=TIMEOUT,
+                    verify=verify_ssl,
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "Zapret-Updater/3.1",
+                        "Cache-Control": "no-cache"
+                    }
+                )
+                response.raise_for_status()
+                
+                all_data = response.json()
+                response_time = time.time() - start_time  # ✅ Вычисляем время ответа
+                
+                # ✅ КЭШИРУЕМ РЕЗУЛЬТАТ
+                set_cached_all_versions(all_data, server_name)
+                
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response else 'unknown'
+                error_msg = f"HTTP {status_code}"
+                
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                
+                # При серьёзных ошибках блокируем ВСЕ VPS
+                if isinstance(status_code, int) and 500 <= status_code < 600:
+                    self._block_vps(f"HTTP {status_code} from {server_name}")
+                
+                self.last_error = error_msg
+                return None
+            
+            except requests.exceptions.Timeout:
+                error_msg = "timeout"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                
+                self.last_error = error_msg
+                return None
+            
+            except requests.exceptions.ConnectionError as e:
+                error_msg = f"connection error: {str(e)[:50]}"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                
+                self.last_error = error_msg
+                return None
+            
+            except requests.exceptions.SSLError as e:
+                error_msg = f"SSL error: {str(e)[:50]}"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                
+                self.last_error = error_msg
+                return None
+            
+            except Exception as e:
+                error_msg = f"error: {str(e)[:50]}"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                
+                self.last_error = error_msg
+                return None
         
-        try:
-            # Формируем URL API
-            api_url = f"{url}/api/all_versions.json"
+        # ✅ Теперь обрабатываем all_data (из кэша или из запроса)
+        # Преобразуем channel (dev -> test для API)
+        api_channel = "test" if channel == "dev" else channel
+        
+        if api_channel not in all_data or not all_data[api_channel]:
+            error_msg = f"Канал {api_channel} не найден"
+            log(f"⚠️ {server_name}: {error_msg}", "🔄 RELEASE")
             
-            # Определяем проверку SSL
-            verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
-            
-            log(f"📡 Запрос к {api_url} (verify_ssl={verify_ssl})", "🔄 RELEASE")
-            
-            # Отключаем предупреждения SSL
-            if not verify_ssl:
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            
-            # Делаем запрос
-            response = requests.get(
-                api_url,
-                timeout=TIMEOUT,
-                verify=verify_ssl,
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "Zapret-Updater/3.1",
-                    "Cache-Control": "no-cache"
-                }
-            )
-            response.raise_for_status()
-            
-            all_data = response.json()
-            
-            # Преобразуем channel (dev -> test для API)
-            api_channel = "test" if channel == "dev" else channel
-            
-            if api_channel not in all_data or not all_data[api_channel]:
-                error_msg = f"Канал {api_channel} не найден"
-                log(f"⚠️ {server_name}: {error_msg}", "🔄 RELEASE")
-                
-                # Записываем ошибку
+            # Записываем ошибку только если это не кэш
+            if not cached_all_versions:
                 self.server_pool.record_failure(server_id, error_msg)
                 self.server_stats.record_failure(server_name)
-                
-                return None
             
-            data = all_data[api_channel]
+            return None
+        
+        data = all_data[api_channel]
+        
+        if not data.get("version"):
+            error_msg = f"Отсутствует версия для {api_channel}"
+            log(f"⚠️ {server_name}: {error_msg}", "🔄 RELEASE")
             
-            if not data.get("version"):
-                error_msg = f"Отсутствует версия для {api_channel}"
-                log(f"⚠️ {server_name}: {error_msg}", "🔄 RELEASE")
-                
-                # Записываем ошибку
+            # Записываем ошибку только если это не кэш
+            if not cached_all_versions:
                 self.server_pool.record_failure(server_id, error_msg)
                 self.server_stats.record_failure(server_name)
-                
-                return None
             
-            # ✅ УСПЕХ - формируем результат
-            response_time = time.time() - start_time
-            
-            # Записываем успех
+            return None
+        
+        # ✅ УСПЕХ - формируем результат
+        # Записываем успех только если это не кэш
+        if not cached_all_versions:
             self.server_pool.record_success(server_id, response_time)
             self.server_stats.record_success(server_name, response_time)
-            
-            # Формируем URL для скачивания
-            filename = f"ZapretSetup{'_TEST' if api_channel == 'test' else ''}.exe"
-            download_url = f"{url}/download/{filename}"
-            
-            log(f"📦 {server_name}: версия {data['version']}, файл: {filename}", "🔄 RELEASE")
-            log(f"✅ {server_name}: успех ({response_time*1000:.0f}мс)", "🔄 RELEASE")
-            
-            result = {
-                "version": normalize_version(data.get("version", "0.0.0")),
-                "tag_name": f"v{data.get('version', '0.0.0')}",
-                "update_url": download_url,
-                "release_notes": data.get("release_notes", ""),
-                "prerelease": channel == "dev",
-                "name": f"Zapret {data.get('version', '0.0.0')} ({api_channel})",
-                "published_at": data.get("date", ""),
-                "source": server_name,
-                "verify_ssl": verify_ssl,
-                "file_size": data.get("file_size"),
-                "mtime": data.get("mtime"),
-                "modified_at": data.get("modified_at")
-            }
-            
-            # Дополнительная информация
-            if data.get("file_size"):
-                size_mb = data["file_size"] / (1024 * 1024)
-                log(f"📊 Размер файла: {size_mb:.2f} MB", "🔄 RELEASE")
-            
-            if data.get("modified_at"):
-                log(f"🕒 Обновлено: {data['modified_at']}", "🔄 RELEASE")
-            
-            # HEAD-проверка (опционально)
-            if ENABLE_FILE_HEAD_CHECK:
-                self._check_file_availability(download_url, verify_ssl, data.get("file_size"))
-            else:
-                log("⏭ Пропускаем HEAD‑проверку файла (отключено в клиенте)", "🔄 RELEASE")
-            
-            self.last_source = server_name
-            self.last_error = None
-            
-            return result
-            
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response else 'unknown'
-            error_msg = f"HTTP {status_code}"
-            
-            log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-            
-            # Записываем ошибку
-            self.server_pool.record_failure(server_id, error_msg)
-            self.server_stats.record_failure(server_name)
-            
-            # При серьёзных ошибках блокируем ВСЕ VPS
-            if isinstance(status_code, int) and 500 <= status_code < 600:
-                self._block_vps(f"HTTP {status_code} from {server_name}")
-            
-        except requests.exceptions.Timeout:
-            error_msg = "timeout"
-            log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-            
-            # Записываем ошибку
-            self.server_pool.record_failure(server_id, error_msg)
-            self.server_stats.record_failure(server_name)
         
-        except requests.exceptions.ConnectionError as e:
-            error_msg = f"connection error: {str(e)[:50]}"
-            log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-            
-            # Записываем ошибку
-            self.server_pool.record_failure(server_id, error_msg)
-            self.server_stats.record_failure(server_name)
+        # Формируем URL для скачивания
+        filename = f"Zapret2Setup{'_TEST' if api_channel == 'test' else ''}.exe"
+        download_url = f"{url}/download/{filename}"
         
-        except requests.exceptions.SSLError as e:
-            error_msg = f"SSL error: {str(e)[:50]}"
-            log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-            
-            # Записываем ошибку
-            self.server_pool.record_failure(server_id, error_msg)
-            self.server_stats.record_failure(server_name)
+        # Определяем verify_ssl для результата
+        verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
         
-        except Exception as e:
-            error_msg = f"error: {str(e)[:50]}"
-            log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-            
-            # Записываем ошибку
-            self.server_pool.record_failure(server_id, error_msg)
-            self.server_stats.record_failure(server_name)
+        log(f"📦 {server_name}: версия {data['version']}, файл: {filename}", "🔄 RELEASE")
+        log(f"✅ {server_name}: успех ({response_time*1000:.0f}мс)", "🔄 RELEASE")
         
-        self.last_error = error_msg
-        return None
+        result = {
+            "version": normalize_version(data.get("version", "0.0.0")),
+            "tag_name": f"v{data.get('version', '0.0.0')}",
+            "update_url": download_url,
+            "release_notes": data.get("release_notes", ""),
+            "prerelease": channel == "dev",
+            "name": f"Zapret {data.get('version', '0.0.0')} ({api_channel})",
+            "published_at": data.get("date", ""),
+            "source": server_name,
+            "verify_ssl": verify_ssl,
+            "file_size": data.get("file_size"),
+            "mtime": data.get("mtime"),
+            "modified_at": data.get("modified_at")
+        }
+        
+        # Дополнительная информация
+        if data.get("file_size"):
+            size_mb = data["file_size"] / (1024 * 1024)
+            log(f"📊 Размер файла: {size_mb:.2f} MB", "🔄 RELEASE")
+        
+        if data.get("modified_at"):
+            log(f"🕒 Обновлено: {data['modified_at']}", "🔄 RELEASE")
+        
+        # HEAD-проверка (опционально)
+        if ENABLE_FILE_HEAD_CHECK:
+            self._check_file_availability(download_url, verify_ssl, data.get("file_size"))
+        else:
+            log("⏭ Пропускаем HEAD‑проверку файла (отключено в клиенте)", "🔄 RELEASE")
+        
+        self.last_source = server_name
+        self.last_error = None
+        
+        return result
 
     def _check_file_availability(self, url: str, verify_ssl: bool, expected_size: Optional[int]):
         """Проверяет доступность файла через HEAD запрос"""

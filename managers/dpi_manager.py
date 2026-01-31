@@ -1,133 +1,170 @@
 from PyQt6.QtCore import QObject
 from log import log
-import time
 
 class DPIManager(QObject):
-    """Менеджер для управления DPI операциями"""
+    """⚡ Упрощенный менеджер для управления DPI операциями"""
     
     def __init__(self, app_instance):
         super().__init__()
         self.app = app_instance
+        self._autostart_initiated = False
 
     def delayed_dpi_start(self) -> None:
-        """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
+        """⚡ Быстрый автозапуск DPI при старте приложения"""
         
-        # ✅ ЗАЩИТА ОТ ДВОЙНОГО ВЫЗОВА
-        if hasattr(self.app, '_dpi_autostart_initiated') and self.app._dpi_autostart_initiated:
-            log("Автозапуск DPI уже был инициирован, пропускаем", "DEBUG")
+        # Защита от двойного вызова
+        if self._autostart_initiated:
+            log("Автозапуск DPI уже выполнен", "DEBUG")
             return
         
-        self.app._dpi_autostart_initiated = True
+        self._autostart_initiated = True
         
+        # 1. Проверяем, включен ли автозапуск
         from config import get_dpi_autostart
-
-        # 1. Автозапуск DPI включён?
         if not get_dpi_autostart():
-            log("Автозапуск DPI отключён пользователем.", level="INFO")
-            if hasattr(self.app, 'ui_manager'):
-                self.app.ui_manager.update_ui_state(running=False)
-            
-            # Закрываем splash только если автозапуск отключен
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(100, "Готово", "Автозапуск DPI отключен")
-            
+            log("Автозапуск DPI отключён", "INFO")
+            self._update_ui(running=False)
             return
 
-        # 2. Получаем метод запуска
+        # 2. Определяем режим запуска (Direct или BAT)
         from strategy_menu import get_strategy_launch_method
         launch_method = get_strategy_launch_method()
-        
-        # 3. Определяем, какую стратегию запускать
-        from config import get_last_strategy
-        strategy_name = get_last_strategy()
-        
-        # Обновляем прогресс
-        if hasattr(self.app, 'splash') and self.app.splash:
-            self.app.splash.set_progress(65, f"Запуск стратегии '{strategy_name}'...", "")
-        
-        # Проверяем, является ли это комбинированной стратегией
-        if strategy_name == "COMBINED_DIRECT":
-            self._start_combined_strategy(launch_method)
-        else:
-            self._start_regular_strategy(strategy_name, launch_method)
 
-        # 5. Обновляем интерфейс через UI Manager
+        # 3. Запускаем соответствующий режим
+        # ⚠️ ВАЖНО: direct_zapret2 обрабатывается отдельно в initialization_manager._start_direct_zapret2_autostart()
+        # и использует preset файл, поэтому НЕ включаем его здесь (иначе будет двойной вызов и перезапись файла)
+        if launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
+            self._start_direct_mode()
+        elif launch_method == "orchestra":
+            self._start_orchestra_mode()
+        else:
+            self._start_bat_mode()
+    
+    def _update_ui(self, running: bool):
+        """Обновляет UI состояние"""
         if hasattr(self.app, 'ui_manager'):
-            self.app.ui_manager.update_ui_state(running=True)
+            self.app.ui_manager.update_ui_state(running=running)
 
-    def _start_combined_strategy(self, launch_method: str) -> None:
-        """Запускает комбинированную стратегию"""
-        from strategy_menu import get_strategy_launch_method
-        
-        # Проверяем, что мы в режиме прямого запуска
-        if get_strategy_launch_method() == "direct":
-            from strategy_menu import get_direct_strategy_selections
-            from strategy_menu.strategy_lists_separated import combine_strategies
-            
-            selections = get_direct_strategy_selections()
-            combined = combine_strategies(**selections)
-            
-            # Создаем объект комбинированной стратегии
-            combined_data = {
-                'id': 'COMBINED_DIRECT',
-                'name': 'Прямой запуск',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': selections
-            }
-            
-            log(f"Автозапуск комбинированной стратегии с выборами: {selections}", level="INFO")
-            
-            # Обновляем UI
-            self.app.current_strategy_label.setText("Прямой запуск")
-            self.app.current_strategy_name = "Прямой запуск"
-            
-            # Запускаем с комбинированными данными
-            self.app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-        else:
-            # Если не в режиме прямого запуска, используем fallback
-            log("Комбинированная стратегия недоступна в классическом режиме", level="⚠ WARNING")
-            # Используем стратегию по умолчанию
-            self.app.dpi_controller.start_dpi_async(selected_mode="default")
+    def _start_direct_mode(self):
+        """⚡ Запускает Direct режим (комбинированные стратегии)"""
+        from strategy_menu import (
+            get_direct_strategy_selections, get_strategy_launch_method,
+            is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
+        )
+        from launcher_common import combine_strategies
 
-    def _start_regular_strategy(self, strategy_name: str, launch_method: str) -> None:
-        """Запускает обычную стратегию"""
-        log(f"Автозапуск DPI: стратегия «{strategy_name}»", level="INFO")
+        # ✅ При ПЕРВОМ запуске в режиме direct_zapret2_orchestra - сбрасываем все стратегии в "none"
+        launch_method = get_strategy_launch_method()
+        if launch_method == "direct_zapret2_orchestra" and not is_direct_zapret2_orchestra_initialized():
+            log("🆕 Первая инициализация DirectOrchestra при автозапуске - сброс всех стратегий в 'none'", "INFO")
+            clear_direct_zapret2_orchestra_strategies()
+            set_direct_zapret2_orchestra_initialized(True)
+
+        # Получаем выборы пользователя и комбинируем стратегии
+        selections = get_direct_strategy_selections()
+        combined = combine_strategies(**selections)
         
-        # ✅ ИСПРАВЛЕНИЕ: Если режим Direct, используем комбинированную стратегию по умолчанию
-        if launch_method == "direct":
-            log(f"Обнаружена обычная стратегия '{strategy_name}' в Direct режиме", "INFO")
-            log("Используем комбинированную стратегию по умолчанию вместо переключения режима", "INFO")
-            
-            # Используем комбинированную стратегию с настройками по умолчанию
-            from config import set_last_strategy
-            from strategy_menu import get_direct_strategy_selections
-            from strategy_menu.strategy_lists_separated import combine_strategies
-            
-            selections = get_direct_strategy_selections()
-            combined = combine_strategies(**selections)
-            
-            # Создаем объект комбинированной стратегии
-            combined_data = {
-                'id': 'COMBINED_DIRECT',
-                'name': 'Прямой запуск',
-                'is_combined': True,
-                'args': combined['args'],
-                'selections': selections
-            }
-            
+        # Проверка: есть ли активные категории?
+        if combined.get('_active_categories', 0) == 0:
+            log("Автозапуск пропущен: нет активных категорий", "INFO")
+            self.app.set_status("⚠️ Выберите хотя бы одну категорию")
+            self._update_ui(running=False)
+            return
+        
+        # Подготавливаем данные для запуска
+        strategy_data = {
+            'id': 'DIRECT_MODE',
+            'name': 'Прямой запуск',
+            'is_combined': True,
+            'args': combined['args'],
+            'selections': selections
+        }
+        
+        log(f"Автозапуск Direct: {selections}", "INFO")
+
+        # Обновляем UI и запускаем
+        self.app.current_strategy_name = "Прямой запуск"
+        # ✅ Передаём актуальный launch_method (direct, direct_zapret2_orchestra, direct_zapret1)
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
+        self._update_ui(running=True)
+
+    def _start_bat_mode(self):
+        """⚡ Запускает BAT стратегию"""
+        from config.reg import get_last_bat_strategy
+
+        strategy_name = get_last_bat_strategy()
+        log(f"Автозапуск BAT: «{strategy_name}»", "INFO")
+
+        # Обновляем UI и запускаем
+        self.app.current_strategy_name = strategy_name
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
+        self._update_ui(running=True)
+
+    def _start_orchestra_mode(self):
+        """⚡ Запускает режим Оркестра (автообучение)"""
+        try:
+            from orchestra import OrchestraRunner
+
+            log("Автозапуск Orchestra: автообучение", "INFO")
+
+            # Создаём runner если его нет
+            if not hasattr(self.app, 'orchestra_runner'):
+                self.app.orchestra_runner = OrchestraRunner()
+
+            # Устанавливаем callback для авторестарта при Discord FAIL
+            self.app.orchestra_runner.restart_callback = self._on_discord_fail_restart
+
+            # НЕ используем callback - UI обновляется через таймер (чтение лог-файла)
+            # Это безопаснее, т.к. callback вызывается из reader thread
+
+            if not self.app.orchestra_runner.prepare():
+                log("Ошибка подготовки оркестратора", "ERROR")
+                self.app.set_status("❌ Ошибка подготовки оркестратора")
+                self._update_ui(running=False)
+                return
+
+            if not self.app.orchestra_runner.start():
+                log("Ошибка запуска оркестратора", "ERROR")
+                self.app.set_status("❌ Ошибка запуска оркестратора")
+                self._update_ui(running=False)
+                return
+
             # Обновляем UI
-            self.app.current_strategy_label.setText("Прямой запуск")
-            self.app.current_strategy_name = "Прямой запуск"
-            
-            # Сохраняем что теперь используется комбинированная стратегия
-            set_last_strategy("COMBINED_DIRECT")
-            
-            # Запускаем с комбинированными данными
-            self.app.dpi_controller.start_dpi_async(selected_mode=combined_data)
-            
-        else:
-            # BAT режим - запускаем как обычно
-            self.app.current_strategy_label.setText(strategy_name)
-            self.app.current_strategy_name = strategy_name
-            self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name)
+            self.app.current_strategy_name = "Оркестр"
+            self._update_ui(running=True)
+
+            # Запускаем мониторинг на странице оркестра
+            if hasattr(self.app, 'orchestra_page'):
+                self.app.orchestra_page.start_monitoring()
+
+        except Exception as e:
+            log(f"Ошибка запуска Orchestra: {e}", "ERROR")
+            self.app.set_status(f"❌ Ошибка: {e}")
+            self._update_ui(running=False)
+
+    def _on_discord_fail_restart(self):
+        """Callback для перезапуска Discord при FAIL"""
+        try:
+            from PyQt6.QtCore import QTimer
+            log("🔄 Запланирован перезапуск Discord из-за FAIL", "WARNING")
+
+            # Используем QTimer для выполнения в главном потоке
+            QTimer.singleShot(500, self._do_discord_restart)
+
+        except Exception as e:
+            log(f"Ошибка планирования перезапуска Discord: {e}", "ERROR")
+
+    def _do_discord_restart(self):
+        """Выполняет перезапуск Discord"""
+        try:
+            log("🔄 Перезапуск Discord из-за FAIL...", "INFO")
+
+            if hasattr(self.app, 'discord_manager') and self.app.discord_manager:
+                self.app.discord_manager.restart_discord_if_running()
+            else:
+                log("discord_manager недоступен", "WARNING")
+
+        except Exception as e:
+            log(f"Ошибка перезапуска Discord: {e}", "ERROR")
+            if hasattr(self.app, 'set_status'):
+                self.app.set_status("⚠️ Не удалось перезапустить Discord")

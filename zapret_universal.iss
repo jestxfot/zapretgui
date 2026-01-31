@@ -11,25 +11,45 @@
   #define VERSION "16.1.0.0"
 #endif
 
-; ✅ АБСОЛЮТНЫЕ ПУТИ
-#define SourcePath "H:\Privacy\zapret"
-#define ProjectPath "H:\Privacy\zapretgui"
+; Пути можно переопределять из CI: ISCC.exe /DSOURCEPATH=... /DPROJECTPATH=...
+#ifndef SOURCEPATH
+  #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret"
+#endif
+#ifndef PROJECTPATH
+  #define PROJECTPATH "\\wsl.localhost\Debian\opt\zapretgui"
+#endif
 
-; Настройки в зависимости от канала
+; ✅ Настройки в зависимости от канала
 #if CHANNEL == "test"
-  #define AppName "Zapret Dev"
-  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0-TEST}}"
-  #define OutputName "ZapretSetup_TEST"
-  #define GroupName "Zapret Dev"
-  #define DataFolder "ZapretDev"
+  #define AppName "Zapret 2 Dev"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F1-TEST}}"
+  #define OutputName "Zapret2Setup_TEST"
+  #define GroupName "Zapret 2 Dev"
+  #define DataFolder "ZapretTwoDev"
   #define IconFile "ZapretDevLogo4.ico"
 #else
-  #define AppName "Zapret"
-  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F0}}"
-  #define OutputName "ZapretSetup"
-  #define GroupName "Zapret"
-  #define DataFolder "Zapret"
+  #define AppName "Zapret 2"
+  #define AppId "{{5C71C1DC-7627-4E57-9B1A-6B5D1F3A57F1}}"
+  #define OutputName "Zapret2Setup"
+  #define GroupName "Zapret 2"
+  #define DataFolder "ZapretTwo"
   #define IconFile "Zapret2.ico"
+#endif
+
+; Имя ярлыков (Start Menu / Desktop) с версией
+#define ShortcutName AppName + " v" + VERSION
+
+; Иконка установщика: ожидаем в {#SOURCEPATH}\ico\{#IconFile},
+; но делаем fallback, чтобы сборка не падала на чистом окружении.
+#define _ICON_FROM_SOURCE AddBackslash(SOURCEPATH) + "ico\\" + IconFile
+#define _ICON_FROM_PROJECT AddBackslash(PROJECTPATH) + IconFile
+#define _ICON_FALLBACK AddBackslash(PROJECTPATH) + "zapret.ico"
+#if FileExists(_ICON_FROM_SOURCE)
+  #define SetupIconResolved _ICON_FROM_SOURCE
+#elif FileExists(_ICON_FROM_PROJECT)
+  #define SetupIconResolved _ICON_FROM_PROJECT
+#else
+  #define SetupIconResolved _ICON_FALLBACK
 #endif
 
 [Setup]
@@ -39,29 +59,17 @@ AppId={#AppId}
 DefaultDirName={code:GetInstallDir}
 DisableDirPage=no
 UsePreviousAppDir=yes
+DirExistsWarning=no
 PrivilegesRequired=admin
 DefaultGroupName={#GroupName}
 AllowNoIcons=yes
 ; ✅ Выходной файл в папке проекта
-OutputDir={#ProjectPath}
+OutputDir={#PROJECTPATH}
 OutputBaseFilename={#OutputName}
 Compression=lzma2
 SolidCompression=yes
-; ✅ ИСПРАВЛЕНО: Проверяем разные пути к иконке
-#ifexist SourcePath + "\ico\" + IconFile
-  ; Иконка в папке сборки
-  SetupIconFile={#SourcePath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\ico\" + IconFile)
-  ; Иконка в папке проекта
-  SetupIconFile={#ProjectPath}\ico\{#IconFile}
-#elif FileExists(ProjectPath + "\" + IconFile)
-  ; Иконка в корне проекта
-  SetupIconFile={#ProjectPath}\{#IconFile}
-#else
-  ; Используем стандартную иконку Inno Setup если наша не найдена
-  ; Закомментируйте эту строку, чтобы увидеть ошибку если иконка не найдена
-  ; SetupIconFile=
-#endif
+; ✅ Иконка установщика (используем абсолютный путь)
+SetupIconFile={#SetupIconResolved}
 UninstallDisplayIcon={app}\Zapret.exe
 WizardStyle=modern
 CloseApplications=yes
@@ -72,34 +80,54 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 ; ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЕ ПУТИ
-Source: "{#SourcePath}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion;
+; ✅ ИЗМЕНЕНО: Копируем всю папку dist\Zapret (режим --onedir PyInstaller)
+Source: "{#SOURCEPATH}\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
 
 ; Копируем папки
-Source: "{#SourcePath}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\lists\*"; DestDir: "{app}\lists"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SourcePath}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем lists, но исключаем пользовательские файлы (other2.txt, my-ipset.txt, netrogat.txt)
+Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ other2.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские домены при обновлении)
+Source: "{#SOURCEPATH}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ my-ipset.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
+Source: "{#SOURCEPATH}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
+Source: "{#SOURCEPATH}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\sos\*"; DestDir: "{app}\sos"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\help\*"; DestDir: "{app}\help"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\windivert.filter\*"; DestDir: "{app}\windivert.filter"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем themes (фоновые изображения для тем), исключаем .exe файлы
+Source: "{#SOURCEPATH}\themes\*"; DestDir: "{app}\themes"; Excludes: "*.exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
-Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\Zapret.exe"
-Name: "{commondesktop}\{#AppName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
+Name: "{group}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; WorkingDir: "{app}"
+Name: "{group}\Удалить {#ShortcutName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\Zapret.exe"
+Name: "{commondesktop}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: desktopicon; Description: "Создать ярлык на рабочем столе";
 
 [InstallDelete]
-Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
-; ✅ ИСПРАВЛЕНИЕ: Удаляем старые ярлыки перед созданием новых
-Type: files; Name: "{commondesktop}\Zapret.lnk"
-Type: files; Name: "{commondesktop}\Zapret Dev.lnk"
+; Удаляем СТАРЫЕ папки (миграция на новые имена)
+Type: filesandordirs; Name: "{commonappdata}\Zapret2Dev"
+Type: filesandordirs; Name: "{commonappdata}\Zapret2"
+Type: filesandordirs; Name: "{commonappdata}\ZapretDev"
+Type: filesandordirs; Name: "{commonappdata}\Zapret"
+; Удаляем старые ярлыки (без версии и с версией), чтобы не копились при обновлениях
+Type: files; Name: "{commondesktop}\{#AppName}.lnk"
+Type: files; Name: "{commondesktop}\{#AppName} v*.lnk"
+Type: files; Name: "{group}\{#AppName}.lnk"
+Type: files; Name: "{group}\{#AppName} v*.lnk"
+Type: files; Name: "{group}\Удалить {#AppName}.lnk"
+Type: files; Name: "{group}\Удалить {#AppName} v*.lnk"
 
 [UninstallDelete]
+Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 
 [Run]
@@ -167,13 +195,36 @@ begin
 end;
 
 procedure StopAndDeleteService(const ServiceName: string);
-var R: Integer;
+var 
+  R: Integer;
+  Attempt: Integer;
 begin
+  // Останавливаем службу
   Exec('sc.exe', 'stop "' + ServiceName + '"', '',
        SW_HIDE, ewWaitUntilTerminated, R);
-  Sleep(100);
-  Exec('sc.exe', 'delete "' + ServiceName + '"', '',
-       SW_HIDE, ewWaitUntilTerminated, R);
+  Sleep(200);
+  
+  // Пробуем удалить с повторными попытками (ошибка 1072 - служба помечена для удаления)
+  for Attempt := 1 to 5 do
+  begin
+    Exec('sc.exe', 'delete "' + ServiceName + '"', '',
+         SW_HIDE, ewWaitUntilTerminated, R);
+    
+    // Если успешно удалено или служба не существует - выходим
+    if (R = 0) or (R = 1060) then
+      Break;
+    
+    // Если служба помечена для удаления (1072) - ждём и пробуем снова
+    if R = 1072 then
+    begin
+      // Убиваем процессы которые могут держать хэндлы
+      Exec('taskkill.exe', '/F /IM winws.exe /T', '', SW_HIDE, ewWaitUntilTerminated, R);
+      Exec('taskkill.exe', '/F /IM winws2.exe /T', '', SW_HIDE, ewWaitUntilTerminated, R);
+      Sleep(500);
+    end
+    else
+      Break;
+  end;
 end;
 
 { ✅ ИСПРАВЛЕНО: InitializeSetup БЕЗ прогресс-бара }
@@ -184,6 +235,7 @@ begin
   // ✅ СРАЗУ ЗАКРЫВАЕМ ZAPRET.EXE БЕЗ GUI (WizardForm еще не создана)
   KillProcessWithRetry('Zapret.exe');
   KillProcessWithRetry('winws.exe');
+  KillProcessWithRetry('winws2.exe');
   
   // Определяем режим обновления
   IsUpdateMode := IsAutoUpdate;
@@ -208,6 +260,7 @@ begin
   begin
     KillProcessWithRetry('Zapret.exe');
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     StopAndDeleteService('WinDivert');
     StopAndDeleteService('WinDivert14');
     StopAndDeleteService('WinDivert1.4');
@@ -236,6 +289,7 @@ begin
     ProgressPage.SetText('Проверка процесса winws.exe...', '');
     ProgressPage.SetProgress(CurrentStep, StepCount);
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     CurrentStep := CurrentStep + 1;
     ProgressPage.SetText('Остановка службы Monkey...', '');
@@ -258,18 +312,24 @@ begin
 end;
 
 function GetInstallDir(Param: string): string;
+var
+  Candidate: string;
 begin
-  Result := ExpandConstant('{commonappdata}\{#DataFolder}');
-end;
-
-function IsAsciiLetter(C: Char): Boolean;
-begin
-  Result := (C >= 'A') and (C <= 'Z') or (C >= 'a') and (C <= 'z');
+  // По умолчанию ставим в Roaming\AppData.
+  // Пробелы в пути запрещаем (часть .bat/команд может ломаться без кавычек),
+  // поэтому для профилей с пробелами откатываемся на ProgramData.
+  Candidate := ExpandConstant('{userappdata}\{#DataFolder}');
+  if Pos(' ', Candidate) = 0 then
+    Result := Candidate
+  else
+    Result := ExpandConstant('{commonappdata}\{#DataFolder}');
 end;
 
 function IsAllowedChar(C: Char): Boolean;
 begin
-  Result := IsAsciiLetter(C) or (C = '\') or (C = ':');
+  // Разрешаем цифры и любые Unicode-буквы (включая русские),
+  // но запрещаем пробелы в пути.
+  Result := (C <> ' ');
 end;
 
 function CheckDirName(const Dir: string): Boolean;
@@ -292,9 +352,8 @@ begin
   begin
     if not CheckDirName(WizardDirValue) then
     begin
-      MsgBox('Путь к папке установки может содержать только латинские буквы ' +
-             'и символы "\" и ":". ' + #13#10 +
-             'Без пробелов, цифр и специальных символов.',
+      MsgBox('Путь к папке установки не должен содержать пробелов.' + #13#10 +
+             'Цифры и русские буквы разрешены.',
              mbError, MB_OK);
       Result := False;
     end;
@@ -313,6 +372,7 @@ begin
       StopAndDeleteService('WinDivert64');
       StopAndDeleteService('Monkey');
       KillProcessWithRetry('winws.exe');
+      KillProcessWithRetry('winws2.exe');
       KillProcessWithRetry('Zapret.exe');
       Sleep(500);
       Exit;
@@ -330,6 +390,7 @@ begin
     UninstallProgressForm.ProgressBar.Position := 60;
     
     KillProcessWithRetry('winws.exe');
+    KillProcessWithRetry('winws2.exe');
     
     UninstallProgressForm.ProgressBar.Position := 80;
     

@@ -1,17 +1,156 @@
 # build_zapret/build_release_gui.py
 
 from __future__ import annotations
-import ctypes, json, os, re, shutil, subprocess, sys, tempfile, textwrap, urllib.request
-from pathlib import Path
-from datetime import date
-from typing import Sequence, Any, Optional
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
-import threading
-from keyboard_manager import KeyboardManager
-from queue import Queue
-import time
 
+import os
+import sys
+import sysconfig
+from pathlib import Path
+import re
+
+ROOT_HINT = Path(__file__).resolve().parents[1]
+if str(ROOT_HINT) not in sys.path:
+    sys.path.insert(0, str(ROOT_HINT))
+
+try:
+    from utils.dotenv import load_dotenv
+except Exception:
+    load_dotenv = None  # type: ignore[assignment]
+
+if load_dotenv is not None:
+    # Allow local configuration without hardcoding secrets/paths in repo.
+    load_dotenv(ROOT_HINT / ".env", ROOT_HINT / "build_zapret" / ".env")
+
+
+def _is_free_threaded_python() -> bool:
+    """
+    True если интерпретатор собран как free-threaded (PEP 703 / "t"-build).
+
+    В таких сборках некоторые C-расширения/GUI-биндинги могут падать при запуске
+    без GIL (как в отчёте пользователя). Поэтому для GUI сборщика безопаснее
+    принудительно включать GIL через `-X gil=1`.
+    """
+    # 1) Самый надёжный признак, если доступен в sysconfig.
+    try:
+        if bool(sysconfig.get_config_var("Py_GIL_DISABLED")):
+            return True
+    except Exception:
+        pass
+
+    # 2) На Windows `sysconfig` может не отдавать переменную; тогда смотрим на имя exe.
+    try:
+        exe = Path(sys.executable).name.lower()
+        if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?t\.exe", exe):
+            return True
+        if exe.endswith("t.exe") and exe.startswith("python"):
+            return True
+    except Exception:
+        pass
+
+    # 3) В free-threaded сборках есть internal API для проверки GIL.
+    return callable(getattr(sys, "_is_gil_enabled", None))
+
+
+def _is_gil_enabled() -> bool:
+    """
+    Пытаемся определить, включён ли GIL в текущем процессе.
+    Для обычных Python всегда True.
+    """
+    if not _is_free_threaded_python():
+        return True
+
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    if callable(is_gil_enabled):
+        try:
+            return bool(is_gil_enabled())
+        except Exception:
+            pass
+
+    # Фоллбек (на случай отсутствия API): доверяем явным настройкам запуска.
+    if os.environ.get("PYTHON_GIL") in {"1", "true", "TRUE", "yes", "YES"}:
+        return True
+    if getattr(sys, "_xoptions", {}).get("gil") is not None:
+        return True
+    if os.environ.get("ZAPRETGUI_GIL_REEXEC_DONE") == "1":
+        return True
+    return False
+
+
+def _maybe_reexec_with_gil_enabled() -> None:
+    """
+    Если запустили free-threaded Python без GIL, перезапускаем этот же скрипт с `-X gil=1`
+    до импорта tkinter и других потенциально проблемных модулей.
+
+    Отключить поведение можно, задав `ZAPRETGUI_SKIP_GIL_REEXEC=1`.
+    """
+    if os.environ.get("ZAPRETGUI_SKIP_GIL_REEXEC") == "1":
+        return
+
+    if sys.platform != "win32":
+        return
+
+    if not _is_free_threaded_python():
+        return
+
+    # Защита от бесконечного перезапуска.
+    if os.environ.get("ZAPRETGUI_GIL_REEXEC_DONE") == "1":
+        return
+
+    if _is_gil_enabled():
+        return
+
+    os.environ["ZAPRETGUI_GIL_REEXEC_DONE"] = "1"
+    os.environ.setdefault("PYTHON_GIL", "1")
+
+    try:
+        os.execv(sys.executable, [sys.executable, "-X", "gil=1", *sys.argv])
+    except Exception:
+        # Если re-exec невозможен — продолжаем как есть (лучше дать шанс,
+        # чем падать здесь). Ошибка воспроизведётся и будет видна пользователю.
+        return
+
+
+_maybe_reexec_with_gil_enabled()
+
+import ctypes
+import json
+import re
+import shutil
+import subprocess
+import tempfile
+import textwrap
+import urllib.request
+from datetime import date
+from queue import Queue
+from typing import Any, Optional, Sequence
+import importlib.util
+
+import threading
+import time
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+
+from keyboard_manager import KeyboardManager
+
+
+def ensure_inno_ico_dir(source_path: Path, project_root: Path, log_queue: Queue | None = None) -> None:
+    """
+    Inno Setup ожидает иконки в `{#SOURCEPATH}\\ico\\...` (см. *.iss).
+    Гарантируем папку и копируем туда *.ico из корня проекта.
+    """
+    ico_dir = source_path / "ico"
+    ico_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for ico in project_root.glob("*.ico"):
+        try:
+            shutil.copy2(ico, ico_dir / ico.name)
+            copied += 1
+        except Exception:
+            pass
+
+    if log_queue is not None:
+        log_queue.put(f"🖼️ Иконки: {ico_dir} (скопировано: {copied})")
 
 # ════════════════════════════════════════════════════════════════
 #  УНИВЕРСАЛЬНЫЙ ИМПОРТ МОДУЛЕЙ СБОРКИ
@@ -123,14 +262,67 @@ deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, SSH_AVAILABLE = s
 
 
 def check_telegram_configured() -> tuple[bool, str]:
-    """Проверяет наличие Telegram сессии Pyrogram"""
-    
-    session_file = Path(__file__).parent / "zapret_uploader.session"
-    
-    if not session_file.exists():
-        return False, "⚠️ Требуется авторизация (telegram_auth_pyrogram.py)"
-    
-    return True, "✅ Pyrogram сессия активна"
+    """Проверяет наличие Telegram сессии (Pyrogram или Telethon)."""
+
+    pyrogram_session = Path(__file__).parent / "zapret_uploader_pyrogram.session"
+    telethon_session = Path(__file__).parent / "zapret_uploader.session"
+
+    if pyrogram_session.exists():
+        return True, "✅ Pyrogram сессия активна"
+    if telethon_session.exists():
+        return True, "✅ Telethon сессия активна"
+
+    return False, "⚠️ Требуется авторизация (Pyrogram/Telethon)"
+
+def _load_build_telegram_config() -> tuple[str, str]:
+    """
+    Возвращает (TELEGRAM_API_ID, TELEGRAM_API_HASH) из окружения/.env.
+    """
+    api_id = (os.getenv("TELEGRAM_API_ID") or os.getenv("ZAPRET_TELEGRAM_API_ID") or "").strip()
+    api_hash = (os.getenv("TELEGRAM_API_HASH") or os.getenv("ZAPRET_TELEGRAM_API_HASH") or "").strip()
+    if api_id and api_hash:
+        return api_id, api_hash
+
+    raise RuntimeError(
+        "Telegram API ключи не найдены.\n"
+        "Нужно задать TELEGRAM_API_ID и TELEGRAM_API_HASH через:\n"
+        "- или переменные окружения.\n"
+    )
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip() in {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
+
+def _to_wsl_path(path: Path, distro: str = "Debian") -> str:
+    """
+    Конвертирует путь Windows/UNC в Linux-путь для запуска внутри WSL.
+
+    Поддержка:
+      - \\\\wsl.localhost\\<Distro>\\opt\\...  -> /opt/...
+      - //wsl.localhost/<Distro>/opt/...       -> /opt/...
+      - C:\\Users\\...                        -> /mnt/c/Users/...
+    """
+    s = str(path)
+
+    if s.startswith("\\\\wsl.localhost\\"):
+        parts = s.split("\\")
+        if len(parts) >= 5 and parts[3].lower() == distro.lower():
+            rest = [p for p in parts[4:] if p]
+            return "/" + "/".join(rest)
+
+    s_posix = path.as_posix()
+    prefix = f"//wsl.localhost/{distro}/"
+    if s_posix.lower().startswith(prefix.lower()):
+        return "/" + s_posix[len(prefix):].lstrip("/")
+
+    m = re.match(r"^([A-Za-z]):[\\\\/](.*)$", s)
+    if m:
+        drive = m.group(1).lower()
+        rest = m.group(2).replace("\\", "/")
+        return f"/mnt/{drive}/{rest}"
+
+    if s.startswith("/"):
+        return s
+    return s
 
 # Скрываем консоль Windows
 if sys.platform == "win32":
@@ -239,12 +431,16 @@ def elevate_as_admin():
     pythonw = PY.replace('python.exe', 'pythonw.exe')
     if not Path(pythonw).exists():
         pythonw = PY
-    
+
+    # Сохраняем CLI аргументы при перезапуске (важно для --fast-exe и прочего).
+    args = [str(Path(__file__).resolve()), *sys.argv[1:]]
+    params = subprocess.list2cmdline(args)
+
     ctypes.windll.shell32.ShellExecuteW(
         None, 
         "runas", 
         pythonw,
-        f'"{Path(__file__).resolve()}"',
+        params,
         str(ROOT), 
         1
     )
@@ -482,11 +678,12 @@ def write_build_info(channel: str, version: str):
 #  GUI КЛАСС
 # ════════════════════════════════════════════════════════════════
 class BuildReleaseGUI:
-    def __init__(self):
+    def __init__(self, cli: dict[str, str | bool | None] | None = None):
+        self.cli = cli or {}
         self.root = tk.Tk()
         self.root.title("Zapret Release Builder")
-        self.root.geometry("950x1000")
-        self.root.minsize(950, 1000)
+        self.root.geometry("1100x1300")
+        self.root.minsize(1100, 1300)
         
         # Стилизация
         self.setup_styles()
@@ -503,6 +700,8 @@ class BuildReleaseGUI:
         self.version_var = tk.StringVar()
         self.build_method_var = tk.StringVar(value="pyinstaller")
         self.publish_telegram_var = tk.BooleanVar(value=False)
+        self.fast_exe_var = tk.BooleanVar(value=bool(self.cli.get("fast_exe")))
+        self.fast_exe_dest_var = tk.StringVar(value=str(self.cli.get("fast_exe_dest") or ""))
         self.versions_info = {"stable": "—", "test": "—"}
         
         # Создаем интерфейс
@@ -513,6 +712,205 @@ class BuildReleaseGUI:
         
         # Запускаем обработчик очереди логов
         self.process_log_queue()
+
+    def _project_root(self) -> Path:
+        return ROOT
+
+    def _source_root(self) -> Path:
+        # ожидаем соседний репозиторий/папку zapret рядом с zapretgui
+        return ROOT.parent / "zapret"
+
+    def _produced_installer_path(self, channel: str) -> Path:
+        return self._project_root() / f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+
+    def _built_exe_path(self) -> Path:
+        # Выход PyInstaller/Nuitka: ../zapret/Zapret/Zapret.exe
+        return self._source_root() / "Zapret" / "Zapret.exe"
+
+    def _fast_dest_exe_path(self, channel: str) -> Path:
+        override = (self.fast_exe_dest_var.get() or "").strip()
+        if override:
+            p = Path(override)
+            if p.suffix.lower() == ".exe":
+                return p
+            return p / "Zapret.exe"
+
+        env_override = (os.environ.get("ZAPRET_FAST_EXE_DEST") or "").strip()
+        if env_override:
+            p = Path(env_override)
+            if p.suffix.lower() == ".exe":
+                return p
+            return p / "Zapret.exe"
+
+        detected = self._detect_installed_zapret_exe(channel)
+        if detected is not None:
+            return detected
+
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            base = Path(appdata)
+        else:
+            base = Path.home() / "AppData" / "Roaming"
+
+        folder = "ZapretTwoDev" if channel == "test" else "ZapretTwo"
+        return base / folder / "Zapret.exe"
+
+    def _detect_installed_zapret_exe(self, channel: str) -> Path | None:
+        """
+        Пытаемся определить реальный путь установленной программы из реестра (Inno Setup uninstall key).
+
+        Это нужно, потому что быстрый режим часто запускается под другим Windows-пользователем,
+        а приложение установлено, например, в профиле Admin (AppData\\Roaming).
+        """
+        if sys.platform != "win32":
+            return None
+
+        try:
+            import winreg  # stdlib on Windows
+        except Exception:
+            return None
+
+        # Optional explicit AppId(s) from env for точного поиска.
+        # Inno uninstall key name is usually "{APPID}_is1".
+        appid_test = (os.environ.get("ZAPRET_INNO_APPID_TEST") or "").strip()
+        appid_stable = (os.environ.get("ZAPRET_INNO_APPID_STABLE") or "").strip()
+
+        # Heuristics: match by DisplayName and/or key name.
+        want_test = channel == "test"
+        wanted_folder = "zaprettwodev" if want_test else "zaprettwo"
+
+        def _parse_display_icon(raw: str) -> str:
+            raw = (raw or "").strip().strip('"')
+            if not raw:
+                return ""
+            # Inno sometimes stores: "C:\\Path\\app.exe",0
+            if "," in raw:
+                raw = raw.split(",", 1)[0].strip().strip('"')
+            return raw
+
+        def _safe_get_value(hkey, name: str) -> str:
+            try:
+                v, _t = winreg.QueryValueEx(hkey, name)
+                return str(v)
+            except Exception:
+                return ""
+
+        def _iter_uninstall_roots():
+            # Prefer searching both HKLM/HKCU and both views (64/32).
+            roots = [
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ]
+            views = []
+            try:
+                views.append(winreg.KEY_WOW64_64KEY)
+                views.append(winreg.KEY_WOW64_32KEY)
+            except Exception:
+                views.append(0)
+
+            for hive, path in roots:
+                for view in views:
+                    yield hive, path, view
+
+        matches: list[tuple[int, Path]] = []
+
+        for hive, root_path, view in _iter_uninstall_roots():
+            try:
+                root = winreg.OpenKey(hive, root_path, 0, winreg.KEY_READ | view)
+            except Exception:
+                continue
+
+            try:
+                i = 0
+                while True:
+                    try:
+                        subkey_name = winreg.EnumKey(root, i)
+                    except OSError:
+                        break
+                    i += 1
+
+                    # If AppId provided, use exact key name match first.
+                    if want_test and appid_test:
+                        target = f"{appid_test}_is1"
+                        if subkey_name.lower() != target.lower():
+                            continue
+                    if (not want_test) and appid_stable:
+                        target = f"{appid_stable}_is1"
+                        if subkey_name.lower() != target.lower():
+                            continue
+
+                    try:
+                        h = winreg.OpenKey(root, subkey_name, 0, winreg.KEY_READ | view)
+                    except Exception:
+                        continue
+
+                    try:
+                        display_name = _safe_get_value(h, "DisplayName")
+                        install_location = _safe_get_value(h, "InstallLocation")
+                        app_path = _safe_get_value(h, "Inno Setup: App Path")
+                        display_icon = _parse_display_icon(_safe_get_value(h, "DisplayIcon"))
+
+                        # Candidate destination path.
+                        candidate: Path | None = None
+                        if display_icon.lower().endswith(".exe"):
+                            candidate = Path(display_icon)
+                        elif install_location:
+                            candidate = Path(install_location) / "Zapret.exe"
+                        elif app_path:
+                            candidate = Path(app_path) / "Zapret.exe"
+
+                        if candidate is None:
+                            continue
+
+                        # Score candidate relevance.
+                        dn = (display_name or "").lower()
+                        sk = (subkey_name or "").lower()
+                        score = 0
+
+                        if want_test:
+                            if "test" in sk or "-test" in sk or "dev" in dn:
+                                score += 100
+                        else:
+                            if ("test" not in sk and "-test" not in sk) and ("dev" not in dn):
+                                score += 100
+
+                        # Folder hint.
+                        cand_s = str(candidate).lower().replace("/", "\\")
+                        if wanted_folder in cand_s:
+                            score += 50
+
+                        if cand_s.endswith("\\zapret.exe") or cand_s.endswith("/zapret.exe"):
+                            score += 20
+
+                        # DisplayName hint.
+                        if "zapret" in dn:
+                            score += 10
+
+                        if score > 0:
+                            matches.append((score, candidate))
+                    finally:
+                        try:
+                            winreg.CloseKey(h)
+                        except Exception:
+                            pass
+            finally:
+                try:
+                    winreg.CloseKey(root)
+                except Exception:
+                    pass
+
+        if not matches:
+            return None
+
+        # Prefer existing file if possible.
+        matches.sort(key=lambda t: t[0], reverse=True)
+        for _score, path in matches:
+            try:
+                if path.exists():
+                    return path
+            except Exception:
+                continue
+        return matches[0][1]
 
     def setup_styles(self):
         """Настройка стилей для современного вида"""
@@ -583,6 +981,34 @@ class BuildReleaseGUI:
                 "Ошибка",
                 f"Не удалось запустить авторизацию:\n{e}"
             )
+
+    def run_telegram_auth_telethon_wsl(self):
+        """Запуск авторизации Telegram (Telethon) внутри WSL."""
+        if sys.platform != "win32":
+            messagebox.showerror("Ошибка", "WSL авторизация доступна только на Windows")
+            return
+        if not shutil.which("wsl.exe"):
+            messagebox.showerror("Ошибка", "wsl.exe не найден")
+            return
+
+        distro = os.environ.get("ZAPRET_WSL_DISTRO")
+        script_linux = _to_wsl_path(Path(__file__).parent / "telegram_auth_telethon.py", distro)
+
+        try:
+            subprocess.Popen(
+                ["wsl.exe", "-d", distro, "--", "python3", script_linux],
+                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+            )
+            messagebox.showinfo(
+                "Авторизация Telethon (WSL)",
+                "Откроется окно WSL для авторизации Telethon.\n\n"
+                "1) Введите номер телефона\n"
+                "2) Введите код из Telegram\n"
+                "3) Если есть 2FA — пароль\n\n"
+                "После завершения вернитесь в сборщик и повторите публикацию."
+            )
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось запустить WSL авторизацию: {e}")
                     
     def create_widgets(self):
         """Создание всех виджетов"""
@@ -665,20 +1091,28 @@ class BuildReleaseGUI:
         self.publish_telegram_var = tk.BooleanVar(value=telegram_ok)
         self.publish_telegram_check = ttk.Checkbutton(
             telegram_frame,
-            text="📢 Опубликовать в Telegram канал после SSH",
+            text="📢 Опубликовать в Telegram канал",
             variable=self.publish_telegram_var,
             state='normal' if telegram_ok else 'disabled'
         )
         self.publish_telegram_check.pack(side='right')
 
-        # Кнопка авторизации
-        if not telegram_ok or not (Path(__file__).parent / "zapret_uploader.session").exists():
+        # Кнопки авторизации (Pyrogram / Telethon WSL)
+        if not telegram_ok:
             auth_button = ttk.Button(
                 telegram_frame,
-                text="🔑 Авторизация Telegram",
+                text="🔑 Авторизация Pyrogram",
                 command=self.run_telegram_auth
             )
             auth_button.pack(side='right', padx=(10, 0))
+
+            if sys.platform == "win32":
+                auth_button_wsl = ttk.Button(
+                    telegram_frame,
+                    text="🐧 Авторизация Telethon (WSL)",
+                    command=self.run_telegram_auth_telethon_wsl
+                )
+                auth_button_wsl.pack(side='right', padx=(10, 0))
 
         # Настройки сборки
         settings_frame = ttk.LabelFrame(main_container, text="Настройки сборки", 
@@ -750,6 +1184,39 @@ class BuildReleaseGUI:
         ttk.Label(method_info_frame, 
                  text="💡 Nuitka создает более оптимизированный exe, но требует больше времени",
                  style='Info.TLabel', foreground='gray').pack(anchor='w', padx=(120, 0))
+
+        # Быстрый режим (dev): копирование Zapret.exe в AppData и опциональная отправка в Telegram
+        fast_frame = ttk.Frame(settings_frame)
+        fast_frame.pack(fill='x', pady=(10, 0))
+
+        ttk.Label(fast_frame, text="Быстро:", width=15).pack(side='left')
+
+        self.fast_exe_check = ttk.Checkbutton(
+            fast_frame,
+            text="⚡ Быстрая замена Zapret.exe (пропустить Inno/GitHub/SSH)",
+            variable=self.fast_exe_var
+        )
+        self.fast_exe_check.pack(side='left', padx=(10, 0))
+
+        fast_dest_frame = ttk.Frame(settings_frame)
+        fast_dest_frame.pack(fill='x', pady=(5, 0))
+
+        ttk.Label(fast_dest_frame, text="Fast dest:", width=15).pack(side='left')
+
+        self.fast_exe_dest_entry = ttk.Entry(
+            fast_dest_frame,
+            textvariable=self.fast_exe_dest_var,
+            width=70,
+            font=('Segoe UI', 9)
+        )
+        self.fast_exe_dest_entry.pack(side='left', padx=(10, 0))
+
+        ttk.Label(
+            fast_dest_frame,
+            text="(пусто = %APPDATA%\\ZapretTwoDev\\Zapret.exe)",
+            style='Info.TLabel',
+            foreground='gray'
+        ).pack(side='left', padx=(10, 0))
         
         # Release notes
         notes_frame = ttk.LabelFrame(main_container, text="Release Notes", 
@@ -861,14 +1328,18 @@ class BuildReleaseGUI:
             
     def start_build(self):
         """Запуск процесса сборки"""
-        if not GITHUB_AVAILABLE:
-            messagebox.showerror("Ошибка", "GitHub модуль недоступен!")
-            return
-            
-        if not is_github_enabled():
-            messagebox.showerror("Ошибка", "GitHub не настроен!\n\n"
-                                        "Настройте токен в build_tools/github_release.py")
-            return
+        fast_exe = self.fast_exe_var.get()
+
+        if not fast_exe:
+            if not GITHUB_AVAILABLE:
+                messagebox.showerror("Ошибка", "GitHub модуль недоступен!")
+                return
+            if not is_github_enabled():
+                messagebox.showerror(
+                    "Ошибка",
+                    "GitHub не настроен!\n\nНастройте токен в build_tools/github_release.py"
+                )
+                return
         
         # Валидация
         version = normalize_to_4(self.version_var.get().strip())
@@ -913,14 +1384,21 @@ class BuildReleaseGUI:
         
         # Подтверждение
         msg = f"Канал: {channel.upper()}\nВерсия: {version}\n"
-        msg += f"Метод сборки: {build_method.upper()}\n\n"
-        msg += "Релиз будет опубликован на:\n"
-        msg += "  • GitHub ✅\n"
-        
-        if SSH_AVAILABLE and is_ssh_configured():
-            msg += "  • SSH VPS ✅\n"
+        msg += f"Метод сборки: {build_method.upper()}\n"
+
+        if fast_exe:
+            msg += "\n⚡ Быстрый режим:\n"
+            msg += f"  • Копировать Zapret.exe → {self._fast_dest_exe_path(channel)}\n"
             if publish_telegram:
-                msg += "  • Telegram канал ✅\n"
+                msg += "  • Telegram канал ✅ (локально)\n"
+            msg += "\nInno Setup / GitHub / SSH: будут пропущены.\n"
+        else:
+            msg += "\nРелиз будет опубликован на:\n"
+            msg += "  • GitHub ✅\n"
+            if SSH_AVAILABLE and is_ssh_configured():
+                msg += "  • SSH VPS ✅\n"
+                if publish_telegram:
+                    msg += "  • Telegram канал ✅\n"
         
         msg += "\nПродолжить сборку?"
         
@@ -941,6 +1419,9 @@ class BuildReleaseGUI:
     def build_process(self, channel, version, notes, build_method):
         """Процесс сборки в отдельном потоке"""
         try:
+            fast_exe = self.fast_exe_var.get()
+            publish_telegram = self.publish_telegram_var.get()
+
             # Базовые шаги
             steps = [
                 (10, "Обновление build_info.py", lambda: write_build_info(channel, version))
@@ -957,15 +1438,20 @@ class BuildReleaseGUI:
                     (60, "Сборка PyInstaller", lambda: run_pyinstaller(channel, ROOT, run, self.log_queue)),
                 ])
             
-            # Общие финальные шаги
-            steps.extend([
-                (80, "Сборка Inno Setup", lambda: self.run_inno_setup(channel, version)),
-                (95, "Создание GitHub release", lambda: self.create_github_release(channel, version, notes)),
-            ])
-            
-            # SSH деплой
-            if SSH_AVAILABLE and is_ssh_configured():
-                steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
+            if fast_exe:
+                steps.append((80, "Быстрая замена Zapret.exe", lambda: self.fast_deploy_exe(channel)))
+                if publish_telegram:
+                    steps.append((95, "Telegram публикация (Zapret.exe)", lambda: self.publish_exe_to_telegram(channel, version, notes)))
+            else:
+                # Общие финальные шаги
+                steps.extend([
+                    (80, "Сборка Inno Setup", lambda: self.run_inno_setup(channel, version)),
+                    (95, "Создание GitHub release", lambda: self.create_github_release(channel, version, notes)),
+                ])
+                
+                # SSH деплой
+                if SSH_AVAILABLE and is_ssh_configured():
+                    steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
                 
             steps.append((100, "Завершение", lambda: None))
             
@@ -991,7 +1477,7 @@ class BuildReleaseGUI:
 
     def deploy_to_ssh(self, channel, version, notes):
         """SSH деплой на все VPS сервера"""
-        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        produced = self._produced_installer_path(channel)
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
@@ -1023,21 +1509,51 @@ class BuildReleaseGUI:
         self.log_queue.put(message)
 
 
+    def _kill_blocking_processes(self):
+        """Убить процессы которые могут блокировать файлы"""
+        processes_to_kill = [
+            "ISCC.exe",      # Inno Setup компилятор
+            "compil32.exe",  # Inno Setup GUI
+            "Zapret.exe",    # Наше приложение
+        ]
+
+        for proc_name in processes_to_kill:
+            try:
+                result = subprocess.run(
+                    f'taskkill /F /IM "{proc_name}"',
+                    shell=True,
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    self.log_queue.put(f"   🔪 Убит процесс: {proc_name}")
+            except Exception:
+                pass
+
+        # Небольшая пауза чтобы файлы освободились
+        time.sleep(1)
+
     def run_inno_setup(self, channel, version, max_retries=10):
         """Запуск Inno Setup с временным именем"""
-        
-        project_root = Path("H:/Privacy/zapretgui")
+
+        # ✅ Убиваем блокирующие процессы перед началом
+        self.log_queue.put("🔪 Завершение блокирующих процессов...")
+        self._kill_blocking_processes()
+
+        project_root = self._project_root()
+        source_root = self._source_root()
         universal_iss = project_root / "zapret_universal.iss"
         target_iss = project_root / f"zapret_{channel}.iss"
         
         timestamp = int(time.time())
-        temp_name = f"ZapretSetup_{channel}_{timestamp}_tmp"
-        final_name = f"ZapretSetup{'_TEST' if channel == 'test' else ''}"
+        temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
+        final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}"
         
         temp_file = project_root / f"{temp_name}.exe"
         final_file = project_root / f"{final_name}.exe"
         
         self.log_queue.put(f"📦 Сборка во временный файл: {temp_name}.exe")
+        ensure_inno_ico_dir(source_path=source_root, project_root=project_root, log_queue=self.log_queue)
         
         if not universal_iss.exists():
             raise FileNotFoundError(f"ISS не найден: {universal_iss}")
@@ -1060,10 +1576,16 @@ class BuildReleaseGUI:
         
         cmd = [
             str(iscc_path),
-            f"/DCHANNEL={channel}",
-            f"/DVERSION={version}",
+            f'/DCHANNEL={channel}',  # ✅ Строковый канал: "stable" или "test"
+            f'/DVERSION={version}',
+            f'/DSOURCEPATH={source_root}',
+            f'/DPROJECTPATH={project_root}',
             str(target_iss)
         ]
+
+        self.log_queue.put(f"📋 Канал: {channel}")
+        self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretTwoDev' if channel == 'test' else 'ZapretTwo'}")
+        self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if channel == 'test' else 'Zapret2.ico'}")
         
         for attempt in range(1, max_retries + 1):
             try:
@@ -1154,10 +1676,197 @@ class BuildReleaseGUI:
                 )
             except:
                 pass
+
+    def _run_process_stream(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        timeout: int | None = None,
+        env: dict | None = None,
+    ) -> int:
+        """Запускает процесс и стримит stdout/stderr в лог."""
+        startupinfo = None
+        creationflags = 0
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            universal_newlines=True,
+            startupinfo=startupinfo,
+            creationflags=creationflags,
+            env=env,
+        )
+
+        def _reader(pipe, prefix: str):
+            try:
+                for line in iter(pipe.readline, ""):
+                    if line.strip():
+                        self.log_queue.put(f"{prefix}{line.rstrip()}")
+            finally:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+
+        t_out = threading.Thread(target=_reader, args=(proc.stdout, "   "), daemon=True)
+        t_err = threading.Thread(target=_reader, args=(proc.stderr, "   ⚠️ "), daemon=True)
+        t_out.start()
+        t_err.start()
+
+        try:
+            returncode = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            returncode = proc.wait(timeout=10)
+
+        t_out.join(timeout=2)
+        t_err.join(timeout=2)
+        return int(returncode)
+
+    def fast_deploy_exe(self, channel: str) -> None:
+        """
+        Быстрое обновление dev-билда: копирует собранный Zapret.exe в AppData.
+        По умолчанию: %APPDATA%\\ZapretTwoDev\\Zapret.exe (для test).
+        """
+        self.log_queue.put("🔪 Завершение блокирующих процессов...")
+        self._kill_blocking_processes()
+
+        src = self._built_exe_path()
+        if not src.exists():
+            raise FileNotFoundError(f"Не найден собранный файл: {src}")
+
+        dst = self._fast_dest_exe_path(channel)
+        if sys.platform == "win32" and not (self.fast_exe_dest_var.get() or "").strip() and not (os.environ.get("ZAPRET_FAST_EXE_DEST") or "").strip():
+            self.log_queue.put(f"🔎 Авто-цель (реестр/APPDATA): {dst}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        tmp = dst.with_suffix(".tmp.exe")
+        self.log_queue.put(f"📥 Копирование: {src}")
+        self.log_queue.put(f"📤 В: {dst}")
+
+        shutil.copy2(src, tmp)
+
+        if dst.exists():
+            backup = dst.with_suffix(".old.exe")
+            counter = 1
+            while backup.exists():
+                backup = dst.with_suffix(f".old{counter}.exe")
+                counter += 1
+            try:
+                dst.rename(backup)
+                self.log_queue.put(f"  → Бэкап: {backup.name}")
+            except Exception as e:
+                self.log_queue.put(f"  ⚠️ Не удалось сохранить бэкап: {e}")
+
+        os.replace(tmp, dst)
+        try:
+            if dst.stat().st_size != src.stat().st_size:
+                raise RuntimeError("Размер назначения не совпал с исходным файлом")
+        except Exception as e:
+            raise RuntimeError(f"Проверка копирования не прошла: {e}")
+        size_mb = dst.stat().st_size / 1024 / 1024
+        self.log_queue.put(f"✅ Обновлено: {dst} ({size_mb:.1f} MB)")
+
+    def publish_exe_to_telegram(self, channel: str, version: str, notes: str) -> None:
+        """
+        Публикует Zapret.exe в Telegram без Inno/SSH.
+
+        По умолчанию на Windows, когда проект запускается из \\wsl.localhost\\...,
+        отправляем через WSL (python3 + Telethon), чтобы избежать проблем UNC/SQLite locks.
+        """
+        telegram_ok, telegram_msg = check_telegram_configured()
+        if not telegram_ok:
+            raise RuntimeError(telegram_msg)
+
+        exe_path = self._built_exe_path()
+        if not exe_path.exists():
+            raise FileNotFoundError(f"Файл не найден: {exe_path}")
+
+        TELEGRAM_API_ID, TELEGRAM_API_HASH = _load_build_telegram_config()
+
+        file_size_mb = exe_path.stat().st_size / 1024 / 1024
+        timeout = 1800 if file_size_mb > 100 else 1200
+
+        use_wsl = False
+        distro = os.environ.get("ZAPRET_WSL_DISTRO")
+        if sys.platform == "win32":
+            use_wsl = _env_truthy("ZAPRET_TG_UPLOAD_WSL") or str(Path(__file__)).startswith("\\\\wsl.localhost\\")
+            if use_wsl and not shutil.which("wsl.exe"):
+                use_wsl = False
+
+        if use_wsl:
+            uploader_linux = _to_wsl_path(Path(__file__).parent / "telegram_uploader_telethon_fixed.py", distro)
+            exe_linux = _to_wsl_path(exe_path, distro)
+
+            socks_host = os.environ.get("ZAPRET_SOCKS5_HOST")
+            socks_port = os.environ.get("ZAPRET_SOCKS5_PORT")
+
+            env_prefix: list[str] = []
+            if socks_host and socks_port:
+                env_prefix = [
+                    "env",
+                    f"ZAPRET_SOCKS5_HOST={socks_host}",
+                    f"ZAPRET_SOCKS5_PORT={socks_port}",
+                ]
+
+            cmd = [
+                "wsl.exe", "-d", distro, "--",
+                *env_prefix,
+                "python3", uploader_linux,
+                exe_linux,
+                channel,
+                version,
+                notes or f"Zapret {version}",
+                str(TELEGRAM_API_ID),
+                str(TELEGRAM_API_HASH),
+            ]
+
+            self.log_queue.put(f"📤 Telegram (WSL:{distro}): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
+            rc = self._run_process_stream(cmd, timeout=timeout)
+        else:
+            uploader = Path(__file__).parent / "telegram_uploader_pyrogram.py"
+            if not uploader.exists():
+                raise FileNotFoundError(f"Uploader не найден: {uploader}")
+
+            python_exe = sys.executable
+            if python_exe.endswith("pythonw.exe"):
+                python_exe = python_exe.replace("pythonw.exe", "python.exe")
+
+            cmd = [
+                python_exe,
+                str(uploader),
+                str(exe_path),
+                channel,
+                version,
+                notes or f"Zapret {version}",
+                str(TELEGRAM_API_ID),
+                str(TELEGRAM_API_HASH),
+            ]
+
+            self.log_queue.put(f"📤 Telegram (Windows/Pyrogram): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
+            rc = self._run_process_stream(cmd, cwd=Path(__file__).parent, timeout=timeout)
+
+        if rc != 0:
+            raise RuntimeError(f"Telegram uploader завершился с кодом {rc}")
   
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
-        produced = Path("H:/Privacy/zapretgui") / f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        produced = self._produced_installer_path(channel)
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
@@ -1218,6 +1927,27 @@ def run_without_console():
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             sys.exit(0)
 
+def _parse_cli_args(argv: list[str]) -> dict[str, str | bool | None]:
+    """
+    Простой парсер CLI-аргументов (без argparse, чтобы не усложнять GUI-скрипт).
+
+    Поддержка:
+      --fast-exe / --quick-exe          включить быстрый режим (копирование Zapret.exe)
+      --fast-exe-dest=<path>           переопределить папку/файл назначения
+    """
+    fast_exe = False
+    fast_exe_dest: str | None = None
+    for arg in argv:
+        if arg in {"--fast-exe", "--quick-exe"}:
+            fast_exe = True
+            continue
+        if arg.startswith("--fast-exe-dest="):
+            fast_exe_dest = arg.split("=", 1)[1].strip() or None
+            continue
+    if os.environ.get("ZAPRET_FAST_EXE") in {"1", "true", "TRUE", "yes", "YES"}:
+        fast_exe = True
+    return {"fast_exe": fast_exe, "fast_exe_dest": fast_exe_dest}
+
 
 def main():
     """Главная функция"""
@@ -1228,7 +1958,8 @@ def main():
             print("Перезапуск с правами администратора…")
             elevate_as_admin()
             
-        app = BuildReleaseGUI()
+        cli = _parse_cli_args(sys.argv[1:])
+        app = BuildReleaseGUI(cli)
         app.run()
         
     except Exception as e:

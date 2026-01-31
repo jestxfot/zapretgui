@@ -1,6 +1,6 @@
 # log_tail.py
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
-import time, os, codecs
+import time, os, io
 
 class LogTailWorker(QObject):
     """
@@ -9,10 +9,18 @@ class LogTailWorker(QObject):
     new_lines  = pyqtSignal(str)   # отправляет пачку строк в GUI
     finished   = pyqtSignal()
 
-    def __init__(self, file_path:str, poll_interval:float = .4):
+    def __init__(
+        self,
+        file_path: str,
+        poll_interval: float = .4,
+        initial_chunk_chars: int = 65536,
+        initial_max_bytes: int | None = None,
+    ):
         super().__init__()
         self.file_path      = file_path
         self.poll_interval  = poll_interval
+        self.initial_chunk_chars = max(1024, int(initial_chunk_chars or 0))
+        self.initial_max_bytes = None if initial_max_bytes is None else max(0, int(initial_max_bytes))
         self._stop_requested = False
 
     def stop(self):
@@ -27,20 +35,54 @@ class LogTailWorker(QObject):
             if self._stop_requested:
                 return
 
-            # открываем с правильной кодировкой
-            with codecs.open(self.file_path, "r", encoding="utf-8-sig",
-                             errors="replace") as f:
-                # читаем «историю» (можно ограничить размер, если нужно)
-                start_text = f.read()
-                if start_text:
-                    self.new_lines.emit(start_text)
+            start_offset = 0
+            try:
+                if self.initial_max_bytes:
+                    size = os.path.getsize(self.file_path)
+                    if size > self.initial_max_bytes:
+                        start_offset = max(0, size - self.initial_max_bytes)
+            except Exception:
+                start_offset = 0
 
-                # «хвостим» файл
-                while not self._stop_requested:
-                    line = f.readline()
-                    if line:
-                        self.new_lines.emit(line)
-                    else:
-                        time.sleep(self.poll_interval)
+            # открываем с правильной кодировкой (через binary seek + TextIOWrapper)
+            with open(self.file_path, "rb") as fb:
+                if start_offset:
+                    try:
+                        fb.seek(start_offset, os.SEEK_SET)
+                    except Exception:
+                        fb.seek(0, os.SEEK_SET)
+
+                with io.TextIOWrapper(fb, encoding="utf-8-sig", errors="replace", newline="") as f:
+                    if start_offset and not self._stop_requested:
+                        # пропускаем "обрезанную" первую строку
+                        try:
+                            f.readline()
+                        except Exception:
+                            pass
+
+                    # читаем «историю» порциями, чтобы не подвесить UI большим emit()
+                    buf = []
+                    buf_len = 0
+                    while not self._stop_requested:
+                        line = f.readline()
+                        if not line:
+                            break
+                        buf.append(line)
+                        buf_len += len(line)
+                        if buf_len >= self.initial_chunk_chars:
+                            self.new_lines.emit("".join(buf))
+                            buf.clear()
+                            buf_len = 0
+
+                    if buf and not self._stop_requested:
+                        self.new_lines.emit("".join(buf))
+
+                    # «хвостим» файл
+                    while not self._stop_requested:
+                        line = f.readline()
+                        if line:
+                            self.new_lines.emit(line)
+                        else:
+                            time.sleep(self.poll_interval)
         finally:
             self.finished.emit()

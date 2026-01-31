@@ -1,161 +1,145 @@
 """
 Централизованный реестр всех стратегий и категорий.
 Управляет импортом, метаданными и предоставляет единый интерфейс.
+
+Стратегии загружаются из TXT (INI-подобный формат) в:
+- {INDEXJSON_FOLDER}/strategies/builtin/*.txt - встроенные стратегии/категории
+- {INDEXJSON_FOLDER}/strategies/user/*.txt - пользовательские стратегии (если используются)
+
+Категории (base_filter*) берутся из:
+- builtin/categories.txt (в папке установки/индекса)
+- один общий пользовательский файл вне папки установки (чтобы обновления не затирали)
 """
 
 from typing import Dict, Tuple, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import time
 from log import log
 
 # ==================== LAZY IMPORTS ====================
 
-_strategies_cache = {}  # {category_key: strategies_dict}
-_imported_categories = set()  # Какие категории уже загружены
+_strategies_cache = {}  # {(strategy_type, strategy_set): strategies_dict} - кешируем по типу и набору
+_imported_types = set()  # Какие (type, set) пары уже загружены
+_logged_missing_strategies = set()  # Чтобы не спамить логи одними и теми же предупреждениями
+_current_strategy_set = None  # Текущий набор стратегий (None = стандартный, "orchestra" и т.д.)
+_failed_import_last_attempt_at = {}  # {(strategy_type, strategy_set): monotonic_time}
+_failed_import_logged = set()  # {(strategy_type, strategy_set)}
+_FAILED_IMPORT_RETRY_SECONDS = 1.0
 
-def _lazy_import_category_strategies(category_key: str) -> Dict:
-    """Ленивый импорт стратегий ОДНОЙ категории"""
-    global _strategies_cache, _imported_categories
-    
-    # Проверяем кэш
-    if category_key in _imported_categories:
-        return _strategies_cache.get(category_key, {})
-    
+
+def get_current_strategy_set() -> Optional[str]:
+    """
+    Возвращает текущий набор стратегий на основе метода запуска.
+
+    Returns:
+        None для стандартного набора, "orchestra" для direct_zapret2_orchestra, "zapret1" для direct_zapret1 и т.д.
+    """
     try:
-        # Импортируем только нужную категорию
-        if category_key == 'youtube':
-            from .strategies.YOUTUBE_TCP_STRATEGIES import YOUTUBE_TCP_STRATEGIES
-            _strategies_cache['youtube'] = YOUTUBE_TCP_STRATEGIES
-            
-        elif category_key == 'youtube_udp':
-            from .strategies.YOUTUBE_UDP_STRATEGIES import YOUTUBE_QUIC_STRATEGIES
-            _strategies_cache['youtube_udp'] = YOUTUBE_QUIC_STRATEGIES
-            
-        elif category_key == 'googlevideo_tcp':
-            from .strategies.GOOGLEVIDEO_TCP_STRATEGIES import GOOGLEVIDEO_STRATEGIES
-            _strategies_cache['googlevideo_tcp'] = GOOGLEVIDEO_STRATEGIES
-            
-        elif category_key == 'discord':
-            from .strategies.DISCORD_TCP_STRATEGIES import DISCORD_TCP_STRATEGIES
-            _strategies_cache['discord'] = DISCORD_TCP_STRATEGIES
-            
-        elif category_key == 'discord_voice_udp':
-            from .strategies.DISCORD_VOICE_STRATEGIES import DISCORD_VOICE_STRATEGIES
-            _strategies_cache['discord_voice_udp'] = DISCORD_VOICE_STRATEGIES
-            
-        elif category_key == 'udp_discord':
-            from .strategies.DISCORD_UPD_STRATEGIES import DISCORD_UPD_STRATEGIES
-            _strategies_cache['udp_discord'] = DISCORD_UPD_STRATEGIES
-            
-        elif category_key == 'update_discord':
-            from .strategies.UPDATES_DISCORD_TCP_STRATEGIES import UPDATES_DISCORD_TCP_STRATEGIES
-            _strategies_cache['update_discord'] = UPDATES_DISCORD_TCP_STRATEGIES
-            
-        elif category_key == 'telegram_tcp':
-            from .strategies.TELEGRAM_TCP_STRATEGIES import TELEGRAM_TCP_STRATEGIES
-            _strategies_cache['telegram_tcp'] = TELEGRAM_TCP_STRATEGIES
-            
-        elif category_key == 'telegram_call':
-            from .strategies.TELEGRAM_CALL_STRATEGIES import TELEGRAM_CALL_STRATEGIES
-            _strategies_cache['telegram_call'] = TELEGRAM_CALL_STRATEGIES
-            
-        elif category_key == 'soundcloud_tcp':
-            from .strategies.SOUNDCLOUD_TCP_STRATEGIES import SOUNDCLOUD_STRATEGIES
-            _strategies_cache['soundcloud_tcp'] = SOUNDCLOUD_STRATEGIES
-            
-        elif category_key == 'github_tcp':
-            from .strategies.GITHUB_TCP_STRATEGIES import GITHUB_TCP_STRATEGIES
-            _strategies_cache['github_tcp'] = GITHUB_TCP_STRATEGIES
-            
-        elif category_key == 'rutracker_tcp':
-            from .strategies.RUTRACKER_TCP_STRATEGIES import RUTRACKER_TCP_STRATEGIES
-            _strategies_cache['rutracker_tcp'] = RUTRACKER_TCP_STRATEGIES
-            
-        elif category_key == 'rutor_tcp':
-            from .strategies.RUTOR_TCP_STRATEGIES import RUTOR_TCP_STRATEGIES
-            _strategies_cache['rutor_tcp'] = RUTOR_TCP_STRATEGIES
-            
-        elif category_key == 'ntcparty_tcp':
-            from .strategies.NTCPARTY_TCP_STRATEGIES import NTCPARTY_TCP_STRATEGIES
-            _strategies_cache['ntcparty_tcp'] = NTCPARTY_TCP_STRATEGIES
-            
-        elif category_key == 'twitch_tcp':
-            from .strategies.TWITCH_TCP_STRATEGIES import TWITCH_TCP_STRATEGIES
-            _strategies_cache['twitch_tcp'] = TWITCH_TCP_STRATEGIES
-            
-        elif category_key == 'speedtest_tcp':
-            from .strategies.SPEEDTEST_TCP_STRATEGIES import SPEEDTEST_TCP_STRATEGIES
-            _strategies_cache['speedtest_tcp'] = SPEEDTEST_TCP_STRATEGIES
-            
-        elif category_key == 'steam_tcp':
-            from .strategies.STEAM_TCP_STRATEGIES import STEAM_TCP_STRATEGIES
-            _strategies_cache['steam_tcp'] = STEAM_TCP_STRATEGIES
-            
-        elif category_key == 'itch_tcp':
-            from .strategies.ITCH_TCP_STRATEGIES import ITCH_TCP_STRATEGIES
-            _strategies_cache['itch_tcp'] = ITCH_TCP_STRATEGIES
+        from strategy_menu import get_strategy_launch_method
+        method = get_strategy_launch_method()
 
-        elif category_key == 'google_tcp':
-            from .strategies.GOOGLE_TCP_STRATEGIES import GOOGLE_TCP_STRATEGIES
-            _strategies_cache['google_tcp'] = GOOGLE_TCP_STRATEGIES
-            
-        elif category_key == 'phasmophobia_udp':
-            from .strategies.PHASMOPHOBIA_UDP_STRATEGIES import PHASMOPHOBIA_UDP_STRATEGIES
-            _strategies_cache['phasmophobia_udp'] = PHASMOPHOBIA_UDP_STRATEGIES
+        # Маппинг метода запуска на набор стратегий
+        method_to_set = {
+            "direct_zapret2": None,           # стандартный набор (tcp.json)
+            "direct_zapret2_orchestra": "orchestra",  # tcp_orchestra.json
+            "direct_zapret1": "zapret1",      # tcp_zapret1.json (Zapret 1 прямой режим)
+            "bat": None,              # BAT не использует JSON стратегии
+            "orchestra": None,        # Orchestra использует свой механизм
+        }
+        return method_to_set.get(method, None)
+    except Exception:
+        return None
 
-        elif category_key == 'battlefield_6_udp':
-            from .strategies.BATTLEFIELD_6_UDP_STRATEGIES import UDP_STRATEGIES
-            _strategies_cache['battlefield_6_udp'] = UDP_STRATEGIES
 
-        elif category_key == 'warp_tcp':
-            from .strategies.WARP_STRATEGIES import WARP_STRATEGIES
-            _strategies_cache['warp_tcp'] = WARP_STRATEGIES
-            
-        elif category_key == 'other':
-            from .strategies.OTHER_STRATEGIES import OTHER_STRATEGIES
-            _strategies_cache['other'] = OTHER_STRATEGIES
-            
-        elif category_key == 'hostlist_80port':
-            from .strategies.HOSTLIST_80PORT_STRATEGIES import HOSTLIST_80PORT_STRATEGIES
-            _strategies_cache['hostlist_80port'] = HOSTLIST_80PORT_STRATEGIES
+def set_strategy_set(strategy_set: Optional[str]):
+    """
+    Принудительно устанавливает набор стратегий (для тестирования).
+    Сбрасывает кэш при смене набора.
+    """
+    global _current_strategy_set, _strategies_cache, _imported_types
 
-        elif category_key == 'ipset_tcp_cloudflare':
-            from .strategies.IPSET_CLOUDFLARE_STRATEGIES import IPSET_CLOUDFLARE_STRATEGIES
-            _strategies_cache['ipset_tcp_cloudflare'] = IPSET_CLOUDFLARE_STRATEGIES
+    if _current_strategy_set != strategy_set:
+        _current_strategy_set = strategy_set
+        # Сбрасываем кэш при смене набора
+        _strategies_cache.clear()
+        _imported_types.clear()
+        log(f"Набор стратегий изменён на: {strategy_set or 'стандартный'}", "INFO")
 
-        elif category_key == 'ipset':
-            from .strategies.IPSET_TCP_STRATEGIES import IPSET_TCP_STRATEGIES
-            _strategies_cache['ipset'] = IPSET_TCP_STRATEGIES
 
-        elif category_key == 'ovh_udp':
-            from .strategies.OVH_UDP_STRATEGIES import OVH_UDP_STRATEGIES
-            _strategies_cache['ovh_udp'] = OVH_UDP_STRATEGIES
+# ==================== КОНСТАНТЫ ФИЛЬТРОВ ====================
 
-        elif category_key == 'ipset_udp':
-            from .strategies.IPSET_UDP_STRATEGIES import IPSET_UDP_STRATEGIES
-            _strategies_cache['ipset_udp'] = IPSET_UDP_STRATEGIES
-        
-        else:
-            log(f"Неизвестная категория: {category_key}", "⚠ WARNING")
-            _strategies_cache[category_key] = {}
-        
-        _imported_categories.add(category_key)
-        log(f"Стратегии категории '{category_key}' загружены ({len(_strategies_cache.get(category_key, {}))} шт)", "DEBUG")
-        
-    except ImportError as e:
-        log(f"Ошибка импорта стратегий категории '{category_key}': {e}", "❌ ERROR")
-        _strategies_cache[category_key] = {}
-        _imported_categories.add(category_key)
-    
-    return _strategies_cache.get(category_key, {})
+# Discord Voice фильтр (используется в base_filter)
+DISCORD_VOICE_FILTER = "--filter-l7=discord,stun"
+
+
+def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> Dict:
+    """
+    Загружает стратегии из JSON файлов.
+    Сначала builtin, потом user (user перезаписывает builtin).
+
+    Args:
+        strategy_type: Тип стратегий (tcp, udp, http80, discord_voice)
+        strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
+    """
+    try:
+        from strategy_menu.strategy_loader import load_strategies_as_dict
+        strategies = load_strategies_as_dict(strategy_type, strategy_set)
+        if strategies:
+            set_name = strategy_set or "стандартный"
+            log(f"Загружено {len(strategies)} стратегий типа '{strategy_type}' (набор: {set_name})", "DEBUG")
+            return strategies
+    except Exception as e:
+        log(f"Ошибка загрузки JSON стратегий типа '{strategy_type}': {e}", "WARNING")
+
+    return {}
+
+
+def _lazy_import_base_strategies(strategy_type: str) -> Dict:
+    """
+    Ленивый импорт базовых стратегий по типу из JSON файлов.
+    Учитывает текущий набор стратегий (strategy_set).
+    """
+    global _strategies_cache, _imported_types
+
+    # Получаем текущий набор стратегий
+    strategy_set = get_current_strategy_set()
+    cache_key = (strategy_type, strategy_set)
+
+    if cache_key in _imported_types:
+        return _strategies_cache.get(cache_key, {})
+
+    # Avoid permanently caching an empty result: on first run / during updates
+    # the strategies files may appear a bit later. Use a small backoff to avoid
+    # hot-looping when the catalog is genuinely missing.
+    try:
+        now = time.monotonic()
+    except Exception:
+        now = 0.0
+    last = _failed_import_last_attempt_at.get(cache_key, 0.0)
+    if last and now and (now - last) < _FAILED_IMPORT_RETRY_SECONDS:
+        return {}
+    _failed_import_last_attempt_at[cache_key] = now or 0.0
+
+    strategies = _load_strategies_from_json(strategy_type, strategy_set)
+
+    if strategies:
+        _strategies_cache[cache_key] = strategies
+        _imported_types.add(cache_key)
+        _failed_import_last_attempt_at.pop(cache_key, None)
+        _failed_import_logged.discard(cache_key)
+        return strategies
+
+    # Don't mark as imported when load failed/returned empty: allow retry later.
+    if cache_key not in _failed_import_logged:
+        _failed_import_logged.add(cache_key)
+        log(f"Не удалось загрузить стратегии типа '{strategy_type}'", "WARNING")
+    return {}
 
 def _lazy_import_all_strategies() -> Dict[str, Dict]:
-    """Импортирует ВСЕ стратегии (только если очень нужно)"""
-    global _strategies_cache
-    
-    # Импортируем все категории
-    for category_key in CATEGORIES_REGISTRY.keys():
-        if category_key not in _imported_categories:
-            _lazy_import_category_strategies(category_key)
+    """Импортирует ВСЕ базовые стратегии (только если очень нужно)"""
+    # Загружаем все типы
+    for strategy_type in ["tcp", "udp", "http80", "discord_voice"]:
+        _lazy_import_base_strategies(strategy_type)
     
     return _strategies_cache
 
@@ -164,697 +148,202 @@ def _lazy_import_all_strategies() -> Dict[str, Dict]:
 class CategoryInfo:
     """Информация о категории стратегий"""
     key: str
-    short_name: str
     full_name: str
-    emoji: str
     description: str
     tooltip: str
     color: str
     default_strategy: str
-    none_strategy: str
     ports: str
     protocol: str
-    order: int  # Порядок в UI
+    order: int
+    command_order: int
+    needs_new_separator: bool = False
+    command_group: str = "default"
+    icon_name: str = 'fa5s.globe'
+    icon_color: str = '#2196F3'
     
-    command_order: int  # Порядок в командной строке
-    needs_new_separator: bool = False  # Нужен ли --new после этой категории
-    command_group: str = "default"  # Группа команд (команды в одной группе идут подряд)
+    # Фильтр для категории когда НЕТ выбора между режимами (единственный вариант)
+    base_filter: str = ""
+    # Фильтр для ipset режима (когда ЕСТЬ выбор между ipset и hostlist)
+    base_filter_ipset: str = ""
+    # Фильтр для hostlist режима (когда ЕСТЬ выбор между ipset и hostlist)
+    base_filter_hostlist: str = ""
+    # Тип базовых стратегий: "tcp", "udp", "http80", "discord_voice"
+    strategy_type: str = "tcp"
+    # Требует ли категория агрессивного режима (все порты)
+    # True = скрывается в аккуратных режимах
+    requires_all_ports: bool = False
+    # Убирать --payload из стратегий (для IPset категорий без фильтра портов)
+    # Если True - стратегия применяется ко ВСЕМУ трафику, не только к TLS
+    strip_payload: bool = False
+    # Источник категории: 'builtin' или 'user'
+    _source: str = field(default='builtin', repr=False)
 
-    icon_name: str = 'fa5s.globe'  # Font Awesome иконка по умолчанию
-    icon_color: str = '#2196F3'    # Цвет иконки по умолчанию
 
-# Обновляем реестр категорий с новыми полями:
-CATEGORIES_REGISTRY: Dict[str, CategoryInfo] = {
-    'youtube': CategoryInfo(
-        key='youtube',
-        short_name='🎬',
-        full_name='YouTube TCP',
-        emoji='🎬',
-        description='YouTube через TCP протокол (порты 80, 443)',
-        tooltip="""🎬 YouTube через TCP протокол (порты 80, 443)
-Обходит блокировку обычного YouTube трафика через стандартные веб-порты.
-TCP - это надежный протокол передачи данных, используется для загрузки веб-страниц и видео.
-Работает с youtube.com и youtu.be.""",
-        color='#ff6666',
-        default_strategy='multisplit_seqovl_midsld',
-        none_strategy='youtube_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=1,
-
-        command_order=2,
-        needs_new_separator=True,
-        command_group="youtube",
-        icon_name='fa5b.youtube',
-        icon_color='#FF0000'
-    ),
+def _load_categories_from_json() -> Dict[str, CategoryInfo]:
+    """
+    Загружает категории из JSON файлов и конвертирует в CategoryInfo.
     
-    'youtube_udp': CategoryInfo(
-        key='youtube_udp',
-        short_name='📺',
-        full_name='YouTube QUIC',
-        emoji='📺',
-        description='YouTube через QUIC/UDP протокол (порт 443)',
-        tooltip="""🎬 YouTube через QUIC/UDP протокол (порт 443)
-Обходит блокировку YouTube при использовании современного протокола QUIC (HTTP/3).
-QUIC работает поверх UDP и обеспечивает более быструю загрузку видео.
-Многие браузеры автоматически используют QUIC для YouTube.""",
-        color='#ff3c00',
-        default_strategy='fake_11',
-        none_strategy='youtube_udp_none',
-        ports='443',
-        protocol='QUIC/UDP',
-        order=2,
-
-        command_order=3,
-        needs_new_separator=True,
-        command_group="youtube",
-        icon_name='fa5b.youtube',
-        icon_color='#FF0000'
-    ),
+    Returns:
+        Словарь {category_key: CategoryInfo}
+    """
+    try:
+        from strategy_menu.strategy_loader import load_categories
+        
+        raw_categories = load_categories()
+        result = {}
+        
+        for key, data in raw_categories.items():
+            try:
+                cat_info = CategoryInfo(
+                    key=data.get('key', key),
+                    full_name=data.get('full_name', key),
+                    description=data.get('description', ''),
+                    tooltip=data.get('tooltip', ''),
+                    color=data.get('color', '#2196F3'),
+                    default_strategy=data.get('default_strategy', 'none'),
+                    ports=data.get('ports', '443'),
+                    protocol=data.get('protocol', 'TCP'),
+                    order=data.get('order', 999),
+                    command_order=data.get('command_order', 999),
+                    needs_new_separator=data.get('needs_new_separator', False),
+                    command_group=data.get('command_group', 'default'),
+                    icon_name=data.get('icon_name', 'fa5s.globe'),
+                    icon_color=data.get('icon_color', '#2196F3'),
+                    base_filter=data.get('base_filter', ''),
+                    base_filter_ipset=data.get('base_filter_ipset', ''),
+                    base_filter_hostlist=data.get('base_filter_hostlist', ''),
+                    strategy_type=data.get('strategy_type', 'tcp'),
+                    requires_all_ports=data.get('requires_all_ports', False),
+                    strip_payload=data.get('strip_payload', False),
+                    _source=data.get('_source', 'builtin')
+                )
+                result[key] = cat_info
+            except Exception as e:
+                log(f"Ошибка загрузки категории '{key}': {e}", "WARNING")
+        
+        if result:
+            log(f"Загружено {len(result)} категорий из JSON", "INFO")
+            return result
+        
+    except Exception as e:
+        log(f"Ошибка загрузки категорий из JSON: {e}", "WARNING")
     
-    'googlevideo_tcp': CategoryInfo(
-        key='googlevideo_tcp',
-        short_name='📹',
-        full_name='GoogleVideo',
-        emoji='📹',
-        description='YouTube видео с CDN серверов GoogleVideo',
-        tooltip="""🎬 YouTube видео с CDN серверов GoogleVideo
-Обходит блокировку видеопотоков с серверов *.googlevideo.com (порт 443).
-Это серверы доставки контента (CDN), откуда загружаются сами видеофайлы YouTube.
-Нужно включать если видео не загружаются при работающем основном YouTube.""",
-        color='#ff9900',
-        default_strategy='googlevideo_tcp_none',
-        none_strategy='googlevideo_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=3,
-  
-        command_order=1,
-        needs_new_separator=True,
-        command_group="google",
-        icon_name='fa5b.google',
-        icon_color='#4285F4'
-    ),
+    # Возвращаем пустой словарь если не удалось загрузить
+    return {}
 
-    'discord': CategoryInfo(
-        key='discord',
-        short_name='💬',
-        full_name='Discord',
-        emoji='💬',
-        description='Discord мессенджер (порты 80, 443)',
-        tooltip="""💬 Discord мессенджер (порты 80, 443)
-Обходит блокировку текстовых чатов и загрузки файлов в Discord.
-Работает с основным трафиком Discord через TCP протокол.
-Включите если не работают текстовые сообщения и картинки.""",
-        color='#7289da',
-        default_strategy='dis4',
-        none_strategy='discord_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=4,
 
-        command_order=5,
-        needs_new_separator=True,
-        command_group="discord",
-        icon_name='fa5b.discord',
-        icon_color='#7289DA'
-    ),
+# Кеш загруженных категорий
+_categories_cache: Dict[str, CategoryInfo] = {}
+_categories_loaded = False
 
-    'discord_voice_udp': CategoryInfo(
-        key='discord_voice_udp',
-        short_name='🔊',
-        full_name='Discord Voice',
-        emoji='🔊',
-        description='Discord голосовые звонки (UDP порты)',
-        tooltip="""🔊 Discord голосовые звонки (UDP порты)
-Обходит блокировку голосовой связи и видеозвонков в Discord.
-Использует UDP протокол для передачи голоса в реальном времени.
-Включите если не работают голосовые каналы и звонки.""",
-        color='#9b59b6',
-        default_strategy='ipv4_dup2_autottl_cutoff_n3',
-        none_strategy='discord_voice_udp_none',
-        ports='stun ports',
-        protocol='UDP',
-        order=5,
 
-        command_order=6,
-        needs_new_separator=True,
-        command_group="discord",
-        icon_name='fa5s.microphone',
-        icon_color='#7289DA'
-    ),
-
-    'udp_discord': CategoryInfo(
-        key='udp_discord',
-        short_name='💬',
-        full_name='Discord UDP',
-        emoji='💬',
-        description='UDP протокол Discord мессенджер (порт 443)',
-        tooltip="""💬 UDP для веб интерфейса дискорда, обычно не нужен но пусть будет.""",
-        color='#7289da',
-        default_strategy='udp_discord_tcp_none',
-        none_strategy='udp_discord_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=6,
-
-        command_order=7,
-        needs_new_separator=True,
-        command_group="discord",
-        icon_name='fa5b.discord',
-        icon_color='#7289DA'
-    ),
-
-    'update_discord': CategoryInfo(
-        key='update_discord',
-        short_name='💬',
-        full_name='Update Discord',
-        emoji='💬',
-        description='Обновления Discord мессенджер (порт 443)',
-        tooltip="""💬 Пробивает прицельно отдельно апдейт дискорда. Полезно когда сайт discord.com грузится, а приложение Windows постоянно ищет обновления.""",
-        color='#7289da',
-        default_strategy='update_discord_tcp_none',
-        none_strategy='update_discord_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=7,
-        command_order=4,
-        needs_new_separator=True,
-        command_group="discord",
-        icon_name='fa5b.discord',
-        icon_color='#7289DA'
-    ),
-
-    'telegram_tcp': CategoryInfo(
-        key='telegram_tcp',
-        short_name='✈',
-        full_name='Telegram (TCP)',
-        emoji='✈',
-        description='Telegram (веб версия и сайты)',
-        tooltip="""✈ Telegram (веб версия и сайты)
-Обходит блокировку САЙТОВ и веб версии в Telegram. НЕ ПОДХОДИТ ДЛЯ ПРИЛОЖЕНИЯ!
-Включите если не работают сайты telegram.org и другие.""",
-        color='#9b59b6',
-        default_strategy='telegram_tcp_none',
-        none_strategy='telegram_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=8,
-        command_order=8,
-        needs_new_separator=True,
-        command_group="telegram",
-        icon_name='fa5b.telegram',
-        icon_color="#3CA7FF"
-    ),
-
-    'telegram_call': CategoryInfo(
-        key='telegram_call',
-        short_name='🔊',
-        full_name='Telegram Call',
-        emoji='🔊',
-        description='Telegram голосовые звонки (UDP порты)',
-        tooltip="""🔊 Telegram голосовые звонки (UDP порты)
-Обходит блокировку голосовой связи и видеозвонков в Telegram.
-Использует UDP протокол для передачи голоса в реальном времени.
-Включите если не работают голосовые каналы и звонки.""",
-        color='#9b59b6',
-        default_strategy='dronator_43',
-        none_strategy='telegram_call_none',
-        ports='stun ports',
-        protocol='UDP',
-        order=9,
-        command_order=9,
-        needs_new_separator=True,
-        command_group="telegram",
-        icon_name='fa5b.telegram',
-        icon_color="#3CA7FF"
-    ),
+def _get_categories() -> Dict[str, CategoryInfo]:
+    """Получает категории из JSON"""
+    global _categories_cache, _categories_loaded
     
-    'soundcloud_tcp': CategoryInfo(
-        key='soundcloud_tcp',
-        short_name='🎵',
-        full_name='SoundCloud',
-        emoji='🎵',
-        description='SoundCloud (порт 443)',
-        tooltip="""🎵 SoundCloud (порт 443)
-Обходит блокировку SoundCloud через стандартные веб-порты.
-Работает с основным трафиком SoundCloud через TCP протокол.""",
-        color='#ff5500',
-        default_strategy='other_seqovl',
-        none_strategy='soundcloud_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=10,
-
-        command_order=10,
-        needs_new_separator=True,
-        command_group="music",
-        icon_name='fa5b.soundcloud',
-        icon_color='#FF5500',
-    ),
-
-    'github_tcp': CategoryInfo(
-        key='github_tcp',
-        short_name='🐙',
-        full_name='GitHub',
-        emoji='🐙',
-        description='GitHub (порты 80, 443)',
-        tooltip="""🐙 GitHub (порты 80, 443)
-Обходит блокировку GitHub через стандартные веб-порты.
-Работает с основным трафиком GitHub через TCP протокол.""",
-        color="#808080",
-        default_strategy='other_seqovl',
-        none_strategy='github_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=10,
-
-        command_order=10,
-        needs_new_separator=True,
-        command_group="github",
-        icon_name='fa5b.github',
-        icon_color="#FCFCFC",
-    ),
-
-    'rutracker_tcp': CategoryInfo(
-        key='rutracker_tcp',
-        short_name='🛠',
-        full_name='Rutracker.org',
-        emoji='🛠',
-        description='Rutracker (порты 80, 443)',
-        tooltip="""🛠 Rutracker (порты 80, 443)
-Обходит блокировку торрент-трекера Rutracker через стандартные веб-порты.
-Работает с основным трафиком Rutracker через TCP протокол.""",
-        color='#6c5ce7',
-        default_strategy='multisplit_split_pos_1',
-        none_strategy='rutracker_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=11,
-
-        command_order=11,
-        needs_new_separator=True,
-        command_group="trackers",
-        icon_name='fa5s.download',
-        icon_color="#457AEB",
-    ),
-
-    'rutor_tcp': CategoryInfo(
-        key='rutor_tcp',
-        short_name='🛠',
-        full_name='Rutor.info (.is)',
-        emoji='🛠',
-        description='Rutor.info (порты 80, 443)',
-        tooltip="""🛠 Rutor.info (порты 80, 443)
-Обходит блокировку торрент-трекера Rutor.info через стандартные веб-порты.
-Работает с основным трафиком Rutor.info через TCP протокол.""",
-        color='#6c5ce7',
-        default_strategy='multisplit_split_pos_1',
-        none_strategy='rutor_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=12,
-
-        command_order=12,
-        needs_new_separator=True,
-        command_group="trackers",
-        icon_name='fa5s.download',
-        icon_color="#457AEB",
-    ),
-
-    'ntcparty_tcp': CategoryInfo(
-        key='ntcparty_tcp',
-        short_name='🛠',
-        full_name='NtcParty',
-        emoji='🛠',
-        description='NtcParty (порты 80, 443)',
-        tooltip="""🛠 NtcParty (порты 80, 443)
-Обходит блокировку технического форума NtcParty отдельно от основных хостлистов.
-Работает с основным трафиком NtcParty через TCP протокол.""",
-        color="#d9d8e0",
-        default_strategy='other_seqovl',
-        none_strategy='ntcparty_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=13,
-
-        command_order=13,
-        needs_new_separator=True,
-        command_group="trackers",
-        icon_name='fa5s.tools',
-        icon_color='#6C5CE7',
-    ),
+    if not _categories_loaded:
+        _categories_cache = _load_categories_from_json()
+        _categories_loaded = True
+        
+        if not _categories_cache:
+            log(
+                "КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить категории! "
+                "Проверьте файл strategies/builtin/categories.txt",
+                "ERROR",
+            )
     
-    'twitch_tcp': CategoryInfo(
-        key='twitch_tcp',
-        short_name='🎙',
-        full_name='Twitch',
-        emoji='🎙',
-        description='Twitch стриминг (порты 80, 443)',
-        tooltip="""🎙 Twitch стриминг (порты 80, 443)
-Обходит блокировку Twitch стримов через стандартные веб-порты.
-Работает с основным трафиком Twitch через TCP протокол.
-Включите если не работают стримы на Twitch.""",
-        color='#9146ff',
-        default_strategy='twitch_tcp_none',
-        none_strategy='twitch_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=14,
+    return _categories_cache
 
-        command_order=14,
-        needs_new_separator=True,
-        command_group="streaming",
-        icon_name='fa5b.twitch',
-        icon_color='#9146FF',
-    ),
 
-    'speedtest_tcp': CategoryInfo(
-        key='speedtest_tcp',
-        short_name='🌐',
-        full_name='Speedtest',
-        emoji='🌐',
-        description='Speedtest (порт 443)',
-        tooltip="""🌐 Speedtest (порт 443)
-Обходит блокировку Speedtest через стандартные веб-порты.
-Работает с основным трафиком Speedtest через TCP протокол.""",
-        color='#9146ff',
-        default_strategy='other_seqovl',
-        none_strategy='speedtest_tcp_none',
-        ports= '443',
-        protocol='TCP',
-        order=15,
+def reload_categories():
+    """Перезагружает категории из JSON"""
+    global _categories_cache, _categories_loaded
+    _categories_cache = {}
+    _categories_loaded = False
+    return _get_categories()
 
-        command_order=15,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5s.tachometer-alt',
-        icon_color="#4671FF",
-    ),
-
-    'steam_tcp': CategoryInfo(
-        key='steam_tcp',
-        short_name='🎮',
-        full_name='Steam',
-        emoji='🎮',
-        description='Steam (порты 80, 443)',
-        tooltip="""🎮 Steam (порты 80, 443)
-Обходит блокировку Steam через стандартные веб-порты.
-Работает с основным трафиком Steam через TCP протокол.""",
-        color='#9146ff',
-        default_strategy='other_seqovl',
-        none_strategy='steam_tcp_none',
-        ports= '80, 443',
-        protocol='TCP',
-        order=16,
-
-        command_order=16,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5b.steam',
-        icon_color="#7390F0",
-    ),
-
-    'itch_tcp': CategoryInfo(
-        key='itch_tcp',
-        short_name='🎮',
-        full_name='Itch.io TCP',
-        emoji='🎮',
-        description='Itch.io (порты 80, 443)',
-        tooltip="""🎮 Itch.io (порты 80, 443)
-Обходит блокировку Itch.io через стандартные веб-порты.
-Работает с основным трафиком Itch.io через TCP протокол.""",
-        color='#ff4757',
-        default_strategy='disorder2_badseq_tls_google',
-        none_strategy='itch_tcp_none',
-        ports='443',
-        protocol='TCP',
-        order=17,
-
-        command_order=17,
-        needs_new_separator=True,
-        command_group="games",
-        icon_name='fa5b.itch-io',
-        icon_color='#FA5C5C'
-    ),
-
-    'google_tcp': CategoryInfo(
-        key='google_tcp',
-        short_name='🌐',
-        full_name='Google TCP',
-        emoji='🌐',
-        description='Google TCP (порты 443, 853)',
-        tooltip="""🌐 Google TCP (порты 443, 853)
-        Обходит блокировки основных сайтов и сервисов Google""",
-        color='#4285F4',
-        default_strategy='google_tcp_none',
-        none_strategy='google_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=18,
-
-        command_order=18,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5b.google',
-        icon_color="#4285F4"
-    ),
-
-    'phasmophobia_udp': CategoryInfo(
-        key='phasmophobia_udp',
-        short_name='🎮',
-        full_name='Phasmophobia UDP',
-        emoji='🎮',
-        description='Phasmophobia UDP (порты 443)',
-        tooltip="""🎮 Phasmophobia UDP (порты 443)
-Обходит блокировку Phasmophobia через стандартные веб-порты.
-Работает с основным трафиком Phasmophobia через UDP протокол.""",
-        color='#ff4757',
-        default_strategy='fake_2_n2_test',
-        none_strategy='phasmophobia_udp_none',
-        ports='443',
-        protocol='UDP',
-        order=19,
-
-        command_order=19,
-        needs_new_separator=True,
-        command_group="games",
-        icon_name='fa5s.ghost',
-        icon_color='#8B4789'
-    ),
-
-    'battlefield_6_udp': CategoryInfo(
-        key='battlefield_6_udp',
-        short_name='🎮',
-        full_name='Battlefield 6 UDP',
-        emoji='🎮',
-        description='Battlefield 6 UDP (порты 443)',
-        tooltip="""🎮 Battlefield UDP (порты 443)
-Обходит блокировку Battlefield через стандартные веб-порты.
-Работает с основным трафиком Battlefield через UDP протокол.""",
-        color='#ff4757',
-        default_strategy='fake_2_n2_test',
-        none_strategy='battlefield_6_udp_none',
-        ports='443',
-        protocol='UDP',
-        order=20,
-
-        command_order=20,
-        needs_new_separator=True,
-        command_group="games",
-        icon_name='fa5s.fighter-jet',
-        icon_color='#8B4789'
-    ),
-
-    'warp_tcp': CategoryInfo(
-        key='warp_tcp',
-        short_name='🎮',
-        full_name='Warp TCP',
-        emoji='🎮',
-        description='Warp TCP (порты 443, 853)',
-        tooltip="""🎮 Warp TCP (порты 443, 853)
-Обходит блокировку Warp через стандартные веб-порты.
-Работает с основным трафиком Warp через UDP протокол.""",
-        color='#ff4757',
-        default_strategy='other_seqovl',
-        none_strategy='warp_none',
-        ports='443, 853',
-        protocol='TCP',
-        order=21,
-
-        command_order=21,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5b.cloudflare',
-        icon_color="#FD7A3E"
-    ),
-
-    'other': CategoryInfo(
-        key='other',
-        short_name='🌐',
-        full_name='Hostlist (HTTPS)',
-        emoji='🌐',
-        description='Заблокированные сайты из списка (порты 80, 443)',
-        tooltip="""🌐 Заблокированные сайты из списка (порты 80, 443)
-Обходит блокировку сайтов из файла other.txt через TCP.
-Включает сотни популярных заблокированных сайтов и сервисов.
-Можно редактировать список сайтов во вкладке Hostlist.""",
-        color='#66ff66',
-        default_strategy='other_seqovl',
-        none_strategy='other_tcp_none',
-        ports='80, 443',
-        protocol='TCP',
-        order=22,
-
-        command_order=22,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5b.chrome',
-        icon_color='#2696F1',
-    ),
-    
-    'hostlist_80port': CategoryInfo(
-        key='hostlist_80port',
-        short_name='🌐',
-        full_name='Hostlist (HTTP)',
-        emoji='🌐',
-        description='Заблокированные сайты из списка (порт 80)',
-        tooltip="""🌐 Заблокированные сайты из списка (порт 80)
-Обходит блокировку сайтов из файла other.txt через HTTP (порт 80).
-Полезно если провайдер блокирует только HTTP трафик, а HTTPS оставляет открытым.
-Можно редактировать список сайтов во вкладке Hostlist.""",
-        color='#00ffcc',
-        default_strategy='fake_multisplit_2_fake_http',
-        none_strategy='hostlist_80port_none',
-        ports='80',
-        protocol='TCP',
-        order=23,
-
-        command_order=23,
-        needs_new_separator=True,
-        command_group="hostlists",
-        icon_name='fa5b.chrome',
-        icon_color="#2696F1",
-    ),
-
-    'ipset_tcp_cloudflare': CategoryInfo(
-        key='ipset_tcp_cloudflare',
-        short_name='☁️',
-        full_name='IPset TCP (CloudFlare)',
-        emoji='☁️',
-        description='Сервера CloudFlare (все порты)',
-        tooltip="""☁️ Используйте если нужно разблокировать сервера этого ресурса""",
-        color='#ffa500',
-        default_strategy='ipset_tcp_none',
-        none_strategy='ipset_tcp_none',
-        ports='all ports',
-        protocol='TCP',
-        order=24,
-
-        command_order=24,
-        needs_new_separator=True,
-        command_group="ipsets",
-        icon_name='fa5b.cloudflare',
-        icon_color='#FFA500',
-    ),
-
-    'ipset': CategoryInfo(
-        key='ipset',
-        short_name='🔢',
-        full_name='IPset TCP (Games)',
-        emoji='🔢',
-        description='Блокировка по IP адресам (все порты)',
-        tooltip="""🔢 Блокировка по IP адресам (все порты)
-Обходит блокировку сервисов по их IP адресам через TCP.
-Работает когда провайдер блокирует не домены, а конкретные IP.
-Полезно для сервисов с фиксированными IP адресами.""",
-        color='#ffa500',
-        default_strategy='ipset_tcp_none',
-        none_strategy='ipset_tcp_none',
-        ports='all ports',
-        protocol='TCP',
-        order=25,
-
-        command_order=25,
-        needs_new_separator=True,
-        command_group="ipsets",
-        icon_name='fa5s.network-wired',
-        icon_color='#FFA500',
-    ),
-
-    'ovh_udp': CategoryInfo(
-        key='ovh_udp',
-        short_name='🛡',
-        full_name='OVH UDP',
-        emoji='🛡',
-        description='OVH UDP (игровые сервера провайдера ОВХ)',
-        tooltip="""🛡 OVH UDP (игровые сервера провайдера ОВХ)
-Обходит блокировку сервисов по их IP адресам через UDP.
-Работает когда провайдер блокирует не домены, а конкретные IP.
-Полезно для сервисов с фиксированными IP адресами.""",
-        color="#e69f08",
-        default_strategy='ovh_udp_none',
-        none_strategy='ovh_udp_none',
-        ports='all ports',
-        protocol='UDP',
-        order=26,
-
-        command_order=26,
-        needs_new_separator=True,
-        command_group="ipsets",
-        icon_name='fa5s.gamepad',
-        icon_color="#F1BB25",
-    ),
-
-    'ipset_udp': CategoryInfo(
-        key='ipset_udp',
-        short_name='🎮',
-        full_name='IPset UDP (Games)',
-        emoji='🎮',
-        description='Блокировка по IP адресам (UDP для игр)',
-        tooltip="""🔢 Блокировка по IP адресам (UDP для игр)
-Обходит блокировку сервисов по их IP адресам через UDP.
-Работает когда провайдер блокирует не домены, а конкретные IP.
-Полезно для сервисов с фиксированными IP адресами.""",
-        color='#006eff',
-        default_strategy='ipset_udp_none',
-        none_strategy='ipset_udp_none',
-        ports='all ports',
-        protocol='UDP',
-        order=27,
-
-        command_order=27,
-        needs_new_separator=False,  # IPset UDP последний
-        command_group="ipsets",
-        icon_name='fa5s.gamepad',
-        icon_color="#D49B00",
-    ),
-}
+# Режимы которые требуют агрессивной фильтрации (все порты)
+AGGRESSIVE_MODES = {"windivert_all", "wf-l3-all"}
+# Режимы аккуратной фильтрации (ограниченные порты)
+CAREFUL_MODES = {"windivert-discord-media-stun-sites", "wf-l3"}
 
 def get_category_icon(category_key: str):
     """Возвращает Font Awesome иконку для категории"""
     import qtawesome as qta
     
-    category = CATEGORIES_REGISTRY.get(category_key)
+    categories = _get_categories()
+    category = categories.get(category_key)
     if category:
-        return qta.icon(category.icon_name, color=category.icon_color)
-    else:
-        # Иконка по умолчанию
+        try:
+            icon_name = category.icon_name
+            if icon_name and icon_name.startswith(('fa5s.', 'fa5b.', 'fa.', 'mdi.')):
+                return qta.icon(icon_name, color=category.icon_color)
+        except Exception as e:
+            log(f"Ошибка создания иконки для {category_key}: {e}", "⚠ WARNING")
+    
+    # Безопасный fallback
+    try:
         return qta.icon('fa5s.globe', color='#2196F3')
+    except:
+        return None
     
 # ==================== ОСНОВНЫЕ ФУНКЦИИ ====================
 
 class StrategiesRegistry:
     """Главный класс для управления всеми стратегиями"""
-    
+
     def __init__(self):
-        self._categories = CATEGORIES_REGISTRY
-    
+        # Категории загружаются динамически из JSON
+        # Кэш отсортированных ключей категорий
+        self._sorted_keys_cache = None
+        self._sorted_keys_by_command_cache = None
+
+    @property
+    def _categories(self) -> Dict[str, CategoryInfo]:
+        """Получает категории (загружаются из JSON)"""
+        return _get_categories()
+
+    def reload_strategies(self):
+        """
+        Перезагружает все стратегии из JSON файлов.
+        Очищает кеш и заставляет перечитать файлы с диска.
+        """
+        global _strategies_cache, _imported_types, _logged_missing_strategies
+
+        log("🔄 Перезагрузка стратегий и категорий из JSON...", "INFO")
+
+        # Очищаем все кеши
+        _strategies_cache.clear()
+        _imported_types.clear()
+        _logged_missing_strategies.clear()
+
+        # Сбрасываем кэш отсортированных ключей
+        self._sorted_keys_cache = None
+        self._sorted_keys_by_command_cache = None
+
+        # Перезагружаем категории
+        reload_categories()
+
+        # Получаем текущий набор стратегий
+        strategy_set = get_current_strategy_set()
+        set_name = strategy_set or "стандартный"
+
+        # Принудительно загружаем все типы стратегий
+        for strategy_type in ["tcp", "udp", "http80", "discord_voice"]:
+            strategies = _load_strategies_from_json(strategy_type, strategy_set)
+            if strategies:
+                cache_key = (strategy_type, strategy_set)
+                _strategies_cache[cache_key] = strategies
+                _imported_types.add(cache_key)
+                log(f"✅ Перезагружено {len(strategies)} стратегий типа '{strategy_type}' (набор: {set_name})", "DEBUG")
+
+        log(f"✅ Перезагрузка завершена, категорий: {len(self._categories)}, типов стратегий: {len(_strategies_cache)}", "INFO")
+
     @property
     def strategies(self) -> Dict[str, Dict]:
         """
-        Получение всех стратегий (загружает ВСЕ категории)
+        Получение всех стратегий (загружает ВСЕ типы)
         ⚠️ Используйте get_category_strategies() для лучшей производительности
         """
         return _lazy_import_all_strategies()
@@ -863,26 +352,147 @@ class StrategiesRegistry:
     def categories(self) -> Dict[str, CategoryInfo]:
         """Получение всех категорий"""
         return self._categories
-    
+
     def get_category_strategies(self, category_key: str) -> Dict[str, Any]:
-        """
-        Получить стратегии для конкретной категории
-        ✅ Оптимизировано - загружает только нужную категорию
-        """
-        return _lazy_import_category_strategies(category_key)
+        """Получить стратегии для категории"""
+        category_info = self._categories.get(category_key)
+        if not category_info:
+            return {}
+        return _lazy_import_base_strategies(category_info.strategy_type)
     
     def get_category_info(self, category_key: str) -> Optional[CategoryInfo]:
         """Получить информацию о категории"""
         return self._categories.get(category_key)
+
+    def get_strategy_args_safe(self, category_key: str, strategy_id: str) -> Optional[str]:
+        """
+        Получить полные аргументы стратегии.
+
+        Логика:
+        1. Если strategy_id == "none" - возвращаем пустую строку
+        2. Для discord_voice - если args содержит --filter - используем как есть
+        3. Для остальных - склеиваем base_filter + техника
+        4. Если strip_payload=True - убираем --payload= из аргументов
+        5. Учитывает filter_mode из настроек (hostlist/ipset)
+        """
+        # Проверка на none
+        if strategy_id == "none":
+            return ""
+
+        category_info = self.get_category_info(category_key)
+        if not category_info:
+            log(f"Категория {category_key} не найдена", "⚠ WARNING")
+            return None
+
+        strategy_type = category_info.strategy_type
+
+        # Выбираем base_filter на основе filter_mode из настроек (per-category)
+        from strategy_menu.command_builder import get_filter_mode
+        filter_mode = get_filter_mode(category_key)  # "hostlist" или "ipset"
+
+        # Определяем какой фильтр использовать
+        if category_info.base_filter_ipset and category_info.base_filter_hostlist:
+            # Есть выбор между режимами - используем в зависимости от filter_mode
+            if filter_mode == "hostlist":
+                base_filter = category_info.base_filter_hostlist
+            else:
+                base_filter = category_info.base_filter_ipset
+        else:
+            # Нет выбора - используем base_filter (единственный вариант)
+            base_filter = category_info.base_filter
+        
+        # Получаем стратегию из BASE файла
+        base_strategies = _lazy_import_base_strategies(strategy_type)
+        strategy = base_strategies.get(strategy_id)
+        
+        if not strategy:
+            # Логируем только один раз за сессию (чтобы не спамить)
+            warn_key = f"{strategy_type}:{strategy_id}"
+            if warn_key not in _logged_missing_strategies:
+                _logged_missing_strategies.add(warn_key)
+                log(f"Стратегия {strategy_id} не найдена в типе {strategy_type}", "DEBUG")
+            return None
+        
+        base_args = strategy.get("args", "")
+        
+        # Если args пустой - категория отключена
+        if not base_args:
+            return ""
+        
+        # ✅ Если strip_payload=True - убираем --payload= из аргументов
+        # Это нужно для IPset категорий без фильтра портов,
+        # чтобы стратегия применялась ко ВСЕМУ трафику, а не только к TLS
+        if category_info.strip_payload:
+            # Lazy import для избежания циклического импорта
+            from strategy_menu.command_builder import strip_payload_from_args
+            base_args = strip_payload_from_args(base_args)
+        
+        # Для discord_voice - проверяем, содержит ли args уже фильтры
+        if strategy_type == "discord_voice":
+            if "--filter-" in base_args or "--new" in base_args:
+                # Сложная стратегия с полной командой
+                return base_args
+            # Простая стратегия - добавляем base_filter
+
+        # Склеиваем: base_filter + техника
+        if base_filter and base_args:
+            return f"{base_filter} {base_args}"
+        elif base_filter:
+            return base_filter
+        else:
+            return base_args
+
+    def get_strategy_name_safe(self, category_key: str, strategy_id: str) -> str:
+        """Получить имя стратегии"""
+        if strategy_id == "none":
+            return "⛔ Отключено"
+        if strategy_id == "custom":
+            return "Свой набор"
+        
+        category_info = self.get_category_info(category_key)
+        if not category_info:
+            return strategy_id or "Unknown"
+        
+        base_strategies = _lazy_import_base_strategies(category_info.strategy_type)
+        strategy = base_strategies.get(strategy_id)
+        
+        # TCP multi-phase UI can store a strategy_id from tcp_fake.txt (e.g., hostfakesplit_multi).
+        # Provide a name fallback so main lists don't show raw ids or "custom" unnecessarily.
+        if not strategy and category_info.strategy_type == "tcp":
+            try:
+                from strategy_menu.strategy_loader import load_strategies_as_dict
+                fake_strategies = load_strategies_as_dict("tcp_fake", get_current_strategy_set())
+                strategy = (fake_strategies or {}).get(strategy_id)
+            except Exception:
+                strategy = None
+
+        if strategy:
+            return strategy.get('name', strategy_id)
+        return strategy_id or "Unknown"
     
+    def get_default_selections(self) -> Dict[str, str]:
+        """Получить стратегии по умолчанию для всех категорий"""
+        return {
+            key: info.default_strategy
+            for key, info in self._categories.items()
+        }
+    
+    def get_none_strategies(self) -> Dict[str, str]:
+        """Получить 'none' стратегии для всех категорий"""
+        # Теперь для всех категорий используется единая стратегия "none"
+        return {
+            key: "none"
+            for key in self._categories.keys()
+        }
+
     def get_all_category_keys(self) -> List[str]:
         """Получить все ключи категорий в порядке сортировки"""
         return sorted(self._categories.keys(), key=lambda k: self._categories[k].order)
     
     def get_tab_names_dict(self) -> Dict[str, Tuple[str, str]]:
-        """Получить словарь имен табов (короткое, полное)"""
+        """Получить словарь имен табов (полное, полное) - для совместимости"""
         return {
-            key: (info.short_name, info.full_name)
+            key: (info.full_name, info.full_name)
             for key, info in self._categories.items()
         }
     
@@ -899,142 +509,140 @@ class StrategiesRegistry:
             key: info.color
             for key, info in self._categories.items()
         }
-    
-    def get_default_selections(self) -> Dict[str, str]:
-        """Получить стратегии по умолчанию для всех категорий"""
-        return {
-            key: info.default_strategy
-            for key, info in self._categories.items()
-        }
-    
-    def get_none_strategies(self) -> Dict[str, str]:
-        """Получить 'none' стратегии для всех категорий"""
-        return {
-            key: info.none_strategy
-            for key, info in self._categories.items()
-        }
-    
-    def add_new_category(self, 
-                        key: str,
-                        short_name: str,
-                        full_name: str,
-                        strategies_dict: Dict,
-                        emoji: str = "🔧",
-                        description: str = "",
-                        tooltip: str = "",
-                        color: str = "#888888",
-                        default_strategy: str = "",
-                        none_strategy: str = "",
-                        ports: str = "",
-                        protocol: str = "",
-                        order: int = 999,
-                        command_order: int = 999,
-                        needs_new_separator: bool = False,
-                        command_group: str = "default",
-                        icon_name: str = 'fa5s.globe',
-                        icon_color: str = '#2196F3') -> bool:
-        """
-        Добавить новую категорию динамически
-        """
-        try:
-            # Добавляем информацию о категории
-            self._categories[key] = CategoryInfo(
-                key=key,
-                short_name=short_name,
-                full_name=full_name,
-                emoji=emoji,
-                description=description,
-                tooltip=tooltip,
-                color=color,
-                default_strategy=default_strategy,
-                none_strategy=none_strategy,
-                ports=ports,
-                protocol=protocol,
-                order=order,
-                command_order=command_order,
-                needs_new_separator=needs_new_separator,
-                command_group=command_group,
-                icon_name=icon_name,
-                icon_color=icon_color
-            )
-            
-            # Добавляем стратегии в кэш
-            _strategies_cache[key] = strategies_dict
-            _imported_categories.add(key)
-            
-            log(f"Добавлена новая категория: {key} ({full_name})", "INFO")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка добавления категории {key}: {e}", "❌ ERROR")
-            return False
-    
-    def remove_category(self, key: str) -> bool:
-        """Удалить категорию"""
-        try:
-            if key in self._categories:
-                del self._categories[key]
-            
-            if key in _strategies_cache:
-                del _strategies_cache[key]
-                
-            if key in _imported_categories:
-                _imported_categories.remove(key)
-            
-            log(f"Удалена категория: {key}", "INFO")
-            return True
-            
-        except Exception as e:
-            log(f"Ошибка удаления категории {key}: {e}", "❌ ERROR")
-            return False
-    
-    def get_strategy_safe(self, category_key: str, strategy_id: str) -> Optional[Dict]:
-        """Безопасно получить стратегию"""
-        try:
-            category_strategies = self.get_category_strategies(category_key)
-            return category_strategies.get(strategy_id)
-        except Exception as e:
-            log(f"Ошибка получения стратегии {strategy_id} из {category_key}: {e}", "⚠ WARNING")
-            return None
-    
-    def get_strategy_args_safe(self, category_key: str, strategy_id: str) -> Optional[str]:
-        """Безопасно получить аргументы стратегии"""
-        strategy = self.get_strategy_safe(category_key, strategy_id)
-        if strategy:
-            return strategy.get("args", "")
-        return None
-    
-    def get_strategy_name_safe(self, category_key: str, strategy_id: str) -> str:
-        """Безопасно получить имя стратегии"""
-        strategy = self.get_strategy_safe(category_key, strategy_id)
-        if strategy:
-            return strategy.get('name', strategy_id)
-        return strategy_id or "Unknown"
 
     def get_all_category_keys_by_command_order(self) -> List[str]:
-        """Получить все ключи категорий в порядке командной строки"""
-        return sorted(self._categories.keys(), key=lambda k: self._categories[k].command_order)
+        """Получить все ключи категорий в порядке командной строки (с кэшем)"""
+        if self._sorted_keys_by_command_cache is None:
+            self._sorted_keys_by_command_cache = sorted(
+                self._categories.keys(),
+                key=lambda k: self._categories[k].command_order
+            )
+        return self._sorted_keys_by_command_cache
 
-    def get_command_groups(self) -> Dict[str, List[str]]:
-        """Получить группы команд"""
-        groups = {}
-        for key, info in self._categories.items():
-            group = info.command_group
-            if group not in groups:
-                groups[group] = []
-            groups[group].append(key)
-        
-        # Сортируем категории в каждой группе по command_order
-        for group in groups:
-            groups[group].sort(key=lambda k: self._categories[k].command_order)
-        
-        return groups
+    def get_all_category_keys_sorted(self) -> List[str]:
+        """
+        Получить все ключи категорий, отсортированных по order (с кэшем).
+        Теперь все категории показываются, но некоторые могут быть заблокированы.
 
-    @staticmethod
-    def get_category_icon(category_key: str):
-        """Возвращает Font Awesome иконку для категории"""
-        return get_category_icon(category_key)
+        Returns:
+            Список всех ключей категорий, отсортированных по order
+        """
+        if self._sorted_keys_cache is None:
+            self._sorted_keys_cache = sorted(
+                self._categories.keys(),
+                key=lambda k: self._categories[k].order
+            )
+        return self._sorted_keys_cache
     
+    def is_category_blocked(self, category_key: str, base_args_mode: str) -> bool:
+        """
+        Проверяет, заблокирована ли категория для данного режима фильтрации.
+        Заблокированные категории показываются полупрозрачными с курсором 🚫.
+        
+        Args:
+            category_key: Ключ категории
+            base_args_mode: Режим фильтрации ('windivert-discord-media-stun-sites', 'wf-l3', 
+                           'windivert_all', 'wf-l3-all')
+        
+        Returns:
+            True если категория заблокирована (полупрозрачная, нельзя выбрать)
+        """
+        category_info = self._categories.get(category_key)
+        if not category_info:
+            return True  # Неизвестные категории блокируем
+        
+        is_careful_mode = base_args_mode in CAREFUL_MODES
+        
+        # Если аккуратный режим и категория требует все порты - блокируем
+        if is_careful_mode and category_info.requires_all_ports:
+            return True
+        
+        return False
+    
+    def get_blocked_categories_for_mode(self, base_args_mode: str) -> List[str]:
+        """
+        Возвращает список заблокированных категорий для данного режима.
+        
+        Args:
+            base_args_mode: Режим фильтрации
+            
+        Returns:
+            Список ключей заблокированных категорий
+        """
+        is_careful_mode = base_args_mode in CAREFUL_MODES
+        
+        if not is_careful_mode:
+            return []
+        
+        return [
+            key for key, info in self._categories.items()
+            if info.requires_all_ports
+        ]
+    
+    def is_category_enabled_by_filters(self, category_key: str) -> bool:
+        """
+        Проверяет, включена ли категория на основе текущих настроек фильтров.
+        Возвращает True если категория должна быть видна.
+        """
+        from strategy_menu import (
+            get_wf_tcp_80_enabled, get_wf_tcp_443_enabled,
+            get_wf_tcp_warp_enabled, get_wf_udp_443_enabled,
+            get_wf_tcp_all_ports_enabled, get_wf_udp_all_ports_enabled,
+            get_wf_raw_discord_media_enabled, get_wf_raw_stun_enabled
+        )
+
+        category_info = self._categories.get(category_key)
+        if not category_info:
+            return False
+
+        protocol = category_info.protocol
+        base_filter = category_info.base_filter
+        requires_all = category_info.requires_all_ports
+        strategy_type = category_info.strategy_type if category_info.strategy_type else ""
+
+        # HTTP 80 port (все категории с strategy_type="http80")
+        if strategy_type == "http80":
+            return get_wf_tcp_80_enabled()
+
+        # WARP категории (TCP 443, 853)
+        is_warp = "warp" in category_key.lower() or strategy_type == "warp"
+        if is_warp and protocol == 'TCP':
+            return get_wf_tcp_warp_enabled()
+
+        # Discord Voice UDP (raw filters)
+        if category_key == 'discord_voice_udp':
+            return get_wf_raw_discord_media_enabled() or get_wf_raw_stun_enabled()
+
+        # YouTube QUIC - теперь зависит от UDP 443 (дублирование с QUIC Initial убрано)
+        if category_key == 'youtube_udp':
+            return get_wf_udp_443_enabled()
+
+        # UDP категории
+        if protocol in ('UDP', 'QUIC/UDP'):
+            # UDP 443 (QUIC) - udp_discord и другие
+            if '443' in category_info.ports and not requires_all:
+                return get_wf_udp_443_enabled()
+            # UDP all ports - игры и ipset (все не-443 порты)
+            return get_wf_udp_all_ports_enabled()
+
+        # TCP категории
+        if protocol == 'TCP':
+            # TCP all ports - ipset категории
+            if requires_all:
+                return get_wf_tcp_all_ports_enabled()
+            # TCP 443 - основные категории
+            return get_wf_tcp_443_enabled()
+
+        return True
+    
+    def get_enabled_category_keys(self) -> List[str]:
+        """Получить ключи категорий, включенных по текущим фильтрам"""
+        enabled = []
+        for key in self._categories.keys():
+            if self.is_category_enabled_by_filters(key):
+                enabled.append(key)
+        return sorted(enabled, key=lambda k: self._categories[k].order)
+
 # ==================== ГЛОБАЛЬНЫЙ ЭКЗЕМПЛЯР ====================
 
 # Создаем глобальный экземпляр реестра
@@ -1075,14 +683,39 @@ def get_default_selections() -> Dict[str, str]:
 __all__ = [
     'StrategiesRegistry',
     'CategoryInfo',
-    'CATEGORIES_REGISTRY',
+    'AGGRESSIVE_MODES',
+    'CAREFUL_MODES',
     'registry',
     'get_strategies_registry',
     'get_category_strategies',
-    'get_category_info', 
+    'get_category_info',
     'get_all_strategies',
     'get_tab_names',
     'get_tab_tooltips',
     'get_default_selections',
     'get_category_icon',
+    'is_category_enabled_by_filters',
+    'get_enabled_category_keys',
+    'reload_categories',
+    'is_category_blocked',
+    'get_blocked_categories_for_mode',
+    # Strategy set
+    'get_current_strategy_set',
+    'set_strategy_set',
 ]
+
+def is_category_enabled_by_filters(category_key: str) -> bool:
+    """Совместимость: проверить включена ли категория по фильтрам"""
+    return registry.is_category_enabled_by_filters(category_key)
+
+def get_enabled_category_keys() -> List[str]:
+    """Совместимость: получить включенные категории"""
+    return registry.get_enabled_category_keys()
+
+def is_category_blocked(category_key: str, base_args_mode: str) -> bool:
+    """Совместимость: проверить заблокирована ли категория для режима"""
+    return registry.is_category_blocked(category_key, base_args_mode)
+
+def get_blocked_categories_for_mode(base_args_mode: str) -> List[str]:
+    """Совместимость: получить список заблокированных категорий для режима"""
+    return registry.get_blocked_categories_for_mode(base_args_mode)

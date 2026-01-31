@@ -48,7 +48,7 @@ class ThemeSubscriptionManager:
             source: Источник данных ('api', 'offline', 'init')
         """
         # Обновляем системный заголовок окна
-        base_title = f'Zapret v{APP_VERSION}'
+        base_title = f'Zapret2 v{APP_VERSION}'
         
         if is_premium:
             # ✅ ОБРАБОТКА ВСЕХ СЛУЧАЕВ
@@ -75,31 +75,16 @@ class ThemeSubscriptionManager:
             log(f"Заголовок окна: FREE режим (source: {source})", "DEBUG")
         
         # Обновляем title_label с цветным статусом
-        base_label_title = "Zapret GUI"
+        base_label_title = "Zapret 2 GUI"
         
         # Определяем текущую тему
         actual_current_theme = current_theme
         if not actual_current_theme and hasattr(self, 'theme_manager'):
             actual_current_theme = getattr(self.theme_manager, 'current_theme', None)
         
-        if is_premium:
-            premium_color = self._get_premium_indicator_color(actual_current_theme)
-            
-            # ✅ УЛУЧШЕНО: Показываем offline статус с эмодзи
-            if source == "offline":
-                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM 📡]</span>'
-            else:
-                premium_indicator = f'<span style="color: {premium_color}; font-weight: bold;"> [PREMIUM]</span>'
-                
-            full_label_title = f"{base_label_title}{premium_indicator}"
-            self.title_label.setText(full_label_title)
-            self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
-        else:
-            free_color = self._get_free_indicator_color(actual_current_theme)
-            free_indicator = f'<span style="color: {free_color}; font-weight: bold;"> [FREE]</span>'
-            full_free_label_title = f"{base_label_title}{free_indicator}"
-            self.title_label.setText(full_free_label_title)
-            self.title_label.setStyleSheet(f"{COMMON_STYLE} font-size: 20pt; font-weight: bold;")
+        # ✅ title_label больше не используется в новом интерфейсе
+        # Статус отображается только в заголовке окна (setWindowTitle выше)
+        pass
     
     def _get_free_indicator_color(self, current_theme: str = None) -> str:
         """
@@ -271,9 +256,7 @@ class ThemeSubscriptionManager:
         
         if hasattr(self, 'theme_handler') and self.theme_handler:
             self.theme_handler.change_theme(theme_name)
-            
-            # Отладочная информация через таймер
-            QTimer.singleShot(200, self.debug_theme_colors)
+            # ✅ ОПТИМИЗАЦИЯ: Убран вызов debug_theme_colors из production
         else:
             log("ThemeHandler не инициализирован", "❌ ERROR")
             self.set_status("Ошибка: обработчик тем не инициализирован")
@@ -284,132 +267,3 @@ class ThemeSubscriptionManager:
             from ui.theme import ThemeHandler
             self.theme_handler = ThemeHandler(self, target_widget=self.main_widget)
             log("ThemeHandler инициализирован", "DEBUG")
-
-    def update_proxy_button_state(self, is_active: bool = None):
-        """
-        Обновляет состояние кнопки разблокировки в зависимости от наличия записей в hosts.
-        Учитывает полностью черную тему.
-        
-        Args:
-            is_active: True если прокси активен, None для автоопределения
-        """
-        if not hasattr(self, 'proxy_button'):
-            return
-            
-        # Если состояние не передано, пытаемся определить его через hosts_manager
-        if is_active is None and hasattr(self, 'hosts_manager'):
-            is_active = self.hosts_manager.is_proxy_domains_active()
-        elif is_active is None:
-            is_active = False
-        
-        # Проверяем, используется ли полностью черная тема
-        is_pure_black = False
-        if (hasattr(self, 'theme_manager') and 
-            hasattr(self.theme_manager, '_is_pure_black_theme')):
-            current_theme = getattr(self.theme_manager, 'current_theme', '')
-            is_pure_black = self.theme_manager._is_pure_black_theme(current_theme)
-        
-        if is_pure_black:
-            # Для полностью черной темы используем темно-серые цвета
-            button_states = {
-                True: {  # Когда proxy активен (нужно отключить)
-                    'text': 'Отключить доступ к ChatGPT, Spotify, Twitch',
-                    'color': "64, 64, 64",  # Темно-серый
-                    'icon': 'fa5s.lock'
-                },
-                False: {  # Когда proxy неактивен (нужно включить)
-                    'text': 'Разблокировать ChatGPT, Spotify, Twitch и др.',
-                    'color': "96, 96, 96",  # Чуть светлее серый
-                    'icon': 'fa5s.unlock'
-                }
-            }
-            
-            # Специальный стиль для полностью черной темы
-            pure_black_style = """
-            QPushButton {{
-                border: 1px solid #444444;
-                background-color: rgb({0});
-                color: #ffffff;
-                border-radius: 6px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 10pt;
-                min-height: 35px;
-            }}
-            QPushButton:hover {{
-                background-color: rgb(128, 128, 128);
-                border: 1px solid #666666;
-            }}
-            QPushButton:pressed {{
-                background-color: rgb(32, 32, 32);
-                border: 1px solid #888888;
-            }}
-            """
-            
-            state = button_states[is_active]
-            self.proxy_button.setText(f" {state['text']}")
-            self.proxy_button.setStyleSheet(pure_black_style.format(state['color']))
-            
-        else:
-            # Обычная логика для всех остальных тем
-            button_states = {
-                True: {
-                    'text': 'Отключить доступ к ChatGPT, Spotify, Twitch',
-                    'color': "255, 93, 174",
-                    'icon': 'fa5s.lock'
-                },
-                False: {
-                    'text': 'Разблокировать ChatGPT, Spotify, Twitch и др.',
-                    'color': "218, 165, 32",
-                    'icon': 'fa5s.unlock'
-                }
-            }
-            
-            state = button_states[is_active]
-            self.proxy_button.setText(f" {state['text']}")
-            
-            from ui.theme import BUTTON_STYLE
-            self.proxy_button.setStyleSheet(BUTTON_STYLE.format(state['color']))
-        
-        # Общая логика для иконки
-        import qtawesome as qta
-        from PyQt6.QtCore import QSize
-        state = button_states[is_active]
-        self.proxy_button.setIcon(qta.icon(state['icon'], color='white'))
-        self.proxy_button.setIconSize(QSize(16, 16))
-        
-        # Логируем изменение состояния
-        try:
-            status = "активна" if is_active else "неактивна"
-            theme_info = " (полностью черная тема)" if is_pure_black else ""
-            log(f"Состояние кнопки proxy обновлено: разблокировка {status}{theme_info}", "DEBUG")
-        except ImportError:
-            pass
-    
-    def set_proxy_button_loading(self, is_loading: bool, text: str = ""):
-        """
-        Устанавливает состояние загрузки для кнопки proxy.
-        
-        Args:
-            is_loading: True если идет процесс загрузки/обработки
-            text: Текст для отображения во время загрузки
-        """
-        if not hasattr(self, 'proxy_button'):
-            log("⚠️ proxy_button не существует", "WARNING")
-            return
-            
-        try:
-            import qtawesome as qta
-            
-            if is_loading:
-                loading_text = text if text else "Обработка..."
-                self.proxy_button.setText(f" {loading_text}")
-                self.proxy_button.setEnabled(False)
-                self.proxy_button.setIcon(qta.icon('fa5s.spinner', color='white'))
-            else:
-                self.proxy_button.setEnabled(True)
-                # Восстанавливаем нормальное состояние
-                self.update_proxy_button_state()
-                
-        except Exception as e:
-            log(f"Ошибка в set_proxy_button_loading: {e}", "ERROR")

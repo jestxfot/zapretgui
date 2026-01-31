@@ -2,35 +2,94 @@
 """
 SSH деплой на несколько VPS серверов с автоматическим обновлением JSON
 Поддержка балансировки нагрузки между серверами
+ОБНОВЛЕНО: Добавлена поддержка входа по паролю
 """
 
 import paramiko
 import os
 import subprocess
+import re
 from pathlib import Path
 from typing import Optional, Any, List, Dict
 import json
 from datetime import datetime
 import tempfile
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # КОНФИГУРАЦИЯ СЕРВЕРОВ
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+
+def _load_dotenv_if_present() -> None:
+    """
+    Minimal .env loader (no external dependency).
+    - Only sets keys that are not already present in process env.
+    - Supports plain KEY=VALUE and quoted KEY="VALUE"/KEY='VALUE'.
+    """
+    if os.environ.get("ZAPRET_DISABLE_DOTENV") == "1":
+        return
+
+    try:
+        start_dir = Path(__file__).resolve().parent
+    except Exception:
+        start_dir = Path.cwd()
+
+    for parent in (start_dir, *start_dir.parents):
+        dotenv_path = parent / ".env"
+        if dotenv_path.exists() and dotenv_path.is_file():
+            try:
+                for raw_line in dotenv_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    if not key or key in os.environ:
+                        continue
+                    value = value.strip()
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                        value = value[1:-1]
+                    os.environ[key] = value
+            except Exception:
+                pass
+            return
+
+_load_dotenv_if_present()
 
 VPS_SERVERS = [
+    # ═══ НОВЫЙ ОСНОВНОЙ СЕРВЕР (вход по паролю) ═══
     {
-        'id': 'vps1',
-        'name': 'VPS Server 1 (Основной)',
-        'host': '84.54.30.233',
-        'port': 2089,
+        'id': 'vps_super',
+        'name': 'VPS Super (Новый основной)',
+        'host': '185.114.116.232',
+        'port': 22,
         'user': 'root',
-        'key_path': 'H:/Privacy/main',
-        'key_password': 'zxcvbita2014',
+        'password': None,
+        'password_env': 'ZAPRET_VPS_SUPER_PASSWORD',
+        'key_path': None,
+        'key_password': None,
         'upload_dir': '/var/www/zapret/download',
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
         'priority': 1,
-        'use_for_telegram': False,  # ❌ Основной сервер - только деплой
+        'use_for_telegram': True,
+    },
+    {
+        'id': 'vps0',
+        'name': 'VPS Primary (Новый основной)',
+        'host': '45.144.30.84',
+        'port': 22,
+        'user': 'root',
+        'password': None,
+        'password_env': 'ZAPRET_VPS0_PASSWORD',
+        'key_path': None,
+        'key_password': None,
+        'upload_dir': '/var/www/zapret/download',
+        'scripts_dir': '/root/zapretgpt/tests',
+        'json_path': '/var/www/zapret/api/all_versions.json',
+        'priority': 2,
+        'use_for_telegram': False,
     },
     {
         'id': 'vps2',
@@ -38,19 +97,38 @@ VPS_SERVERS = [
         'host': '185.68.247.42',
         'port': 2089,
         'user': 'root',
+        'password': None,
         'key_path': 'H:/Privacy/main',
         'key_password': 'zxcvbita2014',
         'upload_dir': '/var/www/zapret/download',
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
-        'priority': 2,
-        'use_for_telegram': True,  # ✅ Этот сервер будет публиковать в Telegram
+        'priority': 3,
+        'use_for_telegram': False,  # ← Резервный сервер нестабилен
     },
 ]
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+
+def _normalize_env_key(value: str) -> str:
+    return re.sub(r'[^A-Za-z0-9]+', '_', value).upper().strip('_')
+
+def _password_env_name(server_config: Dict[str, Any]) -> str:
+    explicit = server_config.get('password_env')
+    if explicit:
+        return explicit
+    server_id = server_config.get('id') or ""
+    if server_id:
+        return f"ZAPRET_{_normalize_env_key(server_id)}_PASSWORD"
+    return "ZAPRET_SSH_PASSWORD"
+
+def _resolve_password(server_config: Dict[str, Any]) -> Optional[str]:
+    password = server_config.get('password')
+    if password:
+        return password
+    return os.environ.get(_password_env_name(server_config)) or None
 
 def convert_key_to_pem(key_path: str, password: str = None) -> Optional[str]:
     """Конвертирует OpenSSH ключ в PEM формат для Paramiko"""
@@ -81,10 +159,12 @@ def is_ssh_configured() -> bool:
     if not VPS_SERVERS:
         return False
     
-    # Проверяем хотя бы один сервер
     for server in VPS_SERVERS:
-        key_path = Path(server['key_path'])
-        if key_path.exists():
+        # Сервер с паролем или с существующим ключом
+        if _resolve_password(server):
+            return True
+        key_path = server.get('key_path')
+        if key_path and Path(key_path).exists():
             return True
     
     return False
@@ -102,36 +182,131 @@ def get_ssh_config_info() -> str:
     count = len(VPS_SERVERS)
     first = VPS_SERVERS[0]
     
+    auth_type = "пароль" if not first.get('key_path') else "ключ"
+    
     if count == 1:
-        return f"SSH настроен (1 сервер): {first['user']}@{first['host']}"
+        return f"SSH настроен (1 сервер, {auth_type}): {first['user']}@{first['host']}"
     else:
         return f"SSH настроен ({count} серверов): {first['user']}@{first['host']} +{count-1}"
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# ФУНКЦИЯ SSH ПОДКЛЮЧЕНИЯ (НОВАЯ)
+# ═══════════════════════════════════════════════════════════════
+
+def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[paramiko.SSHClient], Optional[str], str]:
+    """
+    Универсальная функция подключения по SSH
+    
+    Returns:
+        (ssh_client, pem_key_path, error_message)
+        Если успешно: (client, pem_path_or_none, "")
+        Если ошибка: (None, None, "error message")
+    """
+    host = server_config['host']
+    port = server_config['port']
+    user = server_config['user']
+    password = _resolve_password(server_config)
+    key_path = server_config.get('key_path')
+    key_password = server_config.get('key_password')
+    
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    pem_key_path = None
+    
+    try:
+        if not key_path and not password:
+            return None, None, f"Пароль не задан для {user}@{host}:{port}. Установите переменную окружения {_password_env_name(server_config)}"
+
+        if password and not key_path:
+            # ═══ ВХОД ПО ПАРОЛЮ ═══
+            log_func(f"🔑 Подключение по паролю к {user}@{host}:{port}...")
+            ssh.connect(
+                hostname=host,
+                port=port,
+                username=user,
+                password=password,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=30,
+                banner_timeout=30,
+                auth_timeout=30
+            )
+            log_func("✅ Подключено по паролю")
+            return ssh, None, ""
+        
+        else:
+            # ═══ ВХОД ПО SSH КЛЮЧУ ═══
+            key_path_obj = Path(key_path) if key_path else None
+            
+            if not key_path_obj or not key_path_obj.exists():
+                return None, None, f"SSH ключ не найден: {key_path}"
+            
+            log_func(f"🔑 Загрузка SSH ключа: {key_path_obj.name}")
+            key = None
+            
+            for key_type, key_class in [
+                ("RSA", paramiko.RSAKey),
+                ("Ed25519", paramiko.Ed25519Key),
+                ("ECDSA", paramiko.ECDSAKey),
+            ]:
+                try:
+                    key = key_class.from_private_key_file(
+                        str(key_path_obj),
+                        password=key_password if key_password else None
+                    )
+                    log_func(f"✅ SSH ключ загружен ({key_type})")
+                    break
+                except:
+                    continue
+            
+            if not key:
+                log_func(f"⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
+                pem_key_path = convert_key_to_pem(str(key_path_obj), key_password)
+                
+                if pem_key_path:
+                    try:
+                        key = paramiko.RSAKey.from_private_key_file(pem_key_path)
+                        log_func(f"✅ SSH ключ загружен после конвертации")
+                    except Exception as e:
+                        log_func(f"❌ Конвертация не помогла: {e}")
+            
+            if not key:
+                return None, pem_key_path, "Не удалось загрузить SSH ключ"
+            
+            log_func(f"🔌 Подключение к {user}@{host}:{port}...")
+            ssh.connect(
+                hostname=host,
+                port=port,
+                username=user,
+                pkey=key,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=30,
+                banner_timeout=30,
+                auth_timeout=30
+            )
+            log_func("✅ Подключено по SSH ключу")
+            return ssh, pem_key_path, ""
+            
+    except paramiko.AuthenticationException as e:
+        return None, pem_key_path, f"Ошибка аутентификации: {e}"
+    except Exception as e:
+        return None, pem_key_path, f"Ошибка подключения: {e}"
+
+# ═══════════════════════════════════════════════════════════════
 # ГЛАВНАЯ ФУНКЦИЯ ДЕПЛОЯ
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 
 def deploy_to_all_servers(
     file_path: Path,
     channel: str,
     version: str,
     notes: str,
-    publish_telegram: bool = False,  # ✅ Новый параметр
+    publish_telegram: bool = False,
     log_queue: Optional[Any] = None
 ) -> tuple[bool, str]:
     """
     Деплой на все сервера из списка с публикацией в Telegram
-    
-    Args:
-        file_path: Путь к .exe файлу
-        channel: "stable" или "test"
-        version: Версия (например, "16.5.26.4")
-        notes: Release notes
-        publish_telegram: Публиковать ли в Telegram после деплоя
-        log_queue: Очередь для логов (опционально)
-        
-    Returns:
-        (success, message): True если хотя бы один сервер успешен
     """
     def log(msg: str):
         if log_queue:
@@ -145,7 +320,6 @@ def deploy_to_all_servers(
     if not VPS_SERVERS:
         return False, "Нет серверов в конфигурации"
     
-    # Сортируем серверы по приоритету
     servers = sorted(VPS_SERVERS, key=lambda s: s['priority'])
     
     log(f"\n{'='*60}")
@@ -153,10 +327,6 @@ def deploy_to_all_servers(
     log(f"{'='*60}")
     
     results = []
-    
-    # ═══════════════════════════════════════════════════════
-    # ШАГ 1: ДЕПЛОЙ НА ВСЕ СЕРВЕРА
-    # ═══════════════════════════════════════════════════════
     
     for i, server in enumerate(servers, 1):
         log(f"\n{'─'*60}")
@@ -185,10 +355,6 @@ def deploy_to_all_servers(
         else:
             log(f"❌ {server['name']}: {message}")
     
-    # ═══════════════════════════════════════════════════════
-    # ИТОГИ ДЕПЛОЯ
-    # ═══════════════════════════════════════════════════════
-    
     log(f"\n{'='*60}")
     log(f"📊 ИТОГИ ДЕПЛОЯ")
     log(f"{'='*60}")
@@ -200,21 +366,15 @@ def deploy_to_all_servers(
     
     if failed > 0:
         log(f"❌ Ошибки: {failed}/{len(results)}")
-        
         for r in results:
             if not r['success']:
                 log(f"  • {r['server']}: {r['message']}")
     
-    # Проверяем успешность деплоя
     if successful == 0:
         return False, "Деплой не удался ни на одном сервере"
     
-    # ═══════════════════════════════════════════════════════
-    # ШАГ 2: ПУБЛИКАЦИЯ В TELEGRAM (только с выделенного сервера)
-    # ═══════════════════════════════════════════════════════
-    
+    # Публикация в Telegram
     if publish_telegram:
-        # Ищем сервер для публикации в Telegram
         telegram_server = None
         for result in results:
             if result['success'] and result['config'].get('use_for_telegram', False):
@@ -226,7 +386,6 @@ def deploy_to_all_servers(
             log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM")
             log(f"{'='*60}")
             log(f"📍 Выбран сервер: {telegram_server['name']}")
-            log(f"💡 Причина: менее нагруженный сервер (use_for_telegram=True)")
             
             telegram_success, telegram_message = _publish_to_telegram_via_ssh(
                 channel=channel,
@@ -239,14 +398,10 @@ def deploy_to_all_servers(
             if telegram_success:
                 log(f"✅ Telegram публикация успешна")
             else:
-                log(f"⚠️ Telegram публикация не удалась: {telegram_message}")
-                # Не прерываем - деплой уже успешен
-        else:
-            log(f"\n⚠️ Нет сервера с флагом 'use_for_telegram=True', пропускаем публикацию")
+                log(f"⚠️ Telegram: {telegram_message}")
     
-    # Финальный результат
     if successful < len(results):
-        return True, f"Деплой завершён частично ({successful}/{len(results)} серверов)"
+        return True, f"Деплой завершён частично ({successful}/{len(results)})"
     else:
         return True, f"Деплой успешно завершён на всех {len(results)} серверах"
 
@@ -257,104 +412,32 @@ def _publish_to_telegram_via_ssh(
     server_config: Dict[str, Any],
     log_queue: Optional[Any] = None
 ) -> tuple[bool, str]:
-    """
-    Публикация в Telegram через SSH на конкретном сервере
-    
-    Args:
-        channel: "stable" или "test"
-        version: Версия релиза
-        notes: Release notes
-        server_config: Конфигурация сервера
-        log_queue: Очередь для логов
-        
-    Returns:
-        (success, message)
-    """
+    """Публикация в Telegram через SSH"""
     def log(msg: str):
         if log_queue:
             log_queue.put(msg)
         else:
             print(msg)
     
-    ssh = None
     pem_key_path = None
     
     try:
-        # Извлекаем конфигурацию
-        host = server_config['host']
-        port = server_config['port']
-        user = server_config['user']
-        key_path = Path(server_config['key_path'])
-        key_password = server_config.get('key_password')
         scripts_dir = server_config.get('scripts_dir')
         upload_dir = server_config['upload_dir']
         
         if not scripts_dir:
-            return False, "scripts_dir не указан в конфигурации сервера"
+            return False, "scripts_dir не указан"
         
-        # Формируем путь к файлу на сервере
-        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
-        log(f"🔌 Подключение к {user}@{host}:{port}...")
+        # Подключение
+        ssh, pem_key_path, error = _ssh_connect(server_config, log)
+        if not ssh:
+            return False, error
         
-        # ═══════════════════════════════════════════════════════
-        # SSH ПОДКЛЮЧЕНИЕ
-        # ═══════════════════════════════════════════════════════
-        
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        if not key_path.exists():
-            return False, f"SSH ключ не найден: {key_path}"
-        
-        # Загрузка ключа (аналогично _deploy_to_single_server)
-        key = None
-        for key_type, key_class in [
-            ("RSA", paramiko.RSAKey),
-            ("Ed25519", paramiko.Ed25519Key),
-            ("ECDSA", paramiko.ECDSAKey),
-        ]:
-            try:
-                key = key_class.from_private_key_file(
-                    str(key_path),
-                    password=key_password if key_password else None
-                )
-                log(f"✅ SSH ключ загружен ({key_type})")
-                break
-            except:
-                continue
-        
-        if not key:
-            pem_key_path = convert_key_to_pem(str(key_path), key_password)
-            if pem_key_path:
-                try:
-                    key = paramiko.RSAKey.from_private_key_file(pem_key_path)
-                    log(f"✅ SSH ключ загружен после конвертации в PEM")
-                except:
-                    pass
-        
-        if not key:
-            return False, "Не удалось загрузить SSH ключ"
-        
-        # Подключаемся
-        ssh.connect(
-            hostname=host,
-            port=port,
-            username=user,
-            pkey=key,
-            timeout=30
-        )
-        
-        log(f"✅ Подключено к {host}")
-        
-        # ═══════════════════════════════════════════════════════
-        # ЗАПУСК ПУБЛИКАЦИИ
-        # ═══════════════════════════════════════════════════════
-        
-        # Экранируем кавычки в notes для bash
+        # Запуск скрипта
         notes_escaped = notes.replace('"', '\\"').replace('$', '\\$')
-        
         telegram_cmd = (
             f"cd {scripts_dir} && "
             f"python3 ssh_telegram_publisher.py "
@@ -362,19 +445,14 @@ def _publish_to_telegram_via_ssh(
         )
         
         log(f"📤 Запуск: ssh_telegram_publisher.py")
-        log(f"   Файл: {remote_path}")
-        log(f"   Канал: {channel}")
-        log(f"   Версия: {version}")
         
         stdin, stdout, stderr = ssh.exec_command(telegram_cmd, timeout=600)
         
-        # Выводим stdout построчно
         for line in stdout:
             log(f"   {line.rstrip()}")
         
         exit_code = stdout.channel.recv_exit_status()
         
-        # Выводим stderr если есть
         stderr_output = stderr.read().decode('utf-8')
         if stderr_output:
             for line in stderr_output.split('\n'):
@@ -384,31 +462,22 @@ def _publish_to_telegram_via_ssh(
         ssh.close()
         
         if exit_code == 0:
-            return True, f"Telegram публикация выполнена с сервера {server_config['name']}"
+            return True, "OK"
         else:
-            return False, f"Скрипт публикации завершился с кодом {exit_code}"
+            return False, f"Код выхода: {exit_code}"
         
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        log(f"❌ Ошибка публикации:\n{error_trace}")
-        return False, f"Ошибка: {str(e)[:100]}"
+        return False, str(e)[:100]
     finally:
-        if ssh:
-            try:
-                ssh.close()
-            except:
-                pass
-        
         if pem_key_path and os.path.exists(pem_key_path):
             try:
                 os.unlink(pem_key_path)
             except:
                 pass
 
-# ═══════════════════════════════════════════════════════════
-# ВНУТРЕННЯЯ ФУНКЦИЯ ДЕПЛОЯ НА ОДИН СЕРВЕР
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# ДЕПЛОЙ НА ОДИН СЕРВЕР
+# ═══════════════════════════════════════════════════════════════
 
 def _deploy_to_single_server(
     file_path: Path,
@@ -418,124 +487,39 @@ def _deploy_to_single_server(
     server_config: Dict[str, Any],
     log_queue: Optional[Any] = None
 ) -> tuple[bool, str]:
-    """
-    Деплой файла на конкретный VPS сервер
-    
-    Args:
-        file_path: Путь к .exe файлу
-        channel: "stable" или "test"
-        version: Версия релиза
-        notes: Release notes
-        server_config: Конфигурация сервера
-        log_queue: Очередь для логов
-        
-    Returns:
-        (success, message)
-    """
+    """Деплой файла на конкретный VPS сервер"""
     def log(msg: str):
         if log_queue:
             log_queue.put(msg)
         else:
             print(msg)
     
-    ssh = None
     pem_key_path = None
+    ssh = None
     
     try:
-        # ═══════════════════════════════════════════════════════
-        # ИЗВЛЕЧЕНИЕ КОНФИГУРАЦИИ
-        # ═══════════════════════════════════════════════════════
-        
         host = server_config['host']
-        port = server_config['port']
-        user = server_config['user']
-        key_path = Path(server_config['key_path'])
-        key_password = server_config.get('key_password')
         upload_dir = server_config['upload_dir']
         json_path = server_config['json_path']
         
-        log(f"🔌 Подключение к {user}@{host}:{port}...")
-        
-        # ═══════════════════════════════════════════════════════
-        # SSH ПОДКЛЮЧЕНИЕ
-        # ═══════════════════════════════════════════════════════
-        
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        if not key_path.exists():
-            return False, f"SSH ключ не найден: {key_path}"
-        
-        # Попытка загрузить ключ
-        log(f"🔑 Загрузка SSH ключа: {key_path.name}")
-        key = None
-        key_error = None
-        
-        for key_type, key_class in [
-            ("RSA", paramiko.RSAKey),
-            ("Ed25519", paramiko.Ed25519Key),
-            ("ECDSA", paramiko.ECDSAKey),
-        ]:
-            try:
-                key = key_class.from_private_key_file(
-                    str(key_path),
-                    password=key_password if key_password else None
-                )
-                log(f"✅ SSH ключ загружен ({key_type})")
-                break
-            except Exception as e:
-                key_error = e
-                continue
-        
-        # Если прямая загрузка не удалась, пробуем конвертацию в PEM
-        if not key:
-            log(f"⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
-            pem_key_path = convert_key_to_pem(str(key_path), key_password)
-            
-            if pem_key_path:
-                try:
-                    key = paramiko.RSAKey.from_private_key_file(pem_key_path)
-                    log(f"✅ SSH ключ загружен после конвертации в PEM")
-                except Exception as e:
-                    log(f"❌ Конвертация в PEM не помогла: {e}")
-        
-        if not key:
-            return False, f"Не удалось загрузить SSH ключ: {key_error}"
-        
-        # Подключение
-        log("🔌 Подключение с SSH ключом...")
-        ssh.connect(
-            hostname=host,
-            port=port,
-            username=user,
-            pkey=key,
-            look_for_keys=False,
-            allow_agent=False,
-            timeout=30,
-            banner_timeout=30,
-            auth_timeout=30
-        )
-        
-        log("✅ Подключено к VPS")
+        # ═══ SSH ПОДКЛЮЧЕНИЕ ═══
+        ssh, pem_key_path, error = _ssh_connect(server_config, log)
+        if not ssh:
+            return False, error
         
         # Проверка
         stdin, stdout, stderr = ssh.exec_command("whoami", timeout=10)
         connected_user = stdout.read().decode().strip()
-        log(f"✅ Вход под пользователем: {connected_user}")
+        log(f"✅ Вход: {connected_user}")
         
-        # ═══════════════════════════════════════════════════════
-        # ЗАГРУЗКА ФАЙЛА
-        # ═══════════════════════════════════════════════════════
-        
-        remote_filename = f"ZapretSetup{'_TEST' if channel == 'test' else ''}.exe"
+        # ═══ ЗАГРУЗКА ФАЙЛА ═══
+        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
-        log(f"📤 Загрузка {file_path.name} на VPS...")
-        log(f"   → {remote_path}")
+        log(f"📤 Загрузка {file_path.name} → {remote_path}")
         
         sftp = ssh.open_sftp()
         
-        # Создаём директорию если нужно
         try:
             sftp.stat(upload_dir)
         except:
@@ -543,7 +527,6 @@ def _deploy_to_single_server(
             stdout.channel.recv_exit_status()
             log(f"✅ Создана директория: {upload_dir}")
         
-        # Загружаем файл с прогрессом
         file_size = file_path.stat().st_size
         file_size_mb = file_size / (1024 * 1024)
         
@@ -557,25 +540,18 @@ def _deploy_to_single_server(
         
         sftp.put(str(file_path), remote_path, callback=progress_callback)
         
-        log(f"✅ Файл загружен на VPS ({file_size_mb:.1f} МБ)")
+        log(f"✅ Файл загружен ({file_size_mb:.1f} МБ)")
         
-        # ═══════════════════════════════════════════════════════
-        # ОБНОВЛЕНИЕ JSON API
-        # ═══════════════════════════════════════════════════════
-        
+        # ═══ ОБНОВЛЕНИЕ JSON ═══
         log(f"\n📝 Обновление JSON API...")
         
-        # Получаем информацию о файле
         file_stat = sftp.stat(remote_path)
         file_mtime = int(file_stat.st_mtime)
         
-        # Читаем существующий JSON
         json_data = {}
         try:
             with sftp.file(json_path, 'r') as json_file:
                 json_content = json_file.read()
-                
-                # Пробуем декодировать как UTF-8
                 try:
                     json_text = json_content.decode('utf-8')
                 except UnicodeDecodeError:
@@ -585,25 +561,16 @@ def _deploy_to_single_server(
                         json_text = json_content.decode('cp1251')
                 
                 json_data = json.loads(json_text)
-                
                 log(f"   ✓ Прочитан существующий JSON")
-                existing_channels = [k for k in json_data.keys() if k in ['stable', 'test']]
-                log(f"   ✓ Найдено каналов: {len(existing_channels)} ({', '.join(existing_channels)})")
-                
         except FileNotFoundError:
-            log(f"   ⚠️ JSON файл не найден, создаём новый")
-        except json.JSONDecodeError as e:
-            log(f"   ⚠️ Ошибка парсинга JSON: {e}, создаём новый")
+            log(f"   ⚠️ JSON не найден, создаём новый")
         except Exception as e:
-            log(f"   ⚠️ Ошибка чтения JSON: {e}, создаём новый")
+            log(f"   ⚠️ Ошибка чтения JSON: {e}")
         
-        # Обновляем данные для текущего канала
         import pytz
-        
         moscow_tz = pytz.timezone('Europe/Moscow')
         modified_dt = datetime.fromtimestamp(file_mtime, tz=moscow_tz)
         
-        # ✅ Обновляем только текущий канал, остальные сохраняем
         json_data[channel] = {
             "version": version,
             "channel": channel,
@@ -619,103 +586,63 @@ def _deploy_to_single_server(
         
         log(f"   ✓ Обновлён канал: {channel}")
         
-        all_channels = [k for k in json_data.keys() if k in ['stable', 'test']]
-        log(f"   ✓ Всего каналов в JSON: {len(all_channels)} ({', '.join(all_channels)})")
-        
-        # ═══════════════════════════════════════════════════════
-        # СОХРАНЕНИЕ all_versions.json
-        # ═══════════════════════════════════════════════════════
-        
+        # Сохранение all_versions.json
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
             json.dump(json_data, tmp, indent=2, ensure_ascii=False)
             tmp_json_path = tmp.name
         
         sftp.put(tmp_json_path, json_path)
         os.unlink(tmp_json_path)
-        
         log(f"   ✓ Сохранён all_versions.json")
         
-        # ═══════════════════════════════════════════════════════
-        # ✅ ГЕНЕРАЦИЯ ОТДЕЛЬНЫХ JSON ДЛЯ КАЖДОГО КАНАЛА
-        # ═══════════════════════════════════════════════════════
-        
+        # Генерация отдельных JSON
         api_dir = os.path.dirname(json_path)
         
-        # Генерируем version_stable.json
         if 'stable' in json_data:
-            stable_json_path = f"{api_dir}/version_stable.json"
-            
+            stable_path = f"{api_dir}/version_stable.json"
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
                 json.dump(json_data['stable'], tmp, indent=2, ensure_ascii=False)
                 tmp_path = tmp.name
-            
-            sftp.put(tmp_path, stable_json_path)
+            sftp.put(tmp_path, stable_path)
             os.unlink(tmp_path)
-            
             log(f"   ✓ Создан version_stable.json")
         
-        # Генерируем version_test.json
         if 'test' in json_data:
-            test_json_path = f"{api_dir}/version_test.json"
-            
+            test_path = f"{api_dir}/version_test.json"
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp:
                 json.dump(json_data['test'], tmp, indent=2, ensure_ascii=False)
                 tmp_path = tmp.name
-            
-            sftp.put(tmp_path, test_json_path)
+            sftp.put(tmp_path, test_path)
             os.unlink(tmp_path)
-            
             log(f"   ✓ Создан version_test.json")
         
-        # ═══════════════════════════════════════════════════════
-        # ИТОГОВАЯ ИНФОРМАЦИЯ
-        # ═══════════════════════════════════════════════════════
-        
-        log(f"\n✅ Все JSON файлы обновлены:")
-        log(f"   • Канал: {channel}")
-        log(f"   • Версия: {version}")
-        log(f"   • Размер: {file_size_mb:.1f} МБ")
-        log(f"   • Время: {modified_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        log(f"   • Доступные каналы: {', '.join(all_channels)}")
-        log(f"   • Созданы файлы:")
-        log(f"     - all_versions.json")
-        if 'stable' in json_data:
-            log(f"     - version_stable.json")
-        if 'test' in json_data:
-            log(f"     - version_test.json")
-        
         sftp.close()
-        
         ssh.close()
         
-        return True, f"Деплой на {host} завершён успешно"
+        return True, f"Деплой на {host} завершён"
         
-    except paramiko.AuthenticationException as e:
-        return False, f"SSH аутентификация: {e}"
     except Exception as e:
         import traceback
-        error_trace = traceback.format_exc()
-        log(f"❌ Полная ошибка:\n{error_trace}")
-        return False, f"Ошибка: {str(e)[:100]}"
+        log(f"❌ Ошибка:\n{traceback.format_exc()}")
+        return False, str(e)[:100]
     finally:
         if ssh:
             try:
                 ssh.close()
             except:
                 pass
-        
         if pem_key_path and os.path.exists(pem_key_path):
             try:
                 os.unlink(pem_key_path)
             except:
                 pass
 
-# ═══════════════════════════════════════════════════════════
-# ТОЧКА ВХОДА ДЛЯ ТЕСТИРОВАНИЯ
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# ТОЧКА ВХОДА
+# ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("SSH Deploy Module for Multiple Servers")
+    print("SSH Deploy Module")
     print("=" * 60)
     print(f"Configured: {is_ssh_configured()}")
     print(f"Info: {get_ssh_config_info()}")
@@ -725,4 +652,5 @@ if __name__ == "__main__":
     if VPS_SERVERS:
         print("\nСписок серверов:")
         for i, server in enumerate(VPS_SERVERS, 1):
-            print(f"  {i}. {server['name']} ({server['host']}:{server['port']}) - приоритет {server['priority']}")
+            auth = "пароль" if server.get('password') else "ключ"
+            print(f"  {i}. {server['name']} ({server['host']}:{server['port']}) [{auth}]")

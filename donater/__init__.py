@@ -3,9 +3,12 @@
 """
 
 from .donate import DonateChecker
-from .subscription_dialog import SubscriptionDialog
+from .service import PremiumService, get_premium_service
+from .storage import PremiumStorage
 
 __all__ = [
     'DonateChecker',
-    'SubscriptionDialog'
+    'PremiumService',
+    'get_premium_service',
+    'PremiumStorage',
 ]

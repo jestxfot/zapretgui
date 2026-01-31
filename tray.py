@@ -6,6 +6,12 @@ from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
 from PyQt6.QtCore    import QEvent
 
+try:
+    import qtawesome as qta
+    HAS_QTAWESOME = True
+except ImportError:
+    HAS_QTAWESOME = False
+
 # ----------------------------------------------------------------------
 #   SystemTrayManager
 # ----------------------------------------------------------------------
@@ -22,7 +28,6 @@ class SystemTrayManager:
         self.parent        = parent
         self.tray_icon     = QSystemTrayIcon(parent)
         self.app_version   = app_version
-        self._shown_hint   = False            # показано ли «свернуто в трей»
 
         # иконка + меню + сигналы
         self.set_icon(icon_path)
@@ -55,23 +60,73 @@ class SystemTrayManager:
             print(f"ОШИБКА: Файл иконки {icon_path} не найден")
 
         # tooltip с версией
-        self.tray_icon.setToolTip(f"Zapret v{self.app_version}")
+        self.tray_icon.setToolTip(f"Zapret2 v{self.app_version}")
 
     # ------------------------------------------------------------------
     #  КОНТЕКСТНОЕ МЕНЮ
     # ------------------------------------------------------------------
     def setup_menu(self):
         menu = QMenu()
+        self.menu = menu
+
+        # Диагностика: помогает понять, "появляется ли" меню и не закрывается ли сразу.
+        try:
+            from log import log
+
+            menu.aboutToShow.connect(lambda: log("Tray menu: aboutToShow", "DEBUG"))  # type: ignore[attr-defined]
+            menu.aboutToHide.connect(lambda: log("Tray menu: aboutToHide", "DEBUG"))  # type: ignore[attr-defined]
+            log(f"Tray menu initialized (hasContextMenu=True)", "DEBUG")
+        except Exception:
+            pass
+
+        # Применяем стиль меню
+        self._apply_menu_style(menu)
 
         # показать окно
         show_act = QAction("Показать", self.parent)
+        if HAS_QTAWESOME:
+            show_act.setIcon(qta.icon('fa5s.window-restore', color='#60cdff'))
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
+
+        # Прозрачность окна (быстрые пресеты + способ восстановить видимость)
+        opacity_menu = menu.addMenu("Прозрачность окна")
+        if HAS_QTAWESOME:
+            opacity_menu.setIcon(qta.icon('fa5s.adjust', color='#60cdff'))
+
+        def set_opacity(value: int):
+            try:
+                from config.reg import set_window_opacity as _set_window_opacity
+                _set_window_opacity(value)
+            except Exception:
+                pass
+
+            try:
+                if hasattr(self.parent, "set_window_opacity"):
+                    self.parent.set_window_opacity(value)
+                if hasattr(self.parent, "appearance_page") and self.parent.appearance_page:
+                    self.parent.appearance_page.set_opacity_value(value)
+            except Exception:
+                pass
+
+        presets = [
+            (100, "100% (непрозрачное)"),
+            (75, "75%"),
+            (50, "50%"),
+            (25, "25%"),
+            (0, "0% (полностью прозрачное)"),
+        ]
+        for value, title in presets:
+            act = QAction(title, self.parent)
+            act.triggered.connect(lambda checked=False, v=value: set_opacity(v))
+            opacity_menu.addAction(act)
 
         menu.addSeparator()
 
         # консоль
         console_act = QAction("Консоль", self.parent)
+        if HAS_QTAWESOME:
+            console_act.setIcon(qta.icon('fa5s.terminal', color='#888888'))
         console_act.triggered.connect(self.show_console)
         menu.addAction(console_act)
 
@@ -79,15 +134,79 @@ class SystemTrayManager:
 
         # ─── ДВА ОТДЕЛЬНЫХ ВЫХОДА ──────────────────────────
         exit_only_act = QAction("Выход", self.parent)
+        if HAS_QTAWESOME:
+            exit_only_act.setIcon(qta.icon('fa5s.sign-out-alt', color='#aaaaaa'))
         exit_only_act.triggered.connect(self.exit_only)
         menu.addAction(exit_only_act)
 
         exit_stop_act = QAction("Выход и остановить DPI", self.parent)
+        if HAS_QTAWESOME:
+            exit_stop_act.setIcon(qta.icon('fa5s.power-off', color='#e81123'))
         exit_stop_act.triggered.connect(self.exit_and_stop)
         menu.addAction(exit_stop_act)
         # ───────────────────────────────────────────────────
 
         self.tray_icon.setContextMenu(menu)
+
+    def _apply_menu_style(self, menu: QMenu):
+        """Применяет стиль к меню трея"""
+        # Получаем цвета текущей темы
+        try:
+            from ui.theme import ThemeManager
+            theme_manager = ThemeManager.instance()
+            if theme_manager and hasattr(theme_manager, '_current_theme'):
+                theme_name = theme_manager._current_theme
+                theme_config = theme_manager._themes.get(theme_name, {})
+                theme_bg = theme_config.get('theme_bg', '30, 30, 30')
+                is_light = 'Светлая' in theme_name if theme_name else False
+            else:
+                theme_bg = '30, 30, 30'
+                is_light = False
+        except:
+            theme_bg = '30, 30, 30'
+            is_light = False
+
+        # Цвета в зависимости от темы
+        if is_light:
+            bg_color = f"rgb({theme_bg})"
+            text_color = "#000000"
+            hover_bg = "rgba(0, 0, 0, 0.1)"
+            border_color = "rgba(0, 0, 0, 0.2)"
+            separator_color = "rgba(0, 0, 0, 0.15)"
+        else:
+            bg_color = f"rgb({theme_bg})"
+            text_color = "#ffffff"
+            hover_bg = "rgba(255, 255, 255, 0.1)"
+            border_color = "rgba(255, 255, 255, 0.15)"
+            separator_color = "rgba(255, 255, 255, 0.1)"
+
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 2px 0px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: {text_color};
+                padding: 3px 16px 3px 8px;
+                margin: 0px 3px;
+                border-radius: 3px;
+                font-size: 11px;
+            }}
+            QMenu::item:selected {{
+                background-color: {hover_bg};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {separator_color};
+                margin: 2px 6px;
+            }}
+            QMenu::icon {{
+                padding-left: 4px;
+            }}
+        """)
 
     # ------------------------------------------------------------------
     #  ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ СОХРАНЕНИЯ ГЕОМЕТРИИ
@@ -111,24 +230,48 @@ class SystemTrayManager:
             from log import log
             log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
 
+    def hide_to_tray(self, show_hint: bool = True) -> None:
+        """Скрывает окно в трей (без выхода из GUI)."""
+        try:
+            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
+            self._save_window_geometry()
+        except Exception:
+            pass
+
+        try:
+            self.parent.hide()
+        except Exception:
+            return
+
+        if not show_hint:
+            return
+
+        # ✅ ПОКАЗЫВАЕМ УВЕДОМЛЕНИЕ ТОЛЬКО ОДИН РАЗ ЗА ВСЁ ВРЕМЯ
+        try:
+            from config import get_tray_hint_shown, set_tray_hint_shown
+            if not get_tray_hint_shown():
+                self.show_notification(
+                    "Zapret продолжает работать",
+                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
+                )
+                set_tray_hint_shown(True)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # 1) ПРОСТО закрыть GUI, winws.exe оставить жить
     # ------------------------------------------------------------------
     def exit_only(self):
         """Закрывает GUI, процесс winws.exe остаётся запущенным."""
+        # Единая точка выхода: DPI не трогаем.
+        if hasattr(self.parent, "request_exit"):
+            self.parent.request_exit(stop_dpi=False)
+            return
+
+        # Fallback для старой архитектуры
         from log import log
-        log("Выход без остановки DPI (только GUI)", level="INFO")
-
-        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
-        self._save_window_geometry()
-
-        # останавливаем мониторинг (он будет «пустым» без окна)
-        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
-
-        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
+        log("Выход без остановки DPI (fallback, только GUI)", level="INFO")
         self.parent._allow_close = True
-        
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -137,23 +280,18 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def exit_and_stop(self):
         """Останавливает winws.exe, затем закрывает GUI."""
+        # Единая точка выхода: остановить DPI и выйти (учитывает все режимы).
+        if hasattr(self.parent, "request_exit"):
+            self.parent.request_exit(stop_dpi=True)
+            return
+
+        # Fallback для старой архитектуры
         from dpi.stop import stop_dpi
         from log import log
-
-        log("Выход + остановка DPI", level="INFO")
-
-        # ✅ СОХРАНЯЕМ ГЕОМЕТРИЮ ОКНА ПЕРЕД ВЫХОДОМ
-        self._save_window_geometry()
-
+        log("Выход + остановка DPI (fallback)", level="INFO")
         if hasattr(self.parent, 'dpi_starter'):
             stop_dpi(self.parent)
-
-        if hasattr(self.parent, 'process_monitor') and self.parent.process_monitor:
-            self.parent.process_monitor.stop()
-
-        # ✅ УСТАНАВЛИВАЕМ ФЛАГ РАЗРЕШЕНИЯ ЗАКРЫТИЯ
         self.parent._allow_close = True
-        
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -161,9 +299,29 @@ class SystemTrayManager:
     #  РЕАКЦИЯ НА КЛИКИ ПО ИКОНКЕ
     # ------------------------------------------------------------------
     def on_tray_icon_activated(self, reason):
+        # Диагностика: 1=Trigger (LMB), 2=DoubleClick, 3=MiddleClick, 4=Context (RMB)
+        try:
+            from log import log
+
+            def _enum_to_int(v):
+                try:
+                    return int(v)
+                except Exception:
+                    try:
+                        return int(v.value)
+                    except Exception:
+                        return str(v)
+
+            log(
+                f"Tray activated: reason={_enum_to_int(reason)} visible={self.parent.isVisible()}",
+                "DEBUG",
+            )
+        except Exception:
+            pass
+
         if reason == QSystemTrayIcon.ActivationReason.Trigger:          # левая кнопка
             if self.parent.isVisible():
-                self.parent.hide()
+                self.hide_to_tray(show_hint=False)
             else:
                 self.show_window()
 
@@ -196,6 +354,26 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def show_window(self):
         """Показывает окно и восстанавливает его на прежнем месте"""
+        try:
+            from log import log
+            if hasattr(self.parent, "_snapshot_interaction_state_for_debug"):
+                snap = self.parent._snapshot_interaction_state_for_debug()
+                log(f"Tray show_window: snap={snap}", "DEBUG")
+        except Exception:
+            pass
+
+        # Defensive: if we got here to "unstick" the UI, clear any grabs/popups/cursors first.
+        try:
+            if hasattr(self.parent, "_dismiss_transient_ui_safe"):
+                self.parent._dismiss_transient_ui_safe(reason="tray_show_window")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            if hasattr(self.parent, "_force_release_interaction_states"):
+                self.parent._force_release_interaction_states(reason="tray_show_window")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
         # ✅ ПРОВЕРЯЕМ: если окно было скрыто, просто показываем
         # Позиция уже сохранена, Qt сам её помнит
         self.parent.showNormal()
@@ -218,40 +396,13 @@ class SystemTrayManager:
             # (который сохранит позицию)
             self._orig_close(ev)
             return
-            
-        # Проверяем флаг разрешения закрытия (устанавливается в exit_only/exit_and_stop)
-        if not getattr(self.parent, '_allow_close', False):
-            # Обычное закрытие окна (крестик) - сворачиваем в трей
-            if not self._shown_hint:
-                self.show_notification(
-                    "Zapret продолжает работать",
-                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
-                )
-                self._shown_hint = True
-            
-            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
-            self._save_window_geometry()
-            
-            self.parent.hide()
+
+        # Обычное закрытие окна (крестик) — полностью закрываем GUI (DPI не трогаем).
+        try:
+            self.exit_only()
+        finally:
+            # request_exit() инициирует QApplication.quit(), closeEvent придёт ещё раз с _closing_completely=True
             ev.ignore()
-        else:
-            # Разрешено закрытие (из методов exit_*)
-            # Геометрия уже сохранена в exit_only/exit_and_stop
-            self._orig_close(ev)
 
     def _change_event(self, ev):
-        if ev.type() == QEvent.Type.WindowStateChange and self.parent.isMinimized():
-            ev.ignore()
-            
-            # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД МИНИМИЗАЦИЕЙ
-            self._save_window_geometry()
-            
-            self.parent.hide()
-            if not self._shown_hint:
-                self.show_notification(
-                    "Zapret продолжает работать",
-                    "Свернуто в трей. Кликните по иконке, чтобы открыть окно."
-                )
-                self._shown_hint = True
-        else:
-            self._orig_change(ev)
+        self._orig_change(ev)

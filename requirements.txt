@@ -12,6 +12,8 @@ pywin32
 # Network and HTTP
 requests
 urllib3
+PySocks
+cryptography
 
 # System and Process Management
 psutil
@@ -35,6 +37,7 @@ psutil
 # ════════════════════════════════════════════════════════════
 requests
 urllib3
+PySocks
 
 # ════════════════════════════════════════════════════════════
 # Build Tools (для build_release_gui.py)
@@ -53,9 +56,10 @@ PyGithub
 paramiko
 
 # ════════════════════════════════════════════════════════════
-# Telegram Integration (для публикации в канал)
+# Telegram Integration (для публикации в канал и обновлений)
 # ════════════════════════════════════════════════════════════
 pyrogram
+tgcrypto  # Ускоритель шифрования для Pyrogram
 
 # ════════════════════════════════════════════════════════════
 # Примечания:
@@ -66,8 +70,8 @@ pyrogram
 # - PyGithub, paramiko, pyrogram опциональны (нужны только для публикации)
 
 aiohttp
-dotenv
 telethon
+PySocks
 python-telegram
 python-telegram-bot
 qtawesome

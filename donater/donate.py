@@ -1,323 +1,66 @@
 # donater/donate.py
+"""
+Back-compat facade.
 
-import requests, winreg, hashlib, platform, logging
-from datetime import datetime
-from typing import Optional, Dict, Tuple
-from dataclasses import dataclass
+Вся бизнес-логика живет в `donater/` (storage/api/crypto/service).
+Снаружи можно продолжать импортировать DonateChecker, а также использовать
+`_verify_signed_response` в тестах.
+"""
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from __future__ import annotations
 
-# Константы
-REGISTRY_KEY = r"Software\ZapretReg2GUI"
-DEVICE_ID_VALUE = "DeviceID"
-KEY_VALUE = "ActivationKey"
-LAST_CHECK_VALUE = "LastCheck"
+from typing import Any, Dict, Optional, Tuple
 
-API_BASE_URL = "http://84.54.30.233:6666/api"
-REQUEST_TIMEOUT = 10
-
-# ============== DATA CLASSES ==============
-
-@dataclass
-class ActivationStatus:
-    """Статус активации"""
-    is_activated: bool
-    days_remaining: Optional[int]
-    expires_at: Optional[str]
-    status_message: str
-    subscription_level: str = "–"
-    
-    def get_formatted_expiry(self) -> str:
-        """Форматированная информация об истечении"""
-        if not self.is_activated:
-            return "Не активировано"
-        
-        if self.days_remaining is not None:
-            if self.days_remaining == 0:
-                return "Истекает сегодня"
-            elif self.days_remaining == 1:
-                return "1 день"
-            else:
-                return f"{self.days_remaining} дн."
-        
-        return "Активировано"
+from . import crypto as _crypto
+from .crypto import TRUSTED_PUBLIC_KEYS_B64
+from .service import PremiumService, get_premium_service
+from .storage import PremiumStorage as RegistryManager
 
 
-# ============== REGISTRY MANAGER ==============
-
-class RegistryManager:
-    """Работа с реестром Windows"""
-    
-    @staticmethod
-    def get_device_id() -> str:
-        """Получить или создать Device ID"""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                device_id, _ = winreg.QueryValueEx(key, DEVICE_ID_VALUE)
-                return device_id
-        except:
-            pass
-        
-        # Генерируем новый
-        machine_info = f"{platform.machine()}-{platform.processor()}-{platform.node()}"
-        device_id = hashlib.md5(machine_info.encode()).hexdigest()
-        
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                winreg.SetValueEx(key, DEVICE_ID_VALUE, 0, winreg.REG_SZ, device_id)
-            logger.info(f"Created Device ID: {device_id[:8]}...")
-        except Exception as e:
-            logger.error(f"Error saving device_id: {e}")
-        
-        return device_id
-    
-    @staticmethod
-    def save_key(key: str) -> bool:
-        """Сохранить ключ"""
-        try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as reg_key:
-                winreg.SetValueEx(reg_key, KEY_VALUE, 0, winreg.REG_SZ, key)
-            logger.info(f"Key saved: {key[:4]}****")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving key: {e}")
-            return False
-    
-    @staticmethod
-    def get_key() -> Optional[str]:
-        """Получить сохраненный ключ"""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                value, _ = winreg.QueryValueEx(key, KEY_VALUE)
-                return value
-        except:
-            return None
-    
-    @staticmethod
-    def delete_key() -> bool:
-        """Удалить ключ"""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.DeleteValue(key, KEY_VALUE)
-            logger.info("Key deleted")
-            return True
-        except:
-            return True
-    
-    @staticmethod
-    def save_last_check() -> bool:
-        """Сохранить время последней проверки"""
-        try:
-            timestamp = datetime.now().isoformat()
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as reg_key:
-                winreg.SetValueEx(reg_key, LAST_CHECK_VALUE, 0, winreg.REG_SZ, timestamp)
-            logger.debug(f"Last check saved: {timestamp}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving last_check: {e}")
-            return False
-    
-    @staticmethod
-    def get_last_check() -> Optional[datetime]:
-        """Получить время последней проверки"""
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY) as key:
-                timestamp_str, _ = winreg.QueryValueEx(key, LAST_CHECK_VALUE)
-                return datetime.fromisoformat(timestamp_str)
-        except:
-            return None
+def _verify_signed_response(resp: Dict, *, expected_device_id: str, expected_nonce: Optional[str] = None) -> Optional[Dict]:
+    # Important for tests: allow patching donater.donate.TRUSTED_PUBLIC_KEYS_B64 at runtime.
+    return _crypto.verify_signed_response(
+        resp,
+        expected_device_id=expected_device_id,
+        expected_nonce=expected_nonce,
+        trusted_public_keys_b64=TRUSTED_PUBLIC_KEYS_B64,
+    )
 
 
-# ============== API CLIENT ==============
+class DonateChecker:
+    """
+    Back-compat wrapper for legacy call sites.
+    Internally uses a single PremiumService instance.
+    """
 
-class APIClient:
-    """Клиент для API сервера"""
-    
-    def __init__(self, base_url: str = API_BASE_URL):
-        self.base_url = base_url
-        self.device_id = RegistryManager.get_device_id()
-        logger.info(f"Device ID: {self.device_id[:8]}...")
-    
-    def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Optional[Dict]:
-        """Выполнить HTTP запрос"""
-        url = f"{self.base_url}/{endpoint}"
-        
-        try:
-            if method == "POST":
-                response = requests.post(url, json=data, timeout=REQUEST_TIMEOUT)
-            else:
-                response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.error(f"HTTP {response.status_code}: {endpoint}")
-                return None
-                
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Connection error: {url}")
-        except requests.exceptions.Timeout:
-            logger.error(f"Timeout: {url}")
-        except Exception as e:
-            logger.error(f"Request error: {e}")
-        
-        return None
-    
-    def test_connection(self) -> Tuple[bool, str]:
-        """Проверка соединения"""
-        result = self._request("status")
-        
-        if result and result.get('success'):
-            version = result.get('version', 'unknown')
-            return True, f"API сервер доступен (v{version})"
-        
-        return False, "Сервер недоступен"
-    
-    def activate_key(self, key: str) -> Tuple[bool, str]:
-        """Активация ключа"""
-        logger.info(f"Activating key: {key[:4]}****")
-        
-        result = self._request("activate_key", "POST", {
-            "key": key,
-            "device_id": self.device_id
-        })
-        
-        if result and result.get('success'):
-            # Сохраняем ключ локально
-            RegistryManager.save_key(key)
-            # Сохраняем время проверки
-            RegistryManager.save_last_check()
-            
-            message = result.get('message', 'Ключ активирован')
-            logger.info(f"✅ Activation successful: {message}")
-            return True, message
-        
-        error = result.get('error', 'Ошибка активации') if result else 'Сервер недоступен'
-        logger.error(f"❌ Activation failed: {error}")
-        return False, error
-    
-    def check_device_status(self) -> ActivationStatus:
-        """Проверка статуса устройства"""
-        # Пробуем API
-        result = self._request("check_device", "POST", {"device_id": self.device_id})
-        
-        if result and result.get('success'):
-            # Сохраняем время проверки при успешном ответе
-            RegistryManager.save_last_check()
-            
-            if result.get('activated'):
-                # Активировано
-                return ActivationStatus(
-                    is_activated=True,
-                    days_remaining=result.get('days_remaining'),
-                    expires_at=result.get('expires_at'),
-                    status_message=result.get('message', 'Активировано'),
-                    subscription_level=result.get('subscription_level', 'zapretik')
-                )
-            else:
-                # Не активировано
-                return ActivationStatus(
-                    is_activated=False,
-                    days_remaining=None,
-                    expires_at=None,
-                    status_message=result.get('message', 'Не активировано'),
-                    subscription_level='–'
-                )
-        
-        # API недоступен - offline режим
-        logger.warning("API unavailable, using offline mode")
-        
-        saved_key = RegistryManager.get_key()
-        if saved_key:
-            # Если есть ключ - считаем что активировано
-            return ActivationStatus(
-                is_activated=True,
-                days_remaining=None,
-                expires_at=None,
-                status_message='Активировано (offline)',
-                subscription_level='zapretik'
-            )
-        
-        # Нет ключа
-        return ActivationStatus(
-            is_activated=False,
-            days_remaining=None,
-            expires_at=None,
-            status_message='Не активировано',
-            subscription_level='–'
-        )
-
-
-# ============== MAIN CLASS ==============
-
-class SimpleDonateChecker:
-    """Главный класс (совместимость со старым кодом)"""
-    
     def __init__(self):
-        self.api_client = APIClient()
-        self.device_id = self.api_client.device_id
-    
+        self._svc = get_premium_service()
+        self.device_id = self._svc.device_id
+
     def activate(self, key: str) -> Tuple[bool, str]:
-        """Активировать ключ"""
-        return self.api_client.activate_key(key)
-    
-    def check_device_activation(self) -> Dict:
-        """Проверить активацию устройства"""
-        status = self.api_client.check_device_status()
-        
-        return {
-            'found': RegistryManager.get_key() is not None,
-            'activated': status.is_activated,
-            'days_remaining': status.days_remaining,
-            'status': status.status_message,
-            'expires_at': status.expires_at,
-            'level': 'Premium' if status.subscription_level != '–' else '–',
-            'subscription_level': status.subscription_level
-        }
-    
-    def get_full_subscription_info(self) -> Dict:
-        """Полная информация о подписке"""
-        info = self.check_device_activation()
-        
-        return {
-            'is_premium': info['activated'],
-            'status_msg': info['status'],
-            'days_remaining': info['days_remaining'],
-            'subscription_level': info['subscription_level']
-        }
-    
-    # ✅ МЕТОД ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
+        # Legacy flow removed: pairing code is used instead of activation keys.
+        return (False, "Активация ключом больше не поддерживается. Используйте привязку устройства.")
+
+    def pair_start(self, device_name: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
+        return self._svc.pair_start(device_name=device_name)
+
+    def check_device_activation(self) -> Dict[str, Any]:
+        return self._svc.check_device_activation()
+
+    def get_full_subscription_info(self) -> Dict[str, Any]:
+        return self._svc.get_full_subscription_info()
+
     def check_subscription_status(self, use_cache: bool = True) -> Tuple[bool, str, Optional[int]]:
-        """
-        Проверка статуса подписки (старый API для обратной совместимости)
-        
-        Args:
-            use_cache: Игнорируется (для совместимости со старым API)
-            
-        Returns:
-            Tuple[bool, str, Optional[int]]: (is_premium, status_message, days_remaining)
-        """
-        try:
-            info = self.get_full_subscription_info()
-            
-            return (
-                info['is_premium'],
-                info['status_msg'],
-                info['days_remaining']
-            )
-        except Exception as e:
-            logger.error(f"Error in check_subscription_status: {e}")
-            return (False, f"Ошибка проверки: {e}", None)
-    
+        info = self.get_full_subscription_info()
+        return (bool(info["is_premium"]), str(info["status_msg"]), info.get("days_remaining"))
+
     def test_connection(self) -> Tuple[bool, str]:
-        """Проверка соединения"""
-        return self.api_client.test_connection()
-    
+        return self._svc.test_connection()
+
     def clear_saved_key(self) -> bool:
-        """Удалить сохраненный ключ"""
-        return RegistryManager.delete_key()
+        # Clear token + offline cache + pending pairing code.
+        return self._svc.clear_activation()
 
 
-# Алиас для совместимости
-DonateChecker = SimpleDonateChecker
+# More explicit modern names (preferred)
+get_service = get_premium_service
