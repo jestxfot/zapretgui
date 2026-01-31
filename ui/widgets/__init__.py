@@ -9,4 +9,3 @@ from .filter_chip_button import FilterButtonGroup
 from .collapsible_group import CollapsibleGroup
 from .strategy_radio_item import StrategyRadioItem
 from .unified_strategies_list import UnifiedStrategiesList
-from .direct_zapret2_tabs import DirectZapret2Tabs

@@ -15,11 +15,9 @@ from PyQt6.QtWidgets import (
 )
 import qtawesome as qta
 
-from ui.page_names import PageName, SectionName
 from ui.pages.base_page import BasePage
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.sidebar import ActionButton, PulsingDot, SettingsCard, SettingsRow
-from ui.widgets import DirectZapret2Tabs
 
 
 # Стиль для индикатора загрузки (бегающая полоска)
@@ -114,21 +112,6 @@ class Zapret2DirectControlPage(BasePage):
             pass
 
     def _build_ui(self):
-        # Subtabs for Strategies section.
-        tabs_card = SettingsCard()
-        tabs_layout = QHBoxLayout()
-        tabs_layout.setContentsMargins(0, 0, 0, 0)
-        tabs_layout.setSpacing(12)
-
-        self._direct_tabs = DirectZapret2Tabs(self)
-        self._direct_tabs.set_active("management")
-        self._direct_tabs.management_requested.connect(lambda: None)
-        self._direct_tabs.direct_requested.connect(self._open_direct_zapret2_tab)
-        tabs_layout.addWidget(self._direct_tabs)
-        tabs_layout.addStretch(1)
-        tabs_card.add_layout(tabs_layout)
-        self.add_widget(tabs_card)
-
         # Статус работы
         self.add_section_title("Статус работы")
 
@@ -229,7 +212,7 @@ class Zapret2DirectControlPage(BasePage):
         self.strategy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         strategy_text_layout.addWidget(self.strategy_label)
 
-        self.strategy_desc = QLabel("Выберите стратегию во вкладке «Прямой запуск»")
+        self.strategy_desc = QLabel("Выберите стратегию в разделе «Прямой запуск»")
         self.strategy_desc.setStyleSheet(
             """
             QLabel {
@@ -344,15 +327,6 @@ class Zapret2DirectControlPage(BasePage):
         self.add_widget(self.loading_label)
 
         self._sync_program_settings()
-
-    def _open_direct_zapret2_tab(self) -> None:
-        try:
-            if self.parent_app and hasattr(self.parent_app, "show_page"):
-                self.parent_app.show_page(PageName.ZAPRET2_DIRECT)
-            if self.parent_app and hasattr(self.parent_app, "side_nav"):
-                self.parent_app.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
-        except Exception:
-            pass
 
     def _set_toggle_checked(self, toggle, checked: bool) -> None:
         try:
@@ -694,4 +668,4 @@ class Zapret2DirectControlPage(BasePage):
             self.strategy_desc.setText("Активная стратегия обхода")
         else:
             self.strategy_label.setText("Не выбрана")
-            self.strategy_desc.setText("Выберите стратегию во вкладке «Прямой запуск»")
+            self.strategy_desc.setText("Выберите стратегию в разделе «Прямой запуск»")

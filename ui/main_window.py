@@ -830,7 +830,7 @@ class MainWindowUI:
         elif method == "direct_zapret2_orchestra":
             target_page = PageName.ZAPRET2_ORCHESTRA
         elif method == "direct_zapret2":
-            target_page = PageName.ZAPRET2_DIRECT
+            target_page = PageName.ZAPRET2_DIRECT_CONTROL
         elif method == "direct_zapret1":
             target_page = PageName.ZAPRET1_DIRECT
         else:  # bat
