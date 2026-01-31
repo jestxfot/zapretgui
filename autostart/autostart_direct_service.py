@@ -22,7 +22,6 @@ SERVICE_NAME = "ZapretDirectService"
 SERVICE_DISPLAY_NAME = "Zapret Direct Mode Service"
 SERVICE_DESCRIPTION = "Позволяет запустить Zapret в Direct режиме при загрузке системы"
 
-
 def create_direct_service_bat(
     winws_exe: str,
     strategy_args: List[str],
@@ -300,6 +299,17 @@ def check_direct_service_exists() -> bool:
     """
     ⚡ Проверяет существование службы Direct режима (NSSM или Windows API)
     """
+    try:
+        result = run_hidden(
+            ["sc", "query", SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            encoding="cp866",
+            errors="ignore"
+        )
+        return result.returncode == 0 and "STATE" in result.stdout
+    except:
+        return False
     from .nssm_service import service_exists_nssm
     
     # Проверяем через NSSM сначала
