@@ -17,7 +17,7 @@ from ui.pages import (
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     HelpPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
-    Zapret2StrategiesPageNew, StrategyDetailPage,
+    Zapret2DirectControlPage, Zapret2StrategiesPageNew, StrategyDetailPage,
     Zapret1DirectStrategiesPage, BatStrategiesPage, PresetsPage, MyCategoriesPage
 )
 
@@ -123,6 +123,10 @@ class MainWindowUI:
         # Управление
         self.control_page = ControlPage(self)
         self.pages_stack.addWidget(self.control_page)
+
+        # Zapret 2 Direct: управление (главная вкладка "Стратегии" для direct_zapret2)
+        self.zapret2_direct_control_page = Zapret2DirectControlPage(self)
+        self.pages_stack.addWidget(self.zapret2_direct_control_page)
 
         # Zapret 2 Direct стратегии (NEW UI)
         self.zapret2_strategies_page = Zapret2StrategiesPageNew(self)
@@ -266,6 +270,7 @@ class MainWindowUI:
         self.pages: dict[PageName, QWidget] = {
             PageName.HOME: self.home_page,
             PageName.CONTROL: self.control_page,
+            PageName.ZAPRET2_DIRECT_CONTROL: self.zapret2_direct_control_page,
             PageName.ZAPRET2_DIRECT: self.zapret2_strategies_page,
             PageName.STRATEGY_DETAIL: self.strategy_detail_page,
             PageName.ZAPRET2_ORCHESTRA: self.zapret2_orchestra_strategies_page,
@@ -491,8 +496,11 @@ class MainWindowUI:
         self.stop_btn = self.home_page.stop_btn
 
         # Текущая стратегия (старый код ожидает QLabel на self.current_strategy_label).
-        # В новом UI это label на странице управления.
-        if hasattr(self.control_page, "strategy_label"):
+        # В direct_zapret2 роль "главной" страницы управления переносится в раздел "Стратегии",
+        # поэтому используем label от Zapret2DirectControlPage если он доступен.
+        if hasattr(self, "zapret2_direct_control_page") and hasattr(self.zapret2_direct_control_page, "strategy_label"):
+            self.current_strategy_label = self.zapret2_direct_control_page.strategy_label
+        elif hasattr(self.control_page, "strategy_label"):
             self.current_strategy_label = self.control_page.strategy_label
 
         # Кнопки управления
@@ -554,6 +562,18 @@ class MainWindowUI:
         self.control_page.stop_and_exit_btn.clicked.connect(self._proxy_stop_and_exit)
         self.control_page.test_btn.clicked.connect(self._proxy_test_click)
         self.control_page.folder_btn.clicked.connect(self._proxy_folder_click)
+
+        # Direct-zapret2: дублируем кнопки на главную вкладку "Стратегии".
+        try:
+            page = getattr(self, "zapret2_direct_control_page", None)
+            if page is not None:
+                page.start_btn.clicked.connect(self._proxy_start_click)
+                page.stop_winws_btn.clicked.connect(self._proxy_stop_click)
+                page.stop_and_exit_btn.clicked.connect(self._proxy_stop_and_exit)
+                page.test_btn.clicked.connect(self._proxy_test_click)
+                page.folder_btn.clicked.connect(self._proxy_folder_click)
+        except Exception:
+            pass
         
         # Подключаем кнопку Premium на главной странице
         if hasattr(self.home_page, 'premium_link_btn'):
@@ -974,7 +994,8 @@ class MainWindowUI:
                 elif method == "direct_zapret2_orchestra":
                     target_page = PageName.ZAPRET2_ORCHESTRA
                 elif method == "direct_zapret2":
-                    target_page = PageName.ZAPRET2_DIRECT
+                    # In direct_zapret2, Strategies section defaults to "Управление".
+                    target_page = PageName.ZAPRET2_DIRECT_CONTROL
                 elif method == "direct_zapret1":
                     target_page = PageName.ZAPRET1_DIRECT
                 else:  # bat
@@ -1040,9 +1061,21 @@ class MainWindowUI:
             pass
 
         self.control_page.update_strategy(strategy_name)
+        try:
+            page = getattr(self, "zapret2_direct_control_page", None)
+            if page and hasattr(page, "update_strategy"):
+                page.update_strategy(strategy_name)
+        except Exception:
+            pass
 
         # Обновляем на активных страницах стратегий (если метод есть)
-        for page_attr in ('zapret2_strategies_page', 'zapret2_orchestra_strategies_page', 'zapret1_strategies_page', 'bat_strategies_page'):
+        for page_attr in (
+            'zapret2_direct_control_page',
+            'zapret2_strategies_page',
+            'zapret2_orchestra_strategies_page',
+            'zapret1_strategies_page',
+            'bat_strategies_page',
+        ):
             page = getattr(self, page_attr, None)
             if page and hasattr(page, 'update_current_strategy'):
                 page.update_current_strategy(strategy_name)
@@ -1256,6 +1289,16 @@ class MainWindowUI:
 
     def _navigate_to_control(self):
         """Переключается на страницу управления"""
+        try:
+            from strategy_menu import get_strategy_launch_method
+            if get_strategy_launch_method() == "direct_zapret2":
+                # In direct_zapret2, "Управление" is a subtab of Strategies.
+                self.show_page(PageName.ZAPRET2_DIRECT_CONTROL)
+                self.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
+                return
+        except Exception:
+            pass
+
         self.show_page(PageName.CONTROL)
         self.side_nav.set_section_by_name(SectionName.CONTROL, emit_signal=False)
 
@@ -1299,11 +1342,12 @@ class MainWindowUI:
                             self.strategy_detail_page.show_category(last_key, category_info, current_strategy_id)
                             target_page = PageName.STRATEGY_DETAIL
                         else:
-                            target_page = PageName.ZAPRET2_DIRECT
+                            target_page = PageName.ZAPRET2_DIRECT_CONTROL
                     except Exception:
-                        target_page = PageName.ZAPRET2_DIRECT
+                        target_page = PageName.ZAPRET2_DIRECT_CONTROL
                 else:
-                    target_page = PageName.ZAPRET2_DIRECT
+                    # Default landing for Strategies in direct_zapret2.
+                    target_page = PageName.ZAPRET2_DIRECT_CONTROL
             elif method == "direct_zapret1":
                 target_page = PageName.ZAPRET1_DIRECT
             else:  # bat

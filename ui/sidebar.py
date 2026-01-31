@@ -754,6 +754,7 @@ class SideNavBar(QWidget):
         self._header_labels = []  # Заголовки секций/групп для скрытия при сворачивании
         self._sub_buttons = []  # Подпункты для скрытия при сворачивании сайдбара
         self._blobs_button = None  # Ссылка на кнопку "Блобы" для управления видимостью
+        self._control_button = None  # Кнопка "Управление" (скрывается в direct_zapret2)
 
         # Кнопки для переключения режима оркестратора
         self._strategies_button = None       # Кнопка "Стратегии" / "Оркестратор"
@@ -857,6 +858,9 @@ class SideNavBar(QWidget):
                 nav_layout.addWidget(btn)
                 self._section_widgets[section_name] = btn
                 current_collapsible_parent = None  # Сбрасываем родителя
+
+                if section_name == SectionName.CONTROL:
+                    self._control_button = btn
 
         # Выбираем кнопку HOME
         self.current_section = SectionName.HOME
@@ -1290,6 +1294,21 @@ class SideNavBar(QWidget):
         is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
         is_full_orchestra = method == "orchestra"
 
+        # In direct_zapret2 "Управление" is the main Strategies landing (subtab),
+        # so hide the standalone sidebar entry to avoid duplication.
+        show_control = method != "direct_zapret2"
+        try:
+            if self._control_button is not None:
+                self._control_button.setVisible(bool(show_control))
+        except Exception:
+            pass
+        if not show_control and self.current_section == SectionName.CONTROL:
+            # If we just hid the selected section, keep sidebar highlight sensible.
+            try:
+                self.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
+            except Exception:
+                pass
+
         show_sorting = method in ("direct_zapret2_orchestra", "direct_zapret1")
         show_config = is_direct
         show_my_categories = is_direct
@@ -1327,6 +1346,9 @@ class SideNavBar(QWidget):
 
         # Re-apply group visibility (respects collapsed/expanded state).
         self._apply_all_groups_visibility()
+
+        # Top-level button visibility changes may need a relayout too.
+        self._refresh_nav_layout()
         
     def _on_button_clicked(self, section: SectionName):
         if section == self.current_section:

@@ -775,6 +775,11 @@ class DPIController:
         # ✅ Показываем индикатор загрузки на страницах
         if hasattr(self.app, 'control_page'):
             self.app.control_page.set_loading(True, "Запуск Zapret...")
+        if hasattr(self.app, 'zapret2_direct_control_page'):
+            try:
+                self.app.zapret2_direct_control_page.set_loading(True, "Запуск Zapret...")
+            except Exception:
+                pass
         if hasattr(self.app, 'home_page'):
             self.app.home_page.set_loading(True, "Запуск Zapret...")
         
@@ -847,6 +852,11 @@ class DPIController:
         # ✅ Показываем индикатор загрузки на страницах
         if hasattr(self.app, 'control_page'):
             self.app.control_page.set_loading(True, "Остановка Zapret...")
+        if hasattr(self.app, 'zapret2_direct_control_page'):
+            try:
+                self.app.zapret2_direct_control_page.set_loading(True, "Остановка Zapret...")
+            except Exception:
+                pass
         if hasattr(self.app, 'home_page'):
             self.app.home_page.set_loading(True, "Остановка Zapret...")
         
@@ -922,6 +932,11 @@ class DPIController:
             # ✅ Скрываем индикатор загрузки на страницах
             if hasattr(self.app, 'control_page'):
                 self.app.control_page.set_loading(False)
+            if hasattr(self.app, 'zapret2_direct_control_page'):
+                try:
+                    self.app.zapret2_direct_control_page.set_loading(False)
+                except Exception:
+                    pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
             
@@ -993,6 +1008,11 @@ class DPIController:
             # ✅ Скрываем индикатор загрузки на страницах
             if hasattr(self.app, 'control_page'):
                 self.app.control_page.set_loading(False)
+            if hasattr(self.app, 'zapret2_direct_control_page'):
+                try:
+                    self.app.zapret2_direct_control_page.set_loading(False)
+                except Exception:
+                    pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
             

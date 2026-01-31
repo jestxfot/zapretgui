@@ -17,6 +17,8 @@ from ui.pages.base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets import UnifiedStrategiesList
+from ui.widgets import DirectZapret2Tabs
+from ui.page_names import PageName, SectionName
 from log import log
 
 class Zapret2StrategiesPageNew(BasePage):
@@ -34,7 +36,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            title="Сменить стратегию для обхода блокировок",
+            title="Прямой запуск",
             subtitle="Здесь Вы можете изменить стратегию для каждой категории.\nВсего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). Последовательность сама определяется программой,\nВы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню.\nКаждая стратегия всего лишь набор аргументов, то есть техник (дурения или же фуллинга) для того чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство.\nЧтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент.",
             parent=parent
         )
@@ -60,6 +62,29 @@ class Zapret2StrategiesPageNew(BasePage):
                 font-weight: 500;
             }
         """)
+
+        # Subtabs for Strategies section (direct_zapret2 only):
+        # - "Управление" (ControlPage)
+        # - "Прямой запуск" (this page)
+        self._direct_tabs = DirectZapret2Tabs(self)
+        self._direct_tabs.set_active("direct")
+        self._direct_tabs.management_requested.connect(self._open_management_tab)
+        self._direct_tabs.direct_requested.connect(lambda: None)
+
+        self._direct_tabs_card = SettingsCard()
+        tabs_layout = QHBoxLayout()
+        tabs_layout.setContentsMargins(0, 0, 0, 0)
+        tabs_layout.setSpacing(12)
+        tabs_layout.addWidget(self._direct_tabs)
+        tabs_layout.addStretch(1)
+        self._direct_tabs_card.add_layout(tabs_layout)
+
+        # Insert right after title/subtitle.
+        try:
+            insert_at = min(2, self.layout.count())
+            self.layout.insertWidget(insert_at, self._direct_tabs_card)
+        except Exception:
+            self.layout.addWidget(self._direct_tabs_card)
 
     def showEvent(self, event):
         """При показе страницы загружаем контент"""
@@ -271,8 +296,9 @@ class Zapret2StrategiesPageNew(BasePage):
             self._build_scheduled = False
 
             # Удаляем старые виджеты (кроме заголовков)
-            while self.content_layout.count() > 2:  # title + subtitle
-                item = self.content_layout.takeAt(2)
+            # Keep title + subtitle + subtabs.
+            while self.content_layout.count() > 3:
+                item = self.content_layout.takeAt(3)
                 if item.widget():
                     item.widget().deleteLater()
 
@@ -283,6 +309,16 @@ class Zapret2StrategiesPageNew(BasePage):
 
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
+
+    def _open_management_tab(self) -> None:
+        """Switches to the 'Управление' subtab under Strategies."""
+        try:
+            if self.parent_app and hasattr(self.parent_app, "show_page"):
+                self.parent_app.show_page(PageName.ZAPRET2_DIRECT_CONTROL)
+            if self.parent_app and hasattr(self.parent_app, "side_nav"):
+                self.parent_app.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
+        except Exception:
+            pass
 
     def refresh_from_preset_switch(self):
         """

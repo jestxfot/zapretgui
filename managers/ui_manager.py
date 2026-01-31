@@ -72,6 +72,15 @@ class UIManager:
                 self.app.control_page.update_status(is_running)
                 if strategy_name:
                     self.app.control_page.update_strategy(strategy_name)
+
+            # Direct-zapret2: обновляем главную вкладку "Стратегии" (если есть)
+            if hasattr(self.app, 'zapret2_direct_control_page'):
+                try:
+                    self.app.zapret2_direct_control_page.update_status(is_running)
+                    if strategy_name:
+                        self.app.zapret2_direct_control_page.update_strategy(strategy_name)
+                except Exception:
+                    pass
             
             # Обновляем страницу стратегий
             if hasattr(self.app, 'strategies_page') and strategy_name:

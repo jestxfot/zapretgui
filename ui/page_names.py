@@ -26,6 +26,7 @@ class PageName(Enum):
     # === Основные страницы ===
     HOME = auto()                    # Главная
     CONTROL = auto()                 # Управление DPI
+    ZAPRET2_DIRECT_CONTROL = auto()  # Zapret 2 Direct: управление (главная вкладка в "Стратегии")
     ZAPRET2_DIRECT = auto()          # Zapret 2 Direct стратегии
     ZAPRET2_ORCHESTRA = auto()       # Zapret 2 Orchestra (direct_zapret2_orchestra режим)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
@@ -212,6 +213,7 @@ ORCHESTRA_ONLY_SECTIONS: set[SectionName] = {
 
 # Страницы стратегий (для переключения по режиму запуска)
 STRATEGY_PAGES: set[PageName] = {
+    PageName.ZAPRET2_DIRECT_CONTROL,
     PageName.ZAPRET2_DIRECT,
     PageName.ZAPRET2_ORCHESTRA,
     PageName.ZAPRET1_DIRECT,
