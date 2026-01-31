@@ -106,11 +106,48 @@ from .strategy_inference import (
     normalize_args,
 )
 
+
+def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
+    """Writes text via temp file + replace to avoid partial files."""
+    import os
+    import tempfile
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not data.endswith("\n"):
+        data += "\n"
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f"{path.stem}_",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="\n") as f:
+            f.write(data)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        os.replace(tmp_name, str(path))
+    finally:
+        try:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+        except Exception:
+            pass
+
 def ensure_builtin_presets_exist() -> bool:
     """
     Ensures that all built-in presets exist in presets/.
 
-    Built-ins are stored as in-code templates (no external file dependency).
+    Built-ins are sourced from:
+    - in-code templates (core ones like Default/Gaming)
+    - preset_zapret2/builtin_presets/*.txt (additional built-ins)
 
     Returns:
         True if presets exist or were created successfully.
@@ -118,15 +155,36 @@ def ensure_builtin_presets_exist() -> bool:
     from log import log
     from .preset_defaults import BUILTIN_PRESET_TEMPLATES
 
+    def _looks_ok(text: str) -> bool:
+        s = (text or "").strip()
+        if not s:
+            return False
+        if "--lua-init=" not in s:
+            return False
+        if "--filter-" not in s:
+            return False
+        return True
+
     try:
         presets_dir = get_presets_dir()
         presets_dir.mkdir(parents=True, exist_ok=True)
 
         for preset_name, content in BUILTIN_PRESET_TEMPLATES.items():
             preset_path = presets_dir / f"{preset_name}.txt"
-            if not preset_path.exists():
-                preset_path.write_text(content, encoding="utf-8")
-                log(f"Created {preset_name}.txt from code template at {preset_path}", "DEBUG")
+
+            existing = ""
+            if preset_path.exists():
+                try:
+                    existing = preset_path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    existing = ""
+
+            if existing == content:
+                continue
+
+            reason = "created" if not preset_path.exists() else ("recovered" if not _looks_ok(existing) else "updated")
+            _atomic_write_text(preset_path, content, encoding="utf-8")
+            log(f"{reason.capitalize()} built-in preset {preset_name}.txt at {preset_path}", "DEBUG")
 
         migrate_builtin_overrides_to_visible_copies()
         return True
@@ -272,7 +330,7 @@ def ensure_default_preset_exists() -> bool:
 
     try:
         # Write default preset from code constant to preset-zapret2.txt (active preset)
-        active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+        _atomic_write_text(active_path, DEFAULT_PRESET_CONTENT, encoding="utf-8")
         log(f"Created active preset from code template at {active_path}", "DEBUG")
 
         # Set active preset name in registry
@@ -313,14 +371,14 @@ def restore_builtin_preset(preset_name: str) -> bool:
         builtin_preset_path = presets_dir / f"{canonical}.txt"
 
         # Overwrite from code constant
-        builtin_preset_path.write_text(content, encoding="utf-8")
+        _atomic_write_text(builtin_preset_path, content, encoding="utf-8")
         log(f"Restored {canonical}.txt from code template at {builtin_preset_path}", "SUCCESS")
 
         # If this preset is currently active, also update preset-zapret2.txt
         active_name = (get_active_preset_name() or "").strip()
         if active_name and active_name.lower() == canonical.lower():
             active_path = get_active_preset_path()
-            active_path.write_text(content, encoding="utf-8")
+            _atomic_write_text(active_path, content, encoding="utf-8")
             log(f"Also updated active preset at {active_path}", "SUCCESS")
 
         return True

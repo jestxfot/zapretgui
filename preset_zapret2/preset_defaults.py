@@ -13,10 +13,11 @@ The content is copied to:
 - preset-zapret2.txt (when Default is active)
 """
 
+from pathlib import Path
 from typing import Optional
 
-DEFAULT_PRESET_CONTENT = r"""# Preset: 1
-# ActivePreset: 1
+DEFAULT_PRESET_CONTENT = r"""# Preset: Default
+# ActivePreset: Default
 # Modified: 2026-01-21T17:52:34.648239
 
 --lua-init=@lua/zapret-lib.lua
@@ -362,10 +363,117 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 """
 
 
-BUILTIN_PRESET_TEMPLATES: dict[str, str] = {
-    "Default": DEFAULT_PRESET_CONTENT,
-    "Gaming": GAMING_PRESET_CONTENT,
-}
+def _template_sanity_ok(text: str) -> bool:
+    """Quick sanity checks to skip obviously broken/truncated templates."""
+    s = (text or "").strip()
+    if not s:
+        return False
+    # Base args are always present in our presets.
+    if "--lua-init=" not in s:
+        return False
+    # Category blocks should exist for meaningful presets.
+    if "--filter-" not in s:
+        return False
+    # Strategy should be present (most presets use lua-desync).
+    if "--lua-desync=" not in s and "--dpi-desync=" not in s:
+        return False
+    return True
+
+
+def _normalize_template_header(content: str, preset_name: str) -> str:
+    """Ensure # Preset / # ActivePreset match the filename-derived name."""
+    name = str(preset_name or "").strip()
+    text = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+
+    # Header = leading comment/empty lines until the first non-comment, non-empty line.
+    header_end = 0
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#"):
+            header_end = i
+            break
+    else:
+        header_end = len(lines)
+
+    header = lines[:header_end]
+    body = lines[header_end:]
+
+    out_header: list[str] = []
+    saw_preset = False
+    saw_active = False
+    for raw in header:
+        stripped = raw.strip()
+        low = stripped.lower()
+        if low.startswith("# preset:"):
+            out_header.append(f"# Preset: {name}")
+            saw_preset = True
+            continue
+        if low.startswith("# activepreset:"):
+            out_header.append(f"# ActivePreset: {name}")
+            saw_active = True
+            continue
+        out_header.append(raw.rstrip("\n"))
+
+    if not saw_preset:
+        out_header.insert(0, f"# Preset: {name}")
+    if not saw_active:
+        insert_idx = 1 if out_header and out_header[0].strip().lower().startswith("# preset:") else 0
+        out_header.insert(insert_idx, f"# ActivePreset: {name}")
+
+    out = "\n".join(out_header + body).rstrip("\n") + "\n"
+    return out
+
+
+def _load_additional_builtin_preset_templates_from_files() -> dict[str, str]:
+    """Loads extra built-in templates from preset_zapret2/builtin_presets/*.txt."""
+    templates: dict[str, str] = {}
+
+    try:
+        presets_dir = Path(__file__).resolve().parent / "builtin_presets"
+    except Exception:
+        return templates
+
+    if not presets_dir.exists() or not presets_dir.is_dir():
+        return templates
+
+    for file_path in sorted(presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
+        name = (file_path.stem or "").strip()
+        if not name or name.startswith("_"):
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            continue
+
+        content = _normalize_template_header(content, name)
+        if not _template_sanity_ok(content):
+            continue
+
+        templates[name] = content
+
+    return templates
+
+
+def _load_builtin_preset_templates() -> dict[str, str]:
+    """Merges in-code templates with file-based templates."""
+    templates: dict[str, str] = {
+        "Default": _normalize_template_header(DEFAULT_PRESET_CONTENT, "Default"),
+        "Gaming": _normalize_template_header(GAMING_PRESET_CONTENT, "Gaming"),
+    }
+
+    core_keys = {k.lower() for k in templates.keys()}
+    for name, content in _load_additional_builtin_preset_templates_from_files().items():
+        if name.lower() in core_keys:
+            # Keep core templates in code for reliability.
+            continue
+        templates[name] = content
+
+    return templates
+
+
+BUILTIN_PRESET_TEMPLATES: dict[str, str] = _load_builtin_preset_templates()
 
 _BUILTIN_PRESET_TEMPLATE_BY_KEY: dict[str, str] = {
     canonical.lower(): content for canonical, content in BUILTIN_PRESET_TEMPLATES.items()

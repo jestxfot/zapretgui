@@ -192,6 +192,14 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ json/hosts.ini будет встроен: {hosts_ini}")
 
+    # ✅ Built-in preset templates (preset_zapret2/builtin_presets/*.txt)
+    builtin_presets_dir = root_path / "preset_zapret2" / "builtin_presets"
+    if builtin_presets_dir.exists() and builtin_presets_dir.is_dir():
+        for preset_file in sorted(builtin_presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
+            datas_items.append((str(preset_file), "preset_zapret2/builtin_presets"))
+        if log_queue:
+            log_queue.put(f"✅ Built-in preset templates added: {builtin_presets_dir}")
+
     if datas_items:
         datas_line = "datas=[" + ", ".join([f"(r'{src}', r'{dst}')" for src, dst in datas_items]) + "]"
     else:
@@ -645,9 +653,10 @@ def sign_exe_if_available(exe_path: Path, log_queue: Optional[Any] = None) -> bo
             if config_file.exists():
                 import importlib.util
                 spec = importlib.util.spec_from_file_location("cert_config", config_file)
-                cert_config = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(cert_config)
-                cert_thumbprint = cert_config.CERTIFICATE_THUMBPRINT
+                if spec and spec.loader:
+                    cert_config = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(cert_config)
+                    cert_thumbprint = getattr(cert_config, "CERTIFICATE_THUMBPRINT", None)
         except Exception:
             pass
         
