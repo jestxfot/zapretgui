@@ -111,6 +111,11 @@ class Zapret2DirectControlPage(BasePage):
         except Exception:
             pass
 
+        try:
+            self._load_advanced_settings()
+        except Exception:
+            pass
+
     def _build_ui(self):
         # Статус работы
         self.add_section_title("Статус работы")
@@ -289,6 +294,53 @@ class Zapret2DirectControlPage(BasePage):
 
         self.add_spacing(16)
 
+        # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (direct_zapret2)
+        self.add_section_title("Дополнительные настройки")
+
+        self.advanced_card = SettingsCard("ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
+        advanced_layout = QVBoxLayout()
+        advanced_layout.setSpacing(6)
+
+        advanced_desc = QLabel("⚠ Изменяйте только если знаете что делаете")
+        advanced_desc.setStyleSheet("color: #ff9800; font-size: 11px; padding-bottom: 8px;")
+        advanced_layout.addWidget(advanced_desc)
+
+        try:
+            from ui.pages.dpi_settings_page import Win11ToggleRow
+        except Exception:
+            Win11ToggleRow = None  # type: ignore[assignment]
+
+        self.wssize_toggle = (
+            Win11ToggleRow(
+                "fa5s.ruler-horizontal",
+                "Включить --wssize",
+                "Добавляет параметр размера окна TCP",
+                "#9c27b0",
+            )
+            if Win11ToggleRow
+            else None
+        )
+        if self.wssize_toggle:
+            self.wssize_toggle.toggled.connect(self._on_wssize_toggled)
+            advanced_layout.addWidget(self.wssize_toggle)
+
+        self.debug_log_toggle = (
+            Win11ToggleRow(
+                "mdi.file-document-outline",
+                "Включить лог-файл (--debug)",
+                "Записывает логи winws в папку logs",
+                "#00bcd4",
+            )
+            if Win11ToggleRow
+            else None
+        )
+        if self.debug_log_toggle:
+            self.debug_log_toggle.toggled.connect(self._on_debug_log_toggled)
+            advanced_layout.addWidget(self.debug_log_toggle)
+
+        self.advanced_card.add_layout(advanced_layout)
+        self.add_widget(self.advanced_card)
+
         # Дополнительные действия
         self.add_section_title("Дополнительно")
         extra_card = SettingsCard()
@@ -327,6 +379,49 @@ class Zapret2DirectControlPage(BasePage):
         self.add_widget(self.loading_label)
 
         self._sync_program_settings()
+
+        # Advanced settings initial state
+        self._load_advanced_settings()
+
+    def _load_advanced_settings(self) -> None:
+        """Sync advanced toggles from registry."""
+        try:
+            from strategy_menu import get_wssize_enabled, get_debug_log_enabled
+
+            if getattr(self, "wssize_toggle", None) is not None:
+                self.wssize_toggle.setChecked(bool(get_wssize_enabled()), block_signals=True)
+            if getattr(self, "debug_log_toggle", None) is not None:
+                self.debug_log_toggle.setChecked(bool(get_debug_log_enabled()), block_signals=True)
+        except Exception:
+            pass
+
+    def _on_wssize_toggled(self, enabled: bool) -> None:
+        try:
+            from strategy_menu import set_wssize_enabled
+
+            set_wssize_enabled(bool(enabled))
+        except Exception:
+            pass
+
+    def _on_debug_log_toggled(self, enabled: bool) -> None:
+        try:
+            from strategy_menu import set_debug_log_enabled
+
+            set_debug_log_enabled(bool(enabled))
+        except Exception:
+            pass
+
+        # direct_zapret2: keep preset-zapret2.txt in sync with runtime --debug setting
+        try:
+            from preset_zapret2 import PresetManager, ensure_default_preset_exists
+
+            ensure_default_preset_exists()
+            manager = PresetManager()
+            preset = manager.get_active_preset()
+            if preset:
+                manager.sync_preset_to_active_file(preset)
+        except Exception:
+            pass
 
     def _set_toggle_checked(self, toggle, checked: bool) -> None:
         try:

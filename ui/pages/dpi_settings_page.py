@@ -1170,7 +1170,9 @@ class DpiSettingsPage(BasePage):
             is_orchestra_mode = method in ("orchestra", "direct_zapret2_orchestra")
             is_zapret_mode = method in ("direct_zapret2", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
-            self.advanced_card.setVisible(is_direct_mode)
+            # For direct_zapret2 these options are shown on the Strategies/Management page
+            # (ui/pages/zapret2/direct_control_page.py), so hide them here.
+            self.advanced_card.setVisible(is_direct_mode and method != "direct_zapret2")
 
             # Discord restart только для Zapret 1/2 (без оркестратора)
             self.discord_restart_container.setVisible(is_zapret_mode)
