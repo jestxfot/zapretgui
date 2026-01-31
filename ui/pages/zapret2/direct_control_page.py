@@ -310,6 +310,20 @@ class Zapret2DirectControlPage(BasePage):
         except Exception:
             Win11ToggleRow = None  # type: ignore[assignment]
 
+        self.discord_restart_toggle = (
+            Win11ToggleRow(
+                "mdi.discord",
+                "Перезапуск Discord",
+                "Автоперезапуск при смене стратегии",
+                "#7289da",
+            )
+            if Win11ToggleRow
+            else None
+        )
+        if self.discord_restart_toggle:
+            self.discord_restart_toggle.toggled.connect(self._on_discord_restart_changed)
+            advanced_layout.addWidget(self.discord_restart_toggle)
+
         self.wssize_toggle = (
             Win11ToggleRow(
                 "fa5s.ruler-horizontal",
@@ -388,10 +402,26 @@ class Zapret2DirectControlPage(BasePage):
         try:
             from strategy_menu import get_wssize_enabled, get_debug_log_enabled
 
+            try:
+                from discord.discord_restart import get_discord_restart_setting
+
+                if getattr(self, "discord_restart_toggle", None) is not None:
+                    self.discord_restart_toggle.setChecked(get_discord_restart_setting(default=True), block_signals=True)
+            except Exception:
+                pass
+
             if getattr(self, "wssize_toggle", None) is not None:
                 self.wssize_toggle.setChecked(bool(get_wssize_enabled()), block_signals=True)
             if getattr(self, "debug_log_toggle", None) is not None:
                 self.debug_log_toggle.setChecked(bool(get_debug_log_enabled()), block_signals=True)
+        except Exception:
+            pass
+
+    def _on_discord_restart_changed(self, enabled: bool) -> None:
+        try:
+            from discord.discord_restart import set_discord_restart_setting
+
+            set_discord_restart_setting(bool(enabled))
         except Exception:
             pass
 

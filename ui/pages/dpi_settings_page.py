@@ -1174,8 +1174,27 @@ class DpiSettingsPage(BasePage):
             # (ui/pages/zapret2/direct_control_page.py), so hide them here.
             self.advanced_card.setVisible(is_direct_mode and method != "direct_zapret2")
 
+            # If we just made the advanced section visible again, re-sync its state
+            # from registry (without reconnecting signals).
+            if is_direct_mode and method != "direct_zapret2":
+                try:
+                    from strategy_menu import get_wssize_enabled, get_debug_log_enabled
+
+                    self.wssize_toggle.setChecked(bool(get_wssize_enabled()), block_signals=True)
+                    self.debug_log_toggle.setChecked(bool(get_debug_log_enabled()), block_signals=True)
+                except Exception:
+                    pass
+
             # Discord restart только для Zapret 1/2 (без оркестратора)
-            self.discord_restart_container.setVisible(is_zapret_mode)
+            show_discord_restart = is_zapret_mode and method != "direct_zapret2"
+            self.discord_restart_container.setVisible(show_discord_restart)
+            if show_discord_restart:
+                try:
+                    from discord.discord_restart import get_discord_restart_setting
+
+                    self.discord_restart_toggle.setChecked(get_discord_restart_setting(default=True), block_signals=True)
+                except Exception:
+                    pass
 
             # Настройки оркестратора только для режимов оркестратора
             self.orchestra_settings_container.setVisible(is_orchestra_mode)
