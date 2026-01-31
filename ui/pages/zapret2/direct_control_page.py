@@ -100,7 +100,12 @@ class Zapret2DirectControlPage(BasePage):
     """Страница управления для direct_zapret2 (главная вкладка раздела "Стратегии")."""
 
     def __init__(self, parent=None):
-        super().__init__("Управление", "Запуск и остановка обхода блокировок", parent)
+        super().__init__(
+            "Управление",
+            "Настройка и запуск Zapret 2. Выберите готовые пресеты-конфиги (как раньше .bat), "
+            "а при необходимости выполните тонкую настройку для каждой категории в разделе «Прямой запуск».",
+            parent,
+        )
         self._build_ui()
         self._update_stop_winws_button_text()
 
