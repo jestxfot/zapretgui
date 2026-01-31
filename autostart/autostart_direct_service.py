@@ -43,7 +43,6 @@ def get_nssm_path() -> Optional[str]:
         log(f"Ошибка поиска NSSM: {e}", "❌ ERROR")
         return None
 
-
 def create_direct_service_bat(
     winws_exe: str,
     strategy_args: List[str],
