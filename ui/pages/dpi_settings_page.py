@@ -1149,7 +1149,12 @@ class DpiSettingsPage(BasePage):
                 if get_strategy_launch_method() == "direct_zapret2":
                     from preset_zapret2 import PresetManager, ensure_default_preset_exists
 
-                    ensure_default_preset_exists()
+                    if not ensure_default_preset_exists():
+                        log(
+                            "Не удалось обновить preset-zapret2.txt для --debug: отсутствует built-in Default.txt",
+                            "ERROR",
+                        )
+                        return
                     manager = PresetManager()
                     preset = manager.get_active_preset()
                     if preset:

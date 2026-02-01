@@ -279,8 +279,7 @@ def ensure_default_preset_exists() -> bool:
     Ensures that a default preset exists for direct_zapret2 mode.
 
     Checks if preset-zapret2.txt exists. If not:
-    1. Generates default preset from code constant (no external file dependency)
-    2. Also creates presets/Default.txt for the presets list
+    1. Generates default preset from built-in template `Default.txt`
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -289,7 +288,7 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
+    from .preset_defaults import get_builtin_preset_content
 
     active_path = get_active_preset_path()
 
@@ -305,7 +304,14 @@ def ensure_default_preset_exists() -> bool:
 
     try:
         # Write default preset template to preset-zapret2.txt (active preset)
-        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+        template = get_builtin_preset_content("Default")
+        if not template:
+            log(
+                "Cannot create preset-zapret2.txt: built-in preset 'Default' is missing. "
+                "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                "ERROR",
+            )
+            return False
         _atomic_write_text(active_path, template, encoding="utf-8")
         log(f"Created active preset from code template at {active_path}", "DEBUG")
 
@@ -324,7 +330,7 @@ def ensure_default_preset_exists() -> bool:
 
 def restore_builtin_preset(preset_name: str) -> bool:
     """
-    Restores a built-in preset from the in-code template.
+    Restores a built-in preset by rewriting the active file from the template.
 
     Returns:
         True if restore was successful, False otherwise
@@ -339,23 +345,18 @@ def restore_builtin_preset(preset_name: str) -> bool:
             log(f"Unknown built-in preset '{preset_name}'", "ERROR")
             return False
 
-        # Ensure presets directory exists
-        presets_dir = get_presets_dir()
-        presets_dir.mkdir(parents=True, exist_ok=True)
-
-        # Path to {Preset}.txt in presets/
-        builtin_preset_path = presets_dir / f"{canonical}.txt"
-
-        # Overwrite from code constant
-        builtin_preset_path.write_text(content, encoding="utf-8")
-        log(f"Restored {canonical}.txt from code template at {builtin_preset_path}", "SUCCESS")
-
-        # If this preset is currently active, also update preset-zapret2.txt
+        # If this preset is currently active, update preset-zapret2.txt
         active_name = (get_active_preset_name() or "").strip()
         if active_name and active_name.lower() == canonical.lower():
             active_path = get_active_preset_path()
             active_path.write_text(content, encoding="utf-8")
             log(f"Also updated active preset at {active_path}", "SUCCESS")
+        else:
+            log(
+                f"Built-in preset '{canonical}' restored (template checked). "
+                "It is not active, so preset-zapret2.txt was not changed.",
+                "INFO",
+            )
 
         return True
 
@@ -368,7 +369,7 @@ def restore_builtin_preset(preset_name: str) -> bool:
 
 def restore_default_preset() -> bool:
     """
-    Restores Default.txt preset from the built-in code template.
+    Restores Default preset from the built-in template.
 
     This function can be used to:
     1. Fix a corrupted Default.txt

@@ -179,8 +179,26 @@ class PresetConfigPage(BasePage):
                 if method == "direct_zapret2":
                     # Use the proper preset creation function with DEFAULT_PRESET_CONTENT
                     from preset_zapret2 import ensure_default_preset_exists
-                    ensure_default_preset_exists()
-                    log(f"Создан дефолтный пресет через ensure_default_preset_exists()", "INFO")
+                    ok = ensure_default_preset_exists()
+                    if ok:
+                        log("Создан дефолтный пресет через ensure_default_preset_exists()", "INFO")
+                    else:
+                        log(
+                            "Не удалось создать preset-zapret2.txt: отсутствует built-in шаблон Default. "
+                            "Ожидается: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                            "ERROR",
+                        )
+                        # Create a placeholder file so the editor can still open.
+                        try:
+                            with open(self._preset_path, 'w', encoding='utf-8') as f:
+                                f.write(
+                                    "# ERROR: missing built-in preset template: Default\n"
+                                    "# Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt\n"
+                                    "#\n"
+                                    "# Fix: reinstall/update the app or restore the builtin_presets folder.\n\n"
+                                )
+                        except Exception:
+                            pass
                 else:
                     # For other modes (zapret1, orchestra) - create empty file with comment header
                     with open(self._preset_path, 'w', encoding='utf-8') as f:

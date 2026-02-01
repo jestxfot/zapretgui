@@ -8,7 +8,7 @@ There are two kinds of presets:
 
 2) Built-in presets (virtual templates):
    - Loaded from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`.
-   - Plus in-code fallbacks for core presets (Default/Gaming).
+   - `Default.txt` and `Gaming.txt` are required.
 
 Built-in presets do NOT require corresponding files in `{PROGRAMDATA_PATH}/presets/`.
 They are shown in the UI as official presets and can be activated directly.
@@ -23,351 +23,14 @@ How to add a new built-in preset:
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_PRESET_CONTENT = r"""# Preset: 1
-# ActivePreset: 1
-# Modified: 2026-01-21T17:52:34.648239
+_REQUIRED_BUILTIN_PRESET_NAMES: tuple[str, ...] = ("Default", "Gaming")
 
---lua-init=@lua/zapret-lib.lua
---lua-init=@lua/zapret-antidpi.lua
---lua-init=@lua/zapret-auto.lua
---lua-init=@lua/custom_funcs.lua
---lua-init=@lua/custom_diag.lua
---lua-init=@lua/zapret-multishake.lua
---ctrack-disable=0
---ipcache-lifetime=8400
---ipcache-hostname=1
---wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
---wf-udp-out=80,443
---wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
---wf-raw-part=@windivert.filter/windivert_part.stun.txt
---wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
---blob=tls_google:@bin/tls_clienthello_www_google_com.bin
---blob=tls1:@bin/tls_clienthello_1.bin
---blob=tls2:@bin/tls_clienthello_2.bin
---blob=tls2n:@bin/tls_clienthello_2n.bin
---blob=tls3:@bin/tls_clienthello_3.bin
---blob=tls4:@bin/tls_clienthello_4.bin
---blob=tls5:@bin/tls_clienthello_5.bin
---blob=tls6:@bin/tls_clienthello_6.bin
---blob=tls7:@bin/tls_clienthello_7.bin
---blob=tls8:@bin/tls_clienthello_8.bin
---blob=tls9:@bin/tls_clienthello_9.bin
---blob=tls10:@bin/tls_clienthello_10.bin
---blob=tls11:@bin/tls_clienthello_11.bin
---blob=tls12:@bin/tls_clienthello_12.bin
---blob=tls13:@bin/tls_clienthello_13.bin
---blob=tls14:@bin/tls_clienthello_14.bin
---blob=tls17:@bin/tls_clienthello_17.bin
---blob=tls18:@bin/tls_clienthello_18.bin
---blob=tls_sber:@bin/tls_clienthello_sberbank_ru.bin
---blob=tls_vk:@bin/tls_clienthello_vk_com.bin
---blob=tls_vk_kyber:@bin/tls_clienthello_vk_com_kyber.bin
---blob=tls_deepseek:@bin/tls_clienthello_chat_deepseek_com.bin
---blob=tls_max:@bin/tls_clienthello_max_ru.bin
---blob=tls_iana:@bin/tls_clienthello_iana_org.bin
---blob=tls_4pda:@bin/tls_clienthello_4pda_to.bin
---blob=tls_gosuslugi:@bin/tls_clienthello_gosuslugi_ru.bin
---blob=syndata3:@bin/tls_clienthello_3.bin
---blob=syn_packet:@bin/syn_packet.bin
---blob=dtls_w3:@bin/dtls_clienthello_w3_org.bin
---blob=quic_google:@bin/quic_initial_www_google_com.bin
---blob=quic_vk:@bin/quic_initial_vk_com.bin
---blob=quic1:@bin/quic_1.bin
---blob=quic2:@bin/quic_2.bin
---blob=quic3:@bin/quic_3.bin
---blob=quic4:@bin/quic_4.bin
---blob=quic5:@bin/quic_5.bin
---blob=quic6:@bin/quic_6.bin
---blob=quic7:@bin/quic_7.bin
---blob=quic_test:@bin/quic_test_00.bin
---blob=fake_tls:@bin/fake_tls_1.bin
---blob=fake_tls_1:@bin/fake_tls_1.bin
---blob=fake_tls_2:@bin/fake_tls_2.bin
---blob=fake_tls_3:@bin/fake_tls_3.bin
---blob=fake_tls_4:@bin/fake_tls_4.bin
---blob=fake_tls_5:@bin/fake_tls_5.bin
---blob=fake_tls_6:@bin/fake_tls_6.bin
---blob=fake_tls_7:@bin/fake_tls_7.bin
---blob=fake_tls_8:@bin/fake_tls_8.bin
---blob=fake_quic:@bin/fake_quic.bin
---blob=fake_quic_1:@bin/fake_quic_1.bin
---blob=fake_quic_2:@bin/fake_quic_2.bin
---blob=fake_quic_3:@bin/fake_quic_3.bin
---blob=fake_default_udp:0x00000000000000000000000000000000
---blob=http_req:@bin/http_iana_org.bin
---blob=hex_0e0e0f0e:0x0E0E0F0E
---blob=hex_0f0e0e0f:0x0F0E0E0F
---blob=hex_0f0f0f0f:0x0F0F0F0F
---blob=hex_00:0x00
+_BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
+_MISSING_REQUIRED_LOGGED: bool = False
 
---filter-tcp=80,443
---hostlist=lists/youtube.txt
---out-range=-d8
---lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
-
---new
-
---filter-udp=443
---ipset=lists/ipset-youtube.txt
---out-range=-n8
---payload=all
---lua-desync=fake:repeats=6:blob=fake_default_quic
-
---new
-
---filter-tcp=80,443
---hostlist-domains=googlevideo.com
---out-range=-d8
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=443
---hostlist-domains=updates.discord.com
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist=lists/discord.txt
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-l7=stun,discord
---payload=stun,discord_ip_discovery
---out-range=-n8
---lua-desync=fake:blob=fake_default_udp
-
---new
-
---filter-tcp=80,443
---ipset-ip=130.255.77.28
---out-range=-d9
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=443
---hostlist-exclude=lists/netrogat.txt
---hostlist=lists/other.txt
---hostlist=lists/other2.txt
---hostlist=lists/russia-blacklist.txt
---out-range=-d10
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=80,443
---ipset=lists/ipset-tankix.txt
---out-range=-n8
---lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
---lua-desync=multidisorder:pos=host+1
-"""
-
-GAMING_PRESET_CONTENT = r"""# Preset: Gaming
-# ActivePreset: Gaming
-
---lua-init=@lua/zapret-lib.lua
---lua-init=@lua/zapret-antidpi.lua
---lua-init=@lua/zapret-auto.lua
---lua-init=@lua/custom_funcs.lua
---lua-init=@lua/custom_diag.lua
---lua-init=@lua/zapret-multishake.lua
---ctrack-disable=0
---ipcache-lifetime=8400
---ipcache-hostname=1
---wf-tcp-out=80,444-65535
---wf-udp-out=80,444-65535
---wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
---wf-raw-part=@windivert.filter/windivert_part.stun.txt
---wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
---blob=tls_google:@bin/tls_clienthello_www_google_com.bin
---blob=tls1:@bin/tls_clienthello_1.bin
---blob=tls2:@bin/tls_clienthello_2.bin
---blob=tls2n:@bin/tls_clienthello_2n.bin
---blob=tls3:@bin/tls_clienthello_3.bin
---blob=tls4:@bin/tls_clienthello_4.bin
---blob=tls5:@bin/tls_clienthello_5.bin
---blob=tls6:@bin/tls_clienthello_6.bin
---blob=tls7:@bin/tls_clienthello_7.bin
---blob=tls8:@bin/tls_clienthello_8.bin
---blob=tls9:@bin/tls_clienthello_9.bin
---blob=tls10:@bin/tls_clienthello_10.bin
---blob=tls11:@bin/tls_clienthello_11.bin
---blob=tls12:@bin/tls_clienthello_12.bin
---blob=tls13:@bin/tls_clienthello_13.bin
---blob=tls14:@bin/tls_clienthello_14.bin
---blob=tls17:@bin/tls_clienthello_17.bin
---blob=tls18:@bin/tls_clienthello_18.bin
---blob=tls_sber:@bin/tls_clienthello_sberbank_ru.bin
---blob=tls_vk:@bin/tls_clienthello_vk_com.bin
---blob=tls_vk_kyber:@bin/tls_clienthello_vk_com_kyber.bin
---blob=tls_deepseek:@bin/tls_clienthello_chat_deepseek_com.bin
---blob=tls_max:@bin/tls_clienthello_max_ru.bin
---blob=tls_iana:@bin/tls_clienthello_iana_org.bin
---blob=tls_4pda:@bin/tls_clienthello_4pda_to.bin
---blob=tls_gosuslugi:@bin/tls_clienthello_gosuslugi_ru.bin
---blob=syndata3:@bin/tls_clienthello_3.bin
---blob=syn_packet:@bin/syn_packet.bin
---blob=dtls_w3:@bin/dtls_clienthello_w3_org.bin
---blob=quic_google:@bin/quic_initial_www_google_com.bin
---blob=quic_vk:@bin/quic_initial_vk_com.bin
---blob=quic1:@bin/quic_1.bin
---blob=quic2:@bin/quic_2.bin
---blob=quic3:@bin/quic_3.bin
---blob=quic4:@bin/quic_4.bin
---blob=quic5:@bin/quic_5.bin
---blob=quic6:@bin/quic_6.bin
---blob=quic7:@bin/quic_7.bin
---blob=quic_test:@bin/quic_test_00.bin
---blob=fake_tls:@bin/fake_tls_1.bin
---blob=fake_tls_1:@bin/fake_tls_1.bin
---blob=fake_tls_2:@bin/fake_tls_2.bin
---blob=fake_tls_3:@bin/fake_tls_3.bin
---blob=fake_tls_4:@bin/fake_tls_4.bin
---blob=fake_tls_5:@bin/fake_tls_5.bin
---blob=fake_tls_6:@bin/fake_tls_6.bin
---blob=fake_tls_7:@bin/fake_tls_7.bin
---blob=fake_tls_8:@bin/fake_tls_8.bin
---blob=fake_quic:@bin/fake_quic.bin
---blob=fake_quic_1:@bin/fake_quic_1.bin
---blob=fake_quic_2:@bin/fake_quic_2.bin
---blob=fake_quic_3:@bin/fake_quic_3.bin
---blob=fake_default_udp:0x00000000000000000000000000000000
---blob=http_req:@bin/http_iana_org.bin
---blob=hex_0e0e0f0e:0x0E0E0F0E
---blob=hex_0f0e0e0f:0x0F0E0E0F
---blob=hex_0f0f0f0f:0x0F0F0F0F
---blob=hex_00:0x00
-
---filter-tcp=80,443
---hostlist=lists/youtube.txt
---out-range=-d8
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-udp=443
---ipset=lists/ipset-youtube.txt
---out-range=-n8
---payload=all
---lua-desync=fake:repeats=6:blob=fake_default_quic
-
---new
-
---filter-tcp=80,443
---hostlist-domains=googlevideo.com
---out-range=-d8
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=443
---hostlist-domains=updates.discord.com
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist=lists/discord.txt
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
---out-range=-d10
---lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-l7=stun,discord
---payload=stun,discord_ip_discovery
---out-range=-n8
---lua-desync=fake:blob=fake_default_udp
-
---new
-
---filter-tcp=80,443
---ipset=lists/ipset-telegram.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=pass
-
---new
-
---filter-tcp=80,443
---ipset-ip=130.255.77.28
---out-range=-d9
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=80,443
---hostlist=lists/roblox.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=fake:blob=tls_google:tcp_ts=1:repeats=8:payload=tls_client_hello
---lua-desync=multisplit:pos=1:seqovl=681:seqovl_pattern=tls_google:payload=tls_client_hello
-
---new
-
---filter-udp=443,49152-65535
---ipset=lists/ipset-roblox.txt
---out-range=-n8
---payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
-
---new
-
---filter-tcp=443
---hostlist-exclude=lists/netrogat.txt
---hostlist=lists/other.txt
---hostlist=lists/other2.txt
---hostlist=lists/russia-blacklist.txt
---out-range=-d10
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
---new
-
---filter-tcp=80,443-65535
---ipset=lists/russia-youtube-rtmps.txt
---ipset=lists/ipset-all.txt
---ipset=lists/ipset-base.txt
---ipset=lists/ipset-discord.txt
---ipset-exclude=lists/ipset-dns.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
---lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
-
---new
-
---filter-udp=*
---ipset=lists/ipset-all.txt
---ipset=lists/ipset-base.txt
---ipset=lists/cloudflare-ipset.txt
---ipset=lists/ipset-cloudflare1.txt
---ipset=lists/ipset-cloudflare.txt
---ipset-exclude=lists/ipset-dns.txt
---out-range=-n8
---payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
-"""
+_REQUIRED_CANONICAL_NAME_BY_KEY: dict[str, str] = {
+    n.lower(): n for n in _REQUIRED_BUILTIN_PRESET_NAMES
+}
 
 
 def _template_sanity_ok(text: str) -> bool:
@@ -428,17 +91,28 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
     return "\n".join(out_header + body).rstrip("\n") + "\n"
 
 
-def _load_additional_builtin_preset_templates_from_disk() -> dict[str, str]:
-    """Loads extra built-in templates from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`."""
+def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
+    """Loads built-in templates from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`."""
     templates: dict[str, str] = {}
 
     try:
         from config import MAIN_DIRECTORY
+
         presets_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "builtin_presets"
     except Exception:
         return templates
 
     if not presets_dir.exists() or not presets_dir.is_dir():
+        try:
+            from log import log
+
+            log(
+                "Built-in preset templates directory not found: "
+                f"{presets_dir}. Expected: <exe_dir>/preset_zapret2/builtin_presets/*.txt",
+                "ERROR",
+            )
+        except Exception:
+            pass
         return templates
 
     for file_path in sorted(presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
@@ -457,10 +131,24 @@ def _load_additional_builtin_preset_templates_from_disk() -> dict[str, str]:
 
         templates[name] = content
 
+    global _MISSING_REQUIRED_LOGGED
+    if not _MISSING_REQUIRED_LOGGED:
+        missing = [n for n in _REQUIRED_BUILTIN_PRESET_NAMES if n not in templates]
+        if missing:
+            try:
+                from log import log
+
+                for n in missing:
+                    log(
+                        f"Missing required built-in preset template: {n}. "
+                        f"Expected file: {presets_dir / (n + '.txt')}",
+                        "ERROR",
+                    )
+            except Exception:
+                pass
+            _MISSING_REQUIRED_LOGGED = True
+
     return templates
-
-
-_BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
 
 
 def get_builtin_preset_templates() -> dict[str, str]:
@@ -472,24 +160,16 @@ def get_builtin_preset_templates() -> dict[str, str]:
     if _BUILTIN_PRESETS_CACHE is not None:
         return _BUILTIN_PRESETS_CACHE
 
-    templates: dict[str, str] = {
-        "Default": _normalize_template_header(DEFAULT_PRESET_CONTENT, "Default"),
-        "Gaming": _normalize_template_header(GAMING_PRESET_CONTENT, "Gaming"),
-    }
-
-    core_keys = {k.lower() for k in templates.keys()}
-    for name, content in _load_additional_builtin_preset_templates_from_disk().items():
-        if name.lower() in core_keys:
-            # Keep core templates in code for reliability.
-            continue
-        templates[name] = content
-
+    templates = _load_builtin_preset_templates_from_disk()
     _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
     return _BUILTIN_PRESETS_CACHE
 
 
 def get_builtin_preset_names() -> list[str]:
-    return list(get_builtin_preset_templates().keys())
+    templates = get_builtin_preset_templates()
+    names = set(templates.keys())
+    names.update(_REQUIRED_BUILTIN_PRESET_NAMES)
+    return sorted(names, key=lambda s: s.lower())
 
 
 BUILTIN_PRESET_TEMPLATES: dict[str, str] = get_builtin_preset_templates()
@@ -516,7 +196,7 @@ def get_builtin_preset_canonical_name(name: str) -> Optional[str]:
     key = (name or "").strip().lower()
     if not key:
         return None
-    return _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY.get(key)
+    return _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY.get(key) or _REQUIRED_CANONICAL_NAME_BY_KEY.get(key)
 
 
 def is_builtin_preset_name(name: str) -> bool:
@@ -547,7 +227,7 @@ _DEFAULT_SETTINGS_CACHE = None
 
 def get_default_category_settings() -> dict:
     """
-    Парсит DEFAULT_PRESET_CONTENT и возвращает дефолтные настройки для всех категорий.
+    Парсит built-in пресет `Default` и возвращает дефолтные настройки для всех категорий.
 
     Возвращает словарь вида:
     {
@@ -582,8 +262,17 @@ def get_default_category_settings() -> dict:
     from .txt_preset_parser import parse_preset_content
 
     try:
-        # Parse the current Default template (package override if available).
-        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+        template = get_builtin_preset_content("Default")
+        if not template:
+            from log import log
+
+            log(
+                "Cannot parse default category settings: built-in preset 'Default' is missing. "
+                "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                "ERROR",
+            )
+            return {}
+
         preset_data = parse_preset_content(template)
 
         # Конвертируем CategoryBlock в удобный формат
@@ -639,7 +328,7 @@ def get_default_category_settings() -> dict:
     except Exception as e:
         # Если парсинг не удался, возвращаем пустой словарь
         from log import log
-        log(f"Failed to parse DEFAULT_PRESET_CONTENT: {e}", "ERROR")
+        log(f"Failed to parse built-in preset 'Default': {e}", "ERROR")
         return {}
 
 

@@ -155,7 +155,11 @@ class InitializationManager:
                 # Убедимся, что preset-zapret2.txt существует до расчёта summary.
                 if method == "direct_zapret2":
                     from preset_zapret2 import ensure_default_preset_exists
-                    ensure_default_preset_exists()
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет built-in Default.txt)",
+                            "ERROR",
+                        )
 
                 if method == "bat":
                     from config.reg import get_last_bat_strategy
@@ -188,7 +192,15 @@ class InitializationManager:
                 # Ensure default preset exists for direct_zapret2 mode
                 if launch_method == "direct_zapret2":
                     from preset_zapret2 import ensure_default_preset_exists
-                    ensure_default_preset_exists()
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет built-in Default.txt)",
+                            "ERROR",
+                        )
+                        try:
+                            self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                        except Exception:
+                            pass
             else:
                 log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
 
@@ -832,7 +844,13 @@ class InitializationManager:
         )
 
         try:
-            ensure_default_preset_exists()
+            if not ensure_default_preset_exists():
+                log(
+                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет Default.txt)",
+                    "ERROR",
+                )
+                self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                return
             preset_path = get_active_preset_path()
             preset_name = get_active_preset_name() or "Default"
 

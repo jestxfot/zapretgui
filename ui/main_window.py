@@ -768,9 +768,20 @@ class MainWindowUI:
             log(f"Ошибка инвалидации StrategyRunner: {e}", "WARNING")
         
         # ✅ ЕСЛИ режим = direct_zapret2 → ТОЛЬКО создаем файл если не существует
+        can_autostart = True
         if method == "direct_zapret2":
             from preset_zapret2 import ensure_default_preset_exists
-            ensure_default_preset_exists()
+            if not ensure_default_preset_exists():
+                log(
+                    "direct_zapret2: preset-zapret2.txt не создан (нет built-in шаблона Default). "
+                    "Проверьте: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                    "ERROR",
+                )
+                try:
+                    self.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                except Exception:
+                    pass
+                can_autostart = False
         # NOTE: Другие режимы (orchestra, zapret1, bat) НЕ используют preset-zapret2.txt
         
         # Перезагружаем страницы стратегий для нового режима
@@ -802,7 +813,10 @@ class MainWindowUI:
         
         # Автоматически запускаем DPI с выбранными стратегиями
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
+        if can_autostart:
+            QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
+        else:
+            log("Автозапуск DPI пропущен: не удалось подготовить preset-zapret2.txt", "WARNING")
 
         # UX: если пользователь меняет метод — логично показать страницу стратегий для этого метода.
         # Ограничиваемся случаями, когда пользователь уже находится в "стратегийной" зоне UI
