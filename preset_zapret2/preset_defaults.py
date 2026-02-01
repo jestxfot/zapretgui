@@ -1,23 +1,16 @@
 # preset_zapret2/preset_defaults.py
-"""preset_zapret2 built-in preset templates.
+"""
+Built-in default preset template.
 
-There are two kinds of presets:
+This file contains the default preset content as a Python constant,
+which allows us to:
+1. Always restore default.txt from code (no external file dependency)
+2. Guarantee that default.txt is never corrupted
+3. Provide a recovery mechanism for users
 
-1) User presets (editable files):
-   - Stored in `{PROGRAMDATA_PATH}/presets/*.txt`.
-
-2) Built-in presets (virtual templates):
-   - Loaded from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`.
-   - Plus in-code fallbacks for core presets (Default/Gaming).
-
-Built-in presets do NOT require corresponding files in `{PROGRAMDATA_PATH}/presets/`.
-They are shown in the UI as official presets and can be activated directly.
-
-How to add a new built-in preset:
-   - Create: `preset_zapret2/builtin_presets/<PresetName>.txt`
-   - Encoding: UTF-8
-   - The preset name is derived from the filename.
-   - Files starting with '_' are ignored.
+The content is copied to:
+- presets/Default.txt (for preset list)
+- preset-zapret2.txt (when Default is active)
 """
 
 from pathlib import Path
