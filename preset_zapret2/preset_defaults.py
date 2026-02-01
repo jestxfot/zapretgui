@@ -13,7 +13,6 @@ The content is copied to:
 - preset-zapret2.txt (when Default is active)
 """
 
-from pathlib import Path
 from typing import Optional
 
 DEFAULT_PRESET_CONTENT = r"""# Preset: Default
@@ -363,129 +362,10 @@ GAMING_PRESET_CONTENT = r"""# Preset: Gaming
 """
 
 
-def _template_sanity_ok(text: str) -> bool:
-    """Quick sanity checks to skip obviously broken/truncated templates."""
-    s = (text or "").strip()
-    if not s:
-        return False
-    # Base args are always present in our presets.
-    if "--lua-init=" not in s:
-        return False
-    # Category blocks should exist for meaningful presets.
-    if "--filter-" not in s:
-        return False
-    return True
-
-
-def _normalize_template_header(content: str, preset_name: str) -> str:
-    """Ensure # Preset / # ActivePreset match the filename-derived name."""
-    name = str(preset_name or "").strip()
-    text = (content or "").replace("\r\n", "\n").replace("\r", "\n")
-    lines = text.split("\n")
-
-    # Header = leading comment/empty lines until the first non-comment, non-empty line.
-    header_end = 0
-    for i, raw in enumerate(lines):
-        stripped = raw.strip()
-        if stripped and not stripped.startswith("#"):
-            header_end = i
-            break
-    else:
-        header_end = len(lines)
-
-    header = lines[:header_end]
-    body = lines[header_end:]
-
-    out_header: list[str] = []
-    saw_preset = False
-    saw_active = False
-    for raw in header:
-        stripped = raw.strip()
-        low = stripped.lower()
-        if low.startswith("# preset:"):
-            out_header.append(f"# Preset: {name}")
-            saw_preset = True
-            continue
-        if low.startswith("# activepreset:"):
-            out_header.append(f"# ActivePreset: {name}")
-            saw_active = True
-            continue
-        out_header.append(raw.rstrip("\n"))
-
-    if not saw_preset:
-        out_header.insert(0, f"# Preset: {name}")
-    if not saw_active:
-        insert_idx = 1 if out_header and out_header[0].strip().lower().startswith("# preset:") else 0
-        out_header.insert(insert_idx, f"# ActivePreset: {name}")
-
-    return "\n".join(out_header + body).rstrip("\n") + "\n"
-
-
-def _load_additional_builtin_preset_templates_from_disk() -> dict[str, str]:
-    """Loads extra built-in templates from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`."""
-    templates: dict[str, str] = {}
-
-    try:
-        from config import MAIN_DIRECTORY
-        presets_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "builtin_presets"
-    except Exception:
-        return templates
-
-    if not presets_dir.exists() or not presets_dir.is_dir():
-        return templates
-
-    for file_path in sorted(presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
-        name = (file_path.stem or "").strip()
-        if not name or name.startswith("_"):
-            continue
-
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-
-        content = _normalize_template_header(content, name)
-        if not _template_sanity_ok(content):
-            continue
-
-        templates[name] = content
-
-    return templates
-
-
-_BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
-
-
-def get_builtin_preset_templates() -> dict[str, str]:
-    """Returns built-in templates (virtual presets).
-
-    Built-ins are not persisted in `{PROGRAMDATA}/presets/*.txt`.
-    """
-    global _BUILTIN_PRESETS_CACHE
-    if _BUILTIN_PRESETS_CACHE is not None:
-        return _BUILTIN_PRESETS_CACHE
-
-    templates: dict[str, str] = {
-        "Default": _normalize_template_header(DEFAULT_PRESET_CONTENT, "Default"),
-        "Gaming": _normalize_template_header(GAMING_PRESET_CONTENT, "Gaming"),
-    }
-
-    core_keys = {k.lower() for k in templates.keys()}
-    for name, content in _load_additional_builtin_preset_templates_from_disk().items():
-        if name.lower() in core_keys:
-            # Keep core templates in code for reliability.
-            continue
-        templates[name] = content
-
-    _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
-    return _BUILTIN_PRESETS_CACHE
-
-
-def get_builtin_preset_names() -> list[str]:
-    return list(get_builtin_preset_templates().keys())
-
-
-BUILTIN_PRESET_TEMPLATES: dict[str, str] = get_builtin_preset_templates()
+BUILTIN_PRESET_TEMPLATES: dict[str, str] = {
+    "Default": DEFAULT_PRESET_CONTENT,
+    "Gaming": GAMING_PRESET_CONTENT,
+}
 
 _BUILTIN_PRESET_TEMPLATE_BY_KEY: dict[str, str] = {
     canonical.lower(): content for canonical, content in BUILTIN_PRESET_TEMPLATES.items()
@@ -575,9 +455,8 @@ def get_default_category_settings() -> dict:
     from .txt_preset_parser import parse_preset_content
 
     try:
-        # Parse the current Default template (package override if available).
-        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
-        preset_data = parse_preset_content(template)
+        # Парсим DEFAULT_PRESET_CONTENT
+        preset_data = parse_preset_content(DEFAULT_PRESET_CONTENT)
 
         # Конвертируем CategoryBlock в удобный формат
         settings = {}

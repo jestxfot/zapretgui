@@ -278,11 +278,11 @@ class PresetManager:
                 if getattr(block, "syndata_dict", None):
                     if block.protocol == "tcp":
                         base = cat.syndata_tcp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_tcp = SyndataSettings.from_dict(base)
                     elif block.protocol == "udp":
                         base = cat.syndata_udp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_udp = SyndataSettings.from_dict(base)
 
                 if block.protocol == "tcp":
@@ -448,30 +448,14 @@ class PresetManager:
         preset_path = get_preset_path(name)
         active_path = get_active_preset_path()
 
-        is_virtual_builtin = False
-        builtin_content: Optional[str] = None
-        try:
-            from .preset_defaults import get_builtin_preset_content, is_builtin_preset_name
-            if is_builtin_preset_name(name):
-                builtin_content = get_builtin_preset_content(name)
-                if builtin_content is None:
-                    log(f"Cannot switch: preset '{name}' not found", "ERROR")
-                    return False
-                is_virtual_builtin = True
-        except Exception:
-            is_virtual_builtin = False
-
-        if not is_virtual_builtin and not preset_path.exists():
+        if not preset_path.exists():
             log(f"Cannot switch: preset '{name}' not found", "ERROR")
             return False
 
         try:
             # Atomic copy: copy to temp, then rename
             temp_path = active_path.with_suffix('.tmp')
-            if is_virtual_builtin:
-                temp_path.write_text(builtin_content or "", encoding="utf-8")
-            else:
-                shutil.copy2(preset_path, temp_path)
+            shutil.copy2(preset_path, temp_path)
 
             # Add ActivePreset marker to file
             self._add_active_preset_marker(temp_path, name)
@@ -602,11 +586,10 @@ class PresetManager:
 
         try:
             # Create from built-in in-code template (no default.txt dependency).
-            from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
+            from .preset_defaults import DEFAULT_PRESET_CONTENT
             from .txt_preset_parser import parse_preset_content, generate_preset_file
 
-            template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
-            data = parse_preset_content(template)
+            data = parse_preset_content(DEFAULT_PRESET_CONTENT)
             data.name = name
             data.active_preset = None
             data.is_builtin = False
@@ -964,12 +947,11 @@ class PresetManager:
         # Here we reset the base wf ports to the template values (if available).
         if not marker_present and (preset.name or "").strip().lower() == "default":
             try:
-                from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
+                from .preset_defaults import DEFAULT_PRESET_CONTENT
 
                 template_tcp = ""
                 template_udp = ""
-                template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
-                for raw in template.splitlines():
+                for raw in DEFAULT_PRESET_CONTENT.splitlines():
                     s = raw.strip()
                     if s.startswith("--wf-tcp-out="):
                         template_tcp = s.split("=", 1)[1].strip()
@@ -1425,11 +1407,11 @@ class PresetManager:
                 if getattr(block, "syndata_dict", None):
                     if block.protocol == "tcp":
                         base = cat.syndata_tcp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_tcp = SyndataSettings.from_dict(base)
                     elif block.protocol == "udp":
                         base = cat.syndata_udp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_udp = SyndataSettings.from_dict(base)
 
             for cat_name, cat in preset.categories.items():
@@ -1514,11 +1496,11 @@ class PresetManager:
                 if getattr(block, "syndata_dict", None):
                     if block.protocol == "tcp":
                         base = cat.syndata_tcp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_tcp = SyndataSettings.from_dict(base)
                     elif block.protocol == "udp":
                         base = cat.syndata_udp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
+                        base.update(block.syndata_dict)  # type: ignore[arg-type]
                         cat.syndata_udp = SyndataSettings.from_dict(base)
 
             for cat_name, cat in preset.categories.items():

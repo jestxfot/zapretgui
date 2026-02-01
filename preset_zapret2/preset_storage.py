@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 # presets/preset_storage.py
 """
 Storage layer for preset system.
@@ -14,12 +12,9 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional, Tuple
 
 from log import log
-
-if TYPE_CHECKING:
-    from .preset_model import Preset
 
 # Lazy imports to avoid circular dependencies
 _PROGRAMDATA_PATH: Optional[str] = None
@@ -225,22 +220,15 @@ def list_presets() -> List[str]:
     """
     presets_dir = get_presets_dir()
 
-    presets: set[str] = set()
+    if not presets_dir.exists():
+        return []
 
-    if presets_dir.exists():
-        for f in presets_dir.glob("*.txt"):
-            if f.is_file():
-                presets.add(f.stem)
+    presets = []
+    for f in presets_dir.glob("*.txt"):
+        if f.is_file():
+            presets.append(f.stem)
 
-    # Virtual built-ins (repo/packaged templates) must be visible even if
-    # `{PROGRAMDATA}/presets/{Name}.txt` does not exist.
-    try:
-        from .preset_defaults import get_builtin_preset_names
-        presets.update(get_builtin_preset_names())
-    except Exception:
-        pass
-
-    return sorted(presets, key=lambda s: s.lower())
+    return sorted(presets)
 
 
 def preset_exists(name: str) -> bool:
@@ -253,12 +241,6 @@ def preset_exists(name: str) -> bool:
     Returns:
         True if preset file exists
     """
-    try:
-        from .preset_defaults import is_builtin_preset_name
-        if is_builtin_preset_name(name):
-            return True
-    except Exception:
-        pass
     return get_preset_path(name).exists()
 
 
@@ -266,7 +248,7 @@ def preset_exists(name: str) -> bool:
 # LOAD/SAVE OPERATIONS
 # ============================================================================
 
-def load_preset(name: str) -> Optional[Preset]:
+def load_preset(name: str) -> Optional["Preset"]:
     """
     Loads preset from file.
 
@@ -277,34 +259,17 @@ def load_preset(name: str) -> Optional[Preset]:
         Preset object or None if not found
     """
     from .preset_model import Preset, CategoryConfig, SyndataSettings
-    from .txt_preset_parser import PresetData, parse_preset_content, parse_preset_file
+    from .txt_preset_parser import parse_preset_file, PresetData
 
     preset_path = get_preset_path(name)
 
-    data: PresetData
-    try:
-        from .preset_defaults import get_builtin_preset_content, is_builtin_preset_name
-        if is_builtin_preset_name(name):
-            content = get_builtin_preset_content(name)
-            if content is None:
-                return None
-            data = parse_preset_content(content)
-            data.name = name
-            data.active_preset = name
-            data.is_builtin = True
-        else:
-            if not preset_path.exists():
-                log(f"Preset not found: {preset_path}", "WARNING")
-                return None
-            data = parse_preset_file(preset_path)
-    except Exception:
-        if not preset_path.exists():
-            log(f"Preset not found: {preset_path}", "WARNING")
-            return None
-        data = parse_preset_file(preset_path)
+    if not preset_path.exists():
+        log(f"Preset not found: {preset_path}", "WARNING")
+        return None
 
     try:
-        # `data` is ready (from disk or virtual template)
+        # Parse txt file
+        data: PresetData = parse_preset_file(preset_path)
 
         # Convert to Preset model
         # Force is_builtin=True for built-in presets by well-known name.
@@ -436,7 +401,7 @@ def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
     return created, modified
 
 
-def save_preset(preset: Preset) -> bool:
+def save_preset(preset: "Preset") -> bool:
     """
     Saves preset to file.
 
@@ -754,7 +719,7 @@ def import_preset(src_path: Path, name: Optional[str] = None) -> bool:
     if name is None:
         name = src_path.stem
 
-    # Check for existing (includes virtual built-ins)
+    # Check for existing
     if preset_exists(name):
         log(f"Cannot import: preset '{name}' already exists", "WARNING")
         return False
