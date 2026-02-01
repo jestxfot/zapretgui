@@ -374,9 +374,6 @@ def _template_sanity_ok(text: str) -> bool:
     # Category blocks should exist for meaningful presets.
     if "--filter-" not in s:
         return False
-    # Strategy should be present (most presets use lua-desync).
-    if "--lua-desync=" not in s and "--dpi-desync=" not in s:
-        return False
     return True
 
 
@@ -421,16 +418,16 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
         insert_idx = 1 if out_header and out_header[0].strip().lower().startswith("# preset:") else 0
         out_header.insert(insert_idx, f"# ActivePreset: {name}")
 
-    out = "\n".join(out_header + body).rstrip("\n") + "\n"
-    return out
+    return "\n".join(out_header + body).rstrip("\n") + "\n"
 
 
-def _load_additional_builtin_preset_templates_from_files() -> dict[str, str]:
-    """Loads extra built-in templates from preset_zapret2/builtin_presets/*.txt."""
+def _load_additional_builtin_preset_templates_from_disk() -> dict[str, str]:
+    """Loads extra built-in templates from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`."""
     templates: dict[str, str] = {}
 
     try:
-        presets_dir = Path(__file__).resolve().parent / "builtin_presets"
+        from config import MAIN_DIRECTORY
+        presets_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "builtin_presets"
     except Exception:
         return templates
 
@@ -444,7 +441,7 @@ def _load_additional_builtin_preset_templates_from_files() -> dict[str, str]:
 
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
+        except Exception:
             continue
 
         content = _normalize_template_header(content, name)
@@ -456,24 +453,39 @@ def _load_additional_builtin_preset_templates_from_files() -> dict[str, str]:
     return templates
 
 
-def _load_builtin_preset_templates() -> dict[str, str]:
-    """Merges in-code templates with file-based templates."""
+_BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
+
+
+def get_builtin_preset_templates() -> dict[str, str]:
+    """Returns built-in templates (virtual presets).
+
+    Built-ins are not persisted in `{PROGRAMDATA}/presets/*.txt`.
+    """
+    global _BUILTIN_PRESETS_CACHE
+    if _BUILTIN_PRESETS_CACHE is not None:
+        return _BUILTIN_PRESETS_CACHE
+
     templates: dict[str, str] = {
         "Default": _normalize_template_header(DEFAULT_PRESET_CONTENT, "Default"),
         "Gaming": _normalize_template_header(GAMING_PRESET_CONTENT, "Gaming"),
     }
 
     core_keys = {k.lower() for k in templates.keys()}
-    for name, content in _load_additional_builtin_preset_templates_from_files().items():
+    for name, content in _load_additional_builtin_preset_templates_from_disk().items():
         if name.lower() in core_keys:
             # Keep core templates in code for reliability.
             continue
         templates[name] = content
 
-    return templates
+    _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
+    return _BUILTIN_PRESETS_CACHE
 
 
-BUILTIN_PRESET_TEMPLATES: dict[str, str] = _load_builtin_preset_templates()
+def get_builtin_preset_names() -> list[str]:
+    return list(get_builtin_preset_templates().keys())
+
+
+BUILTIN_PRESET_TEMPLATES: dict[str, str] = get_builtin_preset_templates()
 
 _BUILTIN_PRESET_TEMPLATE_BY_KEY: dict[str, str] = {
     canonical.lower(): content for canonical, content in BUILTIN_PRESET_TEMPLATES.items()
@@ -563,8 +575,9 @@ def get_default_category_settings() -> dict:
     from .txt_preset_parser import parse_preset_content
 
     try:
-        # Парсим DEFAULT_PRESET_CONTENT
-        preset_data = parse_preset_content(DEFAULT_PRESET_CONTENT)
+        # Parse the current Default template (package override if available).
+        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+        preset_data = parse_preset_content(template)
 
         # Конвертируем CategoryBlock в удобный формат
         settings = {}

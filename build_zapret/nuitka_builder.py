@@ -299,6 +299,14 @@ def run_nuitka(
         else:
             _log(log_queue, f"⚠ Иконка не найдена: {icon_path}")
 
+        # Built-in preset templates (virtual built-ins)
+        builtin_presets_dir = root_path / "preset_zapret2" / "builtin_presets"
+        if builtin_presets_dir.exists():
+            nuitka_args.append(
+                f"--include-data-dir={builtin_presets_dir}=preset_zapret2/builtin_presets"
+            )
+            _log(log_queue, f"✅ Включаем built-in пресеты: {builtin_presets_dir}")
+
         # Включаем пакеты проекта (часть импортов делается динамически)
         packages_to_include = [
             "altmenu",

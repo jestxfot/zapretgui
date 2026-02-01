@@ -143,49 +143,20 @@ def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
 
 def ensure_builtin_presets_exist() -> bool:
     """
-    Ensures that all built-in presets exist in presets/.
+    Ensures that built-in presets are available.
 
-    Built-ins are sourced from:
-    - in-code templates (core ones like Default/Gaming)
-    - preset_zapret2/builtin_presets/*.txt (additional built-ins)
+    Built-ins are treated as *virtual* presets loaded from packaged templates (and in-code fallbacks).
+    We do not materialize them into `{PROGRAMDATA}/presets/*.txt` by default.
 
     Returns:
         True if presets exist or were created successfully.
     """
     from log import log
-    from .preset_defaults import BUILTIN_PRESET_TEMPLATES
-
-    def _looks_ok(text: str) -> bool:
-        s = (text or "").strip()
-        if not s:
-            return False
-        if "--lua-init=" not in s:
-            return False
-        if "--filter-" not in s:
-            return False
-        return True
 
     try:
+        # Keep presets dir present for user presets.
         presets_dir = get_presets_dir()
         presets_dir.mkdir(parents=True, exist_ok=True)
-
-        for preset_name, content in BUILTIN_PRESET_TEMPLATES.items():
-            preset_path = presets_dir / f"{preset_name}.txt"
-
-            existing = ""
-            if preset_path.exists():
-                try:
-                    existing = preset_path.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    existing = ""
-
-            if existing == content:
-                continue
-
-            reason = "created" if not preset_path.exists() else ("recovered" if not _looks_ok(existing) else "updated")
-            _atomic_write_text(preset_path, content, encoding="utf-8")
-            log(f"{reason.capitalize()} built-in preset {preset_name}.txt at {preset_path}", "DEBUG")
-
         migrate_builtin_overrides_to_visible_copies()
         return True
 
@@ -314,7 +285,7 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from .preset_defaults import DEFAULT_PRESET_CONTENT
+    from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
 
     active_path = get_active_preset_path()
 
@@ -329,8 +300,9 @@ def ensure_default_preset_exists() -> bool:
     log("Active preset file not found, creating from code template...", "INFO")
 
     try:
-        # Write default preset from code constant to preset-zapret2.txt (active preset)
-        _atomic_write_text(active_path, DEFAULT_PRESET_CONTENT, encoding="utf-8")
+        # Write default preset template to preset-zapret2.txt (active preset)
+        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+        _atomic_write_text(active_path, template, encoding="utf-8")
         log(f"Created active preset from code template at {active_path}", "DEBUG")
 
         # Set active preset name in registry
