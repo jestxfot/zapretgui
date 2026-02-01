@@ -386,10 +386,10 @@ def remove_direct_autostart() -> bool:
         removed_any = True
     
     # Удаляем .bat файлы
-    from config import PROGRAMDATA_PATH
+    from config import APP_CORE_PATH
     for filename in ["zapret_autostart.bat", "zapret_direct.bat", "zapret_boot_task.xml"]:
         try:
-            for base_path in [Path.cwd(), Path(PROGRAMDATA_PATH)]:
+            for base_path in [Path.cwd(), Path(APP_CORE_PATH)]:
                 file_path = base_path / filename
                 if file_path.exists():
                     file_path.unlink()

@@ -160,7 +160,7 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
 def get_builtin_preset_templates() -> dict[str, str]:
     """Returns built-in templates (virtual presets).
 
-    Built-ins are not persisted in `{PROGRAMDATA}/presets/*.txt`.
+    Built-ins are not persisted in `%APPDATA%/zapret/presets/*.txt`.
     """
     global _BUILTIN_PRESETS_CACHE
     if _BUILTIN_PRESETS_CACHE is not None:

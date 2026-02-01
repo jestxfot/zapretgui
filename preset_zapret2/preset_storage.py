@@ -26,20 +26,19 @@ if TYPE_CHECKING:
     from .preset_model import Preset
 
 # Lazy imports to avoid circular dependencies
-# NOTE: Despite the name in config, PROGRAMDATA_PATH is the *app core path*
-# (i.e. where the app is installed / located), not %APPDATA%.
+# NOTE: APP_CORE_PATH is where the app is installed / located (where Zapret.exe lives).
 _APP_CORE_PATH: Optional[str] = None
 _PRESETS_ROOT_PATH: Optional[str] = None
 _MAIN_DIRECTORY: Optional[str] = None
 
 
 def _get_app_core_path() -> str:
-    """Lazily gets the app core path (PROGRAMDATA_PATH) to avoid import cycles."""
+    """Lazily gets the app core path (APP_CORE_PATH) to avoid import cycles."""
     global _APP_CORE_PATH
     if _APP_CORE_PATH is None:
-        from config import PROGRAMDATA_PATH
+        from config import APP_CORE_PATH
 
-        _APP_CORE_PATH = PROGRAMDATA_PATH
+        _APP_CORE_PATH = APP_CORE_PATH
     return _APP_CORE_PATH
 
 
@@ -202,7 +201,7 @@ def get_active_preset_path() -> Path:
     This is the file that winws2 reads.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/preset-zapret2.txt (app core path)
+        Path to {APP_CORE_PATH}/preset-zapret2.txt
     """
     return Path(_get_app_core_path()) / "preset-zapret2.txt"
 
@@ -261,8 +260,8 @@ def list_presets() -> List[str]:
                     continue
                 presets.add(f.stem)
 
-    # Virtual built-ins (repo/packaged templates) must be visible even if
-    # `{PROGRAMDATA}/presets/{Name}.txt` does not exist.
+    # Virtual built-ins must be visible even if
+    # `%APPDATA%/zapret/presets/{Name}.txt` does not exist.
     try:
         from .preset_defaults import get_builtin_preset_names
         presets.update(get_builtin_preset_names())

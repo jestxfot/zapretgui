@@ -26,9 +26,8 @@ try:
 except ImportError:
     CHANNEL = "stable"
 
-# Путь к папке данных = путь установки программы
-# (пользователь может выбрать любую папку в инсталляторе)
-PROGRAMDATA_PATH = MAIN_DIRECTORY
+# App core path (where Zapret.exe lives).
+APP_CORE_PATH = MAIN_DIRECTORY
 
 
 def get_roaming_appdata_dir() -> str:

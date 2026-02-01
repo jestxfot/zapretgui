@@ -2,7 +2,7 @@
 """
 Preset system for direct_zapret2 mode.
 
-Presets are stored as txt files in {PROGRAMDATA_PATH}/presets/.
+Presets are stored as txt files in %APPDATA%/zapret/presets/.
 Each preset contains:
 - Metadata (name, created, modified)
 - Base arguments (lua-init, wf-*, blobs)
