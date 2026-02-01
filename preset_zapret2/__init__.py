@@ -106,28 +106,61 @@ from .strategy_inference import (
     normalize_args,
 )
 
+
+def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
+    """Writes text via temp file + replace to avoid partial files."""
+    import os
+    import tempfile
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not data.endswith("\n"):
+        data += "\n"
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f"{path.stem}_",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="\n") as f:
+            f.write(data)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        os.replace(tmp_name, str(path))
+    finally:
+        try:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+        except Exception:
+            pass
+
 def ensure_builtin_presets_exist() -> bool:
     """
-    Ensures that all built-in presets exist in presets/.
+    Ensures that built-in presets are available.
 
-    Built-ins are stored as in-code templates (no external file dependency).
+    Built-ins are treated as *virtual* presets loaded from packaged templates (and in-code fallbacks).
+    We do not materialize them into `{PROGRAMDATA}/presets/*.txt` by default.
+
 
     Returns:
         True if presets exist or were created successfully.
     """
     from log import log
-    from .preset_defaults import BUILTIN_PRESET_TEMPLATES
 
     try:
+        # Keep presets dir present for user presets.
         presets_dir = get_presets_dir()
         presets_dir.mkdir(parents=True, exist_ok=True)
 
-        for preset_name, content in BUILTIN_PRESET_TEMPLATES.items():
-            preset_path = presets_dir / f"{preset_name}.txt"
-            if not preset_path.exists():
-                preset_path.write_text(content, encoding="utf-8")
-                log(f"Created {preset_name}.txt from code template at {preset_path}", "DEBUG")
-
+        # Built-in presets are *virtual* and are loaded from packaged templates
+        # (and in-code fallbacks). We do not materialize them into presets/.
         migrate_builtin_overrides_to_visible_copies()
         return True
 
@@ -256,7 +289,7 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from .preset_defaults import DEFAULT_PRESET_CONTENT
+    from .preset_defaults import DEFAULT_PRESET_CONTENT, get_builtin_preset_content
 
     active_path = get_active_preset_path()
 
@@ -271,8 +304,9 @@ def ensure_default_preset_exists() -> bool:
     log("Active preset file not found, creating from code template...", "INFO")
 
     try:
-        # Write default preset from code constant to preset-zapret2.txt (active preset)
-        active_path.write_text(DEFAULT_PRESET_CONTENT, encoding='utf-8')
+        # Write default preset template to preset-zapret2.txt (active preset)
+        template = get_builtin_preset_content("Default") or DEFAULT_PRESET_CONTENT
+        _atomic_write_text(active_path, template, encoding="utf-8")
         log(f"Created active preset from code template at {active_path}", "DEBUG")
 
         # Set active preset name in registry
