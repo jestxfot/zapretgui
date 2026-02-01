@@ -26,18 +26,21 @@ if TYPE_CHECKING:
     from .preset_model import Preset
 
 # Lazy imports to avoid circular dependencies
-_PROGRAMDATA_PATH: Optional[str] = None
+# NOTE: Despite the name in config, PROGRAMDATA_PATH is the *app core path*
+# (i.e. where the app is installed / located), not %APPDATA%.
+_APP_CORE_PATH: Optional[str] = None
 _PRESETS_ROOT_PATH: Optional[str] = None
 _MAIN_DIRECTORY: Optional[str] = None
 
 
-def _get_programdata_path() -> str:
-    """Lazily gets PROGRAMDATA_PATH to avoid import cycles."""
-    global _PROGRAMDATA_PATH
-    if _PROGRAMDATA_PATH is None:
+def _get_app_core_path() -> str:
+    """Lazily gets the app core path (PROGRAMDATA_PATH) to avoid import cycles."""
+    global _APP_CORE_PATH
+    if _APP_CORE_PATH is None:
         from config import PROGRAMDATA_PATH
-        _PROGRAMDATA_PATH = PROGRAMDATA_PATH
-    return _PROGRAMDATA_PATH
+
+        _APP_CORE_PATH = PROGRAMDATA_PATH
+    return _APP_CORE_PATH
 
 
 def _get_presets_root_path() -> str:
@@ -54,7 +57,7 @@ def _get_presets_root_path() -> str:
 
         if not _PRESETS_ROOT_PATH:
             # Fallback for non-Windows/dev environments.
-            _PRESETS_ROOT_PATH = str(Path(_get_programdata_path()) / "presets")
+            _PRESETS_ROOT_PATH = str(Path(_get_app_core_path()) / "presets")
     return _PRESETS_ROOT_PATH
 
 
@@ -93,7 +96,7 @@ def get_builtin_overrides_dir() -> Path:
     User changes to a built-in preset are persisted as an override file here.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/presets/_builtin_overrides/
+        Path to %APPDATA%/zapret/presets/_builtin_overrides/
     """
     overrides_dir = get_presets_dir() / "_builtin_overrides"
     overrides_dir.mkdir(parents=True, exist_ok=True)
@@ -199,9 +202,9 @@ def get_active_preset_path() -> Path:
     This is the file that winws2 reads.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/preset-zapret2.txt
+        Path to {PROGRAMDATA_PATH}/preset-zapret2.txt (app core path)
     """
-    return Path(_get_programdata_path()) / "preset-zapret2.txt"
+    return Path(_get_app_core_path()) / "preset-zapret2.txt"
 
 
 def get_user_settings_path() -> Path:
