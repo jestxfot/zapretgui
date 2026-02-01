@@ -12,12 +12,12 @@
 #endif
 
 ; Пути можно переопределять из CI: ISCC.exe /DSOURCEPATH=... /DPROJECTPATH=...
-; SOURCEPATH должен указывать на папку, где лежат ресурсы Zapret:
+; SOURCEPATH должен указывать на папку, где лежит Zapret.exe и ресурсы Zapret:
+;   Zapret.exe
+;   _internal\
 ;   bat\ bin\ exe\ json\ lists\ lua\ presets\ ...
-; и рядом (на уровень выше) должна лежать onedir-папка с Zapret.exe:
-;   ..\Zapret\Zapret.exe
 #ifndef SOURCEPATH
-  #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret\zapret"
+  #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret"
 #endif
 #ifndef PROJECTPATH
   #define PROJECTPATH "\\wsl.localhost\Debian\opt\zapretgui"
@@ -84,8 +84,9 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 ; ✅ ИСПОЛЬЗУЕМ АБСОЛЮТНЫЕ ПУТИ
-; ✅ ИЗМЕНЕНО: Копируем всю папку dist\Zapret (режим --onedir PyInstaller)
-Source: "{#SOURCEPATH}\..\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
+; ✅ Zapret.exe + _internal (onedir)
+Source: "{#SOURCEPATH}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 ; ✅ Presets are always installed to %APPDATA%\zapret\presets
 ; Source is the Zapret dist folder (SOURCEPATH), e.g. \\wsl.localhost\Debian\home\privacy\zapret\zapret
