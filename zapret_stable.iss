@@ -83,9 +83,12 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 ; ✅ ИЗМЕНЕНО: Копируем всю папку dist\Zapret (режим --onedir PyInstaller)
 Source: "{#SOURCEPATH}\Zapret\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
 
-; ✅ Presets (built-in templates) always go to %APPDATA%\zapret\presets
-; Source comes from the GUI project repo (PROJECTPATH), not from the built dist (SOURCEPATH).
-Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets\_builtin"; Excludes: "_*"; Flags: ignoreversion createallsubdirs
+; ✅ Presets are always installed to %APPDATA%\zapret\presets
+; Source is the Zapret dist folder (SOURCEPATH), e.g. \\wsl.localhost\Debian\home\privacy\zapret\zapret
+; - presets\* is seeded only when missing (keeps user changes)
+; - presets\_builtin\* is always updated
+Source: "{#SOURCEPATH}\presets\*"; DestDir: "{userappdata}\zapret\presets"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist onlyifdoesntexist
+Source: "{#SOURCEPATH}\presets\_builtin\*"; DestDir: "{userappdata}\zapret\presets\_builtin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist

@@ -2,7 +2,7 @@ Built-in preset templates
 
 Where to put files
   - runtime (Windows): %APPDATA%\zapret\presets\_builtin\*.txt
-  - repo (for packaging via Inno Setup): preset_zapret2/builtin_presets/*.txt
+  - for packaging via Inno Setup: <zapret_dist>/presets/_builtin/*.txt (SOURCEPATH)
 
 Rules
   - File name becomes preset name (without .txt)
