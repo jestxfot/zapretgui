@@ -51,6 +51,8 @@ Parser API (for txt files):
     )
 """
 
+from pathlib import Path
+
 # Model classes
 from .preset_model import CategoryConfig, Preset, SyndataSettings, validate_preset
 
@@ -323,7 +325,7 @@ def ensure_default_preset_exists() -> bool:
         log("Active preset file already exists", "DEBUG")
         return True
 
-    log("Active preset file not found, creating from code template...", "INFO")
+    log("Active preset file not found, creating from built-in template...", "INFO")
 
     try:
         # Write default preset template to preset-zapret2.txt (active preset)

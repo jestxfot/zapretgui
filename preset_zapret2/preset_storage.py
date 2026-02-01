@@ -199,9 +199,9 @@ def get_active_preset_path() -> Path:
     This is the file that winws2 reads.
 
     Returns:
-        Path to %APPDATA%/zapret/presets/preset-zapret2.txt
+        Path to {PROGRAMDATA_PATH}/preset-zapret2.txt
     """
-    return get_presets_dir() / "preset-zapret2.txt"
+    return Path(_get_programdata_path()) / "preset-zapret2.txt"
 
 
 def get_user_settings_path() -> Path:
@@ -253,6 +253,9 @@ def list_presets() -> List[str]:
     if presets_dir.exists():
         for f in presets_dir.glob("*.txt"):
             if f.is_file():
+                # Do not treat the active runtime file as a user preset.
+                if f.stem.lower() == "preset-zapret2":
+                    continue
                 presets.add(f.stem)
 
     # Virtual built-ins (repo/packaged templates) must be visible even if

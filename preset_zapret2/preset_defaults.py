@@ -112,9 +112,18 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
         return templates
 
     for file_path in sorted(presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
-        name = (file_path.stem or "").strip()
+        raw_name = (file_path.stem or "").strip()
+        name = raw_name
         if not name or name.startswith("_"):
             continue
+
+        # Normalize core built-ins by key to avoid case-related duplicates
+        # (e.g. default.txt vs Default.txt on case-insensitive filesystems).
+        low = name.lower()
+        if low == "default":
+            name = "Default"
+        elif low == "gaming":
+            name = "Gaming"
 
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -129,7 +138,8 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
 
     global _MISSING_REQUIRED_LOGGED
     if not _MISSING_REQUIRED_LOGGED:
-        missing = [n for n in _REQUIRED_BUILTIN_PRESET_NAMES if n not in templates]
+        present_keys = {k.lower() for k in templates.keys()}
+        missing = [n for n in _REQUIRED_BUILTIN_PRESET_NAMES if n.lower() not in present_keys]
         if missing:
             try:
                 from log import log
