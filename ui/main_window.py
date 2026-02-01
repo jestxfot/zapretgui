@@ -774,7 +774,7 @@ class MainWindowUI:
             if not ensure_default_preset_exists():
                 log(
                     "direct_zapret2: preset-zapret2.txt не создан (нет built-in шаблона Default). "
-                    "Проверьте: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                    "Проверьте: %APPDATA%/zapret/presets/_builtin/Default.txt",
                     "ERROR",
                 )
                 try:

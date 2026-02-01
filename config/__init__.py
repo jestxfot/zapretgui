@@ -13,7 +13,9 @@ from .config import (
     get_window_position, set_window_position, get_window_size, set_window_size,
     get_window_maximized, set_window_maximized,
     # Функции определения exe по методу
-    ZAPRET2_MODES, get_winws_exe_for_method, is_zapret2_mode
+    ZAPRET2_MODES, get_winws_exe_for_method, is_zapret2_mode,
+    # Paths for per-user presets
+    get_zapret_presets_dir, get_zapret_userdata_dir
 )
 from .build_info import APP_VERSION, CHANNEL
 from .reg import reg, HKCU, get_last_strategy, set_last_strategy, get_last_bat_strategy, set_last_bat_strategy, get_dpi_autostart, set_dpi_autostart, get_subscription_check_interval, get_remove_github_api, get_active_hosts_domains, set_active_hosts_domains, get_auto_update_enabled, set_auto_update_enabled, get_tray_hint_shown, set_tray_hint_shown
@@ -35,6 +37,8 @@ __all__ = [
     'MAIN_DIRECTORY',
     'HELP_FOLDER',
     'PROGRAMDATA_PATH',
+    'get_zapret_userdata_dir',
+    'get_zapret_presets_dir',
     # config.py - пути реестра
     'REGISTRY_PATH',
     'REGISTRY_PATH_AUTOSTART',

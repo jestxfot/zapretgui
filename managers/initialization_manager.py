@@ -157,7 +157,7 @@ class InitializationManager:
                     from preset_zapret2 import ensure_default_preset_exists
                     if not ensure_default_preset_exists():
                         log(
-                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет built-in Default.txt)",
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
                             "ERROR",
                         )
 
@@ -194,7 +194,7 @@ class InitializationManager:
                     from preset_zapret2 import ensure_default_preset_exists
                     if not ensure_default_preset_exists():
                         log(
-                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет built-in Default.txt)",
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
                             "ERROR",
                         )
                         try:
@@ -846,7 +846,7 @@ class InitializationManager:
         try:
             if not ensure_default_preset_exists():
                 log(
-                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет Default.txt)",
+                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
                     "ERROR",
                 )
                 self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")

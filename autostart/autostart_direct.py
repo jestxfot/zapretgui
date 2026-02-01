@@ -449,7 +449,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
 
             if not ensure_default_preset_exists():
                 log(
-                    "DirectZ2 autostart: preset-zapret2.txt not created (missing built-in Default.txt)",
+                    "DirectZ2 autostart: preset-zapret2.txt not created (missing %APPDATA%/zapret/presets/_builtin/Default.txt)",
                     "ERROR",
                 )
                 return [], "direct_zapret2", winws_exe

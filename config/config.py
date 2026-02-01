@@ -30,6 +30,28 @@ except ImportError:
 # (пользователь может выбрать любую папку в инсталляторе)
 PROGRAMDATA_PATH = MAIN_DIRECTORY
 
+
+def get_roaming_appdata_dir() -> str:
+    """Returns %APPDATA% (Roaming) on Windows, or empty string."""
+    return os.environ.get("APPDATA", "")
+
+
+def get_zapret_userdata_dir() -> str:
+    """Returns a stable per-user data dir for Zapret.
+
+    Primary target (Windows): %APPDATA%\\zapret
+    Fallback (non-Windows/dev): MAIN_DIRECTORY
+    """
+    base = get_roaming_appdata_dir()
+    if base:
+        return os.path.join(base, "zapret")
+    return MAIN_DIRECTORY
+
+
+def get_zapret_presets_dir() -> str:
+    """Returns presets root directory: <userdata>/zapret/presets."""
+    return os.path.join(get_zapret_userdata_dir(), "presets")
+
 # ═══════════════════════════════════════════════════════════════════
 
 # Все папки относительно MAIN_DIRECTORY

@@ -608,7 +608,7 @@ class PresetManager:
             if not template:
                 log(
                     "Cannot create preset: built-in preset 'Default' is missing. "
-                    "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
                     "ERROR",
                 )
                 return None
@@ -1388,7 +1388,7 @@ class PresetManager:
             if not template_content:
                 log(
                     "Cannot reset active preset: built-in preset 'Default' is missing. "
-                    "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
                     "ERROR",
                 )
                 return False
@@ -1509,7 +1509,7 @@ class PresetManager:
             if not template_content:
                 log(
                     "Cannot reset preset: built-in preset 'Default' is missing. "
-                    "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
                     "ERROR",
                 )
                 return False

@@ -7,14 +7,14 @@ There are two kinds of presets:
    - Stored in `{PROGRAMDATA_PATH}/presets/*.txt`.
 
 2) Built-in presets (virtual templates):
-   - Loaded from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`.
+   - Loaded from `%APPDATA%/zapret/presets/_builtin/*.txt`.
    - `Default.txt` and `Gaming.txt` are required.
 
-Built-in presets do NOT require corresponding files in `{PROGRAMDATA_PATH}/presets/`.
+Built-in presets do NOT require corresponding files in the *user* presets root.
 They are shown in the UI as official presets and can be activated directly.
 
 How to add a new built-in preset:
-   - Create: `preset_zapret2/builtin_presets/<PresetName>.txt`
+   - Create: `%APPDATA%/zapret/presets/_builtin/<PresetName>.txt`
    - Encoding: UTF-8
    - The preset name is derived from the filename.
    - Files starting with '_' are ignored.
@@ -92,13 +92,13 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
 
 
 def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
-    """Loads built-in templates from `<MAIN_DIRECTORY>/preset_zapret2/builtin_presets/*.txt`."""
+    """Loads built-in templates from `%APPDATA%/zapret/presets/_builtin/*.txt`."""
     templates: dict[str, str] = {}
 
     try:
-        from config import MAIN_DIRECTORY
+        from config import get_zapret_presets_dir
 
-        presets_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "builtin_presets"
+        presets_dir = Path(get_zapret_presets_dir()) / "_builtin"
     except Exception:
         return templates
 
@@ -106,11 +106,7 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
         try:
             from log import log
 
-            log(
-                "Built-in preset templates directory not found: "
-                f"{presets_dir}. Expected: <exe_dir>/preset_zapret2/builtin_presets/*.txt",
-                "ERROR",
-            )
+            log(f"Built-in preset templates directory not found: {presets_dir}", "ERROR")
         except Exception:
             pass
         return templates
@@ -268,7 +264,7 @@ def get_default_category_settings() -> dict:
 
             log(
                 "Cannot parse default category settings: built-in preset 'Default' is missing. "
-                "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
                 "ERROR",
             )
             return {}

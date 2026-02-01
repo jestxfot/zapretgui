@@ -143,10 +143,13 @@ def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
 
 def ensure_builtin_presets_exist() -> bool:
     """
-    Ensures that built-in presets are available.
+    Ensures that built-in preset templates directory exists.
 
-    Built-ins are treated as *virtual* presets loaded from packaged templates (and in-code fallbacks).
-    We do not materialize them into `{PROGRAMDATA}/presets/*.txt` by default.
+    Built-in templates are stored in:
+      %APPDATA%/zapret/presets/_builtin/*.txt
+
+    In dev mode, we also try to seed them from the repo folder
+    `preset_zapret2/builtin_presets/*.txt` (if missing).
 
 
     Returns:
@@ -155,12 +158,32 @@ def ensure_builtin_presets_exist() -> bool:
     from log import log
 
     try:
-        # Keep presets dir present for user presets.
         presets_dir = get_presets_dir()
         presets_dir.mkdir(parents=True, exist_ok=True)
 
-        # Built-in presets are *virtual* and are loaded from packaged templates
-        # (and in-code fallbacks). We do not materialize them into presets/.
+        # Ensure builtin template directory exists
+        builtin_dir = presets_dir / "_builtin"
+        builtin_dir.mkdir(parents=True, exist_ok=True)
+
+        # Dev convenience: seed builtin templates from the repo (if present)
+        try:
+            from config import MAIN_DIRECTORY
+
+            src_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "builtin_presets"
+            if src_dir.exists() and src_dir.is_dir():
+                for p in sorted(src_dir.glob("*.txt"), key=lambda x: x.name.lower()):
+                    if p.name.startswith("_"):
+                        continue
+                    dst = builtin_dir / p.name
+                    if dst.exists():
+                        continue
+                    try:
+                        dst.write_text(p.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+                        log(f"Seeded built-in preset template: {dst}", "DEBUG")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         migrate_builtin_overrides_to_visible_copies()
         return True
 
@@ -308,7 +331,7 @@ def ensure_default_preset_exists() -> bool:
         if not template:
             log(
                 "Cannot create preset-zapret2.txt: built-in preset 'Default' is missing. "
-                "Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
                 "ERROR",
             )
             return False

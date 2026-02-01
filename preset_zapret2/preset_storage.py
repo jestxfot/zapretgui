@@ -5,7 +5,11 @@ from __future__ import annotations
 Storage layer for preset system.
 
 Handles reading/writing preset files to disk.
-Presets are stored as txt files in {PROGRAMDATA_PATH}/presets/.
+
+Presets are stored in a stable per-user directory (Windows):
+  %APPDATA%\\zapret\\presets
+
+This avoids reliance on the installation folder location.
 Active preset name is stored in registry.
 """
 
@@ -23,6 +27,7 @@ if TYPE_CHECKING:
 
 # Lazy imports to avoid circular dependencies
 _PROGRAMDATA_PATH: Optional[str] = None
+_PRESETS_ROOT_PATH: Optional[str] = None
 _MAIN_DIRECTORY: Optional[str] = None
 
 
@@ -33,6 +38,24 @@ def _get_programdata_path() -> str:
         from config import PROGRAMDATA_PATH
         _PROGRAMDATA_PATH = PROGRAMDATA_PATH
     return _PROGRAMDATA_PATH
+
+
+def _get_presets_root_path() -> str:
+    """Returns the stable presets root (prefer %APPDATA%\\zapret\\presets)."""
+    global _PRESETS_ROOT_PATH
+    if _PRESETS_ROOT_PATH is None:
+        try:
+            from config import get_zapret_presets_dir
+
+            p = (get_zapret_presets_dir() or "").strip()
+            _PRESETS_ROOT_PATH = p
+        except Exception:
+            _PRESETS_ROOT_PATH = ""
+
+        if not _PRESETS_ROOT_PATH:
+            # Fallback for non-Windows/dev environments.
+            _PRESETS_ROOT_PATH = str(Path(_get_programdata_path()) / "presets")
+    return _PRESETS_ROOT_PATH
 
 
 def _get_main_directory() -> str:
@@ -55,9 +78,9 @@ def get_presets_dir() -> Path:
     Creates directory if it doesn't exist.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/presets/
+        Path to %APPDATA%/zapret/presets/
     """
-    presets_dir = Path(_get_programdata_path()) / "presets"
+    presets_dir = Path(_get_presets_root_path())
     presets_dir.mkdir(parents=True, exist_ok=True)
     return presets_dir
 
@@ -176,9 +199,9 @@ def get_active_preset_path() -> Path:
     This is the file that winws2 reads.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/preset-zapret2.txt
+        Path to %APPDATA%/zapret/presets/preset-zapret2.txt
     """
-    return Path(_get_programdata_path()) / "preset-zapret2.txt"
+    return get_presets_dir() / "preset-zapret2.txt"
 
 
 def get_user_settings_path() -> Path:
@@ -188,9 +211,9 @@ def get_user_settings_path() -> Path:
     This stores user-specific settings like active preset name.
 
     Returns:
-        Path to {PROGRAMDATA_PATH}/user_settings.json
+        Path to %APPDATA%/zapret/presets/user_settings.json
     """
-    return Path(_get_programdata_path()) / "user_settings.json"
+    return get_presets_dir() / "user_settings.json"
 
 
 def _sanitize_filename(name: str) -> str:

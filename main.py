@@ -804,7 +804,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                         # Создаем файл если не существует (первый запуск)
                         if not ensure_default_preset_exists():
                             log(
-                                "Не удалось создать preset-zapret2.txt: отсутствует built-in Default.txt",
+                                "Не удалось создать preset-zapret2.txt: отсутствует %APPDATA%/zapret/presets/_builtin/Default.txt",
                                 "ERROR",
                             )
                             self.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")

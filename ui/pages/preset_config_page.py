@@ -185,7 +185,7 @@ class PresetConfigPage(BasePage):
                     else:
                         log(
                             "Не удалось создать preset-zapret2.txt: отсутствует built-in шаблон Default. "
-                            "Ожидается: <exe_dir>/preset_zapret2/builtin_presets/Default.txt",
+                            "Ожидается: %APPDATA%/zapret/presets/_builtin/Default.txt",
                             "ERROR",
                         )
                         # Create a placeholder file so the editor can still open.
@@ -193,9 +193,9 @@ class PresetConfigPage(BasePage):
                             with open(self._preset_path, 'w', encoding='utf-8') as f:
                                 f.write(
                                     "# ERROR: missing built-in preset template: Default\n"
-                                    "# Expected: <exe_dir>/preset_zapret2/builtin_presets/Default.txt\n"
+                                    "# Expected: %APPDATA%/zapret/presets/_builtin/Default.txt\n"
                                     "#\n"
-                                    "# Fix: reinstall/update the app or restore the builtin_presets folder.\n\n"
+                                    "# Fix: reinstall/update the app or restore %APPDATA%/zapret/presets/_builtin.\n\n"
                                 )
                         except Exception:
                             pass

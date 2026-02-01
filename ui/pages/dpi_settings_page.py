@@ -1151,7 +1151,7 @@ class DpiSettingsPage(BasePage):
 
                     if not ensure_default_preset_exists():
                         log(
-                            "Не удалось обновить preset-zapret2.txt для --debug: отсутствует built-in Default.txt",
+                            "Не удалось обновить preset-zapret2.txt для --debug: отсутствует %APPDATA%/zapret/presets/_builtin/Default.txt",
                             "ERROR",
                         )
                         return
