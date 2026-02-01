@@ -4,7 +4,7 @@
 There are two kinds of presets:
 
 1) User presets (editable files):
-   - Stored in `{PROGRAMDATA_PATH}/presets/*.txt`.
+   - Stored in `%APPDATA%/zapret/presets/*.txt`.
 
 2) Built-in presets (virtual templates):
    - Loaded from `%APPDATA%/zapret/presets/_builtin/*.txt`.
