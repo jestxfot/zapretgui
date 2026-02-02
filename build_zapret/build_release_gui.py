@@ -1,3 +1,5 @@
+# pyright: ignore
+
 # build_zapret/build_release_gui.py
 
 from __future__ import annotations
@@ -938,8 +940,8 @@ class BuildReleaseGUI:
         style.configure('Card.TFrame', background=self.colors['frame_bg'], relief='flat', borderwidth=1)
 
     def run_telegram_auth(self):
-        """Запуск авторизации Telegram (Pyrogram)"""
-        auth_script = Path(__file__).parent / "telegram_auth_pyrogram.py"
+        """Запуск авторизации Telegram (Telethon)."""
+        auth_script = Path(__file__).parent / "telegram_auth_telethon.py"
         
         if not auth_script.exists():
             messagebox.showerror(
@@ -967,8 +969,8 @@ class BuildReleaseGUI:
             )
             
             messagebox.showinfo(
-                "Авторизация Pyrogram",
-                "Открыто окно авторизации Telegram (Pyrogram).\n\n"
+                "Авторизация Telethon",
+                "Открыто окно авторизации Telegram (Telethon).\n\n"
                 "Следуйте инструкциям в консоли:\n"
                 "1. Введите номер телефона с +\n"
                 "2. Введите код из Telegram\n"

@@ -130,7 +130,7 @@ def _resolve_password(server_config: Dict[str, Any]) -> Optional[str]:
         return password
     return os.environ.get(_password_env_name(server_config)) or None
 
-def convert_key_to_pem(key_path: str, password: str = None) -> Optional[str]:
+def convert_key_to_pem(key_path: str, password: str = "") -> Optional[str]:
     """Конвертирует OpenSSH ключ в PEM формат для Paramiko"""
     try:
         temp_pem = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
@@ -141,7 +141,7 @@ def convert_key_to_pem(key_path: str, password: str = None) -> Optional[str]:
         shutil.copy2(key_path, temp_pem_path)
         
         result = subprocess.run(
-            ["ssh-keygen", "-p", "-f", temp_pem_path, "-m", "PEM", "-N", "", "-P", password if password else ""],
+            ["ssh-keygen", "-p", "-f", temp_pem_path, "-m", "PEM", "-N", "", "-P", password or ""],
             capture_output=True,
             text=True
         )
@@ -261,7 +261,7 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
             
             if not key:
                 log_func(f"⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
-                pem_key_path = convert_key_to_pem(str(key_path_obj), key_password)
+                pem_key_path = convert_key_to_pem(str(key_path_obj), (key_password or ""))
                 
                 if pem_key_path:
                     try:
@@ -375,30 +375,22 @@ def deploy_to_all_servers(
     
     # Публикация в Telegram
     if publish_telegram:
-        telegram_server = None
-        for result in results:
-            if result['success'] and result['config'].get('use_for_telegram', False):
-                telegram_server = result['config']
-                break
-        
-        if telegram_server:
-            log(f"\n{'='*60}")
-            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM")
-            log(f"{'='*60}")
-            log(f"📍 Выбран сервер: {telegram_server['name']}")
-            
-            telegram_success, telegram_message = _publish_to_telegram_via_ssh(
-                channel=channel,
-                version=version,
-                notes=notes,
-                server_config=telegram_server,
-                log_queue=log_queue
-            )
-            
-            if telegram_success:
-                log(f"✅ Telegram публикация успешна")
-            else:
-                log(f"⚠️ Telegram: {telegram_message}")
+        log(f"\n{'='*60}")
+        log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (ЛОКАЛЬНО, SOCKS5)")
+        log(f"{'='*60}")
+
+        telegram_success, telegram_message = _publish_to_telegram_local(
+            file_path=file_path,
+            channel=channel,
+            version=version,
+            notes=notes,
+            log_queue=log_queue,
+        )
+
+        if telegram_success:
+            log("✅ Telegram публикация успешна")
+        else:
+            log(f"⚠️ Telegram: {telegram_message}")
     
     if successful < len(results):
         return True, f"Деплой завершён частично ({successful}/{len(results)})"
@@ -475,6 +467,40 @@ def _publish_to_telegram_via_ssh(
             except:
                 pass
 
+
+def _publish_to_telegram_local(
+    *,
+    file_path: Path,
+    channel: str,
+    version: str,
+    notes: str,
+    log_queue: Optional[Any] = None,
+) -> tuple[bool, str]:
+    """Публикация в Telegram напрямую с ПК через SOCKS5."""
+
+    def log(msg: str):
+        if log_queue:
+            log_queue.put(msg)
+        else:
+            print(msg)
+
+    try:
+        try:
+            from telegram_publish import publish_build_to_telegram
+        except Exception:
+            from .telegram_publish import publish_build_to_telegram  # type: ignore
+
+        ok, msg = publish_build_to_telegram(
+            file_path=file_path,
+            channel=channel,
+            version=version,
+            notes=notes,
+            log=log,
+        )
+        return bool(ok), msg
+    except Exception as e:
+        return False, str(e)[:200]
+
 # ═══════════════════════════════════════════════════════════════
 # ДЕПЛОЙ НА ОДИН СЕРВЕР
 # ═══════════════════════════════════════════════════════════════
@@ -533,6 +559,8 @@ def _deploy_to_single_server(
         last_percent = -1
         def progress_callback(transferred, total):
             nonlocal last_percent
+            if not total:
+                return
             percent = int((transferred / total) * 100)
             if percent >= last_percent + 10:
                 last_percent = percent - (percent % 10)
@@ -546,7 +574,7 @@ def _deploy_to_single_server(
         log(f"\n📝 Обновление JSON API...")
         
         file_stat = sftp.stat(remote_path)
-        file_mtime = int(file_stat.st_mtime)
+        file_mtime = int(file_stat.st_mtime or 0)
         
         json_data = {}
         try:
@@ -571,11 +599,14 @@ def _deploy_to_single_server(
         moscow_tz = pytz.timezone('Europe/Moscow')
         modified_dt = datetime.fromtimestamp(file_mtime, tz=moscow_tz)
         
+        st_size = file_stat.st_size
+        file_size_int = int(st_size) if st_size is not None else 0
+
         json_data[channel] = {
             "version": version,
             "channel": channel,
             "file_path": remote_path,
-            "file_size": int(file_stat.st_size),
+            "file_size": file_size_int,
             "mtime": file_mtime,
             "modified_at": modified_dt.isoformat(),
             "date": datetime.now(moscow_tz).strftime("%Y-%m-%d"),
