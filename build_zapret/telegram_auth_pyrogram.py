@@ -5,6 +5,22 @@ import sys
 from pathlib import Path
 
 
+def _set_asyncio_policy() -> None:
+    import asyncio
+
+    if sys.platform != "win32":
+        return
+
+    # Some asyncio-based libs work more reliably with selector loop on Windows.
+    policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if policy is None:
+        return
+    try:
+        asyncio.set_event_loop_policy(policy())
+    except Exception:
+        pass
+
+
 def _bootstrap_dotenv() -> None:
     root = Path(__file__).resolve().parents[1]
     if str(root) not in sys.path:
@@ -32,7 +48,7 @@ def _load_api_creds() -> tuple[int, str]:
         raise RuntimeError(f"TELEGRAM_API_ID must be an integer: {e}")
 
 
-def main() -> int:
+async def _run() -> int:
     _bootstrap_dotenv()
 
     try:
@@ -51,16 +67,26 @@ def main() -> int:
 
     app = Client(str(session_base), api_id=api_id, api_hash=api_hash)
     try:
-        app.start()
-        me = app.get_me()
+        await app.start()
+        me = await app.get_me()
         who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
         print(f"OK: authorized as {who}")
         return 0
     finally:
         try:
-            app.stop()
+            await app.stop()
         except Exception:
             pass
+
+
+def main() -> int:
+    import asyncio
+
+    _set_asyncio_policy()
+    try:
+        return asyncio.run(_run())
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

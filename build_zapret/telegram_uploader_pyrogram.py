@@ -12,6 +12,20 @@ def _bootstrap_repo_path() -> None:
         sys.path.insert(0, str(root))
 
 
+def _set_asyncio_policy() -> None:
+    import asyncio
+
+    if sys.platform != "win32":
+        return
+    policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if policy is None:
+        return
+    try:
+        asyncio.set_event_loop_policy(policy())
+    except Exception:
+        pass
+
+
 def _resolve_channel_username(channel: str) -> str:
     ch = (channel or "").strip().lower()
     if ch.startswith("@"):  # allow passing @username
@@ -31,7 +45,7 @@ def _resolve_channel_username(channel: str) -> str:
     return mapping.get(ch, mapping.get("stable", ch))
 
 
-def main(argv: list[str]) -> int:
+async def _run(argv: list[str]) -> int:
     _bootstrap_repo_path()
 
     p = argparse.ArgumentParser(description="Upload a build to Telegram using Pyrogram session.")
@@ -80,15 +94,25 @@ def main(argv: list[str]) -> int:
 
     app = Client(str(session_base), api_id=api_id, api_hash=api_hash)
     try:
-        app.start()
-        app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
+        await app.start()
+        await app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
         print("OK")
         return 0
     finally:
         try:
-            app.stop()
+            await app.stop()
         except Exception:
             pass
+
+
+def main(argv: list[str]) -> int:
+    import asyncio
+
+    _set_asyncio_policy()
+    try:
+        return asyncio.run(_run(argv))
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":
