@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import asyncio
 import sys
 from pathlib import Path
 
@@ -84,25 +85,97 @@ async def _run() -> int:
     proxy = _load_socks5_proxy()
 
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
+    session_file = session_base.with_suffix(".session")
     print("Telegram auth (Pyrogram)")
-    print(f"Session file: {session_base}.session")
+    print(f"Session file: {session_file}")
     if proxy:
         print(f"Proxy: socks5://{proxy['hostname']}:{proxy['port']}")
-    print("You will be asked for phone/code/2FA password in the console.")
 
     client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
     if proxy:
         client_kwargs["proxy"] = proxy
     app = Client(str(session_base), **client_kwargs)
+
     try:
-        await app.start()
-        me = await app.get_me()
+        # If session already exists, try to reuse it first.
+        if session_file.exists():
+            print("Checking existing session...")
+            try:
+                await asyncio.wait_for(app.start(), timeout=45)
+                me = await app.get_me()
+                who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
+                print(f"OK: already authorized as {who}")
+                return 0
+            except Exception:
+                try:
+                    await app.stop()
+                except Exception:
+                    pass
+
+        phone = (input("Phone (+...): ") or "").strip()
+        if not phone:
+            print("Phone is empty")
+            return 2
+
+        print("Connecting to Telegram...")
+        await asyncio.wait_for(app.connect(), timeout=45)
+
+        sent = await asyncio.wait_for(app.send_code(phone), timeout=60)
+        code = (input("Code: ") or "").strip()
+        if not code:
+            print("Code is empty")
+            return 2
+
+        try:
+            res = await asyncio.wait_for(app.sign_in(phone, sent.phone_code_hash, code), timeout=60)
+        except Exception as e:
+            # 2FA flow
+            from pyrogram.errors import SessionPasswordNeeded  # type: ignore
+
+            if isinstance(e, SessionPasswordNeeded):
+                import getpass
+
+                pw = getpass.getpass("2FA password: ")
+                await asyncio.wait_for(app.check_password(pw), timeout=60)
+                res = True
+            else:
+                raise
+
+        try:
+            from pyrogram import types  # type: ignore
+
+            if isinstance(res, getattr(types, "TermsOfService", object)):
+                print("Telegram requires accepting Terms of Service:")
+                text = getattr(res, "text", "")
+                if text:
+                    print(text)
+                tos_id = getattr(res, "id", None)
+                if tos_id:
+                    ans = (input("Type YES to accept: ") or "").strip().upper()
+                    if ans == "YES":
+                        ok = await asyncio.wait_for(app.accept_terms_of_service(tos_id), timeout=60)
+                        if not ok:
+                            print("Failed to accept Terms of Service")
+                            return 2
+                    else:
+                        print("Terms of Service not accepted")
+                        return 2
+        except Exception:
+            # If ToS handling fails, continue; user can retry.
+            pass
+
+        me = await asyncio.wait_for(app.get_me(), timeout=30)
         who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
         print(f"OK: authorized as {who}")
         return 0
+    except TimeoutError:
+        print("Timeout while connecting/authorizing.")
+        print("Check that SOCKS5 proxy is reachable and Telegram is accessible.")
+        return 2
     finally:
         try:
-            await app.stop()
+            if getattr(app, "is_connected", False):
+                await app.disconnect()
         except Exception:
             pass
 
