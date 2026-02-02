@@ -186,6 +186,14 @@ def ensure_builtin_presets_exist() -> bool:
                         pass
         except Exception:
             pass
+
+        # Built-in templates may have just been seeded from the repo; refresh cache.
+        try:
+            from .preset_defaults import invalidate_builtin_preset_templates_cache
+
+            invalidate_builtin_preset_templates_cache()
+        except Exception:
+            pass
         migrate_builtin_overrides_to_visible_copies()
         return True
 
@@ -208,14 +216,14 @@ def migrate_builtin_overrides_to_visible_copies() -> bool:
         True if migration succeeded (or nothing to migrate), False on fatal error.
     """
     from log import log
-    from .preset_defaults import BUILTIN_PRESET_TEMPLATES, get_builtin_copy_name
+    from .preset_defaults import get_builtin_preset_names, get_builtin_copy_name
     from .preset_storage import get_builtin_override_path, get_preset_path, get_active_preset_path
 
     try:
         active_name = (get_active_preset_name() or "").strip()
         active_path = get_active_preset_path()
 
-        for builtin_name in BUILTIN_PRESET_TEMPLATES.keys():
+        for builtin_name in get_builtin_preset_names():
             override_path = get_builtin_override_path(builtin_name)
             if not override_path.exists():
                 continue
@@ -304,7 +312,7 @@ def ensure_default_preset_exists() -> bool:
     Ensures that a default preset exists for direct_zapret2 mode.
 
     Checks if preset-zapret2.txt exists. If not:
-    1. Generates default preset from built-in template `Default.txt`
+    1. Generates active preset from a built-in template.
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -313,7 +321,7 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from .preset_defaults import get_builtin_preset_content
+    from .preset_defaults import get_builtin_preset_content, get_default_builtin_preset_name
 
     active_path = get_active_preset_path()
 
@@ -328,22 +336,22 @@ def ensure_default_preset_exists() -> bool:
     log("Active preset file not found, creating from built-in template...", "INFO")
 
     try:
-        # Write default preset template to preset-zapret2.txt (active preset)
-        template = get_builtin_preset_content("Default")
+        template_name = get_default_builtin_preset_name() or "Default"
+        template = get_builtin_preset_content(template_name)
         if not template:
             log(
-                "Cannot create preset-zapret2.txt: built-in preset 'Default' is missing. "
-                "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                "Cannot create preset-zapret2.txt: no built-in preset templates found. "
+                "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
                 "ERROR",
             )
             return False
         _atomic_write_text(active_path, template, encoding="utf-8")
         log(f"Created active preset from code template at {active_path}", "DEBUG")
 
-        # Set active preset name in registry
-        set_active_preset_name("Default")
+        # Persist active preset name
+        set_active_preset_name(template_name)
 
-        log("Default preset created from code template successfully", "INFO")
+        log("Active preset created from built-in template successfully", "INFO")
         return True
 
     except Exception as e:

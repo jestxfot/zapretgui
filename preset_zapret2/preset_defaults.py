@@ -8,7 +8,7 @@ There are two kinds of presets:
 
 2) Built-in presets (virtual templates):
    - Loaded from `%APPDATA%/zapret/presets/_builtin/*.txt`.
-   - `Default.txt` and `Gaming.txt` are required.
+   - Any `*.txt` files in this folder are treated as templates.
 
 Built-in presets do NOT require corresponding files in the *user* presets root.
 They are shown in the UI as official presets and can be activated directly.
@@ -23,14 +23,9 @@ How to add a new built-in preset:
 from pathlib import Path
 from typing import Optional
 
-_REQUIRED_BUILTIN_PRESET_NAMES: tuple[str, ...] = ("Default", "Gaming")
-
 _BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
-_MISSING_REQUIRED_LOGGED: bool = False
-
-_REQUIRED_CANONICAL_NAME_BY_KEY: dict[str, str] = {
-    n.lower(): n for n in _REQUIRED_BUILTIN_PRESET_NAMES
-}
+_BUILTIN_PRESET_TEMPLATE_BY_KEY: Optional[dict[str, str]] = None
+_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY: Optional[dict[str, str]] = None
 
 
 def _template_sanity_ok(text: str) -> bool:
@@ -136,25 +131,38 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
 
         templates[name] = content
 
-    global _MISSING_REQUIRED_LOGGED
-    if not _MISSING_REQUIRED_LOGGED:
-        present_keys = {k.lower() for k in templates.keys()}
-        missing = [n for n in _REQUIRED_BUILTIN_PRESET_NAMES if n.lower() not in present_keys]
-        if missing:
-            try:
-                from log import log
-
-                for n in missing:
-                    log(
-                        f"Missing required built-in preset template: {n}. "
-                        f"Expected file: {presets_dir / (n + '.txt')}",
-                        "ERROR",
-                    )
-            except Exception:
-                pass
-            _MISSING_REQUIRED_LOGGED = True
-
     return templates
+
+
+def invalidate_builtin_preset_templates_cache() -> None:
+    global _BUILTIN_PRESETS_CACHE, _BUILTIN_PRESET_TEMPLATE_BY_KEY, _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY
+    _BUILTIN_PRESETS_CACHE = None
+    _BUILTIN_PRESET_TEMPLATE_BY_KEY = None
+    _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = None
+
+
+def _ensure_builtin_templates_loaded() -> None:
+    global _BUILTIN_PRESETS_CACHE, _BUILTIN_PRESET_TEMPLATE_BY_KEY, _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY
+
+    if _BUILTIN_PRESETS_CACHE is None:
+        templates = _load_builtin_preset_templates_from_disk()
+        _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
+        _BUILTIN_PRESET_TEMPLATE_BY_KEY = {
+            canonical.lower(): content for canonical, content in _BUILTIN_PRESETS_CACHE.items()
+        }
+        _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = {
+            canonical.lower(): canonical for canonical in _BUILTIN_PRESETS_CACHE.keys()
+        }
+        return
+
+    if _BUILTIN_PRESET_TEMPLATE_BY_KEY is None:
+        _BUILTIN_PRESET_TEMPLATE_BY_KEY = {
+            canonical.lower(): content for canonical, content in (_BUILTIN_PRESETS_CACHE or {}).items()
+        }
+    if _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY is None:
+        _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = {
+            canonical.lower(): canonical for canonical in (_BUILTIN_PRESETS_CACHE or {}).keys()
+        }
 
 
 def get_builtin_preset_templates() -> dict[str, str]:
@@ -162,47 +170,31 @@ def get_builtin_preset_templates() -> dict[str, str]:
 
     Built-ins are not persisted in `%APPDATA%/zapret/presets/*.txt`.
     """
-    global _BUILTIN_PRESETS_CACHE
-    if _BUILTIN_PRESETS_CACHE is not None:
-        return _BUILTIN_PRESETS_CACHE
-
-    templates = _load_builtin_preset_templates_from_disk()
-    _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
-    return _BUILTIN_PRESETS_CACHE
+    _ensure_builtin_templates_loaded()
+    return _BUILTIN_PRESETS_CACHE or {}
 
 
 def get_builtin_preset_names() -> list[str]:
     templates = get_builtin_preset_templates()
-    names = set(templates.keys())
-    names.update(_REQUIRED_BUILTIN_PRESET_NAMES)
-    return sorted(names, key=lambda s: s.lower())
-
-
-BUILTIN_PRESET_TEMPLATES: dict[str, str] = get_builtin_preset_templates()
-
-_BUILTIN_PRESET_TEMPLATE_BY_KEY: dict[str, str] = {
-    canonical.lower(): content for canonical, content in BUILTIN_PRESET_TEMPLATES.items()
-}
-
-_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY: dict[str, str] = {
-    canonical.lower(): canonical for canonical in BUILTIN_PRESET_TEMPLATES.keys()
-}
+    return sorted(set(templates.keys()), key=lambda s: s.lower())
 
 BUILTIN_COPY_SUFFIX = " (копия)"
 
 
 def get_builtin_preset_content(name: str) -> Optional[str]:
+    _ensure_builtin_templates_loaded()
     key = (name or "").strip().lower()
     if not key:
         return None
-    return _BUILTIN_PRESET_TEMPLATE_BY_KEY.get(key)
+    return (_BUILTIN_PRESET_TEMPLATE_BY_KEY or {}).get(key)
 
 
 def get_builtin_preset_canonical_name(name: str) -> Optional[str]:
+    _ensure_builtin_templates_loaded()
     key = (name or "").strip().lower()
     if not key:
         return None
-    return _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY.get(key) or _REQUIRED_CANONICAL_NAME_BY_KEY.get(key)
+    return (_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY or {}).get(key)
 
 
 def is_builtin_preset_name(name: str) -> bool:
@@ -224,6 +216,27 @@ def get_builtin_base_from_copy_name(name: str) -> Optional[str]:
     return get_builtin_preset_canonical_name(base)
 
 
+def get_default_builtin_preset_name() -> Optional[str]:
+    """Returns the preferred built-in template name used as a default.
+
+    Preference order:
+    1) "Default" (if present)
+    2) First template name in sorted order
+    """
+    canonical = get_builtin_preset_canonical_name("Default")
+    if canonical:
+        return canonical
+    names = get_builtin_preset_names()
+    return names[0] if names else None
+
+
+def get_default_builtin_preset_content() -> Optional[str]:
+    name = get_default_builtin_preset_name()
+    if not name:
+        return None
+    return get_builtin_preset_content(name)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEFAULT SETTINGS PARSER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -233,7 +246,7 @@ _DEFAULT_SETTINGS_CACHE = None
 
 def get_default_category_settings() -> dict:
     """
-    Парсит built-in пресет `Default` и возвращает дефолтные настройки для всех категорий.
+    Парсит "дефолтный" built-in шаблон и возвращает дефолтные настройки для всех категорий.
 
     Возвращает словарь вида:
     {
@@ -267,14 +280,17 @@ def get_default_category_settings() -> dict:
 
     from .txt_preset_parser import parse_preset_content
 
+    template_name = "Default"
+
     try:
-        template = get_builtin_preset_content("Default")
+        template_name = get_default_builtin_preset_name() or "Default"
+        template = get_builtin_preset_content(template_name)
         if not template:
             from log import log
 
             log(
-                "Cannot parse default category settings: built-in preset 'Default' is missing. "
-                "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                "Cannot parse default category settings: no built-in preset templates found. "
+                "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
                 "ERROR",
             )
             return {}
@@ -334,7 +350,7 @@ def get_default_category_settings() -> dict:
     except Exception as e:
         # Если парсинг не удался, возвращаем пустой словарь
         from log import log
-        log(f"Failed to parse built-in preset 'Default': {e}", "ERROR")
+        log(f"Failed to parse built-in preset '{template_name}': {e}", "ERROR")
         return {}
 
 

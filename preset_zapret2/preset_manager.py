@@ -210,7 +210,7 @@ class PresetManager:
         """
         Loads preset directly from preset-zapret2.txt.
 
-        Used as fallback when active preset name is not in registry.
+        Used as fallback when active preset name is not available.
 
         Returns:
             Preset parsed from active file
@@ -237,10 +237,10 @@ class PresetManager:
             from .preset_defaults import is_builtin_preset_name
             is_builtin = bool(data.is_builtin) or is_builtin_preset_name(name)
             try:
-                active_registry_name = get_active_preset_name()
-                if active_registry_name and preset_exists(active_registry_name):
+                active_name_hint = get_active_preset_name()
+                if active_name_hint and preset_exists(active_name_hint):
                     # Lightweight header check to avoid loading full preset model.
-                    preset_path = get_preset_path(active_registry_name)
+                    preset_path = get_preset_path(active_name_hint)
                     if preset_path.exists():
                         head = preset_path.read_text(encoding="utf-8", errors="replace")[:4096]
                         for raw in head.splitlines():
@@ -480,7 +480,7 @@ class PresetManager:
             import os
             os.replace(str(temp_path), str(active_path))
 
-            # Update registry
+            # Persist active preset name
             set_active_preset_name(name)
 
             # Invalidate cache after switch
@@ -601,14 +601,15 @@ class PresetManager:
             return None
 
         try:
-            from .preset_defaults import get_builtin_preset_content
+            from .preset_defaults import get_builtin_preset_content, get_default_builtin_preset_name
             from .txt_preset_parser import parse_preset_content, generate_preset_file
 
-            template = get_builtin_preset_content("Default")
+            template_name = get_default_builtin_preset_name() or "Default"
+            template = get_builtin_preset_content(template_name)
             if not template:
                 log(
-                    "Cannot create preset: built-in preset 'Default' is missing. "
-                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                    "Cannot create preset: no built-in preset templates found. "
+                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
                     "ERROR",
                 )
                 return None
@@ -686,7 +687,7 @@ class PresetManager:
         Renames preset.
 
         Cannot rename built-in presets.
-        Updates active preset name in registry if renamed preset is active.
+        Updates active preset name if renamed preset is active.
 
         Args:
             old_name: Current name
@@ -783,8 +784,6 @@ class PresetManager:
 
     def load_current_from_registry(self) -> Optional[Preset]:
         """
-        Loads preset configuration from registry.
-
         Legacy method for compatibility.
         Now just returns active preset.
 
@@ -969,29 +968,30 @@ class PresetManager:
         # so disabling a category could leave stale ports behind.
         # Here we reset the base wf ports to the template values (if available).
         if not marker_present and (preset.name or "").strip().lower() == "default":
+            from .preset_defaults import get_builtin_preset_content
             try:
-                from .preset_defaults import get_builtin_preset_content
-
                 template_tcp = ""
                 template_udp = ""
-                template = get_builtin_preset_content("Default")
-                if not template:
-                    return True
+                template = get_builtin_preset_content("Default") or ""
                 for raw in template.splitlines():
-                    s = raw.strip()
-                    if s.startswith("--wf-tcp-out="):
-                        template_tcp = s.split("=", 1)[1].strip()
-                    elif s.startswith("--wf-udp-out="):
-                        template_udp = s.split("=", 1)[1].strip()
-                    if template_tcp and template_udp:
-                        break
+                    line = raw.strip()
+                    if line.startswith("--wf-tcp-out="):
+                        template_tcp = line.split("=", 1)[1].strip()
+                        if template_udp:
+                            break
+                    elif line.startswith("--wf-udp-out="):
+                        template_udp = line.split("=", 1)[1].strip()
+                        if template_tcp:
+                            break
 
                 if template_tcp:
                     existing_wf_tcp = template_tcp
                 if template_udp:
                     existing_wf_udp = template_udp
+
                 # Keep an empty marker line to avoid re-running this migration on every save/sync.
-                keep_empty_marker = True
+                if template_tcp or template_udp:
+                    keep_empty_marker = True
             except Exception:
                 pass
 
@@ -1376,6 +1376,7 @@ class PresetManager:
         from .preset_defaults import (
             get_builtin_preset_content,
             get_builtin_base_from_copy_name,
+            get_default_builtin_preset_content,
             is_builtin_preset_name,
         )
         from .txt_preset_parser import parse_preset_content
@@ -1384,11 +1385,11 @@ class PresetManager:
         preset_name = get_active_preset_name() or "Current"
 
         try:
-            template_content = get_builtin_preset_content("Default")
+            template_content = get_default_builtin_preset_content()
             if not template_content:
                 log(
-                    "Cannot reset active preset: built-in preset 'Default' is missing. "
-                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                    "Cannot reset active preset: no built-in preset templates found. "
+                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
                     "ERROR",
                 )
                 return False
@@ -1483,7 +1484,7 @@ class PresetManager:
         - presets/{preset_name}.txt
         - preset-zapret2.txt
         """
-        from .preset_defaults import get_builtin_preset_content
+        from .preset_defaults import get_default_builtin_preset_content
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
 
@@ -1505,11 +1506,11 @@ class PresetManager:
                 log(f"Cannot reset built-in preset '{name}'", "WARNING")
                 return False
 
-            template_content = get_builtin_preset_content("Default")
+            template_content = get_default_builtin_preset_content()
             if not template_content:
                 log(
-                    "Cannot reset preset: built-in preset 'Default' is missing. "
-                    "Expected: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                    "Cannot reset preset: no built-in preset templates found. "
+                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
                     "ERROR",
                 )
                 return False

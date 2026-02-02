@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 # presets/preset_storage.py
-"""
-Storage layer for preset system.
+"""Storage layer for preset system.
 
 Handles reading/writing preset files to disk.
 
@@ -10,9 +9,12 @@ Presets are stored in a stable per-user directory (Windows):
   %APPDATA%\\zapret\\presets
 
 This avoids reliance on the installation folder location.
-Active preset name is stored in registry.
+
+Active preset name is stored in an INI file:
+  %APPDATA%\\zapret\\zapret2_active_preset.ini
 """
 
+import configparser
 import os
 import shutil
 import tempfile
@@ -30,6 +32,10 @@ if TYPE_CHECKING:
 _APP_CORE_PATH: Optional[str] = None
 _PRESETS_ROOT_PATH: Optional[str] = None
 _MAIN_DIRECTORY: Optional[str] = None
+
+_ACTIVE_PRESET_SECTION = "direct_zapret2"
+_ACTIVE_PRESET_KEY = "ActivePreset"
+_ACTIVE_PRESET_INI_NAME = "zapret2_active_preset.ini"
 
 
 def _get_app_core_path() -> str:
@@ -67,6 +73,28 @@ def _get_main_directory() -> str:
         from config import MAIN_DIRECTORY
         _MAIN_DIRECTORY = MAIN_DIRECTORY
     return _MAIN_DIRECTORY
+
+
+def get_active_preset_state_path() -> Path:
+    """Returns path to the active preset state INI file.
+
+    Primary target (Windows): %APPDATA%\\zapret\\zapret2_active_preset.ini
+    Fallback (non-Windows/dev): <userdata>/zapret2_active_preset.ini
+    """
+    try:
+        from config import get_zapret_userdata_dir
+
+        base = (get_zapret_userdata_dir() or "").strip()
+        if base:
+            return Path(base) / _ACTIVE_PRESET_INI_NAME
+    except Exception:
+        pass
+
+    appdata = (os.environ.get("APPDATA") or "").strip()
+    if appdata:
+        return Path(appdata) / "zapret" / _ACTIVE_PRESET_INI_NAME
+
+    return Path(_get_app_core_path()) / _ACTIVE_PRESET_INI_NAME
 
 
 # ============================================================================
@@ -668,31 +696,28 @@ def rename_preset(old_name: str, new_name: str) -> bool:
 
 def get_active_preset_name() -> Optional[str]:
     """
-    Gets name of currently active preset from registry.
+    Gets name of currently active preset from the INI file.
 
     Returns:
         Active preset name or None if not set
     """
+    path = get_active_preset_state_path()
     try:
-        import winreg
-        from config import REGISTRY_PATH
-
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_READ)
-        try:
-            name = winreg.QueryValueEx(key, "ActivePreset")[0]
-            winreg.CloseKey(key)
-            return name
-        except FileNotFoundError:
-            winreg.CloseKey(key)
+        if not path.exists():
             return None
+
+        cfg = configparser.ConfigParser()
+        cfg.read(path, encoding="utf-8")
+        value = cfg.get(_ACTIVE_PRESET_SECTION, _ACTIVE_PRESET_KEY, fallback="").strip()
+        return value or None
     except Exception as e:
-        log(f"Error reading active preset from registry: {e}", "DEBUG")
+        log(f"Error reading active preset from ini: {e}", "DEBUG")
         return None
 
 
 def set_active_preset_name(name: str) -> bool:
     """
-    Sets name of active preset in registry.
+    Sets name of active preset in the INI file.
 
     Args:
         name: Preset name
@@ -700,17 +725,52 @@ def set_active_preset_name(name: str) -> bool:
     Returns:
         True if saved successfully
     """
+    path = get_active_preset_state_path()
+    value = (name or "").strip()
     try:
-        import winreg
-        from config import REGISTRY_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH)
-        winreg.SetValueEx(key, "ActivePreset", 0, winreg.REG_SZ, name)
-        winreg.CloseKey(key)
-        log(f"Set active preset to '{name}'", "DEBUG")
+        cfg = configparser.ConfigParser()
+        if path.exists():
+            cfg.read(path, encoding="utf-8")
+
+        if _ACTIVE_PRESET_SECTION not in cfg:
+            cfg[_ACTIVE_PRESET_SECTION] = {}
+
+        if value:
+            cfg[_ACTIVE_PRESET_SECTION][_ACTIVE_PRESET_KEY] = value
+        else:
+            try:
+                cfg.remove_option(_ACTIVE_PRESET_SECTION, _ACTIVE_PRESET_KEY)
+            except Exception:
+                pass
+
+        # Atomic write
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f"{path.stem}_",
+            suffix=".tmp",
+            dir=str(path.parent),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                cfg.write(f)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except Exception:
+                    pass
+            os.replace(tmp_name, str(path))
+        finally:
+            try:
+                if os.path.exists(tmp_name):
+                    os.unlink(tmp_name)
+            except Exception:
+                pass
+
+        log(f"Set active preset to '{value}'", "DEBUG")
         return True
     except Exception as e:
-        log(f"Error saving active preset to registry: {e}", "ERROR")
+        log(f"Error saving active preset to ini: {e}", "ERROR")
         return False
 
 
