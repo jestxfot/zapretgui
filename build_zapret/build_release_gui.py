@@ -179,8 +179,16 @@ try:
     NUITKA_AVAILABLE = True
 except ImportError:
     NUITKA_AVAILABLE = False
-    def run_nuitka(channel: str, version: str, root_path: Path, python_exe: str, 
-                   run_func: Any, log_queue: Any = None):
+    def run_nuitka(
+        channel: str,
+        version: str,
+        root_path: Path,
+        python_exe: str,
+        run_func: Any,
+        log_queue: Optional[Any] = None,
+        *,
+        target_dir: Optional[Path] = None,
+    ) -> Path:
         raise ImportError("Модуль nuitka_builder недоступен")
     
     def check_nuitka_available() -> bool:
@@ -227,13 +235,13 @@ def setup_github_imports():
         pass
     
     # Способ 3: Заглушки если ничего не работает
-    def create_github_release(*args, **kwargs):
+    def create_github_release(*args, **kwargs) -> Optional[str]:
         return None
     
-    def is_github_enabled():
+    def is_github_enabled() -> bool:
         return False
     
-    def get_github_config_info():
+    def get_github_config_info() -> str:
         return "GitHub модуль недоступен"
     
     return create_github_release, is_github_enabled, get_github_config_info, False
@@ -251,11 +259,11 @@ def setup_ssh_imports():
         return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, True
     except ImportError:
         # Заглушки
-        def deploy_to_all_servers(*args, **kwargs):
+        def deploy_to_all_servers(*args, **kwargs) -> tuple[bool, str]:
             return False, "SSH модуль недоступен"
-        def is_ssh_configured():
+        def is_ssh_configured() -> bool:
             return False
-        def get_ssh_config_info():
+        def get_ssh_config_info() -> str:
             return "SSH модуль недоступен (установите: pip install paramiko)"
         return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, False
 
@@ -364,9 +372,9 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
     else:
         shown = cmd
     
-    # Отправляем в GUI лог
-    if hasattr(run, 'log_queue'):
-        run.log_queue.put(f"> {shown}")
+    log_queue = getattr(run, "log_queue", None)
+    if log_queue is not None:
+        log_queue.put(f"> {shown}")
     
     # Важно: добавляем CREATE_NO_WINDOW для скрытия консольных окон подпроцессов
     startupinfo = None
@@ -388,16 +396,16 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
     )
     
     # Выводим stdout если есть
-    if res.stdout and hasattr(run, 'log_queue'):
+    if res.stdout and log_queue is not None:
         for line in res.stdout.strip().split('\n'):
             if line.strip():
-                run.log_queue.put(line)
+                log_queue.put(line)
     
     # Выводим stderr если есть ошибки
-    if res.stderr and hasattr(run, 'log_queue'):
+    if res.stderr and log_queue is not None:
         for line in res.stderr.strip().split('\n'):
             if line.strip():
-                run.log_queue.put(f"❌ {line}")
+                log_queue.put(f"❌ {line}")
     
     # Проверяем код возврата
     if check and res.returncode != 0:
@@ -408,8 +416,8 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
         if res.stdout:
             error_msg += f"\n\nВывод:\n{res.stdout}"
             
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"❌ {error_msg}")
+        if log_queue is not None:
+            log_queue.put(f"❌ {error_msg}")
             
         if capture:
             raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
@@ -455,7 +463,7 @@ def parse_version(version_string: str) -> tuple[int, int, int, int]:
         parts = [int(x) for x in version.split('.') if x.strip().isdigit()]
         while len(parts) < 4:
             parts.append(0)
-        return tuple(parts[:4])
+        return (parts[0], parts[1], parts[2], parts[3])
     except Exception:
         return (0, 0, 0, 0)
 
@@ -601,20 +609,23 @@ def update_versions_file(channel: str, new_version: str):
         
         safe_json_write(versions_file, data)
             
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"✔ Версии обновлены в {versions_file}")
+        log_queue = getattr(run, "log_queue", None)
+        if log_queue is not None:
+            log_queue.put(f"✔ Версии обновлены в {versions_file}")
             
     except Exception as e:
-        if hasattr(run, 'log_queue'):
-            run.log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
+        log_queue = getattr(run, "log_queue", None)
+        if log_queue is not None:
+            log_queue.put(f"⚠️ Ошибка обновления версий: {e}")
 
 def _taskkill(exe: str):
     run(f'taskkill /F /T /IM "{exe}" >nul 2>&1', check=False)
 
 def stop_running_zapret():
     """Аккуратно гасит все Zapret.exe"""
-    if hasattr(run, 'log_queue'):
-        run.log_queue.put("Ищу запущенный Zapret.exe …")
+    log_queue = getattr(run, "log_queue", None)
+    if log_queue is not None:
+        log_queue.put("Ищу запущенный Zapret.exe …")
 
     try:
         import psutil
@@ -624,8 +635,8 @@ def stop_running_zapret():
             if n in ("zapret.exe"):
                 targets.append(p)
                 try:
-                    if hasattr(run, 'log_queue'):
-                        run.log_queue.put(f"  → terminate PID {p.pid} ({n})")
+                    if log_queue is not None:
+                        log_queue.put(f"  → terminate PID {p.pid} ({n})")
                     p.terminate()
                 except Exception:
                     pass
@@ -635,8 +646,8 @@ def stop_running_zapret():
             for p in targets:
                 if p.is_running():
                     try:
-                        if hasattr(run, 'log_queue'):
-                            run.log_queue.put(f"  → kill PID {p.pid}")
+                        if log_queue is not None:
+                            log_queue.put(f"  → kill PID {p.pid}")
                         p.kill()
                     except Exception:
                         pass
@@ -663,8 +674,9 @@ def prepare_iss(channel: str, version: str) -> Path:
     dst = ROOT / f"zapret_{channel}.iss" 
     shutil.copy(src, dst)
     
-    if hasattr(run, 'log_queue'):
-        run.log_queue.put(f"✓ Скопирован ISS файл: {dst}")
+    log_queue = getattr(run, "log_queue", None)
+    if log_queue is not None:
+        log_queue.put(f"✓ Скопирован ISS файл: {dst}")
     
     return dst
 
@@ -673,8 +685,9 @@ def write_build_info(channel: str, version: str):
     dst.parent.mkdir(exist_ok=True)
     dst.write_text(f"# AUTOGENERATED\nCHANNEL={channel!r}\nAPP_VERSION={normalize_to_4(version)!r}\n",
                    encoding="utf-8-sig")
-    if hasattr(run, 'log_queue'):
-        run.log_queue.put("✔ build_info.py updated")
+    log_queue = getattr(run, "log_queue", None)
+    if log_queue is not None:
+        log_queue.put("✔ build_info.py updated")
 
 # ════════════════════════════════════════════════════════════════
 #  GUI КЛАСС
@@ -695,7 +708,7 @@ class BuildReleaseGUI:
 
         # Очередь для логов
         self.log_queue = Queue()
-        run.log_queue = self.log_queue
+        setattr(run, "log_queue", self.log_queue)
         
         # Переменные
         self.channel_var = tk.StringVar(value="test")
@@ -1425,7 +1438,7 @@ class BuildReleaseGUI:
             publish_telegram = self.publish_telegram_var.get()
 
             # Базовые шаги
-            steps = [
+            steps: list[tuple[int, str, Any]] = [
                 (10, "Обновление build_info.py", lambda: write_build_info(channel, version))
             ]
             
@@ -1490,7 +1503,7 @@ class BuildReleaseGUI:
         self.log_queue.put(f"🔧 Канал: {channel.upper()}")
         
         if publish_telegram:
-            self.log_queue.put(f"📢 Telegram: будет опубликовано со 2-го сервера после деплоя")
+            self.log_queue.put("📢 Telegram: будет опубликовано локально с ПК через SOCKS5")
         
         # ✅ Вызываем функцию с флагом публикации
         success, message = deploy_to_all_servers(
@@ -1788,8 +1801,7 @@ class BuildReleaseGUI:
         """
         Публикует Zapret.exe в Telegram без Inno/SSH.
 
-        По умолчанию на Windows, когда проект запускается из \\wsl.localhost\\...,
-        отправляем через WSL (python3 + Telethon), чтобы избежать проблем UNC/SQLite locks.
+        Публикация идёт напрямую с ПК через SOCKS5 (по умолчанию 127.0.0.1:10808).
         """
         telegram_ok, telegram_msg = check_telegram_configured()
         if not telegram_ok:
@@ -1801,68 +1813,29 @@ class BuildReleaseGUI:
 
         TELEGRAM_API_ID, TELEGRAM_API_HASH = _load_build_telegram_config()
 
+        uploader = Path(__file__).parent / "telegram_uploader_telethon_fixed.py"
+        if not uploader.exists():
+            raise FileNotFoundError(f"Uploader не найден: {uploader}")
+
+        python_exe = sys.executable
+        if python_exe.endswith("pythonw.exe"):
+            python_exe = python_exe.replace("pythonw.exe", "python.exe")
+
         file_size_mb = exe_path.stat().st_size / 1024 / 1024
         timeout = 1800 if file_size_mb > 100 else 1200
+        self.log_queue.put(f"📤 Telegram (Telethon+SOCKS5): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
 
-        use_wsl = False
-        distro = os.environ.get("ZAPRET_WSL_DISTRO") or "Debian"
-        if sys.platform == "win32":
-            use_wsl = _env_truthy("ZAPRET_TG_UPLOAD_WSL") or str(Path(__file__)).startswith("\\\\wsl.localhost\\")
-            if use_wsl and not shutil.which("wsl.exe"):
-                use_wsl = False
-
-        if use_wsl:
-            uploader_linux = _to_wsl_path(Path(__file__).parent / "telegram_uploader_telethon_fixed.py", distro)
-            exe_linux = _to_wsl_path(exe_path, distro)
-
-            socks_host = os.environ.get("ZAPRET_SOCKS5_HOST")
-            socks_port = os.environ.get("ZAPRET_SOCKS5_PORT")
-
-            env_prefix: list[str] = []
-            if socks_host and socks_port:
-                env_prefix = [
-                    "env",
-                    f"ZAPRET_SOCKS5_HOST={socks_host}",
-                    f"ZAPRET_SOCKS5_PORT={socks_port}",
-                ]
-
-            cmd = [
-                "wsl.exe", "-d", distro, "--",
-                *env_prefix,
-                "python3", uploader_linux,
-                exe_linux,
-                channel,
-                version,
-                notes or f"Zapret {version}",
-                str(TELEGRAM_API_ID),
-                str(TELEGRAM_API_HASH),
-            ]
-
-            self.log_queue.put(f"📤 Telegram (WSL:{distro}): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
-            rc = self._run_process_stream(cmd, timeout=timeout)
-        else:
-            uploader = Path(__file__).parent / "telegram_uploader_pyrogram.py"
-            if not uploader.exists():
-                raise FileNotFoundError(f"Uploader не найден: {uploader}")
-
-            python_exe = sys.executable
-            if python_exe.endswith("pythonw.exe"):
-                python_exe = python_exe.replace("pythonw.exe", "python.exe")
-
-            cmd = [
-                python_exe,
-                str(uploader),
-                str(exe_path),
-                channel,
-                version,
-                notes or f"Zapret {version}",
-                str(TELEGRAM_API_ID),
-                str(TELEGRAM_API_HASH),
-            ]
-
-            self.log_queue.put(f"📤 Telegram (Windows/Pyrogram): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
-            rc = self._run_process_stream(cmd, cwd=Path(__file__).parent, timeout=timeout)
-
+        cmd = [
+            python_exe,
+            str(uploader),
+            str(exe_path),
+            channel,
+            version,
+            notes or f"Zapret {version}",
+            str(TELEGRAM_API_ID),
+            str(TELEGRAM_API_HASH),
+        ]
+        rc = self._run_process_stream(cmd, cwd=Path(__file__).parent, timeout=timeout)
         if rc != 0:
             raise RuntimeError(f"Telegram uploader завершился с кодом {rc}")
   

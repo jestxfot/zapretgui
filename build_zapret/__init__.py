@@ -2,6 +2,7 @@
 
 # Optional local .env support (no hard dependency).
 import os
+from typing import Optional
 
 # Пытаемся импортировать GitHub функции
 try:
@@ -14,16 +15,16 @@ try:
     GITHUB_AVAILABLE = True
 except ImportError:
     # Если github_release.py недоступен, создаем заглушки
-    def create_github_release(*args, **kwargs):
+    def create_github_release(*args, **kwargs) -> Optional[str]:
         return None
     
-    def is_github_enabled():
+    def is_github_enabled() -> bool:
         return False
     
-    def get_github_config_info():
+    def get_github_config_info() -> str:
         return "Модуль недоступен"
     
-    def test_github_connection(*args, **kwargs):
+    def test_github_connection(*args, **kwargs) -> bool:
         return False
     
     GITHUB_CONFIG = {"enabled": False}
@@ -41,5 +42,5 @@ __all__ = [
     'test_github_connection',
     'GITHUB_AVAILABLE',
     'TELEGRAM_API_HASH',
-    'TELEGRAM_API_ID'
+    'TELEGRAM_API_ID',
 ]

@@ -3,6 +3,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _bootstrap_dotenv() -> None:
@@ -32,7 +33,32 @@ def _load_api_creds() -> tuple[int, str]:
         raise RuntimeError(f"TELEGRAM_API_ID must be an integer: {e}")
 
 
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _socks5_proxy_or_none():
+    if _env_truthy("ZAPRET_TG_NO_SOCKS"):
+        return None
+
+    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+    try:
+        port_i = int(port)
+    except Exception:
+        raise RuntimeError(f"Invalid ZAPRET_SOCKS5_PORT={port!r}")
+
+    try:
+        import socks  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"PySocks is required for SOCKS5 proxy: {e}. Install: pip install pysocks")
+
+    return (socks.SOCKS5, host, port_i)
+
+
 async def _run() -> int:
+    import asyncio
+
     _bootstrap_dotenv()
 
     try:
@@ -46,14 +72,34 @@ async def _run() -> int:
     session_base = Path(__file__).resolve().parent / "zapret_uploader"
     print("Telegram auth (Telethon)")
     print(f"Session file: {session_base}.session")
+    proxy = _socks5_proxy_or_none()
+    if proxy is None:
+        print("Proxy: disabled (ZAPRET_TG_NO_SOCKS=1)")
+    else:
+        host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+        port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+        print(f"Proxy: socks5://{host}:{port}")
     print("You will be asked for phone/code/2FA password in the console.")
 
-    client = TelegramClient(str(session_base), api_id, api_hash)
-    await client.start()
+    client = TelegramClient(str(session_base), api_id, api_hash, proxy=proxy)  # type: ignore[arg-type]
+
+    res: Any = client.start()
+    try:
+        if asyncio.iscoroutine(res):
+            await res
+    except Exception:
+        pass
+
     me = await client.get_me()
     who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
     print(f"OK: authorized as {who}")
-    await client.disconnect()
+
+    res = client.disconnect()
+    try:
+        if asyncio.iscoroutine(res):
+            await res
+    except Exception:
+        pass
     return 0
 
 

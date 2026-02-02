@@ -485,19 +485,63 @@ def _publish_to_telegram_local(
             print(msg)
 
     try:
-        try:
-            from telegram_publish import publish_build_to_telegram
-        except Exception:
-            from .telegram_publish import publish_build_to_telegram  # type: ignore
+        import sys
+        import subprocess
 
-        ok, msg = publish_build_to_telegram(
-            file_path=file_path,
-            channel=channel,
-            version=version,
-            notes=notes,
-            log=log,
+        uploader = Path(__file__).resolve().parent / "telegram_uploader_telethon_fixed.py"
+        if not uploader.exists():
+            return False, f"Uploader не найден: {uploader}"
+
+        api_id = (os.environ.get("TELEGRAM_API_ID") or os.environ.get("ZAPRET_TELEGRAM_API_ID") or "").strip()
+        api_hash = (os.environ.get("TELEGRAM_API_HASH") or os.environ.get("ZAPRET_TELEGRAM_API_HASH") or "").strip()
+        if not api_id or not api_hash:
+            return False, "Telegram API ключи не найдены: TELEGRAM_API_ID/TELEGRAM_API_HASH"
+
+        python_exe = sys.executable
+        if python_exe.endswith("pythonw.exe"):
+            python_exe = python_exe.replace("pythonw.exe", "python.exe")
+
+        size_mb = file_path.stat().st_size / 1024 / 1024
+        timeout = 1800 if size_mb > 100 else 1200
+
+        cmd = [
+            python_exe,
+            str(uploader),
+            str(file_path),
+            channel,
+            version,
+            (notes or f"Zapret {version}"),
+            str(api_id),
+            str(api_hash),
+        ]
+
+        log(f"📤 Telegram uploader: {uploader.name}")
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).resolve().parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
         )
-        return bool(ok), msg
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            s = (line or "").rstrip()
+            if s:
+                log(f"   {s}")
+
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            rc = proc.wait(timeout=10)
+
+        return (rc == 0), ("OK" if rc == 0 else f"Uploader exit code: {rc}")
     except Exception as e:
         return False, str(e)[:200]
 
