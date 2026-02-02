@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +69,12 @@ def _remote_filename(file_path: Path, channel: str, version: str) -> str:
 
 
 async def _run(argv: list[str]) -> int:
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     p = argparse.ArgumentParser(description="Upload a build to Telegram using Telethon session.")
     p.add_argument("file", help="Linux path to file to send")
     p.add_argument("channel", help="stable/test (or @username)")
@@ -122,24 +130,36 @@ async def _run(argv: list[str]) -> int:
         port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
         print(f"Proxy: socks5://{host}:{port}")
 
+    connect_timeout_s = int((os.environ.get("ZAPRET_TG_CONNECT_TIMEOUT") or "45").strip() or "45")
+    upload_timeout_s = int((os.environ.get("ZAPRET_TG_UPLOAD_TIMEOUT") or "1800").strip() or "1800")
+
     client = TelegramClient(str(session_base), api_id, api_hash, proxy=proxy)  # type: ignore[arg-type]
 
-    await client.connect()
+    print(f"Connecting to Telegram... (timeout {connect_timeout_s}s)")
+    await asyncio.wait_for(client.connect(), timeout=connect_timeout_s)
     if not await client.is_user_authorized():
         print("Session is not authorized")
         print("Run: python build_zapret/telegram_auth_telethon.py")
         return 3
 
     last_percent = -1
+    last_update = 0.0
+    start_time = time.time()
 
     def _progress(sent: int, total: int) -> None:
         nonlocal last_percent
+        nonlocal last_update
         if total <= 0:
             return
         pct = int((sent / total) * 100)
-        if pct >= last_percent + 10:
-            last_percent = pct - (pct % 10)
-            print(f"  {last_percent}% ({sent/1024/1024:.1f}/{total/1024/1024:.1f} MB)")
+        now = time.time()
+        if pct >= last_percent + 10 or (now - last_update) > 15:
+            shown = min(100, pct)
+            elapsed = max(now - start_time, 1.0)
+            speed = (sent / 1024 / 1024) / elapsed
+            print(f"  {shown}% ({sent/1024/1024:.1f}/{total/1024/1024:.1f} MB) — {speed:.1f} MB/s")
+            last_percent = shown - (shown % 10)
+            last_update = now
 
     attrs: list[Any] = []
     try:
@@ -148,14 +168,23 @@ async def _run(argv: list[str]) -> int:
     except Exception:
         attrs = []
 
-    msg = await client.send_file(
-        chat_id,
-        str(file_path),
-        caption=caption,
-        force_document=True,
-        attributes=attrs,
-        progress_callback=_progress,
-    )
+    print(f"Sending file... (timeout {upload_timeout_s}s)")
+    try:
+        msg = await asyncio.wait_for(
+            client.send_file(
+                chat_id,
+                str(file_path),
+                caption=caption,
+                force_document=True,
+                attributes=attrs,
+                progress_callback=_progress,
+            ),
+            timeout=upload_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        print("Timeout while uploading to Telegram.")
+        print("If you use SOCKS5, verify it works for Telegram. Try setting ZAPRET_TG_NO_SOCKS=1 if VPN is full-tunnel.")
+        return 2
 
     try:
         pin_target = msg[-1] if isinstance(msg, list) and msg else msg
