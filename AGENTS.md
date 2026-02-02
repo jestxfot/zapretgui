@@ -1,5 +1,7 @@
 Ask questions before changing anything interactively, considering several possible options!
 
+Note: In this repo, multiple agents may work in parallel (e.g. GPT/Codex/Claude). If you see unexpected local changes, assume another agent might be working; don't panic or revert automatically.
+
 “Make sure to commit every change, as the code sometimes gets reset.
 
 Git workflow (auto-commit + push)
