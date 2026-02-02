@@ -48,6 +48,27 @@ def _load_api_creds() -> tuple[int, str]:
         raise RuntimeError(f"TELEGRAM_API_ID must be an integer: {e}")
 
 
+def _load_socks5_proxy() -> dict | None:
+    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip()
+    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip()
+    if not host or not port:
+        return None
+    try:
+        port_i = int(port)
+    except Exception:
+        return None
+
+    user = (os.environ.get("ZAPRET_SOCKS5_USER") or os.environ.get("ZAPRET_SOCKS5_USERNAME") or "").strip()
+    password = (os.environ.get("ZAPRET_SOCKS5_PASS") or os.environ.get("ZAPRET_SOCKS5_PASSWORD") or "").strip()
+
+    proxy: dict = {"scheme": "socks5", "hostname": host, "port": port_i}
+    if user:
+        proxy["username"] = user
+    if password:
+        proxy["password"] = password
+    return proxy
+
+
 async def _run() -> int:
     _bootstrap_dotenv()
 
@@ -60,12 +81,19 @@ async def _run() -> int:
 
     api_id, api_hash = _load_api_creds()
 
+    proxy = _load_socks5_proxy()
+
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
     print("Telegram auth (Pyrogram)")
     print(f"Session file: {session_base}.session")
+    if proxy:
+        print(f"Proxy: socks5://{proxy['hostname']}:{proxy['port']}")
     print("You will be asked for phone/code/2FA password in the console.")
 
-    app = Client(str(session_base), api_id=api_id, api_hash=api_hash)
+    client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
+    if proxy:
+        client_kwargs["proxy"] = proxy
+    app = Client(str(session_base), **client_kwargs)
     try:
         await app.start()
         me = await app.get_me()

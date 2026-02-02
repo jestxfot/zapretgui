@@ -45,6 +45,27 @@ def _resolve_channel_username(channel: str) -> str:
     return mapping.get(ch, mapping.get("stable", ch))
 
 
+def _load_socks5_proxy() -> dict | None:
+    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip()
+    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip()
+    if not host or not port:
+        return None
+    try:
+        port_i = int(port)
+    except Exception:
+        return None
+
+    user = (os.environ.get("ZAPRET_SOCKS5_USER") or os.environ.get("ZAPRET_SOCKS5_USERNAME") or "").strip()
+    password = (os.environ.get("ZAPRET_SOCKS5_PASS") or os.environ.get("ZAPRET_SOCKS5_PASSWORD") or "").strip()
+
+    proxy: dict = {"scheme": "socks5", "hostname": host, "port": port_i}
+    if user:
+        proxy["username"] = user
+    if password:
+        proxy["password"] = password
+    return proxy
+
+
 async def _run(argv: list[str]) -> int:
     _bootstrap_repo_path()
 
@@ -82,6 +103,8 @@ async def _run(argv: list[str]) -> int:
     chat_id = f"@{channel_username}"
     caption = (args.notes or "").strip() or f"Zapret {args.version}"
 
+    proxy = _load_socks5_proxy()
+
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
     session_file = session_base.with_suffix(".session")
     if not session_file.exists():
@@ -91,8 +114,13 @@ async def _run(argv: list[str]) -> int:
 
     print(f"Uploading via Pyrogram to {chat_id}")
     print(f"File: {file_path} ({file_path.stat().st_size / 1024 / 1024:.1f} MB)")
+    if proxy:
+        print(f"Proxy: socks5://{proxy['hostname']}:{proxy['port']}")
 
-    app = Client(str(session_base), api_id=api_id, api_hash=api_hash)
+    client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
+    if proxy:
+        client_kwargs["proxy"] = proxy
+    app = Client(str(session_base), **client_kwargs)
     try:
         await app.start()
         await app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
