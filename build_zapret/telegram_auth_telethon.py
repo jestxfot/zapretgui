@@ -37,22 +37,51 @@ def _env_truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _socks5_proxy_or_none():
-    if _env_truthy("ZAPRET_TG_NO_SOCKS"):
+def _proxy_or_none():
+    """Telethon proxy tuple.
+
+    Disable: ZAPRET_TG_NO_PROXY=1 (or legacy ZAPRET_TG_NO_SOCKS=1)
+
+    Configure:
+      - ZAPRET_TG_PROXY_SCHEME=socks5|http  (default: socks5)
+      - ZAPRET_PROXY_HOST / ZAPRET_PROXY_PORT
+      - ZAPRET_PROXY_USER / ZAPRET_PROXY_PASS (optional)
+
+    Back-compat:
+      - ZAPRET_SOCKS5_HOST / ZAPRET_SOCKS5_PORT / ZAPRET_SOCKS5_USER / ZAPRET_SOCKS5_PASS
+    """
+    if _env_truthy("ZAPRET_TG_NO_PROXY") or _env_truthy("ZAPRET_TG_NO_SOCKS"):
         return None
 
-    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
-    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+    scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+    if scheme in {"https"}:
+        scheme = "http"
+    if scheme not in {"socks5", "http"}:
+        raise RuntimeError(f"Invalid proxy scheme: {scheme!r} (use socks5|http)")
+
+    host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+    port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
     try:
         port_i = int(port)
     except Exception:
-        raise RuntimeError(f"Invalid ZAPRET_SOCKS5_PORT={port!r}")
+        raise RuntimeError(f"Invalid proxy port: {port!r}")
+
+    user = (os.environ.get("ZAPRET_PROXY_USER") or os.environ.get("ZAPRET_PROXY_USERNAME") or os.environ.get("ZAPRET_SOCKS5_USER") or os.environ.get("ZAPRET_SOCKS5_USERNAME") or "").strip()
+    password = (os.environ.get("ZAPRET_PROXY_PASS") or os.environ.get("ZAPRET_PROXY_PASSWORD") or os.environ.get("ZAPRET_SOCKS5_PASS") or os.environ.get("ZAPRET_SOCKS5_PASSWORD") or "").strip()
 
     try:
         import socks  # type: ignore
     except Exception as e:
-        raise RuntimeError(f"PySocks is required for SOCKS5 proxy: {e}. Install: pip install pysocks")
+        raise RuntimeError(f"PySocks is required for proxy support: {e}. Install: pip install pysocks")
 
+    if scheme == "http":
+        if user:
+            return (socks.HTTP, host, port_i, True, user, password)
+        return (socks.HTTP, host, port_i)
+
+    # socks5
+    if user:
+        return (socks.SOCKS5, host, port_i, True, user, password)
     return (socks.SOCKS5, host, port_i)
 
 
@@ -72,13 +101,14 @@ async def _run() -> int:
     session_base = Path(__file__).resolve().parent / "zapret_uploader"
     print("Telegram auth (Telethon)")
     print(f"Session file: {session_base}.session")
-    proxy = _socks5_proxy_or_none()
+    proxy = _proxy_or_none()
     if proxy is None:
-        print("Proxy: disabled (ZAPRET_TG_NO_SOCKS=1)")
+        print("Proxy: disabled (ZAPRET_TG_NO_PROXY=1)")
     else:
-        host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
-        port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
-        print(f"Proxy: socks5://{host}:{port}")
+        scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+        host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+        port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+        print(f"Proxy: {scheme}://{host}:{port}")
     print("You will be asked for phone/code/2FA password in the console.")
 
     client = TelegramClient(str(session_base), api_id, api_hash, proxy=proxy)  # type: ignore[arg-type]

@@ -48,9 +48,20 @@ def _resolve_channel_username(channel: str) -> str:
     return mapping.get(ch, mapping.get("stable", ch))
 
 
-def _load_socks5_proxy() -> dict | None:
-    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip()
-    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip()
+def _load_proxy() -> dict | None:
+    if (os.environ.get("ZAPRET_TG_NO_PROXY") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
+    if (os.environ.get("ZAPRET_TG_NO_SOCKS") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
+
+    scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+    if scheme in {"https"}:
+        scheme = "http"
+    if scheme not in {"socks5", "http"}:
+        return None
+
+    host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip()
+    port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip()
     if not host or not port:
         return None
     try:
@@ -58,10 +69,22 @@ def _load_socks5_proxy() -> dict | None:
     except Exception:
         return None
 
-    user = (os.environ.get("ZAPRET_SOCKS5_USER") or os.environ.get("ZAPRET_SOCKS5_USERNAME") or "").strip()
-    password = (os.environ.get("ZAPRET_SOCKS5_PASS") or os.environ.get("ZAPRET_SOCKS5_PASSWORD") or "").strip()
+    user = (
+        os.environ.get("ZAPRET_PROXY_USER")
+        or os.environ.get("ZAPRET_PROXY_USERNAME")
+        or os.environ.get("ZAPRET_SOCKS5_USER")
+        or os.environ.get("ZAPRET_SOCKS5_USERNAME")
+        or ""
+    ).strip()
+    password = (
+        os.environ.get("ZAPRET_PROXY_PASS")
+        or os.environ.get("ZAPRET_PROXY_PASSWORD")
+        or os.environ.get("ZAPRET_SOCKS5_PASS")
+        or os.environ.get("ZAPRET_SOCKS5_PASSWORD")
+        or ""
+    ).strip()
 
-    proxy: dict = {"scheme": "socks5", "hostname": host, "port": port_i}
+    proxy: dict = {"scheme": scheme, "hostname": host, "port": port_i}
     if user:
         proxy["username"] = user
     if password:
@@ -106,7 +129,7 @@ async def _run(argv: list[str]) -> int:
     chat_id = f"@{channel_username}"
     caption = (args.notes or "").strip() or f"Zapret {args.version}"
 
-    proxy = _load_socks5_proxy()
+    proxy = _load_proxy()
 
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
     session_file = session_base.with_suffix(".session")
@@ -118,7 +141,7 @@ async def _run(argv: list[str]) -> int:
     print(f"Uploading via Pyrogram to {chat_id}")
     print(f"File: {file_path} ({file_path.stat().st_size / 1024 / 1024:.1f} MB)")
     if proxy:
-        print(f"Proxy: socks5://{proxy['hostname']}:{proxy['port']}")
+        print(f"Proxy: {proxy.get('scheme','?')}://{proxy['hostname']}:{proxy['port']}")
 
     client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
     if proxy:

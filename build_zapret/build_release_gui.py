@@ -718,6 +718,11 @@ class BuildReleaseGUI:
         self.version_var = tk.StringVar()
         self.build_method_var = tk.StringVar(value="pyinstaller")
         self.publish_telegram_var = tk.BooleanVar(value=False)
+        # Proxy для Telegram uploader/auth (полезно выключать при full-tunnel VPN).
+        default_tg_socks = bool((os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip())
+        if _env_truthy("ZAPRET_TG_NO_PROXY") or _env_truthy("ZAPRET_TG_NO_SOCKS"):
+            default_tg_socks = False
+        self.telegram_use_socks_var = tk.BooleanVar(value=default_tg_socks)
         self.fast_exe_var = tk.BooleanVar(value=bool(self.cli.get("fast_exe")))
         self.fast_exe_dest_var = tk.StringVar(value=str(self.cli.get("fast_exe_dest") or ""))
         self.versions_info = {"stable": "—", "test": "—"}
@@ -979,8 +984,16 @@ class BuildReleaseGUI:
             return
         
         try:
+            env = os.environ.copy()
+            if self.telegram_use_socks_var.get():
+                env.pop("ZAPRET_TG_NO_SOCKS", None)
+                env.pop("ZAPRET_TG_NO_PROXY", None)
+            else:
+                env["ZAPRET_TG_NO_SOCKS"] = "1"
+                env["ZAPRET_TG_NO_PROXY"] = "1"
             subprocess.Popen(
                 [python_exe, str(auth_script)],
+                env=env,
                 creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
             )
             
@@ -1115,11 +1128,19 @@ class BuildReleaseGUI:
         )
         self.publish_telegram_check.pack(side='right')
 
+        # Proxy toggle (актуально для Amnezia/VPN на всю систему)
+        self.telegram_socks_check = ttk.Checkbutton(
+            telegram_frame,
+            text="Proxy",
+            variable=self.telegram_use_socks_var,
+        )
+        self.telegram_socks_check.pack(side='right', padx=(10, 0))
+
         # Кнопки авторизации (Pyrogram / Telethon WSL)
         if not telegram_ok:
             auth_button = ttk.Button(
                 telegram_frame,
-                text="🔑 Авторизация Pyrogram",
+                text="🔑 Авторизация Telethon",
                 command=self.run_telegram_auth
             )
             auth_button.pack(side='right', padx=(10, 0))
@@ -1845,7 +1866,17 @@ class BuildReleaseGUI:
 
         file_size_mb = exe_path.stat().st_size / 1024 / 1024
         timeout = 1800 if file_size_mb > 100 else 1200
-        self.log_queue.put(f"📤 Telegram (Telethon+SOCKS5): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
+        env = os.environ.copy()
+        if self.telegram_use_socks_var.get():
+            env.pop("ZAPRET_TG_NO_SOCKS", None)
+            env.pop("ZAPRET_TG_NO_PROXY", None)
+            tg_mode = "Telethon+Proxy"
+        else:
+            env["ZAPRET_TG_NO_SOCKS"] = "1"
+            env["ZAPRET_TG_NO_PROXY"] = "1"
+            tg_mode = "Telethon (no proxy)"
+
+        self.log_queue.put(f"📤 Telegram ({tg_mode}): отправка {exe_path.name} ({file_size_mb:.1f} MB)")
 
         cmd = [
             python_exe,
@@ -1857,7 +1888,7 @@ class BuildReleaseGUI:
             str(TELEGRAM_API_ID),
             str(TELEGRAM_API_HASH),
         ]
-        rc = self._run_process_stream(cmd, cwd=Path(__file__).parent, timeout=timeout)
+        rc = self._run_process_stream(cmd, cwd=Path(__file__).parent, timeout=timeout, env=env)
         if rc != 0:
             raise RuntimeError(f"Telegram uploader завершился с кодом {rc}")
   

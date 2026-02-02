@@ -30,30 +30,55 @@ def _env_truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _socks5_proxy_or_exit() -> tuple | None:
-    """Returns Telethon proxy tuple.
+def _proxy_or_exit() -> tuple | None:
+    """Telethon proxy tuple.
 
-    Default: SOCKS5 127.0.0.1:10808
-    Disable (escape hatch): ZAPRET_TG_NO_SOCKS=1
+    Disable: ZAPRET_TG_NO_PROXY=1 (or legacy ZAPRET_TG_NO_SOCKS=1)
+
+    Configure:
+      - ZAPRET_TG_PROXY_SCHEME=socks5|http  (default: socks5)
+      - ZAPRET_PROXY_HOST / ZAPRET_PROXY_PORT
+      - ZAPRET_PROXY_USER / ZAPRET_PROXY_PASS (optional)
+
+    Back-compat:
+      - ZAPRET_SOCKS5_HOST / ZAPRET_SOCKS5_PORT / ZAPRET_SOCKS5_USER / ZAPRET_SOCKS5_PASS
     """
-    if _env_truthy("ZAPRET_TG_NO_SOCKS"):
+    if _env_truthy("ZAPRET_TG_NO_PROXY") or _env_truthy("ZAPRET_TG_NO_SOCKS"):
         return None
 
-    host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
-    port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+    scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+    if scheme in {"https"}:
+        scheme = "http"
+    if scheme not in {"socks5", "http"}:
+        print(f"Invalid proxy scheme: {scheme!r} (use socks5|http)")
+        raise SystemExit(2)
+
+    host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+    port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
     try:
         port_i = int(port)
     except Exception:
-        print(f"Invalid ZAPRET_SOCKS5_PORT={port!r}")
+        print(f"Invalid proxy port: {port!r}")
         raise SystemExit(2)
+
+    user = (os.environ.get("ZAPRET_PROXY_USER") or os.environ.get("ZAPRET_PROXY_USERNAME") or os.environ.get("ZAPRET_SOCKS5_USER") or os.environ.get("ZAPRET_SOCKS5_USERNAME") or "").strip()
+    password = (os.environ.get("ZAPRET_PROXY_PASS") or os.environ.get("ZAPRET_PROXY_PASSWORD") or os.environ.get("ZAPRET_SOCKS5_PASS") or os.environ.get("ZAPRET_SOCKS5_PASSWORD") or "").strip()
 
     try:
         import socks  # type: ignore
     except Exception as e:
-        print(f"PySocks is required for SOCKS5 proxy: {e}")
+        print(f"PySocks is required for proxy support: {e}")
         print("Install: pip install pysocks")
         raise SystemExit(2)
 
+    if scheme == "http":
+        if user:
+            return (socks.HTTP, host, port_i, True, user, password)
+        return (socks.HTTP, host, port_i)
+
+    # socks5
+    if user:
+        return (socks.SOCKS5, host, port_i, True, user, password)
     return (socks.SOCKS5, host, port_i)
 
 
@@ -70,8 +95,12 @@ def _remote_filename(file_path: Path, channel: str, version: str) -> str:
 
 async def _run(argv: list[str]) -> int:
     try:
-        sys.stdout.reconfigure(line_buffering=True)
-        sys.stderr.reconfigure(line_buffering=True)
+        reconfig = getattr(sys.stdout, "reconfigure", None)
+        if callable(reconfig):
+            reconfig(line_buffering=True)
+        reconfig = getattr(sys.stderr, "reconfigure", None)
+        if callable(reconfig):
+            reconfig(line_buffering=True)
     except Exception:
         pass
 
@@ -117,18 +146,19 @@ async def _run(argv: list[str]) -> int:
         print("Run: python3 build_zapret/telegram_auth_telethon.py")
         return 3
 
-    proxy = _socks5_proxy_or_exit()
+    proxy = _proxy_or_exit()
     remote_name = _remote_filename(file_path, args.channel, args.version)
 
     print(f"Uploading via Telethon to {chat_id}")
     size_mb = file_path.stat().st_size / 1024 / 1024
     print(f"File: {file_path} ({size_mb:.1f} MB)")
     if proxy is None:
-        print("Proxy: disabled (ZAPRET_TG_NO_SOCKS=1)")
+        print("Proxy: disabled (ZAPRET_TG_NO_PROXY=1)")
     else:
-        host = (os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
-        port = (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
-        print(f"Proxy: socks5://{host}:{port}")
+        scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+        host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+        port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+        print(f"Proxy: {scheme}://{host}:{port}")
 
     connect_timeout_s = int((os.environ.get("ZAPRET_TG_CONNECT_TIMEOUT") or "45").strip() or "45")
     upload_timeout_s = int((os.environ.get("ZAPRET_TG_UPLOAD_TIMEOUT") or "1800").strip() or "1800")
@@ -183,7 +213,7 @@ async def _run(argv: list[str]) -> int:
         )
     except asyncio.TimeoutError:
         print("Timeout while uploading to Telegram.")
-        print("If you use SOCKS5, verify it works for Telegram. Try setting ZAPRET_TG_NO_SOCKS=1 if VPN is full-tunnel.")
+        print("If you use a proxy, verify it works for Telegram. Try setting ZAPRET_TG_NO_PROXY=1 if VPN is full-tunnel.")
         return 2
 
     try:
@@ -195,8 +225,6 @@ async def _run(argv: list[str]) -> int:
 
     res = client.disconnect()
     try:
-        import asyncio
-
         if asyncio.iscoroutine(res):
             await res
     except Exception:
