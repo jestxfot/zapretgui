@@ -709,6 +709,9 @@ class BuildReleaseGUI:
         # Очередь для логов
         self.log_queue = Queue()
         setattr(run, "log_queue", self.log_queue)
+
+        # Нефатальные ошибки (например, сетевые сбои публикации).
+        self.nonfatal_errors: list[str] = []
         
         # Переменные
         self.channel_var = tk.StringVar(value="test")
@@ -1345,7 +1348,9 @@ class BuildReleaseGUI:
         """Запуск процесса сборки"""
         fast_exe = self.fast_exe_var.get()
 
-        if not fast_exe:
+        skip_github = _env_truthy("ZAPRET_SKIP_GITHUB") or _env_truthy("ZAPRET_GITHUB_SKIP")
+
+        if not fast_exe and not skip_github:
             if not GITHUB_AVAILABLE:
                 messagebox.showerror("Ошибка", "GitHub модуль недоступен!")
                 return
@@ -1409,7 +1414,10 @@ class BuildReleaseGUI:
             msg += "\nInno Setup / GitHub / SSH: будут пропущены.\n"
         else:
             msg += "\nРелиз будет опубликован на:\n"
-            msg += "  • GitHub ✅\n"
+            if skip_github:
+                msg += "  • GitHub ⏭️ (skip)\n"
+            else:
+                msg += "  • GitHub ✅\n"
             if SSH_AVAILABLE and is_ssh_configured():
                 msg += "  • SSH VPS ✅\n"
                 if publish_telegram:
@@ -1436,6 +1444,8 @@ class BuildReleaseGUI:
         try:
             fast_exe = self.fast_exe_var.get()
             publish_telegram = self.publish_telegram_var.get()
+            skip_github = _env_truthy("ZAPRET_SKIP_GITHUB") or _env_truthy("ZAPRET_GITHUB_SKIP")
+            github_nonfatal = _env_truthy("ZAPRET_GITHUB_NONFATAL")
 
             # Базовые шаги
             steps: list[tuple[int, str, Any]] = [
@@ -1459,11 +1469,23 @@ class BuildReleaseGUI:
                     steps.append((95, "Telegram публикация (Zapret.exe)", lambda: self.publish_exe_to_telegram(channel, version, notes)))
             else:
                 # Общие финальные шаги
-                steps.extend([
-                    (80, "Сборка Inno Setup", lambda: self.run_inno_setup(channel, version)),
-                    (95, "Создание GitHub release", lambda: self.create_github_release(channel, version, notes)),
-                ])
-                
+                steps.append((80, "Сборка Inno Setup", lambda: self.run_inno_setup(channel, version)))
+
+                if not skip_github:
+                    def _github_step():
+                        try:
+                            self.create_github_release(channel, version, notes)
+                        except Exception as e:
+                            if github_nonfatal:
+                                msg = f"GitHub release: {e}"
+                                self.nonfatal_errors.append(msg)
+                                self.log_queue.put(f"⚠️ {msg}")
+                                self.log_queue.put("⚠️ Продолжаем сборку (ZAPRET_GITHUB_NONFATAL=1)")
+                                return
+                            raise
+
+                    steps.append((95, "Создание GitHub release", _github_step))
+                 
                 # SSH деплой
                 if SSH_AVAILABLE and is_ssh_configured():
                     steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
@@ -1861,6 +1883,13 @@ class BuildReleaseGUI:
         version = self.version_var.get().strip()
         update_versions_file(channel, version)
         
+        if self.nonfatal_errors:
+            messagebox.showwarning(
+                "Готово, но с предупреждениями",
+                "Сборка завершена, но есть проблемы с публикацией:\n\n" + "\n".join(self.nonfatal_errors)
+            )
+            self.nonfatal_errors.clear()
+
         messagebox.showinfo("Успех", "Сборка и публикация завершены успешно!")
         self.load_versions()
         
