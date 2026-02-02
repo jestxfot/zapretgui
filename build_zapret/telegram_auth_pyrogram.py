@@ -101,14 +101,21 @@ async def _run() -> int:
         if session_file.exists():
             print("Checking existing session...")
             try:
-                await asyncio.wait_for(app.start(), timeout=45)
-                me = await app.get_me()
+                await asyncio.wait_for(app.connect(), timeout=45)
+                me = await asyncio.wait_for(app.get_me(), timeout=30)
                 who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
                 print(f"OK: already authorized as {who}")
                 return 0
-            except Exception:
+            except Exception as e:
                 try:
-                    await app.stop()
+                    from pyrogram.errors import Unauthorized, AuthKeyUnregistered, SessionRevoked  # type: ignore
+
+                    if isinstance(e, (Unauthorized, AuthKeyUnregistered, SessionRevoked)):
+                        print("Session exists but is not authorized. Re-authorizing...")
+                except Exception:
+                    pass
+                try:
+                    await app.disconnect()
                 except Exception:
                     pass
 
