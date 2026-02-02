@@ -17,6 +17,9 @@ def _set_asyncio_policy() -> None:
 
     if sys.platform != "win32":
         return
+
+    if os.environ.get("ZAPRET_ASYNCIO_WINDOWS_SELECTOR") not in {"1", "true", "TRUE", "yes", "YES"}:
+        return
     policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
     if policy is None:
         return
