@@ -991,7 +991,7 @@ class BuildReleaseGUI:
             messagebox.showerror("Ошибка", "wsl.exe не найден")
             return
 
-        distro = os.environ.get("ZAPRET_WSL_DISTRO")
+        distro = os.environ.get("ZAPRET_WSL_DISTRO") or "Debian"
         script_linux = _to_wsl_path(Path(__file__).parent / "telegram_auth_telethon.py", distro)
 
         try:
@@ -1803,7 +1803,7 @@ class BuildReleaseGUI:
         timeout = 1800 if file_size_mb > 100 else 1200
 
         use_wsl = False
-        distro = os.environ.get("ZAPRET_WSL_DISTRO")
+        distro = os.environ.get("ZAPRET_WSL_DISTRO") or "Debian"
         if sys.platform == "win32":
             use_wsl = _env_truthy("ZAPRET_TG_UPLOAD_WSL") or str(Path(__file__)).startswith("\\\\wsl.localhost\\")
             if use_wsl and not shutil.which("wsl.exe"):

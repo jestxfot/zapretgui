@@ -18,5 +18,9 @@ build_zapret/*
 !build_zapret/ci_build.py
 !build_zapret/nuitka_builder.py
 !build_zapret/write_build_info.py
+!build_zapret/telegram_auth_pyrogram.py
+!build_zapret/telegram_uploader_pyrogram.py
+!build_zapret/telegram_auth_telethon.py
+!build_zapret/telegram_uploader_telethon_fixed.py
 config/tokens.py
 config/tokens.py
