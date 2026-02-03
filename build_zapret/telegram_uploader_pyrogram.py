@@ -3,6 +3,8 @@
 import argparse
 import os
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -105,6 +107,47 @@ def _load_proxy() -> dict | None:
     return proxy
 
 
+@contextmanager
+def _session_lock(lock_path: Path, timeout_s: int = 900):
+    """Cross-platform exclusive lock for the pyrogram session sqlite file."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    f = lock_path.open("a+", encoding="utf-8", errors="ignore")
+    start = time.time()
+    while True:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if time.time() - start > timeout_s:
+                raise TimeoutError(f"Timed out waiting for session lock: {lock_path}")
+            time.sleep(0.5)
+
+    try:
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        finally:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+
 async def _run(argv: list[str]) -> int:
     _bootstrap_repo_path()
 
@@ -148,6 +191,7 @@ async def _run(argv: list[str]) -> int:
 
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
     session_file = session_base.with_suffix(".session")
+    lock_file = session_base.with_suffix(".session.lock")
     if not session_file.exists():
         print(f"Missing session: {session_file}")
         print("Run: python build_zapret/telegram_auth_pyrogram.py")
@@ -161,17 +205,19 @@ async def _run(argv: list[str]) -> int:
     client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
     if proxy:
         client_kwargs["proxy"] = proxy
-    app = Client(str(session_base), **client_kwargs)
-    try:
-        await app.start()
-        await app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
-        print("OK")
-        return 0
-    finally:
+    # Prevent concurrent access to pyrogram sqlite session.
+    with _session_lock(lock_file):
+        app = Client(str(session_base), **client_kwargs)
         try:
-            await app.stop()
-        except Exception:
-            pass
+            await app.start()
+            await app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
+            print("OK")
+            return 0
+        finally:
+            try:
+                await app.stop()
+            except Exception:
+                pass
 
 
 def main(argv: list[str]) -> int:

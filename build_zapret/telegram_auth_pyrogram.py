@@ -3,6 +3,8 @@
 import os
 import asyncio
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -98,6 +100,47 @@ def _load_proxy() -> dict | None:
     return proxy
 
 
+@contextmanager
+def _session_lock(lock_path: Path, timeout_s: int = 900):
+    """Cross-platform exclusive lock for the pyrogram session sqlite file."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    f = lock_path.open("a+", encoding="utf-8", errors="ignore")
+    start = time.time()
+    while True:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if time.time() - start > timeout_s:
+                raise TimeoutError(f"Timed out waiting for session lock: {lock_path}")
+            time.sleep(0.5)
+
+    try:
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        finally:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+
 async def _run() -> int:
     _bootstrap_dotenv()
 
@@ -114,6 +157,7 @@ async def _run() -> int:
 
     session_base = Path(__file__).resolve().parent / "zapret_uploader_pyrogram"
     session_file = session_base.with_suffix(".session")
+    lock_file = session_base.with_suffix(".session.lock")
     print("Telegram auth (Pyrogram)")
     print(f"Session file: {session_file}")
     if proxy:
@@ -122,97 +166,99 @@ async def _run() -> int:
     client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
     if proxy:
         client_kwargs["proxy"] = proxy
-    app = Client(str(session_base), **client_kwargs)
+    # Prevent concurrent access to pyrogram sqlite session.
+    with _session_lock(lock_file):
+        app = Client(str(session_base), **client_kwargs)
 
-    try:
+        try:
         # If session already exists, try to reuse it first.
-        if session_file.exists():
-            print("Checking existing session...")
+            if session_file.exists():
+                print("Checking existing session...")
+                try:
+                    await asyncio.wait_for(app.connect(), timeout=45)
+                    me = await asyncio.wait_for(app.get_me(), timeout=30)
+                    who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
+                    print(f"OK: already authorized as {who}")
+                    return 0
+                except Exception as e:
+                    try:
+                        from pyrogram.errors import Unauthorized, AuthKeyUnregistered, SessionRevoked  # type: ignore
+
+                        if isinstance(e, (Unauthorized, AuthKeyUnregistered, SessionRevoked)):
+                            print("Session exists but is not authorized. Re-authorizing...")
+                    except Exception:
+                        pass
+                    try:
+                        await app.disconnect()
+                    except Exception:
+                        pass
+
+            phone = (input("Phone (+...): ") or "").strip()
+            if not phone:
+                print("Phone is empty")
+                return 2
+
+            print("Connecting to Telegram...")
+            await asyncio.wait_for(app.connect(), timeout=45)
+
+            sent = await asyncio.wait_for(app.send_code(phone), timeout=60)
+            code = (input("Code: ") or "").strip()
+            if not code:
+                print("Code is empty")
+                return 2
+
             try:
-                await asyncio.wait_for(app.connect(), timeout=45)
-                me = await asyncio.wait_for(app.get_me(), timeout=30)
-                who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
-                print(f"OK: already authorized as {who}")
-                return 0
+                res = await asyncio.wait_for(app.sign_in(phone, sent.phone_code_hash, code), timeout=60)
             except Exception as e:
-                try:
-                    from pyrogram.errors import Unauthorized, AuthKeyUnregistered, SessionRevoked  # type: ignore
+                # 2FA flow
+                from pyrogram.errors import SessionPasswordNeeded  # type: ignore
 
-                    if isinstance(e, (Unauthorized, AuthKeyUnregistered, SessionRevoked)):
-                        print("Session exists but is not authorized. Re-authorizing...")
-                except Exception:
-                    pass
-                try:
-                    await app.disconnect()
-                except Exception:
-                    pass
+                if isinstance(e, SessionPasswordNeeded):
+                    import getpass
 
-        phone = (input("Phone (+...): ") or "").strip()
-        if not phone:
-            print("Phone is empty")
-            return 2
+                    pw = getpass.getpass("2FA password: ")
+                    await asyncio.wait_for(app.check_password(pw), timeout=60)
+                    res = True
+                else:
+                    raise
 
-        print("Connecting to Telegram...")
-        await asyncio.wait_for(app.connect(), timeout=45)
+            try:
+                from pyrogram import types  # type: ignore
 
-        sent = await asyncio.wait_for(app.send_code(phone), timeout=60)
-        code = (input("Code: ") or "").strip()
-        if not code:
-            print("Code is empty")
-            return 2
-
-        try:
-            res = await asyncio.wait_for(app.sign_in(phone, sent.phone_code_hash, code), timeout=60)
-        except Exception as e:
-            # 2FA flow
-            from pyrogram.errors import SessionPasswordNeeded  # type: ignore
-
-            if isinstance(e, SessionPasswordNeeded):
-                import getpass
-
-                pw = getpass.getpass("2FA password: ")
-                await asyncio.wait_for(app.check_password(pw), timeout=60)
-                res = True
-            else:
-                raise
-
-        try:
-            from pyrogram import types  # type: ignore
-
-            if isinstance(res, getattr(types, "TermsOfService", object)):
-                print("Telegram requires accepting Terms of Service:")
-                text = getattr(res, "text", "")
-                if text:
-                    print(text)
-                tos_id = getattr(res, "id", None)
-                if tos_id:
-                    ans = (input("Type YES to accept: ") or "").strip().upper()
-                    if ans == "YES":
-                        ok = await asyncio.wait_for(app.accept_terms_of_service(tos_id), timeout=60)
-                        if not ok:
-                            print("Failed to accept Terms of Service")
+                if isinstance(res, getattr(types, "TermsOfService", object)):
+                    print("Telegram requires accepting Terms of Service:")
+                    text = getattr(res, "text", "")
+                    if text:
+                        print(text)
+                    tos_id = getattr(res, "id", None)
+                    if tos_id:
+                        ans = (input("Type YES to accept: ") or "").strip().upper()
+                        if ans == "YES":
+                            ok = await asyncio.wait_for(app.accept_terms_of_service(tos_id), timeout=60)
+                            if not ok:
+                                print("Failed to accept Terms of Service")
+                                return 2
+                        else:
+                            print("Terms of Service not accepted")
                             return 2
-                    else:
-                        print("Terms of Service not accepted")
-                        return 2
-        except Exception:
-            # If ToS handling fails, continue; user can retry.
-            pass
+            except Exception:
+                # If ToS handling fails, continue; user can retry.
+                pass
 
-        me = await asyncio.wait_for(app.get_me(), timeout=30)
-        who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
-        print(f"OK: authorized as {who}")
-        return 0
-    except TimeoutError:
-        print("Timeout while connecting/authorizing.")
-        print("Check that SOCKS5 proxy is reachable and Telegram is accessible.")
-        return 2
-    finally:
-        try:
-            if getattr(app, "is_connected", False):
-                await app.disconnect()
-        except Exception:
-            pass
+            me = await asyncio.wait_for(app.get_me(), timeout=30)
+            who = getattr(me, "username", None) or getattr(me, "first_name", None) or "(unknown)"
+            print(f"OK: authorized as {who}")
+            return 0
+        except TimeoutError:
+            print("Timeout while connecting/authorizing.")
+            print("Check that SOCKS5 proxy is reachable and Telegram is accessible.")
+            return 2
+        finally:
+            try:
+                if getattr(app, "is_connected", False):
+                    await app.disconnect()
+            except Exception:
+                pass
 
 
 def main() -> int:
