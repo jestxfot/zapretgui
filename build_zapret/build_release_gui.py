@@ -728,6 +728,7 @@ class BuildReleaseGUI:
         self.fast_exe_var = tk.BooleanVar(value=bool(self.cli.get("fast_exe")))
         self.fast_exe_dest_var = tk.StringVar(value=str(self.cli.get("fast_exe_dest") or ""))
         self.versions_info = {"stable": "—", "test": "—"}
+        self.telegram_proxy_info_var = tk.StringVar(value="")
         
         # Создаем интерфейс
         self.create_widgets()
@@ -737,6 +738,33 @@ class BuildReleaseGUI:
         
         # Запускаем обработчик очереди логов
         self.process_log_queue()
+
+        # Обновляем статус прокси Telegram в GUI
+        try:
+            self.telegram_use_socks_var.trace_add("write", lambda *_: self._update_telegram_proxy_info())
+        except Exception:
+            pass
+        self._update_telegram_proxy_info()
+
+    def _telegram_proxy_desc(self, enabled: bool) -> str:
+        if not enabled:
+            return "Proxy (TG): off"
+
+        scheme = (os.environ.get("ZAPRET_TG_PROXY_SCHEME") or os.environ.get("ZAPRET_PROXY_SCHEME") or "socks5").strip().lower()
+        if scheme in {"https"}:
+            scheme = "http"
+
+        host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or "127.0.0.1"
+        port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip() or "10808"
+
+        return f"Proxy (TG): {scheme}://{host}:{port}"
+
+    def _update_telegram_proxy_info(self) -> None:
+        try:
+            enabled = bool(self.telegram_use_socks_var.get())
+        except Exception:
+            enabled = False
+        self.telegram_proxy_info_var.set(self._telegram_proxy_desc(enabled))
 
     def _project_root(self) -> Path:
         return ROOT
@@ -1115,10 +1143,21 @@ class BuildReleaseGUI:
 
         telegram_ok, telegram_status = check_telegram_configured()
 
-        status_label = ttk.Label(telegram_frame, text=telegram_status, 
-                                style='Info.TLabel',
-                                foreground='green' if telegram_ok else 'orange')
+        status_label = ttk.Label(
+            telegram_frame,
+            text=telegram_status,
+            style='Info.TLabel',
+            foreground='green' if telegram_ok else 'orange'
+        )
         status_label.pack(side='left')
+
+        proxy_label = ttk.Label(
+            telegram_frame,
+            textvariable=self.telegram_proxy_info_var,
+            style='Info.TLabel',
+            foreground=self.colors['fg'],
+        )
+        proxy_label.pack(side='left', padx=(12, 0))
 
         # Чекбокс публикации
         self.publish_telegram_var = tk.BooleanVar(value=telegram_ok)
