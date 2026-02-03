@@ -205,12 +205,39 @@ async def _run(argv: list[str]) -> int:
     client_kwargs: dict = {"api_id": api_id, "api_hash": api_hash}
     if proxy:
         client_kwargs["proxy"] = proxy
+    progress_start = time.time()
+    progress_last_pct = -5
+
+    def _progress(current: int, total: int):
+        nonlocal progress_last_pct
+        try:
+            if not total:
+                return
+            pct = int((current / total) * 100)
+            now = time.time()
+            elapsed = max(now - progress_start, 0.001)
+            if pct >= progress_last_pct + 5 or pct == 100:
+                mb_cur = current / 1024 / 1024
+                mb_tot = total / 1024 / 1024
+                speed = mb_cur / elapsed
+                progress_last_pct = pct
+                print(f"  {pct:3d}% ({mb_cur:.1f}/{mb_tot:.1f} MB) {speed:.1f} MB/s", flush=True)
+        except Exception:
+            return
+
     # Prevent concurrent access to pyrogram sqlite session.
     with _session_lock(lock_file):
         app = Client(str(session_base), **client_kwargs)
         try:
             await app.start()
-            await app.send_document(chat_id=chat_id, document=str(file_path), caption=caption)
+            size_mb = file_path.stat().st_size / 1024 / 1024
+            timeout = 7200 if size_mb > 100 else 3600
+            import asyncio
+
+            await asyncio.wait_for(
+                app.send_document(chat_id=chat_id, document=str(file_path), caption=caption, progress=_progress),
+                timeout=timeout,
+            )
             print("OK")
             return 0
         finally:
