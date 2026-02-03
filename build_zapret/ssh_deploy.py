@@ -10,11 +10,10 @@ import os
 import subprocess
 import re
 from pathlib import Path
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Tuple
 import json
 from datetime import datetime
 import tempfile
-
 # ═══════════════════════════════════════════════════════════════
 # КОНФИГУРАЦИЯ СЕРВЕРОВ
 # ═══════════════════════════════════════════════════════════════
@@ -211,6 +210,74 @@ def convert_key_to_pem(key_path: str, password: str = "") -> Optional[str]:
     except:
         return None
 
+
+def _peek_key_header(key_path_obj: Path) -> str:
+    try:
+        with key_path_obj.open("r", encoding="utf-8", errors="ignore") as f:
+            return (f.readline() or "").strip()
+    except Exception:
+        return ""
+
+
+def _load_paramiko_pkey(
+    key_path_obj: Path,
+    key_password: Optional[str],
+    log_func,
+) -> Tuple[Optional[paramiko.PKey], Optional[str]]:
+    """Try to load a private key for Paramiko.
+
+    Returns: (pkey, error_message)
+    """
+
+    # Fast detection for PuTTY PPK.
+    header = _peek_key_header(key_path_obj)
+    if header.startswith("PuTTY-User-Key-File"):
+        return None, (
+            "Ключ в формате PuTTY (.ppk). Paramiko ожидает OpenSSH private key. "
+            "Сконвертируйте: puttygen key.ppk -O private-openssh -o id_ed25519"
+        )
+
+    # Try common key types.
+    errors: list[str] = []
+    for key_type, key_class in [
+        ("Ed25519", paramiko.Ed25519Key),
+        ("ECDSA", paramiko.ECDSAKey),
+        ("RSA", paramiko.RSAKey),
+    ]:
+        try:
+            pkey = key_class.from_private_key_file(
+                str(key_path_obj),
+                password=key_password if key_password else None,
+            )
+            log_func(f"✅ SSH ключ загружен ({key_type})")
+            return pkey, None
+        except paramiko.PasswordRequiredException:
+            return None, (
+                "SSH ключ защищен паролем. Укажите ZAPRET_TG_SSH_KEY_PASSWORD "
+                "(или ZAPRET_TG_SSH_KEY_PASSWORD) в .env"
+            )
+        except Exception as e:
+            errors.append(f"{key_type}: {type(e).__name__}")
+
+    # Legacy conversion: works for RSA/ECDSA, but not for Ed25519.
+    try:
+        log_func("⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
+        pem_key_path = convert_key_to_pem(str(key_path_obj), (key_password or ""))
+        if pem_key_path:
+            try:
+                pkey = paramiko.RSAKey.from_private_key_file(pem_key_path)
+                log_func("✅ SSH ключ загружен после конвертации")
+                return pkey, None
+            except Exception as e:
+                return None, f"Не удалось загрузить ключ даже после конвертации: {type(e).__name__}"
+    except Exception:
+        pass
+
+    hint = ""
+    if header.startswith("-----BEGIN OPENSSH PRIVATE KEY-----"):
+        hint = " (OpenSSH key detected; возможно, нужен пароль или старая версия paramiko/cryptography)"
+    return None, f"Не удалось загрузить SSH ключ{hint}. Пробовали: {', '.join(errors) if errors else 'n/a'}"
+
 def is_ssh_configured() -> bool:
     """Проверка конфигурации SSH"""
     if not VPS_SERVERS:
@@ -299,36 +366,10 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
                 return None, None, f"SSH ключ не найден: {key_path}"
             
             log_func(f"🔑 Загрузка SSH ключа: {key_path_obj.name}")
-            key = None
-            
-            for key_type, key_class in [
-                ("RSA", paramiko.RSAKey),
-                ("Ed25519", paramiko.Ed25519Key),
-                ("ECDSA", paramiko.ECDSAKey),
-            ]:
-                try:
-                    key = key_class.from_private_key_file(
-                        str(key_path_obj),
-                        password=key_password if key_password else None
-                    )
-                    log_func(f"✅ SSH ключ загружен ({key_type})")
-                    break
-                except:
-                    continue
-            
+
+            key, load_err = _load_paramiko_pkey(key_path_obj, key_password, log_func)
             if not key:
-                log_func(f"⚠️ Прямая загрузка не удалась, пробуем конвертацию в PEM...")
-                pem_key_path = convert_key_to_pem(str(key_path_obj), (key_password or ""))
-                
-                if pem_key_path:
-                    try:
-                        key = paramiko.RSAKey.from_private_key_file(pem_key_path)
-                        log_func(f"✅ SSH ключ загружен после конвертации")
-                    except Exception as e:
-                        log_func(f"❌ Конвертация не помогла: {e}")
-            
-            if not key:
-                return None, pem_key_path, "Не удалось загрузить SSH ключ"
+                return None, None, (load_err or "Не удалось загрузить SSH ключ")
             
             log_func(f"🔌 Подключение к {user}@{host}:{port}...")
             ssh.connect(
@@ -343,7 +384,7 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
                 auth_timeout=30
             )
             log_func("✅ Подключено по SSH ключу")
-            return ssh, pem_key_path, ""
+            return ssh, None, ""
             
     except paramiko.AuthenticationException as e:
         return None, pem_key_path, f"Ошибка аутентификации: {e}"
@@ -629,7 +670,8 @@ def _publish_to_telegram_via_ssh_pyrogram(
             )
             # Use a single-quoted heredoc to avoid shell expansion.
             create_env_cmd = f"cat > {env_file} <<'EOF'\n{template}\nEOF\nchmod 600 {env_file}"
-            ssh.exec_command(create_env_cmd).stdout.channel.recv_exit_status()
+            _stdin, _stdout, _stderr = ssh.exec_command(create_env_cmd)
+            _stdout.channel.recv_exit_status()
             return False, f"Remote Telegram env created at {env_file}. Fill TELEGRAM_API_ID/TELEGRAM_API_HASH and re-run."
 
         # Optional bootstrap for Python deps (default enabled).
