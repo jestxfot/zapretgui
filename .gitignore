@@ -12,6 +12,10 @@ main.spec
 bin/
 /json/hosts.ini
 logs/
+# автообновляемый файл
+config/build_info.py
+zapret_test.iss
+zapret_stable.iss
 
 # Keep most build tooling out of git (some files may contain secrets),
 # but track the minimal scripts required for GitHub Actions builds.
@@ -24,5 +28,5 @@ build_zapret/*
 !build_zapret/telegram_uploader_pyrogram.py
 !build_zapret/telegram_auth_telethon.py
 !build_zapret/telegram_uploader_telethon_fixed.py
-config/tokens.py
+!build_zapret/PROXMOX_UBUNTU_VM_GUIDE.md
 config/tokens.py
