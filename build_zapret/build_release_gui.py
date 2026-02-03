@@ -23,6 +23,14 @@ if load_dotenv is not None:
     # Allow local configuration without hardcoding secrets/paths in repo.
     load_dotenv(ROOT_HINT / ".env", ROOT_HINT / "build_zapret" / ".env")
 
+# Apply global proxy for builder if configured via ZAPRET_PROXY_*.
+try:
+    from utils.proxy_env import apply_zapret_proxy_env
+
+    apply_zapret_proxy_env()
+except Exception:
+    pass
+
 
 def _is_free_threaded_python() -> bool:
     """

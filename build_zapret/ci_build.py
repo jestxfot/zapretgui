@@ -12,6 +12,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from utils.proxy_env import apply_zapret_proxy_env
+except Exception:
+    apply_zapret_proxy_env = None  # type: ignore
+
 from .nuitka_builder import run_nuitka
 from .write_build_info import write_build_info
 
@@ -39,6 +44,12 @@ def run(cmd: list[str], *, capture: bool = False) -> str | None:
 
 
 def main() -> int:
+    if apply_zapret_proxy_env is not None:
+        try:
+            apply_zapret_proxy_env()
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", choices=["stable", "test"])
     parser.add_argument("--version")
@@ -81,4 +92,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

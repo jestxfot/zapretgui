@@ -7,6 +7,14 @@ build_tools/github_release.py - Модуль для работы с GitHub relea
 
 import base64
 import json, os, sys, re, requests, tempfile, mimetypes, ssl, urllib3, subprocess, shutil, time
+
+# Apply global proxy if configured.
+try:
+    from utils.proxy_env import apply_zapret_proxy_env
+
+    apply_zapret_proxy_env()
+except Exception:
+    pass
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
