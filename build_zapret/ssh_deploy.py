@@ -57,6 +57,63 @@ def _load_dotenv_if_present() -> None:
 
 _load_dotenv_if_present()
 
+
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_falsy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
+    """Config for publishing to Telegram from a remote server via SSH.
+
+    If ZAPRET_TG_SSH_HOST is set (or ZAPRET_TG_SSH_ENABLED=1), we will publish via SSH
+    instead of local Telegram publishing.
+    """
+    enabled = _env_truthy("ZAPRET_TG_SSH_ENABLED")
+    host = (os.environ.get("ZAPRET_TG_SSH_HOST") or "").strip()
+    if not host and not enabled:
+        return None
+
+    if not host:
+        # enabled but host missing
+        return {
+            "error": "ZAPRET_TG_SSH_HOST is not set",
+        }
+
+    port_s = (os.environ.get("ZAPRET_TG_SSH_PORT") or "22").strip()
+    try:
+        port = int(port_s)
+    except Exception:
+        port = 22
+
+    user = (os.environ.get("ZAPRET_TG_SSH_USER") or "root").strip()
+    key_path = (os.environ.get("ZAPRET_TG_SSH_KEY_PATH") or "").strip() or None
+    key_password = (os.environ.get("ZAPRET_TG_SSH_KEY_PASSWORD") or "").strip() or None
+
+    scripts_dir = (os.environ.get("ZAPRET_TG_SSH_SCRIPTS_DIR") or "/root/publisher").strip()
+    upload_dir = (os.environ.get("ZAPRET_TG_SSH_UPLOAD_DIR") or f"{scripts_dir}/inbox").strip()
+    env_file = (os.environ.get("ZAPRET_TG_SSH_ENV_FILE") or f"{scripts_dir}/.env").strip()
+    # Default: bootstrap is enabled so you only change host in .env.
+    bootstrap = not _env_falsy("ZAPRET_TG_SSH_BOOTSTRAP")
+
+    return {
+        "name": f"Telegram Publisher ({host})",
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": None,
+        "password_env": os.environ.get("ZAPRET_TG_SSH_PASSWORD_ENV") or "ZAPRET_TG_SSH_PASSWORD",
+        "key_path": key_path,
+        "key_password": key_password,
+        "scripts_dir": scripts_dir,
+        "upload_dir": upload_dir,
+        "env_file": env_file,
+        "bootstrap": bootstrap,
+    }
+
 VPS_SERVERS = [
     # ═══ НОВЫЙ ОСНОВНОЙ СЕРВЕР (вход по паролю) ═══
     {
@@ -375,17 +432,35 @@ def deploy_to_all_servers(
     
     # Публикация в Telegram
     if publish_telegram:
-        log(f"\n{'='*60}")
-        log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (ЛОКАЛЬНО, SOCKS5)")
-        log(f"{'='*60}")
+        tg_cfg = _tg_ssh_config_from_env()
+        if tg_cfg and not tg_cfg.get("error"):
+            log(f"\n{'='*60}")
+            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (SSH, Pyrogram)")
+            log(f"{'='*60}")
 
-        telegram_success, telegram_message = _publish_to_telegram_local(
-            file_path=file_path,
-            channel=channel,
-            version=version,
-            notes=notes,
-            log_queue=log_queue,
-        )
+            telegram_success, telegram_message = _publish_to_telegram_via_ssh_pyrogram(
+                file_path=file_path,
+                channel=channel,
+                version=version,
+                notes=notes,
+                server_config=tg_cfg,
+                log_queue=log_queue,
+            )
+        else:
+            if tg_cfg and tg_cfg.get("error"):
+                log(f"⚠️ Telegram SSH: {tg_cfg['error']}")
+
+            log(f"\n{'='*60}")
+            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (ЛОКАЛЬНО, SOCKS5)")
+            log(f"{'='*60}")
+
+            telegram_success, telegram_message = _publish_to_telegram_local(
+                file_path=file_path,
+                channel=channel,
+                version=version,
+                notes=notes,
+                log_queue=log_queue,
+            )
 
         if telegram_success:
             log("✅ Telegram публикация успешна")
@@ -465,6 +540,187 @@ def _publish_to_telegram_via_ssh(
             try:
                 os.unlink(pem_key_path)
             except:
+                pass
+
+
+def _publish_to_telegram_via_ssh_pyrogram(
+    *,
+    file_path: Path,
+    channel: str,
+    version: str,
+    notes: str,
+    server_config: Dict[str, Any],
+    log_queue: Optional[Any] = None,
+) -> tuple[bool, str]:
+    """Publish to Telegram by uploading the installer to a remote server and running Pyrogram uploader there."""
+
+    def log(msg: str):
+        if log_queue:
+            log_queue.put(msg)
+        else:
+            print(msg)
+
+    pem_key_path = None
+    ssh = None
+
+    try:
+        scripts_dir = (server_config.get("scripts_dir") or "").strip()
+        upload_dir = (server_config.get("upload_dir") or "").strip()
+        env_file = (server_config.get("env_file") or "").strip() or f"{scripts_dir}/.env"
+        bootstrap = bool(server_config.get("bootstrap"))
+
+        if not scripts_dir:
+            return False, "scripts_dir is not set (ZAPRET_TG_SSH_SCRIPTS_DIR)"
+        if not upload_dir:
+            return False, "upload_dir is not set (ZAPRET_TG_SSH_UPLOAD_DIR)"
+
+        if not file_path.exists():
+            return False, f"File not found: {file_path}"
+
+        # Connect
+        ssh, pem_key_path, error = _ssh_connect(server_config, log)
+        if not ssh:
+            return False, error
+
+        # Prepare dirs
+        for d in (scripts_dir, upload_dir):
+            stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {d}")
+            stdout.channel.recv_exit_status()
+
+        # Upload the installer
+        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+        remote_installer = f"{upload_dir}/{remote_filename}"
+
+        log(f"📤 Upload to Telegram host: {file_path.name} → {remote_installer}")
+        sftp = ssh.open_sftp()
+        sftp.put(str(file_path), remote_installer)
+
+        # Upload publisher scripts (keep them in scripts_dir)
+        local_dir = Path(__file__).resolve().parent
+        local_uploader = local_dir / "telegram_uploader_pyrogram.py"
+        local_auth = local_dir / "telegram_auth_pyrogram.py"
+
+        if not local_uploader.exists():
+            return False, f"Local uploader missing: {local_uploader}"
+
+        remote_uploader = f"{scripts_dir}/telegram_uploader_pyrogram.py"
+        remote_auth = f"{scripts_dir}/telegram_auth_pyrogram.py"
+
+        sftp.put(str(local_uploader), remote_uploader)
+        if local_auth.exists():
+            sftp.put(str(local_auth), remote_auth)
+
+        sftp.close()
+
+        # Ensure remote env exists (do not overwrite).
+        stdin, stdout, stderr = ssh.exec_command(f"test -f {env_file} && echo OK || echo NO")
+        has_env = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+        if not has_env:
+            log(f"⚠️ Remote env is missing: {env_file}")
+            template = (
+                "TELEGRAM_API_ID=\n"
+                "TELEGRAM_API_HASH=\n"
+                "# Optional proxy for Telegram:\n"
+                "# ZAPRET_PROXY_SCHEME=socks5\n"
+                "# ZAPRET_PROXY_HOST=\n"
+                "# ZAPRET_PROXY_PORT=\n"
+                "# ZAPRET_PROXY_USER=\n"
+                "# ZAPRET_PROXY_PASS=\n"
+            )
+            # Use a single-quoted heredoc to avoid shell expansion.
+            create_env_cmd = f"cat > {env_file} <<'EOF'\n{template}\nEOF\nchmod 600 {env_file}"
+            ssh.exec_command(create_env_cmd).stdout.channel.recv_exit_status()
+            return False, f"Remote Telegram env created at {env_file}. Fill TELEGRAM_API_ID/TELEGRAM_API_HASH and re-run."
+
+        # Optional bootstrap for Python deps (default enabled).
+        # Runs only if venv is missing or imports fail.
+        python_cmd = f"{scripts_dir}/.venv/bin/python3"
+        check_cmd = (
+            f"set -e; "
+            f"test -x {python_cmd} && "
+            f"{python_cmd} -c \"import pyrogram, tgcrypto, pysocks\" >/dev/null 2>&1 && echo OK || echo NO"
+        )
+        stdin, stdout, stderr = ssh.exec_command(check_cmd)
+        deps_ok = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+
+        if bootstrap and not deps_ok:
+            log("🧰 Bootstrap: install python deps on remote")
+            bootstrap_cmd = (
+                f"set -e; "
+                f"export DEBIAN_FRONTEND=noninteractive; "
+                f"(command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get -y install python3 python3-venv python3-pip) || true; "
+                f"cd {scripts_dir}; "
+                f"python3 -m venv .venv; "
+                f". .venv/bin/activate; "
+                f"python -m pip install -U pip; "
+                f"python -m pip install pyrogram tgcrypto pysocks"
+            )
+            stdin, stdout, stderr = ssh.exec_command(bootstrap_cmd, timeout=1800)
+            for line in stdout:
+                s = (line or "").rstrip()
+                if s:
+                    log(f"   {s}")
+            rc = stdout.channel.recv_exit_status()
+            if rc != 0:
+                err = stderr.read().decode("utf-8", errors="ignore")
+                return False, f"Bootstrap failed (rc={rc}): {err[:200]}"
+
+        # Choose python
+        stdin, stdout, stderr = ssh.exec_command(f"test -x {python_cmd} && echo OK || echo NO")
+        has_venv = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+        python_exec = python_cmd if has_venv else "python3"
+
+        # Ensure remote session exists.
+        session_file = f"{scripts_dir}/zapret_uploader_pyrogram.session"
+        stdin, stdout, stderr = ssh.exec_command(f"test -f {session_file} && echo OK || echo NO")
+        has_session = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+        if not has_session:
+            return False, (
+                "Remote Pyrogram session is missing. Run once on the server to authorize:\n"
+                f"ssh {server_config.get('user','root')}@{server_config.get('host')} \"cd {scripts_dir} && set -a && . {env_file} && set +a && {python_exec} telegram_auth_pyrogram.py\""
+            )
+
+        # Run uploader. Credentials come from env_file on remote.
+        notes_escaped = (notes or f"Zapret {version}").replace('"', '\\"').replace('$', '\\$')
+        telegram_cmd = (
+            f"set -e; cd {scripts_dir}; "
+            f"if [ -f {env_file} ]; then set -a; . {env_file}; set +a; fi; "
+            f"{python_exec} telegram_uploader_pyrogram.py "
+            f"\"{remote_installer}\" \"{channel}\" \"{version}\" \"{notes_escaped}\""
+        )
+
+        log("📤 Telegram publish: running on remote host")
+        stdin, stdout, stderr = ssh.exec_command(telegram_cmd, timeout=1800)
+
+        for line in stdout:
+            s = (line or "").rstrip()
+            if s:
+                log(f"   {s}")
+
+        rc = stdout.channel.recv_exit_status()
+        err = stderr.read().decode("utf-8", errors="ignore")
+        if err.strip():
+            for line in err.splitlines():
+                s = (line or "").rstrip()
+                if s:
+                    log(f"   ⚠️ {s}")
+
+        if rc == 0:
+            return True, "OK"
+        return False, f"Uploader exit code: {rc}"
+
+    except Exception as e:
+        return False, str(e)[:200]
+    finally:
+        try:
+            if ssh:
+                ssh.close()
+        except Exception:
+            pass
+        if pem_key_path and os.path.exists(pem_key_path):
+            try:
+                os.unlink(pem_key_path)
+            except Exception:
                 pass
 
 

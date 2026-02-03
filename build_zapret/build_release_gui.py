@@ -1595,7 +1595,10 @@ class BuildReleaseGUI:
         self.log_queue.put(f"🔧 Канал: {channel.upper()}")
         
         if publish_telegram:
-            self.log_queue.put("📢 Telegram: будет опубликовано локально с ПК через SOCKS5")
+            if (os.environ.get("ZAPRET_TG_SSH_HOST") or os.environ.get("ZAPRET_TG_SSH_ENABLED")):
+                self.log_queue.put("📢 Telegram: будет опубликовано через SSH (Pyrogram) на удаленном сервере")
+            else:
+                self.log_queue.put("📢 Telegram: будет опубликовано локально с ПК через SOCKS5")
         
         # ✅ Вызываем функцию с флагом публикации
         success, message = deploy_to_all_servers(

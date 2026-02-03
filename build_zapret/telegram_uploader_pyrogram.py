@@ -48,6 +48,19 @@ def _resolve_channel_username(channel: str) -> str:
     return mapping.get(ch, mapping.get("stable", ch))
 
 
+def _load_api_creds_from_env() -> tuple[int, str]:
+    api_id = (os.getenv("TELEGRAM_API_ID") or os.getenv("ZAPRET_TELEGRAM_API_ID") or "").strip()
+    api_hash = (os.getenv("TELEGRAM_API_HASH") or os.getenv("ZAPRET_TELEGRAM_API_HASH") or "").strip()
+    if not api_id or not api_hash:
+        raise RuntimeError(
+            "Missing Telegram API credentials. Provide api_id/api_hash args or set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+        )
+    try:
+        return int(api_id), api_hash
+    except Exception as e:
+        raise RuntimeError(f"TELEGRAM_API_ID must be an integer: {e}")
+
+
 def _load_proxy() -> dict | None:
     if (os.environ.get("ZAPRET_TG_NO_PROXY") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return None
@@ -100,8 +113,8 @@ async def _run(argv: list[str]) -> int:
     p.add_argument("channel", help="stable/test (or @username)")
     p.add_argument("version", help="Version string")
     p.add_argument("notes", help="Caption text")
-    p.add_argument("api_id", help="Telegram API ID")
-    p.add_argument("api_hash", help="Telegram API hash")
+    p.add_argument("api_id", nargs="?", default=None, help="Telegram API ID (optional if TELEGRAM_API_ID is set)")
+    p.add_argument("api_hash", nargs="?", default=None, help="Telegram API hash (optional if TELEGRAM_API_HASH is set)")
     args = p.parse_args(argv)
 
     try:
@@ -116,13 +129,15 @@ async def _run(argv: list[str]) -> int:
         return 2
 
     try:
-        api_id = int(str(args.api_id).strip())
+        if args.api_id is None or args.api_hash is None:
+            api_id, api_hash = _load_api_creds_from_env()
+        else:
+            api_id = int(str(args.api_id).strip())
+            api_hash = str(args.api_hash).strip()
+            if not api_hash:
+                raise RuntimeError("api_hash is empty")
     except Exception as e:
-        print(f"api_id must be int: {e}")
-        return 2
-    api_hash = str(args.api_hash).strip()
-    if not api_hash:
-        print("api_hash is empty")
+        print(str(e))
         return 2
 
     channel_username = _resolve_channel_username(args.channel)

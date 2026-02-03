@@ -112,6 +112,56 @@ GITHUB_CONFIG = {
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip() in {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
 
+
+def _proxy_env_keys() -> tuple[str, ...]:
+    # Common proxy env vars used by requests/curl/gh/git.
+    return (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    )
+
+
+def _strip_proxy_env(env: dict) -> dict:
+    cleaned = dict(env)
+    for k in _proxy_env_keys():
+        cleaned.pop(k, None)
+    return cleaned
+
+
+def _github_should_bypass_proxy() -> bool:
+    """Decide whether GitHub traffic should ignore proxy env vars.
+
+    Motivation: some proxy chains (especially SOCKS wrappers) can break GitHub
+    API/Uploads and produce malformed HTTP responses.
+
+    Rules:
+    - If ZAPRET_GITHUB_USE_PROXY=1 -> never bypass.
+    - If ZAPRET_GITHUB_NO_PROXY is set -> follow it.
+    - Default: bypass when any proxy is configured (standard *_PROXY or ZAPRET proxy vars).
+    """
+    if _env_truthy("ZAPRET_GITHUB_USE_PROXY"):
+        return False
+
+    if "ZAPRET_GITHUB_NO_PROXY" in os.environ:
+        return _env_truthy("ZAPRET_GITHUB_NO_PROXY")
+
+    if any(os.environ.get(k) for k in _proxy_env_keys()):
+        return True
+
+    # If the app-level proxy is configured, assume a proxy layer exists.
+    if os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_PROXY_SCHEME"):
+        return True
+    if _env_truthy("ZAPRET_PROXY_FORCE_SOCKS"):
+        return True
+
+    return False
+
 def _pick_gh_runner() -> tuple[list[str], str, str]:
     """
     Возвращает (base_cmd, mode, distro) для запуска gh.
@@ -195,6 +245,10 @@ def check_gh_cli() -> Tuple[bool, str]:
     env['GH_TOKEN'] = GITHUB_CONFIG['token']
     env['GH_PROMPT_DISABLED'] = '1'
 
+    # By default, bypass proxy env for GitHub CLI to avoid broken HTTP responses.
+    if _github_should_bypass_proxy():
+        env = _strip_proxy_env(env)
+
     base_cmd, mode, distro = _pick_gh_runner()
     if base_cmd:
         flags = "GH_TOKEN/u:GITHUB_TOKEN/u:GH_PROMPT_DISABLED/u"
@@ -259,6 +313,12 @@ class GitHubReleaseManager:
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.api_base = "https://api.github.com"
+
+        # May be set by caller; used for status output.
+        self.log_queue = None
+
+        # Proxy behavior: by default, bypass proxy env vars for GitHub.
+        self.no_proxy = _github_should_bypass_proxy()
         
         # Определяем тип токена и настраиваем заголовки
         self.token_type = detect_token_type(token)
@@ -277,6 +337,9 @@ class GitHubReleaseManager:
         env['GITHUB_TOKEN'] = self.token
         env['GH_TOKEN'] = self.token
         env['GH_PROMPT_DISABLED'] = '1'
+
+        if self.no_proxy:
+            env = _strip_proxy_env(env)
 
         # Для запуска gh внутри WSL с Windows важно пробросить env в Linux-процесс.
         # WSLENV как раз для этого (значения не являются путями, поэтому используем /u).
@@ -310,6 +373,9 @@ class GitHubReleaseManager:
     def setup_ssl(self):
         """Настройка SSL и сессии requests"""
         self.session = requests.Session()
+        # Ignore proxy env vars for GitHub when configured.
+        # This prevents proxy chains from corrupting GitHub API/Uploads responses.
+        self.session.trust_env = not self.no_proxy
         self.session.headers.update(self.headers)
         
         # Настройки SSL из конфига
@@ -323,6 +389,8 @@ class GitHubReleaseManager:
         self.verify_ssl = ssl_config.get("verify_ssl", True)
         
         if hasattr(self, 'log_queue') and self.log_queue:
+            if self.no_proxy:
+                self.log_queue.put("ℹ️ GitHub: proxy env bypass enabled")
             if not self.verify_ssl:
                 self.log_queue.put("⚠️ ВНИМАНИЕ: Проверка SSL отключена!")
             else:
@@ -505,6 +573,7 @@ class GitHubReleaseManager:
             self.log_queue.put(f"📦 Создаем GitHub release: {name}")
         
         response = self._make_request("POST", "/releases", json=data)
+        assert response is not None
         release_data = response.json()
         
         if hasattr(self, 'log_queue') and self.log_queue:
@@ -526,6 +595,7 @@ class GitHubReleaseManager:
             self.log_queue.put(f"🔄 Обновляем release {release_id}")
             
         response = self._make_request("PATCH", f"/releases/{release_id}", json=kwargs)
+        assert response is not None
         return response.json()
         
     def upload_asset(self, release_id: int, file_path: Path, 
@@ -551,6 +621,7 @@ class GitHubReleaseManager:
     def _upload_asset_via_cli(self, release_id: int, file_path: Path) -> Dict[str, Any]:
         """Загрузить файл через GitHub CLI с выводом прогресса"""
         response = self._make_request("GET", f"/releases/{release_id}")
+        assert response is not None
         release_data = response.json()
         tag = release_data['tag_name']
         
@@ -585,6 +656,8 @@ class GitHubReleaseManager:
                 bufsize=1,  # Построчная буферизация
                 universal_newlines=True
             )
+
+            assert process.stdout is not None
             
             # Читаем вывод в реальном времени
             output_lines = []
@@ -668,6 +741,7 @@ class GitHubReleaseManager:
         for attempt in range(max_attempts):
             try:
                 upload_session = requests.Session()
+                upload_session.trust_env = not self.no_proxy
                 upload_session.headers.update(self.headers)
                 upload_session.headers["Content-Type"] = content_type
                 upload_session.headers["Content-Length"] = str(file_size)
@@ -759,14 +833,16 @@ class GitHubReleaseManager:
     def get_release_assets(self, release_id: int) -> list:
         """Получить список assets для release"""
         response = self._make_request("GET", f"/releases/{release_id}/assets")
+        assert response is not None
         return response.json()
 
 
 def is_github_enabled() -> bool:
     """Проверить, включена ли интеграция с GitHub"""
+    token = str(GITHUB_CONFIG.get("token") or "")
     return (GITHUB_CONFIG.get("enabled", False) and 
-            bool(GITHUB_CONFIG.get("token")) and
-            not GITHUB_CONFIG.get("token").endswith("_here"))
+            bool(token) and
+            not token.endswith("_here"))
 
 
 def create_github_release(channel: str, version: str, file_path: Path, 
