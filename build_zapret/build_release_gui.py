@@ -719,10 +719,12 @@ class BuildReleaseGUI:
         self.build_method_var = tk.StringVar(value="pyinstaller")
         self.publish_telegram_var = tk.BooleanVar(value=False)
         # Proxy для Telegram uploader/auth (полезно выключать при full-tunnel VPN).
-        default_tg_socks = bool((os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip() or (os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip())
+        proxy_host = (os.environ.get("ZAPRET_PROXY_HOST") or os.environ.get("ZAPRET_SOCKS5_HOST") or "").strip()
+        proxy_port = (os.environ.get("ZAPRET_PROXY_PORT") or os.environ.get("ZAPRET_SOCKS5_PORT") or "").strip()
+        default_tg_proxy = bool(proxy_host or proxy_port)
         if _env_truthy("ZAPRET_TG_NO_PROXY") or _env_truthy("ZAPRET_TG_NO_SOCKS"):
-            default_tg_socks = False
-        self.telegram_use_socks_var = tk.BooleanVar(value=default_tg_socks)
+            default_tg_proxy = False
+        self.telegram_use_socks_var = tk.BooleanVar(value=default_tg_proxy)
         self.fast_exe_var = tk.BooleanVar(value=bool(self.cli.get("fast_exe")))
         self.fast_exe_dest_var = tk.StringVar(value=str(self.cli.get("fast_exe_dest") or ""))
         self.versions_info = {"stable": "—", "test": "—"}
@@ -1131,7 +1133,7 @@ class BuildReleaseGUI:
         # Proxy toggle (актуально для Amnezia/VPN на всю систему)
         self.telegram_socks_check = ttk.Checkbutton(
             telegram_frame,
-            text="Proxy",
+            text="Proxy (TG)",
             variable=self.telegram_use_socks_var,
         )
         self.telegram_socks_check.pack(side='right', padx=(10, 0))
