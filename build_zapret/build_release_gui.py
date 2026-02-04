@@ -1732,7 +1732,8 @@ class BuildReleaseGUI:
         project_root = self._project_root()
         source_root = self._source_root()
         universal_iss = project_root / "zapret_universal.iss"
-        target_iss = project_root / f"zapret_{channel}.iss"
+        iss_workdir = Path(tempfile.mkdtemp(prefix="iscc_"))
+        target_iss = iss_workdir / f"zapret_{channel}.iss"
         
         timestamp = int(time.time())
         temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
@@ -1787,61 +1788,67 @@ class BuildReleaseGUI:
         self.log_queue.put(f"📋 Ожидаемая папка: {'ZapretTwoDev' if channel == 'test' else 'ZapretTwo'}")
         self.log_queue.put(f"📋 Ожидаемая иконка: {'ZapretDevLogo4.ico' if channel == 'test' else 'Zapret2.ico'}")
         
-        for attempt in range(1, max_retries + 1):
-            try:
-                self.log_queue.put(f"\n🔄 Попытка {attempt}/{max_retries}...")
-                
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    errors='ignore',
-                    cwd=str(project_root),
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                    timeout=300
-                )
-                
-                if result.returncode != 0:
-                    if result.stdout:
-                        self.log_queue.put(result.stdout)
-                    if result.stderr:
-                        self.log_queue.put(f"❌ {result.stderr}")
-                    raise RuntimeError(f"Inno Setup код: {result.returncode}")
-                
-                if not temp_file.exists():
-                    raise FileNotFoundError(f"Не создан: {temp_file}")
-                
-                size_mb = temp_file.stat().st_size / 1024 / 1024
-                self.log_queue.put(f"✅ Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
-                
-                temp_file.rename(final_file)
-                self.log_queue.put(f"✅ Готово: {final_file.name}")
+        try:
+            for attempt in range(1, max_retries + 1):
+                try:
+                    self.log_queue.put(f"\n🔄 Попытка {attempt}/{max_retries}...")
 
-                self.last_installer_path = final_file
-                
-                return
-                
-            except subprocess.TimeoutExpired:
-                self.log_queue.put("⏱️ Таймаут! Inno Setup завис")
-                self._kill_inno_setup()
-                if temp_file.exists():
-                    temp_file.unlink()
-                time.sleep(3)
-                
-            except Exception as e:
-                self.log_queue.put(f"❌ Ошибка: {e}")
-                if temp_file.exists():
-                    try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='ignore',
+                        cwd=str(project_root),
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                        timeout=300
+                    )
+
+                    if result.returncode != 0:
+                        if result.stdout:
+                            self.log_queue.put(result.stdout)
+                        if result.stderr:
+                            self.log_queue.put(f"❌ {result.stderr}")
+                        raise RuntimeError(f"Inno Setup код: {result.returncode}")
+
+                    if not temp_file.exists():
+                        raise FileNotFoundError(f"Не создан: {temp_file}")
+
+                    size_mb = temp_file.stat().st_size / 1024 / 1024
+                    self.log_queue.put(f"✅ Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
+
+                    temp_file.rename(final_file)
+                    self.log_queue.put(f"✅ Готово: {final_file.name}")
+
+                    self.last_installer_path = final_file
+                    return
+
+                except subprocess.TimeoutExpired:
+                    self.log_queue.put("⏱️ Таймаут! Inno Setup завис")
+                    self._kill_inno_setup()
+                    if temp_file.exists():
                         temp_file.unlink()
-                    except:
-                        pass
-                
-                if attempt < max_retries:
-                    self.log_queue.put(f"⏳ Повтор через 5 сек...")
-                    time.sleep(5)
-                else:
-                    raise
+                    time.sleep(3)
+
+                except Exception as e:
+                    self.log_queue.put(f"❌ Ошибка: {e}")
+                    if temp_file.exists():
+                        try:
+                            temp_file.unlink()
+                        except Exception:
+                            pass
+
+                    if attempt < max_retries:
+                        self.log_queue.put(f"⏳ Повтор через 5 сек...")
+                        time.sleep(5)
+                    else:
+                        raise
+
+        finally:
+            try:
+                shutil.rmtree(iss_workdir, ignore_errors=True)
+            except Exception:
+                pass
 
     def _kill_inno_setup(self):
         """Убить зависшие процессы Inno Setup"""
