@@ -423,7 +423,8 @@ def is_ssh_configured() -> bool:
         # Сервер с паролем или с существующим ключом
         if _resolve_password(server):
             return True
-        key_path = server.get('key_path')
+
+        key_path = _resolve_key_path(server)
         if key_path and Path(key_path).exists():
             return True
     
@@ -448,6 +449,10 @@ def get_ssh_config_info() -> str:
                 if name and name not in seen:
                     seen.add(name)
                     hints.append(name)
+        for name in ("ZAPRET_SSH_KEY_PATH", "ZAPRET_SSH_KEY_PASSWORD"):
+            if name not in seen:
+                seen.add(name)
+                hints.append(name)
         hint_s = ", ".join(hints[:8])
         if len(hints) > 8:
             hint_s += ", ..."
@@ -456,7 +461,7 @@ def get_ssh_config_info() -> str:
     count = len(VPS_SERVERS)
     first = VPS_SERVERS[0]
     
-    auth_type = "пароль" if not first.get('key_path') else "ключ"
+    auth_type = "пароль" if not _resolve_key_path(first) else "ключ"
     
     if count == 1:
         return f"SSH настроен (1 сервер, {auth_type}): {first['user']}@{first['host']}"
