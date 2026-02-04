@@ -796,8 +796,45 @@ class BuildReleaseGUI:
         return self._project_root() / f"Zapret2Setup{suf}_{v}.exe"
 
     def _built_exe_path(self) -> Path:
-        # Выход PyInstaller/Nuitka: ../zapret/Zapret/Zapret.exe
-        return self._source_root() / "Zapret" / "Zapret.exe"
+        # Canonical dist path for Inno Setup (SOURCEPATH): ../zapret/Zapret.exe
+        return self._source_root() / "Zapret.exe"
+
+    def _sync_built_exe_to_source_root(self) -> None:
+        """Sync build output from ../zapret/Zapret/ into ../zapret/.
+
+        PyInstaller/Nuitka produce onedir into ../zapret/Zapret/{Zapret.exe,_internal}.
+        Inno Setup installs from SOURCEPATH=../zapret, so we must refresh Zapret.exe + _internal there.
+        """
+
+        src_dir = self._source_root() / "Zapret"
+        src_exe = src_dir / "Zapret.exe"
+        src_internal = src_dir / "_internal"
+
+        dst_dir = self._source_root()
+        dst_exe = dst_dir / "Zapret.exe"
+        dst_internal = dst_dir / "_internal"
+
+        if not src_exe.exists():
+            raise FileNotFoundError(f"Не найден собранный exe: {src_exe}")
+        if not src_internal.is_dir():
+            raise FileNotFoundError(f"Не найдена папка _internal: {src_internal}")
+
+        # Atomically replace Zapret.exe
+        tmp_exe = dst_dir / "Zapret.exe.tmp"
+        shutil.copy2(src_exe, tmp_exe)
+        os.replace(tmp_exe, dst_exe)
+
+        # Replace _internal directory
+        tmp_internal = dst_dir / "_internal.tmp"
+        if tmp_internal.exists():
+            shutil.rmtree(tmp_internal, ignore_errors=True)
+        shutil.copytree(src_internal, tmp_internal)
+        if dst_internal.exists():
+            shutil.rmtree(dst_internal, ignore_errors=True)
+        os.replace(tmp_internal, dst_internal)
+
+        size_mb = dst_exe.stat().st_size / 1024 / 1024
+        self.log_queue.put(f"✅ Dist обновлён: {dst_exe} ({size_mb:.1f} MB)")
 
     def _fast_dest_exe_path(self, channel: str) -> Path:
         override = (self.fast_exe_dest_var.get() or "").strip()
@@ -1544,6 +1581,9 @@ class BuildReleaseGUI:
                     (35, "Создание spec файла", lambda: create_spec_file(channel, ROOT, self.log_queue)),
                     (60, "Сборка PyInstaller", lambda: run_pyinstaller(channel, ROOT, run, self.log_queue)),
                 ])
+
+            # Sync built Zapret.exe/_internal into SOURCEPATH (../zapret)
+            steps.append((70, "Синхронизация Zapret.exe", lambda: self._sync_built_exe_to_source_root()))
             
             if fast_exe:
                 steps.append((80, "Быстрая замена Zapret.exe", lambda: self.fast_deploy_exe(channel)))
