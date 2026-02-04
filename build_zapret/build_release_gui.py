@@ -744,6 +744,8 @@ class BuildReleaseGUI:
         self.telegram_use_socks_var = tk.BooleanVar(value=default_tg_proxy)
         self.fast_exe_var = tk.BooleanVar(value=bool(self.cli.get("fast_exe")))
         self.fast_exe_dest_var = tk.StringVar(value=str(self.cli.get("fast_exe_dest") or ""))
+        self.auto_run_installer_var = tk.BooleanVar(value=True)
+        self.last_installer_path: Path | None = None
         self.versions_info = {"stable": "—", "test": "—"}
         self.telegram_proxy_info_var = tk.StringVar(value="")
         
@@ -1344,6 +1346,19 @@ class BuildReleaseGUI:
         )
         self.fast_exe_check.pack(side='left', padx=(10, 0))
 
+        # Auto-run installer after successful build (default enabled)
+        installer_frame = ttk.Frame(settings_frame)
+        installer_frame.pack(fill='x', pady=(8, 0))
+
+        ttk.Label(installer_frame, text="Установка:", width=15).pack(side='left')
+
+        self.auto_run_installer_check = ttk.Checkbutton(
+            installer_frame,
+            text="Запустить установщик после сборки",
+            variable=self.auto_run_installer_var,
+        )
+        self.auto_run_installer_check.pack(side='left', padx=(10, 0))
+
         fast_dest_frame = ttk.Frame(settings_frame)
         fast_dest_frame.pack(fill='x', pady=(5, 0))
 
@@ -1620,6 +1635,9 @@ class BuildReleaseGUI:
                 # SSH деплой
                 if SSH_AVAILABLE and is_ssh_configured():
                     steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
+
+                if self.auto_run_installer_var.get():
+                    steps.append((99, "Запуск установщика", lambda: self.run_built_installer(channel, version)))
                 
             steps.append((100, "Завершение", lambda: None))
             
@@ -1799,6 +1817,8 @@ class BuildReleaseGUI:
                 
                 temp_file.rename(final_file)
                 self.log_queue.put(f"✅ Готово: {final_file.name}")
+
+                self.last_installer_path = final_file
                 
                 return
                 
@@ -1835,6 +1855,38 @@ class BuildReleaseGUI:
                 )
             except:
                 pass
+
+    def _find_latest_installer(self, channel: str, version: str) -> Optional[Path]:
+        project_root = self._project_root()
+        v = version_to_filename_suffix(version)
+        suf = "_TEST" if channel == "test" else ""
+        pat = f"Zapret2Setup{suf}_{v}*.exe"
+        candidates = [p for p in project_root.glob(pat) if p.is_file()]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+
+    def run_built_installer(self, channel: str, version: str) -> None:
+        if sys.platform != "win32":
+            return
+
+        installer = self.last_installer_path
+        if not installer or not installer.exists():
+            installer = self._find_latest_installer(channel, version)
+
+        if not installer or not installer.exists():
+            raise FileNotFoundError("Установщик не найден после сборки")
+
+        self.log_queue.put(f"▶ Запуск установщика: {installer.name}")
+        try:
+            self._kill_blocking_processes()
+        except Exception:
+            pass
+
+        try:
+            os.startfile(str(installer))
+        except Exception as e:
+            raise RuntimeError(f"Не удалось запустить установщик: {e}")
 
     def _run_process_stream(
         self,

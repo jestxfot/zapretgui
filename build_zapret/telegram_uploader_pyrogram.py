@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
+import html
 import os
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 
 def _bootstrap_repo_path() -> None:
@@ -68,17 +70,21 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
     if not changes:
         changes = "(нет описания изменений)"
 
+    # Caption is sent with HTML parse mode.
+    changes_html = html.escape(changes)
+
     if upd_channel == "STABLE":
         tags = "#zapret #zapretgui #запрет #запретгуи #РКН #роскомнадзор #роскомпозор #ВПН #VPN #обходблокировок #stable"
     else:
         tags = "#zapret #zapretgui #запрет #запретгуи #РКН #роскомнадзор #роскомпозор #ВПН #VPN #обходблокировок"
 
     return (
-        f"{emoji}\n"
-        f"Стабильные: {stable_link} | Дев: {dev_link}\n"
+        f"{emoji} "
+        f"Стабильные: <a href=\"{stable_link}\">t.me/zapretnetdiscordyoutube</a> | "
+        f"Дев: <a href=\"{dev_link}\">t.me/zapretguidev</a>\n"
         f"{release_kind}\n\n"
-        f"{changes}\n\n"
-        f"{tags}"
+        f"{changes_html}\n\n"
+        f"{html.escape(tags)}"
     ).strip()
 
 
@@ -266,10 +272,30 @@ async def _run(argv: list[str]) -> int:
             timeout = 7200 if size_mb > 100 else 3600
             import asyncio
 
-            await asyncio.wait_for(
-                app.send_document(chat_id=chat_id, document=str(file_path), caption=caption, progress=_progress),
-                timeout=timeout,
-            )
+            parse_mode: Any
+            try:
+                from pyrogram.enums import ParseMode  # type: ignore
+                parse_mode = ParseMode.HTML
+            except Exception:
+                parse_mode = "html"
+
+            try:
+                await asyncio.wait_for(
+                    app.send_document(
+                        chat_id=chat_id,
+                        document=str(file_path),
+                        caption=caption,
+                        parse_mode=parse_mode,
+                        progress=_progress,
+                    ),
+                    timeout=timeout,
+                )
+            except TypeError:
+                # Fallback for older pyrogram versions.
+                await asyncio.wait_for(
+                    app.send_document(chat_id=chat_id, document=str(file_path), caption=caption, progress=_progress),
+                    timeout=timeout,
+                )
             print("OK")
             return 0
         finally:

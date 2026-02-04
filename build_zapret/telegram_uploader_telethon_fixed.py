@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import html
 import os
 import sys
 import time
@@ -111,17 +112,21 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
     if not changes:
         changes = "(нет описания изменений)"
 
+    # Caption is sent with HTML parse mode.
+    changes_html = html.escape(changes)
+
     if upd_channel == "STABLE":
         tags = "#zapret #stable #release"
     else:
         tags = "#zapretdev #dev #testing #beta #запретдев"
 
     return (
-        f"{emoji}\n"
-        f"Стабильные: {stable_link} | Дев: {dev_link}\n"
+        f"{emoji} "
+        f"Стабильные: <a href=\"{stable_link}\">t.me/zapretnetdiscordyoutube</a> | "
+        f"Дев: <a href=\"{dev_link}\">t.me/zapretguidev</a>\n"
         f"{release_kind}\n\n"
-        f"{changes}\n\n"
-        f"{tags}"
+        f"{changes_html}\n\n"
+        f"{html.escape(tags)}"
     ).strip()
 
 
@@ -231,17 +236,32 @@ async def _run(argv: list[str]) -> int:
 
     print(f"Sending file... (timeout {upload_timeout_s}s)")
     try:
-        msg = await asyncio.wait_for(
-            client.send_file(
-                chat_id,
-                str(file_path),
-                caption=caption,
-                force_document=True,
-                attributes=attrs,
-                progress_callback=_progress,
-            ),
-            timeout=upload_timeout_s,
-        )
+        try:
+            msg = await asyncio.wait_for(
+                client.send_file(
+                    chat_id,
+                    str(file_path),
+                    caption=caption,
+                    force_document=True,
+                    attributes=attrs,
+                    progress_callback=_progress,
+                    parse_mode="html",
+                ),
+                timeout=upload_timeout_s,
+            )
+        except TypeError:
+            # Older Telethon may not accept parse_mode here.
+            msg = await asyncio.wait_for(
+                client.send_file(
+                    chat_id,
+                    str(file_path),
+                    caption=caption,
+                    force_document=True,
+                    attributes=attrs,
+                    progress_callback=_progress,
+                ),
+                timeout=upload_timeout_s,
+            )
     except asyncio.TimeoutError:
         print("Timeout while uploading to Telegram.")
         print("If you use a proxy, verify it works for Telegram. Try setting ZAPRET_TG_NO_PROXY=1 if VPN is full-tunnel.")
