@@ -97,6 +97,8 @@ def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
     env_file = (os.environ.get("ZAPRET_TG_SSH_ENV_FILE") or f"{scripts_dir}/.env").strip()
     # Default: bootstrap is enabled so you only change host in .env.
     bootstrap = not _env_falsy("ZAPRET_TG_SSH_BOOTSTRAP")
+    # Disable remote dependency installation (apt/pip/venv) when set to 0/false.
+    install_deps = not _env_falsy("ZAPRET_TG_SSH_INSTALL_DEPS")
 
     return {
         "name": f"Telegram Publisher ({host})",
@@ -111,6 +113,7 @@ def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
         "upload_dir": upload_dir,
         "env_file": env_file,
         "bootstrap": bootstrap,
+        "install_deps": install_deps,
     }
 
 VPS_SERVERS = [
@@ -609,6 +612,7 @@ def _publish_to_telegram_via_ssh_pyrogram(
         upload_dir = (server_config.get("upload_dir") or "").strip()
         env_file = (server_config.get("env_file") or "").strip() or f"{scripts_dir}/.env"
         bootstrap = bool(server_config.get("bootstrap"))
+        install_deps = bool(server_config.get("install_deps", True))
 
         if not scripts_dir:
             return False, "scripts_dir is not set (ZAPRET_TG_SSH_SCRIPTS_DIR)"
@@ -675,17 +679,22 @@ def _publish_to_telegram_via_ssh_pyrogram(
             return False, f"Remote Telegram env created at {env_file}. Fill TELEGRAM_API_ID/TELEGRAM_API_HASH and re-run."
 
         # Optional bootstrap for Python deps (default enabled).
-        # Runs only if venv is missing or imports fail.
+        # Runs only if remote python can't import deps.
         python_cmd = f"{scripts_dir}/.venv/bin/python3"
-        check_cmd = (
-            f"set -e; "
-            f"test -x {python_cmd} && "
-            f"{python_cmd} -c \"import pyrogram, tgcrypto, pysocks\" >/dev/null 2>&1 && echo OK || echo NO"
-        )
-        stdin, stdout, stderr = ssh.exec_command(check_cmd)
-        deps_ok = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+        import_probe = "import pyrogram, tgcrypto, socks"
 
-        if bootstrap and not deps_ok:
+        def _remote_ok(cmd: str) -> bool:
+            _stdin, _stdout, _stderr = ssh.exec_command(cmd)
+            return (_stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
+
+        venv_deps_ok = _remote_ok(
+            f"test -x {python_cmd} && {python_cmd} -c \"{import_probe}\" >/dev/null 2>&1 && echo OK || echo NO"
+        )
+        sys_deps_ok = _remote_ok(
+            f"python3 -c \"{import_probe}\" >/dev/null 2>&1 && echo OK || echo NO"
+        )
+
+        if bootstrap and install_deps and not (venv_deps_ok or sys_deps_ok):
             log("🧰 Bootstrap: install python deps on remote")
             bootstrap_cmd = (
                 f"set -e; "
@@ -707,10 +716,20 @@ def _publish_to_telegram_via_ssh_pyrogram(
                 err = stderr.read().decode("utf-8", errors="ignore")
                 return False, f"Bootstrap failed (rc={rc}): {err[:200]}"
 
-        # Choose python
-        stdin, stdout, stderr = ssh.exec_command(f"test -x {python_cmd} && echo OK || echo NO")
-        has_venv = (stdout.read().decode("utf-8", errors="ignore").strip() == "OK")
-        python_exec = python_cmd if has_venv else "python3"
+            venv_deps_ok = _remote_ok(
+                f"test -x {python_cmd} && {python_cmd} -c \"{import_probe}\" >/dev/null 2>&1 && echo OK || echo NO"
+            )
+
+        if venv_deps_ok:
+            python_exec = python_cmd
+        elif sys_deps_ok:
+            python_exec = "python3"
+        else:
+            return False, (
+                "Remote python deps are missing for Telegram publisher. "
+                "Install once on the server (pyrogram/tgcrypto/pysocks) or enable auto-install with "
+                "ZAPRET_TG_SSH_INSTALL_DEPS=1 (or ZAPRET_TG_SSH_BOOTSTRAP=1)."
+            )
 
         # Ensure remote session exists.
         session_file = f"{scripts_dir}/zapret_uploader_pyrogram.session"
@@ -723,7 +742,7 @@ def _publish_to_telegram_via_ssh_pyrogram(
             )
 
         # Run uploader. Credentials come from env_file on remote.
-        notes_escaped = (notes or f"Zapret {version}").replace('"', '\\"').replace('$', '\\$')
+        notes_escaped = (notes or "").replace('"', '\\"').replace('$', '\\$')
         telegram_cmd = (
             f"set -e; cd {scripts_dir}; "
             f"if [ -f {env_file} ]; then set -a; . {env_file}; set +a; fi; "
@@ -808,7 +827,7 @@ def _publish_to_telegram_local(
             str(file_path),
             channel,
             version,
-            (notes or f"Zapret {version}"),
+            (notes or ""),
             str(api_id),
             str(api_hash),
         ]
