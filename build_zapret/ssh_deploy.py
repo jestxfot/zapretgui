@@ -135,7 +135,6 @@ def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
     }
 
 VPS_SERVERS = [
-    # ═══ НОВЫЙ ОСНОВНОЙ СЕРВЕР (вход по паролю) ═══
     {
         'id': 'vps_super',
         'name': 'VPS Super (Новый основной)',
@@ -143,7 +142,6 @@ VPS_SERVERS = [
         'port': 22,
         'user': 'root',
         'password': None,
-        'password_env': 'ZAPRET_VPS_SUPER_PASSWORD',
         'key_path': None,
         'key_password': None,
         'upload_dir': '/var/www/zapret/download',

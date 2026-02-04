@@ -1706,16 +1706,7 @@ def main():
         ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
         sys.exit(0)
     
-    # ✅ Автоматическая установка сертификата (асинхронно, не блокирует запуск)
-    def _install_certificate_async():
-        try:
-            from startup.certificate_installer import check_and_install_on_startup
-            check_and_install_on_startup()
-        except Exception:
-            pass  # Не критично
-    
-    import threading
-    threading.Thread(target=_install_certificate_async, daemon=True).start()
+    # Примечание: установка сертификата выполняется вручную из GUI (кнопка в настройках).
 
     # ---------------- Проверка single instance ----------------
     from startup.single_instance import create_mutex, release_mutex

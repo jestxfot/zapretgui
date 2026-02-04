@@ -69,9 +69,9 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
         changes = "(нет описания изменений)"
 
     if upd_channel == "STABLE":
-        tags = "#zapret #stable #release"
+        tags = "#zapret #zapretgui #запрет #запретгуи #РКН #роскомнадзор #роскомпозор #ВПН #VPN #обходблокировок #stable"
     else:
-        tags = "#zapretdev #dev #testing #beta #запретдев"
+        tags = "#zapret #zapretgui #запрет #запретгуи #РКН #роскомнадзор #роскомпозор #ВПН #VPN #обходблокировок"
 
     return (
         f"{emoji} Zapret {version}\n"

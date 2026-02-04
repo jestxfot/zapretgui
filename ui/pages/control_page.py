@@ -3,7 +3,7 @@
 
 import os
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QThread
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QMessageBox
 import qtawesome as qta
 
@@ -33,6 +33,21 @@ QProgressBar::chunk {
     border-radius: 2px;
 }
 """
+
+
+class _CertificateInstallWorker(QObject):
+    finished = pyqtSignal(bool, str)  # success, message
+
+    def run(self) -> None:
+        try:
+            from startup.certificate_installer import reset_certificate_declined_flag, auto_install_certificate
+
+            # Если ранее была выставлена блокировка автоустановки, ручная установка должна работать.
+            reset_certificate_declined_flag()
+            success, message = auto_install_certificate(silent=True)
+            self.finished.emit(bool(success), str(message))
+        except Exception as e:
+            self.finished.emit(False, str(e))
 
 
 class BigActionButton(ActionButton):
@@ -286,6 +301,18 @@ class ControlPage(BasePage):
         reset_row.set_control(self.reset_program_btn)
         program_settings_card.add_widget(reset_row)
 
+        # Установка сертификата (необязательно)
+        cert_row = SettingsRow(
+            "fa5s.certificate",
+            "Установить сертификат",
+            "Необязательно. Добавляет корневой сертификат Zapret Developer в доверенные (текущий пользователь)",
+        )
+        self.install_cert_btn = ActionButton("Установить")
+        self.install_cert_btn.setProperty("noDrag", True)
+        self.install_cert_btn.clicked.connect(self._on_install_certificate_clicked)
+        cert_row.set_control(self.install_cert_btn)
+        program_settings_card.add_widget(cert_row)
+
         self.add_widget(program_settings_card)
 
         self.add_spacing(16)
@@ -335,6 +362,80 @@ class ControlPage(BasePage):
 
         # Первичная синхронизация состояния тогглов с текущими настройками
         self._sync_program_settings()
+
+        self._cert_install_thread = None
+        self._cert_install_worker = None
+
+    def _on_install_certificate_clicked(self) -> None:
+        try:
+            from startup.certificate_installer import is_certificate_installed
+        except Exception as e:
+            QMessageBox.critical(self, "Сертификат", f"Не удалось загрузить установщик сертификата:\n\n{e}")
+            return
+
+        thumbprint = "F507DDA6CB772F4332ECC2C5686623F39D9DA450"
+        if is_certificate_installed(thumbprint):
+            QMessageBox.information(self, "Сертификат", "Сертификат уже установлен.")
+            return
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Установка сертификата")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setText("Установить корневой сертификат Zapret Developer?")
+        msg_box.setInformativeText(
+            "Это необязательно. После установки Windows будет доверять сертификатам, "
+            "выпущенным этим центром сертификации, для текущего пользователя.\n\n"
+            "Продолжить?"
+        )
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        if msg_box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        if self._cert_install_thread is not None:
+            return
+
+        old_text = self.install_cert_btn.text()
+        self.install_cert_btn.setEnabled(False)
+        self.install_cert_btn.setText("Установка...")
+        self._set_status("Установка сертификата...")
+
+        self._cert_install_thread = QThread()
+        self._cert_install_worker = _CertificateInstallWorker()
+        self._cert_install_worker.moveToThread(self._cert_install_thread)
+
+        self._cert_install_thread.started.connect(self._cert_install_worker.run)
+
+        def _finish(success: bool, message: str) -> None:
+            try:
+                self.install_cert_btn.setEnabled(True)
+                self.install_cert_btn.setText(old_text)
+
+                if success:
+                    self._set_status("Сертификат установлен")
+                    QMessageBox.information(self, "Сертификат", message or "Сертификат установлен")
+                else:
+                    self._set_status("Не удалось установить сертификат")
+                    QMessageBox.critical(self, "Сертификат", message or "Не удалось установить сертификат")
+            finally:
+                try:
+                    self._cert_install_thread.quit()
+                    self._cert_install_thread.wait(3000)
+                except Exception:
+                    pass
+                try:
+                    self._cert_install_worker.deleteLater()
+                except Exception:
+                    pass
+                try:
+                    self._cert_install_thread.deleteLater()
+                except Exception:
+                    pass
+                self._cert_install_thread = None
+                self._cert_install_worker = None
+
+        self._cert_install_worker.finished.connect(_finish)
+        self._cert_install_thread.start()
 
     def showEvent(self, event):
         super().showEvent(event)
