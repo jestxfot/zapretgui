@@ -86,7 +86,7 @@ def _remote_filename(file_path: Path, channel: str, version: str) -> str:
     name = file_path.name
     if name.lower().startswith("zapret2setup") and name.lower().endswith(".exe"):
         suffix = "_TEST" if (channel or "").strip().lower() in {"test", "dev"} else ""
-        v = (version or "").strip()
+        v = (version or "").strip().replace(".", "_")
         if v:
             return f"Zapret2Setup{suffix}_{v}.exe"
         return f"Zapret2Setup{suffix}.exe"

@@ -65,6 +65,24 @@ def _env_falsy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"0", "false", "no", "off"}
 
 
+def _version_to_filename_suffix(ver: str) -> str:
+    v = (ver or "").strip().lstrip("v")
+    out: list[str] = []
+    prev_us = False
+    for ch in v:
+        if ch.isdigit():
+            out.append(ch)
+            prev_us = False
+            continue
+        if ch in {".", "_", "-"}:
+            if not prev_us:
+                out.append("_")
+                prev_us = True
+            continue
+    s = "".join(out).strip("_")
+    return s
+
+
 def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
     """Config for publishing to Telegram from a remote server via SSH.
 
@@ -132,16 +150,15 @@ VPS_SERVERS = [
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
         'priority': 1,
-        'use_for_telegram': True,
+        'use_for_telegram': False,
     },
     {
         'id': 'vps0',
         'name': 'VPS Primary (Новый основной)',
-        'host': '45.144.30.84',
-        'port': 22,
+        'host': '141.98.189.140',
+        'port': 10222,
         'user': 'root',
         'password': None,
-        'password_env': 'ZAPRET_VPS0_PASSWORD',
         'key_path': None,
         'key_password': None,
         'upload_dir': '/var/www/zapret/download',
@@ -157,8 +174,8 @@ VPS_SERVERS = [
         'port': 2089,
         'user': 'root',
         'password': None,
-        'key_path': 'H:/Privacy/main',
-        'key_password': 'zxcvbita2014',
+        'key_path': None,
+        'key_password': None,
         'upload_dir': '/var/www/zapret/download',
         'scripts_dir': '/root/zapretgpt/tests',
         'json_path': '/var/www/zapret/api/all_versions.json',
@@ -188,6 +205,40 @@ def _resolve_password(server_config: Dict[str, Any]) -> Optional[str]:
     if password:
         return password
     return os.environ.get(_password_env_name(server_config)) or None
+
+
+def _key_path_env_name(server_config: Dict[str, Any]) -> str:
+    explicit = server_config.get("key_path_env")
+    if explicit:
+        return explicit
+    server_id = server_config.get("id") or ""
+    if server_id:
+        return f"ZAPRET_{_normalize_env_key(server_id)}_KEY_PATH"
+    return "ZAPRET_SSH_KEY_PATH"
+
+
+def _key_password_env_name(server_config: Dict[str, Any]) -> str:
+    explicit = server_config.get("key_password_env")
+    if explicit:
+        return explicit
+    server_id = server_config.get("id") or ""
+    if server_id:
+        return f"ZAPRET_{_normalize_env_key(server_id)}_KEY_PASSWORD"
+    return "ZAPRET_SSH_KEY_PASSWORD"
+
+
+def _resolve_key_path(server_config: Dict[str, Any]) -> Optional[str]:
+    key_path = server_config.get("key_path")
+    if key_path:
+        return str(key_path)
+    return os.environ.get(_key_path_env_name(server_config)) or os.environ.get("ZAPRET_SSH_KEY_PATH") or None
+
+
+def _resolve_key_password(server_config: Dict[str, Any]) -> Optional[str]:
+    key_password = server_config.get("key_password")
+    if key_password:
+        return str(key_password)
+    return os.environ.get(_key_password_env_name(server_config)) or os.environ.get("ZAPRET_SSH_KEY_PASSWORD") or None
 
 def convert_key_to_pem(key_path: str, password: str = "") -> Optional[str]:
     """Конвертирует OpenSSH ключ в PEM формат для Paramiko"""
@@ -333,8 +384,8 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
     port = server_config['port']
     user = server_config['user']
     password = _resolve_password(server_config)
-    key_path = server_config.get('key_path')
-    key_password = server_config.get('key_password')
+    key_path = _resolve_key_path(server_config)
+    key_password = _resolve_key_password(server_config)
     
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -539,7 +590,9 @@ def _publish_to_telegram_via_ssh(
         if not scripts_dir:
             return False, "scripts_dir не указан"
         
-        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+        suffix = "_TEST" if (channel or "").strip().lower() in {"test", "dev"} else ""
+        v = _version_to_filename_suffix(version)
+        remote_filename = f"Zapret2Setup{suffix}_{v}.exe" if v else f"Zapret2Setup{suffix}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
         # Подключение
@@ -633,7 +686,9 @@ def _publish_to_telegram_via_ssh_pyrogram(
             stdout.channel.recv_exit_status()
 
         # Upload the installer
-        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+        suffix = "_TEST" if (channel or "").strip().lower() in {"test", "dev"} else ""
+        v = _version_to_filename_suffix(version)
+        remote_filename = f"Zapret2Setup{suffix}_{v}.exe" if v else f"Zapret2Setup{suffix}.exe"
         remote_installer = f"{upload_dir}/{remote_filename}"
 
         log(f"📤 Upload to Telegram host: {file_path.name} → {remote_installer}")
@@ -900,7 +955,9 @@ def _deploy_to_single_server(
         log(f"✅ Вход: {connected_user}")
         
         # ═══ ЗАГРУЗКА ФАЙЛА ═══
-        remote_filename = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+        suffix = "_TEST" if (channel or "").strip().lower() in {"test", "dev"} else ""
+        v = _version_to_filename_suffix(version)
+        remote_filename = f"Zapret2Setup{suffix}_{v}.exe" if v else f"Zapret2Setup{suffix}.exe"
         remote_path = f"{upload_dir}/{remote_filename}"
         
         log(f"📤 Загрузка {file_path.name} → {remote_path}")
@@ -966,6 +1023,7 @@ def _deploy_to_single_server(
         json_data[channel] = {
             "version": version,
             "channel": channel,
+            "file_name": remote_filename,
             "file_path": remote_path,
             "file_size": file_size_int,
             "mtime": file_mtime,

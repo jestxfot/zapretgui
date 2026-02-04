@@ -13,6 +13,7 @@ import json
 import time
 import urllib3
 from datetime import datetime
+from pathlib import PurePosixPath
 
 from .server_config import (
     CONNECT_TIMEOUT, READ_TIMEOUT, should_verify_ssl,
@@ -463,19 +464,26 @@ class ReleaseManager:
             self.server_stats.record_success(server_name, response_time)
         
         # Формируем URL для скачивания
-        filename = f"Zapret2Setup{'_TEST' if api_channel == 'test' else ''}.exe"
-        download_url = f"{url}/download/{filename}"
+        file_name = (data.get("file_name") or "").strip()
+        if not file_name:
+            file_path = (data.get("file_path") or "").strip()
+            if file_path:
+                file_name = PurePosixPath(file_path).name
+        if not file_name:
+            file_name = f"Zapret2Setup{'_TEST' if api_channel == 'test' else ''}.exe"
+        download_url = f"{url}/download/{file_name}"
         
         # Определяем verify_ssl для результата
         verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
         
-        log(f"📦 {server_name}: версия {data['version']}, файл: {filename}", "🔄 RELEASE")
+        log(f"📦 {server_name}: версия {data['version']}, файл: {file_name}", "🔄 RELEASE")
         log(f"✅ {server_name}: успех ({response_time*1000:.0f}мс)", "🔄 RELEASE")
         
         result = {
             "version": normalize_version(data.get("version", "0.0.0")),
             "tag_name": f"v{data.get('version', '0.0.0')}",
             "update_url": download_url,
+            "file_name": file_name,
             "release_notes": data.get("release_notes", ""),
             "prerelease": channel == "dev",
             "name": f"Zapret {data.get('version', '0.0.0')} ({api_channel})",

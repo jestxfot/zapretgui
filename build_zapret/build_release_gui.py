@@ -479,6 +479,15 @@ def normalize_to_4(ver: str) -> str:
     """Возвращает строку-версию строго из 4 чисел X.X.X.X"""
     return ".".join(map(str, parse_version(ver)))
 
+
+def version_to_filename_suffix(ver: str) -> str:
+    """Converts version string to a safe filename suffix (underscored).
+
+    Example: 20.3.17.0 -> 20_3_17_0
+    """
+    v = normalize_to_4(ver)
+    return v.replace(".", "_")
+
 def suggest_next(ver: str) -> str:
     """Предлагает следующую 4-частную версию"""
     try:
@@ -781,8 +790,10 @@ class BuildReleaseGUI:
         # ожидаем соседний репозиторий/папку zapret рядом с zapretgui
         return ROOT.parent / "zapret"
 
-    def _produced_installer_path(self, channel: str) -> Path:
-        return self._project_root() / f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+    def _produced_installer_path(self, channel: str, version: str) -> Path:
+        suf = "_TEST" if channel == "test" else ""
+        v = version_to_filename_suffix(version)
+        return self._project_root() / f"Zapret2Setup{suf}_{v}.exe"
 
     def _built_exe_path(self) -> Path:
         # Выход PyInstaller/Nuitka: ../zapret/Zapret/Zapret.exe
@@ -1584,7 +1595,7 @@ class BuildReleaseGUI:
 
     def deploy_to_ssh(self, channel, version, notes):
         """SSH деплой на все VPS сервера"""
-        produced = self._produced_installer_path(channel)
+        produced = self._produced_installer_path(channel, version)
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
@@ -1657,10 +1668,21 @@ class BuildReleaseGUI:
         
         timestamp = int(time.time())
         temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
-        final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}"
+        final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}_{version_to_filename_suffix(version)}"
         
         temp_file = project_root / f"{temp_name}.exe"
         final_file = project_root / f"{final_name}.exe"
+
+        if final_file.exists():
+            counter = 1
+            base = final_file.with_suffix("")
+            while True:
+                candidate = Path(str(base) + f"_r{counter}.exe")
+                if not candidate.exists():
+                    final_file = candidate
+                    self.log_queue.put(f"  ⚠️ Файл уже есть, сохраняем как: {final_file.name}")
+                    break
+                counter += 1
         
         self.log_queue.put(f"📦 Сборка во временный файл: {temp_name}.exe")
         ensure_inno_ico_dir(source_path=source_root, project_root=project_root, log_queue=self.log_queue)
@@ -1725,31 +1747,8 @@ class BuildReleaseGUI:
                 size_mb = temp_file.stat().st_size / 1024 / 1024
                 self.log_queue.put(f"✅ Собрано: {temp_name}.exe ({size_mb:.1f} MB)")
                 
-                if final_file.exists():
-                    backup = final_file.with_suffix('.old.exe')
-                    counter = 1
-                    while backup.exists():
-                        backup = final_file.with_suffix(f'.old{counter}.exe')
-                        counter += 1
-                    
-                    try:
-                        final_file.rename(backup)
-                        self.log_queue.put(f"  → Старый файл → {backup.name}")
-                    except Exception as e:
-                        self.log_queue.put(f"  ⚠️ Не удалось переместить старый: {e}")
-                
                 temp_file.rename(final_file)
-                self.log_queue.put(f"✅ Готово: {final_name}.exe")
-                
-                # Удаляем старые бэкапы
-                def cleanup():
-                    time.sleep(5)
-                    for old in project_root.glob(f"{final_name}.old*.exe"):
-                        try:
-                            old.unlink()
-                        except:
-                            pass
-                threading.Thread(target=cleanup, daemon=True).start()
+                self.log_queue.put(f"✅ Готово: {final_file.name}")
                 
                 return
                 
@@ -1946,7 +1945,7 @@ class BuildReleaseGUI:
   
     def create_github_release(self, channel, version, notes):
         """Создание GitHub release"""
-        produced = self._produced_installer_path(channel)
+        produced = self._produced_installer_path(channel, version)
         
         if not produced.exists():
             raise FileNotFoundError(f"{produced} not found")
