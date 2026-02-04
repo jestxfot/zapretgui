@@ -65,6 +65,16 @@ def _env_falsy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"0", "false", "no", "off"}
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
 def _version_to_filename_suffix(ver: str) -> str:
     v = (ver or "").strip().lstrip("v")
     out: list[str] = []
@@ -81,6 +91,80 @@ def _version_to_filename_suffix(ver: str) -> str:
             continue
     s = "".join(out).strip("_")
     return s
+
+
+def _is_installer_for_channel(filename: str, channel: str) -> bool:
+    n = (filename or "").strip().lower()
+    ch = (channel or "").strip().lower()
+    if not n.endswith(".exe"):
+        return False
+    if ch in {"test", "dev"}:
+        return n == "zapret2setup_test.exe" or n.startswith("zapret2setup_test_")
+    # stable
+    if n == "zapret2setup.exe":
+        return True
+    if n.startswith("zapret2setup_test_"):
+        return False
+    return n.startswith("zapret2setup_")
+
+
+def _cleanup_remote_installers(
+    *,
+    sftp: Any,
+    upload_dir: str,
+    channel: str,
+    keep_names: set[str],
+    keep_n: int,
+    log_func,
+) -> None:
+    """Remove older installers in upload_dir, keeping only newest N for channel."""
+
+    keep_n = max(1, int(keep_n or 1))
+    keep_lc = {k.strip().lower() for k in (keep_names or set()) if (k or "").strip()}
+
+    try:
+        names = list(sftp.listdir(upload_dir))
+    except Exception as e:
+        log_func(f"   ⚠️ Не удалось получить список файлов для очистки: {e}")
+        return
+
+    candidates: list[tuple[int, str]] = []
+    for name in names:
+        if not _is_installer_for_channel(name, channel):
+            continue
+        if name.strip().lower() in keep_lc:
+            continue
+        try:
+            st = sftp.stat(f"{upload_dir}/{name}")
+            mtime = int(getattr(st, "st_mtime", 0) or 0)
+        except Exception:
+            mtime = 0
+        candidates.append((mtime, name))
+
+    if not candidates:
+        return
+
+    # Keep newest keep_n installers among candidates+kept.
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    # If keep_lc has only the newest one (normal case), we delete all candidates.
+    # If keep_n > 1, keep the first (keep_n - already_kept_count) from candidates.
+    already_kept = 0
+    for n in names:
+        if _is_installer_for_channel(n, channel) and n.strip().lower() in keep_lc:
+            already_kept += 1
+    to_keep_from_candidates = max(0, keep_n - already_kept)
+    delete_list = [name for _mtime, name in candidates[to_keep_from_candidates:]]
+
+    removed = 0
+    for name in delete_list:
+        try:
+            sftp.remove(f"{upload_dir}/{name}")
+            removed += 1
+        except Exception as e:
+            log_func(f"   ⚠️ Не удалось удалить {name}: {e}")
+    if removed:
+        log_func(f"   🧹 Удалено старых установщиков: {removed}")
 
 
 def _tg_ssh_config_from_env() -> Optional[Dict[str, Any]]:
@@ -985,6 +1069,31 @@ def _deploy_to_single_server(
         sftp.put(str(file_path), remote_path, callback=progress_callback)
         
         log(f"✅ Файл загружен ({file_size_mb:.1f} МБ)")
+
+        # Create/refresh a stable link name for backward compatibility.
+        # This does not duplicate the large file (symlink).
+        try:
+            latest_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"
+            link_cmd = f"cd {upload_dir} && ln -sf {remote_filename} {latest_name}"
+            _stdin, _stdout, _stderr = ssh.exec_command(link_cmd)
+            _stdout.channel.recv_exit_status()
+        except Exception:
+            pass
+
+        # Cleanup older installers to avoid filling disk.
+        try:
+            keep_n = _env_int("ZAPRET_SSH_KEEP_INSTALLERS", 1)
+            keep = {remote_filename, f"Zapret2Setup{'_TEST' if channel == 'test' else ''}.exe"}
+            _cleanup_remote_installers(
+                sftp=sftp,
+                upload_dir=upload_dir,
+                channel=channel,
+                keep_names=keep,
+                keep_n=keep_n,
+                log_func=log,
+            )
+        except Exception:
+            pass
         
         # ═══ ОБНОВЛЕНИЕ JSON ═══
         log(f"\n📝 Обновление JSON API...")
