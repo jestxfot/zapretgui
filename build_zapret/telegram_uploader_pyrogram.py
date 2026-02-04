@@ -74,7 +74,7 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
         tags = "#zapret #zapretgui #запрет #запретгуи #РКН #роскомнадзор #роскомпозор #ВПН #VPN #обходблокировок"
 
     return (
-        f"{emoji} Zapret {version}\n"
+        f"{emoji}\n"
         f"Стабильные: {stable_link} | Дев: {dev_link}\n"
         f"{release_kind}\n\n"
         f"{changes}\n\n"

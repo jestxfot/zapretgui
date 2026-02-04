@@ -117,7 +117,7 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
         tags = "#zapretdev #dev #testing #beta #запретдев"
 
     return (
-        f"{emoji} Zapret {version}\n"
+        f"{emoji}\n"
         f"Стабильные: {stable_link} | Дев: {dev_link}\n"
         f"{release_kind}\n\n"
         f"{changes}\n\n"
