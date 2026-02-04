@@ -438,6 +438,20 @@ def get_ssh_config_info() -> str:
         import paramiko
     except ImportError:
         return "Paramiko не установлен (pip install paramiko)"
+
+    # If nothing can authenticate, provide a concrete hint.
+    if not is_ssh_configured():
+        hints: list[str] = []
+        seen: set[str] = set()
+        for server in VPS_SERVERS:
+            for name in (_password_env_name(server), _key_path_env_name(server), _key_password_env_name(server)):
+                if name and name not in seen:
+                    seen.add(name)
+                    hints.append(name)
+        hint_s = ", ".join(hints[:8])
+        if len(hints) > 8:
+            hint_s += ", ..."
+        return "SSH не настроен: задайте пароль/ключ через env (например: " + hint_s + ")"
     
     count = len(VPS_SERVERS)
     first = VPS_SERVERS[0]

@@ -1147,13 +1147,14 @@ class BuildReleaseGUI:
         if not SSH_AVAILABLE:
             ttk.Label(ssh_frame, text="❌ SSH модуль недоступен!", 
                     style='Info.TLabel', foreground='red').pack(side='left')
-        elif not is_ssh_configured():
-            ttk.Label(ssh_frame, text="⚠️ SSH не настроен (установите: pip install paramiko)", 
-                    style='Info.TLabel', foreground='orange').pack(side='left')
         else:
             status_text = get_ssh_config_info()
-            ttk.Label(ssh_frame, text=f"✅ {status_text}", 
-                    style='Info.TLabel', foreground='green').pack(side='left')
+            if is_ssh_configured():
+                ttk.Label(ssh_frame, text=f"✅ {status_text}", 
+                        style='Info.TLabel', foreground='green').pack(side='left')
+            else:
+                ttk.Label(ssh_frame, text=f"⚠️ {status_text}", 
+                        style='Info.TLabel', foreground='orange').pack(side='left')
 
         # Telegram публикация
         telegram_frame = ttk.LabelFrame(main_container, text="Telegram канал публикация", 
