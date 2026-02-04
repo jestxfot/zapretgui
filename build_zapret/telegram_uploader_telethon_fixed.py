@@ -5,7 +5,6 @@ import asyncio
 import os
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -103,15 +102,8 @@ def _channel_info(channel: str) -> tuple[str, str, str]:
     return "🧪", "Dev версия", (channel or "").strip().upper() or "TEST"
 
 
-def _format_size_mb(size_bytes: int) -> str:
-    mb = size_bytes / 1024 / 1024
-    return f"{mb:.1f}"
-
-
 def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -> str:
     emoji, release_kind, upd_channel = _channel_info(channel)
-    date_s = datetime.now().strftime("%d.%m.%Y")
-    size_s = _format_size_mb(file_path.stat().st_size)
     stable_link = "https://t.me/zapretnetdiscordyoutube"
     dev_link = "https://t.me/zapretguidev"
 
@@ -128,10 +120,6 @@ def _build_caption(*, file_path: Path, channel: str, version: str, notes: str) -
         f"{emoji} Zapret {version}\n"
         f"Стабильные: {stable_link} | Дев: {dev_link}\n"
         f"{release_kind}\n\n"
-        f"📅 Дата выпуска: {date_s}\n"
-        f"📦 Размер: {size_s} МБ\n"
-        f"🔄 Канал обновлений: {upd_channel}\n\n"
-        f"📝 Что нового:\n"
         f"{changes}\n\n"
         f"{tags}"
     ).strip()
