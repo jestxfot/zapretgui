@@ -836,6 +836,15 @@ class BuildReleaseGUI:
         size_mb = dst_exe.stat().st_size / 1024 / 1024
         self.log_queue.put(f"✅ Dist обновлён: {dst_exe} ({size_mb:.1f} MB)")
 
+        # Remove intermediate onedir folder to avoid duplicates.
+        # Set ZAPRET_KEEP_ZAPRET_SUBDIR=1 to keep it for debugging.
+        try:
+            if not _env_truthy("ZAPRET_KEEP_ZAPRET_SUBDIR"):
+                if src_dir.exists() and src_dir.is_dir():
+                    shutil.rmtree(src_dir, ignore_errors=True)
+        except Exception:
+            pass
+
     def _fast_dest_exe_path(self, channel: str) -> Path:
         override = (self.fast_exe_dest_var.get() or "").strip()
         if override:
