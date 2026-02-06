@@ -21,6 +21,7 @@ from .github_release import normalize_version
 from config import CHANNEL, APP_VERSION
 from log import log
 from .rate_limiter import UpdateRateLimiter
+from .network_hints import maybe_log_disable_dpi_for_update
 
 
 TIMEOUT = 15  # Увеличен с 10 до 15 сек для медленных соединений
@@ -134,10 +135,20 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             return  # НЕ СКАЧИВАЕМ ПОВТОРНО!
     
     last_error = None
+    _bypass_proxy = False  # Флаг: при ProxyError переключаемся на прямое подключение
+    # +1 доп. попытка на случай ProxyError (чтобы bypass не "съедал" основную попытку)
+    effective_retries = max_retries + 1
+    attempt = 0
     
-    for attempt in range(max_retries):
+    while attempt < effective_retries:
         try:
             session = requests.Session()
+            
+            # Если предыдущая попытка упала с ProxyError, обходим прокси
+            if _bypass_proxy:
+                session.trust_env = False
+                session.proxies = {"http": None, "https": None}
+                log("🔄 Скачивание через прямое подключение (без прокси)", "⚠️ PROXY")
             
             session.headers.update({
                 'User-Agent': 'Zapret-Updater/3.1',  # ✅ Обновлена версия
@@ -240,9 +251,26 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             log(f"✅ Файл скачан с попытки {attempt + 1}", "🔄 DOWNLOAD")
             return
             
+        except requests.exceptions.ProxyError as e:
+            if not _bypass_proxy:
+                # Первая прокси-ошибка — не считаем как потраченную попытку,
+                # включаем bypass и пробуем ещё раз
+                _bypass_proxy = True
+                log(f"⚠️ Прокси-ошибка при скачивании, повтор без прокси: {e}", "⚠️ PROXY")
+                # Удаляем частично скачанный файл
+                if os.path.exists(dest):
+                    try:
+                        os.remove(dest)
+                    except:
+                        pass
+                continue  # Повторяем эту же попытку с bypass
+            else:
+                last_error = str(e)
+                log(f"❌ Попытка {attempt + 1} не удалась (bypass): {last_error}", "🔄 DOWNLOAD")
         except Exception as e:
             last_error = str(e)
             log(f"❌ Попытка {attempt + 1} не удалась: {last_error}", "🔄 DOWNLOAD")
+            maybe_log_disable_dpi_for_update(e, scope="download", level="🔄 DOWNLOAD")
         
         # Удаляем файл если не resume-able ошибка
         if os.path.exists(dest) and "Incomplete download" not in str(last_error):
@@ -251,8 +279,10 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             except:
                 pass
         
-        if attempt < max_retries - 1:
-            wait_time = min(2 ** (attempt + 1), 30)
+        attempt += 1
+        
+        if attempt < effective_retries:
+            wait_time = min(2 ** attempt, 30)
             log(f"⏳ Ожидание {wait_time}с перед повтором...", "🔄 DOWNLOAD")
             sleep(wait_time)
     
