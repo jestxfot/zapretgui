@@ -84,13 +84,15 @@ class PresetManager:
         self._active_preset_cache: Optional[Preset] = None
         self._active_preset_mtime: float = 0.0
 
-        # Cache for named presets: {name: (Preset, file_mtime)}
-        # Built-in (virtual) presets use mtime = -1.0 (immutable sentinel).
-        self._preset_cache: Dict[str, Tuple[Preset, float]] = {}
-
     # ========================================================================
     # LIST OPERATIONS
     # ========================================================================
+
+    @staticmethod
+    def _get_store():
+        """Returns the global PresetStore singleton."""
+        from .preset_store import get_preset_store
+        return get_preset_store()
 
     def list_presets(self) -> List[str]:
         """
@@ -99,7 +101,7 @@ class PresetManager:
         Returns:
             List of preset names sorted alphabetically
         """
-        return list_presets()
+        return self._get_store().get_preset_names()
 
     def preset_exists(self, name: str) -> bool:
         """
@@ -111,7 +113,7 @@ class PresetManager:
         Returns:
             True if preset file exists
         """
-        return preset_exists(name)
+        return self._get_store().preset_exists(name)
 
     def get_preset_count(self) -> int:
         """
@@ -120,7 +122,7 @@ class PresetManager:
         Returns:
             Count of preset files
         """
-        return len(list_presets())
+        return len(self._get_store().get_preset_names())
 
     # ========================================================================
     # LOAD/SAVE OPERATIONS
@@ -128,10 +130,7 @@ class PresetManager:
 
     def load_preset(self, name: str) -> Optional[Preset]:
         """
-        Loads preset by name with mtime-based caching.
-
-        Built-in (virtual) presets are cached permanently (they are immutable).
-        User presets are cached until their file's mtime changes.
+        Loads preset by name from the central PresetStore (in-memory).
 
         Args:
             name: Preset name
@@ -139,59 +138,18 @@ class PresetManager:
         Returns:
             Preset object or None if not found
         """
-        _BUILTIN_SENTINEL_MTIME = -1.0
-
-        # Check cache
-        if name in self._preset_cache:
-            cached_preset, cached_mtime = self._preset_cache[name]
-
-            if cached_mtime == _BUILTIN_SENTINEL_MTIME:
-                # Built-in preset, immutable — always valid
-                return cached_preset
-
-            # User preset: check file mtime
-            try:
-                preset_path = get_preset_path(name)
-                if preset_path.exists():
-                    current_mtime = os.path.getmtime(str(preset_path))
-                    if current_mtime == cached_mtime:
-                        return cached_preset
-                # File deleted or mtime changed — invalidate
-            except Exception:
-                pass
-            del self._preset_cache[name]
-
-        # Cache miss — load from disk
-        preset = load_preset(name)
-        if preset is not None:
-            if preset.is_builtin:
-                self._preset_cache[name] = (preset, _BUILTIN_SENTINEL_MTIME)
-            else:
-                try:
-                    preset_path = get_preset_path(name)
-                    mtime = os.path.getmtime(str(preset_path)) if preset_path.exists() else 0.0
-                except Exception:
-                    mtime = 0.0
-                self._preset_cache[name] = (preset, mtime)
-
-        return preset
+        return self._get_store().get_preset(name)
 
     def load_all_presets(self) -> List[Preset]:
         """
-        Loads all presets with caching.
-
-        Uses list_presets() to enumerate names, then load_preset() (cached) for each.
+        Loads all presets from the central PresetStore (in-memory).
 
         Returns:
             List of all Preset objects (builtin + user), sorted by name.
         """
-        names = self.list_presets()
-        result: List[Preset] = []
-        for name in names:
-            preset = self.load_preset(name)
-            if preset is not None:
-                result.append(preset)
-        return result
+        store = self._get_store()
+        all_presets = store.get_all_presets()
+        return [all_presets[n] for n in sorted(all_presets.keys(), key=lambda s: s.lower())]
 
     def save_preset(self, preset: Preset) -> bool:
         """
@@ -492,15 +450,23 @@ class PresetManager:
 
     def invalidate_preset_cache(self, name: Optional[str] = None) -> None:
         """
-        Invalidates the named preset cache.
+        Invalidates the preset cache in the central PresetStore.
+
+        For single-preset content changes, re-reads just that preset.
+        For None (full invalidation), does a full refresh.
 
         Args:
-            name: Preset name to invalidate, or None to clear the entire cache.
+            name: Preset name to invalidate, or None to do a full refresh.
         """
+        store = self._get_store()
         if name is None:
-            self._preset_cache.clear()
+            store.refresh()
         else:
-            self._preset_cache.pop(name, None)
+            store.notify_preset_saved(name)
+
+    def _notify_list_changed(self) -> None:
+        """Notifies the central store that the preset list changed (add/remove/rename)."""
+        self._get_store().notify_presets_changed()
 
     # ========================================================================
     # SWITCH OPERATIONS
@@ -560,9 +526,12 @@ class PresetManager:
             # Invalidate cache after switch
             self._invalidate_active_preset_cache()
 
+            # Notify central store
+            self._get_store().notify_preset_switched(name)
+
             log(f"Switched to preset '{name}'", "INFO")
 
-            # Callbacks
+            # Callbacks (legacy, for callers that pass on_preset_switched)
             if self.on_preset_switched:
                 self.on_preset_switched(name)
 
@@ -647,7 +616,7 @@ class PresetManager:
                     current.is_builtin = False
 
                     if save_preset(current):
-                        self.invalidate_preset_cache(name)
+                        self._notify_list_changed()
                         log(f"Created preset '{name}' from current", "INFO")
                         return current
                     return None
@@ -704,10 +673,10 @@ class PresetManager:
             if not generate_preset_file(data, dest_path, atomic=True):
                 return None
 
-            self.invalidate_preset_cache(name)
+            self._notify_list_changed()
             log(f"Created preset '{name}' from default template", "INFO")
 
-            # Load and return the created preset (will be cached)
+            # Load and return the created preset (from store)
             return self.load_preset(name)
 
         except Exception as e:
@@ -758,7 +727,7 @@ class PresetManager:
 
         result = delete_preset(name)
         if result:
-            self.invalidate_preset_cache(name)
+            self._notify_list_changed()
         return result
 
     def rename_preset(self, old_name: str, new_name: str) -> bool:
@@ -782,11 +751,10 @@ class PresetManager:
             return False
 
         if rename_preset(old_name, new_name):
-            self.invalidate_preset_cache(old_name)
-            self.invalidate_preset_cache(new_name)
             # Update active preset name if this was active
             if get_active_preset_name() == old_name:
                 set_active_preset_name(new_name)
+            self._notify_list_changed()
             return True
         return False
 
@@ -803,7 +771,7 @@ class PresetManager:
         """
         result = duplicate_preset(name, new_name)
         if result:
-            self.invalidate_preset_cache(new_name)
+            self._notify_list_changed()
         return result
 
     # ========================================================================
@@ -844,8 +812,7 @@ class PresetManager:
         """
         result = import_preset(src_path, name)
         if result:
-            imported_name = name if name else Path(src_path).stem
-            self.invalidate_preset_cache(imported_name)
+            self._notify_list_changed()
         return result
 
     # ========================================================================
@@ -1654,6 +1621,7 @@ class PresetManager:
             set_active_preset_name(name)
             self._invalidate_active_preset_cache()
             self.invalidate_preset_cache(name)
+            self._get_store().notify_preset_switched(name)
             if self.on_preset_switched:
                 try:
                     self.on_preset_switched(name)

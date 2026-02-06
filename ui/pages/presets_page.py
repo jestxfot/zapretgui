@@ -100,6 +100,93 @@ class _DestructiveConfirmButton(QPushButton):
         super().leaveEvent(event)
 
 
+class _DestructiveIconConfirmButton(QPushButton):
+    """Icon-only destructive action with double-confirm (no modal window)."""
+
+    confirmed = pyqtSignal()
+
+    def __init__(
+        self,
+        icon_name: str,
+        tooltip: str,
+        confirm_tooltip: str = "Нажмите ещё раз для подтверждения",
+        busy_tooltip: str = "Выполняется…",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._icon_name = icon_name
+        self._base_tooltip = tooltip
+        self._confirm_tooltip = confirm_tooltip
+        self._busy_tooltip = busy_tooltip
+        self._pending = False
+        self._hovered = False
+
+        self.setText("")
+        self.setIconSize(QSize(14, 14))
+        self.setFixedSize(28, 28)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._reset_timer = QTimer(self)
+        self._reset_timer.setSingleShot(True)
+        self._reset_timer.timeout.connect(self._reset_state)
+
+        self._update_icon_and_style()
+
+    def _reset_state(self):
+        self._pending = False
+        self.setEnabled(True)
+        self._update_icon_and_style()
+
+    def _update_icon_and_style(self):
+        if self.isEnabled():
+            if self._pending:
+                icon_color = "#ff6b6b"
+                bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
+                self.setToolTip(f"{self._base_tooltip}\n{self._confirm_tooltip}")
+            else:
+                icon_color = "#ffffff"
+                bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
+                self.setToolTip(self._base_tooltip)
+        else:
+            icon_color = "#ff6b6b"
+            bg = "rgba(255, 107, 107, 0.18)"
+            self.setToolTip(self._busy_tooltip)
+
+        self.setIcon(qta.icon(self._icon_name, color=icon_color))
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg};
+                border: none;
+                border-radius: 6px;
+            }}
+        """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._pending:
+                self._reset_timer.stop()
+                self.setEnabled(False)
+                self._update_icon_and_style()
+                self.confirmed.emit()
+                QTimer.singleShot(800, self._reset_state)
+            else:
+                self._pending = True
+                self._update_icon_and_style()
+                self._reset_timer.start(3000)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_icon_and_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_icon_and_style()
+        super().leaveEvent(event)
+
+
 class PresetCard(QFrame):
     """Карточка пресета в стиле Windows 11"""
 
@@ -236,17 +323,51 @@ class PresetCard(QFrame):
             actions_widget = QWidget()
             actions_widget.setLayout(actions_row)
             actions_widget.setStyleSheet("background: transparent;")
+            self._actions_widget = actions_widget
 
-            if not self._is_active:
-                activate_btn = self._create_icon_action_button("fa5s.check", "Активировать", icon_color="#60cdff")
-                activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
-                actions_row.addWidget(activate_btn)
+            if not self._is_builtin:
+                rename_btn = self._create_icon_action_button("fa5s.edit", "Переименовать")
+                rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
+                actions_row.addWidget(rename_btn)
 
             duplicate_btn = self._create_icon_action_button("fa5s.copy", "Дублировать")
             duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
             actions_row.addWidget(duplicate_btn)
 
+            if not self._is_builtin:
+                reset_btn = _DestructiveIconConfirmButton(
+                    icon_name="fa5s.broom",
+                    tooltip=(
+                        "Сбросить\n"
+                        "Сбросит этот пресет к настройкам из шаблона Default.\n"
+                        "Пресет будет активирован."
+                    ),
+                    confirm_tooltip="Нажмите ещё раз для подтверждения",
+                    busy_tooltip="Сброс…",
+                    parent=self,
+                )
+                reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
+                actions_row.addWidget(reset_btn)
+
+            if not self._is_active and not self._is_builtin:
+                delete_btn = _DestructiveIconConfirmButton(
+                    icon_name="fa5s.trash",
+                    tooltip="Удалить",
+                    confirm_tooltip="Нажмите ещё раз для подтверждения",
+                    busy_tooltip="Удаление…",
+                    parent=self,
+                )
+                delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
+                actions_row.addWidget(delete_btn)
+
+            if not self._is_builtin:
+                export_btn = self._create_icon_action_button("fa5s.file-export", "Экспорт")
+                export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
+                actions_row.addWidget(export_btn)
+
             top_row.addWidget(actions_widget)
+        else:
+            self._actions_widget = None
 
         main_layout.addLayout(top_row)
 
@@ -284,12 +405,6 @@ class PresetCard(QFrame):
             # Кнопки действий
             buttons_row = QHBoxLayout()
             buttons_row.setSpacing(8)
-
-            # Кнопка активации (только для неактивных)
-            if not self._is_active:
-                self.activate_btn = self._create_action_button("Активировать", "fa5s.check")
-                self.activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
-                buttons_row.addWidget(self.activate_btn)
 
             # Переименовать (недоступно для встроенных)
             if not self._is_builtin:
@@ -417,16 +532,31 @@ class PresetCard(QFrame):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
-        """Двойной клик для активации"""
+        """ЛКМ по карточке активирует пресет (если не активен)."""
         if event.button() == Qt.MouseButton.LeftButton and not self._is_active:
-            # Одиночный клик ничего не делает, используем кнопки
-            pass
+            child = self.childAt(event.pos())
+            if isinstance(child, QPushButton):
+                super().mousePressEvent(event)
+                return
+
+            actions_widget = getattr(self, "_actions_widget", None)
+            if actions_widget is not None and child is not None:
+                # Prevent accidental activation when clicking around action icons.
+                try:
+                    if child == actions_widget or actions_widget.isAncestorOf(child):
+                        super().mousePressEvent(event)
+                        return
+                except Exception:
+                    pass
+
+            self.activate_clicked.emit(self.preset_name)
+            event.accept()
+            return
+
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        """Двойной клик активирует пресет"""
-        if event.button() == Qt.MouseButton.LeftButton and not self._is_active:
-            self.activate_clicked.emit(self.preset_name)
+        # Single click already activates.
         super().mouseDoubleClickEvent(event)
 
 
@@ -577,6 +707,7 @@ class PresetsPage(BasePage):
 
         self._preset_cards = []  # Список карточек для обновления
         self._manager = None     # Lazy init
+        self._ui_dirty = True    # needs rebuild on next show
         self._file_watcher: Optional[QFileSystemWatcher] = None
         self._watcher_active = False
         self._watcher_reload_timer = QTimer(self)
@@ -586,11 +717,33 @@ class PresetsPage(BasePage):
         self._build_ui()
         self._load_presets()
 
+        # Subscribe to central store signals
+        try:
+            from preset_zapret2.preset_store import get_preset_store
+            store = get_preset_store()
+            store.presets_changed.connect(self._on_store_changed)
+            store.preset_switched.connect(self._on_store_switched)
+        except Exception:
+            pass
+
+    def _on_store_changed(self):
+        """Central store says the preset list changed."""
+        self._ui_dirty = True
+        if self.isVisible():
+            self._load_presets()
+
+    def _on_store_switched(self, _name: str):
+        """Central store says the active preset switched."""
+        self._ui_dirty = True
+        if self.isVisible():
+            self._load_presets()
+
     def showEvent(self, event):
         """При открытии страницы включаем мониторинг папки пресетов."""
         super().showEvent(event)
         self._start_watching_presets()
-        self._load_presets()
+        if self._ui_dirty:
+            self._load_presets()
 
     def hideEvent(self, event):
         """При скрытии страницы отключаем мониторинг (экономия ресурсов)."""
@@ -1184,6 +1337,7 @@ class PresetsPage(BasePage):
 
     def _load_presets(self):
         """Загружает и отображает список пресетов"""
+        self._ui_dirty = False
         try:
             manager = self._get_manager()
             preset_names = manager.list_presets()

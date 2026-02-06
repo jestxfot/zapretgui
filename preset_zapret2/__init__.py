@@ -78,6 +78,9 @@ from .preset_storage import (
 # High-level manager
 from .preset_manager import PresetManager
 
+# Central in-memory store (singleton)
+from .preset_store import PresetStore, get_preset_store
+
 # Txt parser (for advanced usage)
 from .txt_preset_parser import (
     CategoryBlock,
@@ -449,6 +452,9 @@ __all__ = [
     "set_active_preset_name",
     # Manager
     "PresetManager",
+    # Central store
+    "PresetStore",
+    "get_preset_store",
     # Utility functions
     "ensure_builtin_presets_exist",
     "ensure_default_preset_exists",

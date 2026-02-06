@@ -623,7 +623,17 @@ class MainWindowUI:
                 self.zapret2_strategies_page.on_external_sort_changed
             )
 
-        # Presets: any preset switch should refresh preset-driven pages
+        # Presets: subscribe to central PresetStore for all preset events.
+        # This replaces per-page signal connections — all preset switches
+        # (from any page, backend, or external file change) trigger the same handler.
+        try:
+            from preset_zapret2.preset_store import get_preset_store
+            store = get_preset_store()
+            store.preset_switched.connect(self._on_preset_switched)
+        except Exception:
+            pass
+
+        # Keep legacy page signal connections as fallback
         try:
             if hasattr(self, 'zapret2_user_presets_page') and hasattr(self.zapret2_user_presets_page, 'preset_switched'):
                 self.zapret2_user_presets_page.preset_switched.connect(self._on_preset_switched)

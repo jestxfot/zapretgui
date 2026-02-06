@@ -40,6 +40,7 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._preset_cards: list[PresetCard] = []
         self._manager = None
+        self._ui_dirty = True  # needs rebuild on next show
 
         self._file_watcher: Optional[QFileSystemWatcher] = None
         self._watcher_active = False
@@ -52,6 +53,27 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._build_ui()
         self._load_presets()
+
+        # Subscribe to central store signals
+        try:
+            from preset_zapret2.preset_store import get_preset_store
+            store = get_preset_store()
+            store.presets_changed.connect(self._on_store_changed)
+            store.preset_switched.connect(self._on_store_switched)
+        except Exception:
+            pass
+
+    def _on_store_changed(self):
+        """Central store says the preset list changed."""
+        self._ui_dirty = True
+        if self.isVisible():
+            self._load_presets()
+
+    def _on_store_switched(self, _name: str):
+        """Central store says the active preset switched."""
+        self._ui_dirty = True
+        if self.isVisible():
+            self._load_presets()
 
     def _get_manager(self):
         if self._manager is None:
@@ -79,7 +101,8 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception:
             pass
         self._start_watching_presets()
-        self._load_presets()
+        if self._ui_dirty:
+            self._load_presets()
 
     def hideEvent(self, event):
         self._stop_watching_presets()
@@ -642,6 +665,7 @@ class Zapret2UserPresetsPage(BasePage):
             QMessageBox.critical(self, "Ошибка", f"Ошибка импорта: {e}")
 
     def _load_presets(self):
+        self._ui_dirty = False
         try:
             manager = self._get_manager()
             preset_names = manager.list_presets()
@@ -667,6 +691,7 @@ class Zapret2UserPresetsPage(BasePage):
                     modified=preset.modified,
                     is_active=(name == active_name),
                     is_builtin=False,
+                    compact_actions=True,
                     parent=self,
                 )
                 card.activate_clicked.connect(self._on_activate_preset)
