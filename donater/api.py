@@ -12,6 +12,10 @@ class PremiumApiClient:
     def __init__(self, *, base_url: str, timeout: int = 10):
         self.base_url = (base_url or "").rstrip("/")
         self.timeout = int(timeout)
+        # Bypass system/env proxy settings to avoid interference from DPI tools (winws/winws2)
+        # that may configure system proxy or set HTTP_PROXY/HTTPS_PROXY env vars.
+        self._session = requests.Session()
+        self._session.trust_env = False
 
     def _url(self, endpoint: str) -> str:
         endpoint = (endpoint or "").lstrip("/")
@@ -71,7 +75,7 @@ class PremiumApiClient:
     def get_status(self) -> Optional[Dict[str, Any]]:
         nonce = ""  # no nonce for GET
         try:
-            r = requests.get(self._url("status"), timeout=self.timeout)
+            r = self._session.get(self._url("status"), timeout=self.timeout)
             # Always return dict with HTTP metadata when possible.
             return self._response_to_dict(r, nonce=nonce)
         except Exception as e:
@@ -85,7 +89,7 @@ class PremiumApiClient:
     def post_pair_start(self, *, device_id: str, device_name: str | None = None) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
         try:
-            r = requests.post(
+            r = self._session.post(
                 self._url("pair_start"),
                 json={"device_id": device_id, "device_name": device_name, "nonce": nonce},
                 timeout=self.timeout,
@@ -97,7 +101,7 @@ class PremiumApiClient:
     def post_pair_finish(self, *, device_id: str, pair_code: str) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
         try:
-            r = requests.post(
+            r = self._session.post(
                 self._url("pair_finish"),
                 json={"device_id": device_id, "pair_code": pair_code, "nonce": nonce},
                 timeout=self.timeout,
@@ -109,7 +113,7 @@ class PremiumApiClient:
     def post_check(self, *, device_id: str, device_token: str) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
         try:
-            r = requests.post(
+            r = self._session.post(
                 self._url("check_device"),
                 json={"device_id": device_id, "device_token": device_token, "nonce": nonce},
                 timeout=self.timeout,
