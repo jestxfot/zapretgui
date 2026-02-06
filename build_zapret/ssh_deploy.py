@@ -14,6 +14,7 @@ from typing import Optional, Any, List, Dict, Tuple
 import json
 from datetime import datetime
 import tempfile
+import shlex
 # ═══════════════════════════════════════════════════════════════
 # КОНФИГУРАЦИЯ СЕРВЕРОВ
 # ═══════════════════════════════════════════════════════════════
@@ -222,8 +223,8 @@ VPS_SERVERS = [
     {
         'id': 'vps_super',
         'name': 'VPS Super (Новый основной)',
-        'host': '185.114.116.232',
-        'port': 22,
+        'host': '206.251.51.235',
+        'port': 10222,
         'user': 'root',
         'password': None,
         'key_path': None,
@@ -237,7 +238,7 @@ VPS_SERVERS = [
     {
         'id': 'vps0',
         'name': 'VPS Primary (Новый основной)',
-        'host': '141.98.189.140',
+        'host': '46.21.80.246',
         'port': 10222,
         'user': 'root',
         'password': None,
@@ -1116,7 +1117,16 @@ def _deploy_to_single_server(
         
         # ═══ ОБНОВЛЕНИЕ JSON ═══
         log(f"\n📝 Обновление JSON API...")
-        
+
+        # Paramiko SFTP can't create parent directories on put(); ensure API dir exists.
+        api_dir = os.path.dirname(json_path)
+        if api_dir:
+            try:
+                sftp.stat(api_dir)
+            except Exception:
+                _stdin, _stdout, _stderr = ssh.exec_command(f"mkdir -p {shlex.quote(api_dir)}")
+                _stdout.channel.recv_exit_status()
+         
         file_stat = sftp.stat(remote_path)
         file_mtime = int(file_stat.st_mtime or 0)
         

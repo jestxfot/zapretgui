@@ -13,7 +13,7 @@ VPS_SERVERS = [
     {
         'id': 'vps0',
         'name': 'VPS Primary (Ещё один)',
-        'host': '185.114.116.232',
+        'host': '206.251.51.235',
         'https_port': 888,
         'http_port': 887,
         'priority': 1,
@@ -22,7 +22,7 @@ VPS_SERVERS = [
     {
         'id': 'vps0',
         'name': 'VPS Primary (Новый основной)',
-        'host': '141.98.189.140',
+        'host': '46.21.80.246',
         'https_port': 888,
         'http_port': 887,
         'priority': 2,

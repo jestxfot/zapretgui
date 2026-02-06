@@ -305,7 +305,7 @@ class ControlPage(BasePage):
         cert_row = SettingsRow(
             "fa5s.certificate",
             "Установить сертификат",
-            "Необязательно. Добавляет корневой сертификат Zapret Developer в доверенные (текущий пользователь)",
+            "Необязательно. Добавляет сертификат установщика Zapret GUI в исключения антивируса (может помочь против блокировок Defender. НЕ действует на Касперский!)",
         )
         self.install_cert_btn = ActionButton("Установить")
         self.install_cert_btn.setProperty("noDrag", True)

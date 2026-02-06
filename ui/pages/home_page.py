@@ -162,13 +162,27 @@ class StatusCard(QFrame):
             self.icons_layout.setContentsMargins(0, 0, 0, 0)
             self.icons_layout.setSpacing(4)
             # Вставляем после value_label
-            self.layout().insertWidget(2, self.icons_container)
+            lay = self.layout()
+            if isinstance(lay, QVBoxLayout):
+                lay.insertWidget(2, self.icons_container)
+            else:
+                # Fallback: keep layout stable even if stubs/types differ.
+                try:
+                    lay.insertWidget(2, self.icons_container)  # type: ignore[attr-defined]
+                except Exception:
+                    try:
+                        lay.addWidget(self.icons_container)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
         
         # Очищаем старые иконки
         while self.icons_layout.count():
             item = self.icons_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if not item:
+                continue
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
         
         # Скрываем текстовый label, показываем иконки
         self.value_label.hide()
@@ -195,8 +209,11 @@ class StatusCard(QFrame):
             # Оставляем первые 9 + счётчик
             while self.icons_layout.count() > 9:
                 item = self.icons_layout.takeAt(9)
-                if item.widget():
-                    item.widget().deleteLater()
+                if not item:
+                    continue
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
             
             extra_label = QLabel(f"+{active_count - 9}")
             extra_label.setStyleSheet("""
@@ -232,7 +249,7 @@ class StatusCard(QFrame):
             }}
         """)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event):  # type: ignore[override]
         """Обработка клика по карточке"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
@@ -252,14 +269,55 @@ class HomePage(BasePage):
         super().__init__("Главная", "Обзор состояния Zapret", parent)
 
         self._autostart_worker = None
+        # Retry state for direct_* strategy icons on the Home card.
+        # On startup / fast switching the catalog/preset can be briefly unavailable;
+        # without a retry the card may stay in text mode.
+        self._strategy_icons_retry_attempts = 0
+        self._strategy_icons_retry_scheduled = False
+        self._strategy_icons_last: tuple[list[tuple[str, str, bool]], str] | None = None
         self._build_ui()
         self._connect_card_signals()
     
-    def showEvent(self, event):
+    def showEvent(self, event):  # type: ignore[override]
         """При показе страницы обновляем статус автозапуска"""
         super().showEvent(event)
         # Запускаем проверку автозапуска в фоне с небольшой задержкой
         QTimer.singleShot(100, self._check_autostart_status)
+        # Also refresh strategy icons once UI state settles.
+        QTimer.singleShot(150, self._refresh_strategy_card)
+
+    def _get_parent_strategy_name(self) -> str:
+        """Best-effort fetch of current strategy label from the main window."""
+        try:
+            parent = getattr(self, "parent_app", None)
+            label = getattr(parent, "current_strategy_label", None) if parent is not None else None
+            if label is not None:
+                return str(label.text() or "")
+        except Exception:
+            pass
+        return ""
+
+    def _refresh_strategy_card(self) -> None:
+        """Refresh the strategy card using latest known strategy name."""
+        self._update_strategy_card_with_icons(self._get_parent_strategy_name())
+
+    def _schedule_strategy_icons_retry(self) -> None:
+        """Schedules a short retry to avoid getting stuck in text mode."""
+        if self._strategy_icons_retry_scheduled:
+            return
+        # Keep it bounded: if something is genuinely broken we should not keep looping.
+        if self._strategy_icons_retry_attempts >= 8:
+            return
+
+        self._strategy_icons_retry_scheduled = True
+        self._strategy_icons_retry_attempts += 1
+
+        def _retry():
+            self._strategy_icons_retry_scheduled = False
+            # Use the latest label text (it may change after loading).
+            self._update_strategy_card_with_icons(self._get_parent_strategy_name())
+
+        QTimer.singleShot(250, _retry)
     
     def _check_autostart_status(self):
         """Запускает фоновую проверку статуса автозапуска"""
@@ -367,7 +425,7 @@ class HomePage(BasePage):
         self.autostart_card.clicked.connect(self.navigate_to_autostart.emit)
         self.subscription_card.clicked.connect(self.navigate_to_premium.emit)
         
-    def update_dpi_status(self, is_running: bool, strategy_name: str = None):
+    def update_dpi_status(self, is_running: bool, strategy_name: str | None = None):
         """Обновляет отображение статуса DPI"""
         if is_running:
             self.dpi_status_card.set_value("Запущен", "Обход блокировок активен")
@@ -392,32 +450,67 @@ class HomePage(BasePage):
             
             # Для Direct режимов показываем иконки
             if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                selections = get_direct_strategy_selections()
+                selections = get_direct_strategy_selections() or {}
                 
                 # Собираем данные о категориях: (icon_name, icon_color, is_active)
-                categories_data = []
-                active_count = 0
+                categories_data: list[tuple[str, str, bool]] = []
                 
                 for cat_key in registry.get_all_category_keys():
                     cat_info = registry.get_category_info(cat_key)
                     if cat_info:
-                        strat_id = selections.get(cat_key, "none")
-                        is_active = strat_id and strat_id != "none"
-                        
-                        if is_active:
-                            active_count += 1
-                            categories_data.append((
-                                cat_info.icon_name or 'fa5s.globe',
-                                cat_info.icon_color or '#60cdff',
-                                True
-                            ))
-                
-                if active_count > 0:
-                    self.strategy_card.set_value_with_icons(
-                        categories_data, 
-                        f"Активно {active_count} категорий"
-                    )
+                        strat_id = selections.get(cat_key, "none") or "none"
+                        if strat_id != "none":
+                            categories_data.append(
+                                (
+                                    cat_info.icon_name or "fa5s.globe",
+                                    cat_info.icon_color or "#60cdff",
+                                    True,
+                                )
+                            )
+
+                if categories_data:
+                    active_count = len(categories_data)
+                    info = f"Активно {active_count} категорий"
+                    self.strategy_card.set_value_with_icons(categories_data, info)
+                    self._strategy_icons_last = (categories_data, info)
+                    self._strategy_icons_retry_attempts = 0
                     return
+
+                # No categories resolved. This can be legitimate (all disabled), but in practice
+                # it often happens transiently during startup / fast switching when the catalog
+                # or preset file is not yet ready. Avoid switching the card to text mode.
+                name_norm = (strategy_name or "").strip()
+                if name_norm in ("", "⏳ Загрузка...", "Загрузка..."):
+                    self._schedule_strategy_icons_retry()
+                    if self._strategy_icons_last:
+                        last_data, last_info = self._strategy_icons_last
+                        self.strategy_card.set_value_with_icons(last_data, last_info)
+                    else:
+                        self.strategy_card.set_value_with_icons(
+                            [("fa5s.spinner", "#60cdff", True)],
+                            "Загрузка категорий...",
+                        )
+                    return
+                if name_norm and name_norm not in ("Не выбрана", "Автостарт DPI отключен"):
+                    self._schedule_strategy_icons_retry()
+                    # Prefer the last successful icon set to avoid flicker.
+                    if self._strategy_icons_last:
+                        last_data, last_info = self._strategy_icons_last
+                        self.strategy_card.set_value_with_icons(last_data, last_info)
+                    else:
+                        self.strategy_card.set_value_with_icons(
+                            [("fa5s.spinner", "#60cdff", True)],
+                            "Загрузка категорий...",
+                        )
+                    return
+
+                # Legitimate empty selection: keep icons layout with a single neutral glyph.
+                self.strategy_card.set_value_with_icons(
+                    [("fa5s.globe", "#8CFFFFFF", True)],
+                    "Нет активных категорий",
+                )
+                self._strategy_icons_retry_attempts = 0
+                return
             
             # Fallback - текстовое отображение для BAT режима
             display_name = self._truncate_strategy_name(strategy_name)
@@ -426,6 +519,17 @@ class HomePage(BasePage):
         except Exception as e:
             from log import log
             log(f"Ошибка обновления карточки стратегии: {e}", "DEBUG")
+            # In direct modes try a retry before falling back to text.
+            try:
+                from strategy_menu import get_strategy_launch_method
+                if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                    self._schedule_strategy_icons_retry()
+                    if self._strategy_icons_last:
+                        last_data, last_info = self._strategy_icons_last
+                        self.strategy_card.set_value_with_icons(last_data, last_info)
+                        return
+            except Exception:
+                pass
             # Fallback на текст
             display_name = self._truncate_strategy_name(strategy_name)
             self.strategy_card.set_value(display_name, "Активная стратегия")
@@ -472,7 +576,7 @@ class HomePage(BasePage):
             self.autostart_card.set_value("Отключён", "Запускайте вручную")
             self.autostart_card.set_status_color('neutral')
             
-    def update_subscription_status(self, is_premium: bool, days: int = None):
+    def update_subscription_status(self, is_premium: bool, days: int | None = None):
         """Обновляет отображение статуса подписки"""
         if is_premium:
             if days:
@@ -546,4 +650,3 @@ class HomePage(BasePage):
         
         premium_card.add_layout(premium_layout)
         self.add_widget(premium_card)
-

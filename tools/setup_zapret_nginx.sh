@@ -291,7 +291,7 @@ server {
     listen ${https_port} ssl default_server;
     server_name _;
 
-    http2 on;
+    #http2 on;
 
     ssl_certificate ${cert_dir}/server.crt;
     ssl_certificate_key ${cert_dir}/server.key;

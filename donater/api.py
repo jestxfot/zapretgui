@@ -17,10 +17,50 @@ class PremiumApiClient:
         endpoint = (endpoint or "").lstrip("/")
         return f"{self.base_url}/{endpoint}"
 
+    @staticmethod
+    def _truncate_text(s: str, limit: int = 400) -> str:
+        s = (s or "").strip()
+        if not s:
+            return ""
+        if len(s) <= limit:
+            return s
+        return s[: limit - 3] + "..."
+
+    @staticmethod
+    def _response_to_dict(r: requests.Response, *, nonce: str) -> Dict[str, Any]:
+        """Best-effort convert HTTP response into a dict with debug metadata."""
+        data: Dict[str, Any]
+        try:
+            parsed = r.json() if r.content else None
+        except Exception:
+            parsed = None
+
+        if isinstance(parsed, dict):
+            data = parsed
+        else:
+            data = {
+                "success": False,
+                "error": "Некорректный ответ сервера",
+            }
+
+        # Attach metadata for debugging (client-side only).
+        try:
+            data.setdefault("_nonce", nonce)
+            data.setdefault("_http_status", int(getattr(r, "status_code", 0) or 0))
+            if not data.get("_http_text"):
+                data["_http_text"] = PremiumApiClient._truncate_text(getattr(r, "text", "") or "")
+        except Exception:
+            pass
+
+        return data
+
     def get_status(self) -> Optional[Dict[str, Any]]:
         try:
             r = requests.get(self._url("status"), timeout=self.timeout)
-            return r.json() if r.status_code == 200 else (r.json() if r.content else None)
+            # Always return dict with HTTP metadata when possible.
+            nonce = ""  # no nonce for GET
+            data = self._response_to_dict(r, nonce=nonce)
+            return data
         except Exception:
             return None
 
@@ -37,11 +77,7 @@ class PremiumApiClient:
                 json={"device_id": device_id, "device_name": device_name, "nonce": nonce},
                 timeout=self.timeout,
             )
-            data = r.json() if r.content else None
-            if isinstance(data, dict):
-                data["_nonce"] = nonce
-                data["_http_status"] = r.status_code
-            return (data if isinstance(data, dict) else None, nonce)
+            return (self._response_to_dict(r, nonce=nonce), nonce)
         except Exception:
             return (None, nonce)
 
@@ -53,11 +89,7 @@ class PremiumApiClient:
                 json={"device_id": device_id, "pair_code": pair_code, "nonce": nonce},
                 timeout=self.timeout,
             )
-            data = r.json() if r.content else None
-            if isinstance(data, dict):
-                data["_nonce"] = nonce
-                data["_http_status"] = r.status_code
-            return (data if isinstance(data, dict) else None, nonce)
+            return (self._response_to_dict(r, nonce=nonce), nonce)
         except Exception:
             return (None, nonce)
 
@@ -69,10 +101,6 @@ class PremiumApiClient:
                 json={"device_id": device_id, "device_token": device_token, "nonce": nonce},
                 timeout=self.timeout,
             )
-            data = r.json() if r.content else None
-            if isinstance(data, dict):
-                data["_nonce"] = nonce
-                data["_http_status"] = r.status_code
-            return (data if isinstance(data, dict) else None, nonce)
+            return (self._response_to_dict(r, nonce=nonce), nonce)
         except Exception:
             return (None, nonce)

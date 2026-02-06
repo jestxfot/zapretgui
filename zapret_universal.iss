@@ -88,12 +88,10 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "{#SOURCEPATH}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
-; ✅ Presets are always installed to %APPDATA%\zapret\presets
-; Source is the Zapret dist folder (SOURCEPATH), e.g. \\wsl.localhost\Debian\home\privacy\zapret\zapret
-; - presets\* is seeded only when missing (keeps user changes)
-; - presets\_builtin\* is always updated
-Source: "{#SOURCEPATH}\presets\*"; DestDir: "{userappdata}\zapret\presets"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist onlyifdoesntexist
-Source: "{#SOURCEPATH}\presets\_builtin\*"; DestDir: "{userappdata}\zapret\presets\_builtin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Built-in preset templates are installed to %APPDATA%\zapret\presets\_builtin
+; Source: Zapret GUI repo folder `preset_zapret2/builtin_presets/*.txt`.
+; Files starting with '_' are templates/docs and should not appear in UI.
+Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets\_builtin"; Excludes: "_*.txt"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist

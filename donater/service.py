@@ -33,10 +33,31 @@ class PremiumService:
     def test_connection(self) -> Tuple[bool, str]:
         with self._lock:
             result = self._api.get_status()
-            if result and result.get("success"):
+            if isinstance(result, dict) and result.get("success"):
                 version = result.get("version", "unknown")
                 return True, f"API сервер доступен (v{version})"
-            return False, "Сервер недоступен"
+
+            # Best-effort diagnostics for non-200 / non-success responses.
+            if isinstance(result, dict):
+                http = result.get("_http_status")
+                err = (
+                    result.get("error")
+                    or result.get("message")
+                    or result.get("detail")
+                    or result.get("status")
+                    or ""
+                )
+                text = (result.get("_http_text") or "").strip()
+                bits = []
+                if http:
+                    bits.append(f"HTTP {http}")
+                if err:
+                    bits.append(str(err))
+                elif text:
+                    bits.append(text)
+                return False, "API недоступен" + (": " + " | ".join(bits) if bits else "")
+
+            return False, "API недоступен"
 
     def pair_start(self, *, device_name: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
         """
@@ -56,7 +77,7 @@ class PremiumService:
             code = str(signed.get("pair_code") or "").strip().upper()
             expires_at = signed.get("pair_expires_at")
             try:
-                expires_at_i = int(expires_at)
+                expires_at_i = int(str(expires_at))
             except Exception:
                 expires_at_i = 0
 
@@ -80,34 +101,81 @@ class PremiumService:
             device_id = PremiumStorage.get_device_id()
             device_token = PremiumStorage.get_device_token() or ""
 
-            # If token is missing, but we have a pending pair code, try to finish pairing first.
-            if not device_token:
-                code = PremiumStorage.get_pair_code()
-                exp = PremiumStorage.get_pair_expires_at() or 0
-                if code and int(exp) >= int(time.time()):
-                    raw2, nonce2 = self._api.post_pair_finish(device_id=device_id, pair_code=code)
-                    if raw2:
-                        signed2 = verify_signed_response(raw2, expected_device_id=device_id, expected_nonce=nonce2)
-                        if signed2 and signed2.get("type") == "zapret_premium_activation":
-                            token = str(signed2.get("device_token") or "").strip()
-                            if token:
-                                # Store token even if subscription is currently inactive:
-                                # it will become active automatically after renewal (bot sync).
-                                PremiumStorage.store_after_pairing(
-                                    device_id=device_id,
-                                    device_token=token,
-                                    signed_payload=signed2,
-                                    kid=raw2.get("kid") if isinstance(raw2, dict) else None,
-                                    sig=raw2.get("sig") if isinstance(raw2, dict) else None,
-                                )
-                                device_token = token
+            # If we have a pending pair code (user started pairing), try to finish pairing first.
+            # Do it even when we already have a token: token may be stale/invalid on server.
+            code = PremiumStorage.get_pair_code()
+            exp = PremiumStorage.get_pair_expires_at() or 0
+            if code and int(exp) >= int(time.time()):
+                raw2, nonce2 = self._api.post_pair_finish(device_id=device_id, pair_code=code)
+                if raw2:
+                    signed2 = verify_signed_response(raw2, expected_device_id=device_id, expected_nonce=nonce2)
+                    if signed2 and signed2.get("type") == "zapret_premium_activation":
+                        token = str(signed2.get("device_token") or "").strip()
+                        if token:
+                            # Store token even if subscription is currently inactive:
+                            # it will become active automatically after renewal (bot sync).
+                            PremiumStorage.store_after_pairing(
+                                device_id=device_id,
+                                device_token=token,
+                                signed_payload=signed2,
+                                kid=raw2.get("kid") if isinstance(raw2, dict) else None,
+                                sig=raw2.get("sig") if isinstance(raw2, dict) else None,
+                            )
+                            device_token = token
 
             raw, nonce = self._api.post_check(device_id=device_id, device_token=device_token)
 
-            if raw:
+            api_error_message: Optional[str] = None
+            if isinstance(raw, dict):
+                # If server replied with an error (e.g. HTTP 400), surface it to UI/logs.
+                http = raw.get("_http_status")
+                http_i = 0
+                try:
+                    http_i = int(str(http))
+                except Exception:
+                    http_i = 0
+
+                if http_i >= 400:
+                    err = (
+                        raw.get("error")
+                        or raw.get("message")
+                        or raw.get("detail")
+                        or raw.get("status")
+                        or ""
+                    )
+                    text = (raw.get("_http_text") or "").strip()
+                    msg = str(err or text or "Ошибка запроса")
+                    api_error_message = f"API ошибка (HTTP {http_i}): {msg}"
+
+                # Some backends may return JSON errors with HTTP 200.
+                if api_error_message is None and raw.get("success") is False:
+                    err2 = (
+                        raw.get("error")
+                        or raw.get("message")
+                        or raw.get("detail")
+                        or raw.get("status")
+                        or ""
+                    )
+                    text2 = (raw.get("_http_text") or "").strip()
+                    msg2 = str(err2 or text2 or "Ошибка запроса")
+                    api_error_message = f"API ошибка: {msg2}"
+
                 signed = verify_signed_response(raw, expected_device_id=device_id, expected_nonce=nonce)
                 if signed and signed.get("type") == "zapret_premium_status":
                     activated = bool(signed.get("activated"))
+
+                    # Best-effort "linked" signal for UI.
+                    is_linked: Optional[bool] = None
+                    for k in ("found", "linked", "is_linked"):
+                        v = signed.get(k)
+                        if isinstance(v, bool):
+                            is_linked = v
+                            break
+                    if is_linked is None:
+                        msg_l = str(signed.get("message") or "").strip().lower()
+                        if "не привяз" in msg_l or "not linked" in msg_l or "not paired" in msg_l:
+                            is_linked = False
+
                     if activated:
                         PremiumStorage.store_status_active(
                             signed_payload=signed,
@@ -121,8 +189,24 @@ class PremiumService:
                         days_remaining=signed.get("days_remaining"),
                         expires_at=signed.get("expires_at"),
                         status_message=str(signed.get("message") or ("Активировано" if activated else "Не активировано")),
+                        is_linked=is_linked,
                         subscription_level=str(signed.get("subscription_level") or ("zapretik" if activated else "–")),
                     )
+
+                # If response exists but signature didn't validate, keep a readable hint.
+                if api_error_message is None and raw:
+                    http2 = raw.get("_http_status")
+                    api_error_message = "Некорректный ответ сервера"
+                    if http2:
+                        api_error_message += f" (HTTP {http2})"
+
+            if api_error_message:
+                try:
+                    from log import log
+
+                    log(f"Premium API check failed: {api_error_message}", "WARNING")
+                except Exception:
+                    pass
 
             # Offline cache path
             cache = PremiumStorage.get_premium_cache()
@@ -134,7 +218,13 @@ class PremiumService:
                     expires_at = cached_signed.get("expires_at")
                     try:
                         now_ts = int(time.time())
-                        if int(valid_until) >= now_ts:
+                        valid_until_i = 0
+                        try:
+                            valid_until_i = int(str(valid_until))
+                        except Exception:
+                            valid_until_i = 0
+
+                        if valid_until_i >= now_ts:
                             # Do not allow offline premium past subscription expiry.
                             if expires_at:
                                 from datetime import datetime
@@ -149,6 +239,7 @@ class PremiumService:
                                 days_remaining=cached_signed.get("days_remaining"),
                                 expires_at=cached_signed.get("expires_at"),
                                 status_message="Активировано (offline)",
+                                is_linked=True,
                                 subscription_level=str(cached_signed.get("subscription_level") or "zapretik"),
                             )
                     except Exception:
@@ -158,15 +249,17 @@ class PremiumService:
                 is_activated=False,
                 days_remaining=None,
                 expires_at=None,
-                status_message="Не активировано",
+                status_message=api_error_message or "Не активировано",
+                is_linked=None,
                 subscription_level="–",
             )
 
     # Back-compat helpers used around the app:
     def check_device_activation(self) -> Dict[str, Any]:
         st = self.check_status()
+        found = st.is_linked if st.is_linked is not None else (PremiumStorage.get_device_token() is not None)
         return {
-            "found": PremiumStorage.get_device_token() is not None,
+            "found": found,
             "activated": st.is_activated,
             "is_premium": st.is_activated,
             "days_remaining": st.days_remaining,

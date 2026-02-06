@@ -12,6 +12,9 @@ class ActivationStatus:
     days_remaining: Optional[int]
     expires_at: Optional[str]
     status_message: str
+    # When known from server response: whether device is linked/recognized.
+    # None means "unknown" (client will fallback to local token presence).
+    is_linked: Optional[bool] = None
     subscription_level: str = "–"
 
     def get_formatted_expiry(self) -> str:
@@ -24,4 +27,3 @@ class ActivationStatus:
         if self.days_remaining == 1:
             return "1 день"
         return f"{self.days_remaining} дн."
-
