@@ -78,8 +78,6 @@
 --wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
 
 --filter-udp=443
---hostlist=lists/list-general.txt
---hostlist-exclude=lists/list-exclude.txt
 --ipset-exclude=lists/ipset-exclude.txt
 --payload=quic_initial
 --lua-desync=fake:blob=quic_google:repeats=6
@@ -112,7 +110,6 @@
 
 --filter-udp=443
 --ipset=lists/ipset-all.txt
---hostlist-exclude=lists/list-exclude.txt
 --ipset-exclude=lists/ipset-exclude.txt
 --payload=quic_initial
 --lua-desync=fake:blob=quic_google:repeats=6

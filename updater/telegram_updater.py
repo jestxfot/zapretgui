@@ -11,6 +11,7 @@ import time as _time
 import requests
 from typing import Optional, Dict, Any, Callable
 from log import log
+from .network_hints import maybe_log_disable_dpi_for_update
 
 # Обфусцированные встроенные данные
 _INLINE_PARTS = [
@@ -116,8 +117,13 @@ def _call_bot_api(method: str, params: dict = None) -> Optional[dict]:
             _telegram_disabled_until = _time.time() + retry_after
             log(f"⚠️ Telegram rate limit: {retry_after}с", "📱 TG")
         return None
+    except requests.exceptions.ProxyError as e:
+        log(f"❌ Bot API ошибка (proxy): {e}", "📱 TG")
+        maybe_log_disable_dpi_for_update(e, scope="update_check", level="📱 TG")
+        return None
     except Exception as e:
         log(f"❌ Bot API ошибка: {e}", "📱 TG")
+        maybe_log_disable_dpi_for_update(e, scope="update_check", level="📱 TG")
         return None
 
 
@@ -168,6 +174,7 @@ def _parse_telegram_web(channel: str) -> Optional[Dict[str, Any]]:
         
     except Exception as e:
         log(f"❌ Ошибка парсинга t.me: {e}", "📱 TG")
+        maybe_log_disable_dpi_for_update(e, scope="update_check", level="📱 TG")
         return None
 
 
@@ -244,6 +251,7 @@ def get_telegram_version_info(channel: str = 'stable') -> Optional[Dict[str, Any
                         
         except Exception as e:
             log(f"⚠️ Bot API ошибка: {e}", "📱 TG")
+            maybe_log_disable_dpi_for_update(e, scope="update_check", level="📱 TG")
     
     # Метод 2: Парсинг публичной страницы (fallback)
     try:

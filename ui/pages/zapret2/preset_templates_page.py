@@ -138,6 +138,25 @@ class Zapret2PresetTemplatesPage(BasePage):
             if item.widget():
                 item.widget().deleteLater()
 
+    @staticmethod
+    def _is_game_filter_template_name(name: str) -> bool:
+        return "game filter" in (name or "").lower()
+
+    def _make_subsection_title(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(255, 255, 255, 0.75);
+                font-size: 12px;
+                font-weight: 600;
+                padding-top: 10px;
+                padding-bottom: 2px;
+            }
+            """
+        )
+        return label
+
     def _load_templates(self):
         try:
             manager = self._get_manager()
@@ -186,7 +205,8 @@ class Zapret2PresetTemplatesPage(BasePage):
 
             self._clear_layout(self.templates_layout)
 
-            items: list[PresetCard] = []
+            items_regular: list[PresetCard] = []
+            items_game_filter: list[PresetCard] = []
             for name in preset_names:
                 preset = manager.load_preset(name)
                 if not preset or not preset.is_builtin:
@@ -197,17 +217,34 @@ class Zapret2PresetTemplatesPage(BasePage):
                     modified=preset.modified,
                     is_active=(bool(template_name) and name == template_name),
                     is_builtin=True,
+                    compact_actions=True,
                     parent=self,
                 )
                 card.activate_clicked.connect(self._on_activate_preset)
                 card.duplicate_clicked.connect(self._on_duplicate_preset)
-                items.append(card)
+
+                if self._is_game_filter_template_name(name):
+                    items_game_filter.append(card)
+                else:
+                    items_regular.append(card)
                 self._preset_cards.append(card)
 
-            for card in items:
-                self.templates_layout.addWidget(card)
+            if items_regular and items_game_filter:
+                self.templates_layout.addWidget(self._make_subsection_title("Обычные"))
+                for card in items_regular:
+                    self.templates_layout.addWidget(card)
+                self.templates_layout.addWidget(self._make_subsection_title("Game filter"))
+                for card in items_game_filter:
+                    self.templates_layout.addWidget(card)
+            elif items_game_filter:
+                self.templates_layout.addWidget(self._make_subsection_title("Game filter"))
+                for card in items_game_filter:
+                    self.templates_layout.addWidget(card)
+            else:
+                for card in items_regular:
+                    self.templates_layout.addWidget(card)
 
-            if not items:
+            if not items_regular and not items_game_filter:
                 empty_label = QLabel("Нет встроенных шаблонов.")
                 empty_label.setStyleSheet(
                     """

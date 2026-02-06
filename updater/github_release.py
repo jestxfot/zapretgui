@@ -15,6 +15,7 @@ import json
 import os
 import requests
 from log import log
+from .network_hints import maybe_log_disable_dpi_for_update
 from config import LOGS_FOLDER
 
 # ────────────────────────────────────────────────────────────────
@@ -252,6 +253,9 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
         
         return json_data
         
+    except requests.exceptions.ProxyError as e:
+        log(f"❌ Ошибка запроса к GitHub (proxy): {e}", "❌ ERROR")
+        maybe_log_disable_dpi_for_update(e, scope="update_check", level="❌ ERROR")
     except requests.exceptions.HTTPError as e:
         if e.response and e.response.status_code == 403:
             log(f"🚫 HTTP 403: {e}", "❌ ERROR")
@@ -259,6 +263,7 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
             log(f"❌ HTTP ошибка: {e}", "❌ ERROR")
     except Exception as e:
         log(f"❌ Ошибка запроса к GitHub: {e}", "❌ ERROR")
+        maybe_log_disable_dpi_for_update(e, scope="update_check", level="❌ ERROR")
     
     return None
 

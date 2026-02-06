@@ -26,6 +26,7 @@ from .github_release import (
     normalize_version, 
     is_rate_limited
 )
+from .network_hints import maybe_log_disable_dpi_for_update
 from log import log
 from config import CHANNEL, LOGS_FOLDER
 
@@ -395,10 +396,26 @@ class ReleaseManager:
                 
                 self.last_error = error_msg
                 return None
+
+            except requests.exceptions.ProxyError as e:
+                error_msg = f"proxy error: {str(e)[:50]}"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                maybe_log_disable_dpi_for_update(e, scope="update_check", level="🔄 RELEASE")
+
+                # Записываем ошибку
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+
+                self.last_error = error_msg
+                return None
             
             except requests.exceptions.ConnectionError as e:
                 error_msg = f"connection error: {str(e)[:50]}"
                 log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+
+                # ProxyError является подтипом ConnectionError и может попасть сюда,
+                # если библиотека вернула его неявно.
+                maybe_log_disable_dpi_for_update(e, scope="update_check", level="🔄 RELEASE")
                 
                 # Записываем ошибку
                 self.server_pool.record_failure(server_id, error_msg)

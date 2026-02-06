@@ -111,12 +111,21 @@ class PresetCard(QFrame):
     delete_clicked = pyqtSignal(str)    # name
     export_clicked = pyqtSignal(str)    # name
 
-    def __init__(self, name: str, description: str = "", modified: str = "",
-                 is_active: bool = False, is_builtin: bool = False, parent=None):
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        modified: str = "",
+        is_active: bool = False,
+        is_builtin: bool = False,
+        compact_actions: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.preset_name = name
         self._is_active = is_active
         self._is_builtin = is_builtin
+        self._compact_actions = compact_actions
         self._hovered = False
 
         self.setObjectName("presetCard")
@@ -154,6 +163,9 @@ class PresetCard(QFrame):
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
             }
         """)
+        # Allow long names to shrink/clamp so right-side badges/actions stay visible.
+        self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.name_label.setMinimumWidth(0)
         top_row.addWidget(self.name_label)
 
         top_row.addStretch()
@@ -215,6 +227,27 @@ class PresetCard(QFrame):
         except Exception:
             pass
 
+        # Compact actions: small icon buttons on the right.
+        if self._compact_actions:
+            actions_row = QHBoxLayout()
+            actions_row.setContentsMargins(0, 0, 0, 0)
+            actions_row.setSpacing(6)
+
+            actions_widget = QWidget()
+            actions_widget.setLayout(actions_row)
+            actions_widget.setStyleSheet("background: transparent;")
+
+            if not self._is_active:
+                activate_btn = self._create_icon_action_button("fa5s.check", "Активировать", icon_color="#60cdff")
+                activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
+                actions_row.addWidget(activate_btn)
+
+            duplicate_btn = self._create_icon_action_button("fa5s.copy", "Дублировать")
+            duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
+            actions_row.addWidget(duplicate_btn)
+
+            top_row.addWidget(actions_widget)
+
         main_layout.addLayout(top_row)
 
         # Описание (если есть)
@@ -247,63 +280,64 @@ class PresetCard(QFrame):
             """)
             main_layout.addWidget(date_label)
 
-        # Кнопки действий
-        buttons_row = QHBoxLayout()
-        buttons_row.setSpacing(8)
+        if not self._compact_actions:
+            # Кнопки действий
+            buttons_row = QHBoxLayout()
+            buttons_row.setSpacing(8)
 
-        # Кнопка активации (только для неактивных)
-        if not self._is_active:
-            self.activate_btn = self._create_action_button("Активировать", "fa5s.check")
-            self.activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
-            buttons_row.addWidget(self.activate_btn)
+            # Кнопка активации (только для неактивных)
+            if not self._is_active:
+                self.activate_btn = self._create_action_button("Активировать", "fa5s.check")
+                self.activate_btn.clicked.connect(lambda: self.activate_clicked.emit(self.preset_name))
+                buttons_row.addWidget(self.activate_btn)
 
-        # Переименовать (недоступно для встроенных)
-        if not self._is_builtin:
-            self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
-            self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
-            buttons_row.addWidget(self.rename_btn)
+            # Переименовать (недоступно для встроенных)
+            if not self._is_builtin:
+                self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
+                self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
+                buttons_row.addWidget(self.rename_btn)
 
-        # Дублировать (доступно для всех)
-        self.duplicate_btn = self._create_action_button("Дублировать", "fa5s.copy")
-        self.duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
-        buttons_row.addWidget(self.duplicate_btn)
+            # Дублировать (доступно для всех)
+            self.duplicate_btn = self._create_action_button("Дублировать", "fa5s.copy")
+            self.duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.duplicate_btn)
 
-        # Сбросить (недоступно для встроенных)
-        if not self._is_builtin:
-            self.reset_btn = _DestructiveConfirmButton(
-                "Сбросить",
-                confirm_text="Подтвердить",
-                icon_name="fa5s.broom",
-                busy_text="Сброс…",
-                parent=self,
-            )
-            self.reset_btn.setToolTip(
-                "Сбросит этот пресет к настройкам из шаблона Default.\n"
-                "Пресет будет активирован."
-            )
-            self.reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
-            buttons_row.addWidget(self.reset_btn)
+            # Сбросить (недоступно для встроенных)
+            if not self._is_builtin:
+                self.reset_btn = _DestructiveConfirmButton(
+                    "Сбросить",
+                    confirm_text="Подтвердить",
+                    icon_name="fa5s.broom",
+                    busy_text="Сброс…",
+                    parent=self,
+                )
+                self.reset_btn.setToolTip(
+                    "Сбросит этот пресет к настройкам из шаблона Default.\n"
+                    "Пресет будет активирован."
+                )
+                self.reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
+                buttons_row.addWidget(self.reset_btn)
 
-        # Удалить (недоступно для активного и встроенных)
-        if not self._is_active and not self._is_builtin:
-            self.delete_btn = _DestructiveConfirmButton(
-                "Удалить",
-                confirm_text="Подтвердить",
-                icon_name="fa5s.trash",
-                busy_text="Удаление…",
-                parent=self,
-            )
-            self.delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
-            buttons_row.addWidget(self.delete_btn)
+            # Удалить (недоступно для активного и встроенных)
+            if not self._is_active and not self._is_builtin:
+                self.delete_btn = _DestructiveConfirmButton(
+                    "Удалить",
+                    confirm_text="Подтвердить",
+                    icon_name="fa5s.trash",
+                    busy_text="Удаление…",
+                    parent=self,
+                )
+                self.delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
+                buttons_row.addWidget(self.delete_btn)
 
-        # Экспорт (недоступно для встроенных)
-        if not self._is_builtin:
-            self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
-            self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
-            buttons_row.addWidget(self.export_btn)
+            # Экспорт (недоступно для встроенных)
+            if not self._is_builtin:
+                self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
+                self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
+                buttons_row.addWidget(self.export_btn)
 
-        buttons_row.addStretch()
-        main_layout.addLayout(buttons_row)
+            buttons_row.addStretch()
+            main_layout.addLayout(buttons_row)
 
     def _create_action_button(self, text: str, icon_name: str) -> QPushButton:
         """Создает кнопку действия в нейтральном стиле"""
@@ -322,6 +356,29 @@ class PresetCard(QFrame):
                 font-size: 11px;
                 font-weight: 500;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
+            }
+        """)
+        return btn
+
+    def _create_icon_action_button(self, icon_name: str, tooltip: str, icon_color: str = "white") -> QPushButton:
+        btn = QPushButton()
+        btn.setToolTip(tooltip)
+        btn.setIcon(qta.icon(icon_name, color=icon_color))
+        btn.setIconSize(QSize(14, 14))
+        btn.setFixedSize(28, 28)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 6px;
             }
             QPushButton:hover {
                 background-color: rgba(255, 255, 255, 0.15);

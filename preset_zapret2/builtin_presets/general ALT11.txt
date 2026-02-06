@@ -1,5 +1,5 @@
-# Preset: general FAKE TLS AUTO ALT2
-# ActivePreset: general FAKE TLS AUTO ALT2
+# Preset: general ALT11
+# ActivePreset: general ALT11
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
@@ -91,35 +91,30 @@
 
 --new
 
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--filter-tcp=2053,2083,2087,2096,8443
 --hostlist-domains=discord.media
---lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=10000000
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=10000000
+--payload=tls_client_hello
+--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=-600000
 --payload=tls_client_hello,http_req
---lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8
+--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8:tcp_ts=-600000
 
 --new
 
 --filter-tcp=80,443
 --hostlist=lists/youtube.txt
 --out-range=-d8
---lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=10000000:ip_id=zero
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=10000000:ip_id=zero
+--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=-600000:ip_id=zero
 --payload=tls_client_hello,http_req
---lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8:ip_id=zero
+--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8:tcp_ts=-600000:ip_id=zero
 
 --new
 
 --filter-tcp=80,443
 --ipset-exclude=lists/ipset-exclude.txt
 --payload=tls_client_hello
---lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=10000000
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=10000000
+--lua-desync=fake:blob=tls_max:repeats=8:tcp_ts=-600000
 --payload=tls_client_hello,http_req
---lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8
+--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max:repeats=8:tcp_ts=-600000
 
 --new
 
@@ -135,8 +130,6 @@
 --ipset=lists/ipset-all.txt
 --ipset-exclude=lists/ipset-exclude.txt
 --payload=tls_client_hello
---lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=10000000
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=10000000
+--lua-desync=fake:blob=tls_max:repeats=8:tcp_ts=-600000
 --payload=tls_client_hello,http_req
---lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8
+--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max:repeats=8:tcp_ts=-600000
