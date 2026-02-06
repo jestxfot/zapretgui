@@ -193,7 +193,11 @@ class Zapret2UserPresetsPage(BasePage):
     def _reload_presets_from_watcher(self):
         if not self.isVisible():
             return
-        self._load_presets()
+        try:
+            from preset_zapret2.preset_store import get_preset_store
+            get_preset_store().notify_presets_changed()
+        except Exception:
+            self._load_presets()
         self._update_watched_preset_files()
 
     def _build_ui(self):

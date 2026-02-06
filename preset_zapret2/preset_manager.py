@@ -188,7 +188,10 @@ class PresetManager:
         Returns:
             Active preset name or None
         """
-        return get_active_preset_name()
+        try:
+            return self._get_store().get_active_preset_name()
+        except Exception:
+            return get_active_preset_name()
 
     def get_active_preset(self) -> Optional[Preset]:
         """

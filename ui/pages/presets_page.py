@@ -855,7 +855,11 @@ class PresetsPage(BasePage):
         """Перезагружает список пресетов после файловых изменений."""
         if not self.isVisible():
             return
-        self._load_presets()
+        try:
+            from preset_zapret2.preset_store import get_preset_store
+            get_preset_store().notify_presets_changed()
+        except Exception:
+            self._load_presets()
         # После atomic-write некоторые пути отваливаются из watcher → пересобрать.
         self._update_watched_preset_files()
 
