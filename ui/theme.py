@@ -989,7 +989,7 @@ class PremiumCheckWorker(QObject):
                 return
             
             # Выполняем проверку
-            is_premium, message, days = self.donate_checker.check_subscription_status()
+            is_premium, message, days = self.donate_checker.check_subscription_status(use_cache=False)
             
             elapsed = time.time() - start_time
             log(f"Асинхронная проверка завершена за {elapsed:.2f}с: premium={is_premium}", "DEBUG")
@@ -2104,7 +2104,7 @@ class ThemeHandler:
             current_theme = self.theme_manager.current_theme if self.theme_manager else None
             
             # Получаем полную информацию о подписке
-            sub_info = donate_checker.get_full_subscription_info()
+            sub_info = donate_checker.get_full_subscription_info(use_cache=True)
             
             # Обновляем заголовок
             self.app_window.update_title_with_subscription_status(

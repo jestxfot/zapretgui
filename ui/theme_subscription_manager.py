@@ -219,7 +219,7 @@ class ThemeSubscriptionManager:
             if hasattr(self, 'donate_checker') and self.donate_checker:
                 try:
                     # ✅ ИСПОЛЬЗУЕМ НОВЫЙ API
-                    sub_info = self.donate_checker.get_full_subscription_info()
+                    sub_info = self.donate_checker.get_full_subscription_info(use_cache=True)
                     
                     is_prem = sub_info['is_premium']
                     status_msg = sub_info['status_msg']

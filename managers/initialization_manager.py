@@ -655,8 +655,8 @@ class InitializationManager:
             
             if hasattr(self.app, 'subscription_manager') and self.app.subscription_manager:
                 # Запускаем проверку в фоне (silent=True чтобы не показывать уведомления)
-                self.app.subscription_manager.check_and_update_subscription(silent=True)
-                log("Фоновая проверка подписки завершена", "INFO")
+                self.app.subscription_manager.check_and_update_subscription_async(silent=True)
+                log("Фоновая проверка подписки запущена", "INFO")
             else:
                 log("subscription_manager не инициализирован, повторная попытка через 1с", "WARNING")
                 # Повторная попытка через 1 секунду
