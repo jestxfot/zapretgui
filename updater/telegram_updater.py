@@ -130,7 +130,9 @@ def _call_bot_api(method: str, params: dict = None) -> Optional[dict]:
 def _parse_telegram_web(channel: str) -> Optional[Dict[str, Any]]:
     """
     Парсит публичную страницу канала через t.me
-    Работает без авторизации
+    Работает без авторизации.
+    
+    Приоритет: версия из имени файла (Zapret2Setup*.exe) > текст постов.
     """
     channel_name = TELEGRAM_CHANNELS.get(channel, TELEGRAM_CHANNELS['stable'])
     url = f"https://t.me/s/{channel_name}"
@@ -145,24 +147,33 @@ def _parse_telegram_web(channel: str) -> Optional[Dict[str, Any]]:
         
         html = response.text
         
-        # Ищем ссылки на .exe файлы
-        # Формат: href="https://cdn...telegram-cdn.../documents/...exe..."
-        exe_pattern = r'href="(https://[^"]+\.exe[^"]*)"'
-        exe_matches = re.findall(exe_pattern, html)
+        # ✅ ПРИОРИТЕТ 1: Ищем имя файла установщика и извлекаем версию из него
+        file_name_pattern = r'(Zapret2Setup[^"<>\s]*\.exe)'
+        file_names = re.findall(file_name_pattern, html)
         
-        # Ищем версию в тексте сообщений
+        if file_names:
+            # Берём последний (самый новый) файл
+            file_name = file_names[-1]
+            version = _extract_version_from_filename(file_name)
+            
+            if version:
+                log(f"✅ Web: версия {version} из имени файла {file_name}", "📱 TG")
+                return {
+                    'version': version,
+                    'file_name': file_name,
+                    'source': f'Telegram @{channel_name} (web)',
+                    'channel': channel_name,
+                }
+        
+        # ✅ ПРИОРИТЕТ 2 (fallback): Ищем версию в тексте сообщений
         version_pattern = r'(\d+\.\d+\.\d+\.\d+)'
         version_matches = re.findall(version_pattern, html)
         
         if version_matches:
-            # Берём последнюю (самую новую) версию
             version = version_matches[-1]
-            
-            # Ищем имя файла
-            file_name_pattern = r'(Zapret2Setup[^"<>\s]*\.exe)'
-            file_names = re.findall(file_name_pattern, html)
             file_name = file_names[-1] if file_names else f"Zapret2Setup_{version}.exe"
             
+            log(f"⚠️ Web: версия {version} из текста (fallback)", "📱 TG")
             return {
                 'version': version,
                 'file_name': file_name,
@@ -267,21 +278,72 @@ def get_telegram_version_info(channel: str = 'stable') -> Optional[Dict[str, Any
     return None
 
 
-def _extract_version(file_name: str, text: str) -> Optional[str]:
-    """Извлекает версию из имени файла или текста"""
-    patterns = [
-        r'v?(\d+\.\d+\.\d+\.\d+)',  # 19.6.0.12
-        r'v?(\d+\.\d+\.\d+)',        # 19.6.0
-    ]
+def _extract_version_from_filename(file_name: str) -> Optional[str]:
+    """
+    Извлекает версию из имени файла установщика.
     
-    # Сначала ищем в имени файла
-    for pattern in patterns:
+    Поддерживает оба формата:
+    - Zapret2Setup_TEST_20_3_17_14.exe  → 20.3.17.14  (подчёркивания)
+    - Zapret2Setup_TEST_20.3.17.14.exe  → 20.3.17.14  (точки)
+    - Zapret2Setup_20_3_17_14.exe       → 20.3.17.14  (без TEST)
+    """
+    if not file_name:
+        return None
+    
+    # Паттерн 1: подчёркивания в имени файла
+    # Zapret2Setup[_TEST]_XX_X_XX_XX.exe
+    # Берём всё после последнего "Setup" или "TEST", до ".exe"
+    m = re.search(
+        r'Zapret2Setup(?:_TEST)?_(\d+(?:_\d+)+)\.exe',
+        file_name,
+        re.IGNORECASE,
+    )
+    if m:
+        version = m.group(1).replace('_', '.')
+        # Проверяем что это похоже на версию (минимум 3 части)
+        parts = version.split('.')
+        if len(parts) >= 3:
+            return version
+    
+    # Паттерн 2: точки в имени файла (старый формат)
+    # Zapret2Setup_20.3.17.14.exe
+    m = re.search(
+        r'Zapret2Setup(?:_TEST)?[_.]?(\d+\.\d+\.\d+(?:\.\d+)?)\.exe',
+        file_name,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1)
+    
+    # Паттерн 3: любой 3-4 part version в имени файла (generic fallback)
+    dot_patterns = [
+        r'v?(\d+\.\d+\.\d+\.\d+)',  # 20.3.17.14
+        r'v?(\d+\.\d+\.\d+)',        # 20.3.17
+    ]
+    for pattern in dot_patterns:
         match = re.search(pattern, file_name)
         if match:
             return match.group(1)
     
-    # Затем в тексте сообщения
-    for pattern in patterns:
+    return None
+
+
+def _extract_version(file_name: str, text: str) -> Optional[str]:
+    """
+    Извлекает версию из имени файла или текста.
+    Приоритет: имя файла > текст сообщения.
+    """
+    # ✅ ПРИОРИТЕТ 1: Извлекаем из имени файла (самый надёжный источник)
+    version = _extract_version_from_filename(file_name)
+    if version:
+        return version
+    
+    # ✅ ПРИОРИТЕТ 2: Ищем в тексте сообщения (fallback)
+    text_patterns = [
+        r'v?(\d+\.\d+\.\d+\.\d+)',  # 19.6.0.12
+        r'v?(\d+\.\d+\.\d+)',        # 19.6.0
+    ]
+    for pattern in text_patterns:
         match = re.search(pattern, text)
         if match:
             return match.group(1)
