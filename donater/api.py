@@ -54,15 +54,28 @@ class PremiumApiClient:
 
         return data
 
+    @staticmethod
+    def _exception_to_dict(e: Exception, *, nonce: str) -> Dict[str, Any]:
+        # Keep message short and user-facing.
+        name = e.__class__.__name__
+        msg = (str(e) or "").strip()
+        text = (name + (": " + msg if msg else "")).strip()
+        return {
+            "success": False,
+            "error": "Ошибка сети",
+            "detail": PremiumApiClient._truncate_text(text, 400),
+            "_nonce": nonce,
+            "_http_status": 0,
+        }
+
     def get_status(self) -> Optional[Dict[str, Any]]:
+        nonce = ""  # no nonce for GET
         try:
             r = requests.get(self._url("status"), timeout=self.timeout)
             # Always return dict with HTTP metadata when possible.
-            nonce = ""  # no nonce for GET
-            data = self._response_to_dict(r, nonce=nonce)
-            return data
-        except Exception:
-            return None
+            return self._response_to_dict(r, nonce=nonce)
+        except Exception as e:
+            return self._exception_to_dict(e, nonce=nonce)
 
     def post_activate(self, *, key: str, device_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         # Legacy endpoint (removed in new pairing architecture).
@@ -78,8 +91,8 @@ class PremiumApiClient:
                 timeout=self.timeout,
             )
             return (self._response_to_dict(r, nonce=nonce), nonce)
-        except Exception:
-            return (None, nonce)
+        except Exception as e:
+            return (self._exception_to_dict(e, nonce=nonce), nonce)
 
     def post_pair_finish(self, *, device_id: str, pair_code: str) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
@@ -90,8 +103,8 @@ class PremiumApiClient:
                 timeout=self.timeout,
             )
             return (self._response_to_dict(r, nonce=nonce), nonce)
-        except Exception:
-            return (None, nonce)
+        except Exception as e:
+            return (self._exception_to_dict(e, nonce=nonce), nonce)
 
     def post_check(self, *, device_id: str, device_token: str) -> Tuple[Optional[Dict[str, Any]], str]:
         nonce = secrets.token_urlsafe(16)
@@ -102,5 +115,5 @@ class PremiumApiClient:
                 timeout=self.timeout,
             )
             return (self._response_to_dict(r, nonce=nonce), nonce)
-        except Exception:
-            return (None, nonce)
+        except Exception as e:
+            return (self._exception_to_dict(e, nonce=nonce), nonce)
