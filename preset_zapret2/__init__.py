@@ -96,12 +96,18 @@ from .txt_preset_parser import (
     update_category_in_preset,
 )
 
-# Default settings parser
+# Default settings parser & template functions
 from .preset_defaults import (
     get_default_category_settings,
     get_category_default_filter_mode,
     get_category_default_syndata,
     parse_syndata_from_args,
+    get_default_template_content,
+    get_default_template_name,
+    get_template_content,
+    get_template_canonical_name,
+    invalidate_templates_cache,
+    ensure_templates_copied_to_presets,
 )
 
 # Strategy inference (for loading presets)
@@ -148,29 +154,32 @@ def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
 
 def ensure_builtin_presets_exist() -> bool:
     """
-    Ensures that built-in preset templates directory exists.
+    Ensures that preset templates directory (presets_template/) exists and
+    copies templates to presets/ for any that are missing.
 
-    Built-in templates are stored in:
-      %APPDATA%/zapret/presets/_builtin/*.txt
-
-    In dev mode, we also try to seed them from the repo folder
-    `preset_zapret2/builtin_presets/*.txt` (if missing).
-
+    In dev mode, seeds templates from the repo folder
+    `preset_zapret2/builtin_presets/*.txt` into `presets_template/`.
 
     Returns:
         True if presets exist or were created successfully.
     """
     from log import log
+    from .preset_defaults import (
+        invalidate_templates_cache,
+        ensure_templates_copied_to_presets,
+    )
 
     try:
-        presets_dir = get_presets_dir()
-        presets_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure presets_template/ directory exists
+        try:
+            from config import get_zapret_presets_template_dir
 
-        # Ensure builtin template directory exists
-        builtin_dir = presets_dir / "_builtin"
-        builtin_dir.mkdir(parents=True, exist_ok=True)
+            templates_dir = Path(get_zapret_presets_template_dir())
+        except Exception:
+            templates_dir = get_presets_dir().parent / "presets_template"
+        templates_dir.mkdir(parents=True, exist_ok=True)
 
-        # Dev convenience: seed builtin templates from the repo (if present)
+        # Dev convenience: seed templates from the repo (if present)
         try:
             from config import MAIN_DIRECTORY
 
@@ -179,25 +188,25 @@ def ensure_builtin_presets_exist() -> bool:
                 for p in sorted(src_dir.glob("*.txt"), key=lambda x: x.name.lower()):
                     if p.name.startswith("_"):
                         continue
-                    dst = builtin_dir / p.name
+                    dst = templates_dir / p.name
                     if dst.exists():
                         continue
                     try:
                         dst.write_text(p.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-                        log(f"Seeded built-in preset template: {dst}", "DEBUG")
+                        log(f"Seeded preset template: {dst}", "DEBUG")
                     except Exception:
                         pass
         except Exception:
             pass
 
-        # Built-in templates may have just been seeded from the repo; refresh cache.
+        # Templates may have just been seeded from the repo; refresh cache.
         try:
-            from .preset_defaults import invalidate_builtin_preset_templates_cache
-
-            invalidate_builtin_preset_templates_cache()
+            invalidate_templates_cache()
         except Exception:
             pass
-        migrate_builtin_overrides_to_visible_copies()
+
+        # Copy templates to presets/ (skips already-existing and user-deleted)
+        ensure_templates_copied_to_presets()
         return True
 
     except Exception as e:
@@ -207,115 +216,12 @@ def ensure_builtin_presets_exist() -> bool:
         return False
 
 
-def migrate_builtin_overrides_to_visible_copies() -> bool:
-    """
-    Migrates legacy built-in overrides to visible user presets.
-
-    Old behavior stored user edits of built-in presets (Default/Gaming) under
-    `presets/_builtin_overrides/*.txt`. New UX stores them as normal presets
-    (e.g. `Default (копия).txt`) so users clearly work with a copy, not the original.
-
-    Returns:
-        True if migration succeeded (or nothing to migrate), False on fatal error.
-    """
-    from log import log
-    from .preset_defaults import get_builtin_preset_names, get_builtin_copy_name
-    from .preset_storage import get_builtin_override_path, get_preset_path, get_active_preset_path
-
-    try:
-        active_name = (get_active_preset_name() or "").strip()
-        active_path = get_active_preset_path()
-
-        for builtin_name in get_builtin_preset_names():
-            override_path = get_builtin_override_path(builtin_name)
-            if not override_path.exists():
-                continue
-
-            copy_name = get_builtin_copy_name(builtin_name)
-            if not copy_name:
-                continue
-
-            dest_path = get_preset_path(copy_name)
-            try:
-                content = override_path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                content = ""
-
-            lines = content.splitlines()
-            out: list[str] = []
-            saw_preset = False
-            saw_active = False
-            for raw in lines:
-                stripped = raw.strip()
-                if stripped.lower().startswith("# preset:"):
-                    out.append(f"# Preset: {copy_name}")
-                    saw_preset = True
-                    continue
-                if stripped.lower().startswith("# activepreset:"):
-                    out.append(f"# ActivePreset: {copy_name}")
-                    saw_active = True
-                    continue
-                out.append(raw)
-
-            if not saw_preset:
-                out.insert(0, f"# Preset: {copy_name}")
-            if not saw_active:
-                insert_idx = 1 if out and out[0].strip().lower().startswith("# preset:") else 0
-                out.insert(insert_idx, f"# ActivePreset: {copy_name}")
-
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            dest_path.write_text("\n".join(out) + "\n", encoding="utf-8")
-
-            try:
-                override_path.unlink()
-            except Exception:
-                pass
-
-            log(f"Migrated built-in override '{builtin_name}' -> '{copy_name}'", "INFO")
-
-            # If this built-in was active, switch active name to the visible copy
-            # and update the active file header markers.
-            if active_name and active_name.lower() == builtin_name.lower():
-                set_active_preset_name(copy_name)
-                if active_path.exists():
-                    try:
-                        active_content = active_path.read_text(encoding="utf-8", errors="replace")
-                        a_lines = active_content.splitlines()
-                        a_out: list[str] = []
-                        a_saw_preset = False
-                        a_saw_active = False
-                        for raw in a_lines:
-                            stripped = raw.strip()
-                            if stripped.lower().startswith("# preset:"):
-                                a_out.append(f"# Preset: {copy_name}")
-                                a_saw_preset = True
-                                continue
-                            if stripped.lower().startswith("# activepreset:"):
-                                a_out.append(f"# ActivePreset: {copy_name}")
-                                a_saw_active = True
-                                continue
-                            a_out.append(raw)
-                        if not a_saw_preset:
-                            a_out.insert(0, f"# Preset: {copy_name}")
-                        if not a_saw_active:
-                            insert_idx = 1 if a_out and a_out[0].strip().lower().startswith("# preset:") else 0
-                            a_out.insert(insert_idx, f"# ActivePreset: {copy_name}")
-                        active_path.write_text("\n".join(a_out) + "\n", encoding="utf-8")
-                    except Exception:
-                        pass
-
-        return True
-    except Exception as e:
-        log(f"Error migrating built-in overrides: {e}", "DEBUG")
-        return False
-
-
 def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
 
     Checks if preset-zapret2.txt exists. If not:
-    1. Generates active preset from a built-in template.
+    1. Generates active preset from the default template.
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -324,11 +230,11 @@ def ensure_default_preset_exists() -> bool:
         True if preset exists or was created successfully
     """
     from log import log
-    from .preset_defaults import get_builtin_preset_content, get_default_builtin_preset_name
+    from .preset_defaults import get_default_template_content, get_default_template_name
 
     active_path = get_active_preset_path()
 
-    # Ensure built-in presets exist for presets list (even if active file exists).
+    # Ensure templates exist and are copied to presets/.
     ensure_builtin_presets_exist()
 
     # Check if active preset file already exists
@@ -336,25 +242,25 @@ def ensure_default_preset_exists() -> bool:
         log("Active preset file already exists", "DEBUG")
         return True
 
-    log("Active preset file not found, creating from built-in template...", "INFO")
+    log("Active preset file not found, creating from default template...", "INFO")
 
     try:
-        template_name = get_default_builtin_preset_name() or "Default"
-        template = get_builtin_preset_content(template_name)
+        template_name = get_default_template_name() or "Default"
+        template = get_default_template_content()
         if not template:
             log(
-                "Cannot create preset-zapret2.txt: no built-in preset templates found. "
-                "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
+                "Cannot create preset-zapret2.txt: no preset templates found. "
+                "Expected at least one file in: %APPDATA%/zapret/presets_template/*.txt",
                 "ERROR",
             )
             return False
         _atomic_write_text(active_path, template, encoding="utf-8")
-        log(f"Created active preset from code template at {active_path}", "DEBUG")
+        log(f"Created active preset from template at {active_path}", "DEBUG")
 
         # Persist active preset name
         set_active_preset_name(template_name)
 
-        log("Active preset created from built-in template successfully", "INFO")
+        log("Active preset created from template successfully", "INFO")
         return True
 
     except Exception as e:
@@ -366,38 +272,41 @@ def ensure_default_preset_exists() -> bool:
 
 def restore_builtin_preset(preset_name: str) -> bool:
     """
-    Restores a built-in preset by rewriting the active file from the template.
+    Restores a preset from the template in presets_template/.
+
+    Overwrites the preset in presets/ with the template content.
+    If the preset is currently active, also updates preset-zapret2.txt.
 
     Returns:
         True if restore was successful, False otherwise
     """
     from log import log
-    from .preset_defaults import get_builtin_preset_content, get_builtin_preset_canonical_name
+    from .preset_defaults import get_template_content, get_template_canonical_name
 
     try:
-        canonical = get_builtin_preset_canonical_name(preset_name)
-        content = get_builtin_preset_content(preset_name)
+        canonical = get_template_canonical_name(preset_name)
+        content = get_template_content(preset_name)
         if not canonical or content is None:
-            log(f"Unknown built-in preset '{preset_name}'", "ERROR")
+            log(f"Unknown preset template '{preset_name}'", "ERROR")
             return False
+
+        # Overwrite the presets/ file with template content
+        preset_path = get_preset_path(canonical)
+        preset_path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(preset_path, content, encoding="utf-8")
+        log(f"Restored preset '{canonical}' from template to {preset_path}", "INFO")
 
         # If this preset is currently active, update preset-zapret2.txt
         active_name = (get_active_preset_name() or "").strip()
         if active_name and active_name.lower() == canonical.lower():
             active_path = get_active_preset_path()
-            active_path.write_text(content, encoding="utf-8")
+            _atomic_write_text(active_path, content, encoding="utf-8")
             log(f"Also updated active preset at {active_path}", "SUCCESS")
-        else:
-            log(
-                f"Built-in preset '{canonical}' restored (template checked). "
-                "It is not active, so preset-zapret2.txt was not changed.",
-                "INFO",
-            )
 
         return True
 
     except Exception as e:
-        log(f"Error restoring built-in preset '{preset_name}': {e}", "ERROR")
+        log(f"Error restoring preset '{preset_name}' from template: {e}", "ERROR")
         import traceback
         log(traceback.format_exc(), "DEBUG")
         return False
@@ -465,6 +374,13 @@ __all__ = [
     "get_category_default_filter_mode",
     "get_category_default_syndata",
     "parse_syndata_from_args",
+    # Template functions
+    "get_default_template_content",
+    "get_default_template_name",
+    "get_template_content",
+    "get_template_canonical_name",
+    "invalidate_templates_cache",
+    "ensure_templates_copied_to_presets",
     # Parser
     "PresetData",
     "CategoryBlock",
