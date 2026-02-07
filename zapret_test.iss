@@ -88,10 +88,10 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "{#SOURCEPATH}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
-; ✅ Built-in preset templates are installed to %APPDATA%\zapret\presets\_builtin
-; Source: Zapret GUI repo folder `preset_zapret2/builtin_presets/*.txt`.
-; Files starting with '_' are templates/docs and should not appear in UI.
-Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets\_builtin"; Excludes: "_*.txt"; Flags: ignoreversion skipifsourcedoesntexist
+; ✅ Preset templates -> %APPDATA%\zapret\presets_template
+; Always overwritten on update to keep templates current.
+; At startup the app copies new templates to presets/ (unless user deleted them).
+Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_template"; Excludes: "_*.txt"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
