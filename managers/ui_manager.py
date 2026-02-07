@@ -7,6 +7,9 @@ class UIManager:
     
     def __init__(self, app_instance):
         self.app = app_instance
+        # Debounce: коалесцирует несколько _update_all_pages вызовов за короткий период
+        self._pending_update: tuple[bool, bool] | None = None
+        self._update_timer = None
     
     def _get_strategy_name(self) -> str:
         """Получает текущее имя стратегии"""
@@ -59,7 +62,23 @@ class UIManager:
             log(f"Ошибка в update_ui_state: {e}", "ERROR")
     
     def _update_all_pages(self, is_running: bool, autostart_active: bool) -> None:
-        """⚡ Обновляет все страницы одним методом"""
+        """⚡ Обновляет все страницы одним методом (с debounce 50ms для коалесценции)"""
+        self._pending_update = (is_running, autostart_active)
+        if self._update_timer is None:
+            from PyQt6.QtCore import QTimer
+            self._update_timer = QTimer()
+            self._update_timer.setSingleShot(True)
+            self._update_timer.timeout.connect(self._flush_update_all_pages)
+        if not self._update_timer.isActive():
+            self._update_timer.start(50)
+
+    def _flush_update_all_pages(self) -> None:
+        """Фактическое обновление страниц (вызывается по debounce таймеру)."""
+        pending = self._pending_update
+        self._pending_update = None
+        if pending is None:
+            return
+        is_running, autostart_active = pending
         try:
             strategy_name = self._get_strategy_name()
             

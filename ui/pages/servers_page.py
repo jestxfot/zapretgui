@@ -1230,6 +1230,12 @@ class ServersPage(BasePage):
     def showEvent(self, event):
         super().showEvent(event)
 
+        # Spontaneous showEvent = система показала окно (восстановление из свёрнутого/трея).
+        # Не запускаем серверные проверки при простом восстановлении окна —
+        # только при явной навигации на эту страницу.
+        if event.spontaneous():
+            return
+
         # Не запускаем проверку если идёт скачивание
         if self.changelog_card._is_downloading:
             return

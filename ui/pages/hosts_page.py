@@ -263,6 +263,9 @@ class HostsPage(BasePage):
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
+        # Не запускаем тяжёлые операции при системном восстановлении окна (из трея/свёрнутого).
+        if event.spontaneous():
+            return
         self._start_catalog_watcher()
         self._refresh_catalog_if_needed(trigger="tab")
 

@@ -265,6 +265,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         """
         if getattr(self, "_transient_ui_cleanup_in_progress", False):
             return
+        # Throttle: не выполнять чаще чем раз в 100ms (deactivate генерирует 2+ события подряд).
+        import time as _time
+        now = _time.monotonic()
+        last = getattr(self, "_last_dismiss_transient_ts", 0.0)
+        if (now - last) < 0.10:
+            return
+        self._last_dismiss_transient_ts = now
+
         self._transient_ui_cleanup_in_progress = True
         try:
             try:
@@ -376,10 +384,20 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
     def _force_release_interaction_states(self, *, reason: str) -> None:
         """Сбрасывает состояния drag/resize/cursor, которые могут залипать при потере фокуса."""
+        # Throttle: не выполнять чаще чем раз в 80ms (Alt-Tab генерирует 4 события подряд).
+        import time as _time
+        now = _time.monotonic()
+        last = getattr(self, "_last_force_release_ts", 0.0)
+        # Deactivate-события (aggressive) всегда проходят; повторные activate — throttle.
+        is_aggressive = reason.startswith("deactivate:") or reason.startswith("app_state_inactive")
+        if not is_aggressive and (now - last) < 0.08:
+            return
+        self._last_force_release_ts = now
+
         cancelled: list[str] = []
         need_win_cancelmode = False
 
-        aggressive_win_cancelmode = reason.startswith("deactivate:") or reason.startswith("app_state_inactive")
+        aggressive_win_cancelmode = is_aggressive
 
         # Cancel frameless resize if focus changed mid-resize.
         try:

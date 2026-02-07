@@ -1071,6 +1071,10 @@ class LogsPage(BasePage):
     def showEvent(self, event):
         """При показе страницы запускаем мониторинг"""
         super().showEvent(event)
+        # Spontaneous showEvent = система восстановила окно (из трея/свёрнутого).
+        # Не перезапускаем workers/таймеры при простом восстановлении окна.
+        if event.spontaneous():
+            return
         if not self._logs_tab_initialized:
             self._logs_tab_initialized = True
             # Делаем тяжелые операции после первого показа страницы, чтобы UI не "подвисал" при переходе.

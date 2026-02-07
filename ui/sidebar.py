@@ -1111,9 +1111,8 @@ class SideNavBar(QWidget):
         # Показываем элементы
         self._show_all_elements()
         
-        # Обновляем layout
+        # Обновляем layout (без processEvents — иначе реентрантность с focus-событиями)
         self.updateGeometry()
-        QApplication.processEvents()
         
         # Анимируем ширину
         self._animate_width(self.EXPANDED_WIDTH)

@@ -385,6 +385,10 @@ class AutostartPage(BasePage):
     def showEvent(self, event):
         """Вызывается при показе страницы - запускаем определение в фоне"""
         super().showEvent(event)
+        # Spontaneous showEvent = система показала окно (восстановление из трея/свёрнутого).
+        # Пропускаем тяжёлую детекцию при простом восстановлении окна.
+        if event.spontaneous():
+            return
         # Запускаем определение типа автозапуска в фоновом потоке
         # с небольшой задержкой чтобы UI успел отрисоваться
         QTimer.singleShot(50, self._start_autostart_detection)

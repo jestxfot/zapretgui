@@ -413,28 +413,27 @@ class OrchestraLockedPage(BasePage):
 
     def _reload_from_registry(self):
         """Перезагружает данные из реестра и обновляет список"""
-        # Визуальный фидбек
+        # Визуальный фидбек (без processEvents — избегаем реентрантность)
         old_text = self.refresh_btn.text()
         self.refresh_btn.setText("Загрузка...")
         self.refresh_btn.setEnabled(False)
-        QApplication.processEvents()  # Обновить UI сразу
 
-        try:
-            runner = self._get_runner()
-            if runner and hasattr(runner, 'locked_manager'):
-                # Перезагружаем данные из реестра
-                runner.locked_manager.load()
-                log("Список залоченных перезагружен из реестра (runner)", "INFO")
-            else:
-                # Нет активного runner - загружаем напрямую из реестра
-                self._load_directly_from_registry()
-                log("Список залоченных перезагружен из реестра (direct)", "INFO")
-            # Обновляем UI
-            self._refresh_data()
-        finally:
-            # Восстанавливаем кнопку
-            self.refresh_btn.setText(old_text)
-            self.refresh_btn.setEnabled(True)
+        def _do_reload():
+            try:
+                runner = self._get_runner()
+                if runner and hasattr(runner, 'locked_manager'):
+                    runner.locked_manager.load()
+                    log("Список залоченных перезагружен из реестра (runner)", "INFO")
+                else:
+                    self._load_directly_from_registry()
+                    log("Список залоченных перезагружен из реестра (direct)", "INFO")
+                self._refresh_data()
+            finally:
+                self.refresh_btn.setText(old_text)
+                self.refresh_btn.setEnabled(True)
+
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, _do_reload)
 
     def _load_directly_from_registry(self):
         """Загружает данные напрямую из реестра (без активного runner)"""

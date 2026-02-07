@@ -946,48 +946,9 @@ class DPIController:
             
             if success:
                 # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно запущен?
-                # Retry with short delays to handle race condition where
-                # winws2.exe hasn't appeared in the process table yet.
-                is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
-                if not is_actually_running:
-                    import time
-                    for _retry in range(3):
-                        time.sleep(0.3)
-                        is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
-                        if is_actually_running:
-                            break
-                
-                if is_actually_running:
-                    log("DPI запущен асинхронно", "INFO")
-                    self.app.set_status("✅ DPI успешно запущен")
-                        
-                    # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
-                    if hasattr(self.app, 'ui_manager'):
-                        self.app.ui_manager.update_ui_state(running=True)
-                    
-                    # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER вместо app.on_process_status_changed
-                    if hasattr(self.app, 'process_monitor_manager'):
-                        self.app.process_monitor_manager.on_process_status_changed(True)
-                    
-                    # Устанавливаем флаг намеренного запуска
-                    self.app.intentional_start = True
-                    
-                    # Перезапускаем Discord если нужно
-                    from discord.discord_restart import get_discord_restart_setting
-                    if not self.app.first_start and get_discord_restart_setting():
-                        if hasattr(self.app, 'discord_manager'):
-                            self.app.discord_manager.restart_discord_if_running()
-                    else:
-                        self.app.first_start = False
-                else:
-                    # Процесс не запустился или сразу упал
-                    log("DPI не запустился - процесс не найден после старта", "❌ ERROR")
-                    self.app.set_status("❌ Процесс не запустился. Проверьте логи")
-                    
-                    if hasattr(self.app, 'ui_manager'):
-                        self.app.ui_manager.update_ui_state(running=False)
-                    if hasattr(self.app, 'process_monitor_manager'):
-                        self.app.process_monitor_manager.on_process_status_changed(False)
+                # Используем QTimer вместо time.sleep чтобы не блокировать main thread.
+                self._dpi_start_verify_retry = 0
+                self._verify_dpi_process_running()
                     
             else:
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
@@ -1005,6 +966,51 @@ class DPIController:
             log(f"Ошибка при обработке результата запуска DPI: {e}", "❌ ERROR")
             self.app.set_status(f"Ошибка: {e}")
     
+    def _verify_dpi_process_running(self):
+        """Неблокирующая проверка запуска процесса DPI через QTimer (вместо time.sleep в main thread)."""
+        from PyQt6.QtCore import QTimer
+
+        MAX_RETRIES = 3
+        RETRY_DELAY_MS = 300
+
+        is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
+
+        if is_actually_running:
+            self._on_dpi_process_confirmed(running=True)
+        elif self._dpi_start_verify_retry < MAX_RETRIES:
+            self._dpi_start_verify_retry += 1
+            QTimer.singleShot(RETRY_DELAY_MS, self._verify_dpi_process_running)
+        else:
+            self._on_dpi_process_confirmed(running=False)
+
+    def _on_dpi_process_confirmed(self, running: bool):
+        """Вызывается после подтверждения (или отказа) запуска DPI процесса."""
+        if running:
+            log("DPI запущен асинхронно", "INFO")
+            self.app.set_status("✅ DPI успешно запущен")
+
+            # Один вызов ui_manager — process_monitor_manager подхватит через свой поток
+            if hasattr(self.app, 'ui_manager'):
+                self.app.ui_manager.update_ui_state(running=True)
+
+            # Устанавливаем флаг намеренного запуска
+            self.app.intentional_start = True
+
+            # Перезапускаем Discord если нужно
+            from discord.discord_restart import get_discord_restart_setting
+            if not self.app.first_start and get_discord_restart_setting():
+                if hasattr(self.app, 'discord_manager'):
+                    self.app.discord_manager.restart_discord_if_running()
+            else:
+                self.app.first_start = False
+        else:
+            # Процесс не запустился или сразу упал
+            log("DPI не запустился - процесс не найден после старта", "❌ ERROR")
+            self.app.set_status("❌ Процесс не запустился. Проверьте логи")
+
+            if hasattr(self.app, 'ui_manager'):
+                self.app.ui_manager.update_ui_state(running=False)
+
     def _on_dpi_stop_finished(self, success, error_message):
         """Обрабатывает завершение асинхронной остановки DPI"""
         try:
