@@ -227,7 +227,7 @@ class PresetConfigPage(BasePage):
         self._update_status("Изменения...")
 
     def _save_file(self):
-        """Сохраняет файл на диск"""
+        """Сохраняет файл на диск и синхронизирует обратно в presets/."""
         try:
             content = self.editor.toPlainText()
             with open(self._preset_path, 'w', encoding='utf-8') as f:
@@ -238,9 +238,37 @@ class PresetConfigPage(BasePage):
             self._update_status(f"Сохранено {now}")
             log(f"Сохранен {os.path.basename(self._preset_path)}", "DEBUG")
 
+            # Sync back to presets/<active_name>.txt so changes persist
+            # across preset switches (active file → source preset file).
+            self._sync_active_to_preset_file(content)
+
         except Exception as e:
             log(f"Ошибка сохранения {os.path.basename(self._preset_path)}: {e}", "ERROR")
             self._update_status(f"Ошибка: {e}")
+
+    def _sync_active_to_preset_file(self, content: str):
+        """Writes active preset content back to presets/<name>.txt."""
+        try:
+            from config.config import get_strategy_launch_method, ZAPRET2_MODES
+            method = get_strategy_launch_method()
+            if method not in ZAPRET2_MODES:
+                return
+
+            from preset_zapret2 import get_active_preset_name, get_preset_path
+            active_name = get_active_preset_name()
+            if not active_name:
+                return
+
+            preset_path = get_preset_path(active_name)
+            if not preset_path.parent.exists():
+                return
+
+            with open(str(preset_path), 'w', encoding='utf-8') as f:
+                f.write(content)
+            log(f"Синхронизирован активный пресет → presets/{active_name}.txt", "DEBUG")
+
+        except Exception as e:
+            log(f"Ошибка синхронизации в presets/: {e}", "DEBUG")
 
     def _open_in_notepad(self):
         """Открывает файл в блокноте"""
