@@ -19,7 +19,10 @@ def load_dotenv(*paths: Path, override: bool = False) -> Path | None:
     - Ignores empty lines and comments starting with '#'
     - Does NOT expand ${VARS}; keeps values as-is
     - By default does not override existing environment variables
+    - Loads ALL existing files from *paths* (not just the first one)
     """
+    first_loaded: Path | None = None
+
     for p in paths:
         try:
             p = Path(p)
@@ -32,6 +35,9 @@ def load_dotenv(*paths: Path, override: bool = False) -> Path | None:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
+
+        if first_loaded is None:
+            first_loaded = p
 
         for raw_line in text.splitlines():
             line = raw_line.strip()
@@ -57,6 +63,4 @@ def load_dotenv(*paths: Path, override: bool = False) -> Path | None:
             if override or key not in os.environ:
                 os.environ[key] = value
 
-        return p
-
-    return None
+    return first_loaded

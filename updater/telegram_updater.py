@@ -12,6 +12,16 @@ import requests
 from typing import Optional, Dict, Any, Callable
 from log import log
 from .network_hints import maybe_log_disable_dpi_for_update
+from .proxy_bypass import session_bypass_proxy
+
+
+def _no_proxy_get(url: str, **kwargs) -> requests.Response:
+    """GET-запрос без прокси — защита от утечки прокси-настроек build-окружения."""
+    s = session_bypass_proxy()
+    try:
+        return s.get(url, **kwargs)
+    finally:
+        s.close()
 
 # Обфусцированные встроенные данные
 _INLINE_PARTS = [
@@ -105,7 +115,7 @@ def _call_bot_api(method: str, params: dict = None) -> Optional[dict]:
     url = _API_URL_TEMPLATE.format(value=key, method=method)
     
     try:
-        response = requests.get(url, params=params, timeout=TELEGRAM_TIMEOUT)
+        response = _no_proxy_get(url, params=params, timeout=TELEGRAM_TIMEOUT)
         if response.status_code == 200:
             data = response.json()
             if data.get('ok'):
@@ -138,7 +148,7 @@ def _parse_telegram_web(channel: str) -> Optional[Dict[str, Any]]:
     url = f"https://t.me/s/{channel_name}"
     
     try:
-        response = requests.get(url, timeout=TELEGRAM_TIMEOUT, headers={
+        response = _no_proxy_get(url, timeout=TELEGRAM_TIMEOUT, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
