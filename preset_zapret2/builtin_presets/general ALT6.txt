@@ -97,6 +97,13 @@
 
 --new
 
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=multisplit:pos=1:seqovl=681:seqovl_pattern=tls_google:ip_id=zero
+
+--new
+
 --filter-tcp=443
 --hostlist=lists/list-google.txt
 --lua-desync=multisplit:pos=1:seqovl=681:seqovl_pattern=tls_google:ip_id=zero

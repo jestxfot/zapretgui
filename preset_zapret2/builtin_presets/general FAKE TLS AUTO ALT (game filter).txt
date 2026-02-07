@@ -102,12 +102,17 @@
 --new
 
 --filter-tcp=80,443
---hostlist=lists/youtube.txt
+--hostlist-domains=googlevideo.com
 --out-range=-d8
 --lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=2:ip_id=zero
 --lua-desync=fakedsplit:pos=2:repeats=8:tcp_seq=2:ip_id=zero
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=2:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/youtube.txt
+--out-range=-d8
+--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:tcp_seq=2:ip_id=zero
 --lua-desync=fakedsplit:pos=2:repeats=8:tcp_seq=2:ip_id=zero
 
 --new

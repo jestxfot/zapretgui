@@ -98,6 +98,13 @@
 --new
 
 --filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
 --hostlist=lists/youtube.txt
 --out-range=-d8
 --lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google:ip_id=zero

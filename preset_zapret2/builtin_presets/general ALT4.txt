@@ -99,11 +99,18 @@
 
 --new
 
---filter-tcp=443
---hostlist=lists/google.txt
---payload=tls_client_hello
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=1000:ip_id=zero
---payload=tls_client_hello,http_req
+--lua-desync=multisplit:pos=2:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/youtube.txt
+--out-range=-d8
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=1000:ip_id=zero
 --lua-desync=multisplit:pos=2:ip_id=zero
 
 --new

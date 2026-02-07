@@ -103,13 +103,19 @@
 --new
 
 --filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=fake:blob=0x00000000:repeats=11:tcp_ack=-66000:tcp_ts_up:ip_id=zero
+--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=11:tcp_ack=-66000:tcp_ts_up:ip_id=zero
+--lua-desync=multidisorder_legacy:pos=1,midsld:repeats=11:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
 --hostlist=lists/youtube.txt
 --out-range=-d8
 --lua-desync=fake:blob=0x00000000:repeats=11:tcp_ack=-66000:tcp_ts_up:ip_id=zero
 --lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=11:tcp_ack=-66000:tcp_ts_up:ip_id=zero
---payload=http_req
---lua-desync=fake:blob=fake_default_http:repeats=11:tcp_ack=-66000:tcp_ts_up:ip_id=zero
---payload=tls_client_hello
 --lua-desync=multidisorder_legacy:pos=1,midsld:repeats=11:ip_id=zero
 
 --new

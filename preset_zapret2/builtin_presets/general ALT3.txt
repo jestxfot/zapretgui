@@ -101,8 +101,25 @@
 
 --new
 
---filter-tcp=443
---hostlist=lists/google.txt
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000:ip_id=zero
+--lua-desync=fakedsplit:pattern=0x00:repeats=6:tcp_ts=-600000:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
+--hostlist-domains=googlevideo.com
+--out-range=-d8
+--lua-desync=fake:blob=tls_google:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-600000:ip_id=zero
+--lua-desync=hostfakesplit:host=www.google.com:tcp_ts=-600000:ip_id=zero
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/youtube.txt
+--out-range=-d8
 --payload=tls_client_hello
 --lua-desync=fake:blob=tls_google:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-600000:ip_id=zero
 --lua-desync=hostfakesplit:host=www.google.com:tcp_ts=-600000:ip_id=zero
