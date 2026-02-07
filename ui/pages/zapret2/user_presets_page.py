@@ -686,29 +686,48 @@ class Zapret2UserPresetsPage(BasePage):
     def _load_presets(self):
         self._ui_dirty = False
         try:
-            manager = self._get_manager()
-            preset_names = manager.list_presets()
-            active_name = manager.get_active_preset_name()
+            # ── Read data from PresetStore (in-memory, no disk I/O) ──────
+            from preset_zapret2.preset_store import get_preset_store
+            store = get_preset_store()
+            all_presets = store.get_all_presets()       # {name: Preset}
+            active_name = store.get_active_preset_name()
+            preset_names = sorted(all_presets.keys(), key=lambda s: s.lower())
 
             self.active_preset_label.setText(active_name or "Не выбран")
 
+            # ── Build a map of existing cards by preset name ─────────────
+            old_cards: dict[str, PresetCard] = {}
             for card in self._preset_cards:
-                card.deleteLater()
-            self._preset_cards.clear()
+                old_cards[card.preset_name] = card
 
-            self._clear_layout(self.presets_layout)
+            new_cards: list[PresetCard] = []
+            reused = 0
 
-            user_items: list[PresetCard] = []
             for name in preset_names:
-                preset = manager.load_preset(name)
+                preset = all_presets.get(name)
                 if not preset:
                     continue
+
+                is_active = (name == active_name)
+
+                # Try to reuse existing card (if name & active state match)
+                existing = old_cards.pop(name, None)
+                if existing is not None and existing._is_active == is_active:
+                    # Update text fields without rebuilding widget tree
+                    existing.name_label.setText(name)
+                    new_cards.append(existing)
+                    reused += 1
+                    continue
+
+                # Card must be (re)created
+                if existing is not None:
+                    existing.deleteLater()
 
                 card = PresetCard(
                     name=name,
                     description=preset.description,
                     modified=preset.modified,
-                    is_active=(name == active_name),
+                    is_active=is_active,
                     compact_actions=True,
                     parent=self,
                 )
@@ -718,13 +737,23 @@ class Zapret2UserPresetsPage(BasePage):
                 card.reset_clicked.connect(self._on_reset_preset)
                 card.delete_clicked.connect(self._on_delete_preset)
                 card.export_clicked.connect(self._on_export_preset)
-                user_items.append(card)
-                self._preset_cards.append(card)
+                new_cards.append(card)
 
-            for card in user_items:
+            # Delete leftover old cards (presets that no longer exist)
+            for card in old_cards.values():
+                card.deleteLater()
+
+            # ── Re-populate layout (only if order changed) ───────────────
+            # Remove all widgets from layout without deleting them
+            while self.presets_layout.count():
+                self.presets_layout.takeAt(0)
+
+            self._preset_cards = new_cards
+
+            for card in new_cards:
                 self.presets_layout.addWidget(card)
 
-            if not user_items:
+            if not new_cards:
                 empty_label = QLabel("Нет пресетов. Создайте новый или импортируйте из файла.")
                 empty_label.setStyleSheet(
                     """

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QLineEdit,
@@ -17,6 +17,26 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
 from log import log
+
+
+# ── Icon cache ───────────────────────────────────────────────────────────
+# qta.icon() renders SVG every call; cache the resulting QIcons globally.
+_icon_cache: dict[str, QIcon] = {}
+
+
+def _cached_icon(name: str, color) -> QIcon:
+    """Returns a cached QIcon for the given qtawesome name + color key."""
+    key = f"{name}|{color}"
+    icon = _icon_cache.get(key)
+    if icon is None:
+        icon = qta.icon(name, color=color)
+        _icon_cache[key] = icon
+    return icon
+
+
+def _cached_pixmap(name: str, color, w: int = 20, h: int = 20):
+    """Returns a cached QPixmap via _cached_icon."""
+    return _cached_icon(name, color).pixmap(w, h)
 
 
 class _DestructiveConfirmButton(QPushButton):
@@ -59,7 +79,7 @@ class _DestructiveConfirmButton(QPushButton):
             bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
             text_color = "#ffffff"
 
-        self.setIcon(qta.icon(self._icon_name, color=icon_color))
+        self.setIcon(_cached_icon(self._icon_name, icon_color))
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
@@ -153,7 +173,7 @@ class _DestructiveIconConfirmButton(QPushButton):
             bg = "rgba(255, 107, 107, 0.18)"
             self.setToolTip(self._busy_tooltip)
 
-        self.setIcon(qta.icon(self._icon_name, color=icon_color))
+        self.setIcon(_cached_icon(self._icon_name, icon_color))
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
@@ -234,9 +254,9 @@ class PresetCard(QFrame):
 
         # Иконка (звезда для активного, папка для остальных)
         icon_name = "fa5s.star" if self._is_active else "fa5s.file-alt"
-        icon_color = QColor("#60cdff") if self._is_active else QColor(255, 255, 255, 160)
+        icon_color = "#60cdff" if self._is_active else QColor(255, 255, 255, 160)
         self.icon_label = QLabel()
-        self.icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(20, 20))
+        self.icon_label.setPixmap(_cached_pixmap(icon_name, icon_color, 20, 20))
         self.icon_label.setFixedSize(24, 24)
         top_row.addWidget(self.icon_label)
 
@@ -435,7 +455,7 @@ class PresetCard(QFrame):
     def _create_icon_action_button(self, icon_name: str, tooltip: str, icon_color: str = "white") -> QPushButton:
         btn = QPushButton()
         btn.setToolTip(tooltip)
-        btn.setIcon(qta.icon(icon_name, color=icon_color))
+        btn.setIcon(_cached_icon(icon_name, icon_color))
         btn.setIconSize(QSize(14, 14))
         btn.setFixedSize(28, 28)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
