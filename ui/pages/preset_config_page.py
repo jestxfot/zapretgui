@@ -249,26 +249,23 @@ class PresetConfigPage(BasePage):
     def _sync_active_to_preset_file(self, content: str):
         """Writes active preset content back to presets/<name>.txt."""
         try:
-            from config.config import get_strategy_launch_method, ZAPRET2_MODES
-            method = get_strategy_launch_method()
-            if method not in ZAPRET2_MODES:
-                return
-
             from preset_zapret2 import get_active_preset_name, get_preset_path
             active_name = get_active_preset_name()
             if not active_name:
+                log("Sync skip: no active preset name", "DEBUG")
                 return
 
             preset_path = get_preset_path(active_name)
-            if not preset_path.parent.exists():
-                return
+            preset_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(str(preset_path), 'w', encoding='utf-8') as f:
                 f.write(content)
-            log(f"Синхронизирован активный пресет → presets/{active_name}.txt", "DEBUG")
+            log(f"Синхронизирован активный пресет → {preset_path}", "DEBUG")
 
         except Exception as e:
-            log(f"Ошибка синхронизации в presets/: {e}", "DEBUG")
+            log(f"Ошибка синхронизации в presets/: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
 
     def _open_in_notepad(self):
         """Открывает файл в блокноте"""
