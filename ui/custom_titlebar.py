@@ -789,10 +789,24 @@ class CustomTitleBar(QWidget):
             pass
 
     def _on_close(self):
-        """Закрывает окно"""
-        self.close_clicked.emit()
+        """Показывает диалог выбора варианта закрытия"""
         win = self._get_window()
-        if win:
+        if not win:
+            return
+
+        # Если у окна есть request_exit -- показываем диалог выбора
+        if hasattr(win, 'request_exit'):
+            from ui.close_dialog import ask_close_action
+            result = ask_close_action(parent=win)
+            if result is None:
+                # Пользователь отменил
+                return
+            # result: False = только GUI, True = GUI + остановить DPI
+            self.close_clicked.emit()
+            win.request_exit(stop_dpi=result)
+        else:
+            # Fallback для окон без request_exit
+            self.close_clicked.emit()
             win.close()
             
     # Перетаскивание окна
