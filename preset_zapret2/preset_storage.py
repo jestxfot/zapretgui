@@ -115,98 +115,6 @@ def get_presets_dir() -> Path:
     return presets_dir
 
 
-def get_builtin_overrides_dir() -> Path:
-    """
-    Returns path to built-in presets overrides directory.
-
-    Built-in presets (Default/Gaming/...) are stored as in-code templates and are read-only.
-    User changes to a built-in preset are persisted as an override file here.
-
-    Returns:
-        Path to %APPDATA%/zapret/presets/_builtin_overrides/
-    """
-    overrides_dir = get_presets_dir() / "_builtin_overrides"
-    overrides_dir.mkdir(parents=True, exist_ok=True)
-    return overrides_dir
-
-
-def get_builtin_override_path(name: str) -> Path:
-    """
-    Returns path to a built-in preset override file.
-
-    Args:
-        name: Built-in preset name
-
-    Returns:
-        Path to presets/_builtin_overrides/{name}.txt
-    """
-    safe_name = _sanitize_filename(name)
-    return get_builtin_overrides_dir() / f"{safe_name}.txt"
-
-
-def builtin_override_exists(name: str) -> bool:
-    """Checks if a built-in preset override exists."""
-    try:
-        return get_builtin_override_path(name).exists()
-    except Exception:
-        return False
-
-
-def delete_builtin_override(name: str) -> bool:
-    """Deletes a built-in preset override file (if present)."""
-    try:
-        path = get_builtin_override_path(name)
-        if path.exists():
-            path.unlink()
-        return True
-    except Exception as e:
-        log(f"Error deleting built-in override for '{name}': {e}", "DEBUG")
-        return False
-
-
-def save_builtin_override_from_path(name: str, src_path: Path) -> bool:
-    """
-    Saves built-in preset override by copying a source preset file.
-
-    Uses atomic write (temp file + replace) for safety.
-    """
-    try:
-        src_path = Path(src_path)
-        if not src_path.exists():
-            return False
-
-        dest_path = get_builtin_override_path(name)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=f"{dest_path.stem}_",
-            suffix=".tmp",
-            dir=str(dest_path.parent),
-        )
-        os.close(fd)
-        tmp_path = Path(tmp_name)
-
-        try:
-            shutil.copy2(src_path, tmp_path)
-            os.replace(str(tmp_path), str(dest_path))
-            return True
-        finally:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except Exception:
-                pass
-
-    except Exception as e:
-        log(f"Error saving built-in override for '{name}': {e}", "DEBUG")
-        return False
-
-
-def save_builtin_override_from_active(name: str) -> bool:
-    """Saves built-in preset override from the current active preset file."""
-    return save_builtin_override_from_path(name, get_active_preset_path())
-
-
 def get_preset_path(name: str) -> Path:
     """
     Returns path to a specific preset file.
@@ -288,14 +196,6 @@ def list_presets() -> List[str]:
                     continue
                 presets.add(f.stem)
 
-    # Virtual built-ins must be visible even if
-    # `%APPDATA%/zapret/presets/{Name}.txt` does not exist.
-    try:
-        from .preset_defaults import get_builtin_preset_names
-        presets.update(get_builtin_preset_names())
-    except Exception:
-        pass
-
     return sorted(presets, key=lambda s: s.lower())
 
 
@@ -309,12 +209,6 @@ def preset_exists(name: str) -> bool:
     Returns:
         True if preset file exists
     """
-    try:
-        from .preset_defaults import is_builtin_preset_name
-        if is_builtin_preset_name(name):
-            return True
-    except Exception:
-        pass
     return get_preset_path(name).exists()
 
 
@@ -333,43 +227,21 @@ def load_preset(name: str) -> Optional[Preset]:
         Preset object or None if not found
     """
     from .preset_model import Preset, CategoryConfig, SyndataSettings
-    from .txt_preset_parser import PresetData, parse_preset_content, parse_preset_file
+    from .txt_preset_parser import PresetData, parse_preset_file
 
     preset_path = get_preset_path(name)
 
-    data: PresetData
-    try:
-        from .preset_defaults import get_builtin_preset_content, is_builtin_preset_name
-        if is_builtin_preset_name(name):
-            content = get_builtin_preset_content(name)
-            if content is None:
-                return None
-            data = parse_preset_content(content)
-            data.name = name
-            data.active_preset = name
-            data.is_builtin = True
-        else:
-            if not preset_path.exists():
-                log(f"Preset not found: {preset_path}", "WARNING")
-                return None
-            data = parse_preset_file(preset_path)
-    except Exception:
-        if not preset_path.exists():
-            log(f"Preset not found: {preset_path}", "WARNING")
-            return None
-        data = parse_preset_file(preset_path)
+    if not preset_path.exists():
+        log(f"Preset not found: {preset_path}", "WARNING")
+        return None
+
+    data: PresetData = parse_preset_file(preset_path)
 
     try:
-        # `data` is ready (from disk or virtual template)
-
         # Convert to Preset model
-        # Force is_builtin=True for built-in presets by well-known name.
-        from .preset_defaults import is_builtin_preset_name
-        is_builtin = bool(data.is_builtin) or is_builtin_preset_name(name)
         preset = Preset(
             name=data.name if data.name != "Unnamed" else name,
             base_args=data.base_args,
-            is_builtin=is_builtin,
         )
 
         # Parse metadata from raw_header
@@ -500,11 +372,6 @@ def save_preset(preset: Preset) -> bool:
     """
     from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
-    # ЗАЩИТА: Cannot save built-in presets (default.txt и другие)
-    if preset.is_builtin:
-        log(f"Cannot save built-in preset '{preset.name}' - it's read-only", "WARNING")
-        return False
-
     preset_path = get_preset_path(preset.name)
 
     try:
@@ -512,7 +379,6 @@ def save_preset(preset: Preset) -> bool:
         data = PresetData(
             name=preset.name,
             base_args=preset.base_args,
-            is_builtin=preset.is_builtin,
         )
 
         # Build raw header
@@ -610,20 +476,12 @@ def delete_preset(name: str) -> bool:
     """
     Deletes preset file.
 
-    Cannot delete built-in presets (is_builtin=True).
-
     Args:
         name: Preset name
 
     Returns:
         True if deleted successfully
     """
-    # Check if preset is builtin
-    preset = load_preset(name)
-    if preset and preset.is_builtin:
-        log(f"Cannot delete built-in preset '{name}'", "WARNING")
-        return False
-
     preset_path = get_preset_path(name)
 
     if not preset_path.exists():
@@ -643,8 +501,6 @@ def rename_preset(old_name: str, new_name: str) -> bool:
     """
     Renames preset file.
 
-    Cannot rename built-in presets (is_builtin=True).
-
     Args:
         old_name: Current preset name
         new_name: New preset name
@@ -652,12 +508,6 @@ def rename_preset(old_name: str, new_name: str) -> bool:
     Returns:
         True if renamed successfully
     """
-    # Check if preset is builtin
-    preset = load_preset(old_name)
-    if preset and preset.is_builtin:
-        log(f"Cannot rename built-in preset '{old_name}'", "WARNING")
-        return False
-
     old_path = get_preset_path(old_name)
     new_path = get_preset_path(new_name)
 
@@ -670,7 +520,7 @@ def rename_preset(old_name: str, new_name: str) -> bool:
         return False
 
     try:
-        # We already loaded preset above, just update name
+        preset = load_preset(old_name)
         if preset is None:
             return False
 
@@ -782,8 +632,6 @@ def export_preset(name: str, dest_path: Path) -> bool:
     """
     Exports preset to external file.
 
-    Cannot export built-in presets (is_builtin=True).
-
     Args:
         name: Preset name
         dest_path: Destination path
@@ -791,12 +639,6 @@ def export_preset(name: str, dest_path: Path) -> bool:
     Returns:
         True if exported successfully
     """
-    # Check if preset is builtin
-    preset = load_preset(name)
-    if preset and preset.is_builtin:
-        log(f"Cannot export built-in preset '{name}'", "WARNING")
-        return False
-
     preset_path = get_preset_path(name)
 
     if not preset_path.exists():
@@ -833,7 +675,7 @@ def import_preset(src_path: Path, name: Optional[str] = None) -> bool:
     if name is None:
         name = src_path.stem
 
-    # Check for existing (includes virtual built-ins)
+    # Check for existing
     if preset_exists(name):
         log(f"Cannot import: preset '{name}' already exists", "WARNING")
         return False
@@ -875,7 +717,6 @@ def duplicate_preset(name: str, new_name: str) -> bool:
         preset.name = new_name
         preset.created = datetime.now().isoformat()
         preset.modified = datetime.now().isoformat()
-        preset.is_builtin = False  # Copies are never builtin
 
         return save_preset(preset)
 

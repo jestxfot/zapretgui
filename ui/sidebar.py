@@ -721,7 +721,6 @@ class SideNavBar(QWidget):
             (SectionName.STRATEGIES, "fa5s.cog", "Стратегии", "collapsible"),
             (SectionName.STRATEGY_SORT, "fa5s.sliders-h", "Сортировка", True),
             (SectionName.PRESET_CONFIG, "fa5s.file-code", "Активный пресет", True),
-            (SectionName.PRESET_TEMPLATES, "mdi.view-grid", "Шаблоны", True),
             (SectionName.PRESETS, "mdi.folder-cog", "Мои пресеты", True),
             (SectionName.DIRECT_RUN, "fa5s.play", "Прямой запуск", True),
             (SectionName.HOSTLIST, "fa5s.list", "Hostlist", True),
@@ -775,7 +774,6 @@ class SideNavBar(QWidget):
         self._custom_hostlist_button = None  # Кнопка "Мои hostlist"
         self._custom_ipset_button = None     # Кнопка "Мои ipset"
         self._presets_button = None          # Кнопка "Мои пресеты"
-        self._preset_templates_button = None  # Кнопка "Шаблоны" (presets)
         self._direct_run_button = None       # Кнопка "Прямой запуск" (direct_zapret2)
 
         # Группы подпунктов для сворачивания
@@ -854,8 +852,6 @@ class SideNavBar(QWidget):
                     self._custom_ipset_button = btn
                 elif section_name == SectionName.PRESETS:
                     self._presets_button = btn
-                elif section_name == SectionName.PRESET_TEMPLATES:
-                    self._preset_templates_button = btn
                 elif section_name == SectionName.DIRECT_RUN:
                     self._direct_run_button = btn
             else:
@@ -1344,7 +1340,6 @@ class SideNavBar(QWidget):
         self._set_mode_visible(self._orchestra_ratings_button, is_orchestra)
 
         # Presets available only in direct_zapret2
-        self._set_mode_visible(self._preset_templates_button, method == "direct_zapret2")
         self._set_mode_visible(self._presets_button, method == "direct_zapret2")
         self._set_mode_visible(self._direct_run_button, method == "direct_zapret2")
 

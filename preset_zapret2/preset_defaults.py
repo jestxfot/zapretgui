@@ -1,31 +1,20 @@
 # preset_zapret2/preset_defaults.py
-"""preset_zapret2 built-in preset templates.
+"""Preset templates management.
 
-There are two kinds of presets:
+Templates are stored in `%APPDATA%/zapret/presets_template/*.txt`.
+They serve as the source-of-truth for preset reset operations.
+Editable copies live in `%APPDATA%/zapret/presets/*.txt`.
 
-1) User presets (editable files):
-   - Stored in `%APPDATA%/zapret/presets/*.txt`.
-
-2) Built-in presets (virtual templates):
-   - Loaded from `%APPDATA%/zapret/presets/_builtin/*.txt`.
-   - Any `*.txt` files in this folder are treated as templates.
-
-Built-in presets do NOT require corresponding files in the *user* presets root.
-They are shown in the UI as official presets and can be activated directly.
-
-How to add a new built-in preset:
-   - Create: `%APPDATA%/zapret/presets/_builtin/<PresetName>.txt`
-   - Encoding: UTF-8
-   - The preset name is derived from the filename.
-   - Files starting with '_' are ignored.
+At startup, every template is automatically copied to presets/
+(unless the user explicitly deleted it — tracked via deleted_presets.ini).
 """
 
 from pathlib import Path
 from typing import Optional
 
-_BUILTIN_PRESETS_CACHE: Optional[dict[str, str]] = None
-_BUILTIN_PRESET_TEMPLATE_BY_KEY: Optional[dict[str, str]] = None
-_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY: Optional[dict[str, str]] = None
+_TEMPLATES_CACHE: Optional[dict[str, str]] = None
+_TEMPLATE_BY_KEY: Optional[dict[str, str]] = None
+_CANONICAL_NAME_BY_KEY: Optional[dict[str, str]] = None
 
 
 def _template_sanity_ok(text: str) -> bool:
@@ -33,10 +22,8 @@ def _template_sanity_ok(text: str) -> bool:
     s = (text or "").strip()
     if not s:
         return False
-    # Base args are always present in our presets.
     if "--lua-init=" not in s:
         return False
-    # Category blocks should exist for meaningful presets.
     if "--filter-" not in s:
         return False
     return True
@@ -48,7 +35,6 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
     text = (content or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
 
-    # Header = leading comment/empty lines until the first non-comment, non-empty line.
     header_end = 0
     for i, raw in enumerate(lines):
         stripped = raw.strip()
@@ -86,34 +72,35 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
     return "\n".join(out_header + body).rstrip("\n") + "\n"
 
 
-def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
-    """Loads built-in templates from `%APPDATA%/zapret/presets/_builtin/*.txt`."""
+def _get_templates_dir() -> Path:
+    """Returns path to presets_template/ directory."""
+    try:
+        from config import get_zapret_presets_template_dir
+        return Path(get_zapret_presets_template_dir())
+    except Exception:
+        return Path("")
+
+
+def _load_templates_from_disk() -> dict[str, str]:
+    """Loads templates from `%APPDATA%/zapret/presets_template/*.txt`."""
     templates: dict[str, str] = {}
 
-    try:
-        from config import get_zapret_presets_dir
-
-        presets_dir = Path(get_zapret_presets_dir()) / "_builtin"
-    except Exception:
-        return templates
-
-    if not presets_dir.exists() or not presets_dir.is_dir():
+    templates_dir = _get_templates_dir()
+    if not templates_dir.exists() or not templates_dir.is_dir():
         try:
             from log import log
-
-            log(f"Built-in preset templates directory not found: {presets_dir}", "ERROR")
+            log(f"Preset templates directory not found: {templates_dir}", "ERROR")
         except Exception:
             pass
         return templates
 
-    for file_path in sorted(presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
+    for file_path in sorted(templates_dir.glob("*.txt"), key=lambda p: p.name.lower()):
         raw_name = (file_path.stem or "").strip()
         name = raw_name
         if not name or name.startswith("_"):
             continue
 
-        # Normalize core built-ins by key to avoid case-related duplicates
-        # (e.g. default.txt vs Default.txt on case-insensitive filesystems).
+        # Normalize core names to avoid case-related duplicates.
         low = name.lower()
         if low == "default":
             name = "Default"
@@ -134,111 +121,259 @@ def _load_builtin_preset_templates_from_disk() -> dict[str, str]:
     return templates
 
 
-def invalidate_builtin_preset_templates_cache() -> None:
-    global _BUILTIN_PRESETS_CACHE, _BUILTIN_PRESET_TEMPLATE_BY_KEY, _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY
-    _BUILTIN_PRESETS_CACHE = None
-    _BUILTIN_PRESET_TEMPLATE_BY_KEY = None
-    _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = None
+def invalidate_templates_cache() -> None:
+    global _TEMPLATES_CACHE, _TEMPLATE_BY_KEY, _CANONICAL_NAME_BY_KEY
+    _TEMPLATES_CACHE = None
+    _TEMPLATE_BY_KEY = None
+    _CANONICAL_NAME_BY_KEY = None
 
 
-def _ensure_builtin_templates_loaded() -> None:
-    global _BUILTIN_PRESETS_CACHE, _BUILTIN_PRESET_TEMPLATE_BY_KEY, _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY
+# Keep old name as alias for compatibility during transition.
+invalidate_builtin_preset_templates_cache = invalidate_templates_cache
 
-    if _BUILTIN_PRESETS_CACHE is None:
-        templates = _load_builtin_preset_templates_from_disk()
-        _BUILTIN_PRESETS_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
-        _BUILTIN_PRESET_TEMPLATE_BY_KEY = {
-            canonical.lower(): content for canonical, content in _BUILTIN_PRESETS_CACHE.items()
+
+def _ensure_templates_loaded() -> None:
+    global _TEMPLATES_CACHE, _TEMPLATE_BY_KEY, _CANONICAL_NAME_BY_KEY
+
+    if _TEMPLATES_CACHE is None:
+        templates = _load_templates_from_disk()
+        _TEMPLATES_CACHE = {k: templates[k] for k in sorted(templates.keys(), key=lambda s: s.lower())}
+        _TEMPLATE_BY_KEY = {
+            canonical.lower(): content for canonical, content in _TEMPLATES_CACHE.items()
         }
-        _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = {
-            canonical.lower(): canonical for canonical in _BUILTIN_PRESETS_CACHE.keys()
+        _CANONICAL_NAME_BY_KEY = {
+            canonical.lower(): canonical for canonical in _TEMPLATES_CACHE.keys()
         }
         return
 
-    if _BUILTIN_PRESET_TEMPLATE_BY_KEY is None:
-        _BUILTIN_PRESET_TEMPLATE_BY_KEY = {
-            canonical.lower(): content for canonical, content in (_BUILTIN_PRESETS_CACHE or {}).items()
+    if _TEMPLATE_BY_KEY is None:
+        _TEMPLATE_BY_KEY = {
+            canonical.lower(): content for canonical, content in (_TEMPLATES_CACHE or {}).items()
         }
-    if _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY is None:
-        _BUILTIN_PRESET_CANONICAL_NAME_BY_KEY = {
-            canonical.lower(): canonical for canonical in (_BUILTIN_PRESETS_CACHE or {}).keys()
+    if _CANONICAL_NAME_BY_KEY is None:
+        _CANONICAL_NAME_BY_KEY = {
+            canonical.lower(): canonical for canonical in (_TEMPLATES_CACHE or {}).keys()
         }
 
 
-def get_builtin_preset_templates() -> dict[str, str]:
-    """Returns built-in templates (virtual presets).
-
-    Built-ins are not persisted in `%APPDATA%/zapret/presets/*.txt`.
-    """
-    _ensure_builtin_templates_loaded()
-    return _BUILTIN_PRESETS_CACHE or {}
+def get_preset_templates() -> dict[str, str]:
+    """Returns all preset templates {name: content}."""
+    _ensure_templates_loaded()
+    return _TEMPLATES_CACHE or {}
 
 
-def get_builtin_preset_names() -> list[str]:
-    templates = get_builtin_preset_templates()
+# Aliases for backward compatibility (other modules may still call these).
+get_builtin_preset_templates = get_preset_templates
+
+
+def get_preset_template_names() -> list[str]:
+    """Returns sorted list of template names."""
+    templates = get_preset_templates()
     return sorted(set(templates.keys()), key=lambda s: s.lower())
 
-BUILTIN_COPY_SUFFIX = " (копия)"
+
+get_builtin_preset_names = get_preset_template_names
 
 
-def get_builtin_preset_content(name: str) -> Optional[str]:
-    _ensure_builtin_templates_loaded()
+def get_template_content(name: str) -> Optional[str]:
+    """Returns template content by name (case-insensitive)."""
+    _ensure_templates_loaded()
     key = (name or "").strip().lower()
     if not key:
         return None
-    return (_BUILTIN_PRESET_TEMPLATE_BY_KEY or {}).get(key)
+    return (_TEMPLATE_BY_KEY or {}).get(key)
 
 
-def get_builtin_preset_canonical_name(name: str) -> Optional[str]:
-    _ensure_builtin_templates_loaded()
+# Alias
+get_builtin_preset_content = get_template_content
+
+
+def get_template_canonical_name(name: str) -> Optional[str]:
+    """Returns canonical template name (case-insensitive lookup)."""
+    _ensure_templates_loaded()
     key = (name or "").strip().lower()
     if not key:
         return None
-    return (_BUILTIN_PRESET_CANONICAL_NAME_BY_KEY or {}).get(key)
+    return (_CANONICAL_NAME_BY_KEY or {}).get(key)
 
 
-def is_builtin_preset_name(name: str) -> bool:
-    return get_builtin_preset_canonical_name(name) is not None
+get_builtin_preset_canonical_name = get_template_canonical_name
 
 
-def get_builtin_copy_name(builtin_name: str) -> Optional[str]:
-    canonical = get_builtin_preset_canonical_name(builtin_name)
-    if not canonical:
-        return None
-    return f"{canonical}{BUILTIN_COPY_SUFFIX}"
+def has_template(name: str) -> bool:
+    """Checks if a template with this name exists."""
+    return get_template_canonical_name(name) is not None
 
 
-def get_builtin_base_from_copy_name(name: str) -> Optional[str]:
-    raw = (name or "").strip()
-    if not raw or not raw.endswith(BUILTIN_COPY_SUFFIX):
-        return None
-    base = raw[: -len(BUILTIN_COPY_SUFFIX)].strip()
-    return get_builtin_preset_canonical_name(base)
+# Alias (old code calls is_builtin_preset_name)
+is_builtin_preset_name = has_template
 
 
-def get_default_builtin_preset_name() -> Optional[str]:
-    """Returns the preferred built-in template name used as a default.
+def get_default_template_name() -> Optional[str]:
+    """Returns the preferred default template name.
 
     Preference order:
     1) "Default" (if present)
     2) First template name in sorted order
     """
-    canonical = get_builtin_preset_canonical_name("Default")
+    canonical = get_template_canonical_name("Default")
     if canonical:
         return canonical
-    names = get_builtin_preset_names()
+    names = get_preset_template_names()
     return names[0] if names else None
 
 
-def get_default_builtin_preset_content() -> Optional[str]:
-    name = get_default_builtin_preset_name()
+get_default_builtin_preset_name = get_default_template_name
+
+
+def get_default_template_content() -> Optional[str]:
+    name = get_default_template_name()
     if not name:
         return None
-    return get_builtin_preset_content(name)
+    return get_template_content(name)
+
+
+get_default_builtin_preset_content = get_default_template_content
+
+
+# ── Deleted presets tracking ──────────────────────────────────────────────
+
+_DELETED_SECTION = "deleted"
+
+
+def _get_deleted_presets_ini_path() -> Path:
+    """Path to deleted_presets.ini inside presets/ directory."""
+    try:
+        from config import get_zapret_presets_dir
+        return Path(get_zapret_presets_dir()) / "deleted_presets.ini"
+    except Exception:
+        return Path("")
+
+
+def get_deleted_preset_names() -> set[str]:
+    """Returns set of preset names that user explicitly deleted."""
+    import configparser
+    path = _get_deleted_presets_ini_path()
+    try:
+        if not path.exists():
+            return set()
+        cfg = configparser.ConfigParser()
+        cfg.read(path, encoding="utf-8")
+        if not cfg.has_section(_DELETED_SECTION):
+            return set()
+        return {k for k, v in cfg.items(_DELETED_SECTION) if v.strip() == "1"}
+    except Exception:
+        return set()
+
+
+def mark_preset_deleted(name: str) -> bool:
+    """Records a preset name as deleted so it won't be auto-recreated from template."""
+    import configparser
+    import os
+    path = _get_deleted_presets_ini_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cfg = configparser.ConfigParser()
+        if path.exists():
+            cfg.read(path, encoding="utf-8")
+        if not cfg.has_section(_DELETED_SECTION):
+            cfg.add_section(_DELETED_SECTION)
+        cfg.set(_DELETED_SECTION, name, "1")
+        with path.open("w", encoding="utf-8") as f:
+            cfg.write(f)
+        return True
+    except Exception:
+        return False
+
+
+def unmark_preset_deleted(name: str) -> bool:
+    """Removes a preset from the deleted list."""
+    import configparser
+    path = _get_deleted_presets_ini_path()
+    try:
+        if not path.exists():
+            return True
+        cfg = configparser.ConfigParser()
+        cfg.read(path, encoding="utf-8")
+        if cfg.has_section(_DELETED_SECTION):
+            cfg.remove_option(_DELETED_SECTION, name)
+        with path.open("w", encoding="utf-8") as f:
+            cfg.write(f)
+        return True
+    except Exception:
+        return False
+
+
+def clear_all_deleted_presets() -> bool:
+    """Clears the entire deleted presets list (restore all)."""
+    import configparser
+    path = _get_deleted_presets_ini_path()
+    try:
+        if not path.exists():
+            return True
+        cfg = configparser.ConfigParser()
+        if cfg.has_section(_DELETED_SECTION):
+            cfg.remove_section(_DELETED_SECTION)
+        with path.open("w", encoding="utf-8") as f:
+            cfg.write(f)
+        return True
+    except Exception:
+        return False
+
+
+# ── Ensure templates are copied to presets ────────────────────────────────
+
+def ensure_templates_copied_to_presets() -> bool:
+    """Copies any new templates from presets_template/ to presets/.
+
+    Skips presets that already exist in presets/ or are in deleted_presets.ini.
+    Called at startup.
+
+    Returns True on success.
+    """
+    try:
+        from config import get_zapret_presets_dir
+
+        templates = get_preset_templates()
+        if not templates:
+            return True
+
+        presets_dir = Path(get_zapret_presets_dir())
+        presets_dir.mkdir(parents=True, exist_ok=True)
+
+        deleted = get_deleted_preset_names()
+
+        for name, content in templates.items():
+            # Skip if user explicitly deleted this preset
+            if name.lower() in {d.lower() for d in deleted}:
+                continue
+
+            dest = presets_dir / f"{name}.txt"
+            if dest.exists():
+                continue
+
+            try:
+                dest.write_text(content, encoding="utf-8")
+                try:
+                    from log import log
+                    log(f"Created preset '{name}' from template", "DEBUG")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        return True
+    except Exception as e:
+        try:
+            from log import log
+            log(f"Error copying templates to presets: {e}", "ERROR")
+        except Exception:
+            pass
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DEFAULT SETTINGS PARSER
+# DEFAULT SETTINGS PARSER (unchanged logic, uses templates)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _DEFAULT_SETTINGS_CACHE = None
@@ -246,35 +381,11 @@ _DEFAULT_SETTINGS_CACHE = None
 
 def get_default_category_settings() -> dict:
     """
-    Парсит "дефолтный" built-in шаблон и возвращает дефолтные настройки для всех категорий.
-
-    Возвращает словарь вида:
-    {
-        "youtube": {
-            "filter_mode": "hostlist",
-            "tcp_enabled": True,
-            "tcp_port": "80,443",
-            "tcp_args": "--lua-desync=multidisorder_legacy:pos=1,midsld",
-            "udp_enabled": False,
-        },
-        "YouTube QUIC": {
-            "filter_mode": "ipset",
-            "tcp_enabled": False,
-            "udp_enabled": True,
-            "udp_port": "443",
-            "udp_args": "--lua-desync=multidisorder_legacy:pos=1,midsld",
-        },
-        ...
-    }
-
-    Кэширует результат при первом вызове.
-
-    Returns:
-        dict: Словарь с дефолтными настройками категорий
+    Parses the default template and returns default settings for all categories.
+    Cached after first call.
     """
     global _DEFAULT_SETTINGS_CACHE
 
-    # Возвращаем из кэша если уже парсили
     if _DEFAULT_SETTINGS_CACHE is not None:
         return _DEFAULT_SETTINGS_CACHE
 
@@ -283,26 +394,22 @@ def get_default_category_settings() -> dict:
     template_name = "Default"
 
     try:
-        template_name = get_default_builtin_preset_name() or "Default"
-        template = get_builtin_preset_content(template_name)
+        template_name = get_default_template_name() or "Default"
+        template = get_template_content(template_name)
         if not template:
             from log import log
-
             log(
-                "Cannot parse default category settings: no built-in preset templates found. "
-                "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
+                "Cannot parse default category settings: no preset templates found. "
+                "Expected at least one file in: %APPDATA%/zapret/presets_template/*.txt",
                 "ERROR",
             )
             return {}
 
         preset_data = parse_preset_content(template)
 
-        # Конвертируем CategoryBlock в удобный формат
         settings = {}
-
         for block in preset_data.categories:
             category_name = block.category
-
             if category_name not in settings:
                 settings[category_name] = {
                     "filter_mode": block.filter_mode,
@@ -312,82 +419,47 @@ def get_default_category_settings() -> dict:
                     "udp_enabled": False,
                     "udp_port": "",
                     "udp_args": "",
-                    # Parsed per-protocol overrides from DEFAULT_PRESET_CONTENT.
-                    # Keys are compatible with SyndataSettings.from_dict().
                     "syndata_overrides_tcp": {},
                     "syndata_overrides_udp": {},
                 }
 
             cat_settings = settings[category_name]
-
-            # Merge per-protocol overrides (if any) from the block.
-            # NOTE: txt_preset_parser extracts these separately from strategy_args,
-            # so we must take them from block.syndata_dict.
             overrides = getattr(block, "syndata_dict", None) or {}
             if overrides:
                 target = "syndata_overrides_tcp" if block.protocol == "tcp" else "syndata_overrides_udp"
                 cat_settings[target].update(overrides)
 
-            # Записываем настройки по протоколу
             if block.protocol == "tcp":
                 cat_settings["tcp_enabled"] = True
                 cat_settings["tcp_port"] = block.port
                 cat_settings["tcp_args"] = block.strategy_args
-                # TCP filter_mode имеет приоритет (обычно hostlist)
                 cat_settings["filter_mode"] = block.filter_mode
             elif block.protocol == "udp":
                 cat_settings["udp_enabled"] = True
                 cat_settings["udp_port"] = block.port
                 cat_settings["udp_args"] = block.strategy_args
-                # Обновляем filter_mode для UDP только если TCP нет
                 if not cat_settings["tcp_enabled"]:
                     cat_settings["filter_mode"] = block.filter_mode
 
-        # Кэшируем результат
         _DEFAULT_SETTINGS_CACHE = settings
         return settings
 
     except Exception as e:
-        # Если парсинг не удался, возвращаем пустой словарь
         from log import log
-        log(f"Failed to parse built-in preset '{template_name}': {e}", "ERROR")
+        log(f"Failed to parse template '{template_name}': {e}", "ERROR")
         return {}
 
 
 def get_category_default_filter_mode(category_name: str) -> str:
-    """
-    Возвращает дефолтный filter_mode для категории из DEFAULT_PRESET_CONTENT.
-
-    Args:
-        category_name: Имя категории (например "youtube", "YouTube QUIC")
-
-    Returns:
-        str: "hostlist", "ipset" или "hostlist" (fallback)
-    """
+    """Returns default filter_mode for a category from the default template."""
     settings = get_default_category_settings()
-
     if category_name in settings:
         return settings[category_name].get("filter_mode", "hostlist")
-
-    # Fallback: hostlist
     return "hostlist"
 
 
 def parse_syndata_from_args(args_str: str) -> dict:
-    """
-    Парсит syndata настройки из строки аргументов.
-
-    Извлекает параметры из строк вида:
-    - --lua-desync=send:repeats=2:ttl=0
-    - --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
-    - --out-range=-n8
-
-    Args:
-        args_str: Строка с аргументами (может содержать несколько строк)
-
-    Returns:
-        dict: Словарь с параметрами syndata/send/out_range
-    """
+    """Parses syndata settings from args string."""
     result = {
         "enabled": False,
         "blob": "tls_google",
@@ -408,55 +480,45 @@ def parse_syndata_from_args(args_str: str) -> dict:
 
     import re
 
-    # Парсим --lua-desync=syndata:...
     syndata_match = re.search(r'--lua-desync=syndata:([^\n]+)', args_str)
     if syndata_match:
         result["enabled"] = True
         syndata_str = syndata_match.group(1)
 
-        # blob=tls_google
         blob_match = re.search(r'blob=([^:]+)', syndata_str)
         if blob_match:
             result["blob"] = blob_match.group(1)
 
-        # ip_autottl=-2,3-20
         autottl_match = re.search(r'ip_autottl=(-?\d+),(\d+)-(\d+)', syndata_str)
         if autottl_match:
             result["autottl_delta"] = int(autottl_match.group(1))
             result["autottl_min"] = int(autottl_match.group(2))
             result["autottl_max"] = int(autottl_match.group(3))
 
-        # tls_mod=...
         tls_mod_match = re.search(r'tls_mod=([^:]+)', syndata_str)
         if tls_mod_match:
             result["tls_mod"] = tls_mod_match.group(1)
 
-    # Парсим --lua-desync=send:...
     send_match = re.search(r'--lua-desync=send:([^\n]+)', args_str)
     if send_match:
         result["send_enabled"] = True
         send_str = send_match.group(1)
 
-        # repeats=2
         repeats_match = re.search(r'repeats=(\d+)', send_str)
         if repeats_match:
             result["send_repeats"] = int(repeats_match.group(1))
 
-        # ttl=...
         ttl_match = re.search(r'ttl=(\d+)', send_str)
         if ttl_match:
             result["send_ip_ttl"] = int(ttl_match.group(1))
 
-        # ttl6=...
         ttl6_match = re.search(r'ttl6=(\d+)', send_str)
         if ttl6_match:
             result["send_ip6_ttl"] = int(ttl6_match.group(1))
 
-        # badsum=true
         if 'badsum=true' in send_str:
             result["send_badsum"] = True
 
-    # Парсим --out-range=-n8 или -d10
     out_range_match = re.search(r'--out-range=-([nd])(\d+)', args_str)
     if out_range_match:
         result["out_range_mode"] = out_range_match.group(1)
@@ -466,18 +528,7 @@ def parse_syndata_from_args(args_str: str) -> dict:
 
 
 def get_category_default_syndata(category_name: str, protocol: str = "tcp") -> dict:
-    """
-    Возвращает дефолтные syndata настройки для категории из DEFAULT_PRESET_CONTENT.
-
-    Args:
-        category_name: Имя категории (например "youtube", "discord")
-        protocol: "tcp" или "udp" (udp также покрывает QUIC/L7)
-
-    Returns:
-        dict: Словарь с параметрами (enabled, blob, autottl_*, send_*, out_range)
-    """
-    # Base defaults come from code (UI expectations), then overridden by
-    # any values present in DEFAULT_PRESET_CONTENT (e.g. out-range for discord_voice).
+    """Returns default syndata settings for a category from the default template."""
     from .preset_model import SyndataSettings
 
     proto = (protocol or "").strip().lower()
@@ -494,3 +545,26 @@ def get_category_default_syndata(category_name: str, protocol: str = "tcp") -> d
         base.update(overrides)
 
     return base
+
+
+# ── Removed concepts (kept as no-ops for transition) ─────────────────────
+
+# These were part of the old builtin/copy system and are no longer meaningful.
+BUILTIN_COPY_SUFFIX = " (копия)"  # kept for migration code only
+
+
+def get_builtin_copy_name(builtin_name: str) -> Optional[str]:
+    """DEPRECATED: No longer used. Kept for migration compatibility."""
+    canonical = get_template_canonical_name(builtin_name)
+    if not canonical:
+        return None
+    return f"{canonical}{BUILTIN_COPY_SUFFIX}"
+
+
+def get_builtin_base_from_copy_name(name: str) -> Optional[str]:
+    """DEPRECATED: No longer used. Kept for migration compatibility."""
+    raw = (name or "").strip()
+    if not raw or not raw.endswith(BUILTIN_COPY_SUFFIX):
+        return None
+    base = raw[: -len(BUILTIN_COPY_SUFFIX)].strip()
+    return get_template_canonical_name(base)

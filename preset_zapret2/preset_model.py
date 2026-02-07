@@ -322,7 +322,6 @@ class Preset:
         description: Optional description
         categories: Dict of category name -> CategoryConfig
         base_args: Base arguments (lua-init, wf-tcp-out, blobs)
-        is_builtin: True if this is a built-in preset (cannot be deleted)
     """
     name: str
     created: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -330,7 +329,6 @@ class Preset:
     description: str = ""
     categories: Dict[str, CategoryConfig] = field(default_factory=dict)
     base_args: str = ""
-    is_builtin: bool = False
 
     # Default base args for new presets
     DEFAULT_BASE_ARGS = """--lua-init=@lua/zapret-lib.lua
@@ -386,7 +384,6 @@ class Preset:
             "modified": self.modified,
             "description": self.description,
             "base_args": self.base_args,
-            "is_builtin": self.is_builtin,
             "categories": {
                 name: cat.to_dict()
                 for name, cat in self.categories.items()
@@ -406,7 +403,6 @@ class Preset:
             modified=data.get("modified", datetime.now().isoformat()),
             description=data.get("description", ""),
             base_args=data.get("base_args", ""),
-            is_builtin=data.get("is_builtin", False),
             categories=categories,
         )
 

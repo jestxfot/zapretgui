@@ -146,14 +146,12 @@ class PresetData:
         base_args: Arguments before first --filter-* (lua-init, wf-*, blob=*)
         categories: List of category blocks
         raw_header: Raw header lines (comments at start)
-        is_builtin: Whether this is a built-in preset (from # Builtin: line)
     """
     name: str = "Unnamed"
     active_preset: Optional[str] = None
     base_args: str = ""
     categories: List[CategoryBlock] = field(default_factory=list)
     raw_header: str = ""
-    is_builtin: bool = False
 
     def get_category_block(self, category: str, protocol: str = "tcp") -> Optional[CategoryBlock]:
         """
@@ -868,10 +866,6 @@ def parse_preset_content(content: str) -> PresetData:
             if strategy_match and data.name == "Unnamed":
                 data.name = strategy_match.group(1).strip()
 
-            # Extract builtin flag
-            builtin_match = re.match(r'#\s*Builtin:\s*(.+)', stripped, re.IGNORECASE)
-            if builtin_match:
-                data.is_builtin = builtin_match.group(1).strip().lower() in ('true', 'yes', '1')
 
         elif stripped:
             # First non-comment, non-empty line
@@ -1024,8 +1018,7 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
             lines.append(f"# Preset: {data.name}")
             if data.active_preset:
                 lines.append(f"# ActivePreset: {data.active_preset}")
-            if data.is_builtin:
-                lines.append("# Builtin: true")
+
             lines.append("")
 
     # Base args

@@ -735,6 +735,9 @@ class PresetManager:
         """
         Imports preset from external file.
 
+        Copies the file to both presets_template/ (as reset source)
+        and presets/ (as editable copy).
+
         Args:
             src_path: Source file path
             name: Optional name (uses filename if None)
@@ -742,6 +745,27 @@ class PresetManager:
         Returns:
             True if imported
         """
+        import shutil
+
+        actual_name = name if name else Path(src_path).stem
+
+        # Copy to presets_template/ as well (so reset works for imported presets)
+        try:
+            from config import get_zapret_presets_template_dir
+            template_dir = Path(get_zapret_presets_template_dir())
+            template_dir.mkdir(parents=True, exist_ok=True)
+            template_dest = template_dir / f"{actual_name}.txt"
+            shutil.copy2(str(src_path), str(template_dest))
+        except Exception as e:
+            log(f"Warning: could not copy imported preset to templates: {e}", "DEBUG")
+
+        # Remove from deleted list if it was there
+        try:
+            from .preset_defaults import unmark_preset_deleted
+            unmark_preset_deleted(actual_name)
+        except Exception:
+            pass
+
         result = import_preset(src_path, name)
         if result:
             self._notify_list_changed()

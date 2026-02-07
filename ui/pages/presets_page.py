@@ -1320,20 +1320,17 @@ class PresetsPage(BasePage):
             _clear_layout(self.official_layout)
             _clear_layout(self.presets_layout)
 
-            # Создаем карточки и раскладываем по секциям
-            official_items = []
+            # Создаем карточки
             user_items = []
 
             for name in preset_names:
                 preset = manager.load_preset(name)
                 if preset:
-                    target = official_items if preset.is_builtin else user_items
                     card = PresetCard(
                         name=name,
                         description=preset.description,
                         modified=preset.modified,
                         is_active=(name == active_name),
-                        is_builtin=preset.is_builtin,
                         parent=self
                     )
 
@@ -1349,9 +1346,6 @@ class PresetsPage(BasePage):
                     self._preset_cards.append(card)
 
             # Порядок: официальные (сверху) и пользовательские (ниже)
-            for card in official_items:
-                self.official_layout.addWidget(card)
-
             for card in user_items:
                 self.presets_layout.addWidget(card)
 

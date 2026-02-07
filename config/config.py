@@ -51,6 +51,15 @@ def get_zapret_presets_dir() -> str:
     """Returns presets root directory: <userdata>/zapret/presets."""
     return os.path.join(get_zapret_userdata_dir(), "presets")
 
+
+def get_zapret_presets_template_dir() -> str:
+    """Returns preset templates directory: <userdata>/zapret/presets_template.
+
+    Templates are the source-of-truth for preset reset.
+    User presets in presets/ are editable copies of these templates.
+    """
+    return os.path.join(get_zapret_userdata_dir(), "presets_template")
+
 # ═══════════════════════════════════════════════════════════════════
 
 # Все папки относительно MAIN_DIRECTORY

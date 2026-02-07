@@ -10,7 +10,6 @@ from .bat_strategies_page import BatStrategiesPage
 from .zapret2 import (
     Zapret2DirectControlPage,
     Zapret2StrategiesPageNew,
-    Zapret2PresetTemplatesPage,
     Zapret2UserPresetsPage,
     StrategyDetailPage,
 )
@@ -53,7 +52,6 @@ __all__ = [
     'BatStrategiesPage',
     'Zapret2StrategiesPageNew',  # Новая страница Zapret2 из zapret2/
     'Zapret2DirectControlPage',  # Управление для direct_zapret2 (вкладка внутри "Стратегии")
-    'Zapret2PresetTemplatesPage',  # Шаблоны пресетов (direct_zapret2)
     'Zapret2UserPresetsPage',  # Пользовательские пресеты (direct_zapret2)
     'StrategyDetailPage',  # Страница детального просмотра стратегии
     'StrategySortPage',  # Страница сортировки и фильтров стратегий

@@ -41,7 +41,6 @@ class PageName(Enum):
     EDITOR = auto()                  # Редактор стратегий
     DPI_SETTINGS = auto()            # Настройки DPI
     PRESETS = auto()                 # Пресеты настроек (только direct_zapret2)
-    ZAPRET2_PRESET_TEMPLATES = auto()  # Zapret 2 Direct: шаблоны пресетов
     ZAPRET2_USER_PRESETS = auto()      # Zapret 2 Direct: пользовательские пресеты
 
     # === Мои списки ===
@@ -98,7 +97,6 @@ class SectionName(Enum):
     ORCHESTRA_RATINGS = auto()       # - Рейтинги
     DPI_SETTINGS = auto()            # - Настройки DPI
     PRESETS = auto()                 # - Пресеты настроек
-    PRESET_TEMPLATES = auto()         # - Шаблоны пресетов
     DIRECT_RUN = auto()              # - Прямой запуск (только direct_zapret2)
 
     # === Мои списки (collapsible группа) ===
@@ -145,7 +143,6 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.ORCHESTRA_RATINGS: PageName.ORCHESTRA_RATINGS,
     SectionName.DPI_SETTINGS: PageName.DPI_SETTINGS,
     SectionName.PRESETS: PageName.ZAPRET2_USER_PRESETS,
-    SectionName.PRESET_TEMPLATES: PageName.ZAPRET2_PRESET_TEMPLATES,
     SectionName.DIRECT_RUN: PageName.ZAPRET2_DIRECT,
     SectionName.MY_LISTS_HEADER: None,  # Заголовок, нет страницы!
     SectionName.NETROGAT: PageName.NETROGAT,
@@ -181,7 +178,6 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     SectionName.STRATEGIES: [
         SectionName.STRATEGY_SORT,
         SectionName.PRESET_CONFIG,
-        SectionName.PRESET_TEMPLATES,
         SectionName.PRESETS,
         SectionName.DIRECT_RUN,
         SectionName.MY_CATEGORIES,
@@ -228,6 +224,5 @@ STRATEGY_PAGES: set[PageName] = {
     PageName.BAT_STRATEGIES,
     PageName.STRATEGY_DETAIL,
     PageName.ORCHESTRA,
-    PageName.ZAPRET2_PRESET_TEMPLATES,
     PageName.ZAPRET2_USER_PRESETS,
 }

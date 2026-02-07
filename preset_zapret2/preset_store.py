@@ -18,8 +18,6 @@ Usage:
 
     # Read presets (from memory, instant)
     all_presets = store.get_all_presets()
-    builtin = store.get_builtin_presets()
-    user = store.get_user_presets()
     preset = store.get_preset("Default")
 
     # Listen for changes
@@ -48,14 +46,12 @@ class PresetStore(QObject):
 
     # ── Signals ──────────────────────────────────────────────────────────
     # Emitted when the preset list or content changes (add/delete/rename/import/reset).
-    # Listeners should refresh their preset list UI.
     presets_changed = pyqtSignal()
 
     # Emitted when the active preset is switched. Argument: new active preset name.
     preset_switched = pyqtSignal(str)
 
     # Emitted when a single preset's content is updated (save/sync).
-    # Argument: preset name that was updated.
     preset_updated = pyqtSignal(str)
 
     # ── Singleton ────────────────────────────────────────────────────────
@@ -71,11 +67,11 @@ class PresetStore(QObject):
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
 
-        # {preset_name: Preset}  —  all presets (builtin + user)
+        # {preset_name: Preset}
         self._presets: Dict[str, "Preset"] = {}
 
-        # mtime tracking for user preset files: {name: mtime}
-        self._user_preset_mtimes: Dict[str, float] = {}
+        # mtime tracking for preset files: {name: mtime}
+        self._preset_mtimes: Dict[str, float] = {}
 
         # Flag: initial load done?
         self._loaded = False
@@ -86,7 +82,7 @@ class PresetStore(QObject):
     # ── Public API: Read ─────────────────────────────────────────────────
 
     def get_all_presets(self) -> Dict[str, "Preset"]:
-        """Returns all presets (builtin + user). Loads from disk on first call."""
+        """Returns all presets. Loads from disk on first call."""
         self._ensure_loaded()
         return dict(self._presets)
 
@@ -99,16 +95,6 @@ class PresetStore(QObject):
         """Returns sorted list of all preset names."""
         self._ensure_loaded()
         return sorted(self._presets.keys(), key=lambda s: s.lower())
-
-    def get_builtin_presets(self) -> Dict[str, "Preset"]:
-        """Returns only built-in (template) presets."""
-        self._ensure_loaded()
-        return {n: p for n, p in self._presets.items() if p.is_builtin}
-
-    def get_user_presets(self) -> Dict[str, "Preset"]:
-        """Returns only user (editable) presets."""
-        self._ensure_loaded()
-        return {n: p for n, p in self._presets.items() if not p.is_builtin}
 
     def get_active_preset_name(self) -> Optional[str]:
         """Returns the currently active preset name."""
@@ -173,7 +159,7 @@ class PresetStore(QObject):
         from .preset_storage import list_presets, load_preset, get_active_preset_name, get_preset_path
 
         self._presets.clear()
-        self._user_preset_mtimes.clear()
+        self._preset_mtimes.clear()
 
         names = list_presets()
         for name in names:
@@ -181,26 +167,19 @@ class PresetStore(QObject):
                 preset = load_preset(name)
                 if preset is not None:
                     self._presets[name] = preset
-                    # Track mtime for user presets
-                    if not preset.is_builtin:
-                        try:
-                            path = get_preset_path(name)
-                            if path.exists():
-                                self._user_preset_mtimes[name] = os.path.getmtime(str(path))
-                        except Exception:
-                            pass
+                    try:
+                        path = get_preset_path(name)
+                        if path.exists():
+                            self._preset_mtimes[name] = os.path.getmtime(str(path))
+                    except Exception:
+                        pass
             except Exception as e:
                 log(f"PresetStore: error loading preset '{name}': {e}", "DEBUG")
 
         self._active_name = get_active_preset_name()
         self._loaded = True
 
-        log(
-            f"PresetStore: loaded {len(self._presets)} presets "
-            f"({sum(1 for p in self._presets.values() if p.is_builtin)} builtin, "
-            f"{sum(1 for p in self._presets.values() if not p.is_builtin)} user)",
-            "DEBUG",
-        )
+        log(f"PresetStore: loaded {len(self._presets)} presets", "DEBUG")
 
     def _reload_single_preset(self, name: str) -> None:
         """Re-reads a single preset from disk into the store."""
@@ -210,17 +189,16 @@ class PresetStore(QObject):
             preset = load_preset(name)
             if preset is not None:
                 self._presets[name] = preset
-                if not preset.is_builtin:
-                    try:
-                        path = get_preset_path(name)
-                        if path.exists():
-                            self._user_preset_mtimes[name] = os.path.getmtime(str(path))
-                    except Exception:
-                        pass
+                try:
+                    path = get_preset_path(name)
+                    if path.exists():
+                        self._preset_mtimes[name] = os.path.getmtime(str(path))
+                except Exception:
+                    pass
             else:
                 # Preset was deleted or became unreadable
                 self._presets.pop(name, None)
-                self._user_preset_mtimes.pop(name, None)
+                self._preset_mtimes.pop(name, None)
         except Exception as e:
             log(f"PresetStore: error reloading preset '{name}': {e}", "DEBUG")
 
