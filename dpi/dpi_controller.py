@@ -946,7 +946,16 @@ class DPIController:
             
             if success:
                 # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно запущен?
+                # Retry with short delays to handle race condition where
+                # winws2.exe hasn't appeared in the process table yet.
                 is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
+                if not is_actually_running:
+                    import time
+                    for _retry in range(3):
+                        time.sleep(0.3)
+                        is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
+                        if is_actually_running:
+                            break
                 
                 if is_actually_running:
                     log("DPI запущен асинхронно", "INFO")

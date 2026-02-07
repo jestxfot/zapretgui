@@ -629,12 +629,9 @@ class MainWindowUI:
         except Exception:
             pass
 
-        # Keep legacy page signal connections as fallback
-        try:
-            if hasattr(self, 'zapret2_user_presets_page') and hasattr(self.zapret2_user_presets_page, 'preset_switched'):
-                self.zapret2_user_presets_page.preset_switched.connect(self._on_preset_switched)
-        except Exception:
-            pass
+        # NOTE: zapret2_user_presets_page.preset_switched is no longer connected here.
+        # The store.preset_switched signal above is the single source of truth;
+        # the page signal was causing double DPI restarts.
     def _on_preset_switched(self, preset_name: str):
         """Обработчик переключения пресета - перезапускает DPI если запущен"""
         from log import log
