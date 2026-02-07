@@ -33,8 +33,7 @@ class Zapret2UserPresetsPage(BasePage):
     def __init__(self, parent=None):
         super().__init__(
             "Мои пресеты",
-            "Здесь вы можете создавать, импортировать, экспортировать и переключать пользовательские пресеты. "
-            "Официальные шаблоны находятся на отдельной странице.",
+            "Здесь вы можете создавать, импортировать, экспортировать и переключать пользовательские пресеты.",
             parent,
         )
 
@@ -85,21 +84,6 @@ class Zapret2UserPresetsPage(BasePage):
 
     def showEvent(self, event):
         super().showEvent(event)
-        try:
-            # Legacy migration: built-in templates should never be active presets.
-            manager = self._get_manager()
-            active_name = manager.get_active_preset_name() or ""
-            from preset_zapret2.preset_defaults import is_builtin_preset_name, get_builtin_copy_name
-            from preset_zapret2.template_selection_store import set_active_preset_template_name
-
-            if active_name and is_builtin_preset_name(active_name):
-                set_active_preset_template_name(active_name)
-                copy_name = get_builtin_copy_name(active_name) or f"{active_name} (копия)"
-                if not manager.preset_exists(copy_name):
-                    manager.duplicate_preset(active_name, copy_name)
-                manager.switch_preset(copy_name, reload_dpi=False)
-        except Exception:
-            pass
         self._start_watching_presets()
         if self._ui_dirty:
             self._load_presets()
@@ -271,6 +255,38 @@ class Zapret2UserPresetsPage(BasePage):
         active_layout.addStretch(1)
         self.active_card.add_layout(active_layout)
         self.add_widget(self.active_card)
+
+        self.add_spacing(8)
+
+        # "Restore deleted presets" button
+        self._restore_deleted_btn = QPushButton("Восстановить удалённые пресеты")
+        self._restore_deleted_btn.setIcon(qta.icon("fa5s.undo", color="white"))
+        self._restore_deleted_btn.setIconSize(QSize(14, 14))
+        self._restore_deleted_btn.setFixedHeight(32)
+        self._restore_deleted_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._restore_deleted_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 6px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.20);
+            }
+            """
+        )
+        self._restore_deleted_btn.clicked.connect(self._on_restore_deleted)
+        self._restore_deleted_btn.setVisible(False)
+        self.add_widget(self._restore_deleted_btn)
 
         self.add_spacing(12)
 
@@ -686,7 +702,7 @@ class Zapret2UserPresetsPage(BasePage):
             user_items: list[PresetCard] = []
             for name in preset_names:
                 preset = manager.load_preset(name)
-                if not preset or preset.is_builtin:
+                if not preset:
                     continue
 
                 card = PresetCard(
@@ -694,7 +710,6 @@ class Zapret2UserPresetsPage(BasePage):
                     description=preset.description,
                     modified=preset.modified,
                     is_active=(name == active_name),
-                    is_builtin=False,
                     compact_actions=True,
                     parent=self,
                 )
@@ -723,6 +738,14 @@ class Zapret2UserPresetsPage(BasePage):
                 )
                 empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.presets_layout.addWidget(empty_label)
+
+            # Update restore-deleted button visibility
+            try:
+                from preset_zapret2.preset_defaults import get_deleted_preset_names
+                has_deleted = bool(get_deleted_preset_names())
+                self._restore_deleted_btn.setVisible(has_deleted)
+            except Exception:
+                self._restore_deleted_btn.setVisible(False)
 
         except Exception as e:
             log(f"Ошибка загрузки пресетов: {e}", "ERROR")
@@ -774,10 +797,10 @@ class Zapret2UserPresetsPage(BasePage):
             manager = self._get_manager()
 
             if not manager.reset_preset_to_default_template(name):
-                QMessageBox.warning(self, "Ошибка", "Не удалось сбросить пресет к настройкам Default")
+                QMessageBox.warning(self, "Ошибка", "Не удалось сбросить пресет к настройкам шаблона")
                 return
 
-            log(f"Сброшен пресет '{name}' к Default", "INFO")
+            log(f"Сброшен пресет '{name}' к шаблону", "INFO")
             self.preset_switched.emit(name)
             self._load_presets()
 
@@ -791,6 +814,12 @@ class Zapret2UserPresetsPage(BasePage):
 
             if manager.delete_preset(name):
                 log(f"Удалён пресет '{name}'", "INFO")
+                # Mark as deleted so it can be restored later (if it has a matching template)
+                try:
+                    from preset_zapret2.preset_defaults import mark_preset_deleted
+                    mark_preset_deleted(name)
+                except Exception:
+                    pass
                 self.preset_deleted.emit(name)
                 self._load_presets()
             else:
@@ -823,6 +852,18 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception as e:
             log(f"Ошибка экспорта пресета: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+
+    def _on_restore_deleted(self):
+        """Restore all previously deleted presets that have matching templates."""
+        try:
+            from preset_zapret2.preset_defaults import clear_all_deleted_presets, ensure_templates_copied_to_presets
+            clear_all_deleted_presets()
+            ensure_templates_copied_to_presets()
+            log("Восстановлены удалённые пресеты", "INFO")
+            self._load_presets()
+        except Exception as e:
+            log(f"Ошибка восстановления удалённых пресетов: {e}", "ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка восстановления: {e}")
 
     def _on_preset_switched_callback(self, name: str):
         _ = name

@@ -211,7 +211,7 @@ class PresetCard(QFrame):
         super().__init__(parent)
         self.preset_name = name
         self._is_active = is_active
-        self._is_builtin = is_builtin
+        self._is_builtin = False  # builtin concept removed; parameter kept for compat
         self._compact_actions = compact_actions
         self._hovered = False
 
@@ -272,48 +272,6 @@ class PresetCard(QFrame):
             """)
             top_row.addWidget(active_badge)
 
-        # Бейдж "Встроенный"
-        if self._is_builtin:
-            builtin_badge = QLabel("Официальный")
-            builtin_badge.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.7);
-                    background-color: rgba(255, 255, 255, 0.1);
-                    font-size: 10px;
-                    font-weight: 500;
-                    padding: 3px 8px;
-                    border-radius: 4px;
-                }
-            """)
-            builtin_badge.setToolTip(
-                "Официальный пресет-шаблон (только чтение).\n"
-                "Любые изменения будут сохранены в виде копии, оригинал не меняется."
-            )
-            top_row.addWidget(builtin_badge)
-
-        # Бейдж "Редактируемый" (пользовательская версия шаблона)
-        try:
-            from preset_zapret2.preset_defaults import get_builtin_base_from_copy_name
-            if get_builtin_base_from_copy_name(name):
-                copy_badge = QLabel("Редактируемый")
-                copy_badge.setStyleSheet("""
-                    QLabel {
-                        color: rgba(255, 255, 255, 0.8);
-                        background-color: rgba(74, 222, 128, 0.14);
-                        font-size: 10px;
-                        font-weight: 600;
-                        padding: 3px 8px;
-                        border-radius: 4px;
-                    }
-                """)
-                copy_badge.setToolTip(
-                    "Пользовательская версия шаблона.\n"
-                    "Её можно менять, переименовывать, экспортировать и удалять."
-                )
-                top_row.addWidget(copy_badge)
-        except Exception:
-            pass
-
         # Compact actions: small icon buttons on the right.
         if self._compact_actions:
             actions_row = QHBoxLayout()
@@ -325,31 +283,29 @@ class PresetCard(QFrame):
             actions_widget.setStyleSheet("background: transparent;")
             self._actions_widget = actions_widget
 
-            if not self._is_builtin:
-                rename_btn = self._create_icon_action_button("fa5s.edit", "Переименовать")
-                rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
-                actions_row.addWidget(rename_btn)
+            rename_btn = self._create_icon_action_button("fa5s.edit", "Переименовать")
+            rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
+            actions_row.addWidget(rename_btn)
 
             duplicate_btn = self._create_icon_action_button("fa5s.copy", "Дублировать")
             duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
             actions_row.addWidget(duplicate_btn)
 
-            if not self._is_builtin:
-                reset_btn = _DestructiveIconConfirmButton(
-                    icon_name="fa5s.broom",
-                    tooltip=(
-                        "Сбросить\n"
-                        "Сбросит этот пресет к настройкам из шаблона Default.\n"
-                        "Пресет будет активирован."
-                    ),
-                    confirm_tooltip="Нажмите ещё раз для подтверждения",
-                    busy_tooltip="Сброс…",
-                    parent=self,
-                )
-                reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
-                actions_row.addWidget(reset_btn)
+            reset_btn = _DestructiveIconConfirmButton(
+                icon_name="fa5s.broom",
+                tooltip=(
+                    "Сбросить\n"
+                    "Сбросит этот пресет к настройкам из шаблона.\n"
+                    "Пресет будет активирован."
+                ),
+                confirm_tooltip="Нажмите ещё раз для подтверждения",
+                busy_tooltip="Сброс…",
+                parent=self,
+            )
+            reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
+            actions_row.addWidget(reset_btn)
 
-            if not self._is_active and not self._is_builtin:
+            if not self._is_active:
                 delete_btn = _DestructiveIconConfirmButton(
                     icon_name="fa5s.trash",
                     tooltip="Удалить",
@@ -360,10 +316,9 @@ class PresetCard(QFrame):
                 delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
                 actions_row.addWidget(delete_btn)
 
-            if not self._is_builtin:
-                export_btn = self._create_icon_action_button("fa5s.file-export", "Экспорт")
-                export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
-                actions_row.addWidget(export_btn)
+            export_btn = self._create_icon_action_button("fa5s.file-export", "Экспорт")
+            export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
+            actions_row.addWidget(export_btn)
 
             top_row.addWidget(actions_widget)
         else:
@@ -406,35 +361,33 @@ class PresetCard(QFrame):
             buttons_row = QHBoxLayout()
             buttons_row.setSpacing(8)
 
-            # Переименовать (недоступно для встроенных)
-            if not self._is_builtin:
-                self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
-                self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
-                buttons_row.addWidget(self.rename_btn)
+            # Переименовать
+            self.rename_btn = self._create_action_button("Переименовать", "fa5s.edit")
+            self.rename_btn.clicked.connect(lambda: self.rename_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.rename_btn)
 
-            # Дублировать (доступно для всех)
+            # Дублировать
             self.duplicate_btn = self._create_action_button("Дублировать", "fa5s.copy")
             self.duplicate_btn.clicked.connect(lambda: self.duplicate_clicked.emit(self.preset_name))
             buttons_row.addWidget(self.duplicate_btn)
 
-            # Сбросить (недоступно для встроенных)
-            if not self._is_builtin:
-                self.reset_btn = _DestructiveConfirmButton(
-                    "Сбросить",
-                    confirm_text="Подтвердить",
-                    icon_name="fa5s.broom",
-                    busy_text="Сброс…",
-                    parent=self,
-                )
-                self.reset_btn.setToolTip(
-                    "Сбросит этот пресет к настройкам из шаблона Default.\n"
-                    "Пресет будет активирован."
-                )
-                self.reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
-                buttons_row.addWidget(self.reset_btn)
+            # Сбросить
+            self.reset_btn = _DestructiveConfirmButton(
+                "Сбросить",
+                confirm_text="Подтвердить",
+                icon_name="fa5s.broom",
+                busy_text="Сброс…",
+                parent=self,
+            )
+            self.reset_btn.setToolTip(
+                "Сбросит этот пресет к настройкам из шаблона.\n"
+                "Пресет будет активирован."
+            )
+            self.reset_btn.confirmed.connect(lambda: self.reset_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.reset_btn)
 
-            # Удалить (недоступно для активного и встроенных)
-            if not self._is_active and not self._is_builtin:
+            # Удалить (недоступно для активного)
+            if not self._is_active:
                 self.delete_btn = _DestructiveConfirmButton(
                     "Удалить",
                     confirm_text="Подтвердить",
@@ -445,11 +398,10 @@ class PresetCard(QFrame):
                 self.delete_btn.confirmed.connect(lambda: self.delete_clicked.emit(self.preset_name))
                 buttons_row.addWidget(self.delete_btn)
 
-            # Экспорт (недоступно для встроенных)
-            if not self._is_builtin:
-                self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
-                self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
-                buttons_row.addWidget(self.export_btn)
+            # Экспорт
+            self.export_btn = self._create_action_button("Экспорт", "fa5s.file-export")
+            self.export_btn.clicked.connect(lambda: self.export_clicked.emit(self.preset_name))
+            buttons_row.addWidget(self.export_btn)
 
             buttons_row.addStretch()
             main_layout.addLayout(buttons_row)

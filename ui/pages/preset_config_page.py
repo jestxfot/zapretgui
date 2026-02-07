@@ -238,61 +238,6 @@ class PresetConfigPage(BasePage):
             self._update_status(f"Сохранено {now}")
             log(f"Сохранен {os.path.basename(self._preset_path)}", "DEBUG")
 
-            # Если пользователь правит preset-zapret2.txt вручную, и активный пресет встроенный
-            # (Default/Gaming/...), сохраняем изменения как обычный пресет-копию и
-            # переключаем активный пресет на неё (оригинал не трогаем).
-            try:
-                if (
-                    os.path.basename(self._preset_path).lower() == "preset-zapret2.txt"
-                    and get_strategy_launch_method() == "direct_zapret2"
-                ):
-                    from preset_zapret2 import get_active_preset_name, get_preset_path, set_active_preset_name
-                    from preset_zapret2.preset_defaults import get_builtin_copy_name, is_builtin_preset_name
-
-                    active_name = (get_active_preset_name() or "").strip()
-                    if active_name and is_builtin_preset_name(active_name):
-                        copy_name = get_builtin_copy_name(active_name) or f"{active_name} (копия)"
-
-                        # Rewrite header markers so the copy is self-consistent.
-                        lines = content.splitlines()
-                        out = []
-                        saw_preset = False
-                        saw_active = False
-                        for raw in lines:
-                            stripped = raw.strip()
-                            if stripped.lower().startswith("# preset:"):
-                                out.append(f"# Preset: {copy_name}")
-                                saw_preset = True
-                                continue
-                            if stripped.lower().startswith("# activepreset:"):
-                                out.append(f"# ActivePreset: {copy_name}")
-                                saw_active = True
-                                continue
-                            out.append(raw)
-                        if not saw_preset:
-                            out.insert(0, f"# Preset: {copy_name}")
-                        if not saw_active:
-                            insert_idx = 1 if out and out[0].strip().lower().startswith("# preset:") else 0
-                            out.insert(insert_idx, f"# ActivePreset: {copy_name}")
-                        rewritten = "\n".join(out) + "\n"
-
-                        # Save as a normal preset file.
-                        get_preset_path(copy_name).write_text(rewritten, encoding="utf-8")
-
-                        # Switch active preset name and update active file header.
-                        set_active_preset_name(copy_name)
-                        with open(self._preset_path, 'w', encoding='utf-8') as f:
-                            f.write(rewritten)
-
-                        # Keep editor content in sync without triggering a re-save.
-                        self._is_loading = True
-                        try:
-                            self.editor.setPlainText(rewritten)
-                        finally:
-                            self._is_loading = False
-            except Exception:
-                pass
-
         except Exception as e:
             log(f"Ошибка сохранения {os.path.basename(self._preset_path)}: {e}", "ERROR")
             self._update_status(f"Ошибка: {e}")
