@@ -354,28 +354,6 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def show_window(self):
         """Показывает окно и восстанавливает его на прежнем месте"""
-        try:
-            from log import log
-            if hasattr(self.parent, "_snapshot_interaction_state_for_debug"):
-                snap = self.parent._snapshot_interaction_state_for_debug()
-                log(f"Tray show_window: snap={snap}", "DEBUG")
-        except Exception:
-            pass
-
-        # Defensive: if we got here to "unstick" the UI, clear any grabs/popups/cursors first.
-        try:
-            if hasattr(self.parent, "_dismiss_transient_ui_safe"):
-                self.parent._dismiss_transient_ui_safe(reason="tray_show_window")  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        try:
-            if hasattr(self.parent, "_force_release_interaction_states"):
-                self.parent._force_release_interaction_states(reason="tray_show_window")  # type: ignore[attr-defined]
-        except Exception:
-            pass
-
-        # ✅ ПРОВЕРЯЕМ: если окно было скрыто, просто показываем
-        # Позиция уже сохранена, Qt сам её помнит
         self.parent.showNormal()
         self.parent.activateWindow()
         self.parent.raise_()

@@ -86,15 +86,6 @@ class MainWindowUI:
         # Создаем страницы
         self._create_pages()
 
-        # Hardening: clear any transient popups/grabs that could break hover/cursor
-        # whenever the visible page changes (covers non-standard navigation paths too).
-        try:
-            self.pages_stack.currentChanged.connect(
-                lambda idx: self._dismiss_transient_ui(reason=f"pages_stack_changed:{idx}")
-            )
-        except Exception:
-            pass
-        
         content_layout.addWidget(self.pages_stack)
         root.addWidget(content_area, 1)  # stretch=1 для растягивания
         
@@ -313,177 +304,8 @@ class MainWindowUI:
         """Возвращает виджет страницы по имени"""
         return self.pages.get(name)
 
-    def _dismiss_transient_ui(self, *, reason: str = "") -> None:
-        """
-        Best-effort cleanup of transient popup/tooltip/preview windows and
-        input-grab/override-cursor states that can break hover/cursor updates.
-        """
-        try:
-            from PyQt6.QtCore import Qt
-            from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
-        except Exception:
-            return
-
-        cleaned: list[str] = []
-
-        # If updates were left disabled, hover animations/cursor changes may appear "stuck".
-        try:
-            if not bool(self.updatesEnabled()):
-                self.setUpdatesEnabled(True)
-                cleaned.append("updatesEnabled")
-        except Exception:
-            pass
-
-        # Native Qt tooltips
-        try:
-            QToolTip.hideText()
-        except Exception:
-            pass
-
-        # App hover tooltips
-        try:
-            from ui.widgets.strategies_tooltip import strategies_tooltip_manager
-            strategies_tooltip_manager.hide_immediately()
-        except Exception:
-            pass
-        try:
-            from strategy_menu.hover_tooltip import tooltip_manager
-            tooltip_manager.hide_immediately()
-        except Exception:
-            pass
-
-        # Preview popups (ArgsPreviewDialog used in multiple places)
-        try:
-            from strategy_menu.args_preview_dialog import preview_manager
-            preview_manager.cleanup()
-        except Exception:
-            pass
-        try:
-            if hasattr(self, "strategy_detail_page"):
-                self.strategy_detail_page._close_preview_dialog(force=True)  # type: ignore[attr-defined]
-        except Exception:
-            pass
-
-        app = QApplication.instance()
-        if not app:
-            return
-
-        # Clear stuck override cursor stack (e.g. WaitCursor).
-        try:
-            if QApplication.overrideCursor() is not None:
-                cleaned.append("overrideCursor")
-            while QApplication.overrideCursor() is not None:
-                QApplication.restoreOverrideCursor()
-        except Exception:
-            pass
-
-        # Release mouse/keyboard grabs if something grabbed input.
-        try:
-            mg = None
-            for obj in (app, QApplication, QWidget):
-                try:
-                    mg = obj.mouseGrabber()  # type: ignore[attr-defined]
-                    break
-                except Exception:
-                    continue
-            if mg is not None:
-                cleaned.append(f"mouseGrabber:{mg.__class__.__name__}")
-                try:
-                    mg.releaseMouse()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        try:
-            kg = None
-            for obj in (app, QApplication, QWidget):
-                try:
-                    kg = obj.keyboardGrabber()  # type: ignore[attr-defined]
-                    break
-                except Exception:
-                    continue
-            if kg is not None:
-                cleaned.append(f"keyboardGrabber:{kg.__class__.__name__}")
-                try:
-                    kg.releaseKeyboard()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Close active popup widget(s) that may keep Qt in a "popup" mode and break hover.
-        try:
-            for _ in range(6):
-                w = app.activePopupWidget()
-                if not w:
-                    break
-                cleaned.append(f"activePopup:{w.__class__.__name__}")
-                try:
-                    w.hide()
-                except Exception:
-                    pass
-                try:
-                    w.close()
-                except Exception:
-                    pass
-                try:
-                    w.deleteLater()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Also close any visible popup-like top-level windows (defensive).
-        # Important: don't use a naive `bool(flags & Qt.WindowType.Popup)` check,
-        # because `Qt.WindowType.Popup` includes the `Window` bit (value 0x9),
-        # so `Window` would match too.
-        try:
-            try:
-                main_win = self.window()
-            except Exception:
-                main_win = None
-            for w in list(app.topLevelWidgets()):
-                try:
-                    if main_win is not None and w is main_win:
-                        continue
-                    if not w.isVisible():
-                        continue
-                    wt = w.windowType()
-                    if wt in (Qt.WindowType.Popup, Qt.WindowType.ToolTip, Qt.WindowType.Tool):
-                        cleaned.append(f"popupWindow:{w.__class__.__name__}")
-                        try:
-                            w.hide()
-                        except Exception:
-                            pass
-                        try:
-                            w.close()
-                        except Exception:
-                            pass
-                        try:
-                            w.deleteLater()
-                        except Exception:
-                            pass
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        if cleaned:
-            try:
-                from log import log
-                suffix = f" ({reason})" if reason else ""
-                log(f"Dismissed transient UI{suffix}: {', '.join(cleaned)}", "DEBUG")
-            except Exception:
-                pass
-
     def show_page(self, name: PageName) -> bool:
         """Переключает на указанную страницу. Возвращает True при успехе."""
-        # Defensive: clear any transient popups/grabs that may break hover/cursor.
-        try:
-            self._dismiss_transient_ui(reason=f"show_page:{name}")
-        except Exception:
-            pass
-
         page = self.pages.get(name)
         if page:
             self.pages_stack.setCurrentWidget(page)
@@ -1273,12 +1095,6 @@ class MainWindowUI:
         from strategy_menu.strategies_registry import registry
 
         try:
-            # Defensive: close any transient popups/tooltips before switching pages.
-            try:
-                self._dismiss_transient_ui(reason="open_category_detail")
-            except Exception:
-                pass
-
             # Get category info
             category_info = registry.get_category_info(category_key)
             if not category_info:
