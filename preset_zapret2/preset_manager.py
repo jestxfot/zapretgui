@@ -145,7 +145,7 @@ class PresetManager:
         Loads all presets from the central PresetStore (in-memory).
 
         Returns:
-            List of all Preset objects (builtin + user), sorted by name.
+            List of all Preset objects, sorted by name.
         """
         store = self._get_store()
         all_presets = store.get_all_presets()
@@ -161,11 +161,6 @@ class PresetManager:
         Returns:
             True if saved successfully
         """
-        # ЗАЩИТА: Cannot save built-in presets
-        if preset.is_builtin:
-            log(f"Cannot save built-in preset '{preset.name}' - it's read-only", "WARNING")
-            return False
-
         # Validate before saving
         errors = validate_preset(preset)
         if errors:
@@ -211,9 +206,6 @@ class PresetManager:
                 return self._active_preset_cache
 
         # Source of truth for active state is preset-zapret2.txt.
-        # Important: built-in presets (e.g. Default) are read-only in presets/,
-        # but user changes are applied to preset-zapret2.txt, so loading from
-        # presets/ would return stale data.
         preset = self._load_from_active_file()
 
         if not preset:
@@ -254,28 +246,6 @@ class PresetManager:
             if name == "Unnamed":
                 name = "Current"
 
-            # Determine built-in flag:
-            # - active file may lose "# Builtin:" header after edits (sync rewrites header),
-            #   so also protect well-known built-ins by name and by the presets/ marker.
-            from .preset_defaults import is_builtin_preset_name
-            is_builtin = bool(data.is_builtin) or is_builtin_preset_name(name)
-            try:
-                active_name_hint = get_active_preset_name()
-                if active_name_hint and preset_exists(active_name_hint):
-                    # Lightweight header check to avoid loading full preset model.
-                    preset_path = get_preset_path(active_name_hint)
-                    if preset_path.exists():
-                        head = preset_path.read_text(encoding="utf-8", errors="replace")[:4096]
-                        for raw in head.splitlines():
-                            line = raw.strip().lower()
-                            if line.startswith("# builtin:"):
-                                val = line.split(":", 1)[1].strip() if ":" in line else ""
-                                if val in ("true", "yes", "1"):
-                                    is_builtin = True
-                                break
-            except Exception:
-                pass
-
             # Convert to Preset.
             # NOTE: --debug is a global runtime option; keep it in preset-zapret2.txt,
             # but don't persist it inside the preset model to avoid leaking it into
@@ -283,7 +253,6 @@ class PresetManager:
             preset = Preset(
                 name=name,
                 base_args=self._strip_debug_from_base_args(data.base_args),
-                is_builtin=is_builtin,
             )
 
             for block in data.categories:
@@ -491,30 +460,14 @@ class PresetManager:
         preset_path = get_preset_path(name)
         active_path = get_active_preset_path()
 
-        is_virtual_builtin = False
-        builtin_content: Optional[str] = None
-        try:
-            from .preset_defaults import get_builtin_preset_content, is_builtin_preset_name
-            if is_builtin_preset_name(name):
-                builtin_content = get_builtin_preset_content(name)
-                if builtin_content is None:
-                    log(f"Cannot switch: preset '{name}' not found", "ERROR")
-                    return False
-                is_virtual_builtin = True
-        except Exception:
-            is_virtual_builtin = False
-
-        if not is_virtual_builtin and not preset_path.exists():
+        if not preset_path.exists():
             log(f"Cannot switch: preset '{name}' not found", "ERROR")
             return False
 
         try:
             # Atomic copy: copy to temp, then rename
             temp_path = active_path.with_suffix('.tmp')
-            if is_virtual_builtin:
-                temp_path.write_text(builtin_content or "", encoding="utf-8")
-            else:
-                shutil.copy2(preset_path, temp_path)
+            shutil.copy2(preset_path, temp_path)
 
             # Add ActivePreset marker to file
             self._add_active_preset_marker(temp_path, name)
@@ -616,8 +569,6 @@ class PresetManager:
                     current.name = name
                     current.created = datetime.now().isoformat()
                     current.modified = datetime.now().isoformat()
-                    current.is_builtin = False
-
                     if save_preset(current):
                         self._notify_list_changed()
                         log(f"Created preset '{name}' from current", "INFO")
@@ -663,7 +614,6 @@ class PresetManager:
             data = parse_preset_content(template)
             data.name = name
             data.active_preset = None
-            data.is_builtin = False
             # generate_preset_content() preserves raw_header when present, so it must be updated
             # when we create a new preset from the Default template.
             now = datetime.now().isoformat()
@@ -708,7 +658,7 @@ class PresetManager:
         """
         Deletes preset.
 
-        Cannot delete currently active preset or built-in presets.
+        Cannot delete currently active preset.
 
         Args:
             name: Preset name
@@ -722,12 +672,6 @@ class PresetManager:
             log(f"Cannot delete active preset '{name}'", "WARNING")
             return False
 
-        # Check if builtin (also checked in storage layer)
-        preset = self.load_preset(name)
-        if preset and preset.is_builtin:
-            log(f"Cannot delete built-in preset '{name}'", "WARNING")
-            return False
-
         result = delete_preset(name)
         if result:
             self._notify_list_changed()
@@ -737,7 +681,6 @@ class PresetManager:
         """
         Renames preset.
 
-        Cannot rename built-in presets.
         Updates active preset name if renamed preset is active.
 
         Args:
@@ -747,12 +690,6 @@ class PresetManager:
         Returns:
             True if renamed
         """
-        # Check if builtin (also checked in storage layer)
-        preset = self.load_preset(old_name)
-        if preset and preset.is_builtin:
-            log(f"Cannot rename built-in preset '{old_name}'", "WARNING")
-            return False
-
         if rename_preset(old_name, new_name):
             # Update active preset name if this was active
             if get_active_preset_name() == old_name:
@@ -785,8 +722,6 @@ class PresetManager:
         """
         Exports preset to external file.
 
-        Cannot export built-in presets.
-
         Args:
             name: Preset name
             dest_path: Destination path
@@ -794,12 +729,6 @@ class PresetManager:
         Returns:
             True if exported
         """
-        # Check if builtin (also checked in storage layer)
-        preset = self.load_preset(name)
-        if preset and preset.is_builtin:
-            log(f"Cannot export built-in preset '{name}'", "WARNING")
-            return False
-
         return export_preset(name, dest_path)
 
     def import_preset(self, src_path: Path, name: Optional[str] = None) -> bool:
@@ -1432,10 +1361,9 @@ class PresetManager:
         Does not depend on preset_zapret2/default.txt existing on disk.
         """
         from .preset_defaults import (
-            get_builtin_preset_content,
+            get_template_content,
+            get_default_template_content,
             get_builtin_base_from_copy_name,
-            get_default_builtin_preset_content,
-            is_builtin_preset_name,
         )
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
@@ -1443,34 +1371,22 @@ class PresetManager:
         preset_name = get_active_preset_name() or "Current"
 
         try:
-            template_content = get_default_builtin_preset_content()
+            # Try matching template for this preset name first
+            template_content = get_template_content(preset_name)
+            if not template_content:
+                # Try base name for copies (e.g. "Default (копия)" -> "Default")
+                base = get_builtin_base_from_copy_name(preset_name)
+                if base:
+                    template_content = get_template_content(base)
+            if not template_content:
+                template_content = get_default_template_content()
             if not template_content:
                 log(
-                    "Cannot reset active preset: no built-in preset templates found. "
-                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
+                    "Cannot reset active preset: no preset templates found. "
+                    "Expected at least one file in presets_template/ or _builtin/.",
                     "ERROR",
                 )
                 return False
-            if is_builtin_preset_name(preset_name):
-                builtin_template = get_builtin_preset_content(preset_name)
-                if builtin_template is None:
-                    log(
-                        f"Cannot reset active preset: built-in preset '{preset_name}' is missing.",
-                        "ERROR",
-                    )
-                    return False
-                template_content = builtin_template
-            else:
-                base = get_builtin_base_from_copy_name(preset_name)
-                if base:
-                    builtin_template = get_builtin_preset_content(base)
-                    if builtin_template is None:
-                        log(
-                            f"Cannot reset active preset: built-in preset '{base}' is missing.",
-                            "ERROR",
-                        )
-                        return False
-                    template_content = builtin_template
 
             data = parse_preset_content(template_content)
 
@@ -1478,7 +1394,7 @@ class PresetManager:
             # (including absolute list paths and normalized base filters).
             preset = Preset(name=preset_name, base_args=data.base_args)
             existing = self.load_preset(preset_name) if preset_exists(preset_name) else None
-            if existing and not existing.is_builtin:
+            if existing:
                 preset.created = existing.created
                 preset.description = existing.description
 
@@ -1523,12 +1439,10 @@ class PresetManager:
                     inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
                 cat.strategy_id = inferred or "none"
 
-            # Persist reset into the preset file when active preset is a normal (non-built-in) preset.
+            # Persist reset into the preset file.
             if preset.name and preset.name != "Current" and preset_exists(preset.name):
-                existing2 = self.load_preset(preset.name)
-                if existing2 and not existing2.is_builtin:
-                    save_preset(preset)
-                    self.invalidate_preset_cache(preset.name)
+                save_preset(preset)
+                self.invalidate_preset_cache(preset.name)
 
             return self.sync_preset_to_active_file(preset)
         except Exception as e:
@@ -1537,13 +1451,16 @@ class PresetManager:
 
     def reset_preset_to_default_template(self, preset_name: str) -> bool:
         """
-        Resets a specific (non-built-in) preset to the built-in `Default` template and activates it.
+        Resets a preset to its matching template and activates it.
+
+        First tries to find a template matching the preset name in presets_template/,
+        then falls back to the default template.
 
         Overwrites:
         - presets/{preset_name}.txt
         - preset-zapret2.txt
         """
-        from .preset_defaults import get_default_builtin_preset_content
+        from .preset_defaults import get_template_content, get_default_template_content
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
 
@@ -1561,21 +1478,20 @@ class PresetManager:
                 log(f"Cannot reset: failed to load preset '{name}'", "ERROR")
                 return False
 
-            if existing.is_builtin:
-                log(f"Cannot reset built-in preset '{name}'", "WARNING")
-                return False
-
-            template_content = get_default_builtin_preset_content()
+            # Try matching template first, then fall back to default
+            template_content = get_template_content(name)
+            if not template_content:
+                template_content = get_default_template_content()
             if not template_content:
                 log(
-                    "Cannot reset preset: no built-in preset templates found. "
-                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
+                    "Cannot reset preset: no preset templates found. "
+                    "Expected at least one file in presets_template/ or _builtin/.",
                     "ERROR",
                 )
                 return False
             data = parse_preset_content(template_content)
 
-            preset = Preset(name=name, base_args=data.base_args, is_builtin=False)
+            preset = Preset(name=name, base_args=data.base_args)
             preset.created = existing.created
             preset.description = existing.description
 
@@ -1650,41 +1566,14 @@ class PresetManager:
         # Normalize/update wf-*-out before persisting anywhere.
         preset.base_args = self._update_wf_out_ports_in_base_args(preset)
 
-        preset_to_sync = preset
-
-        # Built-in presets are templates: persist user edits as a normal preset copy
-        # and switch active preset name to that copy.
-        if preset.is_builtin and preset.name and preset.name != "Current":
-            try:
-                from .preset_defaults import get_builtin_copy_name
-                copy_name = get_builtin_copy_name(preset.name) or f"{preset.name} (копия)"
-
-                existing = self.load_preset(copy_name) if preset_exists(copy_name) else None
-                copy_preset = Preset(
-                    name=copy_name,
-                    base_args=preset.base_args,
-                    categories=preset.categories,
-                    description=(existing.description if existing else f"Копия встроенного пресета {preset.name}"),
-                    created=(existing.created if existing else datetime.now().isoformat()),
-                    modified=datetime.now().isoformat(),
-                    is_builtin=False,
-                )
-
-                set_active_preset_name(copy_name)
-                preset_to_sync = copy_preset
-
-                log(f"Created/updated copy preset '{copy_name}' from built-in '{preset.name}'", "INFO")
-            except Exception as e:
-                log(f"Failed to materialize built-in copy preset: {e}", "WARNING")
-
-        # First save to presets folder if it has a name (normal presets only).
-        if preset_to_sync.name and preset_to_sync.name != "Current" and not preset_to_sync.is_builtin:
-            save_preset(preset_to_sync)
-            self.invalidate_preset_cache(preset_to_sync.name)
+        # Save to presets folder if it has a name.
+        if preset.name and preset.name != "Current":
+            save_preset(preset)
+            self.invalidate_preset_cache(preset.name)
 
         # Then sync to active file (triggers DPI reload via callback)
         # Note: sync_preset_to_active_file() already invalidates active cache
-        return self.sync_preset_to_active_file(preset_to_sync)
+        return self.sync_preset_to_active_file(preset)
 
     def _create_category_with_defaults(self, category_key: str) -> CategoryConfig:
         """
