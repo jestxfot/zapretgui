@@ -51,7 +51,6 @@ class Zapret2UserPresetsPage(BasePage):
         self._rename_source_name: Optional[str] = None
 
         self._build_ui()
-        self._load_presets()
 
         # Subscribe to central store signals
         try:
@@ -290,6 +289,22 @@ class Zapret2UserPresetsPage(BasePage):
 
         self.add_spacing(12)
 
+        # Buttons: create + import (above the preset list)
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(12)
+        self.create_btn = self._create_main_button("Создать новый", "fa5s.plus", accent=True)
+        self.create_btn.clicked.connect(self._on_create_clicked)
+        buttons_layout.addWidget(self.create_btn)
+        self.import_btn = self._create_main_button("Импорт из файла", "fa5s.file-import")
+        self.import_btn.clicked.connect(self._on_import_clicked)
+        buttons_layout.addWidget(self.import_btn)
+        buttons_layout.addStretch(1)
+        buttons_widget = QWidget()
+        buttons_widget.setLayout(buttons_layout)
+        self.add_widget(buttons_widget)
+
+        self.add_spacing(8)
+
         # Inline create/rename panel
         self._action_reveal = _RevealFrame(self)
         self._action_reveal_layout = QVBoxLayout(self._action_reveal)
@@ -448,27 +463,11 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_reveal_layout.addWidget(self._action_card)
         self.add_widget(self._action_reveal)
 
-        self.add_section_title("Пользовательские")
         self.presets_container = QWidget()
         self.presets_layout = QVBoxLayout(self.presets_container)
         self.presets_layout.setContentsMargins(0, 0, 0, 0)
         self.presets_layout.setSpacing(8)
         self.add_widget(self.presets_container)
-
-        self.add_spacing(16)
-
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(12)
-        self.create_btn = self._create_main_button("Создать новый", "fa5s.plus", accent=True)
-        self.create_btn.clicked.connect(self._on_create_clicked)
-        buttons_layout.addWidget(self.create_btn)
-        self.import_btn = self._create_main_button("Импорт из файла", "fa5s.file-import")
-        self.import_btn.clicked.connect(self._on_import_clicked)
-        buttons_layout.addWidget(self.import_btn)
-        buttons_layout.addStretch(1)
-        buttons_widget = QWidget()
-        buttons_widget.setLayout(buttons_layout)
-        self.add_widget(buttons_widget)
 
         self.layout.addStretch()
 
@@ -726,7 +725,7 @@ class Zapret2UserPresetsPage(BasePage):
                 self.presets_layout.addWidget(card)
 
             if not user_items:
-                empty_label = QLabel("Нет пользовательских пресетов. Создайте новый или сделайте копию шаблона.")
+                empty_label = QLabel("Нет пресетов. Создайте новый или импортируйте из файла.")
                 empty_label.setStyleSheet(
                     """
                     QLabel {

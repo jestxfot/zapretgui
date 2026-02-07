@@ -225,8 +225,8 @@ class PresetCard(QFrame):
     def _build_ui(self, name: str, description: str, modified: str):
         """Строит UI карточки"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 14, 16, 14)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(16, 10, 16, 10)
+        main_layout.setSpacing(8)
 
         # Верхняя строка: иконка + название + бейдж активности
         top_row = QHBoxLayout()
@@ -254,6 +254,23 @@ class PresetCard(QFrame):
         self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.name_label.setMinimumWidth(0)
         top_row.addWidget(self.name_label)
+
+        # Дата изменения (inline, справа от названия)
+        if modified:
+            try:
+                dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
+                formatted_date = dt.strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                formatted_date = modified
+
+            date_label = QLabel(formatted_date)
+            date_label.setStyleSheet("""
+                QLabel {
+                    color: rgba(255, 255, 255, 0.35);
+                    font-size: 11px;
+                }
+            """)
+            top_row.addWidget(date_label)
 
         top_row.addStretch()
 
@@ -337,24 +354,6 @@ class PresetCard(QFrame):
             """)
             desc_label.setWordWrap(True)
             main_layout.addWidget(desc_label)
-
-        # Дата изменения
-        if modified:
-            try:
-                # Парсим ISO формат и форматируем красиво
-                dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
-                formatted_date = dt.strftime("%d.%m.%Y %H:%M")
-            except:
-                formatted_date = modified
-
-            date_label = QLabel(f"Изменён: {formatted_date}")
-            date_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.4);
-                    font-size: 11px;
-                }
-            """)
-            main_layout.addWidget(date_label)
 
         if not self._compact_actions:
             # Кнопки действий
@@ -1342,10 +1341,9 @@ class PresetsPage(BasePage):
                     card.delete_clicked.connect(self._on_delete_preset)
                     card.export_clicked.connect(self._on_export_preset)
 
-                    target.append(card)
+                    user_items.append(card)
                     self._preset_cards.append(card)
 
-            # Порядок: официальные (сверху) и пользовательские (ниже)
             for card in user_items:
                 self.presets_layout.addWidget(card)
 
