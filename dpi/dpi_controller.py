@@ -970,7 +970,12 @@ class DPIController:
         """Неблокирующая проверка запуска процесса DPI через QTimer (вместо time.sleep в main thread)."""
         from PyQt6.QtCore import QTimer
 
-        MAX_RETRIES = 3
+        # Startup of winws/winws2 can take noticeable time (driver init, UAC, first launch,
+        # competing stop/start when user rapidly switches presets, etc.).
+        # Too short window causes false negatives like:
+        #   "DPI не запустился - процесс не найден после старта"
+        # even though the process appears moments later (process monitor sees it).
+        MAX_RETRIES = 12
         RETRY_DELAY_MS = 300
 
         is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)

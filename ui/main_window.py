@@ -637,14 +637,68 @@ class MainWindowUI:
         from log import log
         log(f"Пресет переключен: {preset_name}", "INFO")
 
-        # Перезапуск DPI если он запущен
-        if hasattr(self, 'dpi_controller') and self.dpi_controller:
-            if self.dpi_controller.is_running():
-                log("DPI запущен - выполняем перезапуск после смены пресета", "INFO")
-                self.dpi_controller.restart_dpi_async()
+        # Direct Zapret2: preset switch updates preset-zapret2.txt.
+        # StrategyRunnerV2 has hot-reload and will restart winws2.exe on file change.
+        # Explicit restarts here cause races (double stop/start) and flaky "winws is running" detection
+        # when user переключает пресеты быстро.
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            method = (get_strategy_launch_method() or "").strip().lower()
+        except Exception:
+            method = ""
+
+        if method in ("direct_zapret2", "direct_zapret2_orchestra"):
+            # Best-effort: let unified reload handler stop DPI if preset has no active filters.
+            try:
+                from dpi.zapret2_core_restart import trigger_dpi_reload
+
+                trigger_dpi_reload(self, reason="preset_switched")
+            except Exception:
+                pass
+        else:
+            # Other modes: restart, but debounce to avoid restart spam on rapid switching.
+            self._schedule_dpi_restart_after_preset_switch()
 
         # Асинхронно обновляем UI страниц, завязанных на preset-zapret2.txt
         self._schedule_refresh_after_preset_switch()
+
+    def _schedule_dpi_restart_after_preset_switch(self, delay_ms: int = 350) -> None:
+        """Debounced DPI restart used for non-direct_zapret2 modes."""
+        try:
+            if not hasattr(self, 'dpi_controller') or not self.dpi_controller:
+                return
+            if not self.dpi_controller.is_running():
+                return
+
+            from PyQt6.QtCore import QTimer
+
+            timer = getattr(self, "_preset_switch_restart_timer", None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(self._restart_dpi_after_preset_switch)
+                self._preset_switch_restart_timer = timer
+
+            timer.start(max(0, int(delay_ms)))
+        except Exception:
+            # Never break preset switching due to restart scheduling errors.
+            return
+
+    def _restart_dpi_after_preset_switch(self) -> None:
+        """Performs the actual restart after debounce timer."""
+        from log import log
+
+        try:
+            if not hasattr(self, 'dpi_controller') or not self.dpi_controller:
+                return
+            if not self.dpi_controller.is_running():
+                return
+
+            log("DPI запущен - выполняем перезапуск после смены пресета (debounce)", "INFO")
+            self.dpi_controller.restart_dpi_async()
+        except Exception as e:
+            log(f"Ошибка перезапуска DPI после смены пресета: {e}", "DEBUG")
 
     def _schedule_refresh_after_preset_switch(self):
         """Обновляет страницы, которые читают настройки из активного пресета."""

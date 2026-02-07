@@ -1546,10 +1546,28 @@ class PresetsPage(BasePage):
     def _on_dpi_reload_needed(self):
         """Колбэк для перезапуска DPI"""
         try:
+            # direct_zapret2: winws2 runner has hot-reload on preset-zapret2.txt.
+            # Explicit restart here can race with StrategyRunnerV2 watcher on rapid preset switching.
+            try:
+                from strategy_menu import get_strategy_launch_method
+
+                method = (get_strategy_launch_method() or "").strip().lower()
+            except Exception:
+                method = ""
+
             # Ищем dpi_controller в родительских виджетах
             widget = self
             while widget:
                 if hasattr(widget, 'dpi_controller'):
+                    if method in ("direct_zapret2", "direct_zapret2_orchestra"):
+                        try:
+                            from dpi.zapret2_core_restart import trigger_dpi_reload
+                            trigger_dpi_reload(widget, reason="preset_switched")
+                            log("Preset switched: hot-reload will apply config", "DEBUG")
+                        except Exception:
+                            pass
+                        return
+
                     widget.dpi_controller.restart_dpi_async()
                     log("DPI перезапущен после смены пресета", "INFO")
                     return
@@ -1559,6 +1577,15 @@ class PresetsPage(BasePage):
             from PyQt6.QtWidgets import QApplication
             for w in QApplication.topLevelWidgets():
                 if hasattr(w, 'dpi_controller'):
+                    if method in ("direct_zapret2", "direct_zapret2_orchestra"):
+                        try:
+                            from dpi.zapret2_core_restart import trigger_dpi_reload
+                            trigger_dpi_reload(w, reason="preset_switched")
+                            log("Preset switched: hot-reload will apply config", "DEBUG")
+                        except Exception:
+                            pass
+                        return
+
                     w.dpi_controller.restart_dpi_async()
                     log("DPI перезапущен после смены пресета", "INFO")
                     return
