@@ -1617,6 +1617,17 @@ class BuildReleaseGUI:
                 # Общие финальные шаги
                 steps.append((80, "Сборка Inno Setup", lambda: self.run_inno_setup(channel, version)))
 
+                # Запуск установщика сразу после сборки (в отдельном потоке, не блокирует загрузку)
+                if self.auto_run_installer_var.get():
+                    def _run_installer_async():
+                        t = threading.Thread(
+                            target=self.run_built_installer,
+                            args=(channel, version),
+                            daemon=True,
+                        )
+                        t.start()
+                    steps.append((82, "Запуск установщика", _run_installer_async))
+
                 if not skip_github:
                     def _github_step():
                         try:
@@ -1635,9 +1646,6 @@ class BuildReleaseGUI:
                 # SSH деплой
                 if SSH_AVAILABLE and is_ssh_configured():
                     steps.append((98, "SSH VPS деплой", lambda: self.deploy_to_ssh(channel, version, notes)))
-
-                if self.auto_run_installer_var.get():
-                    steps.append((99, "Запуск установщика", lambda: self.run_built_installer(channel, version)))
                 
             steps.append((100, "Завершение", lambda: None))
             
