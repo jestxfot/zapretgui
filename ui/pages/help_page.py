@@ -30,6 +30,13 @@ class HelpPage(BasePage):
 
         self._add_link_item(
             docs_layout,
+            "fa5b.telegram",
+            "Сайт-форум для новичков",
+            "Авторизация через Telegram-бота",
+            self._open_forum_for_beginners,
+        )
+        self._add_link_item(
+            docs_layout,
             "fa5s.info-circle",
             "Что это такое?",
             "Руководство и ответы на вопросы",
@@ -192,6 +199,15 @@ class HelpPage(BasePage):
         except Exception as e:
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть справку:\n{e}")
 
+    def _open_forum_for_beginners(self):
+        try:
+            from config.telegram_links import open_telegram_link
+
+            open_telegram_link("nozapretinrussia_bot")
+            log("Открыт Telegram-бот: nozapretinrussia_bot", "INFO")
+        except Exception as e:
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram-бота:\n{e}")
+
     def _open_help_folder(self):
         try:
             from config import HELP_FOLDER
@@ -255,4 +271,3 @@ class HelpPage(BasePage):
             log(f"Открыт GitHub: {url}", "INFO")
         except Exception as e:
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть GitHub:\n{e}")
-
