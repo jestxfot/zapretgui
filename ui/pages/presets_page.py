@@ -629,7 +629,7 @@ class _SegmentedChoice(QWidget):
     def _update_styles(self):
         active_style = """
             QPushButton {
-                background: #2f7cf6;
+                background: #60cdff;
                 border: none;
                 color: #ffffff;
                 font-size: 11px;
@@ -1159,7 +1159,7 @@ class PresetsPage(BasePage):
         if accent:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #2f7cf6;
+                    background-color: #60cdff;
                     border: 1px solid rgba(255, 255, 255, 0.18);
                     border-radius: 8px;
                     color: #ffffff;
@@ -1169,10 +1169,10 @@ class PresetsPage(BasePage):
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
                 QPushButton:hover {
-                    background-color: #3b89ff;
+                    background-color: rgba(96, 205, 255, 0.9);
                 }
                 QPushButton:pressed {
-                    background-color: #2769d4;
+                    background-color: rgba(96, 205, 255, 0.72);
                 }
             """)
         else:

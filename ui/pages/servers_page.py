@@ -504,13 +504,13 @@ class ServerCheckWorker(QThread):
 
     @staticmethod
     def _request_versions_json(url: str, *, timeout, verify_ssl: bool):
-        """Запрашивает all_versions.json с fallback без прокси.
+        """Запрашивает all_versions.json без системного прокси.
 
         Returns:
             (data, error, route)
             - data: dict | None
             - error: str | None
-            - route: "direct" | "bypass"
+            - route: "direct"
         """
         import requests
         from updater.proxy_bypass import request_get_bypass_proxy
@@ -532,42 +532,19 @@ class ServerCheckWorker(QThread):
             except Exception as e:
                 return None, f"json error: {str(e)[:60]}"
 
-        def _direct_request():
-            return requests.get(url, timeout=timeout, verify=verify_ssl, headers=headers)
-
-        def _bypass_request():
-            return request_get_bypass_proxy(url, timeout=timeout, verify=verify_ssl, headers=headers)
-
         try:
-            response = _direct_request()
+            response = request_get_bypass_proxy(
+                url,
+                timeout=timeout,
+                verify=verify_ssl,
+                headers=headers,
+            )
             data, error = _decode_response(response)
             return data, error, "direct"
-        except requests.exceptions.ProxyError as e:
-            log(f"⚠️ VPS monitor proxy error: {e}. Retry bypass...", "⚠️ PROXY")
-            try:
-                response = _bypass_request()
-                data, error = _decode_response(response)
-                return data, error, "bypass"
-            except Exception as e2:
-                return None, f"proxy+direct error: {str(e2)[:80]}", "bypass"
-        except requests.exceptions.ConnectionError as e:
-            try:
-                from updater.network_hints import _is_proxy_related_error
-                if _is_proxy_related_error(e):
-                    log(f"⚠️ VPS monitor proxy-like ConnectionError. Retry bypass...", "⚠️ PROXY")
-                    try:
-                        response = _bypass_request()
-                        data, error = _decode_response(response)
-                        return data, error, "bypass"
-                    except Exception as e2:
-                        return None, f"proxy+direct error: {str(e2)[:80]}", "bypass"
-            except Exception:
-                pass
-            return None, f"connection error: {str(e)[:80]}", "direct"
         except requests.exceptions.Timeout:
             return None, "timeout", "direct"
-        except requests.exceptions.SSLError as e:
-            return None, f"SSL error: {str(e)[:80]}", "direct"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"connection error: {str(e)[:80]}", "direct"
         except requests.exceptions.RequestException as e:
             return None, str(e)[:80], "direct"
         except Exception as e:

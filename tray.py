@@ -463,14 +463,16 @@ class SystemTrayManager:
             return
 
         # Обычное закрытие окна (Alt+F4, системное закрытие и т.д.)
-        # Показываем диалог выбора: закрыть только GUI или GUI + остановить DPI
+        # Диалог показываем только когда DPI запущен.
         ev.ignore()
         try:
             from ui.close_dialog import ask_close_action
+
             result = ask_close_action(parent=self.parent)
             if result is None:
                 # Пользователь отменил
                 return
+
             # result: False = только GUI, True = GUI + остановить DPI
             self.parent.request_exit(stop_dpi=result)
         except Exception:

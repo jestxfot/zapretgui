@@ -351,8 +351,8 @@ class ReleaseManager:
                 if not verify_ssl:
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                 
-                # Делаем запрос
-                response = requests.get(
+                # Делаем запрос (всегда без системного прокси)
+                response = request_get_bypass_proxy(
                     api_url,
                     timeout=TIMEOUT,
                     verify=verify_ssl,
@@ -398,33 +398,6 @@ class ReleaseManager:
                 self.last_error = error_msg
                 return None
 
-            except requests.exceptions.ProxyError as e:
-                log(f"⚠️ {server_name}: прокси-ошибка, повтор без прокси...", "⚠️ PROXY")
-                try:
-                    response = request_get_bypass_proxy(
-                        api_url,
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "Zapret-Updater/3.1",
-                            "Cache-Control": "no-cache"
-                        },
-                        timeout=TIMEOUT,
-                        verify=verify_ssl,
-                    )
-                    response.raise_for_status()
-                    all_data = response.json()
-                    response_time = time.time() - start_time
-                    set_cached_all_versions(all_data, f"{server_name} (bypass)")
-                    log(f"✅ {server_name}: успех через прямое подключение ({response_time*1000:.0f}мс)", "⚠️ PROXY")
-                except Exception as e2:
-                    error_msg = f"proxy+direct error: {str(e2)[:50]}"
-                    log(f"❌ {server_name}: прямой запрос тоже не удался: {e2}", "❌ ERROR")
-                    maybe_log_disable_dpi_for_update(e, scope="update_check", level="🔄 RELEASE")
-                    self.server_pool.record_failure(server_id, error_msg)
-                    self.server_stats.record_failure(server_name)
-                    self.last_error = error_msg
-                    return None
-            
             except requests.exceptions.SSLError as e:
                 error_msg = f"SSL error: {str(e)[:50]}"
                 log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
@@ -437,42 +410,13 @@ class ReleaseManager:
                 return None
 
             except requests.exceptions.ConnectionError as e:
-                # ProxyError является подтипом ConnectionError и может попасть сюда,
-                # если библиотека вернула его неявно.
-                from .network_hints import _is_proxy_related_error
-                if _is_proxy_related_error(e):
-                    log(f"⚠️ {server_name}: прокси-ошибка (ConnectionError), повтор без прокси...", "⚠️ PROXY")
-                    try:
-                        response = request_get_bypass_proxy(
-                            api_url,
-                            headers={
-                                "Accept": "application/json",
-                                "User-Agent": "Zapret-Updater/3.1",
-                                "Cache-Control": "no-cache"
-                            },
-                            timeout=TIMEOUT,
-                            verify=verify_ssl,
-                        )
-                        response.raise_for_status()
-                        all_data = response.json()
-                        response_time = time.time() - start_time
-                        set_cached_all_versions(all_data, f"{server_name} (bypass)")
-                        log(f"✅ {server_name}: успех через прямое подключение ({response_time*1000:.0f}мс)", "⚠️ PROXY")
-                    except Exception as e2:
-                        error_msg = f"proxy+direct error: {str(e2)[:50]}"
-                        log(f"❌ {server_name}: прямой запрос тоже не удался: {e2}", "❌ ERROR")
-                        maybe_log_disable_dpi_for_update(e, scope="update_check", level="🔄 RELEASE")
-                        self.server_pool.record_failure(server_id, error_msg)
-                        self.server_stats.record_failure(server_name)
-                        self.last_error = error_msg
-                        return None
-                else:
-                    error_msg = f"connection error: {str(e)[:50]}"
-                    log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
-                    self.server_pool.record_failure(server_id, error_msg)
-                    self.server_stats.record_failure(server_name)
-                    self.last_error = error_msg
-                    return None
+                error_msg = f"connection error: {str(e)[:50]}"
+                log(f"❌ {server_name}: {error_msg}", "🔄 RELEASE")
+                self.server_pool.record_failure(server_id, error_msg)
+                self.server_stats.record_failure(server_name)
+                self.last_error = error_msg
+                maybe_log_disable_dpi_for_update(e, scope="update_check", level="🔄 RELEASE")
+                return None
             
             except Exception as e:
                 error_msg = f"error: {str(e)[:50]}"

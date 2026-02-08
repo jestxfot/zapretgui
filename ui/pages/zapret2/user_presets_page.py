@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QFileSystemWatcher, QAbstractListModel, QModelIndex, QRect, QEvent
-from PyQt6.QtGui import QColor, QPainter, QFontMetrics, QMouseEvent, QHelpEvent
+from PyQt6.QtGui import QColor, QPainter, QFontMetrics, QMouseEvent, QHelpEvent, QTransform
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -52,14 +52,11 @@ def _normalize_preset_icon_color(value: Optional[str]) -> str:
     return _DEFAULT_PRESET_ICON_COLOR
 
 
-def _cached_icon(name: str, color: str, rotation: int = 0):
-    key = f"{name}|{color}|{rotation}"
+def _cached_icon(name: str, color: str):
+    key = f"{name}|{color}"
     icon = _icon_cache.get(key)
     if icon is None:
-        if rotation:
-            icon = qta.icon(name, color=color, rotated=rotation)
-        else:
-            icon = qta.icon(name, color=color)
+        icon = qta.icon(name, color=color)
         _icon_cache[key] = icon
     return icon
 
@@ -162,7 +159,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         "export": "Экспорт",
     }
 
-    _PENDING_SHAKE_ROTATIONS = (0, -15, 15, -12, 12, -8, 8, -4, 0)
+    _PENDING_SHAKE_ROTATIONS = (0, -8, 8, -6, 6, -4, 4, -2, 0)
     _PENDING_SHAKE_INTERVAL_MS = 50
 
     def __init__(self, view: QListView):
@@ -327,6 +324,22 @@ class _PresetListDelegate(QStyledItemDelegate):
                 return action
         return None
 
+    def _paint_action_icon(self, painter: QPainter, icon_name: str, icon_color: str, icon_rect: QRect, rotation: int = 0):
+        icon = _cached_icon(icon_name, icon_color)
+        pixmap = icon.pixmap(icon_rect.size())
+        if pixmap.isNull():
+            return
+
+        if rotation:
+            rotated = pixmap.transformed(QTransform().rotate(rotation), Qt.TransformationMode.SmoothTransformation)
+            center = icon_rect.center()
+            draw_x = center.x() - (rotated.width() // 2)
+            draw_y = center.y() - (rotated.height() // 2)
+            painter.drawPixmap(draw_x, draw_y, rotated)
+            return
+
+        painter.drawPixmap(icon_rect.topLeft(), pixmap)
+
     def _paint_section_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
         painter.save()
         text_rect = option.rect.adjusted(4, 6, -4, -2)
@@ -432,7 +445,13 @@ class _PresetListDelegate(QStyledItemDelegate):
 
             icon_name = self._ACTION_ICONS.get(action, "fa5s.circle")
             icon_rotation = self._pending_shake_rotation if pending else 0
-            _cached_icon(icon_name, icon_col, rotation=icon_rotation).paint(painter, action_rect.adjusted(7, 7, -7, -7))
+            self._paint_action_icon(
+                painter,
+                icon_name,
+                icon_col,
+                action_rect.adjusted(7, 7, -7, -7),
+                icon_rotation,
+            )
 
         painter.restore()
 
@@ -727,18 +746,14 @@ class Zapret2UserPresetsPage(BasePage):
         self.create_btn = self._create_main_button("Создать новый", "fa5s.plus", accent=True)
         self.create_btn.clicked.connect(self._on_create_clicked)
         buttons_layout.addWidget(self.create_btn)
-        self.import_btn = self._create_main_button("Импорт из файла", "fa5s.file-import")
+        self.import_btn = self._create_secondary_row_button("Импорт из файла", "fa5s.file-import")
         self.import_btn.clicked.connect(self._on_import_clicked)
         buttons_layout.addWidget(self.import_btn)
-        self.reset_all_btn = QPushButton("Сбросить все пресеты")
-        self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
-        self.reset_all_btn.setIconSize(QSize(14, 14))
-        self.reset_all_btn.setFixedHeight(36)
-        self.reset_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_all_btn = self._create_secondary_row_button("Сбросить все пресеты", "fa5s.undo")
         self.reset_all_btn.clicked.connect(self._on_reset_all_presets_clicked)
         self._apply_reset_all_button_style(False)
         buttons_layout.addWidget(self.reset_all_btn)
-        self.presets_info_btn = ActionButton("о пресетах", "fa5s.info-circle")
+        self.presets_info_btn = self._create_secondary_row_button("о пресетах", "fa5s.info-circle")
         self.presets_info_btn.clicked.connect(self._open_presets_info)
         buttons_layout.addWidget(self.presets_info_btn)
         self.disable_all_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
@@ -979,7 +994,7 @@ class Zapret2UserPresetsPage(BasePage):
             btn.setStyleSheet(
                 """
                 QPushButton {
-                    background-color: #2f7cf6;
+                    background-color: #60cdff;
                     border: 1px solid rgba(255, 255, 255, 0.18);
                     border-radius: 8px;
                     color: #ffffff;
@@ -989,10 +1004,10 @@ class Zapret2UserPresetsPage(BasePage):
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
                 QPushButton:hover {
-                    background-color: #3b89ff;
+                    background-color: rgba(96, 205, 255, 0.9);
                 }
                 QPushButton:pressed {
-                    background-color: #2769d4;
+                    background-color: rgba(96, 205, 255, 0.72);
                 }
                 """
             )
@@ -1020,6 +1035,35 @@ class Zapret2UserPresetsPage(BasePage):
 
         return btn
 
+    def _secondary_row_button_style(self) -> str:
+        return """
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.22);
+            }
+        """
+
+    def _create_secondary_row_button(self, text: str, icon_name: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setIcon(qta.icon(icon_name, color="#ffffff"))
+        btn.setIconSize(QSize(16, 16))
+        btn.setFixedHeight(32)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(self._secondary_row_button_style())
+        return btn
+
     def _apply_reset_all_button_style(self, confirm: bool):
         if confirm:
             self.reset_all_btn.setStyleSheet(
@@ -1027,10 +1071,10 @@ class Zapret2UserPresetsPage(BasePage):
                 QPushButton {
                     background-color: rgba(255, 107, 107, 0.95);
                     border: 1px solid rgba(255, 177, 177, 0.5);
-                    border-radius: 8px;
+                    border-radius: 4px;
                     color: #ffffff;
-                    padding: 0 20px;
-                    font-size: 13px;
+                    padding: 0 16px;
+                    font-size: 12px;
                     font-weight: 700;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
@@ -1044,26 +1088,7 @@ class Zapret2UserPresetsPage(BasePage):
             )
             return
 
-        self.reset_all_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                color: #ffffff;
-                padding: 0 20px;
-                font-size: 13px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.22);
-            }
-            """
-        )
+        self.reset_all_btn.setStyleSheet(self._secondary_row_button_style())
 
     def _arm_reset_all_confirmation(self):
         self._reset_all_confirm_pending = True

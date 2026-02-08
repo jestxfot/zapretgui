@@ -135,20 +135,14 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             return  # НЕ СКАЧИВАЕМ ПОВТОРНО!
     
     last_error = None
-    _bypass_proxy = False  # Флаг: при ProxyError переключаемся на прямое подключение
-    # +1 доп. попытка на случай ProxyError (чтобы bypass не "съедал" основную попытку)
-    effective_retries = max_retries + 1
+    effective_retries = max_retries
     attempt = 0
     
     while attempt < effective_retries:
         try:
             session = requests.Session()
-            
-            # Если предыдущая попытка упала с ProxyError, обходим прокси
-            if _bypass_proxy:
-                session.trust_env = False
-                session.proxies = {"http": None, "https": None}
-                log("🔄 Скачивание через прямое подключение (без прокси)", "⚠️ PROXY")
+            session.trust_env = False
+            session.proxies = {"http": None, "https": None}
             
             session.headers.update({
                 'User-Agent': 'Zapret-Updater/3.1',  # ✅ Обновлена версия
@@ -251,22 +245,6 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             log(f"✅ Файл скачан с попытки {attempt + 1}", "🔄 DOWNLOAD")
             return
             
-        except requests.exceptions.ProxyError as e:
-            if not _bypass_proxy:
-                # Первая прокси-ошибка — не считаем как потраченную попытку,
-                # включаем bypass и пробуем ещё раз
-                _bypass_proxy = True
-                log(f"⚠️ Прокси-ошибка при скачивании, повтор без прокси: {e}", "⚠️ PROXY")
-                # Удаляем частично скачанный файл
-                if os.path.exists(dest):
-                    try:
-                        os.remove(dest)
-                    except:
-                        pass
-                continue  # Повторяем эту же попытку с bypass
-            else:
-                last_error = str(e)
-                log(f"❌ Попытка {attempt + 1} не удалась (bypass): {last_error}", "🔄 DOWNLOAD")
         except Exception as e:
             last_error = str(e)
             log(f"❌ Попытка {attempt + 1} не удалась: {last_error}", "🔄 DOWNLOAD")
@@ -450,14 +428,6 @@ class UpdateWorker(QObject):
                     
         except Exception as e:
             log(f"Не удалось добавить fallback серверы: {e}", "🔁 UPDATE")
-        
-        # 3. Если это GitHub, добавляем прокси если есть
-        if "github.com" in upd_url or "githubusercontent.com" in upd_url:
-            proxy_url = os.getenv("ZAPRET_GITHUB_PROXY")
-            if proxy_url:
-                proxied = upd_url.replace("https://github.com", proxy_url)
-                proxied = proxied.replace("https://github-releases.githubusercontent.com", proxy_url)
-                urls.append((proxied, False))
         
         log(f"Сформировано {len(urls)} URL для скачивания", "🔁 UPDATE")
         return urls

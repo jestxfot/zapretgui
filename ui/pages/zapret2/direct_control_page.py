@@ -2,6 +2,7 @@
 """Direct Zapret2 management page (Strategies landing for direct_zapret2)."""
 
 import os
+import re
 
 from PyQt6.QtCore import QSize, QObject, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
@@ -41,6 +42,9 @@ QProgressBar::chunk {
     border-radius: 2px;
 }
 """
+
+
+_LIST_FILE_ARG_RE = re.compile(r"--(?:hostlist|ipset|hostlist-exclude|ipset-exclude)=([^\s]+)")
 
 
 class _CertificateInstallWorker(QObject):
@@ -202,8 +206,7 @@ class Zapret2DirectControlPage(BasePage):
 
         self.add_spacing(16)
 
-        # Текущая стратегия
-        self.add_section_title("Текущая стратегия")
+        self.add_section_title("Активные hostlist/ipset")
 
         strategy_card = SettingsCard()
         strategy_layout = QHBoxLayout()
@@ -863,38 +866,55 @@ class Zapret2DirectControlPage(BasePage):
     def update_strategy(self, name: str):
         self._update_stop_winws_button_text()
 
+        show_filter_lists = False
+
         try:
             from strategy_menu import get_strategy_launch_method
 
             method = get_strategy_launch_method()
             if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                show_filter_lists = True
                 from strategy_menu import get_direct_strategy_selections
                 from strategy_menu.strategies_registry import registry
 
                 selections = get_direct_strategy_selections() or {}
-                active_names: list[str] = []
+                active_lists: list[str] = []
+                seen_lists: set[str] = set()
+
                 for cat_key in registry.get_all_category_keys_by_command_order():
                     sid = selections.get(cat_key, "none") or "none"
                     if sid == "none":
                         continue
-                    info = registry.get_category_info(cat_key)
-                    active_names.append(getattr(info, "full_name", None) or cat_key)
 
-                if not active_names:
+                    args = registry.get_strategy_args_safe(cat_key, sid) or ""
+                    for value in _LIST_FILE_ARG_RE.findall(args):
+                        list_path = value.strip().strip('"').strip("'")
+                        if not list_path:
+                            continue
+
+                        normalized = list_path.replace("\\", "/")
+                        list_name = normalized.rsplit("/", 1)[-1]
+                        if not list_name:
+                            continue
+
+                        dedupe_key = list_name.lower()
+                        if dedupe_key in seen_lists:
+                            continue
+                        seen_lists.add(dedupe_key)
+                        active_lists.append(list_name)
+
+                if not active_lists:
                     name = "Не выбрана"
                     self.strategy_label.setToolTip("")
                 else:
-                    if len(active_names) <= 2:
-                        name = " • ".join(active_names)
-                    else:
-                        name = " • ".join(active_names[:2]) + f" +{len(active_names) - 2} ещё"
-                    self.strategy_label.setToolTip("\n".join(active_names))
+                    name = " • ".join(active_lists)
+                    self.strategy_label.setToolTip("\n".join(active_lists))
         except Exception:
             pass
 
         if name and name != "Автостарт DPI отключен":
             self.strategy_label.setText(name)
-            self.strategy_desc.setText("Активная стратегия обхода")
+            self.strategy_desc.setText("Активные hostlist/ipset" if show_filter_lists else "Активная стратегия обхода")
         else:
             self.strategy_label.setText("Не выбрана")
             self.strategy_desc.setText("Выберите стратегию в разделе «Прямой запуск»")

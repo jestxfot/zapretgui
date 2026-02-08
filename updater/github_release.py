@@ -163,12 +163,12 @@ def check_rate_limit() -> Dict[str, Any]:
         headers['Authorization'] = f'token {token}'
     
     try:
-        resp = requests.get(
-            "https://api.github.com/rate_limit", 
-            headers=headers, 
-            timeout=5
+        resp = request_get_bypass_proxy(
+            "https://api.github.com/rate_limit",
+            headers=headers,
+            timeout=5,
         )
-        
+
         if resp.status_code == 200:
             data = resp.json()
             core_limit = data['rate']
@@ -178,25 +178,6 @@ def check_rate_limit() -> Dict[str, Any]:
                 'reset': core_limit['reset'],
                 'reset_dt': datetime.fromtimestamp(core_limit['reset'])
             }
-    except requests.exceptions.ProxyError:
-        log("⚠️ Прокси-ошибка при проверке rate limit, повтор без прокси...", "⚠️ PROXY")
-        try:
-            resp = request_get_bypass_proxy(
-                "https://api.github.com/rate_limit",
-                headers=headers,
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                core_limit = data['rate']
-                return {
-                    'limit': core_limit['limit'],
-                    'remaining': core_limit['remaining'],
-                    'reset': core_limit['reset'],
-                    'reset_dt': datetime.fromtimestamp(core_limit['reset'])
-                }
-        except Exception as e2:
-            log(f"Ошибка проверки rate limit (bypass): {e2}", "⚠️ RATE_LIMIT")
     except Exception as e:
         log(f"Ошибка проверки rate limit: {e}", "⚠️ RATE_LIMIT")
     
@@ -235,7 +216,7 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
         log("🔑 Используем GitHub token для увеличения лимита", "🔄 CACHE")
     
     try:
-        response = requests.get(url, headers=headers, timeout=timeout)
+        response = request_get_bypass_proxy(url, headers=headers, timeout=timeout)
         
         # Проверяем rate limit в ответе
         if response.status_code == 403:
@@ -273,35 +254,6 @@ def _get_cached_or_fetch(url: str, timeout: int = 10) -> Optional[Dict[str, Any]
         
         return json_data
         
-    except requests.exceptions.ProxyError as e:
-        log(f"⚠️ Ошибка прокси к GitHub: {e}", "⚠️ PROXY")
-        log("🔄 Повторяем запрос напрямую (без системного прокси)...", "⚠️ PROXY")
-        try:
-            response = request_get_bypass_proxy(url, headers=headers, timeout=timeout)
-            if response.status_code == 403:
-                remaining = response.headers.get('X-RateLimit-Remaining', '0')
-                reset_time = response.headers.get('X-RateLimit-Reset', '0')
-                if remaining == '0':
-                    reset_timestamp = int(reset_time)
-                    _save_rate_limit_info(reset_timestamp)
-                    reset_dt = datetime.fromtimestamp(reset_timestamp)
-                    log(f"🚫 GitHub rate limit превышен (bypass). Сброс в {reset_dt}", "⚠️ RATE_LIMIT")
-                    if url in _github_cache:
-                        data, _ = _github_cache[url]
-                        return data
-                    return None
-            response.raise_for_status()
-            json_data = response.json()
-            _github_cache[url] = (json_data, time.time())
-            _save_persistent_cache()
-            remaining = response.headers.get('X-RateLimit-Remaining')
-            if remaining:
-                log(f"📊 Осталось запросов к GitHub: {remaining} (bypass)", "🔄 CACHE")
-            log("✅ Запрос к GitHub успешен через прямое подключение", "⚠️ PROXY")
-            return json_data
-        except Exception as e2:
-            log(f"❌ Прямой запрос тоже не удался: {e2}", "❌ ERROR")
-            maybe_log_disable_dpi_for_update(e, scope="update_check", level="❌ ERROR")
     except requests.exceptions.HTTPError as e:
         if e.response and e.response.status_code == 403:
             log(f"🚫 HTTP 403: {e}", "❌ ERROR")

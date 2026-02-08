@@ -156,7 +156,7 @@ class CustomDomainsPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__(
-            "Мои домены", 
+            "Кастомные (мои) домены (hostlist) для работы с Zapret", 
             "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru", 
             parent
         )

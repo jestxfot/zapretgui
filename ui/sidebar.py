@@ -958,7 +958,7 @@ class SideNavBar(QWidget):
             self.version_label.setText("")
             self.pin_btn.setVisible(False)
         else:
-            self.header_label.setText("Zapret")
+            self._update_header_title()
             from config import APP_VERSION
             self.version_label.setText(f"v{APP_VERSION}")
             self.pin_btn.setVisible(True)
@@ -1145,7 +1145,7 @@ class SideNavBar(QWidget):
         """Показывает все элементы панели"""
         self.header_widget.setVisible(True)
         self.header_label.setVisible(True)
-        self.header_label.setText("Zapret")
+        self._update_header_title()
         self.pin_btn.setVisible(True)
         self.nav_container.setVisible(True)
         self.scroll_area.setVisible(True)
@@ -1288,6 +1288,25 @@ class SideNavBar(QWidget):
         for parent_section in list(self._collapsible_groups.keys()):
             self._apply_group_visibility(parent_section)
 
+    @staticmethod
+    def _header_title_for_method(method: str) -> str:
+        return "Zapret2" if method == "direct_zapret2" else "Zapret"
+
+    def _update_header_title(self, method: str | None = None) -> None:
+        if self._is_collapsed:
+            self.header_label.setText("Z")
+            return
+
+        current_method = method
+        if current_method is None:
+            try:
+                from strategy_menu import get_strategy_launch_method
+                current_method = get_strategy_launch_method()
+            except Exception:
+                current_method = ""
+
+        self.header_label.setText(self._header_title_for_method(str(current_method or "")))
+
     def _update_mode_dependent_visibility(self) -> None:
         """Единая точка: пересчитать видимость вкладок по текущему режиму запуска."""
         try:
@@ -1295,6 +1314,8 @@ class SideNavBar(QWidget):
             method = get_strategy_launch_method()
         except Exception:
             method = ""
+
+        self._update_header_title(method)
 
         is_direct = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
         is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
@@ -1622,8 +1643,8 @@ class ActionButton(QPushButton):
         
     def _update_style(self):
         if self.accent:
-            bg = "#2f7cf6" if not self._hovered else "#3b89ff"
-            pressed_bg = "#2769d4"
+            bg = "#60cdff" if not self._hovered else "rgba(96, 205, 255, 0.9)"
+            pressed_bg = "rgba(96, 205, 255, 0.72)"
             border = "1px solid rgba(255, 255, 255, 0.18)"
         else:
             bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"

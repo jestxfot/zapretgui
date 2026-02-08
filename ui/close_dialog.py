@@ -365,11 +365,34 @@ class CloseDialog(QDialog):
 
 def ask_close_action(parent=None):
     """
-    Показывает диалог и возвращает:
+    Возвращает действие закрытия приложения:
       - None  -> пользователь отменил
       - False -> закрыть только GUI
       - True  -> закрыть GUI + остановить DPI
+
+    Если DPI-процесс не запущен, диалог не показывается и
+    сразу возвращается False (закрыть только GUI).
     """
+    is_dpi_running = True
+
+    try:
+        dpi_controller = getattr(parent, "dpi_controller", None)
+        if dpi_controller and hasattr(dpi_controller, "is_running"):
+            is_dpi_running = bool(dpi_controller.is_running())
+    except Exception:
+        pass
+
+    if is_dpi_running and parent is not None:
+        try:
+            dpi_starter = getattr(parent, "dpi_starter", None)
+            if dpi_starter and hasattr(dpi_starter, "check_process_running_wmi"):
+                is_dpi_running = bool(dpi_starter.check_process_running_wmi(silent=True))
+        except Exception:
+            pass
+
+    if not is_dpi_running:
+        return False
+
     dlg = CloseDialog(parent)
     dlg.exec()
     return dlg.result_stop_dpi
