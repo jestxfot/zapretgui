@@ -1117,34 +1117,62 @@ class FramelessWindowMixin:
         self._resize_start_geometry = self.geometry()
         self._is_resizing = True
         self._update_cursor(edge)
-    
+
+    def _compute_resized_geometry(self, start_geo, delta: QPoint, edge: str):
+        """Calculates stable resize geometry for all edges/corners.
+
+        The opposite edge remains anchored when the minimum size is reached,
+        so the window does not "jump" while shrinking from top/left.
+        """
+        left = int(start_geo.left())
+        right = int(start_geo.right())
+        top = int(start_geo.top())
+        bottom = int(start_geo.bottom())
+
+        if "left" in edge:
+            left += int(delta.x())
+        elif "right" in edge:
+            right += int(delta.x())
+
+        if "top" in edge:
+            top += int(delta.y())
+        elif "bottom" in edge:
+            bottom += int(delta.y())
+
+        min_w = max(1, int(self.minimumWidth()))
+        min_h = max(1, int(self.minimumHeight()))
+
+        cur_w = right - left + 1
+        if cur_w < min_w:
+            if "left" in edge:
+                left = right - min_w + 1
+            else:
+                right = left + min_w - 1
+
+        cur_h = bottom - top + 1
+        if cur_h < min_h:
+            if "top" in edge:
+                top = bottom - min_h + 1
+            else:
+                bottom = top + min_h - 1
+
+        new_w = max(1, right - left + 1)
+        new_h = max(1, bottom - top + 1)
+        return int(left), int(top), int(new_w), int(new_h)
+
     def _perform_resize(self, global_pos):
         if not self._is_resizing or not self._resize_edge:
             return
+
+        if self._resize_start_pos is None or self._resize_start_geometry is None:
+            return
+
         delta = global_pos - self._resize_start_pos
-        geo = self._resize_start_geometry
-
-        new_x = geo.x()
-        new_y = geo.y()
-        new_w = geo.width()
-        new_h = geo.height()
-        min_w = self.minimumWidth()
-        min_h = self.minimumHeight()
-
-        edge = self._resize_edge
-
-        if 'left' in edge:
-            new_w = max(min_w, geo.width() - delta.x())
-            if new_w != min_w:
-                new_x = geo.x() + delta.x()
-        if 'right' in edge:
-            new_w = max(min_w, geo.width() + delta.x())
-        if 'top' in edge:
-            new_h = max(min_h, geo.height() - delta.y())
-            if new_h != min_h:
-                new_y = geo.y() + delta.y()
-        if 'bottom' in edge:
-            new_h = max(min_h, geo.height() + delta.y())
+        new_x, new_y, new_w, new_h = self._compute_resized_geometry(
+            self._resize_start_geometry,
+            delta,
+            str(self._resize_edge),
+        )
 
         self.setGeometry(new_x, new_y, new_w, new_h)
         # ✅ Явно обновляем позиции resize handles во время изменения размера
