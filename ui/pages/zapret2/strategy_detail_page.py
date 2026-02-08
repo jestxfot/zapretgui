@@ -2679,6 +2679,35 @@ class StrategyDetailPage(BasePage):
         self._preview_dialog = None
         self._preview_pinned = False
 
+    def _ensure_preview_dialog(self):
+        dlg = self._preview_dialog
+        if dlg is not None:
+            try:
+                # Runtime check: C++ object can be deleted under us.
+                dlg.isVisible()
+                return dlg
+            except RuntimeError:
+                self._preview_dialog = None
+            except Exception:
+                return dlg
+
+        parent_win = self._main_window or self.window() or self
+        try:
+            dlg = ArgsPreviewDialog(parent_win)
+            dlg.closed.connect(self._on_preview_closed)
+            self._preview_dialog = dlg
+            return dlg
+        except Exception:
+            self._preview_dialog = None
+            return None
+
+    @staticmethod
+    def _to_qpoint(global_pos):
+        try:
+            return global_pos.toPoint()
+        except Exception:
+            return global_pos
+
     def _show_preview_dialog(self, strategy_id: str, global_pos, pinned: bool) -> None:
         if not (self._category_key and strategy_id and strategy_id != "none"):
             return
@@ -2686,31 +2715,22 @@ class StrategyDetailPage(BasePage):
         data = self._get_preview_strategy_data(strategy_id)
 
         try:
-            if self._preview_dialog is None:
-                parent_win = self._main_window or self.window() or self
-                self._preview_dialog = ArgsPreviewDialog(parent_win)
-                self._preview_dialog.closed.connect(self._on_preview_closed)
-            else:
-                try:
-                    if self._preview_dialog.isVisible():
-                        pass
-                except RuntimeError:
-                    parent_win = self._main_window or self.window() or self
-                    self._preview_dialog = ArgsPreviewDialog(parent_win)
-                    self._preview_dialog.closed.connect(self._on_preview_closed)
+            dlg = self._ensure_preview_dialog()
+            if dlg is None:
+                return
 
             try:
-                self._preview_dialog.set_pinned(bool(pinned))
+                dlg.set_pinned(bool(pinned))
             except Exception:
                 pass
             try:
                 # Hover: follow cursor + do not auto-close on click. Pinned: static tool window.
-                self._preview_dialog.set_hover_follow((not pinned), offset=None)
+                dlg.set_hover_follow((not pinned), offset=None)
             except Exception:
                 pass
             self._preview_pinned = bool(pinned)
 
-            self._preview_dialog.set_strategy_data(
+            dlg.set_strategy_data(
                 data,
                 strategy_id=strategy_id,
                 source_widget=(self._strategies_tree.viewport() if self._strategies_tree else self),
@@ -2719,13 +2739,7 @@ class StrategyDetailPage(BasePage):
                 rating_toggler=self._toggle_preview_rating,
             )
 
-            pos = global_pos
-            try:
-                # QPointF -> QPoint
-                pos = global_pos.toPoint()
-            except Exception:
-                pass
-            self._preview_dialog.show_animated(pos)
+            dlg.show_animated(self._to_qpoint(global_pos))
 
         except Exception as e:
             log(f"Preview dialog failed: {e}", "DEBUG")
