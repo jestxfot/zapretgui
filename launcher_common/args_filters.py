@@ -178,7 +178,7 @@ def apply_all_filters(args: list, lists_dir: str) -> list:
     Returns:
         Полностью обработанный список аргументов
     """
-    # 0. Создаём недостающие файлы списков (ПЕРВЫМ!)
+    # 0. Создаём недостающие файлы списков
     args = ensure_list_files_exist(args, lists_dir)
 
     # 1. Применяем wssize параметры (если включено)

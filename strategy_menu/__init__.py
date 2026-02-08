@@ -861,7 +861,6 @@ def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> boo
     if get_strategy_launch_method() == "direct_zapret2":
         try:
             from preset_zapret2 import PresetManager
-            from strategy_menu import invalidate_direct_selections_cache
 
             preset_manager = PresetManager()
             preset_manager.set_strategy_selection(category_key, strategy_id, save_and_sync=True)

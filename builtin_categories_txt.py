@@ -597,7 +597,7 @@ command_group = hostlists
 icon_name = fa5b.chrome
 icon_color = #2696F1
 base_filter_ipset = --filter-tcp=443 --ipset=ipset-censorliber.txt
-base_filter_hostlist = --filter-tcp=443 --hostlist-exclude=netrogat.txt --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt
+base_filter_hostlist = --filter-tcp=443 --hostlist-exclude=netrogat.txt --hostlist=other.txt --hostlist=russia-blacklist.txt
 strategy_type = tcp
 strip_payload = true
 

@@ -4,8 +4,6 @@
 При клике на категорию открывается отдельная страница StrategyDetailPage.
 """
 
-import webbrowser
-
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -15,7 +13,6 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets import UnifiedStrategiesList
 from log import log
 
@@ -34,8 +31,8 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(
-            title="Прямой запуск",
-            subtitle="Здесь Вы можете изменить стратегию для каждой категории.\nВсего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). Последовательность сама определяется программой,\nВы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню.\nКаждая стратегия всего лишь набор аргументов, то есть техник (дурения или же фуллинга) для того чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство.\nЧтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент.",
+            title="Прямой запуск Zapret 2",
+            subtitle="Здесь Вы можете ТОНКО изменить стратегию для каждой категории.\nВсего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). Последовательность сама определяется программой,\nВы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню.\nКаждая стратегия всего лишь набор аргументов, то есть техник (дурения или же фуллинга) для того чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство.\nЧтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент.",
             parent=parent
         )
         self.parent_app = parent
@@ -99,6 +96,7 @@ class Zapret2StrategiesPageNew(BasePage):
                 "через категорию для Zapret GUI."
             )
             telegram_hint.setWordWrap(True)
+            telegram_hint.setContentsMargins(12, 0, 0, 0)
             telegram_hint.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -157,15 +155,6 @@ class Zapret2StrategiesPageNew(BasePage):
             collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
             collapse_btn.clicked.connect(self._collapse_all)
             actions_layout.addWidget(collapse_btn)
-
-            presets_info_btn = ActionButton("о пресетах", "fa5s.info-circle")
-            presets_info_btn.clicked.connect(self._open_presets_info)
-            actions_layout.addWidget(presets_info_btn)
-
-            # Кнопка выключить все
-            self._clear_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
-            self._clear_btn.reset_confirmed.connect(self._clear_all)
-            actions_layout.addWidget(self._clear_btn)
 
             actions_layout.addStretch()
 
@@ -325,37 +314,6 @@ class Zapret2StrategiesPageNew(BasePage):
         except Exception as e:
             log(f"Ошибка refresh_from_preset_switch: {e}", "DEBUG")
 
-    def _clear_all(self):
-        """Выключает все категории - очищает preset.categories"""
-        try:
-            from preset_zapret2 import PresetManager
-            from dpi.zapret2_core_restart import trigger_dpi_reload
-
-            preset_manager = PresetManager(
-                on_dpi_reload_needed=lambda: trigger_dpi_reload(
-                    self.parent_app,
-                    reason="preset_clear_all",
-                )
-            )
-            preset = preset_manager.get_active_preset()
-            if not preset:
-                log("No active preset", "WARNING")
-                return
-
-            # Очистить все категории (останутся только base_args)
-            preset.categories.clear()
-
-            # Сохранить
-            preset_manager._save_and_sync_preset(preset)
-
-            log("Cleared all categories", "INFO")
-
-            # Перезагрузить UI
-            self._reload_strategies()
-
-        except Exception as e:
-            log(f"Ошибка отключения стратегий: {e}", "ERROR")
-
     def _expand_all(self):
         """Разворачивает все группы"""
         if self._unified_list:
@@ -424,13 +382,3 @@ class Zapret2StrategiesPageNew(BasePage):
         """Открывает Telegram-бота для запроса добавления сайтов"""
         from config.telegram_links import open_telegram_link
         open_telegram_link("nozapretinrussia_bot")
-
-    def _open_presets_info(self):
-        """Открывает страницу с информацией о пресетах"""
-        try:
-            from config.urls import PRESET_INFO_URL
-
-            webbrowser.open(PRESET_INFO_URL)
-            log(f"Открыта страница о пресетах: {PRESET_INFO_URL}", "INFO")
-        except Exception as e:
-            log(f"Не удалось открыть страницу о пресетах: {e}", "ERROR")

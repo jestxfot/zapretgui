@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+import re
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QFileSystemWatcher
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QFileSystemWatcher, QAbstractListModel, QModelIndex, QRect, QEvent
+from PyQt6.QtGui import QColor, QPainter, QFontMetrics, QMouseEvent, QHelpEvent
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -16,13 +20,421 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QMessageBox,
+    QListView,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QStyle,
+    QToolTip,
+    QSizePolicy,
 )
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
+from ui.pages.strategies_page_base import ResetActionButton
 from ui.sidebar import ActionButton, SettingsCard
-from ui.pages.presets_page import PresetCard, _RevealFrame, _SegmentedChoice
+from ui.pages.presets_page import _RevealFrame, _SegmentedChoice
 from log import log
+
+
+_icon_cache: dict[str, object] = {}
+_DEFAULT_PRESET_ICON_COLOR = "#60cdff"
+_HEX_COLOR_RGB_RE = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
+_HEX_COLOR_RGBA_RE = re.compile(r"^#(?:[0-9a-fA-F]{8})$")
+
+
+def _normalize_preset_icon_color(value: Optional[str]) -> str:
+    raw = str(value or "").strip()
+    if _HEX_COLOR_RGB_RE.fullmatch(raw):
+        return raw.lower()
+    if _HEX_COLOR_RGBA_RE.fullmatch(raw):
+        lowered = raw.lower()
+        return f"#{lowered[1:7]}"
+    return _DEFAULT_PRESET_ICON_COLOR
+
+
+def _cached_icon(name: str, color: str, rotation: int = 0):
+    key = f"{name}|{color}|{rotation}"
+    icon = _icon_cache.get(key)
+    if icon is None:
+        if rotation:
+            icon = qta.icon(name, color=color, rotated=rotation)
+        else:
+            icon = qta.icon(name, color=color)
+        _icon_cache[key] = icon
+    return icon
+
+
+class _PresetListModel(QAbstractListModel):
+    KindRole = Qt.ItemDataRole.UserRole + 1
+    NameRole = Qt.ItemDataRole.UserRole + 2
+    DescriptionRole = Qt.ItemDataRole.UserRole + 3
+    DateRole = Qt.ItemDataRole.UserRole + 4
+    ActiveRole = Qt.ItemDataRole.UserRole + 5
+    TextRole = Qt.ItemDataRole.UserRole + 6
+    IconColorRole = Qt.ItemDataRole.UserRole + 7
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rows: list[dict[str, object]] = []
+
+    def set_rows(self, rows: list[dict[str, object]]) -> None:
+        self.beginResetModel()
+        self._rows = rows
+        self.endResetModel()
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._rows)
+
+    def data(self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)):
+        if not index.isValid() or index.row() < 0 or index.row() >= len(self._rows):
+            return None
+
+        row = self._rows[index.row()]
+        kind = row.get("kind", "preset")
+
+        if role == int(Qt.ItemDataRole.DisplayRole):
+            if kind == "preset":
+                return row.get("name", "")
+            return row.get("text", "")
+
+        if role == self.KindRole:
+            return kind
+        if role == self.NameRole:
+            return row.get("name", "")
+        if role == self.DescriptionRole:
+            return row.get("description", "")
+        if role == self.DateRole:
+            return row.get("date", "")
+        if role == self.ActiveRole:
+            return bool(row.get("is_active", False))
+        if role == self.TextRole:
+            return row.get("text", "")
+        if role == self.IconColorRole:
+            return row.get("icon_color", _DEFAULT_PRESET_ICON_COLOR)
+
+        return None
+
+
+class _LinkedWheelListView(QListView):
+    def wheelEvent(self, e):
+        scrollbar = self.verticalScrollBar()
+        if scrollbar is None:
+            super().wheelEvent(e)
+            return
+
+        delta = e.angleDelta().y()
+        at_top = scrollbar.value() <= scrollbar.minimum()
+        at_bottom = scrollbar.value() >= scrollbar.maximum()
+
+        if (delta > 0 and at_top) or (delta < 0 and at_bottom):
+            # Let parent scroll area handle wheel at boundaries.
+            e.ignore()
+            return
+
+        super().wheelEvent(e)
+        e.accept()
+
+
+class _PresetListDelegate(QStyledItemDelegate):
+    action_triggered = pyqtSignal(str, str)
+
+    _ROW_HEIGHT = 56
+    _SECTION_HEIGHT = 28
+    _EMPTY_HEIGHT = 64
+    _ACTION_SIZE = 28
+    _ACTION_SPACING = 6
+
+    _ACTION_ICONS = {
+        "rename": "fa5s.edit",
+        "duplicate": "fa5s.copy",
+        "reset": "fa5s.broom",
+        "delete": "fa5s.trash",
+        "export": "fa5s.file-export",
+    }
+
+    _ACTION_TOOLTIPS = {
+        "rename": "Переименовать",
+        "duplicate": "Дублировать",
+        "reset": "Сбросить",
+        "delete": "Удалить",
+        "export": "Экспорт",
+    }
+
+    _PENDING_SHAKE_ROTATIONS = (0, -15, 15, -12, 12, -8, 8, -4, 0)
+    _PENDING_SHAKE_INTERVAL_MS = 50
+
+    def __init__(self, view: QListView):
+        super().__init__(view)
+        self._view = view
+        self._pending_destructive: Optional[tuple[str, str]] = None
+        self._pending_timer = QTimer(self)
+        self._pending_timer.setSingleShot(True)
+        self._pending_timer.timeout.connect(self._clear_pending_destructive)
+        self._pending_shake_step = 0
+        self._pending_shake_rotation = 0
+        self._pending_shake_timer = QTimer(self)
+        self._pending_shake_timer.timeout.connect(self._advance_pending_shake)
+
+    def reset_interaction_state(self):
+        self._clear_pending_destructive(update=False)
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        kind = index.data(_PresetListModel.KindRole)
+        if kind == "section":
+            return QSize(0, self._SECTION_HEIGHT)
+        if kind == "empty":
+            return QSize(0, self._EMPTY_HEIGHT)
+        return QSize(0, self._ROW_HEIGHT)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        kind = index.data(_PresetListModel.KindRole)
+
+        if kind == "section":
+            self._paint_section_row(painter, option, str(index.data(_PresetListModel.TextRole) or ""))
+            return
+
+        if kind == "empty":
+            self._paint_empty_row(painter, option, str(index.data(_PresetListModel.TextRole) or ""))
+            return
+
+        self._paint_preset_row(painter, option, index)
+
+    def editorEvent(self, event, model, option: QStyleOptionViewItem, index: QModelIndex):
+        _ = model
+        if index.data(_PresetListModel.KindRole) != "preset":
+            return False
+        if event.type() != QEvent.Type.MouseButtonRelease:
+            return False
+        if not isinstance(event, QMouseEvent):
+            return False
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+
+        name = str(index.data(_PresetListModel.NameRole) or "")
+        if not name:
+            return False
+
+        is_active = bool(index.data(_PresetListModel.ActiveRole))
+        action = self._action_at(option.rect, is_active, event.position().toPoint())
+
+        if action:
+            self._handle_action_click(name, action, event)
+            return True
+
+        if not is_active:
+            self._clear_pending_destructive(update=False)
+            self.action_triggered.emit("activate", name)
+            return True
+
+        self._clear_pending_destructive(update=False)
+        return False
+
+    def helpEvent(self, event: QHelpEvent, view, option: QStyleOptionViewItem, index: QModelIndex) -> bool:
+        if index.data(_PresetListModel.KindRole) != "preset":
+            return super().helpEvent(event, view, option, index)
+
+        name = str(index.data(_PresetListModel.NameRole) or "")
+        is_active = bool(index.data(_PresetListModel.ActiveRole))
+        action = self._action_at(option.rect, is_active, event.pos())
+        if not action:
+            return super().helpEvent(event, view, option, index)
+
+        tooltip = self._ACTION_TOOLTIPS.get(action, "")
+        if action in {"reset", "delete"} and self._pending_destructive == (name, action):
+            tooltip = f"{tooltip}\nНажмите ещё раз для подтверждения"
+        if tooltip:
+            QToolTip.showText(event.globalPos(), tooltip, view)
+            return True
+        return super().helpEvent(event, view, option, index)
+
+    def _handle_action_click(self, name: str, action: str, event: QMouseEvent):
+        if action in {"reset", "delete"}:
+            key = (name, action)
+            if self._pending_destructive == key:
+                self._clear_pending_destructive(update=False)
+                self.action_triggered.emit(action, name)
+                self._view.viewport().update()
+                return
+
+            self._pending_destructive = key
+            self._start_pending_shake()
+            self._pending_timer.start(3000)
+            QToolTip.showText(event.globalPosition().toPoint(), "Нажмите ещё раз для подтверждения", self._view)
+            self._view.viewport().update()
+            return
+
+        self._clear_pending_destructive(update=False)
+        self.action_triggered.emit(action, name)
+        self._view.viewport().update()
+
+    def _clear_pending_destructive(self, update: bool = True):
+        self._pending_timer.stop()
+        self._pending_shake_timer.stop()
+        self._pending_shake_step = 0
+        self._pending_shake_rotation = 0
+        if self._pending_destructive is None:
+            return
+        self._pending_destructive = None
+        if update:
+            self._view.viewport().update()
+
+    def _start_pending_shake(self):
+        self._pending_shake_timer.stop()
+        self._pending_shake_step = 0
+        self._pending_shake_rotation = int(self._PENDING_SHAKE_ROTATIONS[0])
+        self._pending_shake_timer.start(self._PENDING_SHAKE_INTERVAL_MS)
+
+    def _advance_pending_shake(self):
+        self._pending_shake_step += 1
+        if self._pending_shake_step >= len(self._PENDING_SHAKE_ROTATIONS):
+            self._pending_shake_timer.stop()
+            self._pending_shake_step = 0
+            self._pending_shake_rotation = 0
+            self._view.viewport().update()
+            return
+
+        self._pending_shake_rotation = int(self._PENDING_SHAKE_ROTATIONS[self._pending_shake_step])
+        self._view.viewport().update()
+
+    def _visible_actions(self, is_active: bool) -> list[str]:
+        actions = ["rename", "duplicate", "reset"]
+        if not is_active:
+            actions.append("delete")
+        actions.append("export")
+        return actions
+
+    def _action_rects(self, row_rect: QRect, is_active: bool) -> list[tuple[str, QRect]]:
+        actions = self._visible_actions(is_active)
+        if not actions:
+            return []
+
+        total_width = len(actions) * self._ACTION_SIZE + (len(actions) - 1) * self._ACTION_SPACING
+        x = row_rect.right() - 12 - total_width + 1
+        y = row_rect.center().y() - (self._ACTION_SIZE // 2)
+
+        rects: list[tuple[str, QRect]] = []
+        for action in actions:
+            rects.append((action, QRect(x, y, self._ACTION_SIZE, self._ACTION_SIZE)))
+            x += self._ACTION_SIZE + self._ACTION_SPACING
+        return rects
+
+    def _action_at(self, option_rect: QRect, is_active: bool, pos) -> Optional[str]:
+        card_rect = option_rect.adjusted(0, 2, 0, -2)
+        for action, rect in self._action_rects(card_rect, is_active):
+            if rect.contains(pos):
+                return action
+        return None
+
+    def _paint_section_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
+        painter.save()
+        text_rect = option.rect.adjusted(4, 6, -4, -2)
+        font = painter.font()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 204))
+        painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
+        painter.restore()
+
+    def _paint_empty_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
+        painter.save()
+        painter.setPen(QColor(255, 255, 255, 128))
+        font = painter.font()
+        font.setPointSize(10)
+        painter.setFont(font)
+        painter.drawText(option.rect.adjusted(8, 0, -8, 0), int(Qt.AlignmentFlag.AlignCenter), text)
+        painter.restore()
+
+    def _paint_preset_row(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        name = str(index.data(_PresetListModel.NameRole) or "")
+        date_text = str(index.data(_PresetListModel.DateRole) or "")
+        is_active = bool(index.data(_PresetListModel.ActiveRole))
+
+        card_rect = option.rect.adjusted(0, 2, 0, -2)
+        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        if is_active:
+            bg = QColor(96, 205, 255, 22)
+        elif hovered:
+            bg = QColor(255, 255, 255, 20)
+        else:
+            bg = QColor(255, 255, 255, 12)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(card_rect, 8, 8)
+
+        icon_rect = QRect(card_rect.left() + 14, card_rect.center().y() - 10, 20, 20)
+        icon_name = "fa5s.star" if is_active else "fa5s.file-alt"
+        icon_color = _normalize_preset_icon_color(str(index.data(_PresetListModel.IconColorRole) or ""))
+        _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
+
+        action_rects = self._action_rects(card_rect, is_active)
+        right_cursor = action_rects[0][1].left() - 10 if action_rects else card_rect.right() - 12
+
+        if is_active:
+            badge_text = "Активен"
+            badge_font = painter.font()
+            badge_font.setPointSize(8)
+            badge_font.setBold(True)
+            badge_metrics = QFontMetrics(badge_font)
+            badge_width = badge_metrics.horizontalAdvance(badge_text) + 14
+            badge_rect = QRect(right_cursor - badge_width, card_rect.center().y() - 9, badge_width, 18)
+
+            painter.setBrush(QColor(96, 205, 255))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(badge_rect, 4, 4)
+
+            painter.setFont(badge_font)
+            painter.setPen(QColor(0, 0, 0))
+            painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), badge_text)
+            right_cursor = badge_rect.left() - 10
+
+        if date_text:
+            date_font = painter.font()
+            date_font.setPointSize(9)
+            date_font.setBold(False)
+            painter.setFont(date_font)
+            date_metrics = QFontMetrics(date_font)
+            date_width = date_metrics.horizontalAdvance(date_text)
+            date_rect = QRect(max(card_rect.left() + 80, right_cursor - date_width), card_rect.top(), date_width, card_rect.height())
+            painter.setPen(QColor(255, 255, 255, 90))
+            painter.drawText(date_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), date_text)
+            right_cursor = date_rect.left() - 10
+
+        name_left = icon_rect.right() + 10
+        name_rect = QRect(name_left, card_rect.top(), max(40, right_cursor - name_left), card_rect.height())
+        name_font = painter.font()
+        name_font.setPointSize(11)
+        name_font.setBold(True)
+        painter.setFont(name_font)
+        painter.setPen(QColor(255, 255, 255))
+        name_metrics = QFontMetrics(name_font)
+        elided_name = name_metrics.elidedText(name, Qt.TextElideMode.ElideRight, name_rect.width())
+        painter.drawText(name_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), elided_name)
+
+        for action, action_rect in action_rects:
+            pending = self._pending_destructive == (name, action)
+            if pending:
+                btn_bg = QColor(255, 107, 107, 50)
+                icon_col = "#ff6b6b"
+            else:
+                btn_bg = QColor(255, 255, 255, 20)
+                icon_col = "#ffffff"
+
+            painter.setBrush(btn_bg)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(action_rect, 6, 6)
+
+            icon_name = self._ACTION_ICONS.get(action, "fa5s.circle")
+            icon_rotation = self._pending_shake_rotation if pending else 0
+            _cached_icon(icon_name, icon_col, rotation=icon_rotation).paint(painter, action_rect.adjusted(7, 7, -7, -7))
+
+        painter.restore()
 
 
 class Zapret2UserPresetsPage(BasePage):
@@ -37,7 +449,8 @@ class Zapret2UserPresetsPage(BasePage):
             parent,
         )
 
-        self._preset_cards: list[PresetCard] = []
+        self._presets_model: Optional[_PresetListModel] = None
+        self._presets_delegate: Optional[_PresetListDelegate] = None
         self._manager = None
         self._ui_dirty = True  # needs rebuild on next show
 
@@ -49,6 +462,12 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._action_mode: Optional[str] = None  # "create" | "rename"
         self._rename_source_name: Optional[str] = None
+
+        self._bulk_reset_running = False
+        self._reset_all_confirm_pending = False
+        self._reset_all_confirm_timer = QTimer(self)
+        self._reset_all_confirm_timer.setSingleShot(True)
+        self._reset_all_confirm_timer.timeout.connect(self._clear_reset_all_confirmation)
 
         self._build_ui()
 
@@ -64,12 +483,16 @@ class Zapret2UserPresetsPage(BasePage):
     def _on_store_changed(self):
         """Central store says the preset list changed."""
         self._ui_dirty = True
+        if self._bulk_reset_running:
+            return
         if self.isVisible():
             self._load_presets()
 
     def _on_store_switched(self, _name: str):
         """Central store says the active preset switched."""
         self._ui_dirty = True
+        if self._bulk_reset_running:
+            return
         if self.isVisible():
             self._load_presets()
 
@@ -86,9 +509,16 @@ class Zapret2UserPresetsPage(BasePage):
         self._start_watching_presets()
         if self._ui_dirty:
             self._load_presets()
+        else:
+            self._update_presets_view_height()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_presets_view_height()
 
     def hideEvent(self, event):
         self._stop_watching_presets()
+        self._clear_reset_all_confirmation()
         super().hideEvent(event)
 
     def _start_watching_presets(self):
@@ -186,6 +616,7 @@ class Zapret2UserPresetsPage(BasePage):
     def _build_ui(self):
         # Telegram configs link
         configs_card = SettingsCard()
+        configs_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         configs_card.setStyleSheet(
             """
             QFrame#settingsCard {
@@ -205,8 +636,8 @@ class Zapret2UserPresetsPage(BasePage):
         configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
         configs_layout.addWidget(configs_icon)
         configs_title = QLabel(
-            "Вы можете обмениваться категориями друг с другом\n"
-            "в нашей существующей группе по конфигам (это обычные txt файлы)"
+            "Обменивайтесь категориями на нашем форуме-сайте\n"
+            "через Telegram-бота: безопасно и анонимно"
         )
         configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
         configs_layout.addWidget(configs_title)
@@ -222,6 +653,7 @@ class Zapret2UserPresetsPage(BasePage):
 
         # Active preset card
         self.active_card = SettingsCard("Активный пресет")
+        self.active_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.active_card.setStyleSheet(
             """
             QFrame#settingsCard {
@@ -237,9 +669,9 @@ class Zapret2UserPresetsPage(BasePage):
         )
         active_layout = QHBoxLayout()
         active_layout.setSpacing(12)
-        active_icon = QLabel()
-        active_icon.setPixmap(qta.icon("fa5s.star", color="#60cdff").pixmap(20, 20))
-        active_layout.addWidget(active_icon)
+        self.active_icon_label = QLabel()
+        self.active_icon_label.setPixmap(qta.icon("fa5s.star", color=_DEFAULT_PRESET_ICON_COLOR).pixmap(20, 20))
+        active_layout.addWidget(self.active_icon_label)
         self.active_preset_label = QLabel("Загрузка...")
         self.active_preset_label.setStyleSheet(
             """
@@ -267,8 +699,8 @@ class Zapret2UserPresetsPage(BasePage):
             """
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
                 color: #ffffff;
                 padding: 0 16px;
                 font-size: 12px;
@@ -279,7 +711,7 @@ class Zapret2UserPresetsPage(BasePage):
                 background-color: rgba(255, 255, 255, 0.15);
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
+                background-color: rgba(255, 255, 255, 0.22);
             }
             """
         )
@@ -298,8 +730,23 @@ class Zapret2UserPresetsPage(BasePage):
         self.import_btn = self._create_main_button("Импорт из файла", "fa5s.file-import")
         self.import_btn.clicked.connect(self._on_import_clicked)
         buttons_layout.addWidget(self.import_btn)
+        self.reset_all_btn = QPushButton("Сбросить все пресеты")
+        self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
+        self.reset_all_btn.setIconSize(QSize(14, 14))
+        self.reset_all_btn.setFixedHeight(36)
+        self.reset_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_all_btn.clicked.connect(self._on_reset_all_presets_clicked)
+        self._apply_reset_all_button_style(False)
+        buttons_layout.addWidget(self.reset_all_btn)
+        self.presets_info_btn = ActionButton("о пресетах", "fa5s.info-circle")
+        self.presets_info_btn.clicked.connect(self._open_presets_info)
+        buttons_layout.addWidget(self.presets_info_btn)
+        self.disable_all_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
+        self.disable_all_btn.reset_confirmed.connect(self._on_disable_all_strategies)
+        buttons_layout.addWidget(self.disable_all_btn)
         buttons_layout.addStretch(1)
         buttons_widget = QWidget()
+        buttons_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         buttons_widget.setLayout(buttons_layout)
         self.add_widget(buttons_widget)
 
@@ -307,6 +754,7 @@ class Zapret2UserPresetsPage(BasePage):
 
         # Inline create/rename panel
         self._action_reveal = _RevealFrame(self)
+        self._action_reveal.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._action_reveal_layout = QVBoxLayout(self._action_reveal)
         self._action_reveal_layout.setContentsMargins(0, 0, 0, 0)
         self._action_reveal_layout.setSpacing(0)
@@ -463,18 +911,65 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_reveal_layout.addWidget(self._action_card)
         self.add_widget(self._action_reveal)
 
-        self.presets_container = QWidget()
-        self.presets_layout = QVBoxLayout(self.presets_container)
-        self.presets_layout.setContentsMargins(0, 0, 0, 0)
-        self.presets_layout.setSpacing(8)
-        self.add_widget(self.presets_container)
+        self.presets_list = _LinkedWheelListView(self)
+        self.presets_list.setObjectName("userPresetsList")
+        self.presets_list.setMouseTracking(True)
+        self.presets_list.setSelectionMode(QListView.SelectionMode.NoSelection)
+        self.presets_list.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
+        self.presets_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.presets_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.presets_list.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        self.presets_list.setUniformItemSizes(False)
+        self.presets_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.presets_list.setProperty("noDrag", True)
+        self.presets_list.viewport().setProperty("noDrag", True)
+        self.presets_list.setStyleSheet(
+            """
+            QListView#userPresetsList {
+                background: transparent;
+                border: none;
+                outline: none;
+            }
+            QListView#userPresetsList::item {
+                border: none;
+            }
+            QListView#userPresetsList QScrollBar:vertical {
+                background: rgba(255, 255, 255, 0.05);
+                width: 12px;
+                border-radius: 6px;
+                margin: 2px;
+            }
+            QListView#userPresetsList QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                min-height: 28px;
+            }
+            QListView#userPresetsList QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+            QListView#userPresetsList QScrollBar::add-line:vertical,
+            QListView#userPresetsList QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            """
+        )
 
-        self.layout.addStretch()
+        self._presets_model = _PresetListModel(self.presets_list)
+        self._presets_delegate = _PresetListDelegate(self.presets_list)
+        self._presets_delegate.action_triggered.connect(self._on_preset_list_action)
+        self.presets_list.setModel(self._presets_model)
+        self.presets_list.setItemDelegate(self._presets_delegate)
+        self.presets_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.presets_list.verticalScrollBar().setSingleStep(28)
+        self.add_widget(self.presets_list)
+
+        # Make outer page scrolling feel less sluggish on long lists.
+        self.verticalScrollBar().setSingleStep(48)
 
     def _create_main_button(self, text: str, icon_name: str, accent: bool = False) -> QPushButton:
         btn = QPushButton(text)
 
-        icon_color = "#000000" if accent else "white"
+        icon_color = "white"
         btn.setIcon(qta.icon(icon_name, color=icon_color))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(36)
@@ -484,20 +979,20 @@ class Zapret2UserPresetsPage(BasePage):
             btn.setStyleSheet(
                 """
                 QPushButton {
-                    background-color: #60cdff;
-                    border: none;
-                    border-radius: 6px;
-                    color: #000000;
+                    background-color: #2f7cf6;
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    border-radius: 8px;
+                    color: #ffffff;
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
                 QPushButton:hover {
-                    background-color: rgba(96, 205, 255, 0.9);
+                    background-color: #3b89ff;
                 }
                 QPushButton:pressed {
-                    background-color: rgba(96, 205, 255, 0.7);
+                    background-color: #2769d4;
                 }
                 """
             )
@@ -506,8 +1001,8 @@ class Zapret2UserPresetsPage(BasePage):
                 """
                 QPushButton {
                     background-color: rgba(255, 255, 255, 0.08);
-                    border: none;
-                    border-radius: 6px;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
                     color: #ffffff;
                     padding: 0 20px;
                     font-size: 13px;
@@ -518,18 +1013,98 @@ class Zapret2UserPresetsPage(BasePage):
                     background-color: rgba(255, 255, 255, 0.15);
                 }
                 QPushButton:pressed {
-                    background-color: rgba(255, 255, 255, 0.20);
+                    background-color: rgba(255, 255, 255, 0.22);
                 }
                 """
             )
 
         return btn
 
-    def _clear_layout(self, layout: QVBoxLayout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def _apply_reset_all_button_style(self, confirm: bool):
+        if confirm:
+            self.reset_all_btn.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: rgba(255, 107, 107, 0.95);
+                    border: 1px solid rgba(255, 177, 177, 0.5);
+                    border-radius: 8px;
+                    color: #ffffff;
+                    padding: 0 20px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 107, 107, 1);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(230, 85, 85, 1);
+                }
+                """
+            )
+            return
+
+        self.reset_all_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                color: #ffffff;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.22);
+            }
+            """
+        )
+
+    def _arm_reset_all_confirmation(self):
+        self._reset_all_confirm_pending = True
+        self.reset_all_btn.setText("Это сбросит ваши настройки")
+        self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="#ffffff"))
+        self._apply_reset_all_button_style(True)
+        self._reset_all_confirm_timer.start(5000)
+
+    def _clear_reset_all_confirmation(self):
+        self._reset_all_confirm_pending = False
+        self._reset_all_confirm_timer.stop()
+        self.reset_all_btn.setText("Сбросить все пресеты")
+        self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
+        self._apply_reset_all_button_style(False)
+
+    def _is_game_filter_preset_name(self, name: str) -> bool:
+        return "game filter" in name.lower()
+
+    def _format_modified_timestamp(self, modified: str) -> str:
+        if not modified:
+            return ""
+        try:
+            dt = datetime.fromisoformat(modified.replace("Z", "+00:00"))
+            return dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            return modified
+
+    def _update_presets_view_height(self):
+        if not self._presets_model:
+            return
+
+        viewport_height = self.viewport().height()
+        if viewport_height <= 0:
+            return
+
+        top = self.presets_list.y()
+        bottom_margin = self.layout.contentsMargins().bottom()
+        target_height = max(220, viewport_height - top - bottom_margin)
+
+        self.presets_list.setMinimumHeight(target_height)
+        self.presets_list.setMaximumHeight(target_height)
 
     def _hide_inline_action(self):
         self._action_mode = None
@@ -557,7 +1132,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._name_input.clear()
         self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
         self._action_submit_btn.setText("Создать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#000000"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
         self._name_input.setFocus()
@@ -576,7 +1151,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._name_input.selectAll()
         self._name_input.setPlaceholderText("Новое имя…")
         self._action_submit_btn.setText("Переименовать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#000000"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
         self._name_input.setFocus()
@@ -683,6 +1258,113 @@ class Zapret2UserPresetsPage(BasePage):
             log(f"Ошибка импорта пресета: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", f"Ошибка импорта: {e}")
 
+    def _on_reset_all_presets_clicked(self):
+        if not self._reset_all_confirm_pending:
+            self._arm_reset_all_confirmation()
+            return
+
+        self._clear_reset_all_confirmation()
+
+        try:
+            manager = self._get_manager()
+            preset_names = manager.list_presets()
+            if not preset_names:
+                QMessageBox.information(self, "Сброс пресетов", "Нет пресетов для сброса.")
+                return
+
+            original_active = manager.get_active_preset_name()
+            ordered_names = sorted(preset_names, key=lambda s: s.lower())
+            if original_active and original_active in ordered_names:
+                ordered_names = [n for n in ordered_names if n != original_active] + [original_active]
+
+            success_count = 0
+            failed: list[str] = []
+
+            self._bulk_reset_running = True
+            try:
+                for name in ordered_names:
+                    if manager.reset_preset_to_default_template(name):
+                        success_count += 1
+                    else:
+                        failed.append(name)
+            finally:
+                self._bulk_reset_running = False
+
+            final_active = manager.get_active_preset_name() or (original_active or "")
+            if final_active:
+                self.preset_switched.emit(final_active)
+
+            self._load_presets()
+
+            if failed:
+                log(f"Сброс пресетов завершён частично: успешно={success_count}, ошибки={len(failed)}", "WARNING")
+                QMessageBox.warning(
+                    self,
+                    "Сброс пресетов",
+                    f"Сброшено: {success_count}\nНе удалось: {len(failed)}",
+                )
+                return
+
+            log(f"Сброшены все пресеты к шаблонам: {success_count}", "INFO")
+            QMessageBox.information(self, "Сброс пресетов", f"Сброшено пресетов: {success_count}")
+
+        except Exception as e:
+            self._bulk_reset_running = False
+            log(f"Ошибка массового сброса пресетов: {e}", "ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка сброса пресетов: {e}")
+
+    def _on_disable_all_strategies(self):
+        """Отключает стратегии для всех категорий в активном пресете."""
+        try:
+            manager = self._get_manager()
+            if not manager.clear_all_strategy_selections(save_and_sync=True):
+                QMessageBox.warning(self, "Ошибка", "Не удалось отключить стратегии для всех категорий.")
+                return
+
+            self._load_presets()
+            self._refresh_pages_after_strategy_change()
+
+            try:
+                host = self.window()
+                if host:
+                    from dpi.zapret2_core_restart import trigger_dpi_reload
+                    trigger_dpi_reload(host, reason="preset_clear_all")
+            except Exception as e:
+                log(f"Ошибка перезапуска DPI после отключения стратегий: {e}", "DEBUG")
+
+            log("Все стратегии текущего пресета отключены", "INFO")
+
+        except Exception as e:
+            log(f"Ошибка отключения стратегий: {e}", "ERROR")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка отключения стратегий: {e}")
+
+    def _refresh_pages_after_strategy_change(self):
+        """Обновляет страницы Zapret2 после изменения стратегий активного пресета."""
+        host = self.window()
+        if not host:
+            return
+
+        try:
+            if hasattr(host, "_schedule_refresh_after_preset_switch"):
+                host._schedule_refresh_after_preset_switch()
+                return
+        except Exception as e:
+            log(f"Ошибка планирования обновления UI после отключения стратегий: {e}", "DEBUG")
+
+        try:
+            page = getattr(host, "zapret2_strategies_page", None)
+            if page and hasattr(page, "refresh_from_preset_switch"):
+                page.refresh_from_preset_switch()
+        except Exception as e:
+            log(f"Ошибка обновления страницы стратегий после отключения: {e}", "DEBUG")
+
+        try:
+            detail = getattr(host, "strategy_detail_page", None)
+            if detail and hasattr(detail, "refresh_from_preset_switch"):
+                detail.refresh_from_preset_switch()
+        except Exception as e:
+            log(f"Ошибка обновления страницы категории после отключения: {e}", "DEBUG")
+
     def _load_presets(self):
         self._ui_dirty = False
         try:
@@ -691,81 +1373,49 @@ class Zapret2UserPresetsPage(BasePage):
             store = get_preset_store()
             all_presets = store.get_all_presets()       # {name: Preset}
             active_name = store.get_active_preset_name()
-            preset_names = sorted(all_presets.keys(), key=lambda s: s.lower())
+            sorted_names = sorted(all_presets.keys(), key=lambda s: s.lower())
+            regular_names = [name for name in sorted_names if not self._is_game_filter_preset_name(name)]
+            game_filter_names = [name for name in sorted_names if self._is_game_filter_preset_name(name)]
 
             self.active_preset_label.setText(active_name or "Не выбран")
+            active_preset = all_presets.get(active_name) if active_name else None
+            active_icon_color = _normalize_preset_icon_color(getattr(active_preset, "icon_color", None))
+            self.active_icon_label.setPixmap(qta.icon("fa5s.star", color=active_icon_color).pixmap(20, 20))
 
-            # ── Build a map of existing cards by preset name ─────────────
-            old_cards: dict[str, PresetCard] = {}
-            for card in self._preset_cards:
-                old_cards[card.preset_name] = card
+            rows: list[dict[str, object]] = []
 
-            new_cards: list[PresetCard] = []
-            reused = 0
-
-            for name in preset_names:
+            def add_preset_row(name: str):
                 preset = all_presets.get(name)
                 if not preset:
-                    continue
-
-                is_active = (name == active_name)
-
-                # Try to reuse existing card (if name & active state match)
-                existing = old_cards.pop(name, None)
-                if existing is not None and existing._is_active == is_active:
-                    # Update text fields without rebuilding widget tree
-                    existing.name_label.setText(name)
-                    new_cards.append(existing)
-                    reused += 1
-                    continue
-
-                # Card must be (re)created
-                if existing is not None:
-                    existing.deleteLater()
-
-                card = PresetCard(
-                    name=name,
-                    description=preset.description,
-                    modified=preset.modified,
-                    is_active=is_active,
-                    compact_actions=True,
-                    parent=self,
-                )
-                card.activate_clicked.connect(self._on_activate_preset)
-                card.rename_clicked.connect(self._on_rename_preset)
-                card.duplicate_clicked.connect(self._on_duplicate_preset)
-                card.reset_clicked.connect(self._on_reset_preset)
-                card.delete_clicked.connect(self._on_delete_preset)
-                card.export_clicked.connect(self._on_export_preset)
-                new_cards.append(card)
-
-            # Delete leftover old cards (presets that no longer exist)
-            for card in old_cards.values():
-                card.deleteLater()
-
-            # ── Re-populate layout (only if order changed) ───────────────
-            # Remove all widgets from layout without deleting them
-            while self.presets_layout.count():
-                self.presets_layout.takeAt(0)
-
-            self._preset_cards = new_cards
-
-            for card in new_cards:
-                self.presets_layout.addWidget(card)
-
-            if not new_cards:
-                empty_label = QLabel("Нет пресетов. Создайте новый или импортируйте из файла.")
-                empty_label.setStyleSheet(
-                    """
-                    QLabel {
-                        color: rgba(255, 255, 255, 0.5);
-                        font-size: 13px;
-                        padding: 20px;
+                    return
+                rows.append(
+                    {
+                        "kind": "preset",
+                        "name": name,
+                        "description": preset.description or "",
+                        "date": self._format_modified_timestamp(preset.modified or ""),
+                        "is_active": name == active_name,
+                        "icon_color": _normalize_preset_icon_color(getattr(preset, "icon_color", None)),
                     }
-                    """
                 )
-                empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.presets_layout.addWidget(empty_label)
+
+            for name in regular_names:
+                add_preset_row(name)
+
+            if game_filter_names:
+                if rows:
+                    rows.append({"kind": "section", "text": "Game filter"})
+                for name in game_filter_names:
+                    add_preset_row(name)
+
+            if not rows:
+                rows.append({"kind": "empty", "text": "Нет пресетов. Создайте новый или импортируйте из файла."})
+
+            if self._presets_delegate:
+                self._presets_delegate.reset_interaction_state()
+            if self._presets_model:
+                self._presets_model.set_rows(rows)
+            self._update_presets_view_height()
 
             # Update restore-deleted button visibility
             try:
@@ -777,6 +1427,19 @@ class Zapret2UserPresetsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка загрузки пресетов: {e}", "ERROR")
+
+    def _on_preset_list_action(self, action: str, name: str):
+        handlers = {
+            "activate": self._on_activate_preset,
+            "rename": self._on_rename_preset,
+            "duplicate": self._on_duplicate_preset,
+            "reset": self._on_reset_preset,
+            "delete": self._on_delete_preset,
+            "export": self._on_export_preset,
+        }
+        handler = handlers.get(action)
+        if handler:
+            handler(name)
 
     def _on_activate_preset(self, name: str):
         try:
@@ -916,11 +1579,21 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception as e:
             log(f"Ошибка перезапуска DPI: {e}", "ERROR")
 
+    def _open_presets_info(self):
+        """Открывает страницу с информацией о пресетах."""
+        try:
+            from config.urls import PRESET_INFO_URL
+
+            webbrowser.open(PRESET_INFO_URL)
+            log(f"Открыта страница о пресетах: {PRESET_INFO_URL}", "INFO")
+        except Exception as e:
+            log(f"Не удалось открыть страницу о пресетах: {e}", "ERROR")
+
     def _open_new_configs_post(self):
         try:
             from config.telegram_links import open_telegram_link
 
-            open_telegram_link("zaprethelp", post=66952)
+            open_telegram_link("nozapretinrussia_bot")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")

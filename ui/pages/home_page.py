@@ -265,16 +265,18 @@ class HomePage(BasePage):
     navigate_to_autostart = pyqtSignal()
     navigate_to_premium = pyqtSignal()
 
+    _LAUNCH_METHOD_LABELS = {
+        "direct_zapret2": "Zapret 2",
+        "direct_zapret1": "Zapret 1 (прямой запуск)",
+        "bat": "Zapret 1 (bat)",
+        "orchestra": "Оркестратор",
+        "direct_zapret2_orchestra": "Оркестраторный Zapret 2",
+    }
+
     def __init__(self, parent=None):
         super().__init__("Главная", "Обзор состояния Zapret", parent)
 
         self._autostart_worker = None
-        # Retry state for direct_* strategy icons on the Home card.
-        # On startup / fast switching the catalog/preset can be briefly unavailable;
-        # without a retry the card may stay in text mode.
-        self._strategy_icons_retry_attempts = 0
-        self._strategy_icons_retry_scheduled = False
-        self._strategy_icons_last: tuple[list[tuple[str, str, bool]], str] | None = None
         self._build_ui()
         self._connect_card_signals()
     
@@ -283,41 +285,31 @@ class HomePage(BasePage):
         super().showEvent(event)
         # Запускаем проверку автозапуска в фоне с небольшой задержкой
         QTimer.singleShot(100, self._check_autostart_status)
-        # Also refresh strategy icons once UI state settles.
+        # Обновляем карточку метода запуска, когда UI стабилизировался.
         QTimer.singleShot(150, self._refresh_strategy_card)
 
-    def _get_parent_strategy_name(self) -> str:
-        """Best-effort fetch of current strategy label from the main window."""
+    def _get_launch_method_display_name(self) -> str:
+        """Возвращает человекочитаемое название текущего метода запуска."""
         try:
-            parent = getattr(self, "parent_app", None)
-            label = getattr(parent, "current_strategy_label", None) if parent is not None else None
-            if label is not None:
-                return str(label.text() or "")
+            from strategy_menu import get_strategy_launch_method
+
+            method = (get_strategy_launch_method() or "").strip().lower()
+            if method:
+                return self._LAUNCH_METHOD_LABELS.get(method, self._LAUNCH_METHOD_LABELS["direct_zapret2"])
         except Exception:
             pass
-        return ""
+        return self._LAUNCH_METHOD_LABELS["direct_zapret2"]
+
+    def update_launch_method_card(self) -> None:
+        """Обновляет карточку метода запуска на главной странице."""
+        self.strategy_card.set_value(
+            self._get_launch_method_display_name(),
+            "Текущий метод запуска",
+        )
 
     def _refresh_strategy_card(self) -> None:
-        """Refresh the strategy card using latest known strategy name."""
-        self._update_strategy_card_with_icons(self._get_parent_strategy_name())
-
-    def _schedule_strategy_icons_retry(self) -> None:
-        """Schedules a short retry to avoid getting stuck in text mode."""
-        if self._strategy_icons_retry_scheduled:
-            return
-        # Keep it bounded: if something is genuinely broken we should not keep looping.
-        if self._strategy_icons_retry_attempts >= 8:
-            return
-
-        self._strategy_icons_retry_scheduled = True
-        self._strategy_icons_retry_attempts += 1
-
-        def _retry():
-            self._strategy_icons_retry_scheduled = False
-            # Use the latest label text (it may change after loading).
-            self._update_strategy_card_with_icons(self._get_parent_strategy_name())
-
-        QTimer.singleShot(250, _retry)
+        """Обновляет карточку метода запуска после инициализации UI."""
+        self.update_launch_method_card()
     
     def _check_autostart_status(self):
         """Запускает фоновую проверку статуса автозапуска"""
@@ -344,8 +336,8 @@ class HomePage(BasePage):
         cards_layout.addWidget(self.dpi_status_card, 0, 0)
         
         # Карточка стратегии
-        self.strategy_card = StatusCard("fa5s.cog", "Текущая стратегия")
-        self.strategy_card.set_value("Не выбрана", "Выберите стратегию обхода")
+        self.strategy_card = StatusCard("fa5s.cog", "Метод запуска")
+        self.strategy_card.set_value("Zapret 2", "Текущий метод запуска")
         cards_layout.addWidget(self.strategy_card, 0, 1)
         
         # Карточка автозапуска
@@ -438,101 +430,13 @@ class HomePage(BasePage):
             self.start_btn.setVisible(True)
             self.stop_btn.setVisible(False)
             
-        if strategy_name:
-            # Пробуем показать иконки категорий для Direct режима
-            self._update_strategy_card_with_icons(strategy_name)
-    
+        # На главной всегда отображаем текущий метод запуска (без иконок категорий).
+        self.update_launch_method_card()
+
     def _update_strategy_card_with_icons(self, strategy_name: str):
-        """Обновляет карточку стратегии с иконками категорий"""
-        try:
-            from strategy_menu import get_strategy_launch_method, get_direct_strategy_selections
-            from strategy_menu.strategies_registry import registry
-            
-            # Для Direct режимов показываем иконки
-            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                selections = get_direct_strategy_selections() or {}
-                
-                # Собираем данные о категориях: (icon_name, icon_color, is_active)
-                categories_data: list[tuple[str, str, bool]] = []
-                
-                for cat_key in registry.get_all_category_keys():
-                    cat_info = registry.get_category_info(cat_key)
-                    if cat_info:
-                        strat_id = selections.get(cat_key, "none") or "none"
-                        if strat_id != "none":
-                            categories_data.append(
-                                (
-                                    cat_info.icon_name or "fa5s.globe",
-                                    cat_info.icon_color or "#60cdff",
-                                    True,
-                                )
-                            )
-
-                if categories_data:
-                    active_count = len(categories_data)
-                    info = f"Активно {active_count} категорий"
-                    self.strategy_card.set_value_with_icons(categories_data, info)
-                    self._strategy_icons_last = (categories_data, info)
-                    self._strategy_icons_retry_attempts = 0
-                    return
-
-                # No categories resolved. This can be legitimate (all disabled), but in practice
-                # it often happens transiently during startup / fast switching when the catalog
-                # or preset file is not yet ready. Avoid switching the card to text mode.
-                name_norm = (strategy_name or "").strip()
-                if name_norm in ("", "⏳ Загрузка...", "Загрузка..."):
-                    self._schedule_strategy_icons_retry()
-                    if self._strategy_icons_last:
-                        last_data, last_info = self._strategy_icons_last
-                        self.strategy_card.set_value_with_icons(last_data, last_info)
-                    else:
-                        self.strategy_card.set_value_with_icons(
-                            [("fa5s.spinner", "#60cdff", True)],
-                            "Загрузка категорий...",
-                        )
-                    return
-                if name_norm and name_norm not in ("Не выбрана", "Автостарт DPI отключен"):
-                    self._schedule_strategy_icons_retry()
-                    # Prefer the last successful icon set to avoid flicker.
-                    if self._strategy_icons_last:
-                        last_data, last_info = self._strategy_icons_last
-                        self.strategy_card.set_value_with_icons(last_data, last_info)
-                    else:
-                        self.strategy_card.set_value_with_icons(
-                            [("fa5s.spinner", "#60cdff", True)],
-                            "Загрузка категорий...",
-                        )
-                    return
-
-                # Legitimate empty selection: keep icons layout with a single neutral glyph.
-                self.strategy_card.set_value_with_icons(
-                    [("fa5s.globe", "#8CFFFFFF", True)],
-                    "Нет активных категорий",
-                )
-                self._strategy_icons_retry_attempts = 0
-                return
-            
-            # Fallback - текстовое отображение для BAT режима
-            display_name = self._truncate_strategy_name(strategy_name)
-            self.strategy_card.set_value(display_name, "Активная стратегия")
-            
-        except Exception as e:
-            from log import log
-            log(f"Ошибка обновления карточки стратегии: {e}", "DEBUG")
-            # In direct modes try a retry before falling back to text.
-            try:
-                from strategy_menu import get_strategy_launch_method
-                if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                    self._schedule_strategy_icons_retry()
-                    if self._strategy_icons_last:
-                        last_data, last_info = self._strategy_icons_last
-                        self.strategy_card.set_value_with_icons(last_data, last_info)
-                        return
-            except Exception:
-                pass
-            # Fallback на текст
-            display_name = self._truncate_strategy_name(strategy_name)
-            self.strategy_card.set_value(display_name, "Активная стратегия")
+        """Совместимость: карточка на главной теперь показывает метод запуска."""
+        _ = strategy_name
+        self.update_launch_method_card()
     
     def _truncate_strategy_name(self, name: str, max_items: int = 2) -> str:
         """Обрезает длинное название стратегии для карточки"""

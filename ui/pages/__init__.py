@@ -29,7 +29,7 @@ from .logs_page import LogsPage
 from .premium_page import PremiumPage
 from .blockcheck_page import BlockcheckPage
 from .servers_page import ServersPage  # ✅ НОВАЯ СТРАНИЦА
-from .custom_domains_page import CustomDomainsPage  # Страница управления other2.txt
+from .custom_domains_page import CustomDomainsPage  # Страница управления other.txt
 from .custom_ipset_page import CustomIpSetPage  # Страница управления my-ipset.txt
 from .netrogat_page import NetrogatPage  # Страница управления netrogat.txt
 from .connection_page import ConnectionTestPage
@@ -70,7 +70,7 @@ __all__ = [
     'PremiumPage',
     'BlockcheckPage',
     'ServersPage',  # ✅ НОВАЯ СТРАНИЦА
-    'CustomDomainsPage',  # Страница управления other2.txt
+    'CustomDomainsPage',  # Страница управления other.txt
     'CustomIpSetPage',  # Страница управления my-ipset.txt
     'NetrogatPage',  # Страница управления netrogat.txt
     'ConnectionTestPage',

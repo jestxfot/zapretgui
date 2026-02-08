@@ -16,6 +16,7 @@ Active preset name is stored in an INI file:
 
 import configparser
 import os
+import re
 import shutil
 import tempfile
 from datetime import datetime
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from log import log
+from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color
 
 if TYPE_CHECKING:
     from .preset_model import Preset
@@ -245,7 +247,7 @@ def load_preset(name: str) -> Optional[Preset]:
         )
 
         # Parse metadata from raw_header
-        preset.created, preset.modified, preset.description = _parse_metadata_from_header(data.raw_header)
+        preset.created, preset.modified, preset.description, preset.icon_color = _parse_metadata_from_header(data.raw_header)
 
         # Convert category blocks to CategoryConfig
         for block in data.categories:
@@ -320,21 +322,20 @@ def load_preset(name: str) -> Optional[Preset]:
         return None
 
 
-def _parse_metadata_from_header(header: str) -> Tuple[str, str, str]:
+def _parse_metadata_from_header(header: str) -> Tuple[str, str, str, str]:
     """
-    Parses created/modified/description metadata from header comments.
+    Parses created/modified/description/icon_color metadata from header comments.
 
     Args:
         header: Raw header string
 
     Returns:
-        Tuple of (created, modified, description)
+        Tuple of (created, modified, description, icon_color)
     """
-    import re
-
     created = datetime.now().isoformat()
     modified = datetime.now().isoformat()
     description = ""
+    icon_color = DEFAULT_PRESET_ICON_COLOR
 
     for line in (header or "").split('\n'):
         created_match = re.match(r'#\s*Created:\s*(.+)', line, re.IGNORECASE)
@@ -349,12 +350,16 @@ def _parse_metadata_from_header(header: str) -> Tuple[str, str, str]:
         if desc_match:
             description = desc_match.group(1).strip()
 
-    return created, modified, description
+        icon_color_match = re.match(r'#\s*(?:IconColor|PresetIconColor):\s*(.+)', line, re.IGNORECASE)
+        if icon_color_match:
+            icon_color = normalize_preset_icon_color(icon_color_match.group(1).strip())
+
+    return created, modified, description, icon_color
 
 
 def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
     """Backward-compatible helper returning (created, modified) only."""
-    created, modified, _desc = _parse_metadata_from_header(header)
+    created, modified, _desc, _icon = _parse_metadata_from_header(header)
     return created, modified
 
 
@@ -381,10 +386,14 @@ def save_preset(preset: Preset) -> bool:
             base_args=preset.base_args,
         )
 
+        icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
+        preset.icon_color = icon_color
+
         # Build raw header
         data.raw_header = f"""# Preset: {preset.name}
 # Created: {preset.created}
 # Modified: {datetime.now().isoformat()}
+# IconColor: {icon_color}
 # Description: {preset.description}"""
 
         # Convert categories to CategoryBlocks

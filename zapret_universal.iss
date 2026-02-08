@@ -91,7 +91,11 @@ Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recurses
 ; ✅ Preset templates -> %APPDATA%\zapret\presets_template
 ; Always overwritten on update to keep templates current.
 ; At startup the app copies new templates to presets/ (unless user deleted them).
-Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_template"; Excludes: "_*.txt"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
+
+; ✅ Hostlist template other.txt -> %APPDATA%\zapret\lists_template
+; Source of truth comes from SOURCEPATH\lists\other.txt
+Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_template"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
@@ -99,10 +103,9 @@ Source: "{#SOURCEPATH}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignor
 Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-; ✅ Копируем lists, но исключаем пользовательские файлы (other2.txt, my-ipset.txt, netrogat.txt)
-Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other2.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-; ✅ other2.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские домены при обновлении)
-Source: "{#SOURCEPATH}\lists\other2.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ Копируем lists, но исключаем пользовательские файлы (other.txt, my-ipset.txt, netrogat.txt)
+Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ other.txt создаётся и сбрасывается приложением из %APPDATA%\zapret\lists_template\other.txt
 ; ✅ my-ipset.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
 Source: "{#SOURCEPATH}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 ; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
@@ -429,6 +432,15 @@ begin
            '/c "timeout /t 2 >nul && start """" ""' + LaunchPath + '"""',
            '', SW_HIDE, ewNoWait, ResultCode);
     end;
+  end;
+end;
+
+procedure RemovePresetTemplateIfExists();
+begin
+  if FileExists(CurrentFileName) then
+  begin
+    if not DeleteFile(CurrentFileName) then
+      Log('Presets: failed to delete template before overwrite: ' + CurrentFileName);
   end;
 end;
 

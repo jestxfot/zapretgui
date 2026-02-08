@@ -6,9 +6,25 @@ Preset = collection of category configurations with metadata.
 Each category has TCP and/or UDP strategy arguments.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
+
+
+DEFAULT_PRESET_ICON_COLOR = "#60cdff"
+_HEX_COLOR_RGB_RE = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
+_HEX_COLOR_RGBA_RE = re.compile(r"^#(?:[0-9a-fA-F]{8})$")
+
+
+def normalize_preset_icon_color(value: Optional[str]) -> str:
+    raw = str(value or "").strip()
+    if _HEX_COLOR_RGB_RE.fullmatch(raw):
+        return raw.lower()
+    if _HEX_COLOR_RGBA_RE.fullmatch(raw):
+        lowered = raw.lower()
+        return f"#{lowered[1:7]}"
+    return DEFAULT_PRESET_ICON_COLOR
 
 
 @dataclass
@@ -327,6 +343,7 @@ class Preset:
     created: str = field(default_factory=lambda: datetime.now().isoformat())
     modified: str = field(default_factory=lambda: datetime.now().isoformat())
     description: str = ""
+    icon_color: str = DEFAULT_PRESET_ICON_COLOR
     categories: Dict[str, CategoryConfig] = field(default_factory=dict)
     base_args: str = ""
 
@@ -340,6 +357,7 @@ class Preset:
 
     def __post_init__(self):
         """Initialize base_args with default if empty."""
+        self.icon_color = normalize_preset_icon_color(self.icon_color)
         if not self.base_args:
             self.base_args = self.DEFAULT_BASE_ARGS
 
@@ -383,6 +401,7 @@ class Preset:
             "created": self.created,
             "modified": self.modified,
             "description": self.description,
+            "icon_color": self.icon_color,
             "base_args": self.base_args,
             "categories": {
                 name: cat.to_dict()
@@ -402,6 +421,7 @@ class Preset:
             created=data.get("created", datetime.now().isoformat()),
             modified=data.get("modified", datetime.now().isoformat()),
             description=data.get("description", ""),
+            icon_color=data.get("icon_color", DEFAULT_PRESET_ICON_COLOR),
             base_args=data.get("base_args", ""),
             categories=categories,
         )

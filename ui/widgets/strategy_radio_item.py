@@ -46,6 +46,7 @@ class StrategyRadioItem(QFrame):
         self._icon_color = icon_color
         self._tooltip = tooltip
         self._list_type = list_type
+        self._icon_label = None
 
         # Текущая стратегия
         self._strategy_id = "none"
@@ -82,11 +83,10 @@ class StrategyRadioItem(QFrame):
         # Иконка категории (опционально)
         if self._icon_name:
             try:
-                icon = qta.icon(self._icon_name, color=self._icon_color)
-                icon_label = QLabel()
-                icon_label.setPixmap(icon.pixmap(18, 18))
-                icon_label.setFixedSize(18, 18)
-                self._layout.addWidget(icon_label)
+                self._icon_label = QLabel()
+                self._icon_label.setFixedSize(18, 18)
+                self._layout.addWidget(self._icon_label)
+                self._apply_icon_color()
             except Exception:
                 pass  # Игнорируем ошибки иконок
 
@@ -180,6 +180,17 @@ class StrategyRadioItem(QFrame):
             }
         """)
 
+    def _apply_icon_color(self):
+        """Обновляет цвет иконки категории по активности."""
+        if not self._icon_name or self._icon_label is None:
+            return
+        try:
+            color = self._icon_color if self.is_active() else "#BFC5CF"
+            icon = qta.icon(self._icon_name, color=color)
+            self._icon_label.setPixmap(icon.pixmap(18, 18))
+        except Exception:
+            pass
+
     def set_strategy(self, strategy_id: str, strategy_name: str):
         """Устанавливает текущую стратегию.
 
@@ -198,6 +209,9 @@ class StrategyRadioItem(QFrame):
             self._status_dot.setStyleSheet("color: #6ccb5f; background: transparent;")
         else:
             self._status_dot.setStyleSheet("color: #888888; background: transparent;")
+
+        # Неактивные категории показываем светло-серой иконкой.
+        self._apply_icon_color()
 
     def set_list_type(self, list_type: str | None):
         """Updates the hostlist/ipset badge."""

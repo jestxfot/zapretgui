@@ -1,122 +1,231 @@
 # utils/hostlists_manager.py
 """
-Менеджер Hostlist файлов.
-- other.txt - базовые домены (YouTube, Discord и т.д.)
-- other2.txt - пользовательские домены (управляется через GUI)
+Менеджер hostlist-файлов.
+
+- other.txt: рабочий файл пользователя (в пространстве приложения)
+- %APPDATA%/zapret/lists_template/other.txt: системный шаблон
 """
 
+from __future__ import annotations
+
 import os
-from datetime import datetime
+import sys
+
 from log import log
-from config import OTHER_PATH, OTHER2_PATH
-from .BASE_DOMAINS_TEXT import BASE_DOMAINS_TEXT
+from config import MAIN_DIRECTORY, OTHER_PATH, get_other_template_path
+
+
+def _fallback_base_domains() -> list[str]:
+    return ["youtube.com", "googlevideo.com", "discord.com", "discord.gg"]
+
+
+def _normalize_newlines(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if normalized and not normalized.endswith("\n"):
+        normalized += "\n"
+    return normalized
+
+
+def _read_text_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _read_effective_domains(path: str) -> list[str]:
+    """Читает домены без комментариев/пустых строк."""
+    if not os.path.exists(path):
+        return []
+
+    result: list[str] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip().lower()
+                if not line or line.startswith("#"):
+                    continue
+                result.append(line)
+    except Exception:
+        return []
+    return result
+
+
+def _candidate_source_paths() -> list[str]:
+    """Кандидаты для source other.txt (без hardcode абсолютных путей)."""
+    candidates: list[str] = []
+
+    # dev-сценарий: соседний проект zapret (например H:\Privacy\zapret\lists\other.txt)
+    sibling_source = os.path.join(os.path.dirname(MAIN_DIRECTORY), "zapret", "lists", "other.txt")
+    candidates.append(sibling_source)
+
+    # локальный dev-сценарий: <repo>/lists/other.txt
+    if not bool(getattr(sys, "frozen", False)):
+        candidates.append(os.path.join(MAIN_DIRECTORY, "lists", "other.txt"))
+
+    # уникализируем, сохраняя порядок
+    unique: list[str] = []
+    for path in candidates:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def _find_valid_source_path() -> str | None:
+    for path in _candidate_source_paths():
+        if _read_effective_domains(path):
+            return path
+    return None
 
 
 def get_base_domains() -> list[str]:
-    """Возвращает список базовых доменов"""
-    try:
-        domains = [
-            domain.strip() 
-            for domain in BASE_DOMAINS_TEXT.strip().split('\n') 
-            if domain.strip() and not domain.strip().startswith('#')
-        ]
-        
-        if len(domains) < 5:
-            log(f"⚠ WARNING: Мало доменов в BASE_DOMAINS_TEXT: {len(domains)}", "WARNING")
-            return []
-        
-        return domains
-        
-    except Exception as e:
-        log(f"❌ Ошибка в get_base_domains: {e}", "ERROR")
-        return []
+    """Возвращает системные базовые домены для other.txt."""
+    # Источник №1: системный шаблон
+    template_domains = _read_effective_domains(get_other_template_path())
+    if template_domains:
+        return template_domains
+
+    # Источник №2: source-файл (dev/build)
+    source_path = _find_valid_source_path()
+    if source_path:
+        source_domains = _read_effective_domains(source_path)
+        if source_domains:
+            return source_domains
+
+    # Аварийный минимум
+    log("WARNING: Не найден валидный source other.txt, использую аварийный минимум", "WARNING")
+    return _fallback_base_domains()
 
 
-def ensure_hostlists_exist():
-    """Проверяет существование файлов хостлистов и создает их если нужно"""
+def get_base_domains_set() -> set[str]:
+    """Возвращает set базовых доменов (lowercase)."""
+    return {d.strip().lower() for d in get_base_domains() if d and d.strip()}
+
+
+def build_other_template_content() -> str:
+    """Формирует содержимое системного шаблона other.txt."""
+    source_path = _find_valid_source_path()
+    if source_path:
+        try:
+            return _normalize_newlines(_read_text_file(source_path))
+        except Exception:
+            pass
+
+    template_path = get_other_template_path()
+    if os.path.exists(template_path):
+        try:
+            content = _read_text_file(template_path)
+            if _read_effective_domains(template_path):
+                return _normalize_newlines(content)
+        except Exception:
+            pass
+
+    domains = sorted(set(_fallback_base_domains()))
+    return "\n".join(domains) + "\n"
+
+
+def _write_text_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_normalize_newlines(content))
+
+
+def _count_effective_domains(path: str) -> int:
+    return len(_read_effective_domains(path))
+
+
+def ensure_other_template_updated() -> bool:
+    """Гарантирует валидный системный шаблон other.txt в lists_template."""
     try:
-        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-        
-        # Создаём other.txt если нет или пустой
-        if not os.path.exists(OTHER_PATH) or os.path.getsize(OTHER_PATH) == 0:
-            log("Создание other.txt...", "INFO")
-            _create_other()
-        
-        # Создаём other2.txt если нет (пустой, для пользователя)
-        if not os.path.exists(OTHER2_PATH):
-            log("Создание other2.txt...", "INFO")
-            _create_other2()
-        
+        template_path = get_other_template_path()
+        source_path = _find_valid_source_path()
+
+        if source_path:
+            source_content = _normalize_newlines(_read_text_file(source_path))
+            current_content = ""
+            if os.path.exists(template_path):
+                current_content = _normalize_newlines(_read_text_file(template_path))
+
+            if source_content != current_content:
+                _write_text_file(template_path, source_content)
+                log(f"Обновлен шаблон other.txt из source: {source_path}", "DEBUG")
+            return True
+
+        if _count_effective_domains(template_path) > 0:
+            return True
+
+        # Если source-файл недоступен, создаём аварийный минимум.
+        fallback_content = "\n".join(sorted(set(_fallback_base_domains()))) + "\n"
+        _write_text_file(template_path, fallback_content)
+        log("Создан аварийный шаблон other.txt (source не найден)", "WARNING")
         return True
-        
     except Exception as e:
-        log(f"Ошибка создания файлов хостлистов: {e}", "❌ ERROR")
+        log(f"Ошибка обновления шаблона other.txt: {e}", "ERROR")
         return False
 
 
-def startup_hostlists_check():
-    """Проверка хостлистов при запуске программы"""
+def reset_other_file_from_template() -> bool:
+    """Сбрасывает рабочий lists/other.txt из системного шаблона."""
     try:
-        log("=== Проверка хостлистов при запуске ===", "🔧 HOSTLISTS")
-        
+        if not ensure_other_template_updated():
+            return False
+
+        template_path = get_other_template_path()
+        content = _read_text_file(template_path)
+
+        _write_text_file(OTHER_PATH, content)
+        log("other.txt сброшен из шаблона", "SUCCESS")
+        return True
+    except Exception as e:
+        log(f"Ошибка сброса other.txt из шаблона: {e}", "ERROR")
+        return False
+
+
+def ensure_hostlists_exist() -> bool:
+    """Проверяет hostlist-файлы и создаёт other.txt при необходимости."""
+    try:
         os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-        
-        # Проверяем other.txt
+
+        if not ensure_other_template_updated():
+            return False
+
         if not os.path.exists(OTHER_PATH):
-            log("Создаем other.txt", "WARNING")
-            _create_other()
-        else:
-            # Проверяем что файл не пустой
-            with open(OTHER_PATH, 'r', encoding='utf-8') as f:
-                lines = [l.strip() for l in f if l.strip() and not l.strip().startswith('#')]
-            
-            if not lines:
-                log("other.txt пуст, пересоздаем", "WARNING")
-                _create_other()
-            else:
-                log(f"other.txt: {len(lines)} доменов", "INFO")
-        
-        # Проверяем other2.txt (НЕ перезаписываем если есть!)
-        if not os.path.exists(OTHER2_PATH):
-            log("Создаем other2.txt", "WARNING")
-            _create_other2()
-        else:
-            log(f"other2.txt: {os.path.getsize(OTHER2_PATH)} байт", "INFO")
-        
+            log("Создание other.txt из шаблона...", "INFO")
+            return reset_other_file_from_template()
+
+        if _count_effective_domains(OTHER_PATH) == 0:
+            log("other.txt не содержит доменов, пересоздаем из шаблона", "WARNING")
+            return reset_other_file_from_template()
+
         return True
-        
     except Exception as e:
-        log(f"Ошибка при проверке хостлистов: {e}", "❌ ERROR")
+        log(f"Ошибка создания файлов хостлистов: {e}", "ERROR")
         return False
 
 
-def _create_other():
-    """Создаёт other.txt с базовыми доменами"""
+def startup_hostlists_check() -> bool:
+    """Проверка hostlist-файлов при запуске программы."""
     try:
-        base_domains = get_base_domains()
-        
-        if not base_domains:
-            # Аварийный минимум
-            base_domains = ['youtube.com', 'googlevideo.com', 'discord.com', 'discord.gg']
-            log("Используем аварийный минимум доменов", "WARNING")
-        
-        with open(OTHER_PATH, 'w', encoding='utf-8') as f:
-            for domain in sorted(set(base_domains)):
-                f.write(f"{domain}\n")
-        
-        log(f"✅ Создан other.txt ({len(base_domains)} доменов)", "SUCCESS")
-    except Exception as e:
-        log(f"❌ Ошибка создания other.txt: {e}", "ERROR")
+        log("=== Проверка хостлистов при запуске ===", "HOSTLISTS")
 
+        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
 
-def _create_other2():
-    """Создаёт пустой other2.txt для пользователя"""
-    try:
-        with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
-            f.write("# Пользовательские домены\n")
-            f.write("# Этот файл не перезаписывается обновлениями\n")
-            f.write(f"# Создано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        
-        log(f"✅ Создан other2.txt", "SUCCESS")
+        if not ensure_other_template_updated():
+            return False
+
+        if not os.path.exists(OTHER_PATH):
+            log("Создаем other.txt из шаблона", "WARNING")
+            if not reset_other_file_from_template():
+                return False
+        else:
+            lines_count = _count_effective_domains(OTHER_PATH)
+
+            if lines_count == 0:
+                log("other.txt пуст, пересоздаем из шаблона", "WARNING")
+                if not reset_other_file_from_template():
+                    return False
+            else:
+                log(f"other.txt: {lines_count} доменов", "INFO")
+
+        return True
     except Exception as e:
-        log(f"❌ Ошибка создания other2.txt: {e}", "ERROR")
+        log(f"Ошибка при проверке хостлистов: {e}", "ERROR")
+        return False

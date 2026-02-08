@@ -35,8 +35,8 @@ class PageName(Enum):
     STRATEGY_SORT = auto()           # Сортировка стратегий
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
     MY_CATEGORIES = auto()           # Мои категории (общий файл)
-    HOSTLIST = auto()                # Hostlist
-    IPSET = auto()                   # IPset
+    HOSTLIST = auto()                # Листы (Hostlist + IPset)
+    IPSET = auto()                   # Legacy alias -> Листы
     BLOBS = auto()                   # Блобы
     EDITOR = auto()                  # Редактор стратегий
     DPI_SETTINGS = auto()            # Настройки DPI
@@ -45,7 +45,7 @@ class PageName(Enum):
 
     # === Мои списки ===
     NETROGAT = auto()                # Исключения (netrogat.txt)
-    CUSTOM_DOMAINS = auto()          # Мои hostlist (other2.txt)
+    CUSTOM_DOMAINS = auto()          # Мои hostlist (other.txt)
     CUSTOM_IPSET = auto()            # Мои ipset (my-ipset.txt)
 
     # === Настройки системы ===
@@ -88,8 +88,8 @@ class SectionName(Enum):
     STRATEGY_SORT = auto()           # - Сортировка
     PRESET_CONFIG = auto()           # - Конфиг
     MY_CATEGORIES = auto()           # - Мои категории
-    HOSTLIST = auto()                # - Hostlist
-    IPSET = auto()                   # - IPset
+    HOSTLIST = auto()                # - Листы
+    IPSET = auto()                   # - Legacy alias (скрыт в UI)
     BLOBS = auto()                   # - Блобы
     EDITOR = auto()                  # - Редактор
     ORCHESTRA_LOCKED = auto()        # - Залоченные
@@ -135,7 +135,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.PRESET_CONFIG: PageName.PRESET_CONFIG,
     SectionName.MY_CATEGORIES: PageName.MY_CATEGORIES,
     SectionName.HOSTLIST: PageName.HOSTLIST,
-    SectionName.IPSET: PageName.IPSET,
+    SectionName.IPSET: PageName.HOSTLIST,
     SectionName.BLOBS: PageName.BLOBS,
     SectionName.EDITOR: PageName.EDITOR,
     SectionName.ORCHESTRA_LOCKED: PageName.ORCHESTRA_LOCKED,
@@ -182,7 +182,6 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
         SectionName.DIRECT_RUN,
         SectionName.MY_CATEGORIES,
         SectionName.HOSTLIST,
-        SectionName.IPSET,
         SectionName.BLOBS,
         SectionName.EDITOR,
         SectionName.ORCHESTRA_LOCKED,

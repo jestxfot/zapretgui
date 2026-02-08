@@ -723,8 +723,7 @@ class SideNavBar(QWidget):
             (SectionName.PRESET_CONFIG, "fa5s.file-code", "Активный пресет", True),
             (SectionName.PRESETS, "mdi.folder-cog", "Мои пресеты", True),
             (SectionName.DIRECT_RUN, "fa5s.play", "Прямой запуск", True),
-            (SectionName.HOSTLIST, "fa5s.list", "Hostlist", True),
-            (SectionName.IPSET, "fa5s.server", "IPset", True),
+            (SectionName.HOSTLIST, "fa5s.list", "Листы", True),
             (SectionName.ORCHESTRA_LOCKED, "fa5s.lock", "Залоченные", True),
             (SectionName.ORCHESTRA_BLOCKED, "fa5s.ban", "Заблокированные", True),
             (SectionName.ORCHESTRA_RATINGS, "mdi.chart-bar", "Рейтинги", True),
@@ -865,6 +864,10 @@ class SideNavBar(QWidget):
 
                 if section_name == SectionName.CONTROL:
                     self._control_button = btn
+
+        # Legacy alias: old code can still point to hidden SectionName.IPSET.
+        if SectionName.IPSET not in self._section_widgets and self._hostlist_button is not None:
+            self._section_widgets[SectionName.IPSET] = self._hostlist_button
 
         # Выбираем кнопку HOME
         self.current_section = SectionName.HOME
@@ -1619,28 +1622,27 @@ class ActionButton(QPushButton):
         
     def _update_style(self):
         if self.accent:
-            if self._hovered:
-                bg = "rgba(96, 205, 255, 0.9)"
-            else:
-                bg = "#60cdff"
-            text_color = "#000000"
+            bg = "#2f7cf6" if not self._hovered else "#3b89ff"
+            pressed_bg = "#2769d4"
+            border = "1px solid rgba(255, 255, 255, 0.18)"
         else:
-            if self._hovered:
-                bg = "rgba(255, 255, 255, 0.15)"
-            else:
-                bg = "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
-            
+            bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
+            pressed_bg = "rgba(255, 255, 255, 0.22)"
+            border = "1px solid rgba(255, 255, 255, 0.12)"
+
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
-                border: none;
-                border-radius: 4px;
-                color: {text_color};
+                border: {border};
+                border-radius: 8px;
+                color: #ffffff;
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed_bg};
             }}
         """)
         

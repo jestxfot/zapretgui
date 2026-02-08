@@ -81,7 +81,7 @@ class InitializationManager:
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
             (100, self._init_tray),               # Системный трей
-            (120, self._init_strategy_cache),     # Прогрев кэша стратегий
+            (1200, self._init_strategy_cache),    # Отложенный прогрев кэша (не блокирует ранний старт)
             (150, self._init_logger),             # Логирование
             (200, self._finalize_managers_init),  # Финализация
         ])

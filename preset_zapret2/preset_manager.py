@@ -24,6 +24,7 @@ Usage:
 """
 
 import os
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,14 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from log import log
 
-from .preset_model import CategoryConfig, Preset, SyndataSettings, validate_preset
+from .preset_model import (
+    CategoryConfig,
+    DEFAULT_PRESET_ICON_COLOR,
+    Preset,
+    SyndataSettings,
+    normalize_preset_icon_color,
+    validate_preset,
+)
 from .ports import subtract_port_specs, union_port_specs
 from .preset_storage import (
     delete_preset,
@@ -254,6 +262,7 @@ class PresetManager:
                 name=name,
                 base_args=self._strip_debug_from_base_args(data.base_args),
             )
+            preset.icon_color = self._extract_icon_color_from_header(data.raw_header)
 
             for block in data.categories:
                 cat_name = block.category
@@ -322,6 +331,14 @@ class PresetManager:
         except Exception as e:
             log(f"Error loading from active file: {e}", "ERROR")
             return None
+
+    @staticmethod
+    def _extract_icon_color_from_header(header: str) -> str:
+        for line in (header or "").splitlines():
+            match = re.match(r"#\s*(?:IconColor|PresetIconColor):\s*(.+)", line.strip(), re.IGNORECASE)
+            if match:
+                return normalize_preset_icon_color(match.group(1).strip())
+        return DEFAULT_PRESET_ICON_COLOR
 
     @staticmethod
     def _strip_debug_from_base_args(base_args: str) -> str:
@@ -617,9 +634,11 @@ class PresetManager:
             # generate_preset_content() preserves raw_header when present, so it must be updated
             # when we create a new preset from the Default template.
             now = datetime.now().isoformat()
+            icon_color = self._extract_icon_color_from_header(data.raw_header)
             data.raw_header = f"""# Preset: {name}
 # Created: {now}
 # Modified: {now}
+# IconColor: {icon_color}
 # Description: """
 
             dest_path = get_preset_path(name)
@@ -832,9 +851,12 @@ class PresetManager:
             )
 
             # Build header
+            icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
+            preset.icon_color = icon_color
             data.raw_header = f"""# Preset: {preset.name}
 # ActivePreset: {preset.name}
-# Modified: {datetime.now().isoformat()}"""
+# Modified: {datetime.now().isoformat()}
+# IconColor: {icon_color}"""
 
             # Convert categories
             for cat_name, cat in preset.categories.items():
@@ -1421,6 +1443,9 @@ class PresetManager:
             if existing:
                 preset.created = existing.created
                 preset.description = existing.description
+                preset.icon_color = normalize_preset_icon_color(existing.icon_color)
+            else:
+                preset.icon_color = self._extract_icon_color_from_header(data.raw_header)
 
             for block in data.categories:
                 cat_name = block.category
@@ -1518,6 +1543,7 @@ class PresetManager:
             preset = Preset(name=name, base_args=data.base_args)
             preset.created = existing.created
             preset.description = existing.description
+            preset.icon_color = normalize_preset_icon_color(existing.icon_color)
 
             for block in data.categories:
                 cat_name = block.category

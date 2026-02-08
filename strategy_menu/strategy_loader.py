@@ -28,6 +28,7 @@
 import json
 import os
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from log import log
@@ -44,6 +45,58 @@ _LOCAL_STRATEGIES_DIR = Path(__file__).parent
 # Fallback на соседнюю папку zapret (для разработки из IDE)
 # /home/privacy/zapretgui -> /home/privacy/zapret
 _DEV_ZAPRET_DIR = Path(__file__).parent.parent.parent / "zapret" / "json" / "strategies"
+
+
+# In-memory cache for parsed files (key = absolute path, value = (mtime_ns, size, data)).
+# Reduces repeated disk parsing during startup and page rebuilds.
+_CACHE_MAX_ENTRIES = 128
+_JSON_FILE_CACHE: Dict[str, tuple[int, int, Any]] = {}
+_TXT_FILE_CACHE: Dict[str, tuple[int, int, Any]] = {}
+_CATEGORIES_TXT_CACHE: Dict[str, tuple[int, int, Any]] = {}
+
+
+def _to_cache_key(filepath: Path) -> str:
+    try:
+        return str(filepath.resolve())
+    except Exception:
+        return str(filepath)
+
+
+def _file_signature(filepath: Path) -> tuple[int, int]:
+    st = filepath.stat()
+    mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+    return mtime_ns, int(st.st_size)
+
+
+def _get_cached_data(cache: Dict[str, tuple[int, int, Any]], filepath: Path) -> Optional[Any]:
+    key = _to_cache_key(filepath)
+    cached = cache.get(key)
+    if not cached:
+        return None
+
+    try:
+        current_sig = _file_signature(filepath)
+    except Exception:
+        return None
+
+    if (cached[0], cached[1]) != current_sig:
+        return None
+
+    return deepcopy(cached[2])
+
+
+def _set_cached_data(cache: Dict[str, tuple[int, int, Any]], filepath: Path, signature: tuple[int, int], data: Any) -> None:
+    key = _to_cache_key(filepath)
+    cache[key] = (signature[0], signature[1], deepcopy(data))
+    if len(cache) > _CACHE_MAX_ENTRIES:
+        cache.pop(next(iter(cache)), None)
+
+
+def _invalidate_file_cache(filepath: Path) -> None:
+    key = _to_cache_key(filepath)
+    _JSON_FILE_CACHE.pop(key, None)
+    _TXT_FILE_CACHE.pop(key, None)
+    _CATEGORIES_TXT_CACHE.pop(key, None)
 
 
 def _has_categories_file(directory: Path) -> bool:
@@ -125,8 +178,17 @@ def load_json_file(filepath: Path) -> Optional[Dict]:
     try:
         if not filepath.exists():
             return None
+
+        cached = _get_cached_data(_JSON_FILE_CACHE, filepath)
+        if cached is not None:
+            return cached
+
+        signature = _file_signature(filepath)
         with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+
+        _set_cached_data(_JSON_FILE_CACHE, filepath, signature, data)
+        return deepcopy(data)
     except json.JSONDecodeError as e:
         log(f"Ошибка парсинга JSON {filepath}: {e}", "ERROR")
         return None
@@ -158,6 +220,12 @@ def load_txt_file(filepath: Path) -> Optional[Dict]:
     try:
         if not filepath.exists():
             return None
+
+        cached = _get_cached_data(_TXT_FILE_CACHE, filepath)
+        if cached is not None:
+            return cached
+
+        signature = _file_signature(filepath)
 
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -231,7 +299,9 @@ def load_txt_file(filepath: Path) -> Optional[Dict]:
             strategies.append(current_strategy)
 
         log(f"Загружено {len(strategies)} стратегий из TXT: {filepath.name}", "DEBUG")
-        return {'strategies': strategies}
+        result = {'strategies': strategies}
+        _set_cached_data(_TXT_FILE_CACHE, filepath, signature, result)
+        return deepcopy(result)
 
     except Exception as e:
         log(f"Ошибка чтения TXT {filepath}: {e}", "ERROR")
@@ -292,6 +362,7 @@ def save_txt_file(filepath: Path, data: Dict) -> bool:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
 
+        _invalidate_file_cache(filepath)
         return True
     except Exception as e:
         log(f"Ошибка сохранения TXT {filepath}: {e}", "ERROR")
@@ -304,6 +375,7 @@ def save_json_file(filepath: Path, data: Dict) -> bool:
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        _invalidate_file_cache(filepath)
         return True
     except Exception as e:
         log(f"Ошибка сохранения {filepath}: {e}", "ERROR")
@@ -873,10 +945,20 @@ def load_categories_txt(filepath: Path) -> Optional[Dict]:
         if not filepath.exists():
             return None
 
+        cached = _get_cached_data(_CATEGORIES_TXT_CACHE, filepath)
+        if cached is not None:
+            return cached
+
+        signature = _file_signature(filepath)
+
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        return _parse_categories_txt_content(content, source_name=filepath.name)
+        parsed = _parse_categories_txt_content(content, source_name=filepath.name)
+        if parsed is not None:
+            _set_cached_data(_CATEGORIES_TXT_CACHE, filepath, signature, parsed)
+            return deepcopy(parsed)
+        return None
 
     except Exception as e:
         log(f"Ошибка чтения TXT категорий {filepath}: {e}", "ERROR")

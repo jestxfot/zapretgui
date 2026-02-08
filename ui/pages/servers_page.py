@@ -501,11 +501,82 @@ class ServerCheckWorker(QThread):
         self._update_pool_stats = update_pool_stats
         self._telegram_only = telegram_only  # Если True - проверяем только Telegram
         self._first_online_server_id = None
+
+    @staticmethod
+    def _request_versions_json(url: str, *, timeout, verify_ssl: bool):
+        """Запрашивает all_versions.json с fallback без прокси.
+
+        Returns:
+            (data, error, route)
+            - data: dict | None
+            - error: str | None
+            - route: "direct" | "bypass"
+        """
+        import requests
+        from updater.proxy_bypass import request_get_bypass_proxy
+
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Zapret-Updater/3.1",
+        }
+
+        if not verify_ssl:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        def _decode_response(resp):
+            if resp.status_code != 200:
+                return None, f"HTTP {resp.status_code}"
+            try:
+                return resp.json(), None
+            except Exception as e:
+                return None, f"json error: {str(e)[:60]}"
+
+        def _direct_request():
+            return requests.get(url, timeout=timeout, verify=verify_ssl, headers=headers)
+
+        def _bypass_request():
+            return request_get_bypass_proxy(url, timeout=timeout, verify=verify_ssl, headers=headers)
+
+        try:
+            response = _direct_request()
+            data, error = _decode_response(response)
+            return data, error, "direct"
+        except requests.exceptions.ProxyError as e:
+            log(f"⚠️ VPS monitor proxy error: {e}. Retry bypass...", "⚠️ PROXY")
+            try:
+                response = _bypass_request()
+                data, error = _decode_response(response)
+                return data, error, "bypass"
+            except Exception as e2:
+                return None, f"proxy+direct error: {str(e2)[:80]}", "bypass"
+        except requests.exceptions.ConnectionError as e:
+            try:
+                from updater.network_hints import _is_proxy_related_error
+                if _is_proxy_related_error(e):
+                    log(f"⚠️ VPS monitor proxy-like ConnectionError. Retry bypass...", "⚠️ PROXY")
+                    try:
+                        response = _bypass_request()
+                        data, error = _decode_response(response)
+                        return data, error, "bypass"
+                    except Exception as e2:
+                        return None, f"proxy+direct error: {str(e2)[:80]}", "bypass"
+            except Exception:
+                pass
+            return None, f"connection error: {str(e)[:80]}", "direct"
+        except requests.exceptions.Timeout:
+            return None, "timeout", "direct"
+        except requests.exceptions.SSLError as e:
+            return None, f"SSL error: {str(e)[:80]}", "direct"
+        except requests.exceptions.RequestException as e:
+            return None, str(e)[:80], "direct"
+        except Exception as e:
+            return None, str(e)[:80], "direct"
     
     def run(self):
         from updater.github_release import check_rate_limit
         from updater.server_pool import get_server_pool
-        import requests
+        from updater.server_config import should_verify_ssl, CONNECT_TIMEOUT, READ_TIMEOUT
         import time as _time
 
         pool = get_server_pool()
@@ -563,7 +634,7 @@ class ServerCheckWorker(QThread):
                 }
             
             self.server_checked.emit('Telegram Bot', tg_status)
-            _time.sleep(0.1)
+            _time.sleep(0.02)
         except Exception as e:
             self.server_checked.emit('Telegram Bot', {
                 'status': 'error',
@@ -594,36 +665,45 @@ class ServerCheckWorker(QThread):
                     'is_current': False,  # Заблокированный не может быть активным
                 }
                 self.server_checked.emit(server_name, status)
-                _time.sleep(0.1)
+                _time.sleep(0.02)
                 continue
-            
-            start_time = _time.time()
-            try:
-                https_url = f"https://{server['host']}:{server['https_port']}/api/all_versions.json"
-                
-                from updater.server_config import should_verify_ssl
-                verify_ssl = should_verify_ssl()
-                
-                if not verify_ssl:
-                    import urllib3
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                
-                response = requests.get(https_url, timeout=10, verify=verify_ssl,
-                    headers={"Accept": "application/json", "User-Agent": "Zapret-Updater/3.1"})
-                
-                response_time = _time.time() - start_time
-                
-                if response.status_code == 200:
-                    data = response.json()
 
+            monitor_timeout = (min(CONNECT_TIMEOUT, 3), min(READ_TIMEOUT, 5))
+            status = None
+            response_time = 0.0
+            last_error = "Не удалось подключиться"
+
+            protocol_attempts = [
+                (
+                    "HTTPS",
+                    f"https://{server['host']}:{server['https_port']}/api/all_versions.json",
+                    should_verify_ssl(),
+                ),
+                (
+                    "HTTP",
+                    f"http://{server['host']}:{server['http_port']}/api/all_versions.json",
+                    False,
+                ),
+            ]
+
+            for protocol, api_url, verify_ssl in protocol_attempts:
+                attempt_start = _time.time()
+                data, error, route = self._request_versions_json(
+                    api_url,
+                    timeout=monitor_timeout,
+                    verify_ssl=verify_ssl,
+                )
+                response_time = _time.time() - attempt_start
+
+                if data:
                     stable_notes = data.get('stable', {}).get('release_notes', '')
                     test_notes = data.get('test', {}).get('release_notes', '')
-                    
+
                     # Первый работающий сервер становится активным
                     is_first_online = self._first_online_server_id is None
                     if is_first_online:
                         self._first_online_server_id = server_id
-                    
+
                     status = {
                         'status': 'online',
                         'response_time': response_time,
@@ -631,36 +711,32 @@ class ServerCheckWorker(QThread):
                         'test_version': data.get('test', {}).get('version', '—'),
                         'stable_notes': stable_notes,
                         'test_notes': test_notes,
-                        'is_current': is_first_online,  # Звёздочка первому работающему
+                        'is_current': is_first_online,
                     }
-                    
+
                     from updater.update_cache import set_cached_all_versions
-                    set_cached_all_versions(data, f"{server_name} (HTTPS)")
-                    
+                    source = f"{server_name} ({protocol}{' bypass' if route == 'bypass' else ''})"
+                    set_cached_all_versions(data, source)
+
                     if self._update_pool_stats:
                         pool.record_success(server_id, response_time)
-                else:
-                    status = {
-                        'status': 'error',
-                        'response_time': response_time,
-                        'error': f'HTTP {response.status_code}',
-                        'is_current': False,  # Ошибка - не активный
-                    }
-                    if self._update_pool_stats:
-                        pool.record_failure(server_id, f"HTTP {response.status_code}")
-                    
-            except Exception as e:
+                    break
+
+                if error:
+                    last_error = f"{protocol}: {error}"
+
+            if status is None:
                 status = {
                     'status': 'error',
-                    'response_time': _time.time() - start_time,
-                    'error': str(e)[:40],
-                    'is_current': False,  # Ошибка - не активный
+                    'response_time': response_time,
+                    'error': last_error[:80],
+                    'is_current': False,
                 }
                 if self._update_pool_stats:
-                    pool.record_failure(server_id, str(e)[:40])
+                    pool.record_failure(server_id, last_error[:80])
             
             self.server_checked.emit(server_name, status)
-            _time.sleep(0.15)
+            _time.sleep(0.02)
         
         # 3. GitHub API
         try:
@@ -695,32 +771,26 @@ class VersionCheckWorker(QThread):
         source_name = get_all_versions_source() if all_versions else None
         
         if not all_versions:
-            import requests
             from updater.server_pool import get_server_pool
             from updater.server_config import should_verify_ssl, CONNECT_TIMEOUT, READ_TIMEOUT
             
             pool = get_server_pool()
             current_server = pool.get_current_server()
             server_urls = pool.get_server_urls(current_server)
+            monitor_timeout = (min(CONNECT_TIMEOUT, 3), min(READ_TIMEOUT, 5))
             
             for protocol, base_url in [('HTTPS', server_urls['https']), ('HTTP', server_urls['http'])]:
-                try:
-                    verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
-                    if not verify_ssl:
-                        import urllib3
-                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                    
-                    response = requests.get(f"{base_url}/api/all_versions.json",
-                        timeout=(CONNECT_TIMEOUT, READ_TIMEOUT), verify=verify_ssl,
-                        headers={"Accept": "application/json", "User-Agent": "Zapret-Updater/3.1"})
-                    
-                    if response.status_code == 200:
-                        all_versions = response.json()
-                        source_name = f"{current_server['name']} ({protocol})"
-                        set_cached_all_versions(all_versions, source_name)
-                        break
-                except:
-                    continue
+                verify_ssl = should_verify_ssl() if protocol == 'HTTPS' else False
+                data, _, route = ServerCheckWorker._request_versions_json(
+                    f"{base_url}/api/all_versions.json",
+                    timeout=monitor_timeout,
+                    verify_ssl=verify_ssl,
+                )
+                if data:
+                    all_versions = data
+                    source_name = f"{current_server['name']} ({protocol}{' bypass' if route == 'bypass' else ''})"
+                    set_cached_all_versions(all_versions, source_name)
+                    break
         
         if not all_versions:
             from updater.release_manager import get_latest_release

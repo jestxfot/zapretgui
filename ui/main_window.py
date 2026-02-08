@@ -13,7 +13,7 @@ from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
 from ui.sidebar import SideNavBar, SettingsCard, ActionButton
 from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
-    HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, IpsetPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
+    HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
     HelpPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
@@ -151,13 +151,12 @@ class MainWindowUI:
         self.my_categories_page = MyCategoriesPage(self)
         self.pages_stack.addWidget(self.my_categories_page)
 
-        # Hostlist
+        # Листы (hostlist + ipset)
         self.hostlist_page = HostlistPage(self)
         self.pages_stack.addWidget(self.hostlist_page)
 
-        # IPset
-        self.ipset_page = IpsetPage(self)
-        self.pages_stack.addWidget(self.ipset_page)
+        # Legacy alias: keep old references to ipset_page valid.
+        self.ipset_page = self.hostlist_page
 
         # Блобы - управление бинарными данными для Zapret 2
         self.blobs_page = BlobsPage(self)
@@ -180,7 +179,7 @@ class MainWindowUI:
         self.netrogat_page = NetrogatPage(self)
         self.pages_stack.addWidget(self.netrogat_page)
 
-        # Мои домены - управление other2.txt
+        # Мои домены - управление other.txt
         self.custom_domains_page = CustomDomainsPage(self)
         self.pages_stack.addWidget(self.custom_domains_page)
 
@@ -271,7 +270,7 @@ class MainWindowUI:
             PageName.PRESET_CONFIG: self.preset_config_page,
             PageName.MY_CATEGORIES: self.my_categories_page,
             PageName.HOSTLIST: self.hostlist_page,
-            PageName.IPSET: self.ipset_page,
+            PageName.IPSET: self.hostlist_page,
             PageName.BLOBS: self.blobs_page,
             PageName.EDITOR: self.editor_page,
             PageName.DPI_SETTINGS: self.dpi_settings_page,
@@ -982,16 +981,9 @@ class MainWindowUI:
             if page and hasattr(page, 'update_current_strategy'):
                 page.update_current_strategy(strategy_name)
 
-        # Для главной страницы: в режиме оркестратора не показываем список доменов/стратегий.
-        if launch_method in ("orchestra", "direct_zapret2_orchestra"):
-            self.home_page.strategy_card.set_value("Режим оркестратор", "Автообучение")
-            return
-
-        # Обычный режим: обрезаем длинное название
-        display_name = strategy_name if strategy_name != "Автостарт DPI отключен" else "Не выбрана"
-        if hasattr(self.home_page, '_truncate_strategy_name'):
-            display_name = self.home_page._truncate_strategy_name(display_name)
-        self.home_page.strategy_card.set_value(display_name, "Активная стратегия")
+        # Для главной страницы всегда показываем именно метод запуска.
+        if hasattr(self.home_page, "update_launch_method_card"):
+            self.home_page.update_launch_method_card()
         
     def update_autostart_display(self, enabled: bool, strategy_name: str = None):
         """Обновляет отображение статуса автозапуска"""

@@ -629,9 +629,9 @@ class _SegmentedChoice(QWidget):
     def _update_styles(self):
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: #2f7cf6;
                 border: none;
-                color: #000000;
+                color: #ffffff;
                 font-size: 11px;
                 font-weight: 700;
                 padding: 0 12px;
@@ -857,7 +857,7 @@ class PresetsPage(BasePage):
         configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
         configs_layout.addWidget(configs_icon)
 
-        configs_title = QLabel("Вы можете обмениваться категориями друг с другом\nв нашей существующей группе по конфигам (это обычные txt файлы)")
+        configs_title = QLabel("Обменивайтесь категориями на нашем форуме-сайте\nчерез Telegram-бота: безопасно и анонимно")
         configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
         configs_layout.addWidget(configs_title)
 
@@ -1150,7 +1150,7 @@ class PresetsPage(BasePage):
         """Создает основную кнопку действия"""
         btn = QPushButton(text)
 
-        icon_color = "#000000" if accent else "white"
+        icon_color = "white"
         btn.setIcon(qta.icon(icon_name, color=icon_color))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(36)
@@ -1159,28 +1159,28 @@ class PresetsPage(BasePage):
         if accent:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #60cdff;
-                    border: none;
-                    border-radius: 6px;
-                    color: #000000;
+                    background-color: #2f7cf6;
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    border-radius: 8px;
+                    color: #ffffff;
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
                 QPushButton:hover {
-                    background-color: rgba(96, 205, 255, 0.9);
+                    background-color: #3b89ff;
                 }
                 QPushButton:pressed {
-                    background-color: rgba(96, 205, 255, 0.7);
+                    background-color: #2769d4;
                 }
             """)
         else:
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: rgba(255, 255, 255, 0.08);
-                    border: none;
-                    border-radius: 6px;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
                     color: #ffffff;
                     padding: 0 20px;
                     font-size: 13px;
@@ -1191,7 +1191,7 @@ class PresetsPage(BasePage):
                     background-color: rgba(255, 255, 255, 0.15);
                 }
                 QPushButton:pressed {
-                    background-color: rgba(255, 255, 255, 0.20);
+                    background-color: rgba(255, 255, 255, 0.22);
                 }
             """)
 
@@ -1225,7 +1225,7 @@ class PresetsPage(BasePage):
         self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
 
         self._action_submit_btn.setText("Создать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#000000"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
 
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
@@ -1249,7 +1249,7 @@ class PresetsPage(BasePage):
         self._name_input.setPlaceholderText("Новое имя…")
 
         self._action_submit_btn.setText("Переименовать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#000000"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
 
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
@@ -1600,10 +1600,10 @@ class PresetsPage(BasePage):
         self._load_presets()
 
     def _open_new_configs_post(self):
-        """Открывает Telegram пост с актуальными конфигами."""
+        """Открывает Telegram-бота с актуальными конфигами."""
         try:
             from config.telegram_links import open_telegram_link
-            open_telegram_link("zaprethelp", post=66952)
+            open_telegram_link("nozapretinrussia_bot")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")

@@ -1,17 +1,20 @@
 # ui/pages/custom_domains_page.py
-"""Страница управления пользовательскими доменами (other2.txt)"""
+"""Страница управления доменами в other.txt."""
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, 
     QMessageBox, QLineEdit
 )
+import qtawesome as qta
 from urllib.parse import urlparse
+from typing import Optional
 import re
 import os
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from .strategies_page_base import ResetActionButton
 from log import log
 
 def split_domains(text: str) -> list[str]:
@@ -80,6 +83,72 @@ def _split_glued_domains(text: str) -> list[str]:
     return [text]
 
 
+class DangerConfirmActionButton(ResetActionButton):
+    """Двухэтапная кнопка подтверждения с красным pending-состоянием."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        default_icon: str = "fa5s.trash-alt",
+        confirm_text: str = "Подтвердить?",
+        parent=None,
+    ):
+        self._default_icon_name = default_icon
+        self._base_tooltip_text = ""
+        self._confirm_tooltip_text = "Нажмите еще раз для подтверждения"
+        super().__init__(text=text, confirm_text=confirm_text, parent=parent)
+
+    def set_confirm_tooltips(self, base_text: str, confirm_text: str | None = None) -> None:
+        self._base_tooltip_text = (base_text or "").strip()
+        if confirm_text:
+            self._confirm_tooltip_text = confirm_text.strip()
+        self._update_tooltip()
+
+    def _update_tooltip(self) -> None:
+        if not self._base_tooltip_text:
+            self.setToolTip("")
+            return
+        if self._pending:
+            self.setToolTip(f"{self._base_tooltip_text}\n{self._confirm_tooltip_text}")
+            return
+        self.setToolTip(self._base_tooltip_text)
+
+    def _update_icon(self, rotation: int = 0):
+        icon_name = "fa5s.trash-alt" if self._pending else self._default_icon_name
+        if rotation != 0:
+            self.setIcon(qta.icon(icon_name, color="#ffffff", rotated=rotation))
+        else:
+            self.setIcon(qta.icon(icon_name, color="#ffffff"))
+
+    def _update_style(self):
+        if self._pending:
+            bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
+            pressed_bg = "rgba(190, 39, 54, 1.0)"
+            border = "1px solid rgba(255, 255, 255, 0.24)"
+        else:
+            bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
+            pressed_bg = "rgba(255, 255, 255, 0.22)"
+            border = "1px solid rgba(255, 255, 255, 0.12)"
+
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg};
+                border: {border};
+                border-radius: 8px;
+                color: #ffffff;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed_bg};
+            }}
+        """)
+        self._update_tooltip()
+
+
 class CustomDomainsPage(BasePage):
     """Страница управления пользовательскими доменами"""
     
@@ -88,7 +157,7 @@ class CustomDomainsPage(BasePage):
     def __init__(self, parent=None):
         super().__init__(
             "Мои домены", 
-            "Управление пользовательскими доменами (other2.txt)", 
+            "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru", 
             parent
         )
         self._build_ui()
@@ -100,8 +169,8 @@ class CustomDomainsPage(BasePage):
         # Описание
         desc_card = SettingsCard()
         desc = QLabel(
-            "Здесь Вы можете добавить свои домены для обхода блокировок. Формат - example.com. Поддомены учитываются автоматически (строчка с example.com будет пропускать через себя app.example.com и test.example.com). Каждый новый домен следует писать с новой строчки. Чтобы не учитывать поддомены напишите домен с символом ^, то есть вот так ^example.com. "
-            "URL автоматически преобразуются в домены. "
+            "Здесь редактируется файл other.txt. Системные домены берутся из встроенного шаблона, "
+            "пользовательские домены добавляйте ниже. URL автоматически преобразуются в домены. "
             "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
         )
         desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
@@ -148,13 +217,34 @@ class CustomDomainsPage(BasePage):
         # Открыть файл
         self.open_file_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
         self.open_file_btn.setFixedHeight(36)
+        self.open_file_btn.setToolTip("Сохраняет изменения и открывает other.txt в проводнике")
         self.open_file_btn.clicked.connect(self._open_file)
         actions_layout.addWidget(self.open_file_btn)
+
+        # Сбросить файл
+        self.reset_btn = DangerConfirmActionButton(
+            "Сбросить файл",
+            default_icon="fa5s.undo",
+            confirm_text="Подтвердить сброс",
+        )
+        self.reset_btn.setFixedHeight(36)
+        self.reset_btn.set_confirm_tooltips(
+            "Сбрасывает other.txt к встроенному шаблону. Все ваши изменения будут удалены"
+        )
+        self.reset_btn.reset_confirmed.connect(self._reset_file)
+        actions_layout.addWidget(self.reset_btn)
         
         # Очистить всё
-        self.clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        self.clear_btn = DangerConfirmActionButton(
+            "Очистить всё",
+            default_icon="fa5s.trash-alt",
+            confirm_text="Подтвердить очистку",
+        )
         self.clear_btn.setFixedHeight(36)
-        self.clear_btn.clicked.connect(self._clear_all)
+        self.clear_btn.set_confirm_tooltips(
+            "Удаляет только пользовательские домены. Базовые домены из шаблона останутся"
+        )
+        self.clear_btn.reset_confirmed.connect(self._clear_all)
         actions_layout.addWidget(self.clear_btn)
         
         actions_layout.addStretch()
@@ -162,7 +252,7 @@ class CustomDomainsPage(BasePage):
         self.layout.addWidget(actions_card)
         
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("Мои домены (редактор)")
+        editor_card = SettingsCard("other.txt (редактор)")
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
         
@@ -213,12 +303,15 @@ class CustomDomainsPage(BasePage):
     def _load_domains(self):
         """Загружает домены из файла"""
         try:
-            from config import OTHER2_PATH
+            from config import OTHER_PATH
+            from utils.hostlists_manager import ensure_hostlists_exist
+
+            ensure_hostlists_exist()
             
             domains = []
             
-            if os.path.exists(OTHER2_PATH):
-                with open(OTHER2_PATH, 'r', encoding='utf-8') as f:
+            if os.path.exists(OTHER_PATH):
+                with open(OTHER_PATH, 'r', encoding='utf-8') as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -230,7 +323,7 @@ class CustomDomainsPage(BasePage):
             self.text_edit.blockSignals(False)
             
             self._update_status()
-            log(f"Загружено {len(domains)} строк из other2.txt", "INFO")
+            log(f"Загружено {len(domains)} строк из other.txt", "INFO")
             
         except Exception as e:
             log(f"Ошибка загрузки доменов: {e}", "ERROR")
@@ -249,8 +342,8 @@ class CustomDomainsPage(BasePage):
     def _save_domains(self):
         """Сохраняет домены в файл"""
         try:
-            from config import OTHER2_PATH
-            os.makedirs(os.path.dirname(OTHER2_PATH), exist_ok=True)
+            from config import OTHER_PATH
+            os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
             
             text = self.text_edit.toPlainText()
             domains = []
@@ -280,7 +373,7 @@ class CustomDomainsPage(BasePage):
                         # Невалидная строка - оставляем как есть
                         normalized_lines.append(item)
             
-            with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
+            with open(OTHER_PATH, 'w', encoding='utf-8') as f:
                 for domain in domains:
                     f.write(f"{domain}\n")
             
@@ -299,7 +392,7 @@ class CustomDomainsPage(BasePage):
                 self.text_edit.setTextCursor(cursor)
                 self.text_edit.blockSignals(False)
             
-            log(f"Сохранено {len(domains)} строк в other2.txt", "SUCCESS")
+            log(f"Сохранено {len(domains)} строк в other.txt", "SUCCESS")
             self.domains_changed.emit()
             
         except Exception as e:
@@ -309,9 +402,30 @@ class CustomDomainsPage(BasePage):
         """Обновляет статус"""
         text = self.text_edit.toPlainText()
         lines = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
-        self.status_label.setText(f"📊 Доменов: {len(lines)}")
+        base_set = self._get_base_domains_set()
+
+        valid_domains = []
+        for line in lines:
+            domain = self._extract_domain(line)
+            if domain:
+                valid_domains.append(domain)
+
+        user_count = sum(1 for d in valid_domains if d not in base_set)
+        base_count = len(valid_domains) - user_count
+        self.status_label.setText(
+            f"📊 Доменов: {len(valid_domains)} (база: {base_count}, пользовательские: {user_count})"
+        )
+
+    def _get_base_domains_set(self) -> set[str]:
+        """Возвращает set системных доменов из кода."""
+        try:
+            from utils.hostlists_manager import get_base_domains_set
+
+            return get_base_domains_set()
+        except Exception:
+            return set()
         
-    def _extract_domain(self, text: str) -> str:
+    def _extract_domain(self, text: str) -> Optional[str]:
         """Извлекает домен из URL или текста"""
         text = text.strip()
         
@@ -393,38 +507,76 @@ class CustomDomainsPage(BasePage):
         log(f"Добавлен домен: {domain}", "SUCCESS")
                 
     def _clear_all(self):
-        """Очищает все домены"""
+        """Очищает только пользовательские домены, базовые оставляет."""
         text = self.text_edit.toPlainText().strip()
         if not text:
             return
+
+        base_set = self._get_base_domains_set()
+        if not base_set:
+            QMessageBox.warning(
+                self.window(),
+                "Ошибка",
+                "Не удалось загрузить базовые домены из кода."
+            )
+            return
         
-        reply = QMessageBox.question(
-            self.window(),
-            "Очистить всё",
-            "Удалить все домены?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.text_edit.clear()
-            log("Все домены удалены", "INFO")
+        current_text = self.text_edit.toPlainText()
+        kept_lines = []
+        seen_domains = set()
+
+        for raw_line in current_text.split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith('#'):
+                kept_lines.append(line)
+                continue
+
+            for item in split_domains(line):
+                domain = self._extract_domain(item)
+                if not domain:
+                    continue
+                if domain in base_set and domain not in seen_domains:
+                    kept_lines.append(domain)
+                    seen_domains.add(domain)
+
+        self.text_edit.setPlainText('\n'.join(kept_lines))
+        log("Пользовательские домены удалены (база сохранена)", "INFO")
+
+    def _reset_file(self):
+        """Сбрасывает other.txt до шаблона из кода."""
+        try:
+            from utils.hostlists_manager import reset_other_file_from_template
+
+            if reset_other_file_from_template():
+                self._load_domains()
+                self.status_label.setText(self.status_label.text() + " • ✅ Сброшено")
+            else:
+                QMessageBox.warning(self.window(), "Ошибка", "Не удалось сбросить other.txt")
+        except Exception as e:
+            log(f"Ошибка сброса other.txt: {e}", "ERROR")
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось сбросить:\n{e}")
                 
     def _open_file(self):
         """Открывает файл в проводнике"""
         try:
-            from config import OTHER2_PATH
+            from config import OTHER_PATH
             import subprocess
+            from utils.hostlists_manager import ensure_hostlists_exist
             
             # Сначала сохраняем
             self._save_domains()
+            ensure_hostlists_exist()
             
-            if os.path.exists(OTHER2_PATH):
-                subprocess.run(['explorer', '/select,', OTHER2_PATH])
+            if os.path.exists(OTHER_PATH):
+                subprocess.run(['explorer', '/select,', OTHER_PATH])
             else:
-                os.makedirs(os.path.dirname(OTHER2_PATH), exist_ok=True)
-                with open(OTHER2_PATH, 'w', encoding='utf-8') as f:
+                os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
+                with open(OTHER_PATH, 'w', encoding='utf-8') as f:
                     pass
-                subprocess.run(['explorer', os.path.dirname(OTHER2_PATH)])
+                subprocess.run(['explorer', os.path.dirname(OTHER_PATH)])
                 
         except Exception as e:
             log(f"Ошибка открытия файла: {e}", "ERROR")

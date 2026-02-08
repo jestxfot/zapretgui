@@ -20,7 +20,7 @@ VPS_SERVERS = [
         'weight': 80,
     },
     {
-        'id': 'vps0',
+        'id': 'vps1',
         'name': 'VPS Primary (Новый основной)',
         'host': '46.21.80.246',
         'https_port': 888,
