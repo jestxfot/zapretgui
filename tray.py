@@ -230,8 +230,39 @@ class SystemTrayManager:
             from log import log
             log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
 
+    def _cleanup_transient_overlays(self) -> None:
+        """Закрывает плавающие tooltip/preview окна перед hide/show."""
+        try:
+            from ui.widgets.strategies_tooltip import strategies_tooltip_manager
+            strategies_tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+
+        try:
+            from strategy_menu.hover_tooltip import tooltip_manager
+            tooltip_manager.hide_immediately()
+        except Exception:
+            pass
+
+        try:
+            from strategy_menu.args_preview_dialog import preview_manager
+            preview_manager.cleanup()
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self.parent, "strategy_detail_page"):
+                self.parent.strategy_detail_page._close_preview_dialog(force=True)
+        except Exception:
+            pass
+
     def hide_to_tray(self, show_hint: bool = True) -> None:
         """Скрывает окно в трей (без выхода из GUI)."""
+        try:
+            self._cleanup_transient_overlays()
+        except Exception:
+            pass
+
         try:
             # ✅ СОХРАНЯЕМ ПОЗИЦИЮ ПЕРЕД СКРЫТИЕМ
             self._save_window_geometry()
@@ -271,7 +302,6 @@ class SystemTrayManager:
         # Fallback для старой архитектуры
         from log import log
         log("Выход без остановки DPI (fallback, только GUI)", level="INFO")
-        self.parent._allow_close = True
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -291,7 +321,6 @@ class SystemTrayManager:
         log("Выход + остановка DPI (fallback)", level="INFO")
         if hasattr(self.parent, 'dpi_starter'):
             stop_dpi(self.parent)
-        self.parent._allow_close = True
         self.tray_icon.hide()
         QApplication.quit()
 
@@ -354,7 +383,29 @@ class SystemTrayManager:
     # ------------------------------------------------------------------
     def show_window(self):
         """Показывает окно и восстанавливает его на прежнем месте"""
-        self.parent.showNormal()
+        try:
+            self._cleanup_transient_overlays()
+        except Exception:
+            pass
+
+        was_maximized = False
+        try:
+            was_maximized = bool(self.parent.isMaximized() or getattr(self.parent, "_was_maximized", False))
+        except Exception:
+            pass
+
+        if not was_maximized:
+            try:
+                from config import get_window_maximized
+                was_maximized = bool(get_window_maximized())
+            except Exception:
+                pass
+
+        if was_maximized:
+            self.parent.showMaximized()
+        else:
+            self.parent.showNormal()
+
         self.parent.activateWindow()
         self.parent.raise_()
 

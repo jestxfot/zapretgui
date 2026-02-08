@@ -254,8 +254,39 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                     pass
         except Exception as e:
             log(f"Ошибка при очистке потоков: {e}", "❌ ERROR")
-        
+
         super().closeEvent(event)
+
+    def _release_input_interaction_states(self) -> None:
+        """Сбрасывает drag/resize состояния при скрытии/потере фокуса окна."""
+        try:
+            if bool(getattr(self, "_is_resizing", False)) and hasattr(self, "_end_resize"):
+                self._end_resize()
+            else:
+                self._is_resizing = False
+                self._resize_edge = None
+                self._resize_start_pos = None
+                self._resize_start_geometry = None
+                self.unsetCursor()
+        except Exception:
+            pass
+
+        try:
+            self._is_dragging = False
+            self._drag_start_pos = None
+            self._drag_window_pos = None
+        except Exception:
+            pass
+
+        try:
+            tb = getattr(self, "title_bar", None)
+            if tb is not None:
+                tb._is_moving = False
+                tb._is_system_moving = False
+                tb._drag_pos = None
+                tb._window_pos = None
+        except Exception:
+            pass
 
     def request_exit(self, stop_dpi: bool) -> None:
         """Единая точка выхода из приложения.
@@ -267,8 +298,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
         self._stop_dpi_on_exit = bool(stop_dpi)
 
-        # Разрешаем закрытие (иначе треевый перехватчик свернёт окно в трей).
-        self._allow_close = True
         self._closing_completely = True
 
         # Сохраняем геометрию/состояние окна сразу (без debounce).
@@ -589,6 +618,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._dpi_autostart_initiated = False
         self._is_exiting = False
         self._stop_dpi_on_exit = False  # True только для "Выход и остановить DPI"
+        self._closing_completely = False
         self._deferred_init_started = False
 
         # ✅ Современное сохранение/восстановление геометрии окна (debounce)
@@ -941,6 +971,13 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 self._geometry_restore_in_progress = False
 
     def changeEvent(self, event):
+        if event.type() == QEvent.Type.ActivationChange:
+            try:
+                if not self.isActiveWindow():
+                    self._release_input_interaction_states()
+            except Exception:
+                pass
+
         if event.type() == QEvent.Type.WindowStateChange:
             is_maximized = self.isMaximized()
 
@@ -966,6 +1003,13 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 pass
 
         super().changeEvent(event)
+
+    def hideEvent(self, event):
+        try:
+            self._release_input_interaction_states()
+        except Exception:
+            pass
+        super().hideEvent(event)
 
     def moveEvent(self, event):
         super().moveEvent(event)

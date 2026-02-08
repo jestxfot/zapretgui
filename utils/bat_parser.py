@@ -22,8 +22,8 @@
 
 2. СТАРЫЙ ФОРМАТ (.bat) - полный BAT скрипт (для совместимости):
    @echo off
-   set "LISTS=%~dp0..\lists"
-   start "..." /b "%EXE%\winws.exe" --wf-tcp=80,443 ...
+   set "LISTS=%~dp0..\\lists"
+   start "..." /b "%EXE%\\winws.exe" --wf-tcp=80,443 ...
 """
 
 import os
@@ -688,4 +688,3 @@ def create_process_direct(exe_path: str, args: List[str], working_dir: Optional[
         import traceback
         log(traceback.format_exc(), "DEBUG")
         return False
-
