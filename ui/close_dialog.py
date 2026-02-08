@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QWidget, QGraphicsDropShadowEffect, QApplication
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QFont
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize
+from PyQt6.QtGui import QColor, QFont
 
 try:
     import qtawesome as qta
@@ -30,8 +30,8 @@ class CloseDialog(QDialog):
 
     # Размеры
     DIALOG_WIDTH = 380
-    DIALOG_MIN_HEIGHT = 200
-    BORDER_RADIUS = 12
+    DIALOG_MIN_HEIGHT = 218
+    BORDER_RADIUS = 14
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,11 +40,14 @@ class CloseDialog(QDialog):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Dialog
-            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setWindowModality(
+            Qt.WindowModality.WindowModal if parent else Qt.WindowModality.ApplicationModal
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(True)
         self.setFixedWidth(self.DIALOG_WIDTH)
+        self.setMinimumHeight(self.DIALOG_MIN_HEIGHT)
 
         # Fade-in анимация
         self._opacity_anim = QPropertyAnimation(self, b"windowOpacity")
@@ -62,24 +65,24 @@ class CloseDialog(QDialog):
         self._container = QWidget(self)
         self._container.setObjectName("closeDialogContainer")
 
-        shadow = QGraphicsDropShadowEffect(self._container)
-        shadow.setBlurRadius(32)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 100))
-        self._container.setGraphicsEffect(shadow)
+        self._shadow = QGraphicsDropShadowEffect(self._container)
+        self._shadow.setBlurRadius(38)
+        self._shadow.setOffset(0, 6)
+        self._shadow.setColor(QColor(0, 0, 0, 96))
+        self._container.setGraphicsEffect(self._shadow)
 
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(16, 16, 16, 16)  # место под тень
+        root_layout.setContentsMargins(14, 14, 14, 14)  # место под тень
         root_layout.addWidget(self._container)
 
         layout = QVBoxLayout(self._container)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 22, 24, 18)
+        layout.setSpacing(14)
 
         # Заголовок
         title = QLabel("Закрыть приложение")
         title.setObjectName("closeDialogTitle")
-        title_font = QFont("Segoe UI", 14)
+        title_font = QFont("Segoe UI Variable", 16)
         title_font.setWeight(QFont.Weight.DemiBold)
         title.setFont(title_font)
         layout.addWidget(title)
@@ -89,7 +92,7 @@ class CloseDialog(QDialog):
                           "если вы закроете только GUI.")
         subtitle.setObjectName("closeDialogSubtitle")
         subtitle.setWordWrap(True)
-        sub_font = QFont("Segoe UI", 10)
+        sub_font = QFont("Segoe UI Variable", 10)
         subtitle.setFont(sub_font)
         layout.addWidget(subtitle)
 
@@ -105,6 +108,9 @@ class CloseDialog(QDialog):
             icon_name="fa5s.window-close" if HAS_QTAWESOME else None,
             accent=False,
         )
+        self._btn_gui.setObjectName("closeDialogGuiBtn")
+        self._btn_gui.setDefault(True)
+        self._btn_gui.setAutoDefault(True)
         self._btn_gui.clicked.connect(self._on_gui_only)
         buttons_layout.addWidget(self._btn_gui)
 
@@ -115,6 +121,8 @@ class CloseDialog(QDialog):
             accent=True,
             danger=True,
         )
+        self._btn_stop.setObjectName("closeDialogStopBtn")
+        self._btn_stop.setAutoDefault(False)
         self._btn_stop.clicked.connect(self._on_stop_dpi)
         buttons_layout.addWidget(self._btn_stop)
 
@@ -126,7 +134,8 @@ class CloseDialog(QDialog):
         self._btn_cancel = QPushButton("Отмена")
         self._btn_cancel.setObjectName("closeDialogCancelBtn")
         self._btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_cancel.setFixedHeight(32)
+        self._btn_cancel.setFixedHeight(34)
+        self._btn_cancel.setAutoDefault(False)
         self._btn_cancel.clicked.connect(self.reject)
         cancel_layout.addWidget(self._btn_cancel)
         cancel_layout.addStretch()
@@ -138,15 +147,22 @@ class CloseDialog(QDialog):
                      accent: bool = False, danger: bool = False) -> QPushButton:
         btn = QPushButton(text)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(40)
-        btn.setFont(QFont("Segoe UI", 11))
-
-        if icon_name and HAS_QTAWESOME:
-            btn.setIcon(qta.icon(icon_name, color="white"))
+        btn.setFixedHeight(42)
+        btn.setFont(QFont("Segoe UI Variable", 10))
+        btn.setIconSize(QSize(14, 14))
 
         btn.setProperty("accent", accent)
         btn.setProperty("danger", danger)
+        btn.setProperty("iconName", icon_name or "")
         return btn
+
+    def _apply_icon(self, button: QPushButton, color: str):
+        if not HAS_QTAWESOME:
+            return
+
+        icon_name = button.property("iconName")
+        if icon_name:
+            button.setIcon(qta.icon(icon_name, color=color))
 
     # ------------------------------------------------------------------
     #  Стили (поддержка тёмной/светлой темы)
@@ -155,35 +171,53 @@ class CloseDialog(QDialog):
         is_light = self._detect_light_theme()
 
         if is_light:
-            bg = "#f5f5f5"
-            border = "#d0d0d0"
-            title_color = "#1a1a1a"
-            sub_color = "#555555"
-            btn_bg = "#e0e0e0"
-            btn_hover = "#d0d0d0"
-            btn_text = "#1a1a1a"
-            danger_bg = "#dc3545"
-            danger_hover = "#c82333"
-            cancel_color = "#666666"
-            cancel_hover = "rgba(0,0,0,0.06)"
+            bg_top = "rgba(255, 255, 255, 246)"
+            bg_bottom = "rgba(243, 246, 251, 246)"
+            border = "rgba(133, 145, 163, 0.48)"
+            title_color = "#171b24"
+            sub_color = "#495262"
+            btn_bg = "rgba(236, 240, 247, 0.96)"
+            btn_hover = "rgba(224, 230, 240, 0.98)"
+            btn_pressed = "rgba(213, 220, 232, 0.98)"
+            btn_border = "rgba(141, 154, 174, 0.56)"
+            btn_text = "#1f2735"
+            danger_bg = "#cf3d3d"
+            danger_hover = "#b53333"
+            danger_pressed = "#9f2d2d"
+            cancel_color = "#5f6878"
+            cancel_hover = "rgba(0, 0, 0, 0.05)"
+            focus_border = "#2b6de6"
+            shadow_color = QColor(0, 0, 0, 66)
         else:
-            bg = "#2b2b2b"
-            border = "#3d3d3d"
-            title_color = "#ffffff"
-            sub_color = "#aaaaaa"
-            btn_bg = "#3d3d3d"
-            btn_hover = "#4d4d4d"
-            btn_text = "#ffffff"
-            danger_bg = "#e81123"
-            danger_hover = "#c50f1f"
-            cancel_color = "#888888"
-            cancel_hover = "rgba(255,255,255,0.08)"
+            bg_top = "rgba(45, 49, 55, 248)"
+            bg_bottom = "rgba(35, 39, 45, 248)"
+            border = "rgba(255, 255, 255, 0.16)"
+            title_color = "#f5f8ff"
+            sub_color = "#c5ccda"
+            btn_bg = "rgba(255, 255, 255, 0.08)"
+            btn_hover = "rgba(255, 255, 255, 0.14)"
+            btn_pressed = "rgba(255, 255, 255, 0.18)"
+            btn_border = "rgba(255, 255, 255, 0.24)"
+            btn_text = "#f3f7ff"
+            danger_bg = "#db4646"
+            danger_hover = "#c03b3b"
+            danger_pressed = "#a93333"
+            cancel_color = "#a3acbc"
+            cancel_hover = "rgba(255, 255, 255, 0.08)"
+            focus_border = "#78a7ff"
+            shadow_color = QColor(0, 0, 0, 124)
+
+        self._shadow.setColor(shadow_color)
 
         radius = self.BORDER_RADIUS
 
         self._container.setStyleSheet(f"""
             QWidget#closeDialogContainer {{
-                background-color: {bg};
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {bg_top},
+                    stop:1 {bg_bottom}
+                );
                 border: 1px solid {border};
                 border-radius: {radius}px;
             }}
@@ -201,39 +235,48 @@ class CloseDialog(QDialog):
 
         # Кнопка "Закрыть только GUI"
         self._btn_gui.setStyleSheet(f"""
-            QPushButton {{
+            QPushButton#closeDialogGuiBtn {{
                 background-color: {btn_bg};
                 color: {btn_text};
-                border: 1px solid {border};
-                border-radius: 8px;
+                border: 1px solid {btn_border};
+                border-radius: 10px;
                 padding: 0 16px;
-                font-weight: 500;
+                font-weight: 600;
             }}
-            QPushButton:hover {{
+            QPushButton#closeDialogGuiBtn:hover {{
                 background-color: {btn_hover};
             }}
-            QPushButton:pressed {{
-                background-color: {border};
+            QPushButton#closeDialogGuiBtn:pressed {{
+                background-color: {btn_pressed};
+            }}
+            QPushButton#closeDialogGuiBtn:focus {{
+                border: 1px solid {focus_border};
             }}
         """)
 
         # Кнопка "Закрыть и остановить DPI" (красная)
         self._btn_stop.setStyleSheet(f"""
-            QPushButton {{
+            QPushButton#closeDialogStopBtn {{
                 background-color: {danger_bg};
                 color: #ffffff;
-                border: none;
-                border-radius: 8px;
+                border: 1px solid transparent;
+                border-radius: 10px;
                 padding: 0 16px;
                 font-weight: 600;
             }}
-            QPushButton:hover {{
+            QPushButton#closeDialogStopBtn:hover {{
                 background-color: {danger_hover};
             }}
-            QPushButton:pressed {{
-                background-color: {danger_bg};
+            QPushButton#closeDialogStopBtn:pressed {{
+                background-color: {danger_pressed};
+            }}
+            QPushButton#closeDialogStopBtn:focus {{
+                border: 1px solid rgba(255, 255, 255, 0.58);
             }}
         """)
+
+        self._apply_icon(self._btn_gui, btn_text)
+        self._apply_icon(self._btn_stop, "#ffffff")
 
         # Кнопка "Отмена"
         self._btn_cancel.setStyleSheet(f"""
@@ -241,7 +284,8 @@ class CloseDialog(QDialog):
                 background: transparent;
                 color: {cancel_color};
                 border: none;
-                font-size: 11px;
+                font-size: 12px;
+                font-weight: 600;
             }}
             QPushButton#closeDialogCancelBtn:hover {{
                 background: {cancel_hover};
@@ -256,7 +300,7 @@ class CloseDialog(QDialog):
             tm = ThemeManager.instance()
             if tm and hasattr(tm, "_current_theme"):
                 name = tm._current_theme or ""
-                return "Светлая" in name or "Light" in name.lower()
+                return "Светлая" in name or "light" in name.lower()
         except Exception:
             pass
         return False
