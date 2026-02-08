@@ -1034,6 +1034,8 @@ class FramelessWindowMixin:
         self._resize_start_geometry = None
         self._is_resizing = False
         self._was_maximized = False
+        self._resize_handles_visible_state = None
+        self._radius_enabled_state = None
         
         # Состояние перетаскивания окна
         self._is_dragging = False
@@ -1336,29 +1338,34 @@ class FramelessWindowMixin:
     def _set_handles_visible(self, visible: bool):
         if not hasattr(self, '_resize_handles'):
             return
+        visible_bool = bool(visible)
+        if self._resize_handles_visible_state is visible_bool:
+            return
         for handle in self._resize_handles:
-            handle.setVisible(visible)
-        
+            handle.setVisible(visible_bool)
+        self._resize_handles_visible_state = visible_bool
+
     def showMaximized(self):
-        """Переопределяем для обновления стилей при максимизации"""
+        """Переопределяем только для внутреннего флага состояния."""
         self._was_maximized = True
-        self._update_border_radius(False)
-        self._set_handles_visible(False)
         super().showMaximized()
-        
+
     def showNormal(self):
-        """Переопределяем для восстановления скругленных углов"""
+        """Переопределяем только для внутреннего флага состояния."""
         self._was_maximized = False
-        self._update_border_radius(True)
-        self._set_handles_visible(True)
         super().showNormal()
-        
+
     def _update_border_radius(self, enable_radius: bool):
         """Обновляет стили скругленных углов"""
         if not hasattr(self, 'container') or not hasattr(self, 'title_bar'):
             return
+
+        enable_radius_bool = bool(enable_radius)
+        if self._radius_enabled_state is enable_radius_bool:
+            return
+        self._radius_enabled_state = enable_radius_bool
             
-        radius = 10 if enable_radius else 0
+        radius = 10 if enable_radius_bool else 0
         
         # Получаем текущие цвета из стиля контейнера
         current_style = self.container.styleSheet()
@@ -1382,7 +1389,7 @@ class FramelessWindowMixin:
         """)
         
         # Обновляем titlebar
-        title_radius = radius if enable_radius else 0
+        title_radius = radius if enable_radius_bool else 0
         title_style = self.title_bar.styleSheet() or ""
         title_bg_match = re.search(r'background-color:\s*([^;]+);', title_style)
         title_bg = title_bg_match.group(1).strip() if title_bg_match else None
