@@ -93,7 +93,12 @@ class Zapret2StrategiesPageNew(BasePage):
             telegram_layout.setSpacing(16)
 
             # Описательный текст слева
-            telegram_hint = QLabel("Хотите добавить свою категорию? Напишите нам!")
+            telegram_hint = QLabel(
+                "Хотите добавить свою категорию? Напишите нам!\n"
+                "Запрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме "
+                "через категорию для Zapret GUI."
+            )
+            telegram_hint.setWordWrap(True)
             telegram_hint.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -416,9 +421,9 @@ class Zapret2StrategiesPageNew(BasePage):
         self._reload_strategies()
 
     def _open_custom_domains(self):
-        """Открывает Telegram канал с инструкциями по добавлению сайтов"""
+        """Открывает Telegram-бота для запроса добавления сайтов"""
         from config.telegram_links import open_telegram_link
-        open_telegram_link("zaprethelp", post=18408)
+        open_telegram_link("nozapretinrussia_bot")
 
     def _open_presets_info(self):
         """Открывает страницу с информацией о пресетах"""
