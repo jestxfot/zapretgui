@@ -4,7 +4,7 @@ import os
 
 from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
-from PyQt6.QtCore    import QEvent
+from PyQt6.QtCore    import QEvent, Qt
 
 try:
     import qtawesome as qta
@@ -214,18 +214,42 @@ class SystemTrayManager:
     def _save_window_geometry(self):
         """Сохраняет текущую позицию и размер окна"""
         try:
-            from config import set_window_position, set_window_size
+            # Предпочтительно: единый persistence-слой главного окна.
+            if hasattr(self.parent, "_persist_window_geometry_now"):
+                self.parent._persist_window_geometry_now(force=True)
+                return
+
+            # Fallback для окон без современного persistence.
+            from config import set_window_position, set_window_size, set_window_maximized
             from log import log
-            
-            # Если окно видимо - сохраняем его текущую геометрию
-            if self.parent.isVisible():
-                pos = self.parent.pos()
-                set_window_position(pos.x(), pos.y())
-                
-                size = self.parent.size()
-                set_window_size(size.width(), size.height())
-                
-                log(f"Геометрия окна сохранена: ({pos.x()}, {pos.y()}), {size.width()}x{size.height()}", "DEBUG")
+
+            if not self.parent.isVisible():
+                return
+
+            try:
+                state = self.parent.windowState()
+                is_zoomed = bool(
+                    self.parent.isMaximized()
+                    or self.parent.isFullScreen()
+                    or (state & Qt.WindowState.WindowMaximized)
+                    or (state & Qt.WindowState.WindowFullScreen)
+                )
+            except Exception:
+                is_zoomed = bool(self.parent.isMaximized())
+
+            if is_zoomed:
+                geo = self.parent.normalGeometry()
+            else:
+                geo = self.parent.geometry()
+
+            set_window_position(geo.x(), geo.y())
+            set_window_size(geo.width(), geo.height())
+            set_window_maximized(bool(is_zoomed))
+
+            log(
+                f"Геометрия окна сохранена: ({geo.x()}, {geo.y()}), {geo.width()}x{geo.height()}, maximized={bool(is_zoomed)}",
+                "DEBUG",
+            )
         except Exception as e:
             from log import log
             log(f"Ошибка сохранения геометрии окна: {e}", "❌ ERROR")
@@ -389,12 +413,24 @@ class SystemTrayManager:
             pass
 
         was_maximized = False
+        runtime_state_detected = False
         try:
-            was_maximized = bool(self.parent.isMaximized() or getattr(self.parent, "_was_maximized", False))
+            if hasattr(self.parent, "_is_window_zoomed"):
+                was_maximized = bool(self.parent._is_window_zoomed())
+            else:
+                state = self.parent.windowState()
+                was_maximized = bool(
+                    self.parent.isMaximized()
+                    or self.parent.isFullScreen()
+                    or (state & Qt.WindowState.WindowMaximized)
+                    or (state & Qt.WindowState.WindowFullScreen)
+                    or getattr(self.parent, "_was_maximized", False)
+                )
+            runtime_state_detected = True
         except Exception:
             pass
 
-        if not was_maximized:
+        if not runtime_state_detected:
             try:
                 from config import get_window_maximized
                 was_maximized = bool(get_window_maximized())

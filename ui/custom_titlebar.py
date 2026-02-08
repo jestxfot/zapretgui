@@ -15,6 +15,35 @@ from PyQt6.QtGui import QIcon, QFont, QMouseEvent, QPainter, QColor, QPen
 import qtawesome as qta
 
 
+def _is_zoomed_window(window) -> bool:
+    """True when window is maximized/fullscreen (with fallback for stale state flags)."""
+    state = None
+    try:
+        state = window.windowState()
+    except Exception:
+        state = None
+
+    try:
+        if window.isMaximized() or window.isFullScreen():
+            return True
+    except Exception:
+        pass
+
+    if state is not None:
+        try:
+            if state & Qt.WindowState.WindowMaximized:
+                return True
+            if state & Qt.WindowState.WindowFullScreen:
+                return True
+        except Exception:
+            pass
+
+    if state is None:
+        return bool(getattr(window, "_was_maximized", False))
+
+    return False
+
+
 # ============================================================================
 # DRAGGABLE CONTENT AREA - позволяет перетаскивать окно за пустые области
 # ============================================================================
@@ -180,10 +209,16 @@ class DraggableWidget(QWidget):
         if not main_window:
             return False
         
-        # Если окно максимизировано - сначала восстанавливаем
-        if main_window.isMaximized():
+        # Если окно maximized/fullscreen — сначала восстанавливаем
+        if _is_zoomed_window(main_window):
             old_width = main_window.width()
-            main_window.showNormal()
+            try:
+                if hasattr(main_window, "restore_window_from_zoom_for_drag"):
+                    main_window.restore_window_from_zoom_for_drag()
+                else:
+                    main_window.showNormal()
+            except Exception:
+                main_window.showNormal()
             
             # Пересчитываем позицию чтобы курсор остался на окне
             new_width = main_window.width()
@@ -762,11 +797,20 @@ class CustomTitleBar(QWidget):
         if not win:
             return
 
-        if win.isMaximized():
-            win.setWindowState(Qt.WindowState.WindowNoState)
+        # Централизованный путь (main.py) — синхронизирует UI + persistence.
+        if hasattr(win, "toggle_window_maximize_restore"):
+            try:
+                is_zoomed = bool(win.toggle_window_maximize_restore())
+                self.maximize_btn.set_maximized(is_zoomed)
+                return
+            except Exception:
+                pass
+
+        if _is_zoomed_window(win):
+            win.showNormal()
             self.maximize_btn.set_maximized(False)
         else:
-            win.setWindowState(Qt.WindowState.WindowMaximized)
+            win.showMaximized()
             self.maximize_btn.set_maximized(True)
 
     def _on_tray(self):
@@ -849,12 +893,18 @@ class CustomTitleBar(QWidget):
             if not win:
                 return
 
-            # Если окно максимизировано, сначала восстанавливаем
-            if win.isMaximized():
+            # Если окно maximized/fullscreen, сначала восстанавливаем
+            if _is_zoomed_window(win):
                 old_width = win.width()
                 relative_x = self._drag_pos.x() - win.x()
 
-                win.setWindowState(Qt.WindowState.WindowNoState)
+                try:
+                    if hasattr(win, "restore_window_from_zoom_for_drag"):
+                        win.restore_window_from_zoom_for_drag()
+                    else:
+                        win.showNormal()
+                except Exception:
+                    win.showNormal()
                 self.maximize_btn.set_maximized(False)
 
                 # Пересчитываем позицию после восстановления

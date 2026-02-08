@@ -93,7 +93,7 @@ _preload_slow_modules()
 # ──────────────────────────────────────────────────────────────
 import subprocess, time
 
-from PyQt6.QtCore    import QTimer, QEvent
+from PyQt6.QtCore    import QTimer, QEvent, Qt
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 from ui.main_window import MainWindowUI
@@ -359,10 +359,33 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             min_width = MIN_WIDTH
             min_height = 400
 
+            # Сначала читаем maximize-флаг: он нужен для валидации legacy-геометрии.
+            saved_maximized = bool(get_window_maximized())
+
+            screen_geometry = QApplication.primaryScreen().availableGeometry()
+            screens = QApplication.screens()
+
+            def _looks_like_legacy_maximized_geometry(width: int, height: int) -> bool:
+                """Определяет старую некорректную normal-геометрию (сохранена как fullscreen)."""
+                if not saved_maximized:
+                    return False
+                for screen in screens:
+                    rect = screen.availableGeometry()
+                    if width >= (rect.width() - 4) and height >= (rect.height() - 4):
+                        return True
+                return False
+
             # Размер
             saved_size = get_window_size()
             if saved_size:
                 width, height = saved_size
+                if _looks_like_legacy_maximized_geometry(width, height):
+                    log(
+                        "Обнаружена legacy normal-геометрия (размер почти как fullscreen); используем размер по умолчанию",
+                        "WARNING",
+                    )
+                    width, height = WIDTH, HEIGHT
+
                 if width >= min_width and height >= min_height:
                     self.resize(width, height)
                     log(f"Восстановлен размер окна: {width}x{height}", "DEBUG")
@@ -374,8 +397,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
             # Позиция
             saved_pos = get_window_position()
-            screen_geometry = QApplication.primaryScreen().availableGeometry()
-            screens = QApplication.screens()
 
             if saved_pos:
                 x, y = saved_pos
@@ -411,8 +432,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self._last_normal_geometry = (int(self.x()), int(self.y()), int(self.width()), int(self.height()))
 
             # Maximized будем применять при первом showEvent (особенно важно для start_in_tray/splash)
-            saved_maximized = get_window_maximized()
-            self._pending_restore_maximized = bool(saved_maximized)
+            self._pending_restore_maximized = saved_maximized
 
         except Exception as e:
             log(f"Ошибка восстановления геометрии окна: {e}", "❌ ERROR")
@@ -857,6 +877,78 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             return
         self._geometry_persistence_enabled = True
 
+    def _is_window_zoomed(self) -> bool:
+        """Возвращает True, если окно в maximized/fullscreen состоянии."""
+        state = None
+        try:
+            state = self.windowState()
+        except Exception:
+            state = None
+
+        try:
+            if self.isMaximized() or self.isFullScreen():
+                return True
+        except Exception:
+            pass
+
+        if state is not None:
+            try:
+                if state & Qt.WindowState.WindowMaximized:
+                    return True
+                if state & Qt.WindowState.WindowFullScreen:
+                    return True
+            except Exception:
+                pass
+
+        if state is None:
+            return bool(getattr(self, "_was_maximized", False))
+
+        return False
+
+    def restore_window_from_zoom_for_drag(self) -> bool:
+        """Выводит окно из maximized/fullscreen перед drag и возвращает факт изменения."""
+        if not self._is_window_zoomed():
+            return False
+
+        try:
+            self.showNormal()
+        except Exception:
+            return False
+
+        try:
+            from config import set_window_maximized
+            if self._last_persisted_maximized is not False:
+                set_window_maximized(False)
+                self._last_persisted_maximized = False
+        except Exception:
+            pass
+
+        return True
+
+    def toggle_window_maximize_restore(self) -> bool:
+        """Переключает окно между maximized/fullscreen и normal. Возвращает новое zoomed-состояние."""
+        should_maximize = not self._is_window_zoomed()
+
+        try:
+            if should_maximize:
+                self.showMaximized()
+            else:
+                self.showNormal()
+        except Exception:
+            return self._is_window_zoomed()
+
+        is_zoomed = self._is_window_zoomed()
+
+        try:
+            from config import set_window_maximized
+            if self._last_persisted_maximized != bool(is_zoomed):
+                set_window_maximized(bool(is_zoomed))
+                self._last_persisted_maximized = bool(is_zoomed)
+        except Exception:
+            pass
+
+        return bool(is_zoomed)
+
     def _schedule_window_geometry_save(self) -> None:
         if not getattr(self, "_geometry_persistence_enabled", False):
             return
@@ -882,7 +974,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             return
 
         try:
-            if self.isMinimized() or self.isMaximized():
+            if self.isMinimized() or self._is_window_zoomed():
                 return
         except Exception:
             return
@@ -927,11 +1019,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         try:
             from config import set_window_position, set_window_size, set_window_maximized
 
-            is_maximized = False
-            try:
-                is_maximized = bool(self.isMaximized())
-            except Exception:
-                is_maximized = False
+            is_maximized = bool(self._is_window_zoomed())
 
             if force or self._last_persisted_maximized != is_maximized:
                 set_window_maximized(is_maximized)
@@ -962,7 +1050,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
         if getattr(self, "_pending_restore_maximized", False):
             try:
-                if not self.isMaximized():
+                if not self._is_window_zoomed():
                     self._geometry_restore_in_progress = True
                     self.showMaximized()
             except Exception:
@@ -979,7 +1067,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 pass
 
         if event.type() == QEvent.Type.WindowStateChange:
-            is_maximized = self.isMaximized()
+            is_maximized = self._is_window_zoomed()
 
             if hasattr(self, "_was_maximized"):
                 self._was_maximized = is_maximized
