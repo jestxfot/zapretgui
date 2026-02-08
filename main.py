@@ -905,47 +905,76 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
         return False
 
+    def _set_window_zoom_state(self, maximize: bool) -> bool:
+        """Низкоуровневая установка zoom-состояния через windowState flags."""
+        try:
+            state = self.windowState()
+        except Exception:
+            state = Qt.WindowState.WindowNoState
+
+        try:
+            if maximize:
+                state = state & ~Qt.WindowState.WindowMinimized
+                state = state & ~Qt.WindowState.WindowFullScreen
+                state = state | Qt.WindowState.WindowMaximized
+            else:
+                state = state & ~Qt.WindowState.WindowMaximized
+                state = state & ~Qt.WindowState.WindowFullScreen
+            self.setWindowState(state)
+            return True
+        except Exception:
+            return False
+
     def restore_window_from_zoom_for_drag(self) -> bool:
         """Выводит окно из maximized/fullscreen перед drag и возвращает факт изменения."""
         if not self._is_window_zoomed():
             return False
 
-        try:
-            self.showNormal()
-        except Exception:
-            return False
+        # Сначала быстрый путь через flags (без доп. работы showNormal/showMaximized overrides).
+        changed = self._set_window_zoom_state(False)
+        if not changed:
+            try:
+                self.showNormal()
+            except Exception:
+                return False
 
-        try:
-            from config import set_window_maximized
-            if self._last_persisted_maximized is not False:
-                set_window_maximized(False)
-                self._last_persisted_maximized = False
-        except Exception:
-            pass
+        # Fallback на случай, если платформа/WM не применила flags сразу.
+        if self._is_window_zoomed():
+            try:
+                self.showNormal()
+            except Exception:
+                return False
 
-        return True
+        return not self._is_window_zoomed()
 
     def toggle_window_maximize_restore(self) -> bool:
         """Переключает окно между maximized/fullscreen и normal. Возвращает новое zoomed-состояние."""
         should_maximize = not self._is_window_zoomed()
 
-        try:
-            if should_maximize:
-                self.showMaximized()
-            else:
-                self.showNormal()
-        except Exception:
-            return self._is_window_zoomed()
+        changed = self._set_window_zoom_state(should_maximize)
+        if not changed:
+            try:
+                if should_maximize:
+                    self.showMaximized()
+                else:
+                    self.showNormal()
+            except Exception:
+                return self._is_window_zoomed()
 
+        # Fallback: если flags не применились мгновенно, дожимаем через show*.
         is_zoomed = self._is_window_zoomed()
-
-        try:
-            from config import set_window_maximized
-            if self._last_persisted_maximized != bool(is_zoomed):
-                set_window_maximized(bool(is_zoomed))
-                self._last_persisted_maximized = bool(is_zoomed)
-        except Exception:
-            pass
+        if should_maximize and not is_zoomed:
+            try:
+                self.showMaximized()
+            except Exception:
+                pass
+            is_zoomed = self._is_window_zoomed()
+        elif not should_maximize and is_zoomed:
+            try:
+                self.showNormal()
+            except Exception:
+                pass
+            is_zoomed = self._is_window_zoomed()
 
         return bool(is_zoomed)
 
