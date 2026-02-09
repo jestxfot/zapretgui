@@ -857,11 +857,12 @@ class PresetsPage(BasePage):
         configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
         configs_layout.addWidget(configs_icon)
 
-        configs_title = QLabel("Обменивайтесь категориями на нашем форуме-сайте\nчерез Telegram-бота: безопасно и анонимно")
+        configs_title = QLabel("Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно")
         configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
-        configs_layout.addWidget(configs_title)
-
-        configs_layout.addStretch(1)
+        configs_title.setWordWrap(True)
+        configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        configs_title.setMinimumWidth(0)
+        configs_layout.addWidget(configs_title, 1)
 
         get_configs_btn = ActionButton("Получить конфиги", "fa5s.external-link-alt", accent=True)
         get_configs_btn.setFixedHeight(36)

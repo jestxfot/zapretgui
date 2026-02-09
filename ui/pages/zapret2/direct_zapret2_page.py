@@ -99,7 +99,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
             # Описательный текст слева
             telegram_hint = QLabel(
-                "Хотите добавить свою категорию? Напишите нам!.\nЗапрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
+                "Хотите добавить свою категорию? Напишите нам!. Запрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
             )
             telegram_hint.setWordWrap(True)
             telegram_hint.setContentsMargins(12, 0, 0, 0)
@@ -111,13 +111,16 @@ class Zapret2StrategiesPageNew(BasePage):
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
             """)
-            telegram_layout.addWidget(telegram_hint)
+            telegram_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            telegram_hint.setMinimumWidth(0)
+            telegram_layout.addWidget(telegram_hint, 1)
 
             # Кнопка Telegram - тёмная
             telegram_btn = QPushButton("  ОТКРЫТЬ TELEGRAM БОТА")
             telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color="#ffffff"))
             telegram_btn.setIconSize(QSize(18, 18))
             telegram_btn.setFixedHeight(36)
+            telegram_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             telegram_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             telegram_btn.clicked.connect(self._open_custom_domains)
             telegram_btn.setStyleSheet("""
@@ -139,8 +142,7 @@ class Zapret2StrategiesPageNew(BasePage):
                     background-color: #252525;
                 }
             """)
-            telegram_layout.addWidget(telegram_btn)
-            telegram_layout.addStretch()
+            telegram_layout.addWidget(telegram_btn, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             telegram_card.add_layout(telegram_layout)
             self.content_layout.addWidget(telegram_card)

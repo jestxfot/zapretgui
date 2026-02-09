@@ -657,15 +657,13 @@ class Zapret2UserPresetsPage(BasePage):
         configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
         configs_layout.addWidget(configs_icon)
         configs_title = QLabel(
-            "Обменивайтесь категориями на нашем форуме-сайте\n"
-            "через Telegram-бота: безопасно и анонимно"
+            "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно"
         )
         configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
         configs_title.setWordWrap(True)
         configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         configs_title.setMinimumWidth(0)
-        configs_layout.addWidget(configs_title)
-        configs_layout.addStretch(1)
+        configs_layout.addWidget(configs_title, 1)
         get_configs_btn = ActionButton("Получить конфиги", "fa5s.external-link-alt", accent=True)
         get_configs_btn.setFixedHeight(36)
         get_configs_btn.clicked.connect(self._open_new_configs_post)
@@ -753,7 +751,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._buttons_container_layout.setSpacing(8)
 
         self._buttons_rows: list[tuple[QWidget, QHBoxLayout]] = []
-        for _ in range(3):
+        for _ in range(5):
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
@@ -1087,12 +1085,6 @@ class Zapret2UserPresetsPage(BasePage):
         btn.setStyleSheet(self._secondary_row_button_style())
         return btn
 
-    def _toolbar_row_required_width(self, buttons: list[QPushButton]) -> int:
-        if not buttons:
-            return 0
-        spacing = 12
-        return sum(button.sizeHint().width() for button in buttons) + (len(buttons) - 1) * spacing
-
     def _content_inner_width(self) -> int:
         margins = self.layout.contentsMargins()
         return max(0, self.viewport().width() - margins.left() - margins.right())
@@ -1105,15 +1097,32 @@ class Zapret2UserPresetsPage(BasePage):
         if available_width <= 0:
             return [buttons]
 
-        if self._toolbar_row_required_width(buttons) <= available_width:
-            return [buttons]
+        spacing = 12
+        rows: list[list[QPushButton]] = []
+        current_row: list[QPushButton] = []
+        current_width = 0
 
-        first_row = [self.create_btn, self.import_btn]
-        second_row = [self.reset_all_btn, self.presets_info_btn, self.disable_all_btn]
-        if self._toolbar_row_required_width(second_row) <= available_width:
-            return [first_row, second_row]
+        for button in buttons:
+            button_width = button.sizeHint().width()
+            if not current_row:
+                current_row = [button]
+                current_width = button_width
+                continue
 
-        return [first_row, [self.reset_all_btn, self.presets_info_btn], [self.disable_all_btn]]
+            next_width = current_width + spacing + button_width
+            if next_width <= available_width:
+                current_row.append(button)
+                current_width = next_width
+                continue
+
+            rows.append(current_row)
+            current_row = [button]
+            current_width = button_width
+
+        if current_row:
+            rows.append(current_row)
+
+        return rows
 
     def _clear_toolbar_row(self, row_layout: QHBoxLayout):
         while row_layout.count():
