@@ -941,6 +941,18 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         except Exception:
             return False
 
+    def _force_window_zoom_state(self, maximize: bool) -> bool:
+        """Принудительно применяет zoom-состояние через show* и возвращает факт применения."""
+        try:
+            if maximize:
+                self.showMaximized()
+            else:
+                self.showNormal()
+        except Exception:
+            return bool(self._is_window_zoomed())
+
+        return bool(self._is_window_zoomed())
+
     def _start_window_zoom_transition(self, target_zoomed: bool) -> None:
         self._window_zoom_transition_active = True
         self._window_zoom_target = bool(target_zoomed)
@@ -1008,7 +1020,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
     def _on_window_zoom_transition_timeout(self) -> None:
         """Завершает зависший transition и фиксирует фактическое состояние."""
+        target = self._window_zoom_target
         actual_zoomed = bool(self._is_window_zoomed())
+
+        if target is not None and actual_zoomed != bool(target):
+            actual_zoomed = bool(self._force_window_zoom_state(bool(target)))
+
         self._finish_window_zoom_transition()
         self._apply_window_zoom_visual_state(actual_zoomed)
         self._schedule_window_maximized_persist(actual_zoomed)
@@ -1046,6 +1063,13 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self._apply_window_zoom_visual_state(actual_zoomed)
             self._schedule_window_maximized_persist(actual_zoomed)
             return actual_zoomed
+
+        forced_zoomed = bool(self._force_window_zoom_state(target))
+        if forced_zoomed == target:
+            self._finish_window_zoom_transition()
+            self._apply_window_zoom_visual_state(forced_zoomed)
+            self._schedule_window_maximized_persist(forced_zoomed)
+            return forced_zoomed
 
         return target
 
