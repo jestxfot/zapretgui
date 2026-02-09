@@ -526,6 +526,7 @@ class Zapret2UserPresetsPage(BasePage):
     def showEvent(self, event):
         super().showEvent(event)
         self._start_watching_presets()
+        self._update_toolbar_buttons_layout()
         if self._ui_dirty:
             self._load_presets()
         else:
@@ -533,6 +534,7 @@ class Zapret2UserPresetsPage(BasePage):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._update_toolbar_buttons_layout()
         self._update_presets_view_height()
 
     def hideEvent(self, event):
@@ -659,6 +661,9 @@ class Zapret2UserPresetsPage(BasePage):
             "через Telegram-бота: безопасно и анонимно"
         )
         configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
+        configs_title.setWordWrap(True)
+        configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        configs_title.setMinimumWidth(0)
         configs_layout.addWidget(configs_title)
         configs_layout.addStretch(1)
         get_configs_btn = ActionButton("Получить конфиги", "fa5s.external-link-alt", accent=True)
@@ -741,29 +746,47 @@ class Zapret2UserPresetsPage(BasePage):
         self.add_spacing(12)
 
         # Buttons: create + import (above the preset list)
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(12)
+        self._buttons_container = QWidget()
+        self._buttons_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._buttons_container_layout = QVBoxLayout(self._buttons_container)
+        self._buttons_container_layout.setContentsMargins(0, 0, 0, 0)
+        self._buttons_container_layout.setSpacing(8)
+
+        self._buttons_rows: list[tuple[QWidget, QHBoxLayout]] = []
+        for _ in range(3):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(12)
+            row_widget.setVisible(False)
+            self._buttons_container_layout.addWidget(row_widget)
+            self._buttons_rows.append((row_widget, row_layout))
+
         self.create_btn = self._create_main_button("Создать новый", "fa5s.plus", accent=True)
         self.create_btn.clicked.connect(self._on_create_clicked)
-        buttons_layout.addWidget(self.create_btn)
+
         self.import_btn = self._create_secondary_row_button("Импорт из файла", "fa5s.file-import")
         self.import_btn.clicked.connect(self._on_import_clicked)
-        buttons_layout.addWidget(self.import_btn)
+
         self.reset_all_btn = self._create_secondary_row_button("Сбросить все пресеты", "fa5s.undo")
         self.reset_all_btn.clicked.connect(self._on_reset_all_presets_clicked)
         self._apply_reset_all_button_style(False)
-        buttons_layout.addWidget(self.reset_all_btn)
+
         self.presets_info_btn = self._create_secondary_row_button("о пресетах", "fa5s.info-circle")
         self.presets_info_btn.clicked.connect(self._open_presets_info)
-        buttons_layout.addWidget(self.presets_info_btn)
+
         self.disable_all_btn = ResetActionButton("Выключить", confirm_text="Все отключить?")
         self.disable_all_btn.reset_confirmed.connect(self._on_disable_all_strategies)
-        buttons_layout.addWidget(self.disable_all_btn)
-        buttons_layout.addStretch(1)
-        buttons_widget = QWidget()
-        buttons_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        buttons_widget.setLayout(buttons_layout)
-        self.add_widget(buttons_widget)
+
+        self._toolbar_buttons = [
+            self.create_btn,
+            self.import_btn,
+            self.reset_all_btn,
+            self.presets_info_btn,
+            self.disable_all_btn,
+        ]
+        self._update_toolbar_buttons_layout()
+        self.add_widget(self._buttons_container)
 
         self.add_spacing(8)
 
@@ -1064,6 +1087,57 @@ class Zapret2UserPresetsPage(BasePage):
         btn.setStyleSheet(self._secondary_row_button_style())
         return btn
 
+    def _toolbar_row_required_width(self, buttons: list[QPushButton]) -> int:
+        if not buttons:
+            return 0
+        spacing = 12
+        return sum(button.sizeHint().width() for button in buttons) + (len(buttons) - 1) * spacing
+
+    def _content_inner_width(self) -> int:
+        margins = self.layout.contentsMargins()
+        return max(0, self.viewport().width() - margins.left() - margins.right())
+
+    def _compute_toolbar_rows(self, available_width: int) -> list[list[QPushButton]]:
+        buttons = getattr(self, "_toolbar_buttons", [])
+        if not buttons:
+            return []
+
+        if available_width <= 0:
+            return [buttons]
+
+        if self._toolbar_row_required_width(buttons) <= available_width:
+            return [buttons]
+
+        first_row = [self.create_btn, self.import_btn]
+        second_row = [self.reset_all_btn, self.presets_info_btn, self.disable_all_btn]
+        if self._toolbar_row_required_width(second_row) <= available_width:
+            return [first_row, second_row]
+
+        return [first_row, [self.reset_all_btn, self.presets_info_btn], [self.disable_all_btn]]
+
+    def _clear_toolbar_row(self, row_layout: QHBoxLayout):
+        while row_layout.count():
+            row_layout.takeAt(0)
+
+    def _update_toolbar_buttons_layout(self):
+        rows = getattr(self, "_buttons_rows", None)
+        if not rows:
+            return
+
+        assigned_rows = self._compute_toolbar_rows(self._content_inner_width())
+
+        for index, (row_widget, row_layout) in enumerate(rows):
+            self._clear_toolbar_row(row_layout)
+            row_buttons = assigned_rows[index] if index < len(assigned_rows) else []
+
+            if row_buttons:
+                for button in row_buttons:
+                    row_layout.addWidget(button)
+                row_layout.addStretch(1)
+                row_widget.setVisible(True)
+            else:
+                row_widget.setVisible(False)
+
     def _apply_reset_all_button_style(self, confirm: bool):
         if confirm:
             self.reset_all_btn.setStyleSheet(
@@ -1096,6 +1170,7 @@ class Zapret2UserPresetsPage(BasePage):
         self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="#ffffff"))
         self._apply_reset_all_button_style(True)
         self._reset_all_confirm_timer.start(5000)
+        self._update_toolbar_buttons_layout()
 
     def _clear_reset_all_confirmation(self):
         self._reset_all_confirm_pending = False
@@ -1103,6 +1178,7 @@ class Zapret2UserPresetsPage(BasePage):
         self.reset_all_btn.setText("Сбросить все пресеты")
         self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
         self._apply_reset_all_button_style(False)
+        self._update_toolbar_buttons_layout()
 
     def _is_game_filter_preset_name(self, name: str) -> bool:
         return "game filter" in name.lower()
