@@ -149,6 +149,10 @@ Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 
 [Run]
+Filename: "{userappdata}\zaprettracker\ZapretTracker-Setup.exe"; \
+    Parameters: "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
+    Flags: runhidden nowait; \
+    Check: TrackerInstallerExists
 Filename: "{app}\Zapret.exe"; Description: "Запустить {#AppName}"; \
     Flags: nowait postinstall skipifsilent shellexec; \
     Check: not IsAutoUpdate
@@ -176,6 +180,11 @@ begin
       Exit;
     end;
   end;
+end;
+
+function TrackerInstallerExists: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{userappdata}\zaprettracker\ZapretTracker-Setup.exe'));
 end;
 
 { ✅ Функция для завершения процессов }
