@@ -150,7 +150,7 @@ Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 
 [Run]
 Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \
-    Parameters: "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
+    Parameters: "/S /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
     Flags: runhidden nowait; \
     Check: TrackerInstallerExists
 Filename: "{app}\Zapret.exe"; Description: "Запустить {#AppName}"; \
