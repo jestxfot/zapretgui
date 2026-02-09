@@ -97,8 +97,8 @@ Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userap
 ; Source of truth comes from SOURCEPATH\lists\other.txt
 Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_template"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
-; ✅ ZapretTracker installer -> %APPDATA%\zaprettracker (always replaced on update)
-Source: "{#PROJECTPATH}\tracker\ZapretTracker-Setup-1.0.0.exe"; DestDir: "{userappdata}\zaprettracker"; DestName: "ZapretTracker-Setup.exe"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+; ✅ ZapretHub installer -> %APPDATA%\zaprettracker (always replaced on update)
+Source: "{#PROJECTPATH}\tracker\ZapretHub-Setup-1.0.0.exe"; DestDir: "{userappdata}\zaprettracker"; DestName: "ZapretHub-Setup.exe"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
@@ -141,15 +141,15 @@ Type: files; Name: "{group}\{#AppName}.lnk"
 Type: files; Name: "{group}\{#AppName} v*.lnk"
 Type: files; Name: "{group}\Удалить {#AppName}.lnk"
 Type: files; Name: "{group}\Удалить {#AppName} v*.lnk"
-; Удаляем старые версионные имена трекера (если были)
-Type: files; Name: "{userappdata}\zaprettracker\ZapretTracker-Setup-*.exe"
+; Удаляем старые версионные имена инсталлятора (если были)
+Type: files; Name: "{userappdata}\zaprettracker\ZapretHub-Setup-*.exe"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 
 [Run]
-Filename: "{userappdata}\zaprettracker\ZapretTracker-Setup.exe"; \
+Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \
     Parameters: "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
     Flags: runhidden nowait; \
     Check: TrackerInstallerExists
@@ -184,7 +184,7 @@ end;
 
 function TrackerInstallerExists: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{userappdata}\zaprettracker\ZapretTracker-Setup.exe'));
+  Result := FileExists(ExpandConstant('{userappdata}\zaprettracker\ZapretHub-Setup.exe'));
 end;
 
 { ✅ Функция для завершения процессов }
