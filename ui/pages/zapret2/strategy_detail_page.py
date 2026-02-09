@@ -1038,6 +1038,8 @@ class StrategyDetailPage(BasePage):
         self._loaded_strategy_type = None
         self._default_strategy_order = []
         self._strategies_loaded_fully = False
+        self._page_scroll_by_category: dict[str, int] = {}
+        self._tree_scroll_by_category: dict[str, int] = {}
 
         # PresetManager for category settings storage
         self._preset_manager = PresetManager(
@@ -1092,6 +1094,10 @@ class StrategyDetailPage(BasePage):
         # Ensure floating preview/tool windows do not keep intercepting mouse events
         # after navigation away from this page.
         try:
+            self._save_scroll_state()
+        except Exception:
+            pass
+        try:
             self._close_preview_dialog(force=True)
         except Exception:
             pass
@@ -1127,6 +1133,57 @@ class StrategyDetailPage(BasePage):
             self.viewport().update()
         except Exception:
             pass
+
+    def _save_scroll_state(self, category_key: str | None = None) -> None:
+        key = str(category_key or self._category_key or "").strip()
+        if not key:
+            return
+
+        try:
+            bar = self.verticalScrollBar()
+            self._page_scroll_by_category[key] = int(bar.value())
+        except Exception:
+            pass
+
+        try:
+            if self._strategies_tree:
+                tree_bar = self._strategies_tree.verticalScrollBar()
+                self._tree_scroll_by_category[key] = int(tree_bar.value())
+        except Exception:
+            pass
+
+    def _restore_scroll_state(self, category_key: str | None = None, defer: bool = False) -> None:
+        key = str(category_key or self._category_key or "").strip()
+        if not key:
+            return
+
+        def _apply() -> None:
+            try:
+                page_bar = self.verticalScrollBar()
+                saved_page = self._page_scroll_by_category.get(key)
+                if saved_page is None:
+                    page_bar.setValue(page_bar.minimum())
+                else:
+                    page_bar.setValue(max(page_bar.minimum(), min(int(saved_page), page_bar.maximum())))
+            except Exception:
+                pass
+
+            try:
+                if not self._strategies_tree:
+                    return
+                tree_bar = self._strategies_tree.verticalScrollBar()
+                saved_tree = self._tree_scroll_by_category.get(key)
+                if saved_tree is None:
+                    return
+                tree_bar.setValue(max(tree_bar.minimum(), min(int(saved_tree), tree_bar.maximum())))
+            except Exception:
+                pass
+
+        if defer:
+            QTimer.singleShot(0, _apply)
+            QTimer.singleShot(40, _apply)
+        else:
+            _apply()
 
     def _on_dpi_reload_needed(self):
         """Callback for PresetManager when DPI reload is needed."""
@@ -2161,6 +2218,10 @@ class StrategyDetailPage(BasePage):
             category_info: Объект CategoryInfo с информацией о категории
             current_strategy_id: ID текущей выбранной стратегии
         """
+        prev_key = str(self._category_key or "").strip()
+        if prev_key:
+            self._save_scroll_state(prev_key)
+
         log(f"StrategyDetailPage.show_category: {category_key}, current={current_strategy_id}", "DEBUG")
         self._category_key = category_key
         self._category_info = category_info
@@ -2227,8 +2288,8 @@ class StrategyDetailPage(BasePage):
                     self._strategies_tree.set_selected_strategy("none")
                 else:
                     self._strategies_tree.clearSelection()
-            # Список не пересобирали: можно сразу прокрутить страницу к текущей стратегии
-            QTimer.singleShot(0, self._scroll_to_current_strategy)
+            # Восстанавливаем последнюю позицию прокрутки для этой категории.
+            self._restore_scroll_state(category_key, defer=True)
 
         # Обновляем состояние toggle включения
         is_enabled = self._current_strategy_id != "none"
@@ -2563,11 +2624,9 @@ class StrategyDetailPage(BasePage):
                     elif self._strategies_tree.has_strategy("none"):
                         self._strategies_tree.set_selected_strategy("none")
             self._refresh_scroll_range()
-            # После построения списка прокручиваем страницу к текущей стратегии
             if self._tcp_phase_mode:
                 QTimer.singleShot(0, self._sync_tree_selection_to_active_phase)
-            else:
-                QTimer.singleShot(0, self._scroll_to_current_strategy)
+            self._restore_scroll_state(self._category_key, defer=True)
 
     def _add_strategy_row(self, strategy_id: str, name: str, args: list = None):
         """Добавляет строку стратегии в список"""
