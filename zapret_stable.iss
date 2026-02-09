@@ -127,6 +127,7 @@ Name: "{commondesktop}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; Tasks: de
 
 [Tasks]
 Name: desktopicon; Description: "Создать ярлык на рабочем столе";
+Name: installzaphub; Description: "Установить ZapretHub (центр сообщества Zapret: стратегии, пресеты и форум)";
 
 [InstallDelete]
 ; Удаляем СТАРЫЕ папки (миграция на новые имена)
@@ -152,6 +153,7 @@ Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
 Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \
     Parameters: "/S /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
     Flags: runhidden nowait; \
+    Tasks: installzaphub; \
     Check: TrackerInstallerExists
 Filename: "{app}\Zapret.exe"; Description: "Запустить {#AppName}"; \
     Flags: nowait postinstall skipifsilent shellexec; \
