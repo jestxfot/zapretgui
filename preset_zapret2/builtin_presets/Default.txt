@@ -115,7 +115,6 @@
 --hostlist=lists/itch.txt
 --hostlist=lists/facebook.txt
 --hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
 --hostlist=lists/whatsapp.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
@@ -133,6 +132,14 @@
 --payload=stun,discord_ip_discovery
 --out-range=-n8
 --lua-desync=fake:blob=fake_default_udp
+
+--new
+
+--filter-tcp=80,443
+--ipset=lists/ipset-twitter.txt
+--out-range=-d8
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
 
 --new
 

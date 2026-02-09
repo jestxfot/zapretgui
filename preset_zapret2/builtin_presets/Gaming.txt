@@ -114,7 +114,6 @@
 --hostlist=lists/itch.txt
 --hostlist=lists/facebook.txt
 --hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
 --hostlist=lists/whatsapp.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
@@ -141,6 +140,14 @@
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
 --lua-desync=pass
+
+--new
+
+--filter-tcp=80,443
+--ipset=lists/ipset-twitter.txt
+--out-range=-d8
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
 
 --new
 
