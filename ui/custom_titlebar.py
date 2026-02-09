@@ -781,7 +781,15 @@ class CustomTitleBar(QWidget):
         if not win:
             return
 
-        # Пробуем разные способы минимизации
+        # Централизованный путь (main.py) — синхронизирует state-machine окна.
+        if hasattr(win, "request_window_minimize"):
+            try:
+                win.request_window_minimize()
+                return
+            except Exception:
+                pass
+
+        # Fallback для окон без централизованной логики.
         try:
             win.setWindowState(Qt.WindowState.WindowMinimized)
         except Exception:

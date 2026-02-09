@@ -437,10 +437,19 @@ class SystemTrayManager:
             except Exception:
                 pass
 
-        if was_maximized:
-            self.parent.showMaximized()
+        if hasattr(self.parent, "_request_window_zoom_state"):
+            try:
+                self.parent._request_window_zoom_state(bool(was_maximized))
+            except Exception:
+                if was_maximized:
+                    self.parent.showMaximized()
+                else:
+                    self.parent.showNormal()
         else:
-            self.parent.showNormal()
+            if was_maximized:
+                self.parent.showMaximized()
+            else:
+                self.parent.showNormal()
 
         self.parent.activateWindow()
         self.parent.raise_()

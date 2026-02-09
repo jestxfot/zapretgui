@@ -430,6 +430,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
             # Сохраняем нормальную геометрию (для корректного закрытия из maximized)
             self._last_normal_geometry = (int(self.x()), int(self.y()), int(self.width()), int(self.height()))
+            self._last_non_minimized_zoomed = saved_maximized
 
             # Maximized будем применять при первом showEvent (особенно важно для start_in_tray/splash)
             self._pending_restore_maximized = saved_maximized
@@ -651,9 +652,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._last_persisted_maximized = None
         self._pending_window_maximized_state = None
 
-        # Явная state-machine переключения normal <-> zoomed (anti-flicker/anti-freeze)
-        self._window_zoom_transition_active = False
-        self._window_zoom_target = None
+        # Явная state-machine управления состояниями окна: normal/maximized/minimized
+        self._window_fsm_active = False
+        self._window_fsm_target_mode = None
+        self._window_fsm_retry_count = 0
+        self._last_non_minimized_zoomed = False
         self._window_zoom_visual_state = None
 
         self._geometry_save_timer = QTimer(self)
@@ -661,10 +664,10 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._geometry_save_timer.setInterval(450)
         self._geometry_save_timer.timeout.connect(self._persist_window_geometry_now)
 
-        self._window_zoom_transition_timer = QTimer(self)
-        self._window_zoom_transition_timer.setSingleShot(True)
-        self._window_zoom_transition_timer.setInterval(300)
-        self._window_zoom_transition_timer.timeout.connect(self._on_window_zoom_transition_timeout)
+        self._window_state_settle_timer = QTimer(self)
+        self._window_state_settle_timer.setSingleShot(True)
+        self._window_state_settle_timer.setInterval(180)
+        self._window_state_settle_timer.timeout.connect(self._on_window_state_settle_timeout)
 
         self._window_maximized_persist_timer = QTimer(self)
         self._window_maximized_persist_timer.setSingleShot(True)
@@ -921,56 +924,6 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
 
         return False
 
-    def _set_window_zoom_state(self, maximize: bool) -> bool:
-        """Низкоуровневая установка zoom-состояния через windowState flags."""
-        try:
-            state = self.windowState()
-        except Exception:
-            state = Qt.WindowState.WindowNoState
-
-        try:
-            if maximize:
-                state = state & ~Qt.WindowState.WindowMinimized
-                state = state & ~Qt.WindowState.WindowFullScreen
-                state = state | Qt.WindowState.WindowMaximized
-            else:
-                state = state & ~Qt.WindowState.WindowMaximized
-                state = state & ~Qt.WindowState.WindowFullScreen
-            self.setWindowState(state)
-            return True
-        except Exception:
-            return False
-
-    def _force_window_zoom_state(self, maximize: bool) -> bool:
-        """Принудительно применяет zoom-состояние через show* и возвращает факт применения."""
-        try:
-            if maximize:
-                self.showMaximized()
-            else:
-                self.showNormal()
-        except Exception:
-            return bool(self._is_window_zoomed())
-
-        return bool(self._is_window_zoomed())
-
-    def _start_window_zoom_transition(self, target_zoomed: bool) -> None:
-        self._window_zoom_transition_active = True
-        self._window_zoom_target = bool(target_zoomed)
-        try:
-            if hasattr(self, "_window_zoom_transition_timer") and self._window_zoom_transition_timer is not None:
-                self._window_zoom_transition_timer.start()
-        except Exception:
-            pass
-
-    def _finish_window_zoom_transition(self) -> None:
-        self._window_zoom_transition_active = False
-        self._window_zoom_target = None
-        try:
-            if hasattr(self, "_window_zoom_transition_timer") and self._window_zoom_transition_timer is not None:
-                self._window_zoom_transition_timer.stop()
-        except Exception:
-            pass
-
     def _apply_window_zoom_visual_state(self, is_zoomed: bool) -> None:
         """Применяет визуальное состояние окна для maximized/fullscreen."""
         zoomed = bool(is_zoomed)
@@ -1018,91 +971,185 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         except Exception:
             pass
 
-    def _on_window_zoom_transition_timeout(self) -> None:
-        """Завершает зависший transition и фиксирует фактическое состояние."""
-        target = self._window_zoom_target
-        actual_zoomed = bool(self._is_window_zoomed())
+    def _detect_window_mode(self) -> str:
+        """Возвращает актуальный режим окна: normal/maximized/minimized."""
+        if self._is_window_minimized_state():
+            return "minimized"
+        if self._is_window_zoomed():
+            return "maximized"
+        return "normal"
 
-        if target is not None and actual_zoomed != bool(target):
-            actual_zoomed = bool(self._force_window_zoom_state(bool(target)))
+    def _apply_window_mode_command(self, mode: str) -> bool:
+        """Низкоуровнево применяет режим окна."""
+        mode_str = str(mode)
 
-        self._finish_window_zoom_transition()
-        self._apply_window_zoom_visual_state(actual_zoomed)
-        self._schedule_window_maximized_persist(actual_zoomed)
+        try:
+            if mode_str == "maximized":
+                self.showMaximized()
+            elif mode_str == "normal":
+                self.showNormal()
+            elif mode_str == "minimized":
+                self.showMinimized()
+            else:
+                return False
+            return True
+        except Exception:
+            pass
+
+        try:
+            state = self.windowState()
+        except Exception:
+            state = Qt.WindowState.WindowNoState
+
+        try:
+            if mode_str == "maximized":
+                state = state & ~Qt.WindowState.WindowMinimized
+                state = state & ~Qt.WindowState.WindowFullScreen
+                state = state | Qt.WindowState.WindowMaximized
+            elif mode_str == "normal":
+                state = state & ~Qt.WindowState.WindowMinimized
+                state = state & ~Qt.WindowState.WindowMaximized
+                state = state & ~Qt.WindowState.WindowFullScreen
+            elif mode_str == "minimized":
+                state = state & ~Qt.WindowState.WindowFullScreen
+                state = state | Qt.WindowState.WindowMinimized
+            else:
+                return False
+
+            self.setWindowState(state)
+            return True
+        except Exception:
+            return False
+
+    def _start_window_fsm_transition(self, target_mode: str) -> None:
+        self._window_fsm_active = True
+        self._window_fsm_target_mode = str(target_mode)
+        self._window_fsm_retry_count = 0
+
+        if self._window_fsm_target_mode != "minimized":
+            self._apply_window_zoom_visual_state(self._window_fsm_target_mode == "maximized")
+
+        self._apply_window_mode_command(self._window_fsm_target_mode)
+
+        try:
+            if hasattr(self, "_window_state_settle_timer") and self._window_state_settle_timer is not None:
+                self._window_state_settle_timer.start()
+        except Exception:
+            pass
+
+    def _finish_window_fsm_transition(self, actual_mode=None) -> None:
+        mode = str(actual_mode) if actual_mode is not None else str(self._detect_window_mode())
+
+        self._window_fsm_active = False
+        self._window_fsm_target_mode = None
+        self._window_fsm_retry_count = 0
+
+        try:
+            if hasattr(self, "_window_state_settle_timer") and self._window_state_settle_timer is not None:
+                self._window_state_settle_timer.stop()
+        except Exception:
+            pass
+
+        if mode == "minimized":
+            return
+
+        zoomed = (mode == "maximized")
+        self._last_non_minimized_zoomed = zoomed
+        self._apply_window_zoom_visual_state(zoomed)
+        self._schedule_window_maximized_persist(zoomed)
+
+    def _on_window_state_settle_timeout(self) -> None:
+        """Дожимает целевое состояние, если WM не применил его с первого раза."""
+        if not self._window_fsm_active:
+            return
+
+        target_mode = self._window_fsm_target_mode
+        if target_mode is None:
+            return
+
+        actual_mode = self._detect_window_mode()
+        if actual_mode == target_mode:
+            self._finish_window_fsm_transition(actual_mode)
+            return
+
+        if self._window_fsm_retry_count < 2:
+            self._window_fsm_retry_count += 1
+            self._apply_window_mode_command(target_mode)
+            try:
+                if hasattr(self, "_window_state_settle_timer") and self._window_state_settle_timer is not None:
+                    self._window_state_settle_timer.start()
+            except Exception:
+                pass
+            return
+
+        self._finish_window_fsm_transition(actual_mode)
+
+    def _request_window_mode(self, target_mode: str) -> str:
+        """Единый вход FSM для normal/maximized/minimized."""
+        mode = str(target_mode)
+        if mode not in ("normal", "maximized", "minimized"):
+            return self._detect_window_mode()
+
+        if self._window_fsm_active and self._window_fsm_target_mode == mode:
+            return mode
+
+        current_mode = self._detect_window_mode()
+        if not self._window_fsm_active and current_mode == mode:
+            try:
+                if not self.isVisible():
+                    self._apply_window_mode_command(mode)
+            except Exception:
+                pass
+            self._finish_window_fsm_transition(current_mode)
+            return current_mode
+
+        self._start_window_fsm_transition(mode)
+        return mode
 
     def _request_window_zoom_state(self, maximize: bool) -> bool:
-        """Единый вход для state-transition normal <-> zoomed."""
-        target = bool(maximize)
-        self._start_window_zoom_transition(target)
+        target_mode = "maximized" if bool(maximize) else "normal"
+        resulting_mode = self._request_window_mode(target_mode)
+        if resulting_mode == "minimized":
+            return bool(self._last_non_minimized_zoomed)
+        return bool(resulting_mode == "maximized")
 
-        changed = self._set_window_zoom_state(target)
-        if not changed:
-            try:
-                if target:
-                    self.showMaximized()
-                else:
-                    self.showNormal()
-                changed = True
-            except Exception:
-                changed = False
-
-        # Оптимистично обновляем UI сразу, чтобы убрать визуальный фриз кнопки.
-        self._apply_window_zoom_visual_state(target)
-
-        if not changed:
-            self._finish_window_zoom_transition()
-            actual_zoomed = bool(self._is_window_zoomed())
-            self._apply_window_zoom_visual_state(actual_zoomed)
-            self._schedule_window_maximized_persist(actual_zoomed)
-            return actual_zoomed
-
-        # Если состояние уже применилось — завершаем transition сразу.
-        actual_zoomed = bool(self._is_window_zoomed())
-        if actual_zoomed == target:
-            self._finish_window_zoom_transition()
-            self._apply_window_zoom_visual_state(actual_zoomed)
-            self._schedule_window_maximized_persist(actual_zoomed)
-            return actual_zoomed
-
-        forced_zoomed = bool(self._force_window_zoom_state(target))
-        if forced_zoomed == target:
-            self._finish_window_zoom_transition()
-            self._apply_window_zoom_visual_state(forced_zoomed)
-            self._schedule_window_maximized_persist(forced_zoomed)
-            return forced_zoomed
-
-        return target
+    def request_window_minimize(self) -> bool:
+        """Сворачивает окно через общий FSM."""
+        resulting_mode = self._request_window_mode("minimized")
+        return bool(resulting_mode == "minimized" or self._is_window_minimized_state())
 
     def restore_window_from_zoom_for_drag(self) -> bool:
         """Выводит окно из maximized/fullscreen перед drag и возвращает факт изменения."""
-        current_zoomed = bool(self._is_window_zoomed())
+        current_mode = self._detect_window_mode()
+        current_zoomed = (current_mode == "maximized")
+
         if not current_zoomed:
-            if not (self._window_zoom_transition_active and self._window_zoom_target):
+            if not (self._window_fsm_active and self._window_fsm_target_mode == "maximized"):
                 return False
 
         self._request_window_zoom_state(False)
 
         # Для drag важно сразу выйти в normal; если WM не успел — дожимаем 1 раз.
         if self._is_window_zoomed():
-            try:
-                self.showNormal()
-            except Exception:
+            if not self._apply_window_mode_command("normal"):
                 return False
 
-        actual_zoomed = bool(self._is_window_zoomed())
-        if not actual_zoomed:
-            self._finish_window_zoom_transition()
-            self._apply_window_zoom_visual_state(False)
-            self._schedule_window_maximized_persist(False)
+        actual_mode = self._detect_window_mode()
+        if actual_mode != "maximized":
+            self._finish_window_fsm_transition(actual_mode)
 
-        return not actual_zoomed
+        return bool(actual_mode != "maximized")
 
     def toggle_window_maximize_restore(self) -> bool:
         """Переключает окно между maximized/fullscreen и normal. Возвращает целевое zoomed-состояние."""
-        if self._window_zoom_transition_active and self._window_zoom_target is not None:
-            current_zoomed = bool(self._window_zoom_target)
+        if self._window_fsm_active and self._window_fsm_target_mode in ("normal", "maximized"):
+            current_zoomed = bool(self._window_fsm_target_mode == "maximized")
         else:
-            current_zoomed = bool(self._is_window_zoomed())
+            current_mode = self._detect_window_mode()
+            if current_mode == "minimized":
+                current_zoomed = bool(self._last_non_minimized_zoomed)
+            else:
+                current_zoomed = bool(current_mode == "maximized")
 
         should_maximize = not current_zoomed
         return bool(self._request_window_zoom_state(should_maximize))
@@ -1243,24 +1290,20 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 pass
 
         if event.type() == QEvent.Type.WindowStateChange:
-            # Не трактуем minimized как "restore from maximized".
-            if not self._is_window_minimized_state():
-                raw_zoomed = bool(self._is_window_zoomed())
-                effective_zoomed = raw_zoomed
+            current_mode = self._detect_window_mode()
 
-                if self._window_zoom_transition_active and self._window_zoom_target is not None:
-                    target_zoomed = bool(self._window_zoom_target)
-                    if raw_zoomed == target_zoomed:
-                        self._finish_window_zoom_transition()
-                        effective_zoomed = raw_zoomed
-                    else:
-                        # Фильтруем промежуточные bounce-состояния (True/False/True).
-                        effective_zoomed = target_zoomed
-
-                self._apply_window_zoom_visual_state(effective_zoomed)
-
-                if not self._window_zoom_transition_active:
-                    self._schedule_window_maximized_persist(raw_zoomed)
+            if self._window_fsm_active and self._window_fsm_target_mode is not None:
+                target_mode = str(self._window_fsm_target_mode)
+                if current_mode == target_mode:
+                    self._finish_window_fsm_transition(current_mode)
+                elif target_mode != "minimized":
+                    # Держим визуал в целевом состоянии до завершения transition.
+                    self._apply_window_zoom_visual_state(target_mode == "maximized")
+            elif current_mode != "minimized":
+                zoomed = bool(current_mode == "maximized")
+                self._last_non_minimized_zoomed = zoomed
+                self._apply_window_zoom_visual_state(zoomed)
+                self._schedule_window_maximized_persist(zoomed)
 
         super().changeEvent(event)
 
