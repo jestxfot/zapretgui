@@ -186,6 +186,30 @@ class Zapret2DirectControlPage(BasePage):
         self.add_section_title("Управление Zapret 2")
 
         control_card = SettingsCard()
+
+        # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(0)
+        self.progress_bar.setVisible(False)
+        control_card.add_widget(self.progress_bar)
+
+        self.loading_label = QLabel("")
+        self.loading_label.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 12px;
+                padding-top: 4px;
+            }
+            """
+        )
+        self.loading_label.setVisible(False)
+        control_card.add_widget(self.loading_label)
+
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
 
@@ -400,30 +424,6 @@ class Zapret2DirectControlPage(BasePage):
         extra_layout.addStretch()
         extra_card.add_layout(extra_layout)
         self.add_widget(extra_card)
-
-        # Индикатор загрузки
-        self.add_spacing(16)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)
-        self.progress_bar.setVisible(False)
-        self.add_widget(self.progress_bar)
-
-        self.loading_label = QLabel("")
-        self.loading_label.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-                padding-top: 4px;
-            }
-            """
-        )
-        self.loading_label.setVisible(False)
-        self.add_widget(self.loading_label)
 
         self._sync_program_settings()
 
