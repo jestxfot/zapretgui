@@ -341,8 +341,8 @@ class InitializationManager:
             # Проверяем есть ли хотя бы одна категория не равная 'none'
             has_any = any(v and v != 'none' for v in selections.values())
             if not has_any:
-                # Нет выбранных стратегий - перенаправляем на страницу стратегий
-                self._navigate_to_strategies()
+                # Нет выбранных стратегий: остаёмся на текущей странице и показываем предупреждение.
+                self._show_strategy_required_warning(for_bat=False)
                 self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
@@ -351,14 +351,41 @@ class InitializationManager:
             from config.reg import get_last_bat_strategy
             last_strategy = get_last_bat_strategy()
             if not last_strategy or last_strategy == "Автостарт DPI отключен":
-                self._navigate_to_strategies()
-                self.app.set_status("⚠️ Выберите стратегию для запуска")
+                self._show_strategy_required_warning(for_bat=True)
+                self.app.set_status("⚠️ Выберите пресет для запуска")
                 return
 
         # orchestra режим не требует выбора стратегии - работает автоматически
 
         # Запускаем DPI
         self.app.dpi_controller.start_dpi_async()
+
+    def _show_strategy_required_warning(self, for_bat: bool = False) -> None:
+        """Показывает popup-предупреждение без смены текущей страницы."""
+        if for_bat:
+            subtitle = (
+                "Для запуска Zapret выберите готовый пресет в разделе «Стратегии»."
+            )
+        else:
+            subtitle = (
+                "Для запуска Zapret выберите хотя бы одну стратегию "
+                "в разделе «Стратегии»."
+            )
+
+        try:
+            from ui.close_dialog import show_start_strategy_warning
+
+            show_start_strategy_warning(parent=self.app, subtitle=subtitle)
+            return
+        except Exception as e:
+            log(f"Не удалось открыть фирменное предупреждение запуска: {e}", "DEBUG")
+
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(self.app, "Стратегия не выбрана", subtitle)
+        except Exception:
+            pass
 
     def _navigate_to_strategies(self):
         """Переходит на страницу стратегий"""

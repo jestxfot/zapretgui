@@ -10,11 +10,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize
 from PyQt6.QtGui import QColor, QFont
+from typing import Optional
 
 try:
     import qtawesome as qta
     HAS_QTAWESOME = True
 except ImportError:
+    qta = None
     HAS_QTAWESOME = False
 
 
@@ -143,7 +145,7 @@ class CloseDialog(QDialog):
 
         self._apply_styles()
 
-    def _make_button(self, text: str, icon_name: str = None,
+    def _make_button(self, text: str, icon_name: Optional[str] = None,
                      accent: bool = False, danger: bool = False) -> QPushButton:
         btn = QPushButton(text)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -361,6 +363,225 @@ class CloseDialog(QDialog):
             self.reject()
             return
         super().keyPressEvent(event)
+
+
+class StartStrategyWarningDialog(QDialog):
+    """Фирменный warning-диалог о том, что стратегия не выбрана."""
+
+    DIALOG_WIDTH = 380
+    DIALOG_MIN_HEIGHT = 204
+    BORDER_RADIUS = 14
+
+    def __init__(self, parent=None, title: str = "Стратегия не выбрана", subtitle: str = ""):
+        super().__init__(parent)
+        self._title_text = title
+        self._subtitle_text = subtitle or (
+            "Для запуска Zapret выберите хотя бы одну стратегию "
+            "в разделе «Стратегии»."
+        )
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Dialog
+        )
+        self.setWindowModality(
+            Qt.WindowModality.WindowModal if parent else Qt.WindowModality.ApplicationModal
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setModal(True)
+        self.setFixedWidth(self.DIALOG_WIDTH)
+        self.setMinimumHeight(self.DIALOG_MIN_HEIGHT)
+
+        self._opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        self._opacity_anim.setDuration(150)
+        self._opacity_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._init_ui()
+        self.setWindowOpacity(0.0)
+
+    def _init_ui(self) -> None:
+        self._container = QWidget(self)
+        self._container.setObjectName("startWarnDialogContainer")
+
+        self._shadow = QGraphicsDropShadowEffect(self._container)
+        self._shadow.setBlurRadius(38)
+        self._shadow.setOffset(0, 6)
+        self._shadow.setColor(QColor(0, 0, 0, 96))
+        self._container.setGraphicsEffect(self._shadow)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(14, 14, 14, 14)
+        root_layout.addWidget(self._container)
+
+        layout = QVBoxLayout(self._container)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(14)
+
+        title = QLabel(self._title_text)
+        title.setObjectName("startWarnDialogTitle")
+        title_font = QFont("Segoe UI Variable", 16)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        subtitle = QLabel(self._subtitle_text)
+        subtitle.setObjectName("startWarnDialogSubtitle")
+        subtitle.setWordWrap(True)
+        sub_font = QFont("Segoe UI Variable", 10)
+        subtitle.setFont(sub_font)
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(6)
+
+        self._btn_ok = QPushButton("Понятно")
+        self._btn_ok.setObjectName("startWarnDialogOkBtn")
+        self._btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_ok.setFixedHeight(42)
+        self._btn_ok.setFont(QFont("Segoe UI Variable", 10))
+        self._btn_ok.setIconSize(QSize(14, 14))
+        self._btn_ok.setDefault(True)
+        self._btn_ok.setAutoDefault(True)
+        self._btn_ok.clicked.connect(self.accept)
+        layout.addWidget(self._btn_ok)
+
+        self._apply_styles()
+
+    def _apply_icon(self, color: str) -> None:
+        if not HAS_QTAWESOME:
+            return
+        try:
+            self._btn_ok.setIcon(qta.icon("fa5s.exclamation-triangle", color=color))
+        except Exception:
+            pass
+
+    def _apply_styles(self) -> None:
+        is_light = self._detect_light_theme()
+
+        if is_light:
+            bg_top = "rgba(255, 255, 255, 246)"
+            bg_bottom = "rgba(243, 246, 251, 246)"
+            border = "rgba(133, 145, 163, 0.48)"
+            title_color = "#171b24"
+            sub_color = "#495262"
+            btn_bg = "rgba(236, 240, 247, 0.96)"
+            btn_hover = "rgba(224, 230, 240, 0.98)"
+            btn_pressed = "rgba(213, 220, 232, 0.98)"
+            btn_border = "rgba(141, 154, 174, 0.56)"
+            btn_text = "#1f2735"
+            focus_border = "#2b6de6"
+            shadow_color = QColor(0, 0, 0, 66)
+        else:
+            bg_top = "rgba(45, 49, 55, 248)"
+            bg_bottom = "rgba(35, 39, 45, 248)"
+            border = "rgba(255, 255, 255, 0.16)"
+            title_color = "#f5f8ff"
+            sub_color = "#c5ccda"
+            btn_bg = "rgba(255, 255, 255, 0.08)"
+            btn_hover = "rgba(255, 255, 255, 0.14)"
+            btn_pressed = "rgba(255, 255, 255, 0.18)"
+            btn_border = "rgba(255, 255, 255, 0.24)"
+            btn_text = "#f3f7ff"
+            focus_border = "#78a7ff"
+            shadow_color = QColor(0, 0, 0, 124)
+
+        self._shadow.setColor(shadow_color)
+
+        radius = self.BORDER_RADIUS
+        self._container.setStyleSheet(f"""
+            QWidget#startWarnDialogContainer {{
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {bg_top},
+                    stop:1 {bg_bottom}
+                );
+                border: 1px solid {border};
+                border-radius: {radius}px;
+            }}
+        """)
+
+        title_widget = self._container.findChild(QLabel, "startWarnDialogTitle")
+        if title_widget:
+            title_widget.setStyleSheet(f"color: {title_color}; background: transparent;")
+
+        sub_widget = self._container.findChild(QLabel, "startWarnDialogSubtitle")
+        if sub_widget:
+            sub_widget.setStyleSheet(f"color: {sub_color}; background: transparent;")
+
+        self._btn_ok.setStyleSheet(f"""
+            QPushButton#startWarnDialogOkBtn {{
+                background-color: {btn_bg};
+                color: {btn_text};
+                border: 1px solid {btn_border};
+                border-radius: 10px;
+                padding: 0 16px;
+                font-weight: 600;
+            }}
+            QPushButton#startWarnDialogOkBtn:hover {{
+                background-color: {btn_hover};
+            }}
+            QPushButton#startWarnDialogOkBtn:pressed {{
+                background-color: {btn_pressed};
+            }}
+            QPushButton#startWarnDialogOkBtn:focus {{
+                border: 1px solid {focus_border};
+            }}
+        """)
+
+        self._apply_icon(btn_text)
+
+    def _detect_light_theme(self) -> bool:
+        try:
+            from ui.theme import ThemeManager
+            tm = ThemeManager.instance()
+            if tm and hasattr(tm, "_current_theme"):
+                name = tm._current_theme or ""
+                return "Светлая" in name or "light" in name.lower()
+        except Exception:
+            pass
+        return False
+
+    def paintEvent(self, event):
+        pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._center_on_parent()
+        self._opacity_anim.stop()
+        self._opacity_anim.setStartValue(0.0)
+        self._opacity_anim.setEndValue(1.0)
+        self._opacity_anim.start()
+
+    def _center_on_parent(self) -> None:
+        parent = self.parentWidget()
+        if parent:
+            try:
+                pr = parent.geometry()
+                x = pr.x() + (pr.width() - self.width()) // 2
+                y = pr.y() + (pr.height() - self.height()) // 2
+                self.move(x, y)
+                return
+            except Exception:
+                pass
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            sr = screen.availableGeometry()
+            self.move(
+                sr.x() + (sr.width() - self.width()) // 2,
+                sr.y() + (sr.height() - self.height()) // 2,
+            )
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+            return
+        super().keyPressEvent(event)
+
+
+def show_start_strategy_warning(parent=None, subtitle: str = "") -> None:
+    """Показывает предупреждение о необходимости выбрать стратегию."""
+    dlg = StartStrategyWarningDialog(parent=parent, subtitle=subtitle)
+    dlg.exec()
 
 
 def ask_close_action(parent=None):
