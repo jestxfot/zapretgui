@@ -167,6 +167,28 @@ class ControlPage(BasePage):
         self.add_section_title("Управление Zapret")
         
         control_card = SettingsCard()
+
+        # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(0)  # Indeterminate mode
+        self.progress_bar.setVisible(False)
+        control_card.add_widget(self.progress_bar)
+
+        # Метка статуса загрузки
+        self.loading_label = QLabel("")
+        self.loading_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 12px;
+                padding-top: 4px;
+            }
+        """)
+        self.loading_label.setVisible(False)
+        control_card.add_widget(self.loading_label)
         
         # Кнопки управления
         buttons_layout = QHBoxLayout()
@@ -335,30 +357,6 @@ class ControlPage(BasePage):
         extra_card.add_layout(extra_layout)
         
         self.add_widget(extra_card)
-        
-        # Индикатор загрузки (бегающая полоска)
-        self.add_spacing(16)
-        
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)  # Indeterminate mode
-        self.progress_bar.setVisible(False)
-        self.add_widget(self.progress_bar)
-        
-        # Метка статуса загрузки
-        self.loading_label = QLabel("")
-        self.loading_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-                padding-top: 4px;
-            }
-        """)
-        self.loading_label.setVisible(False)
-        self.add_widget(self.loading_label)
 
         # Первичная синхронизация состояния тогглов с текущими настройками
         self._sync_program_settings()
