@@ -487,6 +487,12 @@ class Zapret2UserPresetsPage(BasePage):
         self._reset_all_confirm_timer = QTimer(self)
         self._reset_all_confirm_timer.setSingleShot(True)
         self._reset_all_confirm_timer.timeout.connect(self._clear_reset_all_confirmation)
+        self._layout_resync_timer = QTimer(self)
+        self._layout_resync_timer.setSingleShot(True)
+        self._layout_resync_timer.timeout.connect(self._resync_layout_metrics)
+        self._layout_resync_delayed_timer = QTimer(self)
+        self._layout_resync_delayed_timer.setSingleShot(True)
+        self._layout_resync_delayed_timer.timeout.connect(self._resync_layout_metrics)
 
         self._build_ui()
 
@@ -526,21 +532,33 @@ class Zapret2UserPresetsPage(BasePage):
     def showEvent(self, event):
         super().showEvent(event)
         self._start_watching_presets()
-        self._update_toolbar_buttons_layout()
+        self._resync_layout_metrics()
         if self._ui_dirty:
             self._load_presets()
         else:
             self._update_presets_view_height()
+        self._schedule_layout_resync(include_delayed=True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._update_toolbar_buttons_layout()
-        self._update_presets_view_height()
+        self._resync_layout_metrics()
+        self._schedule_layout_resync()
 
     def hideEvent(self, event):
+        self._layout_resync_timer.stop()
+        self._layout_resync_delayed_timer.stop()
         self._stop_watching_presets()
         self._clear_reset_all_confirmation()
         super().hideEvent(event)
+
+    def _schedule_layout_resync(self, include_delayed: bool = False):
+        self._layout_resync_timer.start(0)
+        if include_delayed:
+            self._layout_resync_delayed_timer.start(220)
+
+    def _resync_layout_metrics(self):
+        self._update_toolbar_buttons_layout()
+        self._update_presets_view_height()
 
     def _start_watching_presets(self):
         try:
@@ -1180,6 +1198,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._apply_reset_all_button_style(True)
         self._reset_all_confirm_timer.start(5000)
         self._update_toolbar_buttons_layout()
+        self._schedule_layout_resync()
 
     def _clear_reset_all_confirmation(self):
         self._reset_all_confirm_pending = False
@@ -1188,9 +1207,14 @@ class Zapret2UserPresetsPage(BasePage):
         self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
         self._apply_reset_all_button_style(False)
         self._update_toolbar_buttons_layout()
+        if self.isVisible():
+            self._schedule_layout_resync()
 
     def _is_game_filter_preset_name(self, name: str) -> bool:
         return "game filter" in name.lower()
+
+    def _is_all_tcp_udp_preset_name(self, name: str) -> bool:
+        return "all tcp" in name.lower()
 
     def _format_modified_timestamp(self, modified: str) -> str:
         if not modified:
@@ -1202,19 +1226,21 @@ class Zapret2UserPresetsPage(BasePage):
             return modified
 
     def _update_presets_view_height(self):
-        if not self._presets_model:
+        if not self._presets_model or not hasattr(self, "presets_list"):
             return
 
         viewport_height = self.viewport().height()
         if viewport_height <= 0:
             return
 
-        top = self.presets_list.y()
+        top = max(0, self.presets_list.geometry().top())
         bottom_margin = self.layout.contentsMargins().bottom()
         target_height = max(220, viewport_height - top - bottom_margin)
 
-        self.presets_list.setMinimumHeight(target_height)
-        self.presets_list.setMaximumHeight(target_height)
+        if self.presets_list.minimumHeight() != target_height:
+            self.presets_list.setMinimumHeight(target_height)
+        if self.presets_list.maximumHeight() != target_height:
+            self.presets_list.setMaximumHeight(target_height)
 
     def _hide_inline_action(self):
         self._action_mode = None
@@ -1222,6 +1248,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_error.hide()
         self._action_error.setText("")
         self._action_reveal.set_open(False)
+        self._schedule_layout_resync(include_delayed=True)
 
     def _set_inline_error(self, text: str):
         self._action_error.setText(text)
@@ -1246,6 +1273,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
         self._name_input.setFocus()
+        self._schedule_layout_resync(include_delayed=True)
 
     def _show_inline_action_rename(self, current_name: str):
         self._action_mode = "rename"
@@ -1265,6 +1293,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
         self._name_input.setFocus()
+        self._schedule_layout_resync(include_delayed=True)
 
     def _submit_inline_action(self):
         mode = self._action_mode
@@ -1484,8 +1513,17 @@ class Zapret2UserPresetsPage(BasePage):
             all_presets = store.get_all_presets()       # {name: Preset}
             active_name = store.get_active_preset_name()
             sorted_names = sorted(all_presets.keys(), key=lambda s: s.lower())
-            regular_names = [name for name in sorted_names if not self._is_game_filter_preset_name(name)]
-            game_filter_names = [name for name in sorted_names if self._is_game_filter_preset_name(name)]
+            all_tcp_names = [name for name in sorted_names if self._is_all_tcp_udp_preset_name(name)]
+            regular_names = [
+                name
+                for name in sorted_names
+                if not self._is_game_filter_preset_name(name) and not self._is_all_tcp_udp_preset_name(name)
+            ]
+            game_filter_names = [
+                name
+                for name in sorted_names
+                if self._is_game_filter_preset_name(name) and not self._is_all_tcp_udp_preset_name(name)
+            ]
 
             self.active_preset_label.setText(active_name or "Не выбран")
             active_preset = all_presets.get(active_name) if active_name else None
@@ -1514,8 +1552,18 @@ class Zapret2UserPresetsPage(BasePage):
 
             if game_filter_names:
                 if rows:
-                    rows.append({"kind": "section", "text": "Game filter"})
+                    rows.append({"kind": "section", "text": "Пресеты которые позволяют играть в игры (Game filter для UDP портов от 444 до 65535)"})
                 for name in game_filter_names:
+                    add_preset_row(name)
+
+            if all_tcp_names:
+                rows.append(
+                    {
+                        "kind": "section",
+                        "text": "Хотите чтобы Zapret работал на все сайты? Вам сюда! (ALL TCP & UDP по всем портам!)",
+                    }
+                )
+                for name in all_tcp_names:
                     add_preset_row(name)
 
             if not rows:
@@ -1525,7 +1573,6 @@ class Zapret2UserPresetsPage(BasePage):
                 self._presets_delegate.reset_interaction_state()
             if self._presets_model:
                 self._presets_model.set_rows(rows)
-            self._update_presets_view_height()
 
             # Update restore-deleted button visibility
             try:
@@ -1534,6 +1581,9 @@ class Zapret2UserPresetsPage(BasePage):
                 self._restore_deleted_btn.setVisible(has_deleted)
             except Exception:
                 self._restore_deleted_btn.setVisible(False)
+
+            self._update_presets_view_height()
+            self._schedule_layout_resync()
 
         except Exception as e:
             log(f"Ошибка загрузки пресетов: {e}", "ERROR")

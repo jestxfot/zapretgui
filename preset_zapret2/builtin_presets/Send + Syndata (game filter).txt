@@ -1,6 +1,7 @@
-# Preset: general ALT2 (game filter)
-# ActivePreset: general ALT2 (game filter)
-# IconColor: #67d1e4ff
+# Preset: Send + Syndata (game filter)
+# ActivePreset: Send + Syndata (game filter)
+# Modified: 2026-01-21T17:52:34.648239
+# IconColor: #a8c5ff
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
@@ -12,6 +13,13 @@
 --ctrack-disable=0
 --ipcache-lifetime=8400
 --ipcache-hostname=1
+
+--wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
+--wf-udp-out=443-65535
+
+--wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
+--wf-raw-part=@windivert.filter/windivert_part.stun.txt
+--wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
 
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin
@@ -72,42 +80,35 @@
 --blob=hex_0f0f0f0f:0x0F0F0F0F
 --blob=hex_00:0x00
 
---wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
---wf-udp-out=443-65535
---wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
---wf-raw-part=@windivert.filter/windivert_part.stun.txt
---wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
+--filter-tcp=80,443
+--hostlist=lists/youtube.txt
+--out-range=-d8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
+--new
 
 --filter-udp=443
---ipset-exclude=lists/ipset-dns.txt
---payload=quic_initial
---lua-desync=fake:blob=quic_google:repeats=6
-
---new
-
---filter-l7=discord,stun
---payload=stun,discord_ip_discovery
---lua-desync=fake:blob=fake_default_udp:repeats=6
-
---new
-
---filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--ipset=lists/ipset-youtube.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
 
 --new
 
 --filter-tcp=80,443
 --hostlist-domains=googlevideo.com
 --out-range=-d8
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
 
 --new
 
---filter-tcp=80,443
---hostlist=lists/youtube.txt
---out-range=-d8
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--filter-tcp=443
+--hostlist-domains=updates.discord.com
+--out-range=-d10
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
 
 --new
 
@@ -121,25 +122,60 @@
 --hostlist=lists/itch.txt
 --hostlist=lists/facebook.txt
 --hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
 --hostlist=lists/whatsapp.txt
 --out-range=-d10
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
+--new
+
+--filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--hostlist-domains=discord.media
+--out-range=-d10
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
+--new
+
+--filter-l7=stun,discord
+--payload=stun,discord_ip_discovery
+--out-range=-n8
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
 
 --new
 
 --filter-tcp=80,443
---hostlist=lists/list-general.txt
---hostlist-exclude=lists/netrogat.txt
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--ipset=lists/ipset-twitter.txt
+--out-range=-d8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
 
 --new
 
---filter-udp=443
---ipset=lists/ipset-all.txt
+--filter-tcp=80,443
+--ipset-ip=130.255.77.28
+--out-range=-d9
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
+--new
+
+--filter-tcp=443
 --hostlist-exclude=lists/netrogat.txt
---payload=quic_initial
---lua-desync=fake:blob=quic_google:repeats=6
+--hostlist=lists/other.txt
+--hostlist=lists/russia-blacklist.txt
+--out-range=-d10
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
+
+--new
+
+--filter-tcp=80,443
+--ipset=lists/ipset-tankix.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
 
 --new
 
@@ -158,7 +194,8 @@
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-d10
---lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls7
 
 --new
 
@@ -176,6 +213,6 @@
 --ipset=lists/ipset-whatsapp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
---out-range=-n3
+--out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:repeats=12
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10

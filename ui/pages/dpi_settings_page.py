@@ -563,7 +563,7 @@ class DpiSettingsPage(BasePage):
         """Строит UI страницы"""
         
         # Метод запуска
-        method_card = SettingsCard("Метод запуска стратегий")
+        method_card = SettingsCard("Метод запуска стратегий (режим работы программы)")
         method_layout = QVBoxLayout()
         method_layout.setSpacing(10)
         

@@ -103,7 +103,9 @@ Source: "{#PROJECTPATH}\tracker\ZapretHub-Setup-1.0.0.exe"; DestDir: "{userappda
 ; Копируем папки
 Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Excludes: "cygwin1.dll"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ cygwin1.dll копируется только при первичной установке (не заменяем, если уже существует)
+Source: "{#SOURCEPATH}\exe\cygwin1.dll"; DestDir: "{app}\exe"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ Копируем lists, но исключаем пользовательские файлы (other.txt, my-ipset.txt, netrogat.txt)

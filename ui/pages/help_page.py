@@ -21,6 +21,9 @@ class HelpPage(BasePage):
         self._build_ui()
 
     def _build_ui(self):
+        self._add_motto_block()
+        self.add_spacing(6)
+
         # Ссылки
         self.add_section_title("Ссылки")
 
@@ -100,8 +103,102 @@ class HelpPage(BasePage):
             "Новости и обновления",
             self._open_telegram_news,
         )
+        self._add_link_item(
+            news_layout,
+            "fa5b.mastodon",
+            "Mastodon профиль",
+            "Новости в Fediverse",
+            self._open_mastodon_profile,
+        )
+        self._add_link_item(
+            news_layout,
+            "fa5s.globe",
+            "Bastyon профиль",
+            "Новости в Bastyon",
+            self._open_bastyon_profile,
+        )
 
         self.add_widget(news_card)
+
+    def _add_motto_block(self):
+        """Добавляет крупный слоган и перевод в верхней части страницы"""
+        motto_wrap = QFrame()
+        motto_wrap.setStyleSheet(
+            """
+            QFrame {
+                background: transparent;
+                border: none;
+            }
+        """
+        )
+
+        motto_row = QHBoxLayout(motto_wrap)
+        motto_row.setContentsMargins(0, 0, 0, 0)
+        motto_row.setSpacing(0)
+        motto_row.addStretch(1)
+
+        motto_text_wrap = QFrame()
+        motto_text_wrap.setMaximumWidth(660)
+        motto_text_wrap.setStyleSheet("QFrame { background: transparent; border: none; }")
+
+        motto_text_layout = QVBoxLayout(motto_text_wrap)
+        motto_text_layout.setContentsMargins(0, 0, 0, 0)
+        motto_text_layout.setSpacing(2)
+
+        motto_title = QLabel("keep thinking, keep searching, keep learning....")
+        motto_title.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        motto_title.setWordWrap(True)
+        motto_title.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(235, 235, 235, 0.88);
+                font-size: 25px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+            }
+        """
+        )
+
+        motto_translate = QLabel("Продолжай думать, продолжай искать, продолжай учиться....")
+        motto_translate.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        motto_translate.setWordWrap(True)
+        motto_translate.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(176, 176, 176, 0.85);
+                font-size: 17px;
+                font-style: italic;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                font-family: 'Palatino Linotype', 'Book Antiqua', 'Georgia', serif;
+                padding-top: 2px;
+            }
+        """
+        )
+
+        motto_cta = QLabel("Zapret2 - думай свободно, ищи смелее, учись всегда.")
+        motto_cta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        motto_cta.setWordWrap(True)
+        motto_cta.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(140, 140, 140, 0.9);
+                font-size: 12px;
+                letter-spacing: 1.1px;
+                font-family: 'Segoe UI', sans-serif;
+                text-transform: uppercase;
+                padding-top: 6px;
+            }
+        """
+        )
+
+        motto_text_layout.addWidget(motto_title)
+        motto_text_layout.addWidget(motto_translate)
+        motto_text_layout.addWidget(motto_cta)
+
+        motto_row.addWidget(motto_text_wrap)
+        self.add_widget(motto_wrap)
 
     def _create_links_card(self, title: str) -> QFrame:
         """Создаёт карточку для группы ссылок без рамки с собственным фоном"""
@@ -255,6 +352,22 @@ class HelpPage(BasePage):
             log("Открыт Telegram: bypassblock", "INFO")
         except Exception as e:
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")
+
+    def _open_mastodon_profile(self):
+        try:
+            url = "https://mastodon.social/@zapret"
+            webbrowser.open(url)
+            log(f"Открыт Mastodon: {url}", "INFO")
+        except Exception as e:
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Mastodon:\n{e}")
+
+    def _open_bastyon_profile(self):
+        try:
+            url = "https://bastyon.com/zapretgui"
+            webbrowser.open(url)
+            log(f"Открыт Bastyon: {url}", "INFO")
+        except Exception as e:
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Bastyon:\n{e}")
 
     def _open_discord(self):
         try:
