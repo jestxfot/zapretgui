@@ -698,6 +698,26 @@ class InitializationManager:
         """Список требуемых компонентов для успешного старта"""
         return ['dpi_starter', 'dpi_controller', 'strategy_manager', 'managers']
 
+    def _get_post_init_delay_ms(self) -> int:
+        """Возвращает задержку перед post-init задачами."""
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            # Для direct_zapret2 запускаем post-init почти сразу,
+            # чтобы сократить время до автозапуска пресета.
+            if get_strategy_launch_method() == "direct_zapret2":
+                return 75
+        except Exception:
+            pass
+
+        return 500
+
+    def _get_dpi_autostart_delay_ms(self, launch_method: str) -> int:
+        """Возвращает задержку перед автозапуском DPI по режиму."""
+        if launch_method == "direct_zapret2":
+            return 75
+        return 1000
+
     def _check_and_complete_initialization(self) -> bool:
         """
         Проверяет, все ли компоненты готовы, и если да — завершает инициализацию:
@@ -722,7 +742,7 @@ class InitializationManager:
             log("Все компоненты успешно инициализированы", "✅ SUCCESS")
 
             # Финальные задачи
-            QTimer.singleShot(500, self._post_init_tasks)
+            QTimer.singleShot(self._get_post_init_delay_ms(), self._post_init_tasks)
             QTimer.singleShot(3000, self._sync_autostart_status)
 
         return True
@@ -816,14 +836,15 @@ class InitializationManager:
             # Проверяем режим запуска ПЕРЕД делегированием
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
+            autostart_delay_ms = self._get_dpi_autostart_delay_ms(launch_method)
 
             if launch_method == "direct_zapret2":
                 # Отдельный путь для direct_zapret2 (использует preset файл)
-                QTimer.singleShot(1000, self._start_direct_zapret2_autostart)
+                QTimer.singleShot(autostart_delay_ms, self._start_direct_zapret2_autostart)
             else:
                 # Все остальные режимы через dpi_manager
                 if hasattr(self.app, 'dpi_manager'):
-                    QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
+                    QTimer.singleShot(autostart_delay_ms, self.app.dpi_manager.delayed_dpi_start)
 
             # Обновления проверяются вручную на вкладке "Серверы"
 

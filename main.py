@@ -1,6 +1,18 @@
 # main.py
 import sys, os
 
+
+def _is_startup_debug_enabled() -> bool:
+    raw = os.environ.get("ZAPRET_STARTUP_DEBUG")
+    if raw is not None and str(raw).strip() != "":
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    for arg in sys.argv[1:]:
+        if str(arg).strip().lower() in {"--startup-debug", "--verbose-log"}:
+            return True
+
+    return False
+
 # ──────────────────────────────────────────────────────────────
 # Делаем рабочей директорией папку, где лежит exe/скрипт
 # Нужно выполнить до любых других импортов!
@@ -20,8 +32,9 @@ def _set_workdir_to_app():
 
         os.chdir(app_dir)
         
-        # Отладочная информация
-        debug_info = f"""
+        # Отладочный startup файл нужен только при явном включении.
+        if _is_startup_debug_enabled():
+            debug_info = f"""
 === ZAPRET STARTUP DEBUG ===
 Compiled mode: {'__compiled__' in globals()}
 Frozen mode: {getattr(sys, 'frozen', False)}
@@ -32,9 +45,9 @@ Directory exists: {os.path.exists(app_dir)}
 Directory contents: {os.listdir(app_dir) if os.path.exists(app_dir) else 'N/A'}
 ========================
 """
-        
-        with open("zapret_startup.log", "w", encoding="utf-8") as f:
-            f.write(debug_info)
+
+            with open("zapret_startup.log", "w", encoding="utf-8") as f:
+                f.write(debug_info)
             
     except Exception as e:
         with open("zapret_startup_error.log", "w", encoding="utf-8") as f:
@@ -111,7 +124,7 @@ from utils import run_hidden
 from ui.theme_subscription_manager import ThemeSubscriptionManager
 
 # DNS настройки теперь интегрированы в network_page
-from log import log
+from log import log, is_verbose_logging_enabled
 
 from config import CHANNEL
 from ui.page_names import PageName, SectionName
@@ -1901,7 +1914,6 @@ def main():
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
             from startup.check_start import collect_startup_warnings
-            from startup.admin_check_debug import debug_admin_status
 
             preload_service_status("BFE")
 
@@ -1910,7 +1922,9 @@ def main():
 
             can_continue, warnings, fatal_error = collect_startup_warnings()
 
-            debug_admin_status()
+            if is_verbose_logging_enabled():
+                from startup.admin_check_debug import debug_admin_status
+                debug_admin_status()
             set_batfile_association()
 
             try:

@@ -15,6 +15,27 @@ from log_tail import LogTailWorker
 
 from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
 
+
+_VERBOSE_LOG_ENV = "ZAPRET_GUI_VERBOSE_LOGS"
+_VERBOSE_LOG_FLAGS = {"--verbose-log", "--debug-log", "--diag-log"}
+
+
+def _is_truthy(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_verbose_logging_enabled() -> bool:
+    """Returns True when DEBUG/DIAG logs should be persisted."""
+    env_value = os.environ.get(_VERBOSE_LOG_ENV)
+    if env_value is not None and str(env_value).strip() != "":
+        return _is_truthy(env_value)
+
+    for arg in sys.argv[1:]:
+        if str(arg).strip().lower() in _VERBOSE_LOG_FLAGS:
+            return True
+
+    return False
+
 def get_current_log_filename():
     """Генерирует имя файла лога с текущей датой и временем"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -103,6 +124,8 @@ class Logger:
             return
         self._initialized = True
 
+        self.verbose_logging = _is_verbose_logging_enabled()
+
         base_dir = os.path.dirname(
             os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
         )
@@ -141,7 +164,18 @@ class Logger:
             self.orig_stdout.flush()
     
     # --- helper API -----------------------------------------------------------
+    def is_verbose_logging_enabled(self) -> bool:
+        return bool(getattr(self, "verbose_logging", False))
+
+    def _should_emit_level(self, level: str) -> bool:
+        if self.is_verbose_logging_enabled():
+            return True
+        normalized = str(level).strip().upper()
+        return normalized not in {"DEBUG", "🔍 DIAG"}
+
     def log(self, message, level="INFO", component=None):
+        if not self._should_emit_level(level):
+            return
         prefix = f"[{component}][{level}]" if component else f"[{level}]"
         self.write(f"{prefix} {message}\n")
 
@@ -432,6 +466,14 @@ except Exception:
 
 def log(msg, level="INFO", component=None):       # удобный helper
     global_logger.log(msg, level, component)
+
+
+def is_verbose_logging_enabled() -> bool:
+    try:
+        return bool(global_logger.is_verbose_logging_enabled())
+    except Exception:
+        return _is_verbose_logging_enabled()
+
 
 def log_exception(e, context=""):                 # helper для исключений
     global_logger.log_exception(e, context)

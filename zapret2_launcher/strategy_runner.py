@@ -248,7 +248,13 @@ class StrategyRunnerV2(StrategyRunnerBase):
             self.current_strategy_args = None
             return False
 
-    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+    def start_from_preset_file(
+        self,
+        preset_path: str,
+        strategy_name: str = "Preset",
+        _force_cleanup: bool = False,
+        _retry_count: int = 0,
+    ) -> bool:
         """
         Starts strategy directly from existing preset file.
 
@@ -267,7 +273,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
         Returns:
             True if strategy started successfully
         """
-        from utils.process_killer import kill_winws_force
+        from utils.process_killer import kill_winws_force, get_process_pids
 
         if not os.path.exists(preset_path):
             log(f"Preset file not found: {preset_path}", "ERROR")
@@ -286,27 +292,42 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 return True
 
             # Stop previous process and watcher
+            cleanup_required = bool(_force_cleanup)
+
             if self.running_process and self.is_running():
                 log("Stopping previous process before starting new one", "INFO")
                 self.stop()
+                cleanup_required = True
 
-            # Cleanup
-            log("Cleaning up previous winws processes...", "DEBUG")
-            kill_winws_force()
-            self._fast_cleanup_services()
-
-            # Unload WinDivert drivers for complete cleanup
+            # Не тратим время на полную очистку, если нет активных winws процессов.
             try:
-                from utils.service_manager import unload_driver
-                for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
-                    try:
-                        unload_driver(driver)
-                    except:
-                        pass
-            except:
-                pass
+                active_winws_pids = get_process_pids("winws.exe") + get_process_pids("winws2.exe")
+            except Exception:
+                active_winws_pids = []
 
-            time.sleep(0.3)
+            if active_winws_pids:
+                cleanup_required = True
+
+            # Cleanup (ускоренный путь: только когда реально нужно)
+            if cleanup_required:
+                log("Cleaning up previous winws processes...", "DEBUG")
+                kill_winws_force()
+                self._fast_cleanup_services()
+
+                # Unload WinDivert drivers for complete cleanup
+                try:
+                    from utils.service_manager import unload_driver
+                    for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
+                        try:
+                            unload_driver(driver)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                time.sleep(0.3)
+            else:
+                log("Fast start: cleanup skipped (no active winws processes)", "DEBUG")
 
             # Store preset file path for hot-reload
             self._preset_file_path = preset_path
@@ -358,6 +379,21 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 self.current_strategy_name = None
                 self.current_strategy_args = None
                 self._preset_file_path = None
+
+                # Если быстрый старт упал из-за конфликта WinDivert,
+                # делаем один повтор с полной очисткой.
+                if (
+                    (not cleanup_required)
+                    and _retry_count == 0
+                    and self._is_windivert_conflict_error(stderr_output, exit_code)
+                ):
+                    log("WinDivert conflict detected, retrying with full cleanup", "WARNING")
+                    return self.start_from_preset_file(
+                        preset_path,
+                        strategy_name,
+                        _force_cleanup=True,
+                        _retry_count=1,
+                    )
 
                 return False
 
