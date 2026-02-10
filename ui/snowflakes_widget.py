@@ -15,6 +15,20 @@ class Snowflake:
     """Одна снежинка"""
     
     def __init__(self, x: float, y: float):
+        self._set_initial_state(x, y)
+
+    @classmethod
+    def create(cls, x: float, y: float):
+        try:
+            return cls(x, y)
+        except TypeError as exc:
+            if "__init__() should return None" not in str(exc):
+                raise
+            snowflake = cls.__new__(cls)
+            snowflake._set_initial_state(x, y)
+            return snowflake
+
+    def _set_initial_state(self, x: float, y: float) -> None:
         self.x = x
         self.y = y
         
@@ -157,7 +171,7 @@ class SnowflakesWidget(QWidget):
         for _ in range(spawn_count):
             x = random.uniform(-20, width + 20)
             y = random.uniform(-30, -5)
-            self.snowflakes.append(Snowflake(x, y))
+            self.snowflakes.append(Snowflake.create(x, y))
             
     def set_enabled(self, enabled: bool):
         """Включает или выключает снежинки с анимацией"""
@@ -203,7 +217,7 @@ class SnowflakesWidget(QWidget):
         for _ in range(num_flakes):
             x = random.uniform(0, width)
             y = random.uniform(0, height)
-            self.snowflakes.append(Snowflake(x, y))
+            self.snowflakes.append(Snowflake.create(x, y))
             
     def _fade_in(self):
         """Плавное появление"""
@@ -304,4 +318,3 @@ class SnowflakesWidget(QWidget):
     def is_enabled(self) -> bool:
         """Возвращает состояние снежинок"""
         return self._enabled
-

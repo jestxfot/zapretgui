@@ -1942,9 +1942,16 @@ def main():
     QTimer.singleShot(100, _start_startup_checks)
     
     # Exception handler
-    def global_exception_handler(exctype, value, traceback):
+    def global_exception_handler(exctype, value, tb_obj):
         import traceback as tb
-        error_msg = ''.join(tb.format_exception(exctype, value, traceback))
+        try:
+            error_msg = ''.join(tb.format_exception(exctype, value, tb_obj))
+        except Exception as format_error:
+            try:
+                base_error = ''.join(tb.format_exception_only(exctype, value)).strip()
+            except Exception:
+                base_error = f"{getattr(exctype, '__name__', exctype)}: {value!r}"
+            error_msg = f"{base_error}\n[traceback formatting failed: {format_error!r}]"
         log(f"UNCAUGHT EXCEPTION: {error_msg}", level="❌ CRITICAL")
 
     sys.excepthook = global_exception_handler
