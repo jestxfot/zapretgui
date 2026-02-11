@@ -460,12 +460,19 @@ class UpdateWorker(QObject):
             # Путь установки
             install_dir = os.path.dirname(sys.executable)
 
-            # Аргументы для тихой установки
+            # Аргументы для тихой установки.
+            # Важно: при автообновлении всегда отключаем задачу installzaphub,
+            # чтобы ZapretHub не устанавливался поверх другой версии.
+            base_args = (
+                '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL '
+                '/CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /MERGETASKS=!installzaphub'
+            )
+
             # Примечание: если путь содержит пробелы, нужно экранировать кавычки
             if ' ' in install_dir:
-                arguments = f'/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /DIR="{install_dir}"'
+                arguments = f'{base_args} /DIR="{install_dir}"'
             else:
-                arguments = f'/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /DIR={install_dir}'
+                arguments = f'{base_args} /DIR={install_dir}'
 
             # Запускаем установщик через WinAPI с правами администратора
             success = launch_installer_winapi(persistent_exe, arguments, persistent_dir)
