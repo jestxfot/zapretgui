@@ -156,7 +156,7 @@ Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \
     Parameters: "/S /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"; \
     Flags: runhidden nowait; \
     Tasks: installzaphub; \
-    Check: TrackerInstallerExists
+    Check: TrackerInstallerExists and (not IsAutoUpdate)
 Filename: "{app}\Zapret.exe"; Description: "Запустить {#AppName}"; \
     Flags: nowait postinstall skipifsilent shellexec; \
     Check: not IsAutoUpdate
