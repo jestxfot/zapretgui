@@ -70,27 +70,46 @@ def _get_current_strategy_key() -> str:
 
 # ==================== МЕТОД ЗАПУСКА ====================
 
-def get_strategy_launch_method():
-    """Получает метод запуска стратегий из реестра"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "StrategyLaunchMethod")
-            return value.lower() if value else "direct_zapret2"
-    except:
-        default_method = "direct_zapret2"
-        set_strategy_launch_method(default_method)
-        log(f"Установлен метод запуска по умолчанию: {default_method}", "INFO")
-        return default_method
+import os
+import configparser
+from config import APPDATA_DIR
 
-def set_strategy_launch_method(method: str):
-    """Сохраняет метод запуска стратегий в реестр"""
+_LAUNCH_METHOD_FILE = os.path.join(APPDATA_DIR, "strategy_Launch_method.ini")
+_LAUNCH_METHOD_SECTION = "Settings"
+_LAUNCH_METHOD_KEY = "StrategyLaunchMethod"
+_LAUNCH_METHOD_DEFAULT = "direct_zapret2"
+
+
+def get_strategy_launch_method() -> str:
+    """Получает метод запуска стратегий из INI-файла в AppData"""
     try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
-            winreg.SetValueEx(key, "StrategyLaunchMethod", 0, winreg.REG_SZ, method)
-            log(f"Метод запуска стратегий изменен на: {method}", "INFO")
-            return True
+        if os.path.isfile(_LAUNCH_METHOD_FILE):
+            cfg = configparser.ConfigParser()
+            cfg.read(_LAUNCH_METHOD_FILE, encoding="utf-8")
+            value = cfg.get(_LAUNCH_METHOD_SECTION, _LAUNCH_METHOD_KEY, fallback="")
+            if value:
+                return value.lower()
     except Exception as e:
-        log(f"Ошибка сохранения метода запуска: {e}", "❌ ERROR")
+        log(f"Ошибка чтения метода запуска из {_LAUNCH_METHOD_FILE}: {e}", "ERROR")
+
+    # Файл не найден или пуст — создаём с дефолтом
+    set_strategy_launch_method(_LAUNCH_METHOD_DEFAULT)
+    log(f"Установлен метод запуска по умолчанию: {_LAUNCH_METHOD_DEFAULT}", "INFO")
+    return _LAUNCH_METHOD_DEFAULT
+
+
+def set_strategy_launch_method(method: str) -> bool:
+    """Сохраняет метод запуска стратегий в INI-файл в AppData"""
+    try:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        cfg = configparser.ConfigParser()
+        cfg[_LAUNCH_METHOD_SECTION] = {_LAUNCH_METHOD_KEY: method}
+        with open(_LAUNCH_METHOD_FILE, "w", encoding="utf-8") as f:
+            cfg.write(f)
+        log(f"Метод запуска стратегий изменен на: {method}", "INFO")
+        return True
+    except Exception as e:
+        log(f"Ошибка сохранения метода запуска: {e}", "ERROR")
         return False
 
 
