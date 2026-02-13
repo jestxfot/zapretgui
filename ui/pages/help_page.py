@@ -6,7 +6,7 @@ import subprocess
 import webbrowser
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QMessageBox
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QMessageBox, QSizePolicy
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -113,10 +113,9 @@ class HelpPage(BasePage):
         motto_row = QHBoxLayout(motto_wrap)
         motto_row.setContentsMargins(0, 0, 0, 0)
         motto_row.setSpacing(0)
-        motto_row.addStretch(1)
 
         motto_text_wrap = QFrame()
-        motto_text_wrap.setMaximumWidth(660)
+        motto_text_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         motto_text_wrap.setStyleSheet("QFrame { background: transparent; border: none; }")
 
         motto_text_layout = QVBoxLayout(motto_text_wrap)
@@ -175,7 +174,7 @@ class HelpPage(BasePage):
         motto_text_layout.addWidget(motto_translate)
         motto_text_layout.addWidget(motto_cta)
 
-        motto_row.addWidget(motto_text_wrap)
+        motto_row.addWidget(motto_text_wrap, 1)
         self.add_widget(motto_wrap)
 
     def _create_links_card(self, title: str) -> QFrame:
