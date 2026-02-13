@@ -4,6 +4,7 @@
 #EXE_UPDATE_URL = "https://nozapret.ru/main.exe"  # URL для скачивания обновления EXE
 INFO_URL = "https://publish.obsidian.md/zapret/Zapret/Zapret2"  # URL с информацией о программе
 PRESET_INFO_URL = "https://publish.obsidian.md/zapret/Zapret/preset"  # URL о пресетах
+ANDROID_URL = "https://publish.obsidian.md/zapret/Zapret/android"  # URL инструкции для Android
 BOLVAN_URL = "https://github.com/bol-van/zapret-win-bundle"  # URL автора
 
 NETROGAT_LIST_URL = "https://nozapret.ru/netrogat.txt" 

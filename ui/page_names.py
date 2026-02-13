@@ -60,6 +60,7 @@ class PageName(Enum):
     LOGS = auto()                    # Логи
     SERVERS = auto()                 # Серверы обновлений
     ABOUT = auto()                   # О программе
+    SUPPORT = auto()                 # Поддержка (ZapretHub и каналы связи)
     HELP = auto()                    # Справка (вкладка внутри "О программе")
 
     # === Оркестратор (автообучение) ===
@@ -122,6 +123,7 @@ class SectionName(Enum):
     LOGS = auto()                    # Логи
     SERVERS = auto()                 # Обновления
     ABOUT = auto()                   # О программе
+    SUPPORT = auto()                 # Поддержка (подпункт "О программе")
     HELP = auto()                    # Справка (подпункт "О программе")
 
 
@@ -160,6 +162,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.LOGS: PageName.LOGS,
     SectionName.SERVERS: PageName.SERVERS,
     SectionName.ABOUT: PageName.ABOUT,
+    SectionName.SUPPORT: PageName.SUPPORT,
     SectionName.HELP: PageName.HELP,
 }
 
@@ -200,6 +203,7 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     ],
     SectionName.ABOUT: [
         SectionName.SERVERS,
+        SectionName.SUPPORT,
         SectionName.HELP,
     ],
 }

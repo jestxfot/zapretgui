@@ -8,7 +8,7 @@ from PyQt6.QtCore    import Qt, QThread, QSettings
 import webbrowser
 
 from config import APP_VERSION  # build_info moved to config/__init__.py
-from config.urls import INFO_URL
+from config.urls import INFO_URL, ANDROID_URL
 from .about_dialog import AboutDialog
 
 from utils import run_hidden
@@ -143,37 +143,14 @@ class AppMenuBar(QMenuBar):
         help_menu.addAction(act_about)
 
     def show_byedpi_info(self):
-        """Открывает PDF руководство пользователя"""
+        """Открывает инструкцию для Android (ByeByeDPI)."""
         try:
-            from config import HELP_FOLDER
-            import os
-            
-            pdf_path = os.path.join(HELP_FOLDER, "ByeByeDPI - Что это такое.pdf")
-            
-            if not os.path.exists(pdf_path):
-                log(f"PDF руководство не найдено: {pdf_path}", "❌ ERROR")
-                
-                QMessageBox.warning(
-                    self,
-                    "Файл не найден",
-                    f"Руководство пользователя не найдено:\n{pdf_path}\n\n"
-                    "Пожалуйста, переустановите программу или обратитесь в поддержку."
-                )
-                return
-            
-            log(f"Открываем PDF руководство: {pdf_path}", "INFO")
-            os.startfile(pdf_path)
-            log("PDF руководство успешно открыто", "✅ SUCCESS")
-            
+            webbrowser.open(ANDROID_URL)
+            self._set_status("Открываю инструкцию для Android...")
         except Exception as e:
-            log(f"Ошибка при открытии PDF руководства: {e}", "❌ ERROR")
-            
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось открыть руководство пользователя:\n{str(e)}\n\n"
-                "Попробуйте открыть файл вручную из папки Help."
-            )
+            err = f"Ошибка при открытии инструкции для Android: {e}"
+            self._set_status(err)
+            QMessageBox.warning(self._pw, "Ошибка", err)
 
     def create_premium_menu(self):
         """Создает меню Premium функций"""
@@ -380,4 +357,3 @@ class AppMenuBar(QMenuBar):
         # Сохраняем ссылку на поток
         self._log_send_thread = thr
         thr.start()
-

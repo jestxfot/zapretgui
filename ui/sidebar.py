@@ -747,6 +747,7 @@ class SideNavBar(QWidget):
             (SectionName.LOGS, "fa5s.file-alt", "Логи", False),
             (SectionName.ABOUT, "fa5s.info-circle", "О программе", "collapsible"),
             (SectionName.SERVERS, "fa5s.sync-alt", "Обновления", True),
+            (SectionName.SUPPORT, "fa5s.life-ring", "Поддержка", True),
             (SectionName.HELP, "fa5s.question-circle", "Справка", True),
         ]
 

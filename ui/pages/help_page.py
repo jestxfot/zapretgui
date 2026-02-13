@@ -1,5 +1,5 @@
 # ui/pages/help_page.py
-"""Страница Справка - ссылки, руководства, поддержка"""
+"""Страница Справка - ссылки, руководства и новости"""
 
 import os
 import subprocess
@@ -17,7 +17,7 @@ class HelpPage(BasePage):
     """Страница справки (внутри группы "О программе")"""
 
     def __init__(self, parent=None):
-        super().__init__("Справка", "Руководства, ссылки и поддержка", parent)
+        super().__init__("Справка", "Руководства, ссылки и новости", parent)
         self._build_ui()
 
     def _build_ui(self):
@@ -56,7 +56,7 @@ class HelpPage(BasePage):
             docs_layout,
             "fa5s.mobile-alt",
             "На Android (ByeByeDPI)",
-            "Открыть PDF инструкцию",
+            "Открыть инструкцию на сайте",
             self._open_byedpi_pdf,
         )
         self._add_link_item(
@@ -68,28 +68,6 @@ class HelpPage(BasePage):
         )
 
         self.add_widget(docs_card)
-        self.add_spacing(8)
-
-        # --- Поддержка ---
-        support_card = self._create_links_card("Поддержка")
-        support_layout = support_card.layout()
-
-        self._add_link_item(
-            support_layout,
-            "fa5b.telegram",
-            "Telegram поддержка",
-            "Помощь и вопросы по использованию",
-            self._open_telegram_support,
-        )
-        self._add_link_item(
-            support_layout,
-            "fa5b.discord",
-            "Discord сервер",
-            "Сообщество и живое общение",
-            self._open_discord,
-        )
-
-        self.add_widget(support_card)
         self.add_spacing(8)
 
         # --- Новости ---
@@ -319,30 +297,12 @@ class HelpPage(BasePage):
 
     def _open_byedpi_pdf(self):
         try:
-            from config import HELP_FOLDER
+            from config.urls import ANDROID_URL
 
-            pdf_path = os.path.join(HELP_FOLDER, "ByeByeDPI - Что это такое.pdf")
-            if not os.path.exists(pdf_path):
-                QMessageBox.warning(
-                    self.window(),
-                    "Файл не найден",
-                    f"PDF руководство не найдено:\n{pdf_path}",
-                )
-                return
-
-            os.startfile(pdf_path)  # noqa: S606 - Windows only
-            log(f"Открыт PDF: {pdf_path}", "INFO")
+            webbrowser.open(ANDROID_URL)
+            log(f"Открыта инструкция Android: {ANDROID_URL}", "INFO")
         except Exception as e:
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть PDF:\n{e}")
-
-    def _open_telegram_support(self):
-        try:
-            from config.telegram_links import open_telegram_link
-
-            open_telegram_link("zaprethelp")
-            log("Открыт Telegram: zaprethelp", "INFO")
-        except Exception as e:
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")
+            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть инструкцию:\n{e}")
 
     def _open_telegram_news(self):
         try:
@@ -368,14 +328,6 @@ class HelpPage(BasePage):
             log(f"Открыт Bastyon: {url}", "INFO")
         except Exception as e:
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Bastyon:\n{e}")
-
-    def _open_discord(self):
-        try:
-            url = "https://discord.gg/kkcBDG2uws"
-            webbrowser.open(url)
-            log(f"Открыт Discord: {url}", "INFO")
-        except Exception as e:
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Discord:\n{e}")
 
     def _open_github(self):
         try:

@@ -15,7 +15,7 @@ from ui.custom_titlebar import DraggableWidget
 from ui.pages import (
     HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
     AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    HelpPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
+    HelpPage, SupportPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
     PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
     Zapret2DirectControlPage, Zapret2StrategiesPageNew, Zapret2UserPresetsPage, StrategyDetailPage,
     Zapret1DirectStrategiesPage, BatStrategiesPage, MyCategoriesPage
@@ -228,6 +228,10 @@ class MainWindowUI:
         self.servers_page = ServersPage(self)
         self.pages_stack.addWidget(self.servers_page)
 
+        # Поддержка (подпункт "О программе")
+        self.support_page = SupportPage(self)
+        self.pages_stack.addWidget(self.support_page)
+
         # О программе
         self.about_page = AboutPage(self)
         self.pages_stack.addWidget(self.about_page)
@@ -291,6 +295,7 @@ class MainWindowUI:
             PageName.LOGS: self.logs_page,
             PageName.SERVERS: self.servers_page,
             PageName.ABOUT: self.about_page,
+            PageName.SUPPORT: self.support_page,
             PageName.HELP: self.help_page,
             PageName.ORCHESTRA: self.orchestra_page,
             PageName.ORCHESTRA_LOCKED: self.orchestra_locked_page,

@@ -24,6 +24,7 @@ from .network_page import NetworkPage
 from .hosts_page import HostsPage
 from .appearance_page import AppearancePage
 from .about_page import AboutPage
+from .support_page import SupportPage
 from .help_page import HelpPage
 from .logs_page import LogsPage
 from .premium_page import PremiumPage
@@ -65,6 +66,7 @@ __all__ = [
     'HostsPage',
     'AppearancePage',
     'AboutPage',
+    'SupportPage',
     'HelpPage',
     'LogsPage',
     'PremiumPage',
