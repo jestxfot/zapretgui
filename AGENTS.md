@@ -1,6 +1,30 @@
+Prefer delegating codebase exploration to subagents; ask questions only when truly blocked; consider several options before making interactive/destructive changes.
+
 Ask questions before changing anything interactively, considering several possible options!
 
 Note: In this repo, multiple agents may work in parallel (e.g. GPT/Codex/Claude). If you see unexpected local changes, assume another agent might be working; don't panic or revert automatically.
+
+## Использование субагентов (чтобы не засорять контекст)
+
+Цель: основной агент (ты) держит контекст "чистым" и сразу понимает, что именно править, а не "лазит по папкам". Для этого максимум поиска/чтения/анализа отдаём субагентам.
+
+- Для анализа кода (поиск по проекту, чтение множества файлов, трассировка потоков, выявление места бага) сначала запускай `Task` субагента `explore`.
+- Для прод-отладки/триажа инцидентов (гипотезы причин, команды проверки, план ремедиации) запускай `Task` субагента `general`.
+- Основной агент читает файлы напрямую только когда:
+  - нужно внести конкретный патч (точечное изменение);
+  - нужно проверить финальный контекст вокруг правки.
+- Проси субагента возвращать "готовый ответ":
+  - точные пути файлов (`path/to/file.py`) и названия функций/классов;
+  - 1-3 ключевые причины/гипотезы;
+  - конкретное предложение исправления (минимальный патч/псевдопатч);
+  - команды для проверки (тесты/запуск/диагностика).
+
+Рекомендуемый шаблон запроса субагенту (коротко и по делу):
+
+```text
+Проанализируй <симптом/лог/вопрос>. Найди место в коде, где это возникает, и предложи минимальное исправление.
+Верни: (1) файлы+символы, (2) корень проблемы, (3) точечный фикс, (4) как проверить.
+```
 
 “Make sure to commit every change, as the code sometimes gets reset.
 
