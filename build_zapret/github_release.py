@@ -104,10 +104,25 @@ GITHUB_CONFIG = {
     "upload_settings": {
         "use_cli_for_large_files": True,  # Использовать GitHub CLI для больших файлов
         "large_file_threshold_mb": 40,    # Порог в МБ для переключения на CLI
-        "retry_attempts": 3,               # Количество попыток при ошибках
+        "retry_attempts": 0,               # 0 = повторять бесконечно при сетевых ошибках
         "chunk_size_mb": 5                # Размер чанка для загрузки
     }
 }
+
+# Default request timeouts for GitHub API calls.
+# (connect_timeout_s, read_timeout_s)
+DEFAULT_GITHUB_TIMEOUT = (30, 120)
+
+
+def _retry_wait_seconds(attempt: int, *, base: int = 5, cap: int = 60) -> int:
+    """Linear backoff with an upper cap (in seconds)."""
+    try:
+        a = int(attempt)
+    except Exception:
+        a = 1
+    if a < 1:
+        a = 1
+    return int(min(cap, base * a))
 
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip() in {"1", "true", "TRUE", "yes", "YES", "on", "ON"}
@@ -398,33 +413,101 @@ class GitHubReleaseManager:
     
     def check_token_validity(self) -> bool:
         """Проверить действительность токена"""
-        try:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"🔍 Проверяем токен ({self.token_type})...")
-            
-            # Classic/OAuth – /user, fine-grained – репозиторий
-            test_endpoint = (f"{self.api_base}/repos/{self.repo_owner}/{self.repo_name}"
-                             if self.token_type == 'fine-grained'
-                             else f"{self.api_base}/user")
+        if hasattr(self, 'log_queue') and self.log_queue:
+            self.log_queue.put(f"🔍 Проверяем токен ({self.token_type})...")
 
-            response = self.session.get(test_endpoint, verify=self.verify_ssl)
-            
-            if response.ok:
-                # Для fine-grained токена user-данных не будет,
-                # поэтому условно выводим имя репозитория.
-                info = response.json().get('login') or response.json().get('full_name')
-                if hasattr(self, 'log_queue') and self.log_queue:
-                    self.log_queue.put(f"✅ Токен действителен: {info}")
-                return True
-            else:
+        # Classic/OAuth – /user, fine-grained – репозиторий
+        test_endpoint = (f"{self.api_base}/repos/{self.repo_owner}/{self.repo_name}"
+                         if self.token_type == 'fine-grained'
+                         else f"{self.api_base}/user")
+
+        retry_attempts = int(GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3) or 0)
+        retry_forever = retry_attempts <= 0
+
+        transient_statuses = {408, 425, 429, 500, 502, 503, 504}
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                try:
+                    response = self.session.get(
+                        test_endpoint,
+                        verify=self.verify_ssl,
+                        timeout=DEFAULT_GITHUB_TIMEOUT,
+                    )
+                except requests.exceptions.SSLError as e:
+                    if not self.verify_ssl:
+                        raise
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"❌ SSL ошибка: {e}")
+                        self.log_queue.put("🔄 Повторяем запрос без SSL проверки...")
+                    response = self.session.get(
+                        test_endpoint,
+                        verify=False,
+                        timeout=DEFAULT_GITHUB_TIMEOUT,
+                    )
+
+                if response.status_code in transient_statuses:
+                    # GitHub/Network hiccup: retry.
+                    if not retry_forever and attempt >= retry_attempts:
+                        if hasattr(self, 'log_queue') and self.log_queue:
+                            self.log_queue.put(
+                                f"❌ Ошибка проверки токена: HTTP {response.status_code} (лимит попыток исчерпан)"
+                            )
+                        return False
+
+                    retry_after = (response.headers.get("Retry-After") or "").strip()
+                    wait_time = int(retry_after) if retry_after.isdigit() else _retry_wait_seconds(attempt)
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        suffix = f"/{retry_attempts}" if not retry_forever else ""
+                        self.log_queue.put(
+                            f"⚠️ Временная ошибка GitHub (проверка токена) (попытка {attempt}{suffix}): "
+                            f"HTTP {response.status_code}. Повтор через {wait_time} сек..."
+                        )
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    time.sleep(wait_time)
+                    continue
+
+                if response.ok:
+                    # Для fine-grained токена user-данных не будет,
+                    # поэтому условно выводим имя репозитория.
+                    info = response.json().get('login') or response.json().get('full_name')
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"✅ Токен действителен: {info}")
+                    return True
+
                 if hasattr(self, 'log_queue') and self.log_queue:
                     self.log_queue.put(f"❌ Токен недействителен: {response.status_code} {response.text}")
                 return False
-                
-        except Exception as e:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"❌ Ошибка проверки токена: {e}")
-            return False
+
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.SSLError,
+                requests.exceptions.Timeout,
+                ConnectionAbortedError,
+            ) as e:
+                if not retry_forever and attempt >= retry_attempts:
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"❌ Ошибка проверки токена: {e}")
+                    return False
+
+                wait_time = _retry_wait_seconds(attempt)
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    suffix = f"/{retry_attempts}" if not retry_forever else ""
+                    self.log_queue.put(
+                        f"⚠️ Ошибка сети (проверка токена) (попытка {attempt}{suffix}): {type(e).__name__}. "
+                        f"Повтор через {wait_time} сек..."
+                    )
+                time.sleep(wait_time)
+                continue
+
+            except Exception as e:
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put(f"❌ Ошибка проверки токена: {e}")
+                return False
     
     def check_repository_access(self) -> bool:
         """Проверить доступ к репозиторию"""
@@ -483,76 +566,117 @@ class GitHubReleaseManager:
         if hasattr(self, 'log_queue') and self.log_queue:
             self.log_queue.put(f"GitHub API: {method} {url}")
         
-        # Добавляем настройки SSL
-        kwargs['verify'] = self.verify_ssl
-        
-        try:
-            response = self.session.request(method, url, **kwargs)
-            
-            if response.status_code == 404:
-                if handle_404:
-                    return None
-                
-                if hasattr(self, 'log_queue') and self.log_queue:
-                    self.log_queue.put(f"❌ 404 - Репозиторий не найден!")
-                    self.log_queue.put(f"🔍 Проверьте:")
-                    self.log_queue.put(f"   • Правильность имени: {self.repo_owner}/{self.repo_name}")
-                    self.log_queue.put(f"   • Существует ли репозиторий: https://github.com/{self.repo_owner}/{self.repo_name}")
-                    
-                    if self.token_type == 'fine-grained':
-                        self.log_queue.put(f"   • Resource owner в токене: {self.repo_owner}")
-                        self.log_queue.put(f"   • Repository access включает: {self.repo_name}")
-                
-                raise Exception(f"Repository {self.repo_owner}/{self.repo_name} not found (404)")
-            
-            if not response.ok:
-                error_msg = f"GitHub API error: {response.status_code} {response.text}"
-                if hasattr(self, 'log_queue') and self.log_queue:
-                    self.log_queue.put(f"❌ {error_msg}")
-                raise Exception(error_msg)
-                
-            return response
-            
-        except requests.exceptions.SSLError as e:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"❌ SSL ошибка: {e}")
-            
-            # Пробуем повторить запрос без SSL проверки
-            if self.verify_ssl:
-                if hasattr(self, 'log_queue') and self.log_queue:
-                    self.log_queue.put("🔄 Повторяем запрос без SSL проверки...")
-                
-                kwargs['verify'] = False
+        # Defaults
+        kwargs.setdefault('verify', self.verify_ssl)
+        kwargs.setdefault('timeout', DEFAULT_GITHUB_TIMEOUT)
+
+        retry_attempts = int(GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3) or 0)
+        retry_forever = retry_attempts <= 0
+
+        # GitHub can sporadically respond with these during outages/throttling.
+        transient_statuses = {408, 425, 429, 500, 502, 503, 504}
+
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                ssl_bypass = False
                 try:
                     response = self.session.request(method, url, **kwargs)
-                    
-                    if response.status_code == 404:
-                        if handle_404:
-                            return None
-                        raise Exception(f"Repository {self.repo_owner}/{self.repo_name} not found (404)")
-                    
-                    if not response.ok:
+                except requests.exceptions.SSLError as e:
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"❌ SSL ошибка: {e}")
+
+                    # Пробуем повторить запрос без SSL проверки
+                    if kwargs.get('verify', True):
+                        if hasattr(self, 'log_queue') and self.log_queue:
+                            self.log_queue.put("🔄 Повторяем запрос без SSL проверки...")
+
+                        alt = dict(kwargs)
+                        alt['verify'] = False
+                        response = self.session.request(method, url, **alt)
+                        ssl_bypass = True
+                    else:
+                        raise
+
+                # 404
+                if response.status_code == 404:
+                    if handle_404:
+                        return None
+
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put("❌ 404 - Репозиторий не найден!")
+                        self.log_queue.put("🔍 Проверьте:")
+                        self.log_queue.put(f"   • Правильность имени: {self.repo_owner}/{self.repo_name}")
+                        self.log_queue.put(
+                            f"   • Существует ли репозиторий: https://github.com/{self.repo_owner}/{self.repo_name}"
+                        )
+
+                        if self.token_type == 'fine-grained':
+                            self.log_queue.put(f"   • Resource owner в токене: {self.repo_owner}")
+                            self.log_queue.put(f"   • Repository access включает: {self.repo_name}")
+
+                    raise Exception(f"Repository {self.repo_owner}/{self.repo_name} not found (404)")
+
+                # Transient HTTP codes
+                if response.status_code in transient_statuses:
+                    if not retry_forever and attempt >= retry_attempts:
                         error_msg = f"GitHub API error: {response.status_code} {response.text}"
                         if hasattr(self, 'log_queue') and self.log_queue:
                             self.log_queue.put(f"❌ {error_msg}")
                         raise Exception(error_msg)
-                        
+
+                    retry_after = (response.headers.get("Retry-After") or "").strip()
+                    wait_time = int(retry_after) if retry_after.isdigit() else _retry_wait_seconds(attempt)
                     if hasattr(self, 'log_queue') and self.log_queue:
-                        self.log_queue.put("✔ Запрос успешен (без SSL проверки)")
-                    
-                    return response
-                    
-                except Exception as retry_error:
+                        suffix = f"/{retry_attempts}" if not retry_forever else ""
+                        self.log_queue.put(
+                            f"⚠️ Временная ошибка GitHub API (попытка {attempt}{suffix}): "
+                            f"HTTP {response.status_code}. Повтор через {wait_time} сек..."
+                        )
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    time.sleep(wait_time)
+                    continue
+
+                # Other HTTP errors
+                if not response.ok:
+                    error_msg = f"GitHub API error: {response.status_code} {response.text}"
                     if hasattr(self, 'log_queue') and self.log_queue:
-                        self.log_queue.put(f"❌ Повторная попытка не удалась: {retry_error}")
+                        self.log_queue.put(f"❌ {error_msg}")
+                    raise Exception(error_msg)
+
+                if ssl_bypass and hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put("✔ Запрос успешен (без SSL проверки)")
+                return response
+
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.SSLError,
+                requests.exceptions.Timeout,
+                ConnectionAbortedError,
+            ) as e:
+                if not retry_forever and attempt >= retry_attempts:
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"❌ Ошибка запроса: {e}")
                     raise
-            
-            raise
-            
-        except Exception as e:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"❌ Ошибка запроса: {e}")
-            raise
+
+                wait_time = _retry_wait_seconds(attempt)
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    suffix = f"/{retry_attempts}" if not retry_forever else ""
+                    self.log_queue.put(
+                        f"⚠️ Ошибка сети (GitHub API) (попытка {attempt}{suffix}): {type(e).__name__}. "
+                        f"Повтор через {wait_time} сек..."
+                    )
+                time.sleep(wait_time)
+                continue
+
+            except Exception as e:
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put(f"❌ Ошибка запроса: {e}")
+                raise
     
     def create_release(self, tag_name: str, name: str, body: str, 
                       draft: bool = False, prerelease: bool = False) -> Dict[str, Any]:
@@ -735,41 +859,48 @@ class GitHubReleaseManager:
             self.log_queue.put(f"📤 Загружаем через API: {filename} ({file_size / 1024 / 1024:.1f} MB)")
         
         upload_url = f"https://uploads.github.com/repos/{self.repo_owner}/{self.repo_name}/releases/{release_id}/assets"
-        
-        max_attempts = GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3)
-        
-        for attempt in range(max_attempts):
+
+        retry_attempts = int(GITHUB_CONFIG.get("upload_settings", {}).get("retry_attempts", 3) or 0)
+        retry_forever = retry_attempts <= 0
+
+        transient_statuses = {408, 425, 429, 500, 502, 503, 504}
+
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 upload_session = requests.Session()
                 upload_session.trust_env = not self.no_proxy
                 upload_session.headers.update(self.headers)
                 upload_session.headers["Content-Type"] = content_type
                 upload_session.headers["Content-Length"] = str(file_size)
-                
+
                 # ✅ ИСПРАВЛЕНИЕ: Используем генератор для отслеживания прогресса
                 def file_reader_with_progress(file_obj, chunk_size=8192):
                     total_read = 0
                     last_percent = -1
                     start_time = time.time()
-                    
+
                     while True:
                         chunk = file_obj.read(chunk_size)
                         if not chunk:
                             break
-                            
+
                         total_read += len(chunk)
                         percent = int((total_read / file_size) * 100)
-                        
+
                         # Обновляем каждые 10%
                         if percent >= last_percent + 10:
                             elapsed = int(time.time() - start_time)
                             speed_mb = (total_read / 1024 / 1024) / max(elapsed, 1)
                             if hasattr(self, 'log_queue') and self.log_queue:
-                                self.log_queue.put(f"  📊 {percent}% ({total_read / 1024 / 1024:.1f} MB) — {speed_mb:.1f} MB/s")
+                                self.log_queue.put(
+                                    f"  📊 {percent}% ({total_read / 1024 / 1024:.1f} MB) — {speed_mb:.1f} MB/s"
+                                )
                             last_percent = percent
-                        
+
                         yield chunk
-                
+
                 with open(file_path, 'rb') as f:
                     try:
                         response = upload_session.post(
@@ -782,7 +913,7 @@ class GitHubReleaseManager:
                     except requests.exceptions.SSLError:
                         if hasattr(self, 'log_queue') and self.log_queue:
                             self.log_queue.put("⚠️ SSL ошибка, повторяем без проверки...")
-                        
+
                         f.seek(0)
                         response = upload_session.post(
                             upload_url,
@@ -791,34 +922,60 @@ class GitHubReleaseManager:
                             verify=False,
                             timeout=(30, 1200)
                         )
-                
+
                 if response.ok:
                     asset_data = response.json()
                     if hasattr(self, 'log_queue') and self.log_queue:
                         self.log_queue.put(f"✔ Файл загружен: {asset_data['browser_download_url']}")
                     return asset_data
-                elif response.status_code == 422:
+
+                if response.status_code == 422:
                     if hasattr(self, 'log_queue') and self.log_queue:
                         self.log_queue.put("⚠️ Файл уже существует в релизе")
-                    return {"name": filename, "browser_download_url": f"https://github.com/{self.repo_owner}/{self.repo_name}/releases/"}
-                else:
-                    raise Exception(f"HTTP {response.status_code}: {response.text}")
-                    
-            except (requests.exceptions.ConnectionError, 
-                    requests.exceptions.Timeout,
-                    ConnectionAbortedError) as e:
-                if attempt < max_attempts - 1:
-                    wait_time = (attempt + 1) * 5
+                    return {
+                        "name": filename,
+                        "browser_download_url": f"https://github.com/{self.repo_owner}/{self.repo_name}/releases/",
+                    }
+
+                if response.status_code in transient_statuses:
+                    if not retry_forever and attempt >= retry_attempts:
+                        raise Exception(f"HTTP {response.status_code}: {response.text}")
+
+                    retry_after = (response.headers.get("Retry-After") or "").strip()
+                    wait_time = int(retry_after) if retry_after.isdigit() else _retry_wait_seconds(attempt)
                     if hasattr(self, 'log_queue') and self.log_queue:
+                        suffix = f"/{retry_attempts}" if not retry_forever else ""
                         self.log_queue.put(
-                            f"⚠️ Ошибка загрузки (попытка {attempt + 1}/{max_attempts}): {type(e).__name__}. "
+                            f"⚠️ Временная ошибка загрузки (попытка {attempt}{suffix}): HTTP {response.status_code}. "
                             f"Повтор через {wait_time} сек..."
                         )
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
                     time.sleep(wait_time)
-                else:
+                    continue
+
+                raise Exception(f"HTTP {response.status_code}: {response.text}")
+
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.SSLError,
+                requests.exceptions.Timeout,
+                ConnectionAbortedError,
+            ) as e:
+                if not retry_forever and attempt >= retry_attempts:
                     raise
-        
-        raise Exception(f"Не удалось загрузить файл после {max_attempts} попыток")
+
+                wait_time = _retry_wait_seconds(attempt)
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    suffix = f"/{retry_attempts}" if not retry_forever else ""
+                    self.log_queue.put(
+                        f"⚠️ Ошибка загрузки (попытка {attempt}{suffix}): {type(e).__name__}. "
+                        f"Повтор через {wait_time} сек..."
+                    )
+                time.sleep(wait_time)
+                continue
         
     def delete_asset(self, asset_id: int):
         """Удалить asset из release"""
