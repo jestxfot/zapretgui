@@ -4,26 +4,26 @@ Ask questions before changing anything interactively, considering several possib
 
 Note: In this repo, multiple agents may work in parallel (e.g. GPT/Codex/Claude). If you see unexpected local changes, assume another agent might be working; don't panic or revert automatically.
 
-## Использование субагентов (чтобы не засорять контекст)
+## Subagents (keep context clean)
 
-Цель: основной агент (ты) держит контекст "чистым" и сразу понимает, что именно править, а не "лазит по папкам". Для этого максимум поиска/чтения/анализа отдаём субагентам.
+Goal: keep the main agent's context "clean" and quickly converge on what to change, instead of wandering through the repo. Delegate most searching/reading/tracing to subagents.
 
-- Для анализа кода (поиск по проекту, чтение множества файлов, трассировка потоков, выявление места бага) сначала запускай `Task` субагента `explore`.
-- Для прод-отладки/триажа инцидентов (гипотезы причин, команды проверки, план ремедиации) запускай `Task` субагента `general`.
-- Основной агент читает файлы напрямую только когда:
-  - нужно внести конкретный патч (точечное изменение);
-  - нужно проверить финальный контекст вокруг правки.
-- Проси субагента возвращать "готовый ответ":
-  - точные пути файлов (`path/to/file.py`) и названия функций/классов;
-  - 1-3 ключевые причины/гипотезы;
-  - конкретное предложение исправления (минимальный патч/псевдопатч);
-  - команды для проверки (тесты/запуск/диагностика).
+- Code analysis (project-wide search, reading many files, tracing flows, finding the source of a bug): start with `Task` using the `explore` subagent.
+- Production debugging / incident triage (root-cause hypotheses, verification commands, remediation plan): start with `Task` using the `general` subagent.
+- The main agent should read files directly only when:
+  - applying a concrete patch (targeted change);
+  - validating the final context around the edit.
+- Ask subagents to return a "ready-to-use" response:
+  - exact file paths (`path/to/file.py`) and the relevant functions/classes;
+  - 1-3 key causes/hypotheses;
+  - a concrete fix proposal (minimal patch / pseudopatch);
+  - how to verify (tests/run/diagnostics).
 
-Рекомендуемый шаблон запроса субагенту (коротко и по делу):
+Recommended prompt template:
 
 ```text
-Проанализируй <симптом/лог/вопрос>. Найди место в коде, где это возникает, и предложи минимальное исправление.
-Верни: (1) файлы+символы, (2) корень проблемы, (3) точечный фикс, (4) как проверить.
+Analyze <symptom/log/question>. Find where it happens in the code and propose the minimal fix.
+Return: (1) files+symbols, (2) root cause, (3) targeted fix, (4) how to verify.
 ```
 
 “Make sure to commit every change, as the code sometimes gets reset.
