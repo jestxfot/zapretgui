@@ -1,6 +1,6 @@
 ---
 name: nfq2-lua-orchestrator
-description: Use this agent when creating new Lua files for the Zapret DPI bypass system or Python orchestration scripts. This agent should be triggered PROACTIVELY whenever the user requests creation of Lua scripts for winws2/nfq2, Python orchestrators for the orchestra system, or any code that needs to integrate with the existing nfq2 architecture in F:\doc\zapret2\nfq2
+description: Use this agent when creating new Lua files for the Zapret DPI bypass system or Python orchestration scripts. This agent should be triggered PROACTIVELY whenever the user requests creation of Lua scripts for winws2/nfq2, Python orchestrators for the orchestra system, or any code that needs to integrate with the existing nfq2 architecture in
 model: sonnet
 color: purple
 ---

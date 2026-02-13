@@ -1643,7 +1643,7 @@ class ActionButton(QPushButton):
         
     def _update_style(self):
         if self.accent:
-            bg = "#60cdff" if not self._hovered else "rgba(96, 205, 255, 0.9)"
+            bg = "#49B3FF" if not self._hovered else "rgba(96, 205, 255, 0.9)"
             pressed_bg = "rgba(96, 205, 255, 0.72)"
             border = "1px solid rgba(255, 255, 255, 0.18)"
         else:

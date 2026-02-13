@@ -308,12 +308,6 @@ function simple_sni_split(ctx, desync)
 end
 ```
 
-## ФАЙЛЫ ДЛЯ РАБОТЫ
-
-- **Целевой файл:** `/home/privacy/zapret/lua/custom_funcs.lua`
-- **Референс API:** `F:\doc\zapret2\nfq2\lua\zapret-lib.lua`
-- **Референс функций:** `F:\doc\zapret2\nfq2\lua\zapret-antidpi.lua`
-
 ## ВАЖНО
 
 1. Читай существующий код в `custom_funcs.lua` перед добавлением

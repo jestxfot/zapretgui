@@ -230,7 +230,57 @@ class Zapret2DirectControlPage(BasePage):
 
         self.add_spacing(16)
 
-        self.add_section_title("Активные hostlist/ipset")
+        self.add_section_title("Активный пресет (стандартный набор стратегий из готового списка)")
+
+        active_preset_card = SettingsCard()
+        active_preset_layout = QHBoxLayout()
+        active_preset_layout.setSpacing(12)
+
+        self.active_preset_icon = QLabel()
+        try:
+            from ui.fluent_icons import fluent_pixmap
+
+            self.active_preset_icon.setPixmap(fluent_pixmap("fa5s.star", 20))
+        except Exception:
+            self.active_preset_icon.setPixmap(qta.icon("fa5s.star", color="#60cdff").pixmap(20, 20))
+        self.active_preset_icon.setFixedSize(24, 24)
+        active_preset_layout.addWidget(self.active_preset_icon)
+
+        active_preset_text_layout = QVBoxLayout()
+        active_preset_text_layout.setSpacing(2)
+
+        self.active_preset_label = QLabel("Не выбран")
+        self.active_preset_label.setStyleSheet(
+            """
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            """
+        )
+        self.active_preset_label.setWordWrap(True)
+        self.active_preset_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        active_preset_text_layout.addWidget(self.active_preset_label)
+
+        self.active_preset_desc = QLabel("Выберите пресет в разделе «Активный пресет»")
+        self.active_preset_desc.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(255, 255, 255, 0.5);
+                font-size: 11px;
+            }
+            """
+        )
+        active_preset_text_layout.addWidget(self.active_preset_desc)
+
+        active_preset_layout.addLayout(active_preset_text_layout, 1)
+        active_preset_card.add_layout(active_preset_layout)
+        self.add_widget(active_preset_card)
+
+        self.add_spacing(16)
+
+        self.add_section_title("Хотите свою стратегию для каждого сайта? Перейдите во вкладку «Прямой запуск» чтобы изменить шаблонный пресет")
 
         strategy_card = SettingsCard()
         strategy_layout = QHBoxLayout()
@@ -867,6 +917,18 @@ class Zapret2DirectControlPage(BasePage):
         self._update_stop_winws_button_text()
 
         show_filter_lists = False
+        active_preset_name = ""
+
+        try:
+            from preset_zapret2 import PresetManager
+
+            preset_manager = PresetManager()
+            active_preset_name = (preset_manager.get_active_preset_name() or "").strip()
+            if not active_preset_name:
+                preset = preset_manager.get_active_preset()
+                active_preset_name = (getattr(preset, "name", "") or "").strip()
+        except Exception:
+            active_preset_name = ""
 
         try:
             from strategy_menu import get_strategy_launch_method
@@ -911,6 +973,15 @@ class Zapret2DirectControlPage(BasePage):
                     self.strategy_label.setToolTip("\n".join(active_lists))
         except Exception:
             pass
+
+        if active_preset_name:
+            self.active_preset_label.setText(active_preset_name)
+            self.active_preset_label.setToolTip(active_preset_name)
+            self.active_preset_desc.setText("Текущий активный пресет")
+        else:
+            self.active_preset_label.setText("Не выбран")
+            self.active_preset_label.setToolTip("")
+            self.active_preset_desc.setText("Выберите пресет в разделе «Активный пресет»")
 
         if name and name != "Автостарт DPI отключен":
             self.strategy_label.setText(name)

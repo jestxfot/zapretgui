@@ -331,8 +331,9 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
     lua_antidpi_path = os.path.join(LUA_FOLDER, "zapret-antidpi.lua")
     lua_auto_path = os.path.join(LUA_FOLDER, "zapret-auto.lua")
     custom_funcs_path = os.path.join(LUA_FOLDER, "custom_funcs.lua")
+    zapret_multishake_path = os.path.join(LUA_FOLDER, "zapret-multishake.lua")
     # Paths WITHOUT quotes - subprocess.Popen with list of args handles paths correctly
-    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{lua_auto_path} --lua-init=@{custom_funcs_path}'
+    LUA_INIT = f'--lua-init=@{lua_lib_path} --lua-init=@{lua_antidpi_path} --lua-init=@{lua_auto_path} --lua-init=@{custom_funcs_path} --lua-init=@{zapret_multishake_path}'
 
     # Auto-detect required filters based on selected categories
     filters = calculate_required_filters(category_strategies)

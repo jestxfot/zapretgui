@@ -1160,7 +1160,7 @@ class PresetsPage(BasePage):
         if accent:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #60cdff;
+                    background-color: #49B3FF;
                     border: 1px solid rgba(255, 255, 255, 0.18);
                     border-radius: 8px;
                     color: #ffffff;
