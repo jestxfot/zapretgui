@@ -72,7 +72,7 @@ def _get_current_strategy_key() -> str:
 
 import os
 import configparser
-from config import APPDATA_DIR
+from config import APPDATA_DIR, get_zapret_userdata_dir
 from safe_construct import safe_construct
 
 _LAUNCH_METHOD_FILE = os.path.join(APPDATA_DIR, "strategy_Launch_method.ini")
@@ -83,18 +83,50 @@ _LAUNCH_METHOD_DEFAULT = "direct_zapret2"
 
 # ==================== DIRECT_ZAPRET2 UI MODE (BASIC/ADVANCED) ====================
 
-_DIRECT_ZAPRET2_UI_MODE_KEY = "DirectZapret2UiMode"  # stored under DIRECT_PATH (registry)
 _DIRECT_ZAPRET2_UI_MODE_DEFAULT = "advanced"
+
+# Store UI mode in Roaming AppData (stable for both dev/stable builds):
+#   %APPDATA%\zapret\direct_zapret2\direct_zapret2_mode.ini
+_DIRECT_ZAPRET2_UI_MODE_DIR = os.path.join(get_zapret_userdata_dir(), "direct_zapret2")
+_DIRECT_ZAPRET2_UI_MODE_FILE = os.path.join(_DIRECT_ZAPRET2_UI_MODE_DIR, "direct_zapret2_mode.ini")
+_DIRECT_ZAPRET2_UI_MODE_SECTION = "Settings"
+_DIRECT_ZAPRET2_UI_MODE_KEY = "mode"
+
+# Legacy registry value for one-time migration.
+_DIRECT_ZAPRET2_UI_MODE_LEGACY_REG_KEY = "DirectZapret2UiMode"
 
 
 def get_direct_zapret2_ui_mode() -> str:
     """Returns UI mode for direct_zapret2: "basic" or "advanced"."""
+    # Primary source: INI file in Roaming AppData.
     try:
-        raw = reg(DIRECT_PATH, _DIRECT_ZAPRET2_UI_MODE_KEY)
+        if os.path.isfile(_DIRECT_ZAPRET2_UI_MODE_FILE):
+            cfg = safe_construct(configparser.ConfigParser)
+            cfg.read(_DIRECT_ZAPRET2_UI_MODE_FILE, encoding="utf-8")
+            value = cfg.get(_DIRECT_ZAPRET2_UI_MODE_SECTION, _DIRECT_ZAPRET2_UI_MODE_KEY, fallback="")
+            value = (value or "").strip().lower()
+            if value in ("basic", "advanced"):
+                return value
+    except Exception as e:
+        log(f"Ошибка чтения direct_zapret2_mode из {_DIRECT_ZAPRET2_UI_MODE_FILE}: {e}", "DEBUG")
+
+    # Backward compatibility: migrate from the legacy registry value.
+    try:
+        raw = reg(DIRECT_PATH, _DIRECT_ZAPRET2_UI_MODE_LEGACY_REG_KEY)
         if isinstance(raw, str):
             value = raw.strip().lower()
             if value in ("basic", "advanced"):
+                try:
+                    set_direct_zapret2_ui_mode(value)
+                except Exception:
+                    pass
                 return value
+    except Exception:
+        pass
+
+    # Ensure the file exists with default value (best-effort).
+    try:
+        set_direct_zapret2_ui_mode(_DIRECT_ZAPRET2_UI_MODE_DEFAULT)
     except Exception:
         pass
     return _DIRECT_ZAPRET2_UI_MODE_DEFAULT
@@ -106,12 +138,15 @@ def set_direct_zapret2_ui_mode(mode: str) -> bool:
     if value not in ("basic", "advanced"):
         value = _DIRECT_ZAPRET2_UI_MODE_DEFAULT
     try:
-        ok = reg(DIRECT_PATH, _DIRECT_ZAPRET2_UI_MODE_KEY, value)
-        if ok:
-            log(f"DirectZapret2 UI mode set to: {value}", "DEBUG")
-        return bool(ok)
+        os.makedirs(_DIRECT_ZAPRET2_UI_MODE_DIR, exist_ok=True)
+        cfg = safe_construct(configparser.ConfigParser)
+        cfg[_DIRECT_ZAPRET2_UI_MODE_SECTION] = {_DIRECT_ZAPRET2_UI_MODE_KEY: value}
+        with open(_DIRECT_ZAPRET2_UI_MODE_FILE, "w", encoding="utf-8") as f:
+            cfg.write(f)
+        log(f"DirectZapret2 UI mode set to: {value}", "DEBUG")
+        return True
     except Exception as e:
-        log(f"Ошибка сохранения DirectZapret2 UI mode: {e}", "ERROR")
+        log(f"Ошибка сохранения direct_zapret2_mode в {_DIRECT_ZAPRET2_UI_MODE_FILE}: {e}", "ERROR")
         return False
 
 
