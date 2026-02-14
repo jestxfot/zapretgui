@@ -5,12 +5,13 @@ import os
 import re
 import webbrowser
 
-from PyQt6.QtCore import QSize, QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QSize, Qt, QObject, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QProgressBar,
     QSizePolicy,
     QMessageBox,
@@ -128,6 +129,7 @@ class Zapret2DirectControlPage(BasePage):
 
         self._cert_install_thread: QThread | None = None
         self._cert_install_worker: _CertificateInstallWorker | None = None
+        self._direct_launch_mode = "advanced"
 
         self._build_ui()
         self._update_stop_winws_button_text()
@@ -141,6 +143,11 @@ class Zapret2DirectControlPage(BasePage):
 
         try:
             self._load_advanced_settings()
+        except Exception:
+            pass
+
+        try:
+            self._sync_direct_launch_mode_from_settings()
         except Exception:
             pass
 
@@ -250,6 +257,43 @@ class Zapret2DirectControlPage(BasePage):
         buttons_layout.addStretch()
         control_card.add_layout(buttons_layout)
         self.add_widget(control_card)
+
+        # Тип прямого запуска (direct_zapret2): Basic / Advanced
+        self.add_section_title("Тип прямого запуска")
+
+        mode_card = SettingsCard()
+        mode_row = SettingsRow(
+            "fa5s.sliders-h",
+            "Тип прямого запуска",
+            "Basic — без UI, send/syndata можно указать в args стратегии. Advanced — Send/Syndata/фазы в UI",
+        )
+
+        mode_control = QWidget()
+        mode_ctl_layout = QHBoxLayout(mode_control)
+        mode_ctl_layout.setContentsMargins(0, 0, 0, 0)
+        mode_ctl_layout.setSpacing(0)
+
+        self._direct_launch_mode_basic_btn = QPushButton("Basic")
+        self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
+        for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
+            btn.setFixedHeight(28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+
+        self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
+        self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
+
+        mode_ctl_layout.addWidget(self._direct_launch_mode_basic_btn)
+        mode_ctl_layout.addWidget(self._direct_launch_mode_advanced_btn)
+
+        mode_row.set_control(mode_control)
+        mode_card.add_widget(mode_row)
+        self.add_widget(mode_card)
+
+        try:
+            self._sync_direct_launch_mode_from_settings()
+        except Exception:
+            pass
 
         self.add_spacing(16)
 
@@ -648,6 +692,132 @@ class Zapret2DirectControlPage(BasePage):
                 manager.sync_preset_to_active_file(preset)
         except Exception:
             pass
+
+    # ==================== Direct mode UI: Basic/Advanced ====================
+
+    def _get_direct_launch_mode_setting(self) -> str:
+        try:
+            from strategy_menu import get_direct_zapret2_ui_mode
+
+            mode = (get_direct_zapret2_ui_mode() or "").strip().lower()
+            if mode in ("basic", "advanced"):
+                return mode
+        except Exception:
+            pass
+        return "advanced"
+
+    def _sync_direct_launch_mode_from_settings(self) -> None:
+        self._direct_launch_mode = self._get_direct_launch_mode_setting()
+        self._update_direct_launch_mode_styles()
+
+    def _update_direct_launch_mode_styles(self) -> None:
+        if not hasattr(self, "_direct_launch_mode_basic_btn") or not hasattr(self, "_direct_launch_mode_advanced_btn"):
+            return
+
+        active_style = """
+            QPushButton {
+                background: #60cdff;
+                border: none;
+                color: #000000;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0 12px;
+            }
+        """
+        inactive_style = """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 11px;
+                padding: 0 12px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+        """
+
+        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
+        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
+
+        mode = (getattr(self, "_direct_launch_mode", "advanced") or "advanced").strip().lower()
+        if mode == "basic":
+            self._direct_launch_mode_basic_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
+            self._direct_launch_mode_basic_btn.setChecked(True)
+            self._direct_launch_mode_advanced_btn.setStyleSheet(
+                inactive_style.replace("QPushButton {", "QPushButton { " + right_radius)
+            )
+            self._direct_launch_mode_advanced_btn.setChecked(False)
+        else:
+            self._direct_launch_mode_basic_btn.setStyleSheet(
+                inactive_style.replace("QPushButton {", "QPushButton { " + left_radius)
+            )
+            self._direct_launch_mode_basic_btn.setChecked(False)
+            self._direct_launch_mode_advanced_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
+            self._direct_launch_mode_advanced_btn.setChecked(True)
+
+    def _on_direct_launch_mode_selected(self, mode: str) -> None:
+        wanted = str(mode or "").strip().lower()
+        if wanted not in ("basic", "advanced"):
+            return
+
+        current = self._get_direct_launch_mode_setting()
+        if wanted == current:
+            self._sync_direct_launch_mode_from_settings()
+            return
+
+        try:
+            from strategy_menu import set_direct_zapret2_ui_mode
+
+            set_direct_zapret2_ui_mode(wanted)
+        except Exception:
+            pass
+
+        # Reload strategy catalogs for the selected set.
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            registry.reload_strategies()
+        except Exception:
+            pass
+
+        # Rebuild preset-zapret2.txt from the currently selected strategy IDs
+        # using the newly selected strategies catalog (basic vs default).
+        try:
+            from dpi.zapret2_core_restart import trigger_dpi_reload
+            from preset_zapret2 import PresetManager, ensure_default_preset_exists
+
+            if ensure_default_preset_exists():
+                pm = PresetManager(
+                    on_dpi_reload_needed=lambda: trigger_dpi_reload(
+                        self.parent_app,
+                        reason="direct_launch_mode_changed",
+                    )
+                )
+                preset = pm.get_active_preset()
+                if preset:
+                    try:
+                        selections = pm.get_strategy_selections() or {}
+                        pm.set_strategy_selections(selections, save_and_sync=False)
+                    except Exception:
+                        pass
+
+                    try:
+                        pm.save_preset(preset)
+                    except Exception:
+                        pass
+
+                    pm.sync_preset_to_active_file(preset)
+        except Exception:
+            pass
+
+        # Refresh labels that depend on active strategy args.
+        try:
+            self.update_strategy("")
+        except Exception:
+            pass
+
+        self._sync_direct_launch_mode_from_settings()
 
     def _set_toggle_checked(self, toggle, checked: bool) -> None:
         try:

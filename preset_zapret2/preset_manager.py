@@ -839,9 +839,10 @@ class PresetManager:
 
         active_path = get_active_preset_path()
 
-        # direct_zapret2 Basic mode: do not apply advanced send/syndata lines to the
-        # runtime preset-zapret2.txt, but keep them in the stored preset file.
-        # This allows switching back to Advanced without losing settings.
+        # direct_zapret2 Basic mode:
+        # - do NOT apply send/syndata settings from the preset (no UI for them)
+        # - but allow strategies to embed --lua-desync=send/--lua-desync=syndata
+        #   directly in their args.
         is_basic_direct = False
         try:
             from strategy_menu import get_strategy_launch_method, get_direct_zapret2_ui_mode
@@ -887,17 +888,52 @@ class PresetManager:
                         if cat.filter_mode in ("hostlist", "ipset"):
                             args_lines.append(f"--{cat.filter_mode}={filter_file}")
 
-                    # Use get_full_tcp_args() to include syndata/send/out-range
-                    full_tcp_args = cat.get_full_tcp_args()
+                    # Build TCP args chain.
+                    # In Basic: out-range + strategy args only.
+                    # In Advanced: out-range + (send/syndata settings) + strategy args.
+                    # If strategy args already contain send/syndata, do not duplicate them.
+                    strategy_text = str(getattr(cat, "tcp_args", "") or "")
+                    strat_lines = [ln.strip() for ln in strategy_text.splitlines() if ln.strip()]
+                    send_present = any(ln.lower().startswith("--lua-desync=send") for ln in strat_lines)
+                    syndata_present = any(ln.lower().startswith("--lua-desync=syndata") for ln in strat_lines)
+
+                    # Keep out-range controlled by UI/settings only (avoid duplicates).
+                    strat_lines_no_out = [ln for ln in strat_lines if not ln.lower().startswith("--out-range=")]
+                    strategy_text_clean = "\n".join(strat_lines_no_out).strip()
+
+                    parts: list[str] = []
+                    try:
+                        out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
+                    except Exception:
+                        out_range_arg = ""
+                    if out_range_arg:
+                        parts.append(str(out_range_arg).strip())
+
+                    if not is_basic_direct:
+                        try:
+                            if bool(getattr(cat.syndata_tcp, "send_enabled", False)) and not send_present:
+                                send_arg = cat._get_send_args(cat.syndata_tcp)
+                                if send_arg:
+                                    parts.append(str(send_arg).strip())
+                        except Exception:
+                            pass
+
+                        try:
+                            if bool(getattr(cat.syndata_tcp, "enabled", False)) and not syndata_present:
+                                syndata_arg = cat._get_syndata_args(cat.syndata_tcp)
+                                if syndata_arg:
+                                    parts.append(str(syndata_arg).strip())
+                        except Exception:
+                            pass
+
+                    if strategy_text_clean:
+                        parts.append(strategy_text_clean)
+
+                    full_tcp_args = "\n".join([p for p in parts if p]).strip()
                     for raw in full_tcp_args.splitlines():
                         line = (raw or "").strip()
-                        if not line:
-                            continue
-                        if is_basic_direct:
-                            ll = line.lower()
-                            if ll.startswith("--lua-desync=send:") or ll.startswith("--lua-desync=syndata:"):
-                                continue
-                        args_lines.append(line)
+                        if line:
+                            args_lines.append(line)
 
                     block = CategoryBlock(
                         category=cat_name,
@@ -923,11 +959,28 @@ class PresetManager:
                         if cat.filter_mode in ("hostlist", "ipset"):
                             args_lines.append(f"--{cat.filter_mode}={filter_file}")
 
-                    # Use get_full_udp_args() to include out-range (UDP has no syndata/send)
-                    full_udp_args = cat.get_full_udp_args()
-                    for line in full_udp_args.strip().split('\n'):
-                        if line.strip():
-                            args_lines.append(line.strip())
+                    # Build UDP args chain: out-range + strategy args.
+                    # Keep out-range controlled by UI/settings only (avoid duplicates).
+                    udp_text = str(getattr(cat, "udp_args", "") or "")
+                    udp_lines = [ln.strip() for ln in udp_text.splitlines() if ln.strip()]
+                    udp_lines_no_out = [ln for ln in udp_lines if not ln.lower().startswith("--out-range=")]
+                    udp_text_clean = "\n".join(udp_lines_no_out).strip()
+
+                    parts: list[str] = []
+                    try:
+                        out_range_arg = cat._get_out_range_args(cat.syndata_udp)
+                    except Exception:
+                        out_range_arg = ""
+                    if out_range_arg:
+                        parts.append(str(out_range_arg).strip())
+                    if udp_text_clean:
+                        parts.append(udp_text_clean)
+
+                    full_udp_args = "\n".join([p for p in parts if p]).strip()
+                    for raw in full_udp_args.splitlines():
+                        line = (raw or "").strip()
+                        if line:
+                            args_lines.append(line)
 
                     block = CategoryBlock(
                         category=cat_name,

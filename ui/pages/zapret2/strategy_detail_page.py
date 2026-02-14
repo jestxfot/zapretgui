@@ -1043,9 +1043,6 @@ class StrategyDetailPage(BasePage):
         self._page_scroll_by_category: dict[str, int] = {}
         self._tree_scroll_by_category: dict[str, int] = {}
 
-        # direct_zapret2 UI mode (Basic/Advanced)
-        self._direct_launch_mode = "advanced"
-
         # PresetManager for category settings storage
         self._preset_manager = PresetManager(
             on_dpi_reload_needed=self._on_dpi_reload_needed
@@ -1324,50 +1321,6 @@ class StrategyDetailPage(BasePage):
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(6)
-
-        # ═══════════════════════════════════════════════════════════════
-        # DIRECT_ZAPRET2 UI MODE (BASIC / ADVANCED)
-        # ═══════════════════════════════════════════════════════════════
-        self._direct_launch_mode_frame = QFrame()
-        self._direct_launch_mode_frame.setStyleSheet("QFrame { background: transparent; }")
-        mode_layout = QHBoxLayout(self._direct_launch_mode_frame)
-        mode_layout.setContentsMargins(0, 6, 0, 6)
-        mode_layout.setSpacing(12)
-
-        mode_icon = QLabel()
-        mode_icon.setFixedSize(22, 22)
-        mode_icon.setPixmap(qta.icon("fa5s.sliders-h", color="#60cdff").pixmap(18, 18))
-        mode_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mode_layout.addWidget(mode_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        mode_text_layout = QVBoxLayout()
-        mode_text_layout.setSpacing(2)
-        mode_title = QLabel("Тип прямого запуска")
-        mode_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
-        mode_desc = QLabel("Basic — только фильтрация/Out Range/стратегии; Advanced — Send/Syndata/фазы")
-        mode_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
-        mode_text_layout.addWidget(mode_title)
-        mode_text_layout.addWidget(mode_desc)
-        mode_layout.addLayout(mode_text_layout)
-
-        mode_layout.addStretch()
-
-        self._direct_launch_mode_basic_btn = QPushButton("Basic")
-        self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
-        for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-
-        self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
-        self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
-
-        mode_layout.addWidget(self._direct_launch_mode_basic_btn)
-        mode_layout.addWidget(self._direct_launch_mode_advanced_btn)
-
-        # Initialize selector state from persisted settings
-        self._sync_direct_launch_mode_from_settings(block_signals=True)
-        toolbar_layout.addWidget(self._direct_launch_mode_frame)
 
         # NEW: Режим фильтрации row
         self._filter_mode_frame = QFrame()
@@ -2287,12 +2240,6 @@ class StrategyDetailPage(BasePage):
         self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
         self._update_selected_strategy_header(self._selected_strategy_id)
 
-        # Sync Basic/Advanced selector from persisted setting (may change outside this page).
-        try:
-            self._sync_direct_launch_mode_from_settings(block_signals=True)
-        except Exception:
-            pass
-
         # Determine whether to use the TCP multi-phase UI:
         # - only for TCP strategies (tcp.txt)
         # - only for direct_zapret2 standard set (no orchestra/zapret1)
@@ -3181,139 +3128,6 @@ class StrategyDetailPage(BasePage):
             reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY, json.dumps(data, ensure_ascii=False))
         except Exception:
             return
-
-    # ======================================================================
-    # DIRECT_ZAPRET2 UI MODE (BASIC/ADVANCED)
-    # ======================================================================
-
-    def _get_direct_launch_mode_setting(self) -> str:
-        try:
-            from strategy_menu import get_direct_zapret2_ui_mode
-            mode = (get_direct_zapret2_ui_mode() or "").strip().lower()
-            if mode in ("basic", "advanced"):
-                return mode
-        except Exception:
-            pass
-        return "advanced"
-
-    def _sync_direct_launch_mode_from_settings(self, block_signals: bool = False) -> None:
-        # block_signals is kept for API symmetry; we use clicked() handlers so
-        # programmatic state changes do not re-enter selection.
-        _ = bool(block_signals)
-
-        self._direct_launch_mode = self._get_direct_launch_mode_setting()
-        try:
-            self._update_direct_launch_mode_styles()
-        except Exception:
-            pass
-
-    def _update_direct_launch_mode_styles(self) -> None:
-        if not hasattr(self, "_direct_launch_mode_basic_btn") or not hasattr(self, "_direct_launch_mode_advanced_btn"):
-            return
-
-        active_style = """
-            QPushButton {
-                background: #60cdff;
-                border: none;
-                color: #000000;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 11px;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-        """
-
-        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
-
-        mode = (self._direct_launch_mode or "advanced").strip().lower()
-        if mode == "basic":
-            self._direct_launch_mode_basic_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
-            self._direct_launch_mode_basic_btn.setChecked(True)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + right_radius))
-            self._direct_launch_mode_advanced_btn.setChecked(False)
-        else:
-            self._direct_launch_mode_basic_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + left_radius))
-            self._direct_launch_mode_basic_btn.setChecked(False)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
-            self._direct_launch_mode_advanced_btn.setChecked(True)
-
-    def _on_direct_launch_mode_selected(self, mode: str) -> None:
-        wanted = str(mode or "").strip().lower()
-        if wanted not in ("basic", "advanced"):
-            return
-
-        try:
-            from strategy_menu import get_direct_zapret2_ui_mode, set_direct_zapret2_ui_mode
-            current = (get_direct_zapret2_ui_mode() or "").strip().lower()
-        except Exception:
-            current = self._get_direct_launch_mode_setting()
-
-        if wanted == current:
-            self._sync_direct_launch_mode_from_settings(block_signals=True)
-            return
-
-        try:
-            from strategy_menu import set_direct_zapret2_ui_mode
-            set_direct_zapret2_ui_mode(wanted)
-        except Exception:
-            pass
-
-        # Reload strategies catalogs for the new strategy_set.
-        try:
-            from strategy_menu.strategies_registry import registry
-            registry.reload_strategies()
-        except Exception:
-            pass
-
-        # Force the list to reload even if strategy_type stays the same.
-        try:
-            self._clear_strategies()
-        except Exception:
-            pass
-
-        # Regenerate runtime preset-zapret2.txt (Basic omits send/syndata lines).
-        try:
-            preset = self._preset_manager.get_active_preset()
-            if preset:
-                self._preset_manager.sync_preset_to_active_file(preset)
-        except Exception:
-            pass
-
-        # Sync selector UI.
-        self._sync_direct_launch_mode_from_settings(block_signals=True)
-
-        # Refresh current view if a category is open.
-        if not self._category_key:
-            return
-
-        try:
-            from strategy_menu.strategies_registry import registry
-            category_info = registry.get_category_info(self._category_key) or self._category_info
-        except Exception:
-            category_info = self._category_info
-
-        try:
-            selections = self._preset_manager.get_strategy_selections() or {}
-            current_strategy_id = selections.get(self._category_key, self._current_strategy_id) or "none"
-        except Exception:
-            current_strategy_id = self._current_strategy_id or "none"
-
-        try:
-            self.show_category(self._category_key, category_info, current_strategy_id)
-        except Exception:
-            pass
 
     # ═══════════════════════════════════════════════════════════════
     # OUT RANGE METHODS

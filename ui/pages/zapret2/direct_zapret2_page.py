@@ -48,6 +48,7 @@ class Zapret2StrategiesPageNew(BasePage):
         self._unified_list = None
         self._built = False
         self._build_scheduled = False
+        self._strategy_set_snapshot = None
 
         # Совместимость со старым кодом
         self.content_layout = self.layout
@@ -67,8 +68,30 @@ class Zapret2StrategiesPageNew(BasePage):
         """)
 
     def showEvent(self, event):
-        """При показе страницы загружаем контент"""
+        """При показе страницы загружаем/обновляем контент"""
         super().showEvent(event)
+
+        # If the global direct_zapret2 mode (Basic/Advanced) changed elsewhere
+        # (e.g. on the management page), rebuild this list on next show.
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            current_set = get_current_strategy_set()
+        except Exception:
+            current_set = None
+
+        if self._built and current_set != getattr(self, "_strategy_set_snapshot", None):
+            try:
+                self._reload_strategies()
+                return
+            except Exception:
+                pass
+
+        if self._built:
+            try:
+                self.refresh_from_preset_switch()
+            except Exception:
+                pass
+
         if not self._built and not self._build_scheduled:
             self._build_scheduled = True
             QTimer.singleShot(0, self._build_content)
@@ -169,48 +192,6 @@ class Zapret2StrategiesPageNew(BasePage):
             actions_card.add_layout(actions_layout)
             self.content_layout.addWidget(actions_card)
 
-            # Тип прямого запуска: Basic / Advanced (global for direct_zapret2)
-            mode_card = SettingsCard()
-            mode_layout = QHBoxLayout()
-            mode_layout.setContentsMargins(0, 0, 0, 0)
-            mode_layout.setSpacing(16)
-
-            mode_text = QLabel("Тип прямого запуска")
-            mode_text.setWordWrap(True)
-            mode_text.setContentsMargins(12, 0, 0, 0)
-            mode_text.setStyleSheet("""
-                QLabel {
-                    background: transparent;
-                    color: rgba(255, 255, 255, 0.8);
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-            """)
-            mode_layout.addWidget(mode_text, 1)
-
-            self._direct_launch_mode_basic_btn = QPushButton("Basic")
-            self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
-            for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
-                btn.setFixedHeight(28)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setCheckable(True)
-
-            self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
-            self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
-
-            mode_layout.addWidget(self._direct_launch_mode_basic_btn)
-            mode_layout.addWidget(self._direct_launch_mode_advanced_btn)
-
-            # Initialize selector state from persisted setting
-            try:
-                self._sync_direct_launch_mode_from_settings()
-            except Exception:
-                pass
-
-            mode_card.add_layout(mode_layout)
-            self.content_layout.addWidget(mode_card)
-
             # Выборы уже загружены в начале _build_content()
 
             # Список категорий (без правой панели - теперь отдельная страница)
@@ -223,6 +204,13 @@ class Zapret2StrategiesPageNew(BasePage):
             self._unified_list.build_list(categories, self.category_selections, filter_modes=filter_modes)
 
             self.content_layout.addWidget(self._unified_list, 1)
+
+            # Remember current strategy_set snapshot for showEvent rebuilds.
+            try:
+                from strategy_menu.strategies_registry import get_current_strategy_set
+                self._strategy_set_snapshot = get_current_strategy_set()
+            except Exception:
+                self._strategy_set_snapshot = None
 
             self._built = True
             log("Zapret2StrategiesPageNew построена", "INFO")
@@ -373,117 +361,6 @@ class Zapret2StrategiesPageNew(BasePage):
         """Сворачивает все группы"""
         if self._unified_list:
             self._unified_list.collapse_all()
-
-    # ==================== Direct mode UI: Basic/Advanced ====================
-
-    def _get_direct_launch_mode_setting(self) -> str:
-        try:
-            from strategy_menu import get_direct_zapret2_ui_mode
-            mode = (get_direct_zapret2_ui_mode() or "").strip().lower()
-            if mode in ("basic", "advanced"):
-                return mode
-        except Exception:
-            pass
-        return "advanced"
-
-    def _sync_direct_launch_mode_from_settings(self):
-        self._direct_launch_mode = self._get_direct_launch_mode_setting()
-        self._update_direct_launch_mode_styles()
-
-    def _update_direct_launch_mode_styles(self):
-        if not hasattr(self, "_direct_launch_mode_basic_btn") or not hasattr(self, "_direct_launch_mode_advanced_btn"):
-            return
-
-        active_style = """
-            QPushButton {
-                background: #60cdff;
-                border: none;
-                color: #000000;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 11px;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-        """
-
-        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
-
-        mode = (getattr(self, "_direct_launch_mode", "advanced") or "advanced").strip().lower()
-        if mode == "basic":
-            self._direct_launch_mode_basic_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
-            self._direct_launch_mode_basic_btn.setChecked(True)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + right_radius))
-            self._direct_launch_mode_advanced_btn.setChecked(False)
-        else:
-            self._direct_launch_mode_basic_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + left_radius))
-            self._direct_launch_mode_basic_btn.setChecked(False)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
-            self._direct_launch_mode_advanced_btn.setChecked(True)
-
-    def _on_direct_launch_mode_selected(self, mode: str):
-        wanted = str(mode or "").strip().lower()
-        if wanted not in ("basic", "advanced"):
-            return
-
-        try:
-            from strategy_menu import get_direct_zapret2_ui_mode, set_direct_zapret2_ui_mode
-            current = (get_direct_zapret2_ui_mode() or "").strip().lower()
-        except Exception:
-            current = self._get_direct_launch_mode_setting()
-
-        if wanted == current:
-            self._sync_direct_launch_mode_from_settings()
-            return
-
-        try:
-            from strategy_menu import set_direct_zapret2_ui_mode
-            set_direct_zapret2_ui_mode(wanted)
-        except Exception:
-            pass
-
-        # Reload strategy catalogs for the selected set (Basic uses Roaming AppData catalog).
-        try:
-            from strategy_menu.strategies_registry import registry
-            registry.reload_strategies()
-        except Exception:
-            pass
-
-        # Refresh displayed strategy names in the unified list.
-        try:
-            if self._unified_list:
-                self._unified_list.set_selections(self.category_selections)
-        except Exception:
-            pass
-
-        # Regenerate runtime preset-zapret2.txt (Basic omits send/syndata lines).
-        try:
-            from dpi.zapret2_core_restart import trigger_dpi_reload
-            from preset_zapret2 import PresetManager
-            pm = PresetManager(
-                on_dpi_reload_needed=lambda: trigger_dpi_reload(
-                    self.parent_app,
-                    reason="direct_launch_mode_changed",
-                )
-            )
-            preset = pm.get_active_preset()
-            if preset:
-                pm.sync_preset_to_active_file(preset)
-        except Exception:
-            pass
-
-        self._sync_direct_launch_mode_from_settings()
 
     # ==================== Совместимость со старым кодом ====================
 
