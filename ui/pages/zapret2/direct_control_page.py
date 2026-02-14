@@ -258,43 +258,6 @@ class Zapret2DirectControlPage(BasePage):
         control_card.add_layout(buttons_layout)
         self.add_widget(control_card)
 
-        # Тип прямого запуска (direct_zapret2): Basic / Advanced
-        self.add_section_title("Тип прямого запуска")
-
-        mode_card = SettingsCard()
-        mode_row = SettingsRow(
-            "fa5s.sliders-h",
-            "Тип прямого запуска",
-            "Basic — без UI, send/syndata можно указать в args стратегии. Advanced — Send/Syndata/фазы в UI",
-        )
-
-        mode_control = QWidget()
-        mode_ctl_layout = QHBoxLayout(mode_control)
-        mode_ctl_layout.setContentsMargins(0, 0, 0, 0)
-        mode_ctl_layout.setSpacing(0)
-
-        self._direct_launch_mode_basic_btn = QPushButton("Basic")
-        self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
-        for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-
-        self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
-        self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
-
-        mode_ctl_layout.addWidget(self._direct_launch_mode_basic_btn)
-        mode_ctl_layout.addWidget(self._direct_launch_mode_advanced_btn)
-
-        mode_row.set_control(mode_control)
-        mode_card.add_widget(mode_row)
-        self.add_widget(mode_card)
-
-        try:
-            self._sync_direct_launch_mode_from_settings()
-        except Exception:
-            pass
-
         self.add_spacing(16)
 
         self.add_section_title("Активный пресет (стандартный набор стратегий из готового списка)")
@@ -353,6 +316,40 @@ class Zapret2DirectControlPage(BasePage):
         self.add_section_title("Хотите свою стратегию для каждого сайта? Перейдите во вкладку «Прямой запуск» чтобы изменить шаблонный пресет")
 
         strategy_card = SettingsCard()
+
+        # Текст про выбор режима прямого запуска (в одном виджете с активными списками)
+        mode_row = SettingsRow(
+            "fa5s.sliders-h",
+            "Режим прямого запуска",
+            "Basic — без UI; send/syndata можно прописать в args стратегии. Advanced — Send/Syndata/фазы в UI",
+        )
+
+        mode_control = QWidget()
+        mode_ctl_layout = QHBoxLayout(mode_control)
+        mode_ctl_layout.setContentsMargins(0, 0, 0, 0)
+        mode_ctl_layout.setSpacing(0)
+
+        self._direct_launch_mode_basic_btn = QPushButton("Basic")
+        self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
+        for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
+            btn.setFixedHeight(28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+
+        self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
+        self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
+
+        mode_ctl_layout.addWidget(self._direct_launch_mode_basic_btn)
+        mode_ctl_layout.addWidget(self._direct_launch_mode_advanced_btn)
+
+        mode_row.set_control(mode_control)
+        strategy_card.add_widget(mode_row)
+
+        try:
+            self._sync_direct_launch_mode_from_settings()
+        except Exception:
+            pass
+
         strategy_layout = QHBoxLayout()
         strategy_layout.setSpacing(12)
 
