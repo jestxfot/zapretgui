@@ -83,7 +83,7 @@ _LAUNCH_METHOD_DEFAULT = "direct_zapret2"
 
 # ==================== DIRECT_ZAPRET2 UI MODE (BASIC/ADVANCED) ====================
 
-_DIRECT_ZAPRET2_UI_MODE_DEFAULT = "advanced"
+_DIRECT_ZAPRET2_UI_MODE_DEFAULT = "basic"
 
 # Store UI mode in Roaming AppData (stable for both dev/stable builds):
 #   %APPDATA%\zapret\direct_zapret2\direct_zapret2_mode.ini

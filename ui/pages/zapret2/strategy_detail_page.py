@@ -1396,7 +1396,7 @@ class StrategyDetailPage(BasePage):
             btn.setFixedSize(36, 28)  # Увеличил ширину для видимости букв
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
-            btn.setToolTip("n = packets count, d = delay")
+            btn.setToolTip("n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными (исключая SYN-ACK-SYN рукопожатие)")
 
         self._out_range_mode_n.clicked.connect(lambda: self._select_out_range_mode("n"))
         self._out_range_mode_d.clicked.connect(lambda: self._select_out_range_mode("d"))
@@ -2363,6 +2363,11 @@ class StrategyDetailPage(BasePage):
         if is_basic_direct:
             self._send_frame.setVisible(False)
             self._syndata_frame.setVisible(False)
+            try:
+                if hasattr(self, "_reset_row_widget") and self._reset_row_widget is not None:
+                    self._reset_row_widget.setVisible(False)
+            except Exception:
+                pass
         elif is_udp_like:
             # Force-off without saving (only affects visual state and subsequent saves)
             # UDP/QUIC: remove send (same limitation as syndata)
@@ -2377,9 +2382,20 @@ class StrategyDetailPage(BasePage):
             self._syndata_toggle.blockSignals(False)
             self._syndata_settings.setVisible(False)
             self._syndata_frame.setVisible(False)
+
+            try:
+                if hasattr(self, "_reset_row_widget") and self._reset_row_widget is not None:
+                    self._reset_row_widget.setVisible(True)
+            except Exception:
+                pass
         else:
             self._send_frame.setVisible(True)
             self._syndata_frame.setVisible(True)
+            try:
+                if hasattr(self, "_reset_row_widget") and self._reset_row_widget is not None:
+                    self._reset_row_widget.setVisible(True)
+            except Exception:
+                pass
 
         # Args editor availability depends on whether category is enabled (strategy != none)
         self._refresh_args_editor_state()
