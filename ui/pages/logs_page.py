@@ -153,6 +153,25 @@ class WinwsOutputWorker(QObject):
         self._running = False
 
 
+class SupportAuthWorker(QObject):
+    """Poll ZapretHub auth code in background."""
+
+    finished = pyqtSignal(bool, str)  # ok, error_message
+
+    def __init__(self, code: str, parent=None):
+        super().__init__(parent)
+        self._code = (code or "").strip()
+
+    def run(self):
+        try:
+            from tgram.tg_log_bot import poll_upload_code
+
+            ok, err = poll_upload_code(self._code)
+            self.finished.emit(bool(ok), str(err or ""))
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
 class LogsPage(BasePage):
     """Страница просмотра логов"""
     
@@ -847,7 +866,7 @@ class LogsPage(BasePage):
                     f"Следующая отправка возможна через {remaining} мин.")
                 return
 
-            # Проверяем доступность бота/Telegram API и показываем реальную причину
+            # Проверяем доступность панели поддержки и показываем реальную причину
             from tgram.tg_log_bot import get_bot_connection_info
 
             bot_ok, bot_error, bot_kind = get_bot_connection_info()
@@ -855,14 +874,14 @@ class LogsPage(BasePage):
                 details = (bot_error or "Неизвестная ошибка").strip()
                 if len(details) > 250:
                     details = details[:250] + "…"
-                title = "Бот не настроен" if bot_kind == "config" else "Telegram недоступен"
+                title = "Панель не настроена" if bot_kind == "config" else "Панель недоступна"
                 hint = (
-                    "Проверьте настройки бота или обратитесь к разработчику."
+                    "Проверьте настройки ZapretHub (бот/авторизация) или обратитесь к разработчику."
                     if bot_kind == "config"
-                    else "Если Telegram заблокирован — включите VPN/DPI bypass и повторите."
+                    else "Если доступ к панели заблокирован — включите VPN/DPI bypass и повторите."
                 )
                 QMessageBox.warning(self, title,
-                    "Не удалось подключиться к боту для отправки логов.\n\n"
+                    "Не удалось подключиться к панели поддержки для отправки логов.\n\n"
                     f"Причина: {details}\n\n"
                     f"{hint}"
                 )
@@ -909,15 +928,68 @@ class LogsPage(BasePage):
             if telegram:
                 caption += f"\n📱 Telegram: {telegram}\n"
 
-            self.send_log_btn.setEnabled(False)
+            # Авторизация на отправку (одноразовый код, без сохранения токена)
+            try:
+                from tgram.tg_log_bot import request_upload_code
 
-            # Если режим оркестратора - отправляем 2 файла
-            if is_orchestra and orchestra_log_path:
-                self.send_status_label.setText("📤 Отправка 2 файлов (оркестратор)...")
-                self._send_orchestra_logs(LOG_PATH, orchestra_log_path, caption, problem, telegram)
-            else:
-                self.send_status_label.setText("📤 Отправка лога...")
-                self._send_single_log(LOG_PATH, caption)
+                ok, code, bot_username, bot_link = request_upload_code()
+                if not ok or not code:
+                    QMessageBox.warning(self, "Авторизация",
+                        "Не удалось запросить код авторизации у ZapretHub.\n"
+                        "Проверьте доступность панели и повторите.")
+                    return
+
+                bot_line = f"@{bot_username}" if bot_username else "бот поддержки"
+                QMessageBox.information(self, "Авторизация поддержки",
+                    "Для отправки логов нужно подтвердить код в Telegram.\n\n"
+                    f"1) Откройте {bot_line}\n"
+                    f"2) Отправьте ему код: {code}\n"
+                    "3) Вернитесь сюда — отправка продолжится автоматически.\n\n"
+                    f"Ссылка: {bot_link}"
+                )
+
+                self.send_log_btn.setEnabled(False)
+                self.send_status_label.setText("🔐 Ожидание подтверждения кода...")
+
+                self._auth_thread = QThread(self)
+                self._auth_worker = SupportAuthWorker(code)
+                self._auth_worker.moveToThread(self._auth_thread)
+                self._auth_thread.started.connect(self._auth_worker.run)
+
+                def _on_auth_done(auth_ok: bool, err_msg: str):
+                    try:
+                        self._auth_worker.deleteLater()
+                    except Exception:
+                        pass
+
+                    if not auth_ok:
+                        self.send_log_btn.setEnabled(True)
+                        self.send_status_label.setText("❌ Код не подтверждён")
+                        QMessageBox.warning(self, "Авторизация",
+                            "Не удалось подтвердить код.\n\n"
+                            f"Причина: {err_msg or 'Неизвестная ошибка'}")
+                        return
+
+                    # Continue sending with the existing prepared payload
+                    if is_orchestra and orchestra_log_path:
+                        self.send_status_label.setText("📤 Отправка 2 файлов (оркестратор)...")
+                        self._send_orchestra_logs(LOG_PATH, orchestra_log_path, caption, problem, telegram, auth_code=code)
+                    else:
+                        self.send_status_label.setText("📤 Отправка лога...")
+                        self._send_single_log(LOG_PATH, caption, auth_code=code)
+
+                self._auth_worker.finished.connect(_on_auth_done)
+                self._auth_worker.finished.connect(self._auth_thread.quit)
+                self._auth_worker.finished.connect(self._auth_worker.deleteLater)
+                self._auth_thread.finished.connect(self._auth_thread.deleteLater)
+                self._auth_thread.start()
+                return
+
+            except Exception as e:
+                QMessageBox.warning(self, "Авторизация", f"Ошибка авторизации: {e}")
+                return
+
+            # If we ever add a dev token path (Bearer), sending could continue here.
 
         except Exception as e:
             log(f"Ошибка отправки лога: {e}", "ERROR")
@@ -925,12 +997,12 @@ class LogsPage(BasePage):
             self.send_status_label.setText("❌ Ошибка")
             QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")
 
-    def _send_single_log(self, log_path: str, caption: str):
+    def _send_single_log(self, log_path: str, caption: str, auth_code: str | None = None):
         """Отправляет один файл лога"""
         from tgram.tg_log_full import TgSendWorker
 
         self._send_thread = QThread(self)
-        self._send_worker = TgSendWorker(log_path, caption, use_log_bot=True)
+        self._send_worker = TgSendWorker(log_path, caption, use_log_bot=True, auth_code=auth_code)
         self._send_worker.moveToThread(self._send_thread)
         self._send_thread.started.connect(self._send_worker.run)
 
@@ -966,7 +1038,7 @@ class LogsPage(BasePage):
         self._send_worker.finished.connect(_on_done)
         self._send_thread.start()
 
-    def _send_orchestra_logs(self, app_log_path: str, orchestra_log_path: str, caption: str, problem: str, telegram: str):
+    def _send_orchestra_logs(self, app_log_path: str, orchestra_log_path: str, caption: str, problem: str, telegram: str, auth_code: str | None = None):
         """Отправляет два файла: лог приложения и лог оркестратора в топик 43927"""
         import time
         import platform
@@ -1017,7 +1089,7 @@ class LogsPage(BasePage):
             orchestra_caption += f"\n📱 Telegram: {telegram}\n"
 
         self._send_thread1 = QThread(self)
-        self._send_worker1 = TgSendWorker(orchestra_log_path, orchestra_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID)
+        self._send_worker1 = TgSendWorker(orchestra_log_path, orchestra_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID, auth_code=auth_code)
         self._send_worker1.moveToThread(self._send_thread1)
         self._send_thread1.started.connect(self._send_worker1.run)
 
@@ -1050,7 +1122,7 @@ class LogsPage(BasePage):
             app_caption += f"\n📱 Telegram: {telegram}\n"
 
         self._send_thread2 = QThread(self)
-        self._send_worker2 = TgSendWorker(app_log_path, app_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID)
+        self._send_worker2 = TgSendWorker(app_log_path, app_caption, use_log_bot=True, topic_id=ORCHESTRA_TOPIC_ID, auth_code=auth_code)
         self._send_worker2.moveToThread(self._send_thread2)
         self._send_thread2.started.connect(self._send_worker2.run)
 

@@ -7,6 +7,15 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from safe_construct import safe_construct
+
+
+class _CaseConfigParser(configparser.ConfigParser):
+    """ConfigParser that preserves option key casing."""
+
+    def optionxform(self, optionstr: str) -> str:  # type: ignore[override]
+        return optionstr
+
 def _log(msg: str, level: str = "INFO") -> None:
     """Отложенный импорт log (PyQt6) чтобы модуль можно было импортировать без GUI."""
     try:
@@ -496,9 +505,8 @@ def load_user_hosts_selection() -> dict[str, str]:
     if not path.exists():
         return {}
 
-    parser = configparser.ConfigParser(strict=False)
-    parser.optionxform = str
     try:
+        parser = safe_construct(_CaseConfigParser, strict=False)
         parser.read(path, encoding="utf-8")
     except Exception as e:
         _log(f"Не удалось прочитать user_hosts.ini: {e}", "WARNING")
@@ -532,8 +540,7 @@ def save_user_hosts_selection(selected_profiles: dict[str, str]) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        parser = configparser.ConfigParser()
-        parser.optionxform = str
+        parser = safe_construct(_CaseConfigParser)
         parser["profiles"] = {}
 
         for service_name in sorted((selected_profiles or {}).keys(), key=lambda s: s.lower()):

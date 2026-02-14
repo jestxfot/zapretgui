@@ -18,6 +18,8 @@ import platform
 import time
 from pathlib import Path
 
+from typing import Optional
+
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 from config import APP_VERSION # build_info moved to config/__init__.py
@@ -51,18 +53,19 @@ class TgSendWorker(QObject):
     """Воркер для отправки лога через отдельного бота."""
     finished = pyqtSignal(bool, float, str)  # ok, extra_wait_seconds, error_msg
 
-    def __init__(self, path: str, caption: str, use_log_bot: bool = False, topic_id: int = None):
+    def __init__(self, path: str, caption: str, use_log_bot: bool = False, topic_id: Optional[int] = None, auth_code: str | None = None):
         super().__init__()
         self._path = path
         self._cap = caption
         self._use_log_bot = use_log_bot  # Флаг для выбора бота
         self._topic_id = topic_id  # ID топика (None = по умолчанию)
+        self._auth_code = auth_code
 
     def run(self):
         try:
             if self._use_log_bot:
                 # Используем отдельного бота для логов
-                success, error_msg = send_log_via_bot(self._path, self._cap, topic_id=self._topic_id)
+                success, error_msg = send_log_via_bot(self._path, self._cap, topic_id=self._topic_id, auth_code=self._auth_code)
                 if success:
                     self.finished.emit(True, 0.0, "")
                 else:

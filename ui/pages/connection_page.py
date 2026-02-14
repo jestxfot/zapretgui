@@ -4,7 +4,7 @@ import os
 import platform
 import time
 
-from PyQt6.QtCore import Qt, QThread, QTimer
+from PyQt6.QtCore import Qt, QThread, QTimer, QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -55,6 +55,25 @@ class StatusBadge(QLabel):
             }}
             """
         )
+
+
+class SupportAuthWorker(QObject):
+    """Ожидает подтверждения кода авторизации (в фоне)."""
+
+    finished = pyqtSignal(bool, str)  # ok, error_message
+
+    def __init__(self, code: str, parent=None):
+        super().__init__(parent)
+        self._code = (code or "").strip()
+
+    def run(self):
+        try:
+            from tgram.tg_log_bot import poll_upload_code
+
+            ok, err = poll_upload_code(self._code)
+            self.finished.emit(bool(ok), str(err or ""))
+        except Exception as e:
+            self.finished.emit(False, str(e))
 
 
 class ConnectionTestPage(BasePage):
@@ -397,7 +416,7 @@ class ConnectionTestPage(BasePage):
         try:
             from tgram.tg_log_bot import get_bot_connection_info
             bot_connected, bot_error, _bot_kind = get_bot_connection_info()
-            error_msg = None if bot_connected else (bot_error or "Не удалось подключиться к Telegram API")
+            error_msg = None if bot_connected else (bot_error or "Не удалось подключиться к панели поддержки")
         except Exception as exc:  # pragma: no cover - сеть/бот
             bot_connected = False
             error_msg = str(exc)
@@ -417,21 +436,63 @@ class ConnectionTestPage(BasePage):
             f"Time: {time.strftime('%d.%m.%Y %H:%M:%S')}"
         )
 
+        # 1) Запрашиваем одноразовый код для отправки (без хранения токена)
+        try:
+            from tgram.tg_log_bot import request_upload_code
+
+            ok, code, bot_username, bot_link = request_upload_code()
+            if not ok or not code:
+                raise RuntimeError("Не удалось получить код авторизации")
+        except Exception as exc:
+            self._append(f"❌ Не удалось запросить код авторизации: {exc}")
+            self.save_log_locally()
+            return
+
+        bot_line = f"@{bot_username}" if bot_username else "бот поддержки"
+        self._append("🔐 Для отправки лога нужно подтвердить код в Telegram:")
+        self._append(f"1) Откройте {bot_line}")
+        self._append(f"2) Отправьте ему код: {code}")
+        self._append(f"Ссылка: {bot_link}")
+
         self.send_log_btn.setEnabled(False)
         self.is_sending_log = True
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
-        self._set_status("📤 Отправка лога...", "info")
+        self._set_status("🔐 Ожидание подтверждения кода...", "info")
 
-        self.log_send_thread = QThread(self)
-        self.log_send_worker = LogSendWorker(temp_log_path, caption)
-        self.log_send_worker.moveToThread(self.log_send_thread)
-        self.log_send_thread.started.connect(self.log_send_worker.run)
-        self.log_send_worker.finished.connect(self._on_log_sent)
-        self.log_send_worker.finished.connect(self.log_send_thread.quit)
-        self.log_send_worker.finished.connect(self.log_send_worker.deleteLater)
-        self.log_send_thread.finished.connect(self.log_send_thread.deleteLater)
-        self.log_send_thread.start()
+        # 2) Ждём подтверждения кода, затем отправляем файл
+        self._auth_thread = QThread(self)
+        self._auth_worker = SupportAuthWorker(code)
+        self._auth_worker.moveToThread(self._auth_thread)
+        self._auth_thread.started.connect(self._auth_worker.run)
+
+        def _on_auth_done(auth_ok: bool, err: str):
+            try:
+                self._auth_worker.deleteLater()
+            except Exception:
+                pass
+
+            if not auth_ok:
+                self._on_log_sent(False, err or "Код не подтверждён")
+                return
+
+            self._set_status("📤 Отправка лога...", "info")
+
+            self.log_send_thread = QThread(self)
+            self.log_send_worker = LogSendWorker(temp_log_path, caption, auth_code=code)
+            self.log_send_worker.moveToThread(self.log_send_thread)
+            self.log_send_thread.started.connect(self.log_send_worker.run)
+            self.log_send_worker.finished.connect(self._on_log_sent)
+            self.log_send_worker.finished.connect(self.log_send_thread.quit)
+            self.log_send_worker.finished.connect(self.log_send_worker.deleteLater)
+            self.log_send_thread.finished.connect(self.log_send_thread.deleteLater)
+            self.log_send_thread.start()
+
+        self._auth_worker.finished.connect(_on_auth_done)
+        self._auth_worker.finished.connect(self._auth_thread.quit)
+        self._auth_worker.finished.connect(self._auth_worker.deleteLater)
+        self._auth_thread.finished.connect(self._auth_thread.deleteLater)
+        self._auth_thread.start()
 
     def _on_log_sent(self, success: bool, message: str):
         self.progress_bar.setVisible(False)
@@ -512,5 +573,3 @@ class ConnectionTestPage(BasePage):
                         pass
         except Exception as e:
             log(f"Ошибка при очистке connection_page: {e}", "DEBUG")
-
-

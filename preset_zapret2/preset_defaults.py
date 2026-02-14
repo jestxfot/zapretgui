@@ -12,6 +12,8 @@ At startup, every template is automatically copied to presets/
 from pathlib import Path
 from typing import Optional
 
+from safe_construct import safe_construct
+
 _TEMPLATES_CACHE: Optional[dict[str, str]] = None
 _TEMPLATE_BY_KEY: Optional[dict[str, str]] = None
 _CANONICAL_NAME_BY_KEY: Optional[dict[str, str]] = None
@@ -257,7 +259,7 @@ def get_deleted_preset_names() -> set[str]:
     try:
         if not path.exists():
             return set()
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         cfg.read(path, encoding="utf-8")
         if not cfg.has_section(_DELETED_SECTION):
             return set()
@@ -273,7 +275,7 @@ def mark_preset_deleted(name: str) -> bool:
     path = _get_deleted_presets_ini_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         if path.exists():
             cfg.read(path, encoding="utf-8")
         if not cfg.has_section(_DELETED_SECTION):
@@ -293,7 +295,7 @@ def unmark_preset_deleted(name: str) -> bool:
     try:
         if not path.exists():
             return True
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         cfg.read(path, encoding="utf-8")
         if cfg.has_section(_DELETED_SECTION):
             cfg.remove_option(_DELETED_SECTION, name)
@@ -311,7 +313,7 @@ def clear_all_deleted_presets() -> bool:
     try:
         if not path.exists():
             return True
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         if cfg.has_section(_DELETED_SECTION):
             cfg.remove_section(_DELETED_SECTION)
         with path.open("w", encoding="utf-8") as f:

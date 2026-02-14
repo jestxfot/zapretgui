@@ -15,6 +15,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from safe_construct import safe_construct
+
+
+class _CaseConfigParser(configparser.ConfigParser):
+    """ConfigParser that preserves option key casing."""
+
+    def optionxform(self, optionstr: str) -> str:  # type: ignore[override]
+        return optionstr
+
 _INI_SECTION = "premium"
 _INI_LOCK = threading.Lock()
 
@@ -35,14 +44,16 @@ class PremiumStorage:
 
     @staticmethod
     def _read(path: Path) -> configparser.ConfigParser:
-        parser = configparser.ConfigParser(strict=False)
-        parser.optionxform = str
         try:
+            parser = safe_construct(_CaseConfigParser, strict=False)
             if path.exists():
                 parser.read(path, encoding="utf-8")
+            return parser
         except Exception:
-            pass
-        return parser
+            # Best-effort: keep the app running even if INI parsing breaks.
+            # Callers treat missing values as defaults and will regenerate state.
+            parser = safe_construct(_CaseConfigParser, strict=False)
+            return parser
 
     @staticmethod
     def _write(path: Path, parser: configparser.ConfigParser) -> bool:

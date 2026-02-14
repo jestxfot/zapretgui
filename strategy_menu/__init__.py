@@ -73,6 +73,7 @@ def _get_current_strategy_key() -> str:
 import os
 import configparser
 from config import APPDATA_DIR
+from safe_construct import safe_construct
 
 _LAUNCH_METHOD_FILE = os.path.join(APPDATA_DIR, "strategy_Launch_method.ini")
 _LAUNCH_METHOD_SECTION = "Settings"
@@ -84,7 +85,7 @@ def get_strategy_launch_method() -> str:
     """Получает метод запуска стратегий из INI-файла в AppData"""
     try:
         if os.path.isfile(_LAUNCH_METHOD_FILE):
-            cfg = configparser.ConfigParser()
+            cfg = safe_construct(configparser.ConfigParser)
             cfg.read(_LAUNCH_METHOD_FILE, encoding="utf-8")
             value = cfg.get(_LAUNCH_METHOD_SECTION, _LAUNCH_METHOD_KEY, fallback="")
             if value:
@@ -102,7 +103,7 @@ def set_strategy_launch_method(method: str) -> bool:
     """Сохраняет метод запуска стратегий в INI-файл в AppData"""
     try:
         os.makedirs(APPDATA_DIR, exist_ok=True)
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         cfg[_LAUNCH_METHOD_SECTION] = {_LAUNCH_METHOD_KEY: method}
         with open(_LAUNCH_METHOD_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)

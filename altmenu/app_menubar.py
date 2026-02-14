@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMenuBar, QWidget, QMessageBox,
                             QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                             QTextEdit, QLineEdit, QPushButton, QDialogButtonBox)
 from PyQt6.QtGui     import QAction
-from PyQt6.QtCore    import Qt, QThread, QSettings
+from PyQt6.QtCore    import Qt, QThread, QSettings, QObject, pyqtSignal
 import webbrowser
 
 from config import APP_VERSION  # build_info moved to config/__init__.py
@@ -85,6 +85,25 @@ class LogReportDialog(QDialog):
             'problem': self.problem_text.toPlainText().strip(),
             'telegram': self.tg_contact.text().strip()
         }
+
+
+class SupportAuthWorker(QObject):
+    """Ожидает подтверждения кода авторизации (в фоне)."""
+
+    finished = pyqtSignal(bool, str)  # ok, error_message
+
+    def __init__(self, code: str, parent=None):
+        super().__init__(parent)
+        self._code = (code or "").strip()
+
+    def run(self):
+        try:
+            from tgram.tg_log_bot import poll_upload_code
+
+            ok, err = poll_upload_code(self._code)
+            self.finished.emit(bool(ok), str(err or ""))
+        except Exception as e:
+            self.finished.emit(False, str(e))
 
 
 class AppMenuBar(QMenuBar):
@@ -256,16 +275,16 @@ class AppMenuBar(QMenuBar):
             if len(details) > 250:
                 details = details[:250] + "…"
             msg_box = QMessageBox(self._pw)
-            msg_box.setWindowTitle("Бот не настроен" if bot_kind == "config" else "Telegram недоступен")
+            msg_box.setWindowTitle("Панель не настроена" if bot_kind == "config" else "Панель недоступна")
             msg_box.setIcon(QMessageBox.Icon.Warning)
             hint = (
                 "Проверьте настройки бота или обратитесь к разработчику."
                 if bot_kind == "config"
-                else "Если Telegram заблокирован — включите VPN/DPI bypass и повторите.\n"
+                else "Если доступ к панели заблокирован — включите VPN/DPI bypass и повторите.\n"
                      "Если ошибка повторяется — обратитесь к разработчику."
             )
             msg_box.setText(
-                "Не удалось подключиться к боту для отправки логов.\n\n"
+                "Не удалось подключиться к панели поддержки для отправки логов.\n\n"
                 f"Причина: {details}\n\n"
                 f"{hint}"
             )
@@ -318,42 +337,92 @@ class AppMenuBar(QMenuBar):
             action.setEnabled(False)
 
         wnd = self._pw
-        if hasattr(wnd, "set_status"):
-            wnd.set_status("Отправка лога...")
 
-        # Создаем воркер с флагом use_log_bot=True
-        thr = QThread(self)
-        worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True)
-        worker.moveToThread(thr)
-        thr.started.connect(worker.run)
+        # Запрашиваем одноразовый код авторизации для отправки логов
+        try:
+            from tgram.tg_log_bot import request_upload_code
 
-        def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
-            if ok:
-                if hasattr(wnd, "set_status"):
-                    wnd.set_status("Лог отправлен")
-            else:
-                if extra_wait > 0:
-                    QMessageBox.warning(wnd, "Слишком часто",
-                        f"Слишком частые запросы.\n"
-                        f"Повторите через {int(extra_wait/60)} минут.")
-                else:
-                    QMessageBox.warning(wnd, "Ошибка",
-                        f"Не удалось отправить лог.\n\n"
-                        f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
-                        f"Попробуйте позже или обратитесь в поддержку.")
-                
-                if hasattr(wnd, "set_status"):
-                    wnd.set_status("Ошибка отправки лога")
-            
-            # Очистка
-            worker.deleteLater()
-            thr.quit()
-            thr.wait()
+            ok, code, bot_username, bot_link = request_upload_code()
+            if not ok or not code:
+                raise RuntimeError("Не удалось получить код")
+        except Exception as e:
             if action:
                 action.setEnabled(True)
+            QMessageBox.warning(wnd, "Авторизация",
+                "Не удалось запросить код авторизации у ZapretHub.\n\n"
+                f"Причина: {e}")
+            return
 
-        worker.finished.connect(_on_done)
+        bot_line = f"@{bot_username}" if bot_username else "бот поддержки"
+        QMessageBox.information(wnd, "Авторизация поддержки",
+            "Для отправки лога нужно подтвердить код в Telegram.\n\n"
+            f"1) Откройте {bot_line}\n"
+            f"2) Отправьте ему код: {code}\n"
+            "3) Вернитесь сюда — отправка продолжится автоматически.\n\n"
+            f"Ссылка: {bot_link}"
+        )
 
-        # Сохраняем ссылку на поток
-        self._log_send_thread = thr
-        thr.start()
+        if hasattr(wnd, "set_status"):
+            wnd.set_status("Ожидание подтверждения кода...")
+
+        auth_thr = QThread(self)
+        auth_worker = SupportAuthWorker(code)
+        auth_worker.moveToThread(auth_thr)
+        auth_thr.started.connect(auth_worker.run)
+
+        def _start_send_after_auth():
+            if hasattr(wnd, "set_status"):
+                wnd.set_status("Отправка лога...")
+
+            thr = QThread(self)
+            worker = TgSendWorker(LOG_PATH, caption, use_log_bot=True, auth_code=code)
+            worker.moveToThread(thr)
+            thr.started.connect(worker.run)
+
+            def _on_done(ok: bool, extra_wait: float, error_msg: str = ""):
+                if ok:
+                    if hasattr(wnd, "set_status"):
+                        wnd.set_status("Лог отправлен")
+                else:
+                    if extra_wait > 0:
+                        QMessageBox.warning(wnd, "Слишком часто",
+                            f"Слишком частые запросы.\n"
+                            f"Повторите через {int(extra_wait/60)} минут.")
+                    else:
+                        QMessageBox.warning(wnd, "Ошибка",
+                            f"Не удалось отправить лог.\n\n"
+                            f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
+                            f"Попробуйте позже или обратитесь в поддержку.")
+
+                    if hasattr(wnd, "set_status"):
+                        wnd.set_status("Ошибка отправки лога")
+
+                worker.deleteLater()
+                thr.quit()
+                thr.wait()
+                if action:
+                    action.setEnabled(True)
+
+            worker.finished.connect(_on_done)
+            self._log_send_thread = thr
+            thr.start()
+
+        def _on_auth_done(auth_ok: bool, err_msg: str):
+            if not auth_ok:
+                if hasattr(wnd, "set_status"):
+                    wnd.set_status("Авторизация не удалась")
+                QMessageBox.warning(wnd, "Авторизация",
+                    "Не удалось подтвердить код.\n\n"
+                    f"Причина: {err_msg or 'Неизвестная ошибка'}")
+                if action:
+                    action.setEnabled(True)
+                return
+
+            _start_send_after_auth()
+
+        auth_worker.finished.connect(_on_auth_done)
+        auth_worker.finished.connect(auth_thr.quit)
+        auth_worker.finished.connect(auth_worker.deleteLater)
+        auth_thr.finished.connect(auth_thr.deleteLater)
+        self._auth_thread = auth_thr
+        auth_thr.start()

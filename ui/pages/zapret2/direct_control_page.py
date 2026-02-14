@@ -3,6 +3,7 @@
 
 import os
 import re
+import webbrowser
 
 from PyQt6.QtCore import QSize, QObject, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
@@ -64,7 +65,7 @@ class _CertificateInstallWorker(QObject):
 class BigActionButton(ActionButton):
     """Большая кнопка действия"""
 
-    def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
+    def __init__(self, text: str, icon_name: str | None = None, accent: bool = False, parent=None):
         super().__init__(text, icon_name, accent, parent)
         self.setFixedHeight(48)
         self.setIconSize(QSize(20, 20))
@@ -124,11 +125,15 @@ class Zapret2DirectControlPage(BasePage):
             "а при необходимости выполните тонкую настройку для каждой категории в разделе «Прямой запуск».",
             parent,
         )
+
+        self._cert_install_thread: QThread | None = None
+        self._cert_install_worker: _CertificateInstallWorker | None = None
+
         self._build_ui()
         self._update_stop_winws_button_text()
 
-    def showEvent(self, event):
-        super().showEvent(event)
+    def showEvent(self, a0):
+        super().showEvent(a0)
         try:
             self._sync_program_settings()
         except Exception:
@@ -140,6 +145,21 @@ class Zapret2DirectControlPage(BasePage):
             pass
 
     def _build_ui(self):
+        # Быстрый доступ к документации
+        docs_widget = QWidget()
+        docs_row = QHBoxLayout(docs_widget)
+        docs_row.setContentsMargins(0, 0, 0, 0)
+        docs_row.setSpacing(0)
+        docs_row.addStretch(1)
+
+        self.docs_btn = ActionButton("Документация", "fa5s.book")
+        self.docs_btn.setProperty("noDrag", True)
+        self.docs_btn.setFixedHeight(36)
+        self.docs_btn.clicked.connect(self._open_docs)
+        docs_row.addWidget(self.docs_btn)
+
+        self.add_widget(docs_widget)
+
         # Статус работы
         self.add_section_title("Статус работы")
 
@@ -150,7 +170,10 @@ class Zapret2DirectControlPage(BasePage):
         self.status_dot = PulsingDot()
         status_layout.addWidget(self.status_dot)
 
-        status_text = QVBoxLayout()
+        status_text_widget = QWidget()
+        status_text_widget.setStyleSheet("background: transparent;")
+        status_text = QVBoxLayout(status_text_widget)
+        status_text.setContentsMargins(0, 0, 0, 0)
         status_text.setSpacing(2)
 
         self.status_title = QLabel("Проверка...")
@@ -176,7 +199,7 @@ class Zapret2DirectControlPage(BasePage):
         )
         status_text.addWidget(self.status_desc)
 
-        status_layout.addLayout(status_text, 1)
+        status_layout.addWidget(status_text_widget, 1)
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
 
@@ -246,7 +269,10 @@ class Zapret2DirectControlPage(BasePage):
         self.active_preset_icon.setFixedSize(24, 24)
         active_preset_layout.addWidget(self.active_preset_icon)
 
-        active_preset_text_layout = QVBoxLayout()
+        active_preset_text_widget = QWidget()
+        active_preset_text_widget.setStyleSheet("background: transparent;")
+        active_preset_text_layout = QVBoxLayout(active_preset_text_widget)
+        active_preset_text_layout.setContentsMargins(0, 0, 0, 0)
         active_preset_text_layout.setSpacing(2)
 
         self.active_preset_label = QLabel("Не выбран")
@@ -274,7 +300,7 @@ class Zapret2DirectControlPage(BasePage):
         )
         active_preset_text_layout.addWidget(self.active_preset_desc)
 
-        active_preset_layout.addLayout(active_preset_text_layout, 1)
+        active_preset_layout.addWidget(active_preset_text_widget, 1)
         active_preset_card.add_layout(active_preset_layout)
         self.add_widget(active_preset_card)
 
@@ -296,7 +322,10 @@ class Zapret2DirectControlPage(BasePage):
         self.strategy_icon.setFixedSize(24, 24)
         strategy_layout.addWidget(self.strategy_icon)
 
-        strategy_text_layout = QVBoxLayout()
+        strategy_text_widget = QWidget()
+        strategy_text_widget.setStyleSheet("background: transparent;")
+        strategy_text_layout = QVBoxLayout(strategy_text_widget)
+        strategy_text_layout.setContentsMargins(0, 0, 0, 0)
         strategy_text_layout.setSpacing(2)
 
         self.strategy_label = QLabel("Не выбрана")
@@ -324,7 +353,7 @@ class Zapret2DirectControlPage(BasePage):
         )
         strategy_text_layout.addWidget(self.strategy_desc)
 
-        strategy_layout.addLayout(strategy_text_layout, 1)
+        strategy_layout.addWidget(strategy_text_widget, 1)
         strategy_card.add_layout(strategy_layout)
         self.add_widget(strategy_card)
 
@@ -480,9 +509,6 @@ class Zapret2DirectControlPage(BasePage):
         # Advanced settings initial state
         self._load_advanced_settings()
 
-        self._cert_install_thread = None
-        self._cert_install_worker = None
-
     def _on_install_certificate_clicked(self) -> None:
         try:
             from startup.certificate_installer import is_certificate_installed
@@ -534,17 +560,23 @@ class Zapret2DirectControlPage(BasePage):
                     self._set_status("Не удалось установить сертификат")
                     QMessageBox.critical(self, "Сертификат", message or "Не удалось установить сертификат")
             finally:
+                thr = self._cert_install_thread
+                worker = self._cert_install_worker
+
                 try:
-                    self._cert_install_thread.quit()
-                    self._cert_install_thread.wait(3000)
+                    if thr is not None:
+                        thr.quit()
+                        thr.wait(3000)
                 except Exception:
                     pass
                 try:
-                    self._cert_install_worker.deleteLater()
+                    if worker is not None:
+                        worker.deleteLater()
                 except Exception:
                     pass
                 try:
-                    self._cert_install_thread.deleteLater()
+                    if thr is not None:
+                        thr.deleteLater()
                 except Exception:
                     pass
                 self._cert_install_thread = None
@@ -561,15 +593,22 @@ class Zapret2DirectControlPage(BasePage):
             try:
                 from discord.discord_restart import get_discord_restart_setting
 
-                if getattr(self, "discord_restart_toggle", None) is not None:
-                    self.discord_restart_toggle.setChecked(get_discord_restart_setting(default=True), block_signals=True)
+                toggle = getattr(self, "discord_restart_toggle", None)
+                set_checked = getattr(toggle, "setChecked", None)
+                if callable(set_checked):
+                    set_checked(get_discord_restart_setting(default=True), block_signals=True)
             except Exception:
                 pass
 
-            if getattr(self, "wssize_toggle", None) is not None:
-                self.wssize_toggle.setChecked(bool(get_wssize_enabled()), block_signals=True)
-            if getattr(self, "debug_log_toggle", None) is not None:
-                self.debug_log_toggle.setChecked(bool(get_debug_log_enabled()), block_signals=True)
+            wssize_toggle = getattr(self, "wssize_toggle", None)
+            set_checked = getattr(wssize_toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(bool(get_wssize_enabled()), block_signals=True)
+
+            debug_toggle = getattr(self, "debug_log_toggle", None)
+            set_checked = getattr(debug_toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(bool(get_debug_log_enabled()), block_signals=True)
         except Exception:
             pass
 
@@ -989,3 +1028,11 @@ class Zapret2DirectControlPage(BasePage):
         else:
             self.strategy_label.setText("Не выбрана")
             self.strategy_desc.setText("Выберите стратегию в разделе «Прямой запуск»")
+
+    def _open_docs(self) -> None:
+        try:
+            from config.urls import DOCS_URL
+
+            webbrowser.open(DOCS_URL)
+        except Exception as e:
+            QMessageBox.warning(self.window(), "Документация", f"Не удалось открыть документацию:\n{e}")

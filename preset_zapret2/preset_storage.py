@@ -26,6 +26,8 @@ from typing import List, Optional, Tuple, TYPE_CHECKING
 from log import log
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color
 
+from safe_construct import safe_construct
+
 if TYPE_CHECKING:
     from .preset_model import Preset
 
@@ -565,7 +567,7 @@ def get_active_preset_name() -> Optional[str]:
         if not path.exists():
             return None
 
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         cfg.read(path, encoding="utf-8")
         value = cfg.get(_ACTIVE_PRESET_SECTION, _ACTIVE_PRESET_KEY, fallback="").strip()
         return value or None
@@ -589,7 +591,7 @@ def set_active_preset_name(name: str) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        cfg = configparser.ConfigParser()
+        cfg = safe_construct(configparser.ConfigParser)
         if path.exists():
             cfg.read(path, encoding="utf-8")
 

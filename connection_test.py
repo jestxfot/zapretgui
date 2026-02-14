@@ -1097,14 +1097,15 @@ class LogSendWorker(QObject):
     """Воркер для отправки лога в Telegram в отдельном потоке"""
     finished = pyqtSignal(bool, str)  # success, message
 
-    def __init__(self, log_path: str, caption: str):
+    def __init__(self, log_path: str, caption: str, auth_code: str | None = None):
         super().__init__()
         self.log_path = log_path
         self.caption = caption
+        self.auth_code = auth_code
 
     def run(self):
         try:
-            success, error_msg = send_log_file(self.log_path, self.caption, topic_id=CONNECTION_TEST_TOPIC_ID)
+            success, error_msg = send_log_file(self.log_path, self.caption, topic_id=CONNECTION_TEST_TOPIC_ID, auth_code=self.auth_code)
             if success:
                 self.finished.emit(True, "Лог успешно отправлен!")
             else:

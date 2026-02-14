@@ -1627,7 +1627,7 @@ class SettingsRow(QWidget):
 class ActionButton(QPushButton):
     """Кнопка действия в стиле Windows 11"""
     
-    def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
+    def __init__(self, text: str, icon_name: str | None = None, accent: bool = False, parent=None):
         super().__init__(text, parent)
         self.accent = accent
         self._hovered = False
