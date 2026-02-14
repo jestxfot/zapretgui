@@ -93,6 +93,11 @@ Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recurses
 ; At startup the app copies new templates to presets/ (unless user deleted them).
 Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
+; ✅ direct_zapret2 Basic strategies -> %APPDATA%\zapret\direct_zapret2\basic_strategies
+; Always overwritten on update to keep the Basic catalog current.
+Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\basic_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.json"; DestDir: "{userappdata}\zapret\direct_zapret2\basic_strategies"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+
 ; ✅ Hostlist template other.txt -> %APPDATA%\zapret\lists_template
 ; Source of truth comes from SOURCEPATH\lists\other.txt
 Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_template"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
