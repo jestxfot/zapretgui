@@ -6,6 +6,7 @@ from .config import (
     MIN_WIDTH, MIN_HEIGHT,
     INDEXJSON_FOLDER, DEFAULT_STRAT, REG_LATEST_STRATEGY, WINDIVERT_FILTER,
     MAX_LOG_FILES, MAX_DEBUG_LOG_FILES, MAIN_DIRECTORY, HELP_FOLDER, APP_CORE_PATH,
+    APPDATA_DIR,
     # Пути реестра
     REGISTRY_PATH, REGISTRY_PATH_AUTOSTART, REGISTRY_PATH_GUI,
     REGISTRY_PATH_DIRECT, REGISTRY_PATH_STRATEGIES, REGISTRY_PATH_WINDOW,
@@ -38,6 +39,7 @@ __all__ = [
     'MAIN_DIRECTORY',
     'HELP_FOLDER',
     'APP_CORE_PATH',
+    'APPDATA_DIR',
     'get_zapret_userdata_dir',
     'get_zapret_presets_dir',
     'get_zapret_presets_template_dir',
