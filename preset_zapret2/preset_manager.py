@@ -1767,7 +1767,7 @@ class PresetManager:
 
         try:
             # Keep strategy args resolution in sync with UI-selected strategy set
-            # (e.g. direct_zapret2 Basic uses tcp_basic.txt / udp_basic.txt / ...).
+            # (direct_zapret2 Basic loads from %APPDATA%\zapret\direct_zapret2\basic_strategies\*.txt).
             from strategy_menu.strategies_registry import get_current_strategy_set
             strategy_set = get_current_strategy_set()
         except Exception:

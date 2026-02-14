@@ -471,7 +471,9 @@ class StrategiesRegistry:
         if not strategy and category_info.strategy_type == "tcp":
             try:
                 from strategy_menu.strategy_loader import load_strategies_as_dict
-                fake_strategies = load_strategies_as_dict("tcp_fake", get_current_strategy_set())
+                # tcp_fake.txt is a special catalog for the TCP multi-phase UI and
+                # is not tied to the current strategy_set (basic/orchestra/zapret1).
+                fake_strategies = load_strategies_as_dict("tcp_fake", None)
                 strategy = (fake_strategies or {}).get(strategy_id)
             except Exception:
                 strategy = None

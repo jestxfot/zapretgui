@@ -526,6 +526,43 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
     Returns:
         Словарь {strategy_id: strategy_dict}
     """
+    # direct_zapret2 Basic: load from a stable per-user directory to avoid
+    # depending on the install location / INDEXJSON_FOLDER.
+    if (strategy_set or "").strip().lower() == "basic":
+        strategies: Dict[str, Dict] = {}
+
+        try:
+            from config import get_zapret_userdata_dir
+            base = (get_zapret_userdata_dir() or "").strip()
+        except Exception:
+            base = ""
+
+        basic_dir = Path(base) / "direct_zapret2" / "basic_strategies" if base else None
+        try:
+            if basic_dir is not None:
+                basic_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        basename = category
+
+        # Загружаем стратегии из basic_dir (TXT или JSON)
+        basic_data = _load_strategy_file(basic_dir, basename) if basic_dir is not None else None
+        auto_number = False
+
+        if basic_data and 'strategies' in basic_data:
+            for strategy in basic_data['strategies']:
+                is_valid, error = validate_strategy(strategy)
+                if is_valid:
+                    normalized = normalize_strategy(strategy, auto_number=auto_number)
+                    normalized['_source'] = 'basic'
+                    strategies[normalized['id']] = normalized
+                else:
+                    log(f"Пропущена невалидная basic стратегия: {error}", "WARNING")
+
+        log(f"Загружено {len(strategies)} basic стратегий для категории '{category}' ({basic_dir})", "DEBUG")
+        return strategies
+
     ensure_directories()
     strategies = {}
 

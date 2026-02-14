@@ -453,7 +453,7 @@ class Zapret2StrategiesPageNew(BasePage):
         except Exception:
             pass
 
-        # Reload strategy catalogs for the selected set (e.g. tcp_basic.txt).
+        # Reload strategy catalogs for the selected set (Basic uses Roaming AppData catalog).
         try:
             from strategy_menu.strategies_registry import registry
             registry.reload_strategies()

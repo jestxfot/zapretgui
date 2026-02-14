@@ -190,6 +190,83 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
     if cache_key in _CACHED_STRATEGIES:
         return _CACHED_STRATEGIES[cache_key]
 
+    # direct_zapret2 Basic strategies live outside the install folder.
+    # Inno Setup copies them to: %APPDATA%\zapret\direct_zapret2\basic_strategies\
+    # We always load them from that stable per-user location.
+    if (strategy_set or "").strip().lower() == "basic":
+        try:
+            from config import get_zapret_userdata_dir
+            base = (get_zapret_userdata_dir() or "").strip()
+        except Exception:
+            base = ""
+
+        basic_dir = Path(base) / "direct_zapret2" / "basic_strategies" if base else None
+        filename = f"{strategy_type}.txt"
+
+        def _load_one_basic(file_path: Path) -> Dict[str, Dict]:
+            if not file_path.exists():
+                return {}
+            text = _read_text(file_path)
+            strategies: Dict[str, Dict] = {}
+            current_id: Optional[str] = None
+            current: Dict[str, object] = {}
+            args: list[str] = []
+
+            def _flush() -> None:
+                nonlocal current_id, current, args
+                if not current_id:
+                    return
+                current["id"] = current_id
+                current["args"] = "\n".join(args).strip()
+                strategies[current_id] = dict(current)
+
+            for raw in text.splitlines():
+                line = raw.rstrip()
+                if not line or line.lstrip().startswith("#"):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    _flush()
+                    current_id = line[1:-1].strip()
+                    current = {
+                        "name": current_id,
+                        "author": "unknown",
+                        "label": None,
+                        "description": "",
+                        "blobs": [],
+                    }
+                    args = []
+                    continue
+
+                if current_id is None:
+                    continue
+
+                if line.startswith("--"):
+                    args.append(line.strip())
+                    continue
+
+                if "=" in line:
+                    k, _, v = line.partition("=")
+                    k = k.strip().lower()
+                    v = v.strip()
+                    if k == "name":
+                        current["name"] = v
+                    elif k == "author":
+                        current["author"] = v
+                    elif k == "label":
+                        current["label"] = v or None
+                    elif k == "description":
+                        current["description"] = v
+                    elif k == "blobs":
+                        current["blobs"] = [b.strip() for b in v.split(",") if b.strip()]
+
+            _flush()
+            return strategies
+
+        merged = _load_one_basic(basic_dir / filename) if basic_dir else {}
+        if merged:
+            _CACHED_STRATEGIES[cache_key] = merged
+        return merged
+
     paths = get_catalog_paths()
     if paths is None:
         # Same rationale as load_categories(): don't cache misses permanently.
