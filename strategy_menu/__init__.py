@@ -81,6 +81,40 @@ _LAUNCH_METHOD_KEY = "StrategyLaunchMethod"
 _LAUNCH_METHOD_DEFAULT = "direct_zapret2"
 
 
+# ==================== DIRECT_ZAPRET2 UI MODE (BASIC/ADVANCED) ====================
+
+_DIRECT_ZAPRET2_UI_MODE_KEY = "DirectZapret2UiMode"  # stored under DIRECT_PATH (registry)
+_DIRECT_ZAPRET2_UI_MODE_DEFAULT = "advanced"
+
+
+def get_direct_zapret2_ui_mode() -> str:
+    """Returns UI mode for direct_zapret2: "basic" or "advanced"."""
+    try:
+        raw = reg(DIRECT_PATH, _DIRECT_ZAPRET2_UI_MODE_KEY)
+        if isinstance(raw, str):
+            value = raw.strip().lower()
+            if value in ("basic", "advanced"):
+                return value
+    except Exception:
+        pass
+    return _DIRECT_ZAPRET2_UI_MODE_DEFAULT
+
+
+def set_direct_zapret2_ui_mode(mode: str) -> bool:
+    """Persists UI mode for direct_zapret2 ("basic" or "advanced")."""
+    value = str(mode or "").strip().lower()
+    if value not in ("basic", "advanced"):
+        value = _DIRECT_ZAPRET2_UI_MODE_DEFAULT
+    try:
+        ok = reg(DIRECT_PATH, _DIRECT_ZAPRET2_UI_MODE_KEY, value)
+        if ok:
+            log(f"DirectZapret2 UI mode set to: {value}", "DEBUG")
+        return bool(ok)
+    except Exception as e:
+        log(f"Ошибка сохранения DirectZapret2 UI mode: {e}", "ERROR")
+        return False
+
+
 def get_strategy_launch_method() -> str:
     """Получает метод запуска стратегий из INI-файла в AppData"""
     try:

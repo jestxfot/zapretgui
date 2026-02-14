@@ -839,6 +839,19 @@ class PresetManager:
 
         active_path = get_active_preset_path()
 
+        # direct_zapret2 Basic mode: do not apply advanced send/syndata lines to the
+        # runtime preset-zapret2.txt, but keep them in the stored preset file.
+        # This allows switching back to Advanced without losing settings.
+        is_basic_direct = False
+        try:
+            from strategy_menu import get_strategy_launch_method, get_direct_zapret2_ui_mode
+            is_basic_direct = (
+                (get_strategy_launch_method() or "").strip().lower() == "direct_zapret2"
+                and (get_direct_zapret2_ui_mode() or "").strip().lower() == "basic"
+            )
+        except Exception:
+            is_basic_direct = False
+
         try:
             # Keep wf-*-out in sync with enabled category port filters.
             preset.base_args = self._update_wf_out_ports_in_base_args(preset)
@@ -876,9 +889,15 @@ class PresetManager:
 
                     # Use get_full_tcp_args() to include syndata/send/out-range
                     full_tcp_args = cat.get_full_tcp_args()
-                    for line in full_tcp_args.strip().split('\n'):
-                        if line.strip():
-                            args_lines.append(line.strip())
+                    for raw in full_tcp_args.splitlines():
+                        line = (raw or "").strip()
+                        if not line:
+                            continue
+                        if is_basic_direct:
+                            ll = line.lower()
+                            if ll.startswith("--lua-desync=send:") or ll.startswith("--lua-desync=syndata:"):
+                                continue
+                        args_lines.append(line)
 
                     block = CategoryBlock(
                         category=cat_name,
@@ -1746,14 +1765,24 @@ class PresetManager:
         category_info = categories.get(category_key) or {}
         strategy_type = (category_info.get("strategy_type") or "tcp").strip() or "tcp"
 
-        strategies = load_strategies(strategy_type)
+        try:
+            # Keep strategy args resolution in sync with UI-selected strategy set
+            # (e.g. direct_zapret2 Basic uses tcp_basic.txt / udp_basic.txt / ...).
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            strategy_set = get_current_strategy_set()
+        except Exception:
+            strategy_set = None
+
+        strategies = load_strategies(strategy_type, strategy_set=strategy_set)
         args = (strategies.get(strategy_id) or {}).get("args", "") or ""
 
         # TCP presets may include strategies from tcp_fake.txt (multi-phase UI).
         # Keep selection working by falling back to that catalog file.
         if not args and strategy_type == "tcp":
             try:
-                fake_strategies = load_strategies("tcp_fake")
+                # tcp_fake is a special catalog used by the multi-phase TCP UI.
+                # Keep the legacy fallback without tying it to the current set.
+                fake_strategies = load_strategies("tcp_fake", strategy_set=None)
                 args = (fake_strategies.get(strategy_id) or {}).get("args", "") or ""
             except Exception:
                 args = args or ""
