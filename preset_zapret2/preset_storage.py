@@ -294,13 +294,20 @@ def load_preset(name: str) -> Optional[Preset]:
         # This is needed because preset files store args but not strategy_id
         from .strategy_inference import infer_strategy_id_from_args
 
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            current_strategy_set = get_current_strategy_set()
+        except Exception:
+            current_strategy_set = None
+
         for cat_name, cat in preset.categories.items():
             # Try TCP first (most common)
             if cat.tcp_args and cat.tcp_args.strip():
                 inferred_id = infer_strategy_id_from_args(
                     category_key=cat_name,
                     args=cat.tcp_args,
-                    protocol="tcp"
+                    protocol="tcp",
+                    strategy_set=current_strategy_set,
                 )
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id
@@ -311,7 +318,8 @@ def load_preset(name: str) -> Optional[Preset]:
                 inferred_id = infer_strategy_id_from_args(
                     category_key=cat_name,
                     args=cat.udp_args,
-                    protocol="udp"
+                    protocol="udp",
+                    strategy_set=current_strategy_set,
                 )
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id

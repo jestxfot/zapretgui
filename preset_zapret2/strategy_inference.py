@@ -77,7 +77,8 @@ def _get_strategy_type_for_category(category_key: str) -> Optional[str]:
 def infer_strategy_id_from_args(
     category_key: str,
     args: str,
-    protocol: str = "tcp"
+    protocol: str = "tcp",
+    strategy_set: Optional[str] = None,
 ) -> str:
     """
     Infers strategy_id from strategy arguments.
@@ -99,6 +100,9 @@ def infer_strategy_id_from_args(
         category_key: Category name (e.g., "youtube", "discord")
         args: Strategy arguments from preset file
         protocol: Protocol ("tcp" or "udp") - used only for logging
+        strategy_set: Optional strategies catalog set name (e.g. "basic", "orchestra").
+            When provided, inference compares args against that catalog to keep UI
+            selection stable across refreshes.
 
     Returns:
         strategy_id if found, "none" otherwise
@@ -145,7 +149,12 @@ def infer_strategy_id_from_args(
     for candidate_type in _iter_candidate_strategy_types(strategy_type):
         try:
             from .catalog import load_strategies
-            candidates = load_strategies(candidate_type)
+
+            # tcp_fake is a special catalog used by the multi-phase TCP UI.
+            # It is not tied to the current strategy_set (and Basic mode likely
+            # doesn't ship tcp_fake.txt in %APPDATA% basic_strategies).
+            set_for_candidate = None if (candidate_type or "").strip().lower() == "tcp_fake" else strategy_set
+            candidates = load_strategies(candidate_type, strategy_set=set_for_candidate)
         except Exception:
             candidates = {}
 
@@ -174,7 +183,8 @@ def infer_strategy_id_from_args(
 
 
 def infer_strategy_ids_batch(
-    categories: Dict[str, Dict[str, str]]
+    categories: Dict[str, Dict[str, str]],
+    strategy_set: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Infers strategy_ids for multiple categories at once.
@@ -183,6 +193,7 @@ def infer_strategy_ids_batch(
 
     Args:
         categories: Dict of {category_key: {"tcp_args": "...", "udp_args": "..."}}
+        strategy_set: Optional strategies catalog set name to use for inference.
 
     Returns:
         Dict of {category_key: strategy_id}
@@ -199,14 +210,14 @@ def infer_strategy_ids_batch(
 
         # Try TCP first
         if tcp_args:
-            strategy_id = infer_strategy_id_from_args(cat_key, tcp_args, "tcp")
+            strategy_id = infer_strategy_id_from_args(cat_key, tcp_args, "tcp", strategy_set=strategy_set)
             if strategy_id != "none":
                 result[cat_key] = strategy_id
                 continue
 
         # Try UDP if TCP didn't work
         if udp_args:
-            strategy_id = infer_strategy_id_from_args(cat_key, udp_args, "udp")
+            strategy_id = infer_strategy_id_from_args(cat_key, udp_args, "udp", strategy_set=strategy_set)
             result[cat_key] = strategy_id
         else:
             result[cat_key] = "none"

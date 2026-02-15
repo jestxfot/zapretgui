@@ -304,13 +304,22 @@ class PresetManager:
             # This is needed because preset files store args but not strategy_id
             from .strategy_inference import infer_strategy_id_from_args
 
+            # Keep inference aligned with the currently selected strategies catalog
+            # (direct_zapret2 Basic/Advanced and other launch-method based sets).
+            try:
+                from strategy_menu.strategies_registry import get_current_strategy_set
+                current_strategy_set = get_current_strategy_set()
+            except Exception:
+                current_strategy_set = None
+
             for cat_name, cat in preset.categories.items():
                 # Try TCP first (most common)
                 if cat.tcp_args and cat.tcp_args.strip():
                     inferred_id = infer_strategy_id_from_args(
                         category_key=cat_name,
                         args=cat.tcp_args,
-                        protocol="tcp"
+                        protocol="tcp",
+                        strategy_set=current_strategy_set,
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
@@ -321,7 +330,8 @@ class PresetManager:
                     inferred_id = infer_strategy_id_from_args(
                         category_key=cat_name,
                         args=cat.udp_args,
-                        protocol="udp"
+                        protocol="udp",
+                        strategy_set=current_strategy_set,
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
@@ -1434,6 +1444,12 @@ class PresetManager:
         )
         from .strategy_inference import infer_strategy_id_from_args
 
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            current_strategy_set = get_current_strategy_set()
+        except Exception:
+            current_strategy_set = None
+
         default_filter_mode = get_category_default_filter_mode(category_key)
         default_settings = get_default_category_settings().get(category_key) or {}
 
@@ -1456,9 +1472,19 @@ class PresetManager:
             # Infer strategy_id for UI highlight, if possible.
             inferred = "none"
             if cat.tcp_args:
-                inferred = infer_strategy_id_from_args(category_key=category_key, args=cat.tcp_args, protocol="tcp")
+                inferred = infer_strategy_id_from_args(
+                    category_key=category_key,
+                    args=cat.tcp_args,
+                    protocol="tcp",
+                    strategy_set=current_strategy_set,
+                )
             if inferred == "none" and cat.udp_args:
-                inferred = infer_strategy_id_from_args(category_key=category_key, args=cat.udp_args, protocol="udp")
+                inferred = infer_strategy_id_from_args(
+                    category_key=category_key,
+                    args=cat.udp_args,
+                    protocol="udp",
+                    strategy_set=current_strategy_set,
+                )
             cat.strategy_id = inferred or "none"
         else:
             # Unknown category in template: keep current strategy_id but reset advanced settings.
@@ -1485,6 +1511,12 @@ class PresetManager:
         )
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
+
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            current_strategy_set = get_current_strategy_set()
+        except Exception:
+            current_strategy_set = None
 
         preset_name = get_active_preset_name() or "Current"
 
@@ -1555,9 +1587,19 @@ class PresetManager:
             for cat_name, cat in preset.categories.items():
                 inferred = "none"
                 if cat.tcp_args:
-                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.tcp_args, protocol="tcp")
+                    inferred = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.tcp_args,
+                        protocol="tcp",
+                        strategy_set=current_strategy_set,
+                    )
                 if inferred == "none" and cat.udp_args:
-                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
+                    inferred = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.udp_args,
+                        protocol="udp",
+                        strategy_set=current_strategy_set,
+                    )
                 cat.strategy_id = inferred or "none"
 
             # Persist reset into the preset file.
@@ -1584,6 +1626,12 @@ class PresetManager:
         from .preset_defaults import get_template_content, get_default_template_content
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
+
+        try:
+            from strategy_menu.strategies_registry import get_current_strategy_set
+            current_strategy_set = get_current_strategy_set()
+        except Exception:
+            current_strategy_set = None
 
         name = (preset_name or "").strip()
         if not name:
@@ -1653,9 +1701,19 @@ class PresetManager:
             for cat_name, cat in preset.categories.items():
                 inferred = "none"
                 if cat.tcp_args:
-                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.tcp_args, protocol="tcp")
+                    inferred = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.tcp_args,
+                        protocol="tcp",
+                        strategy_set=current_strategy_set,
+                    )
                 if inferred == "none" and cat.udp_args:
-                    inferred = infer_strategy_id_from_args(category_key=cat_name, args=cat.udp_args, protocol="udp")
+                    inferred = infer_strategy_id_from_args(
+                        category_key=cat_name,
+                        args=cat.udp_args,
+                        protocol="udp",
+                        strategy_set=current_strategy_set,
+                    )
                 cat.strategy_id = inferred or "none"
 
             # Make this preset active (so UI state and active file match).
