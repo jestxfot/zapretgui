@@ -122,6 +122,12 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._applying_theme_styles = False
         # Cache tokens to avoid registry reads on every hover.
         self._tokens = get_theme_tokens()
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
+        # Prevent style/palette change re-entrancy leading to setIcon recursion.
+        self._in_style_change = False
+        self._icon_update_scheduled = False
+        self._deferred_icon: QIcon | None = None
         
         # Инициализация анимаций
         self.init_shimmer()
@@ -137,15 +143,57 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
+            if (not self._applying_theme_styles) and event.type() in (
+                QEvent.Type.StyleChange,
+                QEvent.Type.PaletteChange,
+            ):
+                if self._in_style_change:
                     return super().changeEvent(event)
-                # Refresh cached tokens and re-render styles/icons.
-                self._tokens = get_theme_tokens()
-                self._update_style()
+
+                self._in_style_change = True
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        try:
+            self._refresh_theme()
+        finally:
+            # Clear after one more tick so polish fallout doesn't re-enter.
+            QTimer.singleShot(0, self._clear_style_guard)
+
+    def _clear_style_guard(self) -> None:
+        self._in_style_change = False
+
+    def _safe_set_icon(self, icon: QIcon) -> None:
+        if self._in_style_change:
+            self._deferred_icon = icon
+            if not self._icon_update_scheduled:
+                self._icon_update_scheduled = True
+                QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self.setIcon(icon)
+
+    def _apply_deferred_icon(self) -> None:
+        # If style/palette cascade is still in-flight, try again next tick.
+        if self._in_style_change:
+            QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self._icon_update_scheduled = False
+        icon = self._deferred_icon
+        self._deferred_icon = None
+        if icon is not None:
+            self.setIcon(icon)
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._tokens = get_theme_tokens()
+        self._update_style()
     
     def set_collapsed(self, collapsed: bool):
         """Устанавливает свёрнутый режим (только иконка)"""
@@ -179,7 +227,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
             padding = "22px" if not self._collapsed else "0px"
             text_align = "left" if not self._collapsed else "center"
 
-            self.setStyleSheet(f"""
+            qss = f"""
                 QPushButton {{
                     background-color: {bg_color};
                     border: none;
@@ -192,7 +240,10 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
                     font-size: 13px;
                     font-weight: {'600' if self._selected else '400'};
                 }}
-            """)
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
 
             # Обновляем иконку - объёмная с градиентом для выбранного, светло-серая для остальных
             self._set_icon_with_brightness()
@@ -209,7 +260,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
             # Выбранная иконка - используем FluentIcon или яркий цвет
             try:
                 from ui.fluent_icons import FluentIcon
-                self.setIcon(FluentIcon.create_icon(self.icon_name, 20))
+                self._safe_set_icon(FluentIcon.create_icon(self.icon_name, 20))
                 return
             except:
                 base_color = QColor(tokens.accent_hex)
@@ -223,9 +274,9 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
             color = QColor(r, g, b)
-            self.setIcon(qta.icon(self.icon_name, color=color.name()))
+            self._safe_set_icon(qta.icon(self.icon_name, color=color.name()))
         else:
-            self.setIcon(qta.icon(self.icon_name, color=base_color.name()))
+            self._safe_set_icon(qta.icon(self.icon_name, color=base_color.name()))
     
     def _update_icon_glow(self):
         """Обновляет иконку с эффектом свечения"""
@@ -247,7 +298,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         
         transform = QTransform().rotate(rotation)
         rotated = pix.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-        self.setIcon(QIcon(rotated))
+        self._safe_set_icon(QIcon(rotated))
         
     def set_selected(self, selected: bool):
         was_selected = self._selected
@@ -283,6 +334,12 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._collapsed = False
         self._applying_theme_styles = False
         self._tokens = get_theme_tokens()
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
+        # Prevent style/palette change re-entrancy leading to setIcon recursion.
+        self._in_style_change = False
+        self._icon_update_scheduled = False
+        self._deferred_icon: QIcon | None = None
         
         # Инициализация анимаций
         self.init_shimmer()
@@ -298,14 +355,55 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
+            if (not self._applying_theme_styles) and event.type() in (
+                QEvent.Type.StyleChange,
+                QEvent.Type.PaletteChange,
+            ):
+                if self._in_style_change:
                     return super().changeEvent(event)
-                self._tokens = get_theme_tokens()
-                self._update_style()
+
+                self._in_style_change = True
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        try:
+            self._refresh_theme()
+        finally:
+            QTimer.singleShot(0, self._clear_style_guard)
+
+    def _clear_style_guard(self) -> None:
+        self._in_style_change = False
+
+    def _safe_set_icon(self, icon: QIcon) -> None:
+        if self._in_style_change:
+            self._deferred_icon = icon
+            if not self._icon_update_scheduled:
+                self._icon_update_scheduled = True
+                QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self.setIcon(icon)
+
+    def _apply_deferred_icon(self) -> None:
+        if self._in_style_change:
+            QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self._icon_update_scheduled = False
+        icon = self._deferred_icon
+        self._deferred_icon = None
+        if icon is not None:
+            self.setIcon(icon)
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._tokens = get_theme_tokens()
+        self._update_style()
     
     def set_collapsed(self, collapsed: bool):
         """Устанавливает свёрнутый режим (только иконка)"""
@@ -339,7 +437,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
             padding = "28px" if not self._collapsed else "0px"
             text_align = "left" if not self._collapsed else "center"
 
-            self.setStyleSheet(f"""
+            qss = f"""
                 QPushButton {{
                     background-color: {bg_color};
                     border: none;
@@ -352,7 +450,10 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
                     font-size: 11px;
                     font-weight: {'500' if self._selected else '400'};
                 }}
-            """)
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
 
             # Иконка меньшего размера
             self._set_icon_with_brightness()
@@ -377,9 +478,9 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
             color = QColor(r, g, b)
-            self.setIcon(qta.icon(self.icon_name, color=color.name()))
+            self._safe_set_icon(qta.icon(self.icon_name, color=color.name()))
         else:
-            self.setIcon(qta.icon(self.icon_name, color=base_color.name()))
+            self._safe_set_icon(qta.icon(self.icon_name, color=base_color.name()))
     
     def _update_icon_glow(self):
         """Обновляет иконку с эффектом свечения"""
@@ -401,7 +502,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         
         transform = QTransform().rotate(rotation)
         rotated = pix.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-        self.setIcon(QIcon(rotated))
+        self._safe_set_icon(QIcon(rotated))
         
     def set_selected(self, selected: bool):
         was_selected = self._selected
@@ -437,6 +538,8 @@ class CollapsibleHeader(QPushButton):
         self._base_text = text
         self._tokens = get_theme_tokens()
         self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
         self.setText(f"  {text}")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(26)
@@ -445,14 +548,26 @@ class CollapsibleHeader(QPushButton):
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                self._tokens = get_theme_tokens()
-                self._update_style()
+            if (not self._applying_theme_styles) and event.type() in (
+                QEvent.Type.StyleChange,
+                QEvent.Type.PaletteChange,
+            ):
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._refresh_theme()
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._tokens = get_theme_tokens()
+        self._update_style()
 
     def _update_style(self):
         if self._applying_theme_styles:
@@ -461,7 +576,7 @@ class CollapsibleHeader(QPushButton):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
-            self.setStyleSheet(f"""
+            qss = f"""
                 QPushButton {{
                     background: transparent;
                     border: none;
@@ -474,7 +589,10 @@ class CollapsibleHeader(QPushButton):
                 QPushButton:hover {{
                     background: {tokens.surface_bg_hover};
                 }}
-            """)
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
         finally:
             self._applying_theme_styles = False
 
@@ -1681,8 +1799,14 @@ class ActionButton(QPushButton):
         self._hovered = False
         self._icon_name = icon_name
         self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
         # Cache tokens to avoid registry reads on hover.
         self._tokens = get_theme_tokens()
+        # Prevent style/palette change re-entrancy leading to setIcon recursion.
+        self._in_style_change = False
+        self._icon_update_scheduled = False
+        self._deferred_icon: QIcon | None = None
 
         # (Optional) expose for future global QSS targeting.
         self.setProperty("uiRole", "actionButton")
@@ -1706,18 +1830,59 @@ class ActionButton(QPushButton):
             color = "#ffffff"
         else:
             color = "#111111" if tokens.is_light else "#ffffff"
-        self.setIcon(qta.icon(self._icon_name, color=color))
+        self._safe_set_icon(qta.icon(self._icon_name, color=color))
+
+    def _safe_set_icon(self, icon: QIcon) -> None:
+        if self._in_style_change:
+            self._deferred_icon = icon
+            if not self._icon_update_scheduled:
+                self._icon_update_scheduled = True
+                QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self.setIcon(icon)
+
+    def _apply_deferred_icon(self) -> None:
+        if self._in_style_change:
+            QTimer.singleShot(0, self._apply_deferred_icon)
+            return
+        self._icon_update_scheduled = False
+        icon = self._deferred_icon
+        self._deferred_icon = None
+        if icon is not None:
+            self.setIcon(icon)
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
+            if (not self._applying_theme_styles) and event.type() in (
+                QEvent.Type.StyleChange,
+                QEvent.Type.PaletteChange,
+            ):
+                if self._in_style_change:
                     return super().changeEvent(event)
-                self._tokens = get_theme_tokens()
-                self._update_style()
+
+                self._in_style_change = True
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        try:
+            self._refresh_theme()
+        finally:
+            QTimer.singleShot(0, self._clear_style_guard)
+
+    def _clear_style_guard(self) -> None:
+        self._in_style_change = False
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._tokens = get_theme_tokens()
+        self._update_style()
 
     def _update_style(self):
         if self._applying_theme_styles:
@@ -1746,7 +1911,7 @@ class ActionButton(QPushButton):
 
             self._refresh_icon()
 
-            self.setStyleSheet(f"""
+            qss = f"""
                 QPushButton {{
                     background-color: {bg};
                     border: 1px solid {border};
@@ -1760,7 +1925,10 @@ class ActionButton(QPushButton):
                 QPushButton:pressed {{
                     background-color: {pressed_bg};
                 }}
-            """)
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
         finally:
             self._applying_theme_styles = False
 

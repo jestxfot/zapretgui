@@ -216,6 +216,9 @@ class LogsPage(BasePage):
         self._logs_tab_initialized = False
         self._send_tab_initialized = False
 
+        # qtawesome animations (e.g. qta.Spin) are not QAbstractAnimation; track state ourselves.
+        self._refresh_spin_active = False
+
         self._build_ui()
 
     def changeEvent(self, event):
@@ -329,7 +332,7 @@ class LogsPage(BasePage):
             )
             self.refresh_btn.setIcon(
                 self._refresh_icon_spinning
-                if self._refresh_spin_animation.isRunning()
+                if bool(getattr(self, "_refresh_spin_active", False))
                 else self._refresh_icon_normal
             )
 
@@ -1247,6 +1250,7 @@ class LogsPage(BasePage):
         """Обновляет список доступных лог-файлов"""
         # Запускаем анимацию вращения
         self.refresh_btn.setIcon(self._refresh_icon_spinning)
+        self._refresh_spin_active = True
         self._refresh_spin_animation.start()
         
         self.log_combo.blockSignals(True)
@@ -1294,6 +1298,7 @@ class LogsPage(BasePage):
     
     def _stop_refresh_animation(self):
         """Останавливает анимацию кнопки обновления"""
+        self._refresh_spin_active = False
         self._refresh_spin_animation.stop()
         self.refresh_btn.setIcon(self._refresh_icon_normal)
             

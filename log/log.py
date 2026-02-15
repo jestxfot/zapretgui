@@ -150,7 +150,10 @@ class Logger:
 
         self.orig_stdout = sys.stdout
         self.orig_stderr = sys.stderr
-        sys.stdout = sys.stderr = self           # перенаправляем
+        # Some debugging / CI setups prefer real stderr/stdout (and in rare cases
+        # redirecting can make fatal errors harder to inspect).
+        if os.environ.get("ZAPRET_DISABLE_STDIO_REDIRECT") != "1":
+            sys.stdout = sys.stderr = self           # перенаправляем
     
     # --- redirect interface ---------------------------------------------------
     def write(self, message: str):

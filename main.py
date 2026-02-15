@@ -67,7 +67,8 @@ _set_workdir_to_app()
 # Устанавливаем глобальный обработчик крашей (ДО всех импортов!)
 # ──────────────────────────────────────────────────────────────
 from log.crash_handler import install_crash_handler
-install_crash_handler()
+if os.environ.get("ZAPRET_DISABLE_CRASH_HANDLER") != "1":
+    install_crash_handler()
 
 # ──────────────────────────────────────────────────────────────
 # Предзагрузка медленных модулей в фоне (ускоряет старт на ~300ms)

@@ -164,6 +164,9 @@ class ResetActionButton(QPushButton):
         self._hovered = False
         self._icon_offset = 0.0
         self._applying_theme_styles = False
+        self._handling_theme_change = False
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
 
         # Иконка
         self._update_icon()
@@ -226,7 +229,7 @@ class ResetActionButton(QPushButton):
                     text_color = "#ffffff"
                     border = "1px solid rgba(255, 255, 255, 0.12)"
 
-            self.setStyleSheet(f"""
+            qss = f"""
                 QPushButton {{
                     background-color: {bg};
                     border: {border};
@@ -237,7 +240,10 @@ class ResetActionButton(QPushButton):
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }}
-            """)
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
         finally:
             self._applying_theme_styles = False
 
@@ -246,13 +252,25 @@ class ResetActionButton(QPushButton):
             from PyQt6.QtCore import QEvent
 
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
+                if self._applying_theme_styles or self._handling_theme_change:
                     return super().changeEvent(event)
-                self._update_icon()
-                self._update_style()
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        if self._applying_theme_styles or self._handling_theme_change:
+            return
+        self._handling_theme_change = True
+        try:
+            self._update_icon()
+            self._update_style()
+        finally:
+            self._handling_theme_change = False
 
     def _animate_shake(self):
         """Анимация качания иконки"""

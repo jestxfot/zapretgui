@@ -128,34 +128,45 @@ class DangerConfirmActionButton(ResetActionButton):
             self.setIcon(qta.icon(icon_name, color=color))
 
     def _update_style(self):
-        tokens = get_theme_tokens()
-        if self._pending:
-            bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
-            pressed_bg = "rgba(190, 39, 54, 1.0)"
-            border = "1px solid rgba(255, 255, 255, 0.24)"
-            text_color = "#ffffff"
-        else:
-            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
-            pressed_bg = tokens.surface_bg_pressed
-            border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
-            text_color = tokens.fg
+        if getattr(self, "_applying_theme_styles", False):
+            return
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 8px;
-                color: {text_color};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            QPushButton:pressed {{
-                background-color: {pressed_bg};
-            }}
-        """)
-        self._update_tooltip()
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._pending:
+                bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
+                pressed_bg = "rgba(190, 39, 54, 1.0)"
+                border = "1px solid rgba(255, 255, 255, 0.24)"
+                text_color = "#ffffff"
+            else:
+                bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+                pressed_bg = tokens.surface_bg_pressed
+                border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+                text_color = tokens.fg
+
+            qss = f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 8px;
+                    color: {text_color};
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:pressed {{
+                    background-color: {pressed_bg};
+                }}
+            """
+            current_qss = getattr(self, "_current_qss", "")
+            if qss != current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+            self._update_tooltip()
+        finally:
+            self._applying_theme_styles = False
 
 
 class CustomDomainsPage(BasePage):
@@ -169,6 +180,8 @@ class CustomDomainsPage(BasePage):
             "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru", 
             parent
         )
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
         self._build_ui()
         QTimer.singleShot(100, self._load_domains)
         
@@ -401,10 +414,24 @@ class CustomDomainsPage(BasePage):
             from PyQt6.QtCore import QEvent
 
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._apply_theme_styles()
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
         except Exception:
             pass
         super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            self._apply_theme_styles()
+        finally:
+            self._applying_theme_styles = False
         
     def _load_domains(self):
         """Загружает домены из файла"""

@@ -1606,32 +1606,32 @@ class Zapret2UserPresetsPage(BasePage):
         self.presets_list.viewport().setProperty("noDrag", True)
         self.presets_list.setStyleSheet(
             f"""
-            QListView#userPresetsList {
+            QListView#userPresetsList {{
                 background: transparent;
                 border: none;
                 outline: none;
-            }
-            QListView#userPresetsList::item {
+            }}
+            QListView#userPresetsList::item {{
                 border: none;
-            }
-            QListView#userPresetsList QScrollBar:vertical {
+            }}
+            QListView#userPresetsList QScrollBar:vertical {{
                 background: {tokens.scrollbar_track};
                 width: 12px;
                 border-radius: 6px;
                 margin: 2px;
-            }
-            QListView#userPresetsList QScrollBar::handle:vertical {
+            }}
+            QListView#userPresetsList QScrollBar::handle:vertical {{
                 background: {tokens.scrollbar_handle};
                 border-radius: 6px;
                 min-height: 28px;
-            }
-            QListView#userPresetsList QScrollBar::handle:vertical:hover {
+            }}
+            QListView#userPresetsList QScrollBar::handle:vertical:hover {{
                 background: {tokens.scrollbar_handle_hover};
-            }
+            }}
             QListView#userPresetsList QScrollBar::add-line:vertical,
-            QListView#userPresetsList QScrollBar::sub-line:vertical {
+            QListView#userPresetsList QScrollBar::sub-line:vertical {{
                 height: 0;
-            }
+            }}
             """
         )
 
